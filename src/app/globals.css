@@ -1,21 +1,72 @@
 @import "tailwindcss";
 
+/* =============================================================================
+   Substrate Design System v1 — Global Styles
+   
+   This file contains CSS custom properties and animations that complement
+   the Tailwind configuration. All values align with the design system tokens.
+============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   CSS Custom Properties
+   Semantic tokens that map to Tailwind config values
+----------------------------------------------------------------------------- */
 :root {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
+  /* Background scale */
+  --bg-base: #050505;
+  --bg-surface: #0a0a0a;
+  --bg-elevated: #111111;
+  --bg-subtle: #171717;
+  
+  /* Foreground scale */
+  --fg-primary: #fafafa;
+  --fg-secondary: #a3a3a3;
+  --fg-tertiary: #525252;
+  --fg-muted: #262626;
+  
+  /* Border scale */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.10);
+  --border-emphasis: rgba(255, 255, 255, 0.20);
+  --border-strong: rgba(255, 255, 255, 0.40);
+  
+  /* Motion easings */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  
+  /* Motion durations */
+  --duration-micro: 150ms;
+  --duration-default: 300ms;
+  --duration-emphasis: 600ms;
+  --duration-entrance: 900ms;
+  --duration-slow: 1200ms;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #fafafa;
-  }
-}
-
+/* -----------------------------------------------------------------------------
+   Base Styles
+----------------------------------------------------------------------------- */
 html {
   scroll-behavior: smooth;
 }
 
+body {
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* -----------------------------------------------------------------------------
+   Reduced Motion
+   Respects user preference, disables all motion
+----------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -30,33 +81,21 @@ html {
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-inter), system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-::selection {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-/* =============================================================================
-   Motion System
+/* -----------------------------------------------------------------------------
+   Motion System — Keyframes
    
    Intent: Physical, not decorative. Motion should feel like objects settling
-   into place with mass and resistance, not UI elements fading in.
+   into place with mass and resistance.
    
-   Hierarchy: Background → Grid → Wordmark → Tagline → Secondary elements
+   Hierarchy: Background → Grid → Wordmark → Tagline → Secondary
    Each layer emerges with increasing delay, creating depth perception.
-============================================================================= */
+----------------------------------------------------------------------------- */
 
-/* Hero entrance: grid emerges first, establishing spatial context */
+/* Hero: grid emerges first, establishing spatial context */
 @keyframes hero-grid-enter {
   from {
     opacity: 0;
-    transform: scale(1.02);
+    transform: scale(1.015);
     filter: blur(4px);
   }
   to {
@@ -66,12 +105,12 @@ body {
   }
 }
 
-/* Hero entrance: wordmark settles with vertical translation and blur */
+/* Hero: wordmark settles with vertical translation and blur */
 @keyframes hero-wordmark-enter {
   from {
     opacity: 0;
-    transform: translateY(24px);
-    filter: blur(8px);
+    transform: translateY(20px);
+    filter: blur(6px);
   }
   to {
     opacity: 1;
@@ -80,12 +119,12 @@ body {
   }
 }
 
-/* Hero entrance: tagline follows wordmark with lighter motion */
+/* Hero: tagline follows wordmark with lighter motion */
 @keyframes hero-tagline-enter {
   from {
     opacity: 0;
-    transform: translateY(16px);
-    filter: blur(4px);
+    transform: translateY(12px);
+    filter: blur(3px);
   }
   to {
     opacity: 1;
@@ -98,7 +137,7 @@ body {
 @keyframes axiom-enter {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -106,47 +145,98 @@ body {
   }
 }
 
-/* Scroll indicator: subtle pulse after content settles */
+/* Scroll indicator: fade in after content settles */
 @keyframes scroll-indicator-enter {
-  0% {
+  from {
     opacity: 0;
   }
-  100% {
+  to {
     opacity: 1;
   }
 }
 
-/* Timing functions: custom easing for physical feel */
-:root {
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+/* Material: subtle breathing effect for background textures */
+@keyframes material-breathe {
+  0%, 100% {
+    opacity: 0.025;
+  }
+  50% {
+    opacity: 0.04;
+  }
 }
 
+/* -----------------------------------------------------------------------------
+   Motion System — Animation Classes
+   
+   Timing hierarchy:
+   - Grid: 1.2s (slowest, establishes space)
+   - Wordmark: 0.9s @ 0.3s delay
+   - Tagline: 0.8s @ 0.5s delay
+   - Secondary: 0.7s @ 0.7s delay
+   - Scroll indicator: 0.6s @ 1.2s delay (last)
+----------------------------------------------------------------------------- */
+
 .animate-hero-grid {
-  animation: hero-grid-enter 1.2s var(--ease-out-expo) forwards;
+  animation: hero-grid-enter var(--duration-slow) var(--ease-out-expo) forwards;
 }
 
 .animate-hero-wordmark {
   opacity: 0;
-  animation: hero-wordmark-enter 0.9s var(--ease-out-expo) 0.3s forwards;
+  animation: hero-wordmark-enter var(--duration-entrance) var(--ease-out-expo) 0.3s forwards;
 }
 
 .animate-hero-tagline {
   opacity: 0;
-  animation: hero-tagline-enter 0.8s var(--ease-out-quart) 0.6s forwards;
+  animation: hero-tagline-enter 0.8s var(--ease-out-quart) 0.5s forwards;
 }
 
 .animate-hero-secondary {
   opacity: 0;
-  animation: hero-tagline-enter 0.7s var(--ease-out-quart) 0.85s forwards;
+  animation: hero-tagline-enter 0.7s var(--ease-out-quart) 0.7s forwards;
 }
 
 .animate-scroll-indicator {
   opacity: 0;
-  animation: scroll-indicator-enter 0.6s ease-out 1.4s forwards;
+  animation: scroll-indicator-enter var(--duration-emphasis) var(--ease-out) 1.2s forwards;
 }
 
 .animate-axiom {
   opacity: 0;
   animation: axiom-enter 0.7s var(--ease-out-quart) forwards;
+}
+
+/* -----------------------------------------------------------------------------
+   Material System — Background Textures
+   
+   Materials are used as subtle, masked backgrounds only.
+   They should never tile, never be decorative, never draw attention.
+----------------------------------------------------------------------------- */
+
+.material-overlay {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0.03;
+  pointer-events: none;
+  mix-blend-mode: luminosity;
+}
+
+.material-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 0%, var(--bg-base) 70%);
+}
+
+.material-breathe {
+  animation: material-breathe 8s var(--ease-in-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .material-breathe {
+    animation: none;
+    opacity: 0.03;
+  }
 }

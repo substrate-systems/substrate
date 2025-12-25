@@ -29,15 +29,14 @@ export default function Philosophy() {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             const index = Number(entry.target.getAttribute("data-index"));
-            // Staggered reveal: each axiom appears 280ms after the previous
-            // Longer delay creates intentional pacing, not rapid-fire
+            // Staggered reveal: 300ms between each axiom (matches duration-default)
             setTimeout(() => {
               setVisibleIndices((prev) => new Set([...prev, index]));
-            }, index * 280);
+            }, index * 300);
           }
         });
       },
-      { threshold: 0.3, rootMargin: "-50px" }
+      { threshold: 0.3, rootMargin: "-48px" }
     );
 
     const axiomElements = sectionRef.current?.querySelectorAll("[data-index]");
@@ -47,15 +46,15 @@ export default function Philosophy() {
   }, [axioms.length]);
 
   return (
-    <section ref={sectionRef} className="py-40 sm:py-52 px-6">
-      <div className="max-w-3xl mx-auto">
-        {/* Increased vertical spacing for breathing room */}
-        <div className="space-y-16 sm:space-y-20 md:space-y-24">
+    <section ref={sectionRef} className="py-32 sm:py-40 px-6">
+      <div className="max-w-content mx-auto">
+        {/* Architectural spacing between axioms */}
+        <div className="space-y-16 sm:space-y-24">
           {axioms.map((axiom, index) => (
             <p
               key={index}
               data-index={index}
-              className={`text-xl sm:text-2xl md:text-3xl text-neutral-300 font-light tracking-tight
+              className={`text-heading-sm sm:text-heading-lg md:text-display-sm text-fg-secondary
                 ${visibleIndices.has(index) ? "animate-axiom" : "opacity-0"}`}
               style={{
                 animationFillMode: "forwards",

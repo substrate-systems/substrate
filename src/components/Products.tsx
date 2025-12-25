@@ -1,23 +1,23 @@
 export default function Products() {
   return (
-    <section className="py-32 sm:py-40 px-6 border-t border-neutral-800/50">
-      <div className="max-w-3xl mx-auto">
-        <div className="mb-16">
-          <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">
+    <section className="py-32 sm:py-40 px-6 border-t border-border-subtle">
+      <div className="max-w-content mx-auto">
+        <div className="mb-12">
+          <span className="text-label uppercase text-fg-tertiary">
             Products
           </span>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="flex items-baseline justify-between gap-4 flex-wrap">
-            <h3 className="text-2xl sm:text-3xl md:text-4xl font-light text-white tracking-tight">
+            <h3 className="text-heading-lg sm:text-display-sm md:text-display text-fg-primary">
               Endstate
             </h3>
-            <span className="text-sm text-neutral-500 font-light">
+            <span className="text-body-sm text-fg-tertiary">
               Coming soon
             </span>
           </div>
-          <p className="text-lg sm:text-xl text-neutral-400 font-light max-w-xl">
+          <p className="text-body-lg sm:text-heading-sm text-fg-secondary max-w-content">
             Deterministic state management for complex systems.
           </p>
         </div>

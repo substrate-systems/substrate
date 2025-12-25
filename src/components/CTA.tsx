@@ -20,8 +20,7 @@ export default function CTA() {
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
 
-  // Magnetic effect: button follows cursor within proximity
-  // Stronger multiplier (0.08) and larger max offset (8px) for noticeable pull
+  // Magnetic effect: restrained 6px max offset
   const handleMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (prefersReducedMotion || !buttonRef.current) return;
 
@@ -32,10 +31,9 @@ export default function CTA() {
     const distanceX = e.clientX - centerX;
     const distanceY = e.clientY - centerY;
 
-    // Increased magnetic pull: 8px max offset, 0.08 multiplier
-    const maxOffset = 8;
-    const x = Math.max(-maxOffset, Math.min(maxOffset, distanceX * 0.08));
-    const y = Math.max(-maxOffset, Math.min(maxOffset, distanceY * 0.08));
+    const maxOffset = 6;
+    const x = Math.max(-maxOffset, Math.min(maxOffset, distanceX * 0.06));
+    const y = Math.max(-maxOffset, Math.min(maxOffset, distanceY * 0.06));
 
     setOffset({ x, y });
   };
@@ -50,15 +48,15 @@ export default function CTA() {
   };
 
   return (
-    <section className="py-40 sm:py-52 px-6">
-      <div className="max-w-3xl mx-auto text-center">
-        <p className="text-lg sm:text-xl text-neutral-400 font-light mb-14">
+    <section className="py-32 sm:py-40 px-6">
+      <div className="max-w-content mx-auto text-center">
+        <p className="text-body-lg sm:text-heading-sm text-fg-secondary mb-12">
           Selective early access.
         </p>
 
         {/* 
-          CTA: Magnetic interaction with stronger hover affordance
-          - Border brightens significantly on hover
+          CTA: Magnetic interaction with restrained hover affordance
+          - Border brightens on hover
           - Background glow appears
           - Text gains subtle brightness
         */}
@@ -68,41 +66,39 @@ export default function CTA() {
           onMouseMove={handleMouseMove}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
-          className="group relative inline-block px-10 py-5 text-base font-light bg-transparent"
+          className="group relative inline-block px-8 py-4 text-body bg-transparent"
           style={{
             transform: `translate(${offset.x}px, ${offset.y}px)`,
             transition: prefersReducedMotion
               ? "none"
-              : "transform 0.2s cubic-bezier(0.25, 1, 0.5, 1)",
+              : "transform 150ms cubic-bezier(0.25, 1, 0.5, 1)",
           }}
         >
           {/* Border: visible affordance, brightens on hover */}
           <span
-            className="absolute inset-0 border transition-colors duration-300"
+            className="absolute inset-0 border transition-colors duration-default"
             style={{
               borderColor: isHovered
-                ? "rgba(255, 255, 255, 0.4)"
-                : "rgba(255, 255, 255, 0.15)",
+                ? "var(--border-strong)"
+                : "var(--border-default)",
             }}
           />
 
           {/* Background glow: appears on hover for depth */}
           <span
-            className="absolute inset-0 transition-opacity duration-300"
+            className="absolute inset-0 bg-accent-highlight transition-opacity duration-default"
             style={{
-              background:
-                "radial-gradient(ellipse at center, rgba(255,255,255,0.04) 0%, transparent 70%)",
               opacity: isHovered ? 1 : 0,
             }}
           />
 
           {/* Text: subtle brightness increase on hover */}
           <span
-            className="relative z-10 transition-colors duration-300"
+            className="relative z-elevated transition-colors duration-default"
             style={{
               color: isHovered
-                ? "rgba(255, 255, 255, 1)"
-                : "rgba(255, 255, 255, 0.85)",
+                ? "var(--fg-primary)"
+                : "var(--fg-secondary)",
             }}
           >
             Request access
