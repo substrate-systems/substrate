@@ -225,8 +225,8 @@ body {
   background-image: url('/brand/materials/noise.svg');
   background-repeat: repeat;
   background-size: 256px 256px;
-  opacity: 0.4;
-  mix-blend-mode: overlay;
+  opacity: 0.03;
+  mix-blend-mode: soft-light;
   pointer-events: none;
   z-index: 100;
 }
