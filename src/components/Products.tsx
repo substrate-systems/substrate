@@ -1,7 +1,7 @@
 export default function Products() {
   return (
-    <section className="py-32 sm:py-40 px-6 border-t border-border-subtle">
-      <div className="w-full max-w-shell mx-auto">
+    <section className="relative w-full py-32 sm:py-40 border-t border-border-subtle">
+      <div className="mx-auto w-full max-w-[72rem] px-6">
         <div className="mb-12">
           <span className="text-label uppercase text-fg-tertiary">
             Products
