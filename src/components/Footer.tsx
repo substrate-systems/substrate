@@ -9,8 +9,8 @@ export default function Footer() {
         <Image
           src="/brand/logos/substrate-logo-white-transparent.png"
           alt="Substrate"
-          width={100}
-          height={20}
+          width={160}
+          height={32}
           className="h-4 w-auto opacity-40"
         />
         <p className="text-sm font-light text-fg-tertiary">

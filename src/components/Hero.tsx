@@ -41,15 +41,16 @@ export default function Hero() {
           src="/brand/materials/metal-structure-dark.jpg"
           alt=""
           fill
-          className="object-cover opacity-[0.14]"
-          style={{ filter: 'brightness(1.1) contrast(1.04)' }}
+          sizes="100vw"
+          className="object-cover opacity-[0.22] sm:opacity-[0.16]"
+          style={{ filter: 'brightness(1.1)' }}
           priority
         />
         {/* Subtle vignette: grounds edges without crushing midtones */}
         <div 
           className="absolute inset-0" 
           style={{ 
-            background: 'radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.75) 75%)' 
+            background: 'radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.5) 80%)' 
           }} 
         />
       </div>
