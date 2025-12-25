@@ -47,7 +47,7 @@ export default function Philosophy() {
 
   return (
     <section ref={sectionRef} className="py-32 sm:py-40 px-6">
-      <div className="max-w-content mx-auto">
+      <div className="w-full max-w-content mx-auto">
         {/* Architectural spacing between axioms */}
         <div className="space-y-16 sm:space-y-24">
           {axioms.map((axiom, index) => (

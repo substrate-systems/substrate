@@ -5,7 +5,7 @@ export default function Footer() {
 
   return (
     <footer className="py-16 px-6 border-t border-border-subtle">
-      <div className="max-w-content mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+      <div className="w-full max-w-content mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
         <Image
           src="/brand/logos/substrate-logo-white-transparent.png"
           alt="Substrate"

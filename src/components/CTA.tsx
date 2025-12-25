@@ -49,7 +49,7 @@ export default function CTA() {
 
   return (
     <section className="py-32 sm:py-40 px-6">
-      <div className="max-w-content mx-auto text-center">
+      <div className="w-full max-w-content mx-auto text-center">
         <p className="text-body-lg sm:text-heading-sm text-fg-secondary mb-12">
           Selective early access.
         </p>
