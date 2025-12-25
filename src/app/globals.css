@@ -42,10 +42,63 @@ body {
   background: rgba(255, 255, 255, 0.15);
 }
 
-@keyframes fade-in {
+/* =============================================================================
+   Motion System
+   
+   Intent: Physical, not decorative. Motion should feel like objects settling
+   into place with mass and resistance, not UI elements fading in.
+   
+   Hierarchy: Background → Grid → Wordmark → Tagline → Secondary elements
+   Each layer emerges with increasing delay, creating depth perception.
+============================================================================= */
+
+/* Hero entrance: grid emerges first, establishing spatial context */
+@keyframes hero-grid-enter {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: scale(1.02);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Hero entrance: wordmark settles with vertical translation and blur */
+@keyframes hero-wordmark-enter {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* Hero entrance: tagline follows wordmark with lighter motion */
+@keyframes hero-tagline-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* Philosophy: sequential reveal with staggered timing */
+@keyframes axiom-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
   }
   to {
     opacity: 1;
@@ -53,8 +106,9 @@ body {
   }
 }
 
-@keyframes fade-in-delayed {
-  0%, 50% {
+/* Scroll indicator: subtle pulse after content settles */
+@keyframes scroll-indicator-enter {
+  0% {
     opacity: 0;
   }
   100% {
@@ -62,10 +116,37 @@ body {
   }
 }
 
-.animate-fade-in {
-  animation: fade-in 0.8s ease-out forwards;
+/* Timing functions: custom easing for physical feel */
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-.animate-fade-in-delayed {
-  animation: fade-in-delayed 1.6s ease-out forwards;
+.animate-hero-grid {
+  animation: hero-grid-enter 1.2s var(--ease-out-expo) forwards;
+}
+
+.animate-hero-wordmark {
+  opacity: 0;
+  animation: hero-wordmark-enter 0.9s var(--ease-out-expo) 0.3s forwards;
+}
+
+.animate-hero-tagline {
+  opacity: 0;
+  animation: hero-tagline-enter 0.8s var(--ease-out-quart) 0.6s forwards;
+}
+
+.animate-hero-secondary {
+  opacity: 0;
+  animation: hero-tagline-enter 0.7s var(--ease-out-quart) 0.85s forwards;
+}
+
+.animate-scroll-indicator {
+  opacity: 0;
+  animation: scroll-indicator-enter 0.6s ease-out 1.4s forwards;
+}
+
+.animate-axiom {
+  opacity: 0;
+  animation: axiom-enter 0.7s var(--ease-out-quart) forwards;
 }
