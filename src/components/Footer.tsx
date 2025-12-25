@@ -5,7 +5,7 @@ export default function Footer() {
 
   return (
     <footer className="relative w-full py-16 border-t border-border-subtle">
-      <div className="mx-auto w-full max-w-[72rem] px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+      <div className="mx-auto w-full max-w-3xl px-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
         <Image
           src="/brand/logos/substrate-logo-white-transparent.png"
           alt="Substrate"
@@ -13,7 +13,7 @@ export default function Footer() {
           height={20}
           className="h-4 w-auto opacity-40"
         />
-        <p className="text-body-sm text-fg-tertiary">
+        <p className="text-sm font-light text-fg-tertiary">
           © {currentYear} Substrate Systems OÜ
         </p>
       </div>

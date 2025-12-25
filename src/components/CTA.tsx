@@ -49,8 +49,8 @@ export default function CTA() {
 
   return (
     <section className="relative w-full py-32 sm:py-40">
-      <div className="mx-auto w-full max-w-[72rem] px-6">
-        <p className="text-body-lg sm:text-heading-sm text-fg-secondary mb-12">
+      <div className="mx-auto w-full max-w-3xl px-6 text-center">
+        <p className="text-lg sm:text-xl font-light text-fg-secondary mb-12">
           Selective early access.
         </p>
 
@@ -94,7 +94,7 @@ export default function CTA() {
 
           {/* Text: subtle brightness increase on hover */}
           <span
-            className="relative z-elevated transition-colors duration-default"
+            className="relative z-elevated text-base font-light transition-colors duration-default"
             style={{
               color: isHovered
                 ? "var(--fg-primary)"

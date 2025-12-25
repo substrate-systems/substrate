@@ -47,14 +47,14 @@ export default function Philosophy() {
 
   return (
     <section ref={sectionRef} className="relative w-full py-32 sm:py-40">
-      <div className="mx-auto w-full max-w-[72rem] px-6">
+      <div className="mx-auto w-full max-w-3xl px-6">
         {/* Architectural spacing between axioms */}
-        <div className="space-y-16 sm:space-y-24">
+        <div className="space-y-12 sm:space-y-16">
           {axioms.map((axiom, index) => (
             <p
               key={index}
               data-index={index}
-              className={`text-heading-sm sm:text-heading-lg md:text-display-sm text-fg-secondary
+              className={`text-xl sm:text-2xl md:text-3xl font-light tracking-tight text-fg-secondary
                 ${visibleIndices.has(index) ? "animate-axiom" : "opacity-0"}`}
               style={{
                 animationFillMode: "forwards",
