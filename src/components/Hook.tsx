@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 
 export default function Hook() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -37,22 +38,19 @@ export default function Hook() {
   return (
     <section ref={sectionRef} className="relative w-full py-24">
       <div className="mx-auto w-full max-w-3xl px-6 text-center">
-        <p
-          className={`text-lg sm:text-xl font-light text-fg-secondary
-            ${isVisible ? "animate-axiom" : "opacity-0"}`}
-          style={{
-            animationFillMode: "forwards",
-          }}
+        <motion.p
+          className="text-lg sm:text-xl font-light text-fg-secondary"
+          initial={{ opacity: 0, y: 8 }}
+          animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
+          transition={{ duration: 0.8, ease: "easeOut" }}
         >
           Infrastructure that compounds.
-        </p>
-        <div
-          className={`mt-6 mx-auto w-16 h-px bg-gradient-to-r from-transparent via-border-default to-transparent
-            ${isVisible ? "animate-axiom" : "opacity-0"}`}
-          style={{
-            animationFillMode: "forwards",
-            animationDelay: "200ms",
-          }}
+        </motion.p>
+        <motion.div
+          className="mt-6 mx-auto w-16 h-px bg-gradient-to-r from-transparent via-border-default to-transparent"
+          initial={{ opacity: 0 }}
+          animate={isVisible ? { opacity: 1 } : { opacity: 0 }}
+          transition={{ duration: 0.6, ease: "easeOut", delay: 0.2 }}
         />
       </div>
     </section>

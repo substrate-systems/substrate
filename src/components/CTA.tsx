@@ -1,51 +1,10 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
+import { motion } from "framer-motion";
 
 export default function CTA() {
-  const buttonRef = useRef<HTMLAnchorElement>(null);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isHovered, setIsHovered] = useState(false);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(true);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setPrefersReducedMotion(mediaQuery.matches);
-
-    const handleChange = (e: MediaQueryListEvent) => {
-      setPrefersReducedMotion(e.matches);
-    };
-
-    mediaQuery.addEventListener("change", handleChange);
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, []);
-
-  // Magnetic effect: restrained 6px max offset
-  const handleMouseMove = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    if (prefersReducedMotion || !buttonRef.current) return;
-
-    const rect = buttonRef.current.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-
-    const distanceX = e.clientX - centerX;
-    const distanceY = e.clientY - centerY;
-
-    const maxOffset = 6;
-    const x = Math.max(-maxOffset, Math.min(maxOffset, distanceX * 0.06));
-    const y = Math.max(-maxOffset, Math.min(maxOffset, distanceY * 0.06));
-
-    setOffset({ x, y });
-  };
-
-  const handleMouseEnter = () => {
-    setIsHovered(true);
-  };
-
-  const handleMouseLeave = () => {
-    setOffset({ x: 0, y: 0 });
-    setIsHovered(false);
-  };
 
   return (
     <section className="relative w-full py-32 sm:py-40">
@@ -55,54 +14,49 @@ export default function CTA() {
         </p>
 
         {/* 
-          CTA: Magnetic interaction with restrained hover affordance
+          CTA: Subtle hover affordance
           - Border brightens on hover
           - Background glow appears
           - Text gains subtle brightness
         */}
         <a
-          ref={buttonRef}
           href="mailto:access@substrate.systems"
-          onMouseMove={handleMouseMove}
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
           className="group relative inline-block px-8 py-4 text-body bg-transparent"
-          style={{
-            transform: `translate(${offset.x}px, ${offset.y}px)`,
-            transition: prefersReducedMotion
-              ? "none"
-              : "transform 150ms cubic-bezier(0.25, 1, 0.5, 1)",
-          }}
         >
           {/* Border: visible affordance, brightens on hover */}
-          <span
-            className="absolute inset-0 border transition-colors duration-default"
-            style={{
+          <motion.span
+            className="absolute inset-0 border"
+            animate={{
               borderColor: isHovered
                 ? "var(--border-strong)"
                 : "var(--border-default)",
             }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
           />
 
           {/* Background glow: appears on hover for depth */}
-          <span
-            className="absolute inset-0 bg-accent-highlight transition-opacity duration-default"
-            style={{
+          <motion.span
+            className="absolute inset-0 bg-accent-highlight"
+            animate={{
               opacity: isHovered ? 1 : 0,
             }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
           />
 
           {/* Text: subtle brightness increase on hover */}
-          <span
-            className="relative z-elevated text-base font-light transition-colors duration-default"
-            style={{
+          <motion.span
+            className="relative z-elevated text-base font-light"
+            animate={{
               color: isHovered
                 ? "var(--fg-primary)"
                 : "var(--fg-secondary)",
             }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
           >
             Request access
-          </span>
+          </motion.span>
         </a>
       </div>
     </section>

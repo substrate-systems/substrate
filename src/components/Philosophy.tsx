@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 
 export default function Philosophy() {
   const axioms = [
@@ -51,17 +52,20 @@ export default function Philosophy() {
         {/* Architectural spacing between axioms */}
         <div className="space-y-12 sm:space-y-16">
           {axioms.map((axiom, index) => (
-            <p
+            <motion.p
               key={index}
               data-index={index}
-              className={`text-xl sm:text-2xl md:text-3xl font-light tracking-tight text-fg-secondary
-                ${visibleIndices.has(index) ? "animate-axiom" : "opacity-0"}`}
-              style={{
-                animationFillMode: "forwards",
+              className="text-xl sm:text-2xl md:text-3xl font-light tracking-tight text-fg-secondary"
+              initial={{ opacity: 0, y: 12 }}
+              animate={visibleIndices.has(index) ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
+              transition={{
+                duration: 0.9,
+                ease: "easeOut",
+                delay: 0,
               }}
             >
               {axiom}
-            </p>
+            </motion.p>
           ))}
         </div>
       </div>
