@@ -83,8 +83,8 @@ const config: Config = {
       
       // Content widths
       maxWidth: {
-        "content": "48rem",
-        "content-lg": "64rem",
+        "shell": "72rem",
+        "shell-sm": "48rem",
       },
       
       // Z-index scale

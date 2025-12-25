@@ -72,12 +72,12 @@ export default function Hero() {
         </div>
         
         {/* Primary tagline: medium motion (24px), clear size jump from secondary */}
-        <h1 className="animate-hero-tagline text-xl sm:text-2xl md:text-[2rem] font-light tracking-tight text-fg-primary max-w-content mx-auto leading-tight">
+        <h1 className="animate-hero-tagline text-xl sm:text-2xl md:text-[2rem] font-light tracking-tight text-fg-primary max-w-shell-sm mx-auto leading-tight">
           A foundational systems company.
         </h1>
         
         {/* Secondary tagline: smallest motion (16px), clearly subordinate */}
-        <p className="animate-hero-secondary text-base sm:text-lg font-light text-fg-secondary mt-4 max-w-content mx-auto">
+        <p className="animate-hero-secondary text-base sm:text-lg font-light text-fg-secondary mt-4 max-w-shell-sm mx-auto">
           Building infrastructure for what comes next.
         </p>
       </div>

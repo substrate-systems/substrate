@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+@theme {
+  /* Custom max-width tokens for container system */
+  --max-width-shell: 72rem;
+  --max-width-shell-sm: 48rem;
+}
+
 /* =============================================================================
    Substrate Design System v1 — Global Styles
    

@@ -1,7 +1,7 @@
 export default function Products() {
   return (
     <section className="py-32 sm:py-40 px-6 border-t border-border-subtle">
-      <div className="w-full max-w-content mx-auto">
+      <div className="w-full max-w-shell mx-auto">
         <div className="mb-12">
           <span className="text-label uppercase text-fg-tertiary">
             Products
@@ -17,7 +17,7 @@ export default function Products() {
               Coming soon
             </span>
           </div>
-          <p className="text-body-lg sm:text-heading-sm text-fg-secondary max-w-content">
+          <p className="text-body-lg sm:text-heading-sm text-fg-secondary max-w-shell-sm">
             Deterministic state management for complex systems.
           </p>
         </div>
