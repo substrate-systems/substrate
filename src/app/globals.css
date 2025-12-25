@@ -91,45 +91,51 @@ body {
    Each layer emerges with increasing delay, creating depth perception.
 ----------------------------------------------------------------------------- */
 
-/* Hero: grid emerges first, establishing spatial context */
-@keyframes hero-grid-enter {
+/* Hero: background rises into place with scale */
+@keyframes hero-background-enter {
   from {
     opacity: 0;
-    transform: scale(1.015);
-    filter: blur(4px);
+    transform: scale(1.05) translateY(20px);
   }
   to {
     opacity: 1;
-    transform: scale(1);
-    filter: blur(0);
+    transform: scale(1) translateY(0);
   }
 }
 
-/* Hero: wordmark settles with vertical translation and blur */
+/* Hero: wordmark settles with dominant Y-translation (32px) */
 @keyframes hero-wordmark-enter {
   from {
     opacity: 0;
-    transform: translateY(20px);
-    filter: blur(6px);
+    transform: translateY(32px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
   }
 }
 
-/* Hero: tagline follows wordmark with lighter motion */
+/* Hero: tagline follows with medium Y-translation (24px) */
 @keyframes hero-tagline-enter {
   from {
     opacity: 0;
-    transform: translateY(12px);
-    filter: blur(3px);
+    transform: translateY(24px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
-    filter: blur(0);
+  }
+}
+
+/* Hero: secondary with smaller Y-translation (16px) */
+@keyframes hero-secondary-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -176,23 +182,23 @@ body {
    - Scroll indicator: 0.6s @ 1.2s delay (last)
 ----------------------------------------------------------------------------- */
 
-.animate-hero-grid {
-  animation: hero-grid-enter var(--duration-slow) var(--ease-out-expo) forwards;
+.animate-hero-background {
+  animation: hero-background-enter 1.4s var(--ease-out-expo) forwards;
 }
 
 .animate-hero-wordmark {
   opacity: 0;
-  animation: hero-wordmark-enter var(--duration-entrance) var(--ease-out-expo) 0.3s forwards;
+  animation: hero-wordmark-enter 1s var(--ease-out-expo) 0.2s forwards;
 }
 
 .animate-hero-tagline {
   opacity: 0;
-  animation: hero-tagline-enter 0.8s var(--ease-out-quart) 0.5s forwards;
+  animation: hero-tagline-enter 0.9s var(--ease-out-expo) 0.4s forwards;
 }
 
 .animate-hero-secondary {
   opacity: 0;
-  animation: hero-tagline-enter 0.7s var(--ease-out-quart) 0.7s forwards;
+  animation: hero-secondary-enter 0.8s var(--ease-out-expo) 0.6s forwards;
 }
 
 .animate-scroll-indicator {
@@ -208,35 +214,25 @@ body {
 /* -----------------------------------------------------------------------------
    Material System — Background Textures
    
-   Materials are used as subtle, masked backgrounds only.
-   They should never tile, never be decorative, never draw attention.
+   Materials provide depth without decoration.
+   Noise overlay eliminates gradient banding.
 ----------------------------------------------------------------------------- */
 
-.material-overlay {
+/* Noise overlay: dithers gradients, eliminates banding */
+.noise-overlay {
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  opacity: 0.03;
+  background-image: url('/brand/materials/noise.svg');
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  opacity: 0.4;
+  mix-blend-mode: overlay;
   pointer-events: none;
-  mix-blend-mode: luminosity;
-}
-
-.material-overlay::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 0%, var(--bg-base) 70%);
-}
-
-.material-breathe {
-  animation: material-breathe 8s var(--ease-in-out) infinite;
+  z-index: 100;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .material-breathe {
     animation: none;
-    opacity: 0.03;
   }
 }
