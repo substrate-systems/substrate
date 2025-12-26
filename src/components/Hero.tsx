@@ -49,13 +49,13 @@ export default function Hero() {
           alt=""
           fill
           sizes="100vw"
-          className="object-cover opacity-[0.22] sm:opacity-[0.16]"
+          className="object-cover opacity-[0.16] sm:opacity-[0.22]"
           style={{ filter: 'brightness(1.1)' }}
           priority
         />
         {/* Subtle vignette: grounds edges without crushing midtones */}
         <div
-          className="absolute inset-0"
+          className="absolute inset-0 opacity-30 sm:opacity-100"
           style={{
             background: 'radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.5) 80%)'
           }}
