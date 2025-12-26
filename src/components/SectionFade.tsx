@@ -8,7 +8,7 @@ export default function SectionFade() {
           linear-gradient(
             to bottom,
             transparent 0%,
-            rgb(from var(--bg-base) r g b / 0.55) 70%,
+            rgb(from var(--bg-base) r g b / 0.55) 60%,
             rgb(from var(--bg-base) r g b / 1) 100%
           )
         `,
