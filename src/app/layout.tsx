@@ -12,6 +12,12 @@ export const metadata: Metadata = {
   description:
     "Systems-first engineering for complex, long-horizon problems.",
   metadataBase: new URL("https://substratesystems.io"),
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon-16x16.png",
+    apple: "/apple-touch-icon.png",
+  },
+  manifest: "/site.webmanifest",
   openGraph: {
     title: "Substrate — Foundational Systems",
     description:
