@@ -10,12 +10,12 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Substrate — Foundational Systems",
   description:
-    "Building infrastructure for what comes next. Systems-first engineering for complex, long-horizon problems.",
+    "Systems-first engineering for complex, long-horizon problems.",
   metadataBase: new URL("https://substrate.systems"),
   openGraph: {
     title: "Substrate — Foundational Systems",
     description:
-      "Building infrastructure for what comes next. Systems-first engineering for complex, long-horizon problems.",
+      "Software infrastructure for durable systems. Systems-first engineering for complex, long-horizon problems.",
     url: "https://substrate.systems",
     siteName: "Substrate",
     locale: "en_US",
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Substrate — Foundational Systems",
     description:
-      "Building infrastructure for what comes next. Systems-first engineering for complex, long-horizon problems.",
+      "Software infrastructure for durable systems. Systems-first engineering for complex, long-horizon problems.",
     images: ["/brand/logos/substrate-logo-dark.png"],
   },
   robots: {

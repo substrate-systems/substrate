@@ -79,7 +79,7 @@ export default function Hero() {
         
         {/* Secondary tagline: smallest motion (16px), clearly subordinate */}
         <p className="animate-hero-secondary text-base sm:text-lg font-light text-fg-secondary mt-4 max-w-shell-sm mx-auto">
-          Building infrastructure for what comes next.
+          Software infrastructure for durable systems.
         </p>
       </div>
 
