@@ -6,28 +6,30 @@ import Image from "next/image";
 
 export default function Hero() {
   const shouldReduceMotion = useReducedMotion();
-  
+
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
-  
+
   const springX = useSpring(mouseX, { stiffness: 150, damping: 30 });
   const springY = useSpring(mouseY, { stiffness: 150, damping: 30 });
 
   useEffect(() => {
     if (shouldReduceMotion) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const MAX = 12;
+
+    const handlePointerMove = (e: PointerEvent) => {
       const { clientX, clientY } = e;
       const { innerWidth, innerHeight } = window;
-      // Subtle parallax: 8px max offset, restrained but perceptible
-      const x = (clientX / innerWidth - 0.5) * 8;
-      const y = (clientY / innerHeight - 0.5) * 8;
+      const x = (clientX / innerWidth - 0.5) * MAX;
+      const y = (clientY / innerHeight - 0.5) * MAX;
       mouseX.set(x);
       mouseY.set(y);
     };
 
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    return () => window.removeEventListener("pointermove", handlePointerMove);
+
   }, [shouldReduceMotion, mouseX, mouseY]);
 
   return (

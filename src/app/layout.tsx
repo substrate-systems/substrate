@@ -11,12 +11,12 @@ export const metadata: Metadata = {
   title: "Substrate — Foundational Systems",
   description:
     "Systems-first engineering for complex, long-horizon problems.",
-  metadataBase: new URL("https://substrate.systems"),
+  metadataBase: new URL("https://substratesystems.io"),
   openGraph: {
     title: "Substrate — Foundational Systems",
     description:
       "Software infrastructure for durable systems. Systems-first engineering for complex, long-horizon problems.",
-    url: "https://substrate.systems",
+    url: "https://substratesystems.io",
     siteName: "Substrate",
     locale: "en_US",
     type: "website",
