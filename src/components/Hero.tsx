@@ -1,39 +1,44 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { motion, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
+import { useEffect } from "react";
 import Image from "next/image";
 
 export default function Hero() {
-  const backgroundRef = useRef<HTMLDivElement>(null);
+  const shouldReduceMotion = useReducedMotion();
+  
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  
+  const springX = useSpring(mouseX, { stiffness: 150, damping: 30 });
+  const springY = useSpring(mouseY, { stiffness: 150, damping: 30 });
 
   useEffect(() => {
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-
-    if (prefersReducedMotion) return;
+    if (shouldReduceMotion) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!backgroundRef.current) return;
       const { clientX, clientY } = e;
       const { innerWidth, innerHeight } = window;
       // Subtle parallax: 8px max offset, restrained but perceptible
       const x = (clientX / innerWidth - 0.5) * 8;
       const y = (clientY / innerHeight - 0.5) * 8;
-      backgroundRef.current.style.transform = `translate(${x}px, ${y}px)`;
+      mouseX.set(x);
+      mouseY.set(y);
     };
 
     window.addEventListener("mousemove", handleMouseMove);
     return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []);
+  }, [shouldReduceMotion, mouseX, mouseY]);
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-bg-base">
       {/* Material background: explicitly mounted with Image component */}
-      <div
-        ref={backgroundRef}
-        className="absolute inset-0 animate-hero-background"
-        style={{ willChange: "transform" }}
+      <motion.div
+        className="absolute inset-0"
+        style={{
+          x: shouldReduceMotion ? 0 : springX,
+          y: shouldReduceMotion ? 0 : springY,
+        }}
         aria-hidden="true"
       >
         {/* Material image: directly rendered for visibility */}
@@ -47,13 +52,13 @@ export default function Hero() {
           priority
         />
         {/* Subtle vignette: grounds edges without crushing midtones */}
-        <div 
-          className="absolute inset-0" 
-          style={{ 
-            background: 'radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.5) 80%)' 
-          }} 
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.5) 80%)'
+          }}
         />
-      </div>
+      </motion.div>
 
       {/* Noise overlay: dithers gradients, eliminates banding */}
       <div className="noise-overlay" aria-hidden="true" />
@@ -71,12 +76,12 @@ export default function Hero() {
             priority
           />
         </div>
-        
+
         {/* Primary tagline: medium motion (24px), clear size jump from secondary */}
         <h1 className="animate-hero-tagline text-xl sm:text-2xl md:text-[2rem] font-light tracking-tight text-fg-primary max-w-shell-sm mx-auto leading-tight">
           A foundational systems company.
         </h1>
-        
+
         {/* Secondary tagline: smallest motion (16px), clearly subordinate */}
         <p className="animate-hero-secondary text-base sm:text-lg font-light text-fg-secondary mt-4 max-w-shell-sm mx-auto">
           Software infrastructure for durable systems.

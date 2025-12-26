@@ -40,6 +40,11 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  other: {
+    "asset:hero-image": "Photo by Adrien Olichon",
+    "asset:hero-image-url": "https://www.pexels.com/@adrien-olichon-1257089/",
+    "asset:hero-image-license": "Pexels License (free for commercial use, no attribution required)",
+  },
 };
 
 export default function RootLayout({
