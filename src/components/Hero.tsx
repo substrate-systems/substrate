@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useMotionValue, useSpring, useReducedMotion } from "framer-motion";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 
 export default function Hero() {
@@ -12,6 +12,8 @@ export default function Hero() {
 
   const springX = useSpring(mouseX, { stiffness: 150, damping: 30 });
   const springY = useSpring(mouseY, { stiffness: 150, damping: 30 });
+
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     if (shouldReduceMotion) return;
@@ -32,27 +34,36 @@ export default function Hero() {
 
   }, [shouldReduceMotion, mouseX, mouseY]);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-bg-base">
       {/* Material background: explicitly mounted with Image component */}
+      {/* LCP optimization: initial={{ x: 0, y: 0 }} ensures immediate paint at final position */}
       <motion.div
         className="absolute inset-0"
         style={{
-          x: shouldReduceMotion ? 0 : springX,
-          y: shouldReduceMotion ? 0 : springY,
+          x: !mounted || shouldReduceMotion ? 0 : springX,
+          y: !mounted || shouldReduceMotion ? 0 : springY,
         }}
+
         aria-hidden="true"
       >
         {/* Material image: directly rendered for visibility */}
+        {/* LCP optimization: removed filter to eliminate composite layer delay */}
         <Image
           src="/brand/materials/metal-structure-dark.jpg"
           alt=""
           fill
           sizes="100vw"
           className="object-cover opacity-[0.16] sm:opacity-[0.22]"
-          style={{ filter: 'brightness(1.1)' }}
           priority
+          fetchPriority="high"
         />
+        {/* Brightness overlay: replaces filter:brightness(1.1) with cheap overlay */}
+        <div className="absolute inset-0 bg-white opacity-[0.016] sm:opacity-[0.022]" />
         {/* Subtle vignette: grounds edges without crushing midtones */}
         <div
           className="absolute inset-0 opacity-30 sm:opacity-100"
@@ -75,7 +86,6 @@ export default function Hero() {
             width={320}
             height={64}
             className="mx-auto h-10 sm:h-14 md:h-[72px] w-auto"
-            priority
           />
         </div>
 
