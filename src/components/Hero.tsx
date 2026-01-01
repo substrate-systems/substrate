@@ -62,8 +62,6 @@ export default function Hero() {
           priority
           fetchPriority="high"
         />
-        {/* Brightness overlay: replaces filter:brightness(1.1) with cheap overlay */}
-        <div className="absolute inset-0 bg-white opacity-[0.016] sm:opacity-[0.022]" />
         {/* Subtle vignette: grounds edges without crushing midtones */}
         <div
           className="absolute inset-0 opacity-30 sm:opacity-100"
