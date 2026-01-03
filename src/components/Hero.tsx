@@ -66,7 +66,18 @@ export default function Hero() {
         <div
           className="absolute inset-0 opacity-15 sm:opacity-30"
           style={{
-            background: 'radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.5) 80%)'
+            background:
+              // Mobile: avoid the 80% plateau that creates the horizontal band
+              "radial-gradient(ellipse 140% 110% at 50% 45%, rgba(5,5,5,0) 0%, rgba(5,5,5,0.65) 100%)",
+          }}
+        />
+
+        {/* Desktop+ (sm and up): keep the exact current vignette */}
+        <div
+          className="absolute inset-0 hidden sm:block opacity-30"
+          style={{
+            background:
+              "radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.5) 80%)",
           }}
         />
       </motion.div>
