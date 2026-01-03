@@ -20,7 +20,7 @@ export default function CTA() {
           - Text gains subtle brightness
         */}
         <a
-          href="mailto:access@substrate.systems"
+          href="mailto:founder@substratesystems.io"
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           className="group relative inline-block px-8 py-4 text-body bg-transparent"
