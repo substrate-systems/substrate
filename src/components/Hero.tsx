@@ -39,11 +39,11 @@ export default function Hero() {
   }, []);
 
   return (
-    <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-bg-base">
+    <section className="relative min-h-screen min-h-[100dvh] flex items-center justify-center overflow-hidden bg-bg-base">
       {/* Material background: explicitly mounted with Image component */}
       {/* LCP optimization: initial={{ x: 0, y: 0 }} ensures immediate paint at final position */}
       <motion.div
-        className="absolute inset-0"
+        className="absolute -inset-px"
         style={{
           x: !mounted || shouldReduceMotion ? 0 : springX,
           y: !mounted || shouldReduceMotion ? 0 : springY,
