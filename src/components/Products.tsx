@@ -8,9 +8,7 @@ export default function Products() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     if (prefersReducedMotion) {
       setIsVisible(true);
@@ -35,7 +33,10 @@ export default function Products() {
     return () => observer.disconnect();
   }, []);
   return (
-    <section ref={sectionRef} className="relative w-full py-32 sm:py-40 border-t border-border-subtle">
+    <section
+      ref={sectionRef}
+      className="relative w-full py-32 sm:py-40 border-t border-border-subtle"
+    >
       <div className="mx-auto w-full max-w-3xl px-6">
         <motion.div
           className="mb-16"
@@ -43,9 +44,7 @@ export default function Products() {
           animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
-          <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-            Products
-          </span>
+          <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">Products</span>
         </motion.div>
 
         <div className="space-y-4">

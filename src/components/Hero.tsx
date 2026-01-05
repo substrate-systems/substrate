@@ -31,7 +31,6 @@ export default function Hero() {
 
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     return () => window.removeEventListener("pointermove", handlePointerMove);
-
   }, [shouldReduceMotion, mouseX, mouseY]);
 
   useEffect(() => {
@@ -48,7 +47,6 @@ export default function Hero() {
           x: !mounted || shouldReduceMotion ? 0 : springX,
           y: !mounted || shouldReduceMotion ? 0 : springY,
         }}
-
         aria-hidden="true"
       >
         {/* Material image: directly rendered for visibility */}
@@ -62,17 +60,16 @@ export default function Hero() {
           priority
           fetchPriority="high"
         />
-        {/* Subtle vignette: grounds edges without crushing midtones */}
+        {/* Mobile vignette: taller ellipse prevents bottom cutoff */}
         <div
-          className="absolute inset-0 opacity-15 sm:opacity-30"
+          className="absolute inset-0 opacity-15 sm:hidden"
           style={{
             background:
-              // Mobile: avoid the 80% plateau that creates the horizontal band
-              "radial-gradient(ellipse 140% 110% at 50% 45%, rgba(5,5,5,0) 0%, rgba(5,5,5,0.65) 100%)",
+              "radial-gradient(ellipse 140% 130% at 50% 45%, rgba(5,5,5,0) 0%, rgba(5,5,5,0.65) 100%)",
           }}
         />
 
-        {/* Desktop+ (sm and up): keep the exact current vignette */}
+        {/* Desktop vignette: tighter ellipse for premium edge darkening */}
         <div
           className="absolute inset-0 hidden sm:block opacity-30"
           style={{

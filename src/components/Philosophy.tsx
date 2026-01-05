@@ -15,9 +15,7 @@ export default function Philosophy() {
   const [visibleIndices, setVisibleIndices] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    const prefersReducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     // If reduced motion, show all immediately
     if (prefersReducedMotion) {

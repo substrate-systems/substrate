@@ -29,9 +29,7 @@ export default function CTA() {
           <motion.span
             className="absolute inset-0 border"
             animate={{
-              borderColor: isHovered
-                ? "var(--border-strong)"
-                : "var(--border-default)",
+              borderColor: isHovered ? "var(--border-strong)" : "var(--border-default)",
             }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           />
@@ -49,9 +47,7 @@ export default function CTA() {
           <motion.span
             className="relative z-elevated text-base font-light"
             animate={{
-              color: isHovered
-                ? "var(--fg-primary)"
-                : "var(--fg-secondary)",
+              color: isHovered ? "var(--fg-primary)" : "var(--fg-secondary)",
             }}
             transition={{ duration: 0.3, ease: "easeOut" }}
           >

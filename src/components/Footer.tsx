@@ -15,9 +15,7 @@ export default function Footer() {
             className="object-contain"
           />
         </div>
-        <p className="text-sm font-light text-fg-tertiary">
-          © {currentYear} Substrate Systems OÜ
-        </p>
+        <p className="text-sm font-light text-fg-tertiary">© {currentYear} Substrate Systems OÜ</p>
       </div>
     </footer>
   );
