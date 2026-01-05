@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Analytics } from "@vercel/analytics/react";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -11,8 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Substrate — Foundational Systems",
-  description:
-    "Systems-first engineering for complex, long-horizon problems.",
+  description: "Systems-first engineering for complex, long-horizon problems.",
   metadataBase: new URL("https://substratesystems.io"),
   icons: {
     icon: "/favicon.ico",
@@ -65,7 +63,6 @@ export default function RootLayout({
       <body className={`${inter.variable} antialiased`}>
         {children}
         <Analytics />
-        <SpeedInsights />
       </body>
     </html>
   );
