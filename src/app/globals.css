@@ -236,6 +236,13 @@ body {
   z-index: 100;
 }
 
+/* Mobile-only: larger noise tile to make tiling imperceptible */
+@media (pointer: coarse) {
+  .noise-overlay {
+    background-size: 1024px 1024px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .material-breathe {
     animation: none;

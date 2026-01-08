@@ -14,9 +14,37 @@ export default function Hero() {
   const springY = useSpring(mouseY, { stiffness: 150, damping: 30 });
 
   const [mounted, setMounted] = useState(false);
+  const [parallaxEnabled, setParallaxEnabled] = useState(false);
 
   useEffect(() => {
     if (shouldReduceMotion) return;
+
+    // Gate parallax to fine-pointer devices only (desktop/mouse)
+    const finePointerQuery = window.matchMedia("(pointer: fine)");
+    setParallaxEnabled(finePointerQuery.matches);
+
+    const handleChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      setParallaxEnabled(e.matches);
+    };
+
+    // Safari fallback: addListener vs addEventListener
+    if (finePointerQuery.addEventListener) {
+      finePointerQuery.addEventListener("change", handleChange);
+    } else {
+      finePointerQuery.addListener(handleChange);
+    }
+
+    return () => {
+      if (finePointerQuery.removeEventListener) {
+        finePointerQuery.removeEventListener("change", handleChange);
+      } else {
+        finePointerQuery.removeListener(handleChange);
+      }
+    };
+  }, [shouldReduceMotion]);
+
+  useEffect(() => {
+    if (shouldReduceMotion || !parallaxEnabled) return;
 
     const MAX = 12;
 
@@ -31,21 +59,21 @@ export default function Hero() {
 
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
     return () => window.removeEventListener("pointermove", handlePointerMove);
-  }, [shouldReduceMotion, mouseX, mouseY]);
+  }, [shouldReduceMotion, parallaxEnabled, mouseX, mouseY]);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
   return (
-    <section className="relative min-h-screen min-h-[100dvh] flex items-center justify-center overflow-hidden bg-bg-base">
+    <section className="relative min-h-screen min-h-[100svh] flex items-center justify-center overflow-hidden bg-bg-base">
       {/* Material background: explicitly mounted with Image component */}
       {/* LCP optimization: initial={{ x: 0, y: 0 }} ensures immediate paint at final position */}
       <motion.div
-        className="absolute -inset-px"
+        className="absolute -inset-6 md:-inset-px will-change-transform"
         style={{
-          x: !mounted || shouldReduceMotion ? 0 : springX,
-          y: !mounted || shouldReduceMotion ? 0 : springY,
+          x: !mounted || shouldReduceMotion || !parallaxEnabled ? 0 : springX,
+          y: !mounted || shouldReduceMotion || !parallaxEnabled ? 0 : springY,
         }}
         aria-hidden="true"
       >
