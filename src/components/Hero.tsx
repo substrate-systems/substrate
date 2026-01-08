@@ -66,7 +66,7 @@ export default function Hero() {
   }, []);
 
   return (
-    <section className="relative min-h-screen min-h-[100svh] flex items-center justify-center overflow-hidden bg-bg-base">
+    <section className="relative min-h-[100svh] sm:min-h-screen sm:min-h-[100dvh] flex items-center justify-center overflow-hidden bg-bg-base">
       {/* Material background: explicitly mounted with Image component */}
       {/* LCP optimization: initial={{ x: 0, y: 0 }} ensures immediate paint at final position */}
       <motion.div
