@@ -173,7 +173,6 @@ body {
 
 /* Material: subtle breathing effect for background textures */
 @keyframes material-breathe {
-
   0%,
   100% {
     opacity: 0.025;
