@@ -84,7 +84,7 @@ export default function Hero() {
           alt=""
           fill
           sizes="100vw"
-          className="object-cover opacity-[0.30] sm:opacity-[0.22]"
+          className="object-cover opacity-[0.35] sm:opacity-[0.22]"
           priority
           fetchPriority="high"
         />
