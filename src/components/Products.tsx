@@ -47,10 +47,10 @@ export default function Products() {
           <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">Products</span>
         </motion.div>
 
-        <div className="space-y-4">
+        <a href="/endstate" className="group block space-y-4">
           <div className="flex items-baseline justify-between gap-4 flex-wrap">
             <motion.h3
-              className="text-2xl sm:text-3xl md:text-4xl font-light tracking-tight text-fg-primary"
+              className="text-2xl sm:text-3xl md:text-4xl font-light tracking-tight text-fg-primary group-hover:text-white transition-colors duration-300"
               initial={{ opacity: 0, y: 10 }}
               animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
               transition={{ duration: 0.9, ease: "easeOut", delay: 0.1 }}
@@ -58,12 +58,12 @@ export default function Products() {
               Endstate
             </motion.h3>
             <motion.span
-              className="text-sm font-light text-fg-tertiary"
+              className="text-sm font-light text-fg-tertiary group-hover:text-fg-secondary transition-colors duration-300"
               initial={{ opacity: 0 }}
               animate={isVisible ? { opacity: 1 } : { opacity: 0 }}
               transition={{ duration: 0.7, ease: "easeOut", delay: 0.3 }}
             >
-              Coming soon
+              Learn more →
             </motion.span>
           </div>
           <motion.p
@@ -72,9 +72,9 @@ export default function Products() {
             animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
             transition={{ duration: 0.8, ease: "easeOut", delay: 0.2 }}
           >
-            Deterministic state management for complex systems.
+            Declarative Windows machine provisioning. Capture every app and setting, restore on any machine.
           </motion.p>
-        </div>
+        </a>
       </div>
     </section>
   );
