@@ -24,3 +24,15 @@ next-env.d.ts
 
 # Prettier
 .prettierignore
+
+# IDE
+.idea
+.vscode
+
+# Sandbox artifacts
+HEAD
+config
+hooks
+objects
+refs
+**/
