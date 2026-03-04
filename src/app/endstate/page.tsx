@@ -64,7 +64,7 @@ function Nav() {
           ← Substrate Systems
         </Link>
         <div className="flex items-center gap-2 absolute left-1/2 -translate-x-1/2">
-          <img src="/endstate/mark-light.svg" alt="" width={24} height={24} className="block" />
+          <img src="/endstate/icon-source.svg" alt="" width={24} height={24} className="block" />
           <span className="font-bold tracking-tight" style={{ color: c.text, fontSize: "1.1rem" }}>
             Endstate
           </span>
