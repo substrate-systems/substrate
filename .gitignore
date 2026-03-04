@@ -29,10 +29,9 @@ next-env.d.ts
 .idea
 .vscode
 
-# Sandbox artifacts
-HEAD
-config
-hooks
-objects
-refs
-**/
+# Sandbox artifacts (bare-repo internals that appear at repo root)
+/HEAD
+/config
+/hooks
+/objects
+/refs

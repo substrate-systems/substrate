@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+@config "../../tailwind.config.ts";
+@source "../../src";
+
 @theme {
   /* Custom max-width tokens for container system */
   --max-width-shell: 72rem;
