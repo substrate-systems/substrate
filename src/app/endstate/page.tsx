@@ -53,26 +53,31 @@ function Nav() {
       className="fixed top-0 w-full z-30 backdrop-blur-md border-b"
       style={{ background: "rgba(12,12,12,0.85)", borderColor: c.border }}
     >
-      <div className="mx-auto max-w-5xl px-6 h-14 flex items-center justify-between">
-        <Link
-          href="/"
-          className="text-sm transition-colors duration-200"
-          style={{ color: c.textSec }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
-          onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
-        >
-          ← Substrate
-        </Link>
-        <div className="flex items-center gap-2 absolute left-1/2 -translate-x-1/2">
+      <div className="mx-auto max-w-5xl px-6 h-14 flex items-center">
+        {/* Left */}
+        <div className="flex-1">
+          <Link
+            href="/"
+            className="text-sm transition-colors duration-200"
+            style={{ color: c.textSec }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            ← Substrate
+          </Link>
+        </div>
+        {/* Center */}
+        <div className="flex items-center gap-2">
           <img src="/endstate/icon-source.svg" alt="" width={24} height={24} className="block" />
           <span className="font-bold tracking-tight" style={{ color: c.text, fontSize: "1.1rem" }}>
             Endstate
           </span>
         </div>
-        <div className="flex items-center gap-8">
+        {/* Right */}
+        <div className="flex-1 flex items-center justify-end gap-3 sm:gap-8">
           <a
             href="#how-it-works"
-            className="text-sm hidden sm:block transition-colors duration-200"
+            className="text-sm hidden lg:block transition-colors duration-200"
             style={{ color: c.textSec }}
             onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
@@ -81,7 +86,7 @@ function Nav() {
           </a>
           <a
             href="#pricing"
-            className="text-sm hidden sm:block transition-colors duration-200"
+            className="text-sm hidden lg:block transition-colors duration-200"
             style={{ color: c.textSec }}
             onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
@@ -90,7 +95,7 @@ function Nav() {
           </a>
           <a
             href="#pricing"
-            className="text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-85 transition-opacity duration-200"
+            className="text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-85 transition-opacity duration-200 whitespace-nowrap hidden sm:block"
             style={{ background: c.text, color: c.bg }}
           >
             Get Endstate
@@ -104,7 +109,7 @@ function Nav() {
 /* ── Hero ── */
 function Hero() {
   return (
-    <section className="pt-40 pb-24 px-6" style={{ background: c.bg }}>
+    <section className="pt-24 sm:pt-40 pb-24 px-6" style={{ background: c.bg }}>
       <div className="mx-auto max-w-3xl text-center">
         <motion.span
           className="inline-block rounded-full mb-8"
