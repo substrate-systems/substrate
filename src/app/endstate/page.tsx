@@ -61,7 +61,7 @@ function Nav() {
           onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
           onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
         >
-          ← Substrate Systems
+          ← Substrate
         </Link>
         <div className="flex items-center gap-2 absolute left-1/2 -translate-x-1/2">
           <img src="/endstate/icon-source.svg" alt="" width={24} height={24} className="block" />
@@ -120,7 +120,7 @@ function Hero() {
           }}
           {...fadeUp(0)}
         >
-          Windows machine provisioning
+          For Windows
         </motion.span>
         <motion.h1
           className="mb-6"
@@ -151,8 +151,8 @@ function Hero() {
           style={{ fontSize: "1.2rem", color: c.textSec, maxWidth: 560, lineHeight: 1.7 }}
           {...fadeUp(0.2)}
         >
-          Endstate captures every app and setting on your Windows machine,
-          then restores them on a fresh install. One scan. One file. Done.
+          Endstate captures your apps and optionally your settings,
+          then restores them on a fresh Windows install. One scan. One file. Done.
         </motion.p>
         <motion.div className="flex justify-center gap-4 flex-wrap" {...fadeUp(0.3)}>
           <a
@@ -258,8 +258,8 @@ function HowItWorks() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.2 }}
         >
-          Scan your current machine, save everything to a portable file,
-          load it on any fresh Windows install.
+          Scan your current machine, save your setup to a file,
+          then load it on any fresh Windows install.
         </motion.p>
 
         <div className="grid md:grid-cols-2 gap-12">
@@ -285,9 +285,9 @@ function HowItWorks() {
               Scan your machine
             </h3>
             <p className="mb-6" style={{ fontSize: "0.95rem", color: c.textSec, lineHeight: 1.7 }}>
-              Endstate detects every installed app via winget and finds
-              configuration files for supported apps. Everything gets
-              bundled into a single portable file — no manual inventory required.
+              Endstate detects every installed app on your machine and
+              finds settings for supported apps. Everything gets saved
+              to a single file — no manual lists required.
             </p>
             <div
               className="overflow-hidden"
@@ -325,9 +325,9 @@ function HowItWorks() {
               Restore on a new machine
             </h3>
             <p className="mb-6" style={{ fontSize: "0.95rem", color: c.textSec, lineHeight: 1.7 }}>
-              Load your saved file on a fresh Windows install. Endstate
-              shows exactly what needs installing and what&apos;s already present.
-              Choose whether to restore app settings, then apply.
+              Open your saved file on a fresh Windows install. Endstate
+              shows what needs installing and what you already have.
+              Choose whether to restore settings too, then hit apply.
             </p>
             <div
               className="overflow-hidden"
@@ -353,38 +353,38 @@ const features = [
   {
     icon: "⚡",
     iconColor: c.teal,
-    title: "Declarative capture",
-    body: "Scans your machine and produces a manifest of every installed app. No manual lists. Works with winget's entire catalog.",
+    title: "Automatic app detection",
+    body: "Scans your machine and finds every installed app. No manual lists, no guesswork. If it's installed, Endstate sees it.",
   },
   {
     icon: "⚙",
     iconColor: c.green,
-    title: "Settings portability",
-    body: "Captures and restores configuration files for supported apps — VS Code, Git, PowerShell, PowerToys, and more. Opt-in per app.",
+    title: "Bring your settings",
+    body: "Captures and restores settings for supported apps — VS Code, Git, PowerShell, PowerToys, and more. Opt-in per app.",
   },
   {
     icon: "📦",
     iconColor: c.blue,
-    title: "Portable profiles",
-    body: "Everything saved as plain files in your Documents folder. Copy them, back them up, share them. No cloud accounts required.",
+    title: "Portable setup files",
+    body: "Your saved setup lives as plain files in your Documents folder. Copy them, back them up, share them. No cloud account required.",
   },
   {
     icon: "🔁",
     iconColor: c.copper,
-    title: "Idempotent & safe",
-    body: "Re-run as many times as you want. Already-installed apps are skipped. Backups are created before any settings changes.",
+    title: "Safe to re-run",
+    body: "Run it as many times as you want. Apps already installed get skipped. Backups are created before any settings are changed.",
   },
   {
     icon: "🔍",
     iconColor: c.teal,
-    title: "Verify & audit",
-    body: "Check whether your machine matches a profile without changing anything. Know exactly what's missing before you act.",
+    title: "Preview first",
+    body: "Check whether your machine matches a saved setup without changing anything. See exactly what's missing before you act.",
   },
   {
     icon: "↩",
     iconColor: c.green,
     title: "Always reversible",
-    body: "Every settings restore creates a backup first. One click to revert. No destructive operations without explicit confirmation.",
+    body: "Every settings restore creates a backup first. One click to revert. Nothing changes without your explicit confirmation.",
   },
 ];
 
@@ -421,7 +421,7 @@ function Features() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.15 }}
         >
-          Whether you&apos;re a developer, sysadmin, or someone who just got a new laptop — Endstate gets you back to work faster.
+          Whether you just got a new laptop or you&apos;re setting up machines for a team — Endstate gets you back to work faster.
         </motion.p>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -533,8 +533,8 @@ function Pricing() {
 
           <ul className="space-y-3 mb-10" style={{ listStyle: "none" }}>
             {[
-              "Full Endstate desktop application",
-              "Activate on 3 machines",
+              "Full Endstate desktop app",
+              "Use on up to 3 machines",
               "All future updates included",
               "No account required — offline license key",
               "30-day money-back guarantee",
@@ -572,7 +572,7 @@ function EndstateFooter() {
     >
       <div className="mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4" style={{ maxWidth: 1100 }}>
         <p style={{ fontSize: "0.8rem", color: c.textMuted }}>
-          © {new Date().getFullYear()} Substrate Systems OÜ · Tallinn, Estonia
+          Substrate Systems
         </p>
         <a
           href="mailto:hello@substratesystems.com"
