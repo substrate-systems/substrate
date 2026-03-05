@@ -26,7 +26,7 @@ function useInView(options = { threshold: 0.15 }) {
 const fadeUp = (delay = 0) => ({
   initial: { opacity: 0, y: 10 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.8, ease: "easeOut", delay },
+  transition: { duration: 0.8, ease: "easeOut" as const, delay },
 });
 
 /* ── Palette ── */
