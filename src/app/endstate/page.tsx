@@ -165,7 +165,7 @@ function Hero() {
             className="inline-flex items-center gap-2 px-7 py-3 rounded-lg font-semibold hover:opacity-88 transition-all duration-200"
             style={{ background: c.text, color: c.bg, fontSize: "1rem" }}
           >
-            Get Endstate — €39
+            Get Endstate
           </a>
         </motion.div>
         <motion.p
@@ -376,8 +376,8 @@ const features = [
   {
     icon: "🔁",
     iconColor: c.copper,
-    title: "Safe to re-run",
-    body: "Run it as many times as you want. Apps already installed get skipped. Backups are created before any settings are changed.",
+    title: "You stay in control",
+    body: "Apps install one at a time. Windows asks for permission before each one — nothing installs silently. You can stop at any point.",
   },
   {
     icon: "🔍",
@@ -465,6 +465,279 @@ function Features() {
               <p className="leading-relaxed" style={{ fontSize: "0.88rem", color: c.textSec }}>
                 {f.body}
               </p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Contrast ── */
+const contrastRows = [
+  { without: "Remember every app you had", with: "One scan captures them all" },
+  { without: "Hunt down every installer", with: "One file holds everything" },
+  { without: "Reinstall one by one", with: "One command restores all" },
+  { without: "Redo settings from scratch", with: "Settings come with it" },
+  { without: "4+ hours, best case", with: "Under 10 minutes" },
+];
+
+function Contrast() {
+  const { ref, visible } = useInView();
+  return (
+    <section
+      ref={ref}
+      className="py-32 px-6"
+      style={{ background: c.bg, borderTop: `1px solid ${c.border}` }}
+    >
+      <div className="mx-auto" style={{ maxWidth: 1100 }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={visible ? { opacity: 1 } : {}}
+          transition={{ duration: 0.7 }}
+        >
+          <SectionLabel>The difference</SectionLabel>
+        </motion.div>
+        <motion.h2
+          className="mb-16"
+          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={visible ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.8, delay: 0.1 }}
+        >
+          What changes when you use Endstate.
+        </motion.h2>
+
+        <div className="grid md:grid-cols-2 gap-5">
+          {/* Without card */}
+          <motion.div
+            className="rounded-xl p-8"
+            style={{
+              border: `1px solid ${c.border}`,
+              background: `linear-gradient(135deg, rgba(200,121,65,0.04), rgba(200,121,65,0.01))`,
+            }}
+            initial={{ opacity: 0, x: -12 }}
+            animate={visible ? { opacity: 1, x: 0 } : {}}
+            transition={{ duration: 0.8, delay: 0.2 }}
+          >
+            <div
+              className="mb-6 pb-4"
+              style={{
+                borderBottom: `1px solid ${c.border}`,
+                fontSize: "0.8rem",
+                fontWeight: 500,
+                color: c.copper,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase" as const,
+              }}
+            >
+              Without Endstate
+            </div>
+            <div className="space-y-4">
+              {contrastRows.map((row, i) => {
+                const isLast = i === contrastRows.length - 1;
+                return (
+                  <div
+                    key={row.without}
+                    className="flex items-center gap-3"
+                    style={{
+                      fontSize: isLast ? "1.1rem" : "0.92rem",
+                      fontWeight: isLast ? 600 : 400,
+                      color: c.textMuted,
+                      textDecoration: "line-through",
+                      textDecorationColor: "rgba(102,102,102,0.4)",
+                    }}
+                  >
+                    {row.without}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+
+          {/* With card */}
+          <motion.div
+            className="rounded-xl p-8 relative overflow-hidden"
+            style={{
+              border: `1px solid rgba(45, 212, 191, 0.2)`,
+              background: `linear-gradient(135deg, rgba(45, 212, 191, 0.06), rgba(34, 197, 94, 0.03))`,
+            }}
+            initial={{ opacity: 0, x: 12 }}
+            animate={visible ? { opacity: 1, x: 0 } : {}}
+            transition={{ duration: 0.8, delay: 0.3 }}
+          >
+            <div
+              className="absolute top-0 left-0 right-0"
+              style={{ height: 2, background: "linear-gradient(90deg, #2dd4bf, #22c55e)" }}
+            />
+            <div
+              className="mb-6 pb-4"
+              style={{
+                borderBottom: `1px solid rgba(45, 212, 191, 0.15)`,
+                fontSize: "0.8rem",
+                fontWeight: 500,
+                color: c.teal,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase" as const,
+              }}
+            >
+              With Endstate
+            </div>
+            <div className="space-y-4">
+              {contrastRows.map((row, i) => {
+                const isLast = i === contrastRows.length - 1;
+                return (
+                  <div
+                    key={row.with}
+                    className="flex items-center gap-3"
+                    style={{
+                      fontSize: isLast ? "1.1rem" : "0.92rem",
+                      fontWeight: isLast ? 600 : 400,
+                      color: isLast ? c.teal : c.text,
+                    }}
+                  >
+                    <span style={{ color: c.teal, fontSize: "0.75rem", flexShrink: 0 }}>&#x2713;</span>
+                    {row.with}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── FAQ ── */
+const faqs: { q: string; a: React.ReactNode }[] = [
+  {
+    q: "What types of apps does Endstate detect?",
+    a: "Endstate detects apps installed via traditional installers (EXE/MSI) and Microsoft Store. It uses winget under the hood to handle installs. Portable apps that aren't registered in Windows are not detected.",
+  },
+  {
+    q: "Does it need admin rights?",
+    a: "Scanning your machine doesn't require admin. Restoring apps on a new machine may need admin depending on what's being installed — Endstate will prompt you when needed.",
+  },
+  {
+    q: "Which apps can Endstate install?",
+    a: "48 apps are sandbox-validated and passing, including VS Code, Git, OBS Studio, Blender, Obsidian, Discord, KeePassXC, and more.",
+  },
+  {
+    q: "Which app settings does it back up?",
+    a: "VS Code, Git, Neovim, Windows Terminal, PowerToys, Sublime Text, Windsurf, REAPER, Espanso, Flow Launcher, mpv, and foobar2000. Settings backup is always opt-in \u2014 never automatic.",
+  },
+  {
+    q: "Can I use it across multiple machines?",
+    a: "Yes. Your license covers up to 3 machines. Save your setup from any of them and restore on any other.",
+  },
+  {
+    q: "What if something goes wrong during restore?",
+    a: "Endstate creates a backup before changing any settings. You can revert with one click. App installs use standard Windows installers, so they can be uninstalled normally.",
+  },
+  {
+    q: "Is an internet connection required?",
+    a: "Scanning and saving your setup works offline. Restoring apps on a new machine needs internet to download installers. License activation is a one-time online check.",
+  },
+  {
+    q: "Is this safe to run on my machine?",
+    a: (
+      <>
+        The provisioning engine — the part that actually installs software — is{" "}
+        <a
+          href="https://github.com/Artexis10/endstate"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "#2dd4bf", textDecoration: "none" }}
+        >
+          open source
+        </a>
+        . You can read exactly what it does before running anything. The GUI is a
+        commercial product built on top of it.{" "}
+        <a
+          href="https://github.com/Artexis10/endstate"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "#2dd4bf", textDecoration: "none" }}
+        >
+          View engine on GitHub →
+        </a>
+      </>
+    ),
+  },
+];
+
+function FAQ() {
+  const { ref, visible } = useInView();
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  return (
+    <section
+      ref={ref}
+      id="faq"
+      className="py-32 px-6"
+      style={{ background: c.bg, borderTop: `1px solid ${c.border}` }}
+    >
+      <div className="mx-auto" style={{ maxWidth: 700 }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={visible ? { opacity: 1 } : {}}
+          transition={{ duration: 0.7 }}
+        >
+          <SectionLabel>FAQ</SectionLabel>
+        </motion.div>
+        <motion.h2
+          className="mb-12"
+          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={visible ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.8, delay: 0.1 }}
+        >
+          Common questions
+        </motion.h2>
+
+        <div className="space-y-0">
+          {faqs.map((faq, i) => (
+            <motion.div
+              key={faq.q}
+              initial={{ opacity: 0, y: 8 }}
+              animate={visible ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.6, delay: 0.15 + i * 0.05 }}
+              style={{ borderBottom: `1px solid ${c.border}` }}
+            >
+              <button
+                className="w-full flex items-center justify-between py-5 text-left"
+                style={{ background: "transparent", border: "none", cursor: "pointer" }}
+                onClick={() => setOpenIndex(openIndex === i ? null : i)}
+              >
+                <span style={{ fontSize: "0.95rem", fontWeight: 500, color: c.text, paddingRight: 16 }}>
+                  {faq.q}
+                </span>
+                <span
+                  style={{
+                    color: c.textMuted,
+                    fontSize: "1.2rem",
+                    flexShrink: 0,
+                    transition: "transform 0.2s ease",
+                    transform: openIndex === i ? "rotate(45deg)" : "rotate(0deg)",
+                  }}
+                >
+                  +
+                </span>
+              </button>
+              <div
+                style={{
+                  overflow: "hidden",
+                  maxHeight: openIndex === i ? 200 : 0,
+                  transition: "max-height 0.3s ease",
+                }}
+              >
+                <p
+                  className="pb-5"
+                  style={{ fontSize: "0.9rem", color: c.textSec, lineHeight: 1.7 }}
+                >
+                  {faq.a}
+                </p>
+              </div>
             </motion.div>
           ))}
         </div>
@@ -579,6 +852,20 @@ function EndstateFooter() {
         <p style={{ fontSize: "0.8rem", color: c.textMuted }}>
           Substrate Systems
         </p>
+        <p style={{ fontSize: "0.8rem", color: c.textMuted }}>
+          The provisioning engine is open source —{" "}
+          <a
+            href="https://github.com/Artexis10/endstate"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors duration-200"
+            style={{ color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            github.com/Artexis10/endstate
+          </a>
+        </p>
         <a
           href="mailto:hello@substratesystems.com"
           className="transition-colors duration-200"
@@ -608,6 +895,8 @@ export default function EndstatePage() {
         <Showcase />
         <HowItWorks />
         <Features />
+        <Contrast />
+        <FAQ />
         <Pricing />
         <EndstateFooter />
       </main>
