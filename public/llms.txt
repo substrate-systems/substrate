@@ -1,0 +1,11 @@
+# Endstate
+> Declarative Windows machine provisioning — capture your apps and settings, restore them on a fresh install.
+
+## What is Endstate?
+Endstate is a desktop app for Windows that scans your installed applications and optionally their settings, saves everything to a portable file, and restores them on a fresh Windows install. It uses winget for app installation. The provisioning engine is open source (Apache 2.0). The desktop GUI is also open source (Apache 2.0) with a paid license for the pre-built installer (€39 lifetime).
+
+## Links
+- Product page: https://substratesystems.io/endstate
+- Engine repo: https://github.com/Artexis10/endstate
+- GUI repo: https://github.com/Artexis10/endstate-gui
+- Terms/Privacy: https://substratesystems.io/terms
