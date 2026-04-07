@@ -68,7 +68,7 @@ function Nav() {
         </div>
         {/* Center */}
         <div className="flex items-center gap-2">
-          <img src="/endstate/icon-source.svg" alt="" width={24} height={24} className="block" />
+          <img src="/endstate/icons/transparent/transparent-sw5.svg" alt="" width={24} height={24} className="block" />
           <span className="font-bold tracking-tight" style={{ color: c.text, fontSize: "1.1rem" }}>
             Endstate
           </span>
@@ -866,15 +866,26 @@ function EndstateFooter() {
             github.com/Artexis10/endstate
           </a>
         </p>
-        <a
-          href="mailto:hello@substratesystems.com"
-          className="transition-colors duration-200"
-          style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
-          onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
-        >
-          hello@substratesystems.com
-        </a>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/terms"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Terms &amp; Privacy
+          </Link>
+          <a
+            href="mailto:hello@substratesystems.com"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            hello@substratesystems.com
+          </a>
+        </div>
       </div>
     </footer>
   );
