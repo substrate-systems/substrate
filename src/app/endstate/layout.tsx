@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     ],
   },
   icons: {
-    icon: "/endstate/icon-source.svg",
+    icon: "/endstate/icons/dark-full/dark-sw4.svg",
   },
 };
 
