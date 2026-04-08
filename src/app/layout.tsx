@@ -60,6 +60,32 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Substrate Systems",
+              legalName: "Substrate Systems OÜ",
+              url: "https://substratesystems.io",
+              logo: "https://substratesystems.io/brand/logos/substrate-logo-dark.png",
+              founder: {
+                "@type": "Person",
+                name: "Hugo Ander Kivi",
+              },
+              foundingLocation: {
+                "@type": "Place",
+                name: "Estonia",
+              },
+              description:
+                "Systems-first engineering for complex, long-horizon problems.",
+              sameAs: ["https://github.com/Artexis10"],
+            }),
+          }}
+        />
+      </head>
       <body className={`${inter.variable} antialiased`}>
         {children}
         <Analytics />

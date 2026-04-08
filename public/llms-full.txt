@@ -1,0 +1,117 @@
+# Substrate Systems — Full Content
+
+> Substrate Systems OÜ is a solo-founded Estonian software company building durable systems infrastructure. The company operates under the brand "Substrate" at substratesystems.io. Founded by Hugo Ander Kivi.
+
+---
+
+## Company Overview
+
+Substrate is a foundational systems company. Software infrastructure for durable systems. Systems-first engineering for complex, long-horizon problems.
+
+### Philosophy
+
+- Systems precede products.
+- Constraints enable clarity.
+- Foundations compound.
+- Simplicity is not reduction.
+
+---
+
+## Endstate
+
+**Tagline:** Save your machine. Set up the next one.
+
+Endstate is a desktop app for Windows that captures your installed applications and optionally their settings, saves everything to a portable file, and restores them on a fresh Windows install.
+
+- Uses winget for app installation
+- Provisioning engine is open source (Apache 2.0): https://github.com/Artexis10/endstate
+- Desktop GUI built with Tauri (React + Rust), also open source (Apache 2.0): https://github.com/Artexis10/endstate-gui
+- Paid license for the pre-built installer: €39 lifetime, up to 3 machines
+
+### How It Works
+
+1. **Save:** Scan your current machine. Endstate detects every installed app and finds settings for supported apps. Everything gets saved to a single file.
+2. **Set up:** Open your saved file on a fresh Windows install. Endstate shows what needs installing and what you already have. Choose whether to restore settings, then apply.
+
+### Features
+
+- **Automatic app detection:** Scans and finds every installed app — EXE/MSI and Microsoft Store. No manual lists.
+- **Settings backup:** Captures and restores settings for supported apps (VS Code, Git, Neovim, Windows Terminal, PowerToys, Sublime Text, Windsurf, REAPER, Espanso, Flow Launcher, mpv, foobar2000). Always opt-in.
+- **Portable setup files:** Stored as plain files in Documents. Copy, back up, share. No cloud account required.
+- **User control:** Apps install one at a time with UAC prompts. Nothing installs silently. Stop at any point.
+- **Preview mode:** Check machine state against a saved setup without changing anything.
+- **Reversible:** Every settings restore creates a backup first. One-click revert.
+
+### Validated Apps
+
+48 apps are sandbox-validated and passing, including VS Code, Git, OBS Studio, Blender, Obsidian, Discord, KeePassXC, and more.
+
+### System Requirements
+
+- Windows (uses winget)
+- Internet connection required for restoring apps (downloading installers)
+- License activation is a one-time online check
+- Scanning and saving works offline
+
+### Pricing
+
+- €39 one-time payment
+- Lifetime license
+- Up to 3 machines
+- All future updates included
+- No account required — offline license key
+- 30-day money-back guarantee
+
+### FAQ
+
+**What types of apps does Endstate detect?**
+Apps installed via traditional installers (EXE/MSI) and Microsoft Store. Uses winget under the hood. Portable apps not registered in Windows are not detected.
+
+**Does it need admin rights?**
+Scanning doesn't require admin. Restoring apps may need admin depending on what's being installed.
+
+**Can I use it across multiple machines?**
+Yes. License covers up to 3 machines.
+
+**What if something goes wrong during restore?**
+Endstate creates a backup before changing any settings. One-click revert. App installs use standard Windows installers, uninstallable normally.
+
+**Is an internet connection required?**
+Scanning and saving works offline. Restoring needs internet. License activation is one-time online.
+
+**Is this safe to run?**
+The provisioning engine is open source — you can read exactly what it does before running anything.
+
+---
+
+## Why Endstate Was Built
+
+Written by Hugo Ander Kivi, April 2026.
+
+The problem: every fresh Windows install requires manually remembering apps, hunting down installers, reinstalling one by one, and losing all settings and configurations. Existing tools don't solve the full problem — Ninite has a fixed app list and doesn't touch settings, winget is a package manager not a provisioning system, Chocolatey targets DevOps, Microsoft Store multi-app install is limited and install-only. None capture both apps and their settings as a single portable snapshot.
+
+Endstate captures what's installed and how it's configured, then restores it. It's declarative — describe the desired end state, and the tool converges the machine toward it. Idempotent — run it twice, nothing breaks. The engine is a Go CLI (open source, Apache 2.0). The desktop app is Tauri (React + Rust). Setup is a folder in Documents — inspectable, copyable, backable up. No hidden databases, no cloud dependency, no account required.
+
+---
+
+## Terms, Privacy & Refunds
+
+**Terms:** Purchase grants lifetime, non-exclusive, non-transferable license for up to 3 machines. License is personal, not resellable. Engine and GUI framework are Apache 2.0 — purchase covers the pre-built desktop application and activation key. All future updates to current major version included. Software provided "as is" without warranty.
+
+**Privacy:** No data collection during normal use. No analytics, telemetry, or tracking. Scanning and saving is entirely offline. License activation sends license key and machine fingerprint to payment processor only. App installation downloads via winget directly from publishers — Substrate is not involved.
+
+**Refunds:** 30-day money-back guarantee, no questions asked. Email founder@substratesystems.io with order number.
+
+**Entity:** Substrate Systems OÜ, Estonia.
+**Contact:** founder@substratesystems.io
+
+---
+
+## Links
+
+- Website: https://substratesystems.io
+- Endstate product page: https://substratesystems.io/endstate
+- Endstate engine (GitHub): https://github.com/Artexis10/endstate
+- Endstate GUI (GitHub): https://github.com/Artexis10/endstate-gui
+- Terms & Privacy: https://substratesystems.io/terms
+- Why Endstate: https://substratesystems.io/endstate/why

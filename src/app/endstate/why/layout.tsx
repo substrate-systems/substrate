@@ -14,6 +14,30 @@ export const metadata: Metadata = {
   },
 };
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Article",
+  headline: "Why I Built Endstate",
+  author: {
+    "@type": "Person",
+    name: "Hugo Ander Kivi",
+  },
+  publisher: {
+    "@type": "Organization",
+    name: "Substrate Systems",
+  },
+  datePublished: "2026-04",
+  url: "https://substratesystems.io/endstate/why",
+};
+
 export default function WhyLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      {children}
+    </>
+  );
 }

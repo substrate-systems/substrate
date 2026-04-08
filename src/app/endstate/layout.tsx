@@ -25,6 +25,40 @@ export const metadata: Metadata = {
   },
 };
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Endstate",
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "Windows",
+  description:
+    "Declarative Windows machine provisioning — captures installed apps and settings, saves to a portable file, restores on a fresh install.",
+  url: "https://substratesystems.io/endstate",
+  offers: {
+    "@type": "Offer",
+    price: "39",
+    priceCurrency: "EUR",
+    availability: "https://schema.org/InStock",
+    priceValidUntil: "2027-12-31",
+  },
+  author: {
+    "@type": "Organization",
+    name: "Substrate Systems",
+    url: "https://substratesystems.io",
+  },
+  license: "https://substratesystems.io/terms",
+  codeRepository: "https://github.com/Artexis10/endstate",
+  softwareVersion: "1.0",
+};
+
 export default function EndstateLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      {children}
+    </>
+  );
 }
