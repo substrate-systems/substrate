@@ -113,6 +113,15 @@ export function EndstateFooter() {
         </p>
         <div className="flex items-center gap-4">
           <Link
+            href="/endstate/why"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Why Endstate
+          </Link>
+          <Link
             href="/terms"
             className="transition-colors duration-200"
             style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
