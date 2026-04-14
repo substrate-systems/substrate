@@ -35,3 +35,20 @@ next-env.d.ts
 /hooks
 /objects
 /refs
+
+# Loose home-dir dotfiles bind-mounted at repo root (sandbox artifact)
+/.bash_profile
+/.bashrc
+/.profile
+/.zprofile
+/.zshrc
+/.gitconfig
+/.gitmodules
+/.mcp.json
+/.ripgreprc
+
+# Playwright MCP scratch output
+.playwright-mcp/
+
+# Claude Code: per-user local overrides (shared config is committed)
+.claude/settings.local.json
