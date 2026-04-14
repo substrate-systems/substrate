@@ -61,17 +61,42 @@ export type PaddleTransactionCompleted = {
 
 export function extractTransactionFields(event: unknown): {
   transactionId: string;
-  email: string;
+  email: string | null;
+  customerId: string | null;
 } {
   const e = event as PaddleTransactionCompleted;
   const transactionId = e?.data?.id;
   const email =
-    e?.data?.customer?.email ?? e?.data?.details?.customer?.email ?? '';
+    e?.data?.customer?.email ?? e?.data?.details?.customer?.email ?? null;
+  const customerId = e?.data?.customer_id ?? null;
   if (!transactionId) {
     throw new Error('event missing data.id');
   }
-  if (!email) {
-    throw new Error('event missing customer email');
+  return { transactionId, email, customerId };
+}
+
+export async function fetchPaddleCustomerEmail(
+  customerId: string,
+): Promise<string | null> {
+  const apiKey = process.env.PADDLE_API_KEY;
+  if (!apiKey) {
+    throw new Error('PADDLE_API_KEY is not set');
   }
-  return { transactionId, email };
+  const res = await fetch(
+    `https://api.paddle.com/customers/${encodeURIComponent(customerId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        accept: 'application/json',
+      },
+    },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `paddle customer fetch failed ${res.status}: ${detail || res.statusText}`,
+    );
+  }
+  const body = (await res.json()) as { data?: { email?: string } };
+  return body?.data?.email ?? null;
 }

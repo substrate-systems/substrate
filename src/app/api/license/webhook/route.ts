@@ -8,6 +8,7 @@ import { sendLicenseEmail } from '@/lib/license/email';
 import {
   PaddleSignatureError,
   extractTransactionFields,
+  fetchPaddleCustomerEmail,
   verifyPaddleSignature,
 } from '@/lib/license/paddle';
 
@@ -57,9 +58,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   let transactionId: string;
-  let email: string;
+  let email: string | null;
+  let customerId: string | null;
   try {
-    ({ transactionId, email } = extractTransactionFields(event));
+    ({ transactionId, email, customerId } = extractTransactionFields(event));
   } catch (err) {
     return NextResponse.json(
       {
@@ -70,13 +72,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  if (!email && customerId) {
+    try {
+      email = await fetchPaddleCustomerEmail(customerId);
+    } catch (err) {
+      console.warn(
+        `[license webhook] failed to fetch customer ${customerId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   const existing = await findLicenseByTransactionId(transactionId);
   if (existing) {
     return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
   }
 
+  // Simulation/test fallback: no real email resolvable. Store a placeholder
+  // so the license still lands in the DB, and skip the email send.
+  const emailMissing = !email;
+  if (emailMissing) {
+    console.warn(
+      `[license webhook] no email resolved for transaction ${transactionId}; storing placeholder and skipping email send`,
+    );
+  }
+  const resolvedEmail = email ?? `unknown+${transactionId}@paddle.local`;
+
   const licenseKey = await createLicenseKey({
-    email,
+    email: resolvedEmail,
     transaction_id: transactionId,
     product: 'endstate-gui',
     issued_at: new Date().toISOString(),
@@ -85,7 +108,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await insertLicense({
       licenseKey,
-      email,
+      email: resolvedEmail,
       paddleTransactionId: transactionId,
     });
   } catch (err) {
@@ -99,8 +122,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  if (emailMissing) {
+    return NextResponse.json(
+      { ok: true, email_skipped: true },
+      { status: 200 },
+    );
+  }
+
   try {
-    await sendLicenseEmail({ to: email, licenseKey });
+    await sendLicenseEmail({ to: resolvedEmail, licenseKey });
   } catch (err) {
     return NextResponse.json(
       {
