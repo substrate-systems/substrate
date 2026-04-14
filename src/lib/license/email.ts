@@ -1,12 +1,9 @@
-import { Resend } from 'resend';
-
 export async function sendLicenseEmail(params: {
   to: string;
   licenseKey: string;
 }): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) throw new Error('RESEND_API_KEY is not set');
-  const resend = new Resend(apiKey);
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) throw new Error('BREVO_API_KEY is not set');
   const { to, licenseKey } = params;
 
   const html = `<!doctype html>
@@ -33,15 +30,25 @@ If you need help, reply to this email.
 
 Substrate Systems`;
 
-  const { error } = await resend.emails.send({
-    from: 'noreply@substratesystems.io',
-    to,
-    subject: 'Your Endstate License Key',
-    html,
-    text,
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({
+      sender: { name: 'Endstate', email: 'noreply@substratesystems.io' },
+      to: [{ email: to }],
+      subject: 'Your Endstate License Key',
+      htmlContent: html,
+      textContent: text,
+    }),
   });
-  if (error) {
-    throw new Error(`resend error: ${error.message ?? JSON.stringify(error)}`);
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`brevo error ${res.status}: ${detail || res.statusText}`);
   }
 }
 

@@ -4,7 +4,7 @@
 #   - Dev server running (npm run dev)
 #   - DATABASE_URL pointing at a Vercel Postgres / Neon instance with schema applied
 #     (psql "$DATABASE_URL" -f scripts/init-db.sql)
-#   - ENDSTATE_LICENSE_PRIVATE_KEY, PADDLE_WEBHOOK_SECRET, RESEND_API_KEY set
+#   - ENDSTATE_LICENSE_PRIVATE_KEY, PADDLE_WEBHOOK_SECRET, BREVO_API_KEY set
 #
 # Usage:
 #   BASE=http://localhost:3000 bash scripts/test-license-api.sh
@@ -38,7 +38,7 @@ curl -sS -o /dev/stdout -w "\nHTTP %{http_code}\n" \
   --data "$WEBHOOK_BODY"
 
 echo
-echo "Check your inbox (or the Resend dashboard) for the license key, then export it as LICENSE_KEY and rerun the activation block below."
+echo "Check your inbox (or the Brevo transactional log) for the license key, then export it as LICENSE_KEY and rerun the activation block below."
 echo
 cat <<'EOF'
 # Fill in LICENSE_KEY, then run the rest:
