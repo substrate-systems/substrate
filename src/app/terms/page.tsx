@@ -160,7 +160,9 @@ export default function TermsPage() {
             </Li>
             <Li>
               License activation sends your license key and a machine fingerprint to our
-              payment processor for validation. Nothing else is transmitted.
+              servers at substratesystems.io for validation. Purchase transactions are
+              processed separately by Paddle, our payment provider. We do not receive or
+              store your payment card information.
             </Li>
             <Li>
               App installation downloads packages via winget directly from publishers. We
@@ -168,6 +170,17 @@ export default function TermsPage() {
             </Li>
             <Li>
               We do not use analytics, telemetry, or tracking of any kind.
+            </Li>
+            <Li>
+              EU residents have the right under GDPR to access, rectify, or delete their
+              personal data (email address, license key, machine fingerprints). Contact{" "}
+              <a
+                href="mailto:founder@substratesystems.io"
+                style={{ color: c.teal, textDecoration: "none" }}
+              >
+                founder@substratesystems.io
+              </a>{" "}
+              to exercise these rights.
             </Li>
           </ul>
 

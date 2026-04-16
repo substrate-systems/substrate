@@ -128,16 +128,16 @@ export function EndstateFooter() {
             onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
           >
-            Terms &amp; Privacy
+            Terms, Privacy &amp; Refunds
           </Link>
           <a
-            href="mailto:hello@substratesystems.com"
+            href="mailto:founder@substratesystems.io"
             className="transition-colors duration-200"
             style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
           >
-            hello@substratesystems.com
+            founder@substratesystems.io
           </a>
         </div>
       </div>
