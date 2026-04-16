@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sendTransactionalEmail } from '@/lib/brevo';
+import { renderLicenseKeyEmail } from '@/lib/email-templates/license-key';
 import { createLicenseKey } from '@/lib/license/crypto';
 import {
   findLicenseByTransactionId,
   insertLicense,
 } from '@/lib/license/db';
-import { sendLicenseEmail } from '@/lib/license/email';
 import {
   PaddleSignatureError,
   extractTransactionFields,
@@ -72,6 +73,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Idempotency: Paddle retries webhooks on any non-2xx. A duplicate delivery
+  // must not create a second license row or send a second email.
+  const existing = await findLicenseByTransactionId(transactionId);
+  if (existing) {
+    return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
+  }
+
   if (!email && customerId) {
     try {
       email = await fetchPaddleCustomerEmail(customerId);
@@ -81,11 +89,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         err instanceof Error ? err.message : err,
       );
     }
-  }
-
-  const existing = await findLicenseByTransactionId(transactionId);
-  if (existing) {
-    return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
   }
 
   // Simulation/test fallback: no real email resolvable. Store a placeholder
@@ -113,6 +116,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // Race with a concurrent delivery of the same webhook: the row exists now,
+    // so treat this as a dedupe hit rather than a failure.
     if (msg.includes('duplicate key')) {
       return NextResponse.json({ ok: true, deduped: true }, { status: 200 });
     }
@@ -129,17 +134,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  try {
-    await sendLicenseEmail({ to: resolvedEmail, licenseKey });
-  } catch (err) {
+  // License row is committed — from here on, email failures must not cause a
+  // non-2xx response. Paddle would retry and we'd hit the idempotency path
+  // without ever getting the email out. Log and move on; resend manually.
+  const rendered = renderLicenseKeyEmail({ licenseKey, email: resolvedEmail });
+  const result = await sendTransactionalEmail({
+    to: resolvedEmail,
+    subject: rendered.subject,
+    htmlContent: rendered.htmlContent,
+    textContent: rendered.textContent,
+  });
+
+  if (!result.success) {
+    console.error(
+      `[license webhook] email send failed for transaction ${transactionId} (${resolvedEmail}): ${result.error}`,
+    );
     return NextResponse.json(
-      {
-        error: 'email_failed',
-        message: err instanceof Error ? err.message : 'email failed',
-      },
-      { status: 500 },
+      { ok: true, email_failed: true },
+      { status: 200 },
     );
   }
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  console.log(
+    `[license webhook] sent license email for transaction ${transactionId} (${resolvedEmail}) messageId=${result.messageId ?? 'unknown'}`,
+  );
+
+  return NextResponse.json({ ok: true, messageId: result.messageId }, { status: 200 });
 }
