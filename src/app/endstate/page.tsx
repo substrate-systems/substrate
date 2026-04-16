@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { BuyButton } from "./BuyButton";
 import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
 
 function useInView(options = { threshold: 0.15 }) {
@@ -77,13 +78,12 @@ function Hero() {
           then restores them on a fresh Windows install. One scan. One file. Done.
         </motion.p>
         <motion.div className="flex justify-center gap-4 flex-wrap" {...fadeUp(0.3)}>
-          <a
-            href="#pricing"
-            className="inline-flex items-center gap-2 px-7 py-3 rounded-lg font-semibold hover:opacity-88 transition-all duration-200"
+          <BuyButton
+            className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-lg font-semibold hover:opacity-88 transition-all duration-200"
             style={{ background: c.text, color: c.bg, fontSize: "1rem" }}
           >
             Get Endstate
-          </a>
+          </BuyButton>
         </motion.div>
         <motion.p
           className="mt-4"
@@ -745,13 +745,12 @@ function Pricing() {
             ))}
           </ul>
 
-          <a
-            href="#"
+          <BuyButton
             className="block w-full text-center py-3 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
             style={{ background: c.text, color: c.bg, fontSize: "1.05rem" }}
           >
             Get Endstate
-          </a>
+          </BuyButton>
         </motion.div>
       </div>
     </section>

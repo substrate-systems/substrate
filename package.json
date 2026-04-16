@@ -21,6 +21,7 @@
     "@noble/ed25519": "^3.1.0",
     "@noble/hashes": "^2.2.0",
     "@opentelemetry/sdk-node": "^0.213.0",
+    "@paddle/paddle-js": "^1.6.2",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "^25.0.3",
     "@types/react": "^19.2.7",
