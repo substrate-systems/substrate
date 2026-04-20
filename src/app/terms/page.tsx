@@ -108,7 +108,9 @@ export default function TermsPage() {
           <P>
             Your purchase grants a lifetime, non-exclusive, non-transferable license to use
             Endstate on up to 3 machines. The license is tied to you personally and may not
-            be resold or shared.
+            be resold or shared. Your license covers the current major version (v1.x) and
+            all its updates. Future major versions (v2, etc.) may be offered as paid
+            upgrades to existing customers at a discount.
           </P>
 
           <h3

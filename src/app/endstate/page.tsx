@@ -557,6 +557,24 @@ const faqs: { q: string; a: React.ReactNode }[] = [
     a: "Scanning and saving your setup works offline. Restoring apps on a new machine needs internet to download installers. License activation is a one-time online check.",
   },
   {
+    q: "Where do I download Endstate after purchase?",
+    a: (
+      <>
+        Right after you pay, we email your license key along with a download
+        link. If you lose the email, you can grab the latest installer any
+        time at{" "}
+        <a
+          href="/download"
+          style={{ color: "#2dd4bf", textDecoration: "none" }}
+        >
+          substratesystems.io/download
+        </a>
+        . The download is public — you just need your license key to activate
+        the app.
+      </>
+    ),
+  },
+  {
     q: "Is this safe to run on my machine?",
     a: (
       <>
@@ -730,7 +748,7 @@ function Pricing() {
             {[
               "Full Endstate desktop app",
               "Use on up to 3 machines",
-              "All future updates included",
+              "All v1.x updates included",
               "No account required — offline license key",
               "30-day money-back guarantee",
             ].map((item) => (
