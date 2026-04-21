@@ -52,8 +52,3 @@ next-env.d.ts
 
 # Claude Code: per-user local overrides (shared config is committed)
 .claude/settings.local.json
-
-# Endstate installer binaries (copied in manually before deploy; see
-# public/downloads/README.md). The README itself is committed.
-/public/downloads/*.exe
-/public/downloads/*.msi
