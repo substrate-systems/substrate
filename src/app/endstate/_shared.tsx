@@ -73,6 +73,15 @@ export function Nav() {
           >
             Pricing
           </a>
+          <Link
+            href="/download"
+            className="text-sm hidden lg:block transition-colors duration-200"
+            style={{ color: c.textSec }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Download
+          </Link>
           <a
             href="/endstate#pricing"
             className="text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-85 transition-opacity duration-200 whitespace-nowrap hidden sm:block"
@@ -112,6 +121,15 @@ export function EndstateFooter() {
           </a>
         </p>
         <div className="flex items-center gap-4">
+          <Link
+            href="/download"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Download
+          </Link>
           <Link
             href="/endstate/why"
             className="transition-colors duration-200"
