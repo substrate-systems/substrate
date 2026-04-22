@@ -73,15 +73,15 @@ export function Nav() {
           >
             Pricing
           </a>
-          <Link
+          <a
             href="/download"
-            className="text-sm hidden lg:block transition-colors duration-200"
-            style={{ color: c.textSec }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
-            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+            className="text-sm font-semibold px-4 py-1.5 rounded-md transition-all duration-200 whitespace-nowrap hidden sm:block"
+            style={{ background: "transparent", color: c.text, border: `1px solid ${c.border}` }}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = c.borderAccent)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = c.border)}
           >
             Download
-          </Link>
+          </a>
           <a
             href="/endstate#pricing"
             className="text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-85 transition-opacity duration-200 whitespace-nowrap hidden sm:block"
