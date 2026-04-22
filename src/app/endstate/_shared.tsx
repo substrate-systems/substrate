@@ -33,7 +33,7 @@ export function Nav() {
       className="fixed top-0 w-full z-30 backdrop-blur-md border-b"
       style={{ background: "rgba(12,12,12,0.85)", borderColor: c.border }}
     >
-      <div className="mx-auto max-w-5xl px-6 h-14 flex items-center">
+      <div className="mx-auto px-6 h-14 flex items-center" style={{ maxWidth: 1100 }}>
         {/* Left */}
         <div className="flex-1">
           <Link
@@ -54,10 +54,10 @@ export function Nav() {
           </Link>
         </div>
         {/* Right */}
-        <div className="flex-1 flex items-center justify-end gap-3 sm:gap-8">
+        <div className="flex-1 flex items-center justify-end gap-3 sm:gap-6">
           <a
             href="/endstate#how-it-works"
-            className="text-sm hidden lg:block transition-colors duration-200"
+            className="text-sm hidden lg:block whitespace-nowrap transition-colors duration-200"
             style={{ color: c.textSec }}
             onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
@@ -66,7 +66,7 @@ export function Nav() {
           </a>
           <a
             href="/endstate#pricing"
-            className="text-sm hidden lg:block transition-colors duration-200"
+            className="text-sm hidden lg:block whitespace-nowrap transition-colors duration-200"
             style={{ color: c.textSec }}
             onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
@@ -102,12 +102,12 @@ export function EndstateFooter() {
       className="py-16 px-6"
       style={{ background: c.bg, borderTop: `1px solid ${c.border}` }}
     >
-      <div className="mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4" style={{ maxWidth: 1100 }}>
+      <div className="mx-auto flex flex-col items-center text-center lg:flex-row lg:justify-between lg:text-left gap-4" style={{ maxWidth: 1100 }}>
         <p style={{ fontSize: "0.8rem", color: c.textMuted }}>
           Substrate Systems
         </p>
         <p style={{ fontSize: "0.8rem", color: c.textMuted }}>
-          The provisioning engine is open source —{" "}
+          Open source on{" "}
           <a
             href="https://github.com/Artexis10/endstate"
             target="_blank"
@@ -117,10 +117,10 @@ export function EndstateFooter() {
             onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
           >
-            github.com/Artexis10/endstate
+            GitHub
           </a>
         </p>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Link
             href="/download"
             className="transition-colors duration-200"
