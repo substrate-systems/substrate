@@ -6,7 +6,7 @@
 
 ## Company Overview
 
-Substrate is a foundational systems company. Software infrastructure for durable systems. Systems-first engineering for complex, long-horizon problems.
+Substrate is a foundational systems company. Software infrastructure for durable systems.
 
 ### Philosophy
 
@@ -84,6 +84,39 @@ The provisioning engine is open source — you can read exactly what it does bef
 
 ---
 
+## Q
+
+**Tagline:** AI-powered knowledge infrastructure.
+
+Q is a multi-tenant RAG platform that turns a creator or company's content library (YouTube, documents, PDFs) into a branded, searchable AI knowledge base — with citations back to the original source content.
+
+- Hosted product at https://useq.ai
+- Branded Q&A with custom domain per tenant
+- 7-layer RAG pipeline for retrieval quality
+- Status: Early access
+
+### How It Works
+
+1. **Ingest:** A creator connects their content library (YouTube channels, document uploads, PDFs). Q processes and indexes everything through its RAG pipeline.
+2. **Brand:** Each tenant gets a branded Q&A interface on their own custom domain. Subscribers authenticate via Discord OAuth.
+3. **Ask:** Subscribers ask questions against the creator's content. Answers are grounded in source material with citations linking back to the original video timestamp or document.
+
+### Features
+
+- **Multi-tenant isolation:** Each creator's content, branding, and subscribers are isolated.
+- **Branded Q&A:** Custom domain, custom look — the creator's brand, not Q's.
+- **7-layer RAG pipeline:** Retrieval tuned for semantic recall and precision across mixed content types.
+- **Semantic search:** Across transcripts and documents, not just keyword match.
+- **Citation-first answers:** Every answer points back to the source video or document.
+- **Discord OAuth:** Subscriber authentication via Discord for community-native creators.
+- **Creator dashboard:** Ingestion controls and subscriber/question analytics.
+
+### Status
+
+Early access. Contact the founder for access.
+
+---
+
 ## Why Endstate Was Built
 
 Written by Hugo Ander Kivi, April 2026.
@@ -113,5 +146,6 @@ Endstate captures what's installed and how it's configured, then restores it. It
 - Endstate product page: https://substratesystems.io/endstate
 - Endstate engine (GitHub): https://github.com/Artexis10/endstate
 - Endstate GUI (GitHub): https://github.com/Artexis10/endstate-gui
+- Q: https://useq.ai
 - Terms & Privacy: https://substratesystems.io/terms
 - Why Endstate: https://substratesystems.io/endstate/why

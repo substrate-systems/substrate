@@ -10,7 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Substrate — Foundational Systems",
-  description: "Systems-first engineering for complex, long-horizon problems.",
+  description: "Software infrastructure for durable systems.",
   metadataBase: new URL("https://substratesystems.io"),
   icons: {
     icon: "/favicon.ico",
@@ -20,8 +20,7 @@ export const metadata: Metadata = {
   manifest: "/site.webmanifest",
   openGraph: {
     title: "Substrate — Foundational Systems",
-    description:
-      "Software infrastructure for durable systems. Systems-first engineering for complex, long-horizon problems.",
+    description: "Software infrastructure for durable systems.",
     url: "https://substratesystems.io",
     siteName: "Substrate",
     locale: "en_US",
@@ -38,8 +37,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Substrate — Foundational Systems",
-    description:
-      "Software infrastructure for durable systems. Systems-first engineering for complex, long-horizon problems.",
+    description: "Software infrastructure for durable systems.",
     images: ["/brand/logos/substrate-logo-dark.png"],
   },
   robots: {
@@ -79,8 +77,7 @@ export default function RootLayout({
                 "@type": "Place",
                 name: "Estonia",
               },
-              description:
-                "Systems-first engineering for complex, long-horizon problems.",
+              description: "Software infrastructure for durable systems.",
               sameAs: ["https://github.com/Artexis10"],
             }),
           }}

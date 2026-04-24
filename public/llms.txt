@@ -1,6 +1,6 @@
 # Substrate Systems
 
-> Substrate Systems OÜ is a solo-founded Estonian software company building durable systems infrastructure. The company operates under the brand "Substrate" at substratesystems.io.
+> Substrate Systems OÜ is a solo-founded Estonian software company building durable systems infrastructure. The company operates under the brand "Substrate" at substratesystems.io. Software infrastructure for durable systems.
 
 Substrate builds tools for long-horizon problems — software that prioritizes structural integrity, determinism, and longevity over velocity. The company's engineering philosophy: systems precede products, constraints enable clarity, foundations compound.
 
@@ -11,6 +11,7 @@ Founded by Hugo Ander Kivi. Registered in Estonia as Substrate Systems OÜ.
 - [Endstate](https://substratesystems.io/endstate): Declarative Windows machine provisioning — captures installed apps and their settings, saves to a portable file, restores on a fresh Windows install. Uses winget. Lifetime license (€39). Engine is open source (Apache 2.0).
 - [Endstate provisioning engine (GitHub)](https://github.com/Artexis10/endstate): Open-source Go CLI that handles app detection, installation, and settings backup/restore on Windows via winget. Apache 2.0 license.
 - [Endstate GUI (GitHub)](https://github.com/Artexis10/endstate-gui): Desktop application built with Tauri (React + Rust). Open source (Apache 2.0), with a paid license for the pre-built installer.
+- [Q](https://useq.ai): AI-powered knowledge infrastructure — multi-tenant RAG platform that turns a creator or company's content library (YouTube, documents, PDFs) into a branded, searchable AI knowledge base with citations back to source content. Branded Q&A with custom domain, 7-layer RAG pipeline, semantic search across transcripts and documents, subscriber authentication via Discord OAuth. Early access.
 
 ## About
 

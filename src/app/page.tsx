@@ -3,7 +3,6 @@ import SectionFade from "@/components/SectionFade";
 import Hook from "@/components/Hook";
 import Philosophy from "@/components/Philosophy";
 import Products from "@/components/Products";
-import CTA from "@/components/CTA";
 import Footer from "@/components/Footer";
 
 export default function Home() {
@@ -14,7 +13,6 @@ export default function Home() {
       <Hook />
       <Philosophy />
       <Products />
-      <CTA />
       <Footer />
     </main>
   );
