@@ -75,19 +75,10 @@ export function Nav() {
           </a>
           <a
             href="/download"
-            className="text-sm font-semibold px-4 py-1.5 rounded-md transition-all duration-200 whitespace-nowrap hidden sm:block"
-            style={{ background: "transparent", color: c.text, border: `1px solid ${c.border}` }}
-            onMouseEnter={(e) => (e.currentTarget.style.borderColor = c.borderAccent)}
-            onMouseLeave={(e) => (e.currentTarget.style.borderColor = c.border)}
-          >
-            Download
-          </a>
-          <a
-            href="/endstate#pricing"
             className="text-sm font-semibold px-4 py-1.5 rounded-md hover:opacity-85 transition-opacity duration-200 whitespace-nowrap hidden sm:block"
             style={{ background: c.text, color: c.bg }}
           >
-            Get Endstate
+            Download free
           </a>
         </div>
       </div>
@@ -139,6 +130,17 @@ export function EndstateFooter() {
           >
             Why Endstate
           </Link>
+          <a
+            href="https://github.com/Artexis10/endstate/blob/main/PRINCIPLES.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Principles
+          </a>
           <Link
             href="/terms"
             className="transition-colors duration-200"
