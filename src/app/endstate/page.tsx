@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { BuyButton } from "./BuyButton";
 import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
 
 function useInView(options = { threshold: 0.15 }) {
@@ -694,8 +693,94 @@ function FAQ() {
 }
 
 /* ── Pricing ── */
+type PricingTier = {
+  name: string;
+  price: React.ReactNode;
+  cadence: string;
+  blurb: string;
+  features: string[];
+  cta: { label: string; href: string; primary?: boolean; external?: boolean };
+  badge?: string;
+  highlight?: boolean;
+};
+
 function Pricing() {
   const { ref, visible } = useInView();
+
+  const tiers: PricingTier[] = [
+    {
+      name: "Free",
+      price: (
+        <>
+          <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+            €0
+          </span>
+        </>
+      ),
+      cadence: "Forever · No account",
+      blurb: "The full Endstate product — every feature, no limits.",
+      features: [
+        "Full GUI and CLI",
+        "Capture, restore, profiles, manifests",
+        "Settings backup for supported apps",
+        "Back up to any location you control",
+        "Open source engine (Apache 2.0)",
+        "Works fully offline",
+      ],
+      cta: { label: "Download free", href: "/download", primary: true },
+      highlight: true,
+    },
+    {
+      name: "Hosted Backup",
+      price: (
+        <>
+          <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
+          <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+            4
+          </span>
+          <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>/mo</span>
+        </>
+      ),
+      cadence: "or €40/year · Coming in v2",
+      blurb: "Optional managed backup if you want it. Encrypted on your machine before it leaves.",
+      features: [
+        "End-to-end encrypted, client-side keys",
+        "Restore your setup on any machine",
+        "Endstate cannot read your data",
+        "Self-hosting protocol stays open",
+        "Cancel any time",
+      ],
+      cta: {
+        label: "Join the waitlist",
+        href: "mailto:founder@substratesystems.io?subject=Endstate%20Backup%20%E2%80%94%20early%20access&body=Sign%20me%20up%20for%20early%20access%20to%20Endstate%20Hosted%20Backup.",
+      },
+      badge: "Early access",
+    },
+    {
+      name: "Supporter License",
+      price: (
+        <>
+          <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
+          <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+            89
+          </span>
+        </>
+      ),
+      cadence: "One-time · Optional",
+      blurb: "No extra features. You support development, you get a thank-you on the supporters page.",
+      features: [
+        "Your name on the supporters page (opt-in)",
+        "Your name in the GitHub repo",
+        "Helps fund ongoing development",
+        "That's the whole pitch — be honest with yourself",
+      ],
+      cta: {
+        label: "Support development",
+        href: "mailto:founder@substratesystems.io?subject=Supporter%20License%20%E2%80%94%20interested",
+      },
+    },
+  ];
+
   return (
     <section
       ref={ref}
@@ -703,85 +788,151 @@ function Pricing() {
       className="py-32 px-6"
       style={{ background: c.bg, borderTop: `1px solid ${c.border}` }}
     >
-      <div className="mx-auto text-center" style={{ maxWidth: 520 }}>
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={visible ? { opacity: 1 } : {}}
-          transition={{ duration: 0.7 }}
-        >
-          <SectionLabel>Pricing</SectionLabel>
-        </motion.div>
-        <motion.h2
-          className="mb-4"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
-          initial={{ opacity: 0, y: 8 }}
-          animate={visible ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.8, delay: 0.1 }}
-        >
-          One price. Yours forever.
-        </motion.h2>
-        <motion.p
-          className="mb-12"
-          style={{ fontSize: "1.05rem", color: c.textSec }}
-          initial={{ opacity: 0 }}
-          animate={visible ? { opacity: 1 } : {}}
-          transition={{ duration: 0.7, delay: 0.2 }}
-        >
-          No subscriptions. No tiers. No recurring charges.
-        </motion.p>
-
-        <motion.div
-          className="rounded-xl p-10 text-left relative overflow-hidden"
-          style={{
-            border: `1px solid ${c.border}`,
-            background: c.card,
-          }}
-          initial={{ opacity: 0, y: 12 }}
-          animate={visible ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.8, delay: 0.25 }}
-        >
-          {/* gradient top accent */}
-          <div
-            className="absolute top-0 left-0 right-0"
-            style={{ height: 2, background: "linear-gradient(90deg, #2dd4bf, #22c55e)" }}
-          />
-
-          <div className="text-center mb-8">
-            <div style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
-              <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
-              39
-            </div>
-            <p className="mt-1" style={{ fontSize: "0.9rem", color: c.textMuted }}>
-              One-time payment · Lifetime license
-            </p>
-          </div>
-
-          <ul className="space-y-3 mb-10" style={{ listStyle: "none" }}>
-            {[
-              "Full Endstate desktop app",
-              "Use on up to 3 machines",
-              "All v1.x updates included",
-              "No account required — offline license key",
-              "30-day money-back guarantee",
-            ].map((item) => (
-              <li
-                key={item}
-                className="flex items-center gap-3"
-                style={{ fontSize: "0.92rem", color: c.textSec }}
-              >
-                <span style={{ color: c.green, fontWeight: 700, fontSize: "0.85rem", flexShrink: 0 }}>✓</span>
-                {item}
-              </li>
-            ))}
-          </ul>
-
-          <BuyButton
-            className="block w-full text-center py-3 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
-            style={{ background: c.text, color: c.bg, fontSize: "1.05rem" }}
+      <div className="mx-auto" style={{ maxWidth: 1100 }}>
+        <div className="text-center mb-12">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={visible ? { opacity: 1 } : {}}
+            transition={{ duration: 0.7 }}
           >
-            Get Endstate
-          </BuyButton>
-        </motion.div>
+            <SectionLabel>Pricing</SectionLabel>
+          </motion.div>
+          <motion.h2
+            className="mb-4"
+            style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={visible ? { opacity: 1, y: 0 } : {}}
+            transition={{ duration: 0.8, delay: 0.1 }}
+          >
+            Free product. Optional paid services.
+          </motion.h2>
+          <motion.p
+            style={{ fontSize: "1.05rem", color: c.textSec, maxWidth: 600, margin: "0 auto" }}
+            initial={{ opacity: 0 }}
+            animate={visible ? { opacity: 1 } : {}}
+            transition={{ duration: 0.7, delay: 0.2 }}
+          >
+            The local product is free, forever. Pay only for managed services you actually want, or chip in if you
+            want to support the project.
+          </motion.p>
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-5">
+          {tiers.map((tier, i) => (
+            <motion.div
+              key={tier.name}
+              className="rounded-xl p-8 relative overflow-hidden flex flex-col"
+              style={{
+                border: tier.highlight
+                  ? `1px solid rgba(45, 212, 191, 0.25)`
+                  : `1px solid ${c.border}`,
+                background: tier.highlight
+                  ? `linear-gradient(180deg, rgba(45, 212, 191, 0.04), rgba(34, 197, 94, 0.015))`
+                  : c.card,
+              }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={visible ? { opacity: 1, y: 0 } : {}}
+              transition={{ duration: 0.8, delay: 0.2 + i * 0.1 }}
+            >
+              {tier.highlight && (
+                <div
+                  className="absolute top-0 left-0 right-0"
+                  style={{ height: 2, background: "linear-gradient(90deg, #2dd4bf, #22c55e)" }}
+                />
+              )}
+
+              <div className="mb-2 flex items-center gap-2">
+                <h3 style={{ fontSize: "1.05rem", fontWeight: 600, color: c.text }}>{tier.name}</h3>
+                {tier.badge && (
+                  <span
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: "0.65rem",
+                      fontWeight: 500,
+                      color: c.copper,
+                      border: `1px solid rgba(200,121,65,0.3)`,
+                      background: "rgba(200,121,65,0.05)",
+                      padding: "0.15rem 0.5rem",
+                      borderRadius: "4px",
+                      letterSpacing: "0.05em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {tier.badge}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ marginBottom: "0.25rem" }}>{tier.price}</div>
+              <p style={{ fontSize: "0.82rem", color: c.textMuted, marginBottom: "1rem" }}>{tier.cadence}</p>
+              <p style={{ fontSize: "0.92rem", color: c.textSec, lineHeight: 1.6, marginBottom: "1.5rem" }}>
+                {tier.blurb}
+              </p>
+
+              <ul className="space-y-2 mb-8 flex-1" style={{ listStyle: "none" }}>
+                {tier.features.map((f) => (
+                  <li
+                    key={f}
+                    className="flex items-start gap-3"
+                    style={{ fontSize: "0.88rem", color: c.textSec, lineHeight: 1.5 }}
+                  >
+                    <span style={{ color: c.green, fontWeight: 700, fontSize: "0.8rem", flexShrink: 0, marginTop: 2 }}>✓</span>
+                    {f}
+                  </li>
+                ))}
+              </ul>
+
+              {tier.cta.href.startsWith("mailto:") || tier.cta.external ? (
+                <a
+                  href={tier.cta.href}
+                  className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
+                  style={{
+                    background: tier.cta.primary ? c.text : "transparent",
+                    color: tier.cta.primary ? c.bg : c.text,
+                    border: tier.cta.primary ? "none" : `1px solid ${c.border}`,
+                    fontSize: "0.95rem",
+                    textDecoration: "none",
+                  }}
+                >
+                  {tier.cta.label}
+                </a>
+              ) : (
+                <Link
+                  href={tier.cta.href}
+                  className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
+                  style={{
+                    background: tier.cta.primary ? c.text : "transparent",
+                    color: tier.cta.primary ? c.bg : c.text,
+                    border: tier.cta.primary ? "none" : `1px solid ${c.border}`,
+                    fontSize: "0.95rem",
+                    textDecoration: "none",
+                  }}
+                >
+                  {tier.cta.label}
+                </Link>
+              )}
+            </motion.div>
+          ))}
+        </div>
+
+        <motion.p
+          className="text-center mt-10"
+          style={{ fontSize: "0.85rem", color: c.textMuted, maxWidth: 640, margin: "2.5rem auto 0" }}
+          initial={{ opacity: 0 }}
+          animate={visible ? { opacity: 1 } : {}}
+          transition={{ duration: 0.7, delay: 0.6 }}
+        >
+          Read the{" "}
+          <a
+            href="https://github.com/Artexis10/endstate/blob/main/PRINCIPLES.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: c.textSec, textDecoration: "underline", textDecorationColor: "rgba(153,153,153,0.3)" }}
+          >
+            principles
+          </a>{" "}
+          for what these commitments mean and what they rule out.
+        </motion.p>
       </div>
     </section>
   );

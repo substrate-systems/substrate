@@ -36,10 +36,9 @@ const jsonLd = {
   url: "https://substratesystems.io/endstate",
   offers: {
     "@type": "Offer",
-    price: "39",
+    price: "0",
     priceCurrency: "EUR",
     availability: "https://schema.org/InStock",
-    priceValidUntil: "2027-12-31",
   },
   author: {
     "@type": "Organization",
