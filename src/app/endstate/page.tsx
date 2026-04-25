@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BuyButton } from "./BuyButton";
 import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
@@ -56,7 +57,7 @@ function Hero() {
           }}
           {...fadeUp(0.1)}
         >
-          Save your machine.
+          Spent a weekend setting up your last laptop?
           <br />
           <span
             style={{
@@ -66,31 +67,43 @@ function Hero() {
               backgroundClip: "text",
             }}
           >
-            Set up the next one.
+            Don&apos;t do it again.
           </span>
         </motion.h1>
         <motion.p
           className="mx-auto mb-10"
-          style={{ fontSize: "1.2rem", color: c.textSec, maxWidth: 560, lineHeight: 1.7 }}
+          style={{ fontSize: "1.2rem", color: c.textSec, maxWidth: 600, lineHeight: 1.7 }}
           {...fadeUp(0.2)}
         >
-          Endstate captures your apps and optionally your settings,
-          then restores them on a fresh Windows install. One scan. One file. Done.
+          Endstate captures the apps and settings that make your Windows machine yours,
+          then puts them back on the next one in minutes. Free, open source, your data stays yours.
         </motion.p>
         <motion.div className="flex justify-center gap-4 flex-wrap" {...fadeUp(0.3)}>
-          <BuyButton
+          <Link
+            href="/download"
             className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-lg font-semibold hover:opacity-88 transition-all duration-200"
-            style={{ background: c.text, color: c.bg, fontSize: "1rem" }}
+            style={{ background: c.text, color: c.bg, fontSize: "1rem", textDecoration: "none" }}
           >
-            Get Endstate
-          </BuyButton>
+            Download free
+          </Link>
+          <a
+            href="https://github.com/Artexis10/endstate"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-lg font-semibold transition-all duration-200"
+            style={{ background: "transparent", color: c.text, border: `1px solid ${c.border}`, fontSize: "1rem", textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = c.borderAccent)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = c.border)}
+          >
+            View on GitHub
+          </a>
         </motion.div>
         <motion.p
           className="mt-4"
           style={{ fontSize: "0.85rem", color: c.textMuted }}
           {...fadeUp(0.4)}
         >
-          One-time purchase · <strong style={{ color: c.textSec, fontWeight: 600 }}>Lifetime license</strong> · No subscription
+          Free forever · <strong style={{ color: c.textSec, fontWeight: 600 }}>Open source engine</strong> · No account required
         </motion.p>
       </div>
     </section>
@@ -180,8 +193,8 @@ function HowItWorks() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.2 }}
         >
-          Scan your current machine, save your setup to a file,
-          then load it on any fresh Windows install.
+          Scan your current machine, save your setup to a file you control,
+          then load it on any fresh Windows install. Everything runs locally.
         </motion.p>
 
         <div className="grid md:grid-cols-2 gap-12">
@@ -334,7 +347,7 @@ function Features() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.1 }}
         >
-          Built for people who set up machines.
+          Built for the people who actually use their machines.
         </motion.h2>
         <motion.p
           className="mb-16"
@@ -343,7 +356,9 @@ function Features() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.15 }}
         >
-          Whether you just got a new laptop or you&apos;re setting up machines for a team — Endstate gets you back to work faster.
+          Designers, editors, creators, gamers, freelancers, students, sysadmins —
+          anyone whose laptop is full of carefully chosen tools and settings.
+          Endstate gets you back to work in minutes, not a weekend.
         </motion.p>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -546,7 +561,7 @@ const faqs: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Can I use it across multiple machines?",
-    a: "Yes. Your license covers up to 3 machines. Save your setup from any of them and restore on any other.",
+    a: "Yes. The local product is free on as many machines as you like. Save your setup from any of them and restore on any other.",
   },
   {
     q: "What if something goes wrong during restore?",
@@ -554,23 +569,20 @@ const faqs: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: "Is an internet connection required?",
-    a: "Scanning and saving your setup works offline. Restoring apps on a new machine needs internet to download installers. License activation is a one-time online check.",
+    a: "Scanning and saving your setup works offline. Restoring apps on a new machine needs internet to download installers. The local product never phones home.",
   },
   {
-    q: "Where do I download Endstate after purchase?",
+    q: "Where do I download Endstate?",
     a: (
       <>
-        Right after you pay, we email your license key along with a download
-        link. If you lose the email, you can grab the latest installer any
-        time at{" "}
+        Grab the latest installer any time at{" "}
         <a
           href="/download"
           style={{ color: "#2dd4bf", textDecoration: "none" }}
         >
           substratesystems.io/download
         </a>
-        . The download is public — you just need your license key to activate
-        the app.
+        . No account, no payment — just download and run.
       </>
     ),
   },
@@ -585,10 +597,10 @@ const faqs: { q: string; a: React.ReactNode }[] = [
           rel="noopener noreferrer"
           style={{ color: "#2dd4bf", textDecoration: "none" }}
         >
-          open source
+          open source under Apache 2.0
         </a>
-        . You can read exactly what it does before running anything. The GUI is a
-        commercial product built on top of it.{" "}
+        . You can read exactly what it does before running anything, and build the
+        same binary from source if you want to.{" "}
         <a
           href="https://github.com/Artexis10/endstate"
           target="_blank"
