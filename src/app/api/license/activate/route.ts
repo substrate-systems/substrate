@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   LicenseKeyError,
   decodeAndVerifyLicenseKey,
-  signResponseFields,
+  signActivationCanonical,
 } from '@/lib/license/crypto';
 import {
   countDevices,
@@ -69,6 +69,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const existing = await findDeviceByFingerprint(license.id, fingerprint);
   if (existing) {
     return buildActivationResponse({
+      licenseKey: license.license_key,
       instanceId: existing.instance_id,
       licenseId: license.id,
       fingerprint: existing.fingerprint,
@@ -97,6 +98,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   });
 
   return buildActivationResponse({
+    licenseKey: license.license_key,
     instanceId: device.instance_id,
     licenseId: license.id,
     fingerprint: device.fingerprint,
@@ -105,6 +107,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 }
 
 async function buildActivationResponse(params: {
+  licenseKey: string;
   instanceId: string;
   licenseId: string;
   fingerprint: string;
@@ -118,6 +121,11 @@ async function buildActivationResponse(params: {
     fingerprint: params.fingerprint,
     activated_at: activatedAtIso,
   };
-  const signature = await signResponseFields(fields);
+  const signature = await signActivationCanonical({
+    licenseKey: params.licenseKey,
+    fingerprint: params.fingerprint,
+    activatedAt: activatedAtIso,
+    expiresAt: '',
+  });
   return NextResponse.json({ ...fields, signature }, { status: 200 });
 }

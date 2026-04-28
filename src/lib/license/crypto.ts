@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 
@@ -112,6 +113,23 @@ export async function signResponseFields(
 ): Promise<string> {
   const json = JSON.stringify(fields);
   const sig = await signBytes(te.encode(json));
+  return bytesToBase64(sig);
+}
+
+export async function signActivationCanonical(params: {
+  licenseKey: string;
+  fingerprint: string;
+  activatedAt: string;
+  expiresAt: string | null | undefined;
+}): Promise<string> {
+  const expiresAt = params.expiresAt ?? '';
+  const digest = createHash('sha256')
+    .update(params.licenseKey, 'utf8')
+    .update(params.fingerprint, 'utf8')
+    .update(params.activatedAt, 'utf8')
+    .update(expiresAt, 'utf8')
+    .digest();
+  const sig = await signBytes(new Uint8Array(digest));
   return bytesToBase64(sig);
 }
 
