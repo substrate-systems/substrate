@@ -779,6 +779,28 @@ function Pricing() {
         href: "mailto:founder@substratesystems.io?subject=Supporter%20License%20%E2%80%94%20interested",
       },
     },
+    {
+      name: "Teams",
+      price: (
+        <span style={{ fontSize: "1.5rem", fontWeight: 500, color: c.textSec }}>
+          Custom pricing
+        </span>
+      ),
+      cadence: "Per seat · Contact us",
+      blurb: "Hosted backups and shared profiles for teams setting up multiple machines.",
+      features: [
+        "Everything in Hosted Backup",
+        "Shared profiles — push a standard setup to any machine",
+        "Centralized account, multiple seats",
+        "Team admin controls",
+        "Priority support",
+      ],
+      cta: {
+        label: "Contact us",
+        href: "mailto:founder@substratesystems.io?subject=Endstate%20Teams%20%E2%80%94%20interested",
+      },
+      badge: "Coming soon",
+    },
   ];
 
   return (
@@ -817,7 +839,7 @@ function Pricing() {
           </motion.p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-5">
+        <div className="grid sm:grid-cols-2 gap-5">
           {tiers.map((tier, i) => (
             <motion.div
               key={tier.name}
