@@ -105,7 +105,7 @@ describe('refresh-token rotation', () => {
     await assert.rejects(
       rotateRefreshToken(initial.token),
       (err: Error) =>
-        String((err as { code: string }).code) === 'REFRESH_REUSE_DETECTED',
+        String((err as unknown as { code: string }).code) === 'REFRESH_REUSE_DETECTED',
     );
     // Every row in the chain should now be revoked
     for (const row of rows.values()) {
@@ -121,7 +121,7 @@ describe('refresh-token rotation', () => {
     await assert.rejects(
       rotateRefreshToken(child1.token),
       (err: Error) =>
-        String((err as { code: string }).code) === 'REFRESH_REUSE_DETECTED',
+        String((err as unknown as { code: string }).code) === 'REFRESH_REUSE_DETECTED',
     );
   });
 
@@ -131,7 +131,7 @@ describe('refresh-token rotation', () => {
     await assert.rejects(
       rotateRefreshToken('not-a-real-token'),
       (err: Error) =>
-        String((err as { code: string }).code) === 'REFRESH_INVALID',
+        String((err as unknown as { code: string }).code) === 'REFRESH_INVALID',
     );
   });
 
@@ -148,7 +148,7 @@ describe('refresh-token rotation', () => {
     await assert.rejects(
       rotateRefreshToken(issued.token),
       (err: Error) =>
-        String((err as { code: string }).code) === 'REFRESH_EXPIRED',
+        String((err as unknown as { code: string }).code) === 'REFRESH_EXPIRED',
     );
   });
 

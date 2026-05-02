@@ -121,4 +121,27 @@ export const errors = {
       message: 'kdf parameters are below the v1 floor',
       detail,
     }),
+  notFound: (message = 'not found') =>
+    new HostedBackupError({ code: 'NOT_FOUND', status: 404, message }),
+  subscriptionRequired: (message = 'an active subscription is required') =>
+    new HostedBackupError({
+      code: 'SUBSCRIPTION_REQUIRED',
+      status: 402,
+      message,
+    }),
+  storageQuotaExceeded: (detail?: Record<string, unknown>) =>
+    new HostedBackupError({
+      code: 'STORAGE_QUOTA_EXCEEDED',
+      status: 413,
+      message: 'storage quota exceeded',
+      detail,
+      remediation: 'delete unused versions or backups to reclaim space',
+    }),
+  paddleSignatureInvalid: (detail?: Record<string, unknown>) =>
+    new HostedBackupError({
+      code: 'PADDLE_SIGNATURE_INVALID',
+      status: 401,
+      message: 'paddle webhook signature did not verify',
+      detail,
+    }),
 };
