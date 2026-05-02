@@ -63,4 +63,19 @@ Then set `ENDSTATE_JWT_PRIVATE_KEY_HEX` and `ENDSTATE_JWT_ACTIVE_KID` in your en
 | `ENDSTATE_JWT_PRIVATE_KEY_HEX` | 32-byte seed (hex) for the active JWT signing key |
 | `ENDSTATE_JWT_ACTIVE_KID` | `kid` for the active signing key (matches a row in `signing_keys`) |
 
-PR2 (storage) adds R2 vars; PR3 (subscriptions) reuses the existing Paddle vars. See `.env.example` for the full list.
+**R2 (object storage).** Hosted Backup uses Cloudflare R2 for encrypted blob storage. Create a bucket; mint an R2 token scoped to that bucket; set:
+
+| Variable | Purpose |
+|---|---|
+| `R2_ACCOUNT_ID` | Cloudflare account ID |
+| `R2_ACCESS_KEY_ID` | R2 token's access key |
+| `R2_SECRET_ACCESS_KEY` | R2 token's secret |
+| `R2_BUCKET` | Bucket name (e.g. `endstate-backups`) |
+| `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `HOSTED_BACKUP_QUOTA_BYTES` | Optional override of the 1 GiB per-user quota |
+
+The server only mints presigned PUT/GET URLs (5-minute TTL); chunks transit directly between client and R2.
+
+**Paddle webhook.** Hosted Backup adds a second webhook receiver at `/api/webhooks/paddle` for subscription events. It reuses the existing `PADDLE_WEBHOOK_SECRET` and `PADDLE_API_KEY`. Configure Paddle to deliver subscription events to this URL in addition to the existing license webhook.
+
+See the configured env vars in your hosting environment for the full list.

@@ -41,7 +41,7 @@ describe('validateKdfParams', () => {
         }),
       (err: Error) =>
         err.constructor.name === 'HostedBackupError' &&
-        (err as { code: string }).code === 'KDF_TOO_WEAK',
+        (err as unknown as { code: string }).code === 'KDF_TOO_WEAK',
     );
   });
 
@@ -54,7 +54,7 @@ describe('validateKdfParams', () => {
           iterations: 2,
           parallelism: 4,
         }),
-      (err: Error) => (err as { code: string }).code === 'KDF_TOO_WEAK',
+      (err: Error) => (err as unknown as { code: string }).code === 'KDF_TOO_WEAK',
     );
   });
 
@@ -67,7 +67,7 @@ describe('validateKdfParams', () => {
           iterations: 3,
           parallelism: 1,
         }),
-      (err: Error) => (err as { code: string }).code === 'KDF_TOO_WEAK',
+      (err: Error) => (err as unknown as { code: string }).code === 'KDF_TOO_WEAK',
     );
   });
 
@@ -80,14 +80,14 @@ describe('validateKdfParams', () => {
           iterations: 3,
           parallelism: 4,
         }),
-      (err: Error) => (err as { code: string }).code === 'KDF_TOO_WEAK',
+      (err: Error) => (err as unknown as { code: string }).code === 'KDF_TOO_WEAK',
     );
   });
 
   it('rejects missing kdfParams object', () => {
     assert.throws(
       () => validateKdfParams(null),
-      (err: Error) => (err as { code: string }).code === 'KDF_TOO_WEAK',
+      (err: Error) => (err as unknown as { code: string }).code === 'KDF_TOO_WEAK',
     );
   });
 });

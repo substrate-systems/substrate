@@ -117,7 +117,7 @@ describe('verifyAccessToken', () => {
       subscriptionStatus: 'none',
     });
     await assert.rejects(verifyAccessToken(token), (err: Error) =>
-      String((err as { code: string }).code) === 'INVALID_TOKEN',
+      String((err as unknown as { code: string }).code) === 'INVALID_TOKEN',
     );
     await installTestKeysProvider();
   });
@@ -136,7 +136,7 @@ describe('verifyAccessToken', () => {
     parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const tampered = parts.join('.');
     await assert.rejects(verifyAccessToken(tampered), (err: Error) =>
-      String((err as { code: string }).code) === 'INVALID_TOKEN',
+      String((err as unknown as { code: string }).code) === 'INVALID_TOKEN',
     );
   });
 
@@ -145,7 +145,7 @@ describe('verifyAccessToken', () => {
     const { mintRecoveryToken, verifyAccessToken } = await import('../jwt');
     const { token } = await mintRecoveryToken({ userId: 'user-x' });
     await assert.rejects(verifyAccessToken(token), (err: Error) =>
-      String((err as { code: string }).code) === 'INVALID_TOKEN',
+      String((err as unknown as { code: string }).code) === 'INVALID_TOKEN',
     );
   });
 
@@ -166,7 +166,7 @@ describe('verifyAccessToken', () => {
     });
     const { verifyAccessToken } = await import('../jwt');
     await assert.rejects(verifyAccessToken(token), (err: Error) =>
-      String((err as { code: string }).code) === 'TOKEN_EXPIRED',
+      String((err as unknown as { code: string }).code) === 'TOKEN_EXPIRED',
     );
   });
 
@@ -185,7 +185,7 @@ describe('verifyAccessToken', () => {
       subscription_status: 'none',
     });
     await assert.rejects(verifyAccessToken(token), (err: Error) =>
-      String((err as { code: string }).code) === 'INVALID_TOKEN',
+      String((err as unknown as { code: string }).code) === 'INVALID_TOKEN',
     );
   });
 });
