@@ -95,6 +95,63 @@ export type AccountMeResponse = {
   createdAt: string;
 };
 
+export type AccountDeleteResponse = { ok: true };
+
+// --- Backups (storage) ---
+
+export type BackupSummary = {
+  id: string;
+  name: string;
+  latestVersionId: string | null;
+  versionCount: number;
+  totalSize: number;
+  updatedAt: string;
+};
+
+export type ListBackupsResponse = { backups: BackupSummary[] };
+
+export type CreateBackupRequest = { name: string };
+export type CreateBackupResponse = { backupId: string };
+
+export type VersionSummary = {
+  versionId: string;
+  createdAt: string;
+  size: number;
+  manifestSha256: string; // hex
+};
+export type ListVersionsResponse = { versions: VersionSummary[] };
+
+export type ChunkMetadata = {
+  index: number;
+  encryptedSize: number;
+  sha256: string; // hex
+};
+
+export type CreateVersionRequest = {
+  encryptedManifest: string; // base64
+  chunkMetadata: ChunkMetadata[];
+};
+
+export type UploadUrl = {
+  chunkIndex: number;
+  presignedUrl: string;
+  expiresAt: string; // ISO-8601
+};
+
+export type CreateVersionResponse = {
+  versionId: string;
+  uploadUrls: UploadUrl[];
+};
+
+export type DownloadUrlsRequest = { chunkIndices: number[] };
+export type DownloadUrlsResponse = { urls: UploadUrl[] };
+
+// --- Storage constants ---
+
+export const DEFAULT_QUOTA_BYTES = 1024 * 1024 * 1024; // 1 GiB, contract §8
+export const VERSION_RETENTION = 5; // contract §8
+export const PRESIGNED_URL_TTL_S = 300; // contract §8
+
 // --- OIDC discovery (contract §9) ---
 
 export type EndstateExtensions = {

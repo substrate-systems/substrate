@@ -269,13 +269,379 @@ export async function retireSigningKey(kid: string): Promise<void> {
   `;
 }
 
-// --- Subscription status (PR1 stub; PR3 replaces with real subscriptions table) ---
+// --- Subscriptions ---
+
+export type SubscriptionRow = {
+  user_id: string;
+  paddle_subscription_id: string | null;
+  paddle_customer_id: string | null;
+  status: SubscriptionStatus;
+  grace_started_at: string | null;
+  cancel_started_at: string | null;
+  current_period_end: string | null;
+  updated_at: string;
+};
 
 export async function getSubscriptionStatus(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   userId: string,
 ): Promise<SubscriptionStatus> {
-  // TODO(PR3 add-hosted-backup-paddle-subscriptions): replace with
-  // SELECT status FROM subscriptions WHERE user_id = $1
-  return 'none';
+  const { rows } = await sql`
+    SELECT status FROM subscriptions WHERE user_id = ${userId} LIMIT 1
+  `;
+  const row = rows[0] as { status: SubscriptionStatus } | undefined;
+  return row?.status ?? 'none';
+}
+
+export async function getSubscriptionByUserId(
+  userId: string,
+): Promise<SubscriptionRow | null> {
+  const { rows } = await sql`
+    SELECT user_id, paddle_subscription_id, paddle_customer_id, status,
+           grace_started_at, cancel_started_at, current_period_end, updated_at
+    FROM subscriptions WHERE user_id = ${userId} LIMIT 1
+  `;
+  return (rows[0] as SubscriptionRow | undefined) ?? null;
+}
+
+export async function getSubscriptionByPaddleId(
+  paddleSubscriptionId: string,
+): Promise<SubscriptionRow | null> {
+  const { rows } = await sql`
+    SELECT user_id, paddle_subscription_id, paddle_customer_id, status,
+           grace_started_at, cancel_started_at, current_period_end, updated_at
+    FROM subscriptions WHERE paddle_subscription_id = ${paddleSubscriptionId} LIMIT 1
+  `;
+  return (rows[0] as SubscriptionRow | undefined) ?? null;
+}
+
+export async function findUserIdByPaddleCustomerId(
+  paddleCustomerId: string,
+): Promise<string | null> {
+  const { rows } = await sql`
+    SELECT user_id FROM subscriptions WHERE paddle_customer_id = ${paddleCustomerId} LIMIT 1
+  `;
+  return (rows[0] as { user_id: string } | undefined)?.user_id ?? null;
+}
+
+export async function upsertSubscription(params: {
+  userId: string;
+  paddleSubscriptionId: string;
+  paddleCustomerId: string;
+  status: SubscriptionStatus;
+  graceStartedAt?: Date | null;
+  cancelStartedAt?: Date | null;
+  currentPeriodEnd?: Date | null;
+}): Promise<void> {
+  await sql`
+    INSERT INTO subscriptions (
+      user_id, paddle_subscription_id, paddle_customer_id, status,
+      grace_started_at, cancel_started_at, current_period_end, updated_at
+    ) VALUES (
+      ${params.userId},
+      ${params.paddleSubscriptionId},
+      ${params.paddleCustomerId},
+      ${params.status},
+      ${params.graceStartedAt?.toISOString() ?? null},
+      ${params.cancelStartedAt?.toISOString() ?? null},
+      ${params.currentPeriodEnd?.toISOString() ?? null},
+      now()
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+      paddle_subscription_id = EXCLUDED.paddle_subscription_id,
+      paddle_customer_id = EXCLUDED.paddle_customer_id,
+      status = EXCLUDED.status,
+      grace_started_at = EXCLUDED.grace_started_at,
+      cancel_started_at = EXCLUDED.cancel_started_at,
+      current_period_end = EXCLUDED.current_period_end,
+      updated_at = now()
+  `;
+}
+
+// --- Paddle webhook events (idempotency) ---
+
+export async function recordPaddleEventIfFresh(params: {
+  eventId: string;
+  eventType: string;
+}): Promise<boolean> {
+  const { rowCount } = await sql`
+    INSERT INTO paddle_webhook_events (event_id, event_type)
+    VALUES (${params.eventId}, ${params.eventType})
+    ON CONFLICT (event_id) DO NOTHING
+  `;
+  return (rowCount ?? 0) > 0;
+}
+
+export async function markPaddleEventProcessed(eventId: string): Promise<void> {
+  await sql`
+    UPDATE paddle_webhook_events SET processed_at = now() WHERE event_id = ${eventId}
+  `;
+}
+
+// --- Backups (storage) ---
+
+export type BackupRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
+export type BackupVersionRow = {
+  id: string;
+  backup_id: string;
+  created_at: string;
+  size_bytes: number;
+  manifest_object_key: string;
+  manifest_sha256: Uint8Array;
+  chunk_count: number;
+  deleted_at: string | null;
+};
+
+export type BackupChunkRow = {
+  version_id: string;
+  chunk_index: number;
+  object_key: string;
+  size_bytes: number;
+  sha256: Uint8Array;
+};
+
+export type BackupSummaryRow = BackupRow & {
+  latest_version_id: string | null;
+  version_count: number;
+  total_size: number;
+};
+
+export async function insertBackup(params: {
+  userId: string;
+  name: string;
+}): Promise<BackupRow> {
+  const { rows } = await sql`
+    INSERT INTO backups (user_id, name)
+    VALUES (${params.userId}, ${params.name})
+    RETURNING id, user_id, name, created_at, updated_at, deleted_at
+  `;
+  return rows[0] as BackupRow;
+}
+
+export async function listBackupsForUser(
+  userId: string,
+): Promise<BackupSummaryRow[]> {
+  const { rows } = await sql`
+    SELECT b.id, b.user_id, b.name, b.created_at, b.updated_at, b.deleted_at,
+      (SELECT id FROM backup_versions
+        WHERE backup_id = b.id AND deleted_at IS NULL
+        ORDER BY created_at DESC LIMIT 1) AS latest_version_id,
+      COALESCE((SELECT COUNT(*)::int FROM backup_versions
+        WHERE backup_id = b.id AND deleted_at IS NULL), 0) AS version_count,
+      COALESCE((SELECT SUM(size_bytes)::bigint FROM backup_versions
+        WHERE backup_id = b.id AND deleted_at IS NULL), 0) AS total_size
+    FROM backups b
+    WHERE b.user_id = ${userId} AND b.deleted_at IS NULL
+    ORDER BY b.updated_at DESC
+  `;
+  return rows as BackupSummaryRow[];
+}
+
+export async function getBackupOwned(
+  userId: string,
+  backupId: string,
+): Promise<BackupRow | null> {
+  const { rows } = await sql`
+    SELECT id, user_id, name, created_at, updated_at, deleted_at
+    FROM backups
+    WHERE id = ${backupId} AND user_id = ${userId} AND deleted_at IS NULL
+    LIMIT 1
+  `;
+  return (rows[0] as BackupRow | undefined) ?? null;
+}
+
+export async function deleteBackupOwned(
+  userId: string,
+  backupId: string,
+): Promise<number> {
+  // Hard delete; FKs cascade to versions and chunks.
+  const { rowCount } = await sql`
+    DELETE FROM backups
+    WHERE id = ${backupId} AND user_id = ${userId}
+  `;
+  return rowCount ?? 0;
+}
+
+export async function listVersions(
+  backupId: string,
+): Promise<BackupVersionRow[]> {
+  const { rows } = await sql`
+    SELECT id, backup_id, created_at, size_bytes, manifest_object_key,
+           manifest_sha256, chunk_count, deleted_at
+    FROM backup_versions
+    WHERE backup_id = ${backupId} AND deleted_at IS NULL
+    ORDER BY created_at DESC
+  `;
+  return rows as BackupVersionRow[];
+}
+
+export async function getVersionOwned(params: {
+  userId: string;
+  backupId: string;
+  versionId: string;
+}): Promise<BackupVersionRow | null> {
+  const { rows } = await sql`
+    SELECT v.id, v.backup_id, v.created_at, v.size_bytes, v.manifest_object_key,
+           v.manifest_sha256, v.chunk_count, v.deleted_at
+    FROM backup_versions v
+    JOIN backups b ON b.id = v.backup_id
+    WHERE v.id = ${params.versionId}
+      AND v.backup_id = ${params.backupId}
+      AND b.user_id = ${params.userId}
+      AND v.deleted_at IS NULL
+      AND b.deleted_at IS NULL
+    LIMIT 1
+  `;
+  return (rows[0] as BackupVersionRow | undefined) ?? null;
+}
+
+export async function listChunksForVersion(
+  versionId: string,
+): Promise<BackupChunkRow[]> {
+  const { rows } = await sql`
+    SELECT version_id, chunk_index, object_key, size_bytes, sha256
+    FROM backup_chunks
+    WHERE version_id = ${versionId}
+    ORDER BY chunk_index ASC
+  `;
+  return rows as BackupChunkRow[];
+}
+
+export async function softDeleteVersionOwned(params: {
+  userId: string;
+  backupId: string;
+  versionId: string;
+}): Promise<number> {
+  const { rowCount } = await sql`
+    UPDATE backup_versions SET deleted_at = now()
+    WHERE id = ${params.versionId}
+      AND backup_id = ${params.backupId}
+      AND deleted_at IS NULL
+      AND backup_id IN (SELECT id FROM backups WHERE user_id = ${params.userId})
+  `;
+  return rowCount ?? 0;
+}
+
+export async function sumActiveStorageForUser(userId: string): Promise<number> {
+  const { rows } = await sql`
+    SELECT COALESCE(SUM(v.size_bytes)::bigint, 0)::text AS total
+    FROM backup_versions v
+    JOIN backups b ON b.id = v.backup_id
+    WHERE b.user_id = ${userId}
+      AND v.deleted_at IS NULL
+      AND b.deleted_at IS NULL
+  `;
+  const total = (rows[0] as { total: string }).total;
+  return Number(total);
+}
+
+export async function insertVersionWithChunks(params: {
+  versionId: string;
+  backupId: string;
+  sizeBytes: number;
+  manifestObjectKey: string;
+  manifestSha256: Uint8Array;
+  chunkCount: number;
+  chunks: Array<{
+    index: number;
+    objectKey: string;
+    sizeBytes: number;
+    sha256: Uint8Array;
+  }>;
+}): Promise<BackupVersionRow> {
+  const indices = params.chunks.map((c) => c.index);
+  const objectKeys = params.chunks.map((c) => c.objectKey);
+  const sizes = params.chunks.map((c) => c.sizeBytes);
+  const sha256s = params.chunks.map((c) => Buffer.from(c.sha256).toString('hex'));
+
+  // Single statement with CTEs: the version insert, the chunks insert, and
+  // the parent-backup updated_at touch all run atomically.
+  const { rows } = await sql`
+    WITH inserted_version AS (
+      INSERT INTO backup_versions (
+        id, backup_id, size_bytes, manifest_object_key, manifest_sha256, chunk_count
+      ) VALUES (
+        ${params.versionId},
+        ${params.backupId},
+        ${params.sizeBytes},
+        ${params.manifestObjectKey},
+        ${Buffer.from(params.manifestSha256)},
+        ${params.chunkCount}
+      )
+      RETURNING id, backup_id, created_at, size_bytes, manifest_object_key,
+                manifest_sha256, chunk_count, deleted_at
+    ),
+    inserted_chunks AS (
+      INSERT INTO backup_chunks (version_id, chunk_index, object_key, size_bytes, sha256)
+      SELECT
+        ${params.versionId},
+        ci.idx,
+        ci.key,
+        ci.size,
+        decode(ci.hash, 'hex')
+      FROM unnest(
+        ${indices}::int[],
+        ${objectKeys}::text[],
+        ${sizes}::int[],
+        ${sha256s}::text[]
+      ) AS ci(idx, key, size, hash)
+      RETURNING 1
+    ),
+    touched_backup AS (
+      UPDATE backups SET updated_at = now()
+      WHERE id = ${params.backupId}
+      RETURNING 1
+    )
+    SELECT id, backup_id, created_at, size_bytes, manifest_object_key,
+           manifest_sha256, chunk_count, deleted_at
+    FROM inserted_version
+  `;
+  return rows[0] as BackupVersionRow;
+}
+
+export async function softDeleteVersionsBeyondRetention(params: {
+  backupId: string;
+  retain: number;
+}): Promise<number> {
+  const { rowCount } = await sql`
+    UPDATE backup_versions
+    SET deleted_at = now()
+    WHERE backup_id = ${params.backupId}
+      AND deleted_at IS NULL
+      AND id NOT IN (
+        SELECT id FROM backup_versions
+        WHERE backup_id = ${params.backupId} AND deleted_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT ${params.retain}
+      )
+  `;
+  return rowCount ?? 0;
+}
+
+// --- Account deletion ---
+
+export async function insertAccountDeletionAudit(params: {
+  userIdHash: Uint8Array;
+  reason: string;
+}): Promise<void> {
+  await sql`
+    INSERT INTO audit_log_account_deletions (user_id_hash, reason)
+    VALUES (${Buffer.from(params.userIdHash)}, ${params.reason})
+  `;
+}
+
+export async function deleteUserCascade(userId: string): Promise<number> {
+  // FKs cascade across auth_credentials, refresh_tokens, subscriptions,
+  // backups (and via backups, backup_versions and backup_chunks).
+  const { rowCount } = await sql`
+    DELETE FROM users WHERE id = ${userId}
+  `;
+  return rowCount ?? 0;
 }
