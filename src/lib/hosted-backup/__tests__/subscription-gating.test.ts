@@ -211,15 +211,53 @@ describe('requireWriteAccess test-email bypass', () => {
     );
   });
 
-  it('bypass does not apply to read endpoints', async () => {
+});
+
+describe('requireReadAccess test-email bypass', () => {
+  const TEST_PATTERN = '^smoketest\\+\\d+@example\\.com$';
+
+  it('pattern set + matching email — none-status user is allowed', async () => {
     await setupMocks();
     mockedDbStatus = 'none';
-    mockedUserEmail = 'smoketest+1@example.com';
+    mockedUserEmail = 'smoketest+99@example.com';
     process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN = TEST_PATTERN;
     const { mintAccessToken } = await import('../jwt');
     const { requireReadAccess } = await import('../auth-middleware');
     const { token } = await mintAccessToken({
-      userId: 'u-bypass-5',
+      userId: 'u-rbypass-1',
+      subscriptionStatus: 'none',
+    });
+    const ctx = await requireReadAccess(makeReqWithBearer(token));
+    assert.equal(ctx.userId, 'u-rbypass-1');
+  });
+
+  it('pattern set + non-matching email — none-status user is rejected', async () => {
+    await setupMocks();
+    mockedDbStatus = 'none';
+    mockedUserEmail = 'alice@example.com';
+    process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN = TEST_PATTERN;
+    const { mintAccessToken } = await import('../jwt');
+    const { requireReadAccess } = await import('../auth-middleware');
+    const { token } = await mintAccessToken({
+      userId: 'u-rbypass-2',
+      subscriptionStatus: 'none',
+    });
+    await assert.rejects(
+      requireReadAccess(makeReqWithBearer(token)),
+      (err: Error) =>
+        (err as unknown as { code: string }).code === 'SUBSCRIPTION_REQUIRED',
+    );
+  });
+
+  it('pattern set to invalid regex — bypass disabled, every user is gated', async () => {
+    await setupMocks();
+    mockedDbStatus = 'none';
+    mockedUserEmail = 'smoketest+1@example.com';
+    process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN = '['; // invalid regex source
+    const { mintAccessToken } = await import('../jwt');
+    const { requireReadAccess } = await import('../auth-middleware');
+    const { token } = await mintAccessToken({
+      userId: 'u-rbypass-3',
       subscriptionStatus: 'none',
     });
     await assert.rejects(
