@@ -28,6 +28,31 @@ export async function requireAuth(req: NextRequest): Promise<AuthContext> {
   };
 }
 
+// DEBUG (revert after diagnosing prod bypass): module-load + per-request
+// trace, split into short single-fact lines so each fits in the Vercel
+// runtime-log table view.
+{
+  const _raw = process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN;
+  let _compiles = false;
+  let _matchesSample = false;
+  let _compileError: string | null = null;
+  if (_raw) {
+    try {
+      const _r = new RegExp(_raw);
+      _compiles = true;
+      _matchesSample = _r.test('smoketest+1@example.com');
+    } catch (e) {
+      _compileError = (e as Error).message;
+    }
+  }
+  console.log('[hb-prod-debug] mod-load set:', _raw != null);
+  console.log('[hb-prod-debug] mod-load len:', _raw?.length ?? 0);
+  console.log('[hb-prod-debug] mod-load compiles:', _compiles);
+  console.log('[hb-prod-debug] mod-load err:', _compileError);
+  console.log('[hb-prod-debug] mod-load match:', _matchesSample);
+  console.log('[hb-prod-debug] mod-load val:', _raw ?? '<unset>');
+}
+
 // Test-only bypass: see the JSDoc on `requireWriteAccess`. Cached entry is
 // keyed on the env-var source string so a changed env var is picked up on
 // the next call without restart, and an invalid regex is only logged once
@@ -80,17 +105,24 @@ function getTestEmailBypassPattern(): RegExp | null {
  */
 export async function requireWriteAccess(req: NextRequest): Promise<AuthContext> {
   const ctx = await requireAuth(req);
+  console.log('[hb-prod-debug] write enter user:', ctx.userId);
   const bypassRegex = getTestEmailBypassPattern();
+  console.log('[hb-prod-debug] write regex-set:', bypassRegex != null);
   if (bypassRegex) {
     const user = await findUserById(ctx.userId);
+    console.log('[hb-prod-debug] write user-found:', user != null);
+    console.log('[hb-prod-debug] write email:', user?.email ?? '<none>');
     if (user && bypassRegex.test(user.email)) {
+      console.log('[hb-prod-debug] write bypass: YES');
       console.warn(
         `[hosted-backup] subscription gate bypassed for test account user=${ctx.userId}`,
       );
       return ctx;
     }
+    console.log('[hb-prod-debug] write bypass: NO');
   }
   const live = await getSubscriptionStatus(ctx.userId);
+  console.log('[hb-prod-debug] write db-status:', live);
   if (live !== 'active') {
     throw errors.subscriptionRequired(
       live === 'none'
@@ -109,7 +141,9 @@ export async function requireWriteAccess(req: NextRequest): Promise<AuthContext>
  */
 export async function requireReadAccess(req: NextRequest): Promise<AuthContext> {
   const ctx = await requireAuth(req);
+  console.log('[hb-prod-debug] read enter user:', ctx.userId);
   const live = await getSubscriptionStatus(ctx.userId);
+  console.log('[hb-prod-debug] read db-status:', live);
   if (live === 'none') {
     throw errors.subscriptionRequired('no subscription on file');
   }
