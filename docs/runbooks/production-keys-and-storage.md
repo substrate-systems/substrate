@@ -130,9 +130,87 @@ Cloudflare dashboard → R2 → Manage R2 API Tokens → delete the old token.
 
 ---
 
+## Engine smoke test — operator-controlled subscription bypass
+
+Substrate enforces an active Paddle subscription before accepting `POST /api/backups` and `POST /api/backups/:id/versions`. To let the engine smoke test run end-to-end against production without provisioning a real subscription per disposable account, `requireWriteAccess` checks an opt-in regex pattern and exempts matching emails from the gate.
+
+### How it works
+
+- Env var: `HOSTED_BACKUP_TEST_EMAIL_PATTERN` — a `RegExp` source string. Empty / unset = bypass fully disabled (default).
+- Implemented in `src/lib/hosted-backup/auth-middleware.ts`. Reads / write paths: write only. Read endpoints intentionally do not honor the bypass.
+- An invalid regex source fails closed: bypass disabled (one-time warning logged), service keeps running normally for real users.
+- Each bypass-taken request emits `[hosted-backup] subscription gate bypassed for test account user=<id>` so usage is auditable.
+
+### Current production value
+
+| Env var | Value | Environments |
+|---------|-------|--------------|
+| `HOSTED_BACKUP_TEST_EMAIL_PATTERN` | `^smoketest\+\d+@example\.com$` | Production, Preview |
+
+### ⚠️ Gotcha: env-var changes do not retroactively affect running deployments
+
+Vercel env vars only apply to deployments created **after** the variable is added or changed. The previous production deployment continues to run with the env it captured at build time. Setting or changing `HOSTED_BACKUP_TEST_EMAIL_PATTERN` requires a redeploy before functions see the new value.
+
+This bit us once: on first install, the env var was added to Production but the existing deployment kept rejecting smoke-test pushes with `SUBSCRIPTION_REQUIRED` until a fresh deployment was promoted. Vercel's GitHub integration auto-deploys on env-var change in many cases, but **don't rely on that** — always confirm a newer "Ready" production deploy exists before testing.
+
+### Verify the bypass is wired (substrate-side, no engine needed)
+
+1. Confirm the env var is registered in the right environments:
+
+   ```bash
+   vercel env ls production | grep HOSTED_BACKUP_TEST_EMAIL_PATTERN
+   vercel env ls preview    | grep HOSTED_BACKUP_TEST_EMAIL_PATTERN
+   ```
+
+   Both should show "Encrypted" with a `created` timestamp.
+
+2. Confirm the active production deployment was created **after** that timestamp:
+
+   ```bash
+   vercel ls --prod | head -3
+   ```
+
+   Compare deploy "Age" against env-var "created". If the deploy is older, trigger a redeploy:
+
+   ```bash
+   vercel redeploy <latest-prod-deployment-url> --target=production
+   ```
+
+3. (One-shot diagnostic) If you suspect the runtime is reading a different value than expected (e.g., backslashes stripped by the dashboard UI), add a temporary module-load `console.log` in `src/lib/hosted-backup/auth-middleware.ts`, push to a branch (Vercel will auto-build a Preview), then read the runtime log:
+
+   ```bash
+   vercel logs https://<preview-url> -x --no-follow --since 30m \
+     | grep HOSTED_BACKUP_TEST_EMAIL_PATTERN
+   ```
+
+   Expected JSON shape:
+   ```json
+   {"set":true,"isEmpty":false,"length":29,
+    "value":"^smoketest\\+\\d+@example\\.com$",
+    "compiles":true,"compileError":null,"matchesSample":true}
+   ```
+
+   `length:29`, `compiles:true`, `matchesSample:true` is the green-light state. Remove the diagnostic log immediately after.
+
+### Disable the bypass (e.g., to re-validate the paywall)
+
+Remove the env var (or set it to empty) and redeploy:
+
+```bash
+vercel env rm HOSTED_BACKUP_TEST_EMAIL_PATTERN production
+vercel env rm HOSTED_BACKUP_TEST_EMAIL_PATTERN preview
+vercel redeploy <latest-prod-deployment-url> --target=production
+```
+
+After redeploy, every user — including `smoketest+...@example.com` accounts — falls back to the standard subscription gate.
+
+---
+
 ## Reference
 
 - Schema: `migrations/0004_signing_keys.sql`
 - JWT minting/verification: `src/lib/hosted-backup/jwt.ts`
 - R2 client setup: `src/lib/hosted-backup/r2.ts`
-- Contract: `docs/hosted-backup-contract.md` §4 (JWT), §8 (R2)
+- Auth middleware (subscription gate + bypass): `src/lib/hosted-backup/auth-middleware.ts`
+- Contract: `docs/hosted-backup-contract.md` §4 (JWT), §8 (R2), §10 (subscription gating)
+- OpenSpec change for the bypass: `openspec/changes/add-hosted-backup-test-bypass/`
