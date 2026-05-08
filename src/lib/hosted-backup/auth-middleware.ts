@@ -28,10 +28,11 @@ export async function requireAuth(req: NextRequest): Promise<AuthContext> {
   };
 }
 
-// Test-only bypass: see the JSDoc on `requireWriteAccess`. Cached entry is
-// keyed on the env-var source string so a changed env var is picked up on
-// the next call without restart, and an invalid regex is only logged once
-// per distinct source value.
+// Test-only bypass shared by `requireWriteAccess` and `requireReadAccess`.
+// See the JSDoc on either gate function for semantics and threat model.
+// Cache entry is keyed on the env-var source string so a changed env var is
+// picked up on the next call without restart, and an invalid regex is only
+// logged once per distinct source value.
 type BypassCacheEntry = { source: string; regex: RegExp | null; warned: boolean };
 let bypassCache: BypassCacheEntry | null = null;
 
@@ -60,13 +61,14 @@ function getTestEmailBypassPattern(): RegExp | null {
  * contract §10). Allows only `active`.
  *
  * Test-only bypass: when `HOSTED_BACKUP_TEST_EMAIL_PATTERN` is set to a
- * non-empty regex source, authenticated users whose email matches the regex
- * skip the subscription check. The bypass exists so the engine smoke test
- * can run end-to-end against production without going through Paddle
- * checkout for each disposable test account; it MUST remain unset in any
- * deployment that is meant to enforce the paywall for all users. The
- * bypass:
- *   - applies only to writes (this function); reads are unchanged.
+ * non-empty regex source, authenticated users whose stored email matches the
+ * regex skip the subscription check. The same bypass is applied symmetrically
+ * by the sibling `requireReadAccess` so a smoke account can complete the full
+ * `signup → push → pull → byte-equal → delete` cycle. It MUST remain unset
+ * in any deployment that is meant to enforce the paywall for all users.
+ *
+ * The bypass:
+ *   - applies to both writes (this function) and reads (`requireReadAccess`).
  *   - requires both that the env var be set AND that the user's stored
  *     email match the compiled regex; an unset env var is a strict
  *     no-bypass state.
@@ -77,6 +79,12 @@ function getTestEmailBypassPattern(): RegExp | null {
  *     gate to every user.
  *   - logs a `console.warn` per request that takes the bypass, so the
  *     bypass usage is auditable.
+ *
+ * Threat model: the bypass is gated by two operator-controlled conditions —
+ * the env var (set in Vercel project settings, requires admin access) and
+ * the email regex (recommended pattern uses the RFC 2606 reserved
+ * `example.com` domain, which no organic signup could match). See
+ * `docs/runbooks/production-keys-and-storage.md` for the full discussion.
  */
 export async function requireWriteAccess(req: NextRequest): Promise<AuthContext> {
   const ctx = await requireAuth(req);
@@ -103,12 +111,28 @@ export async function requireWriteAccess(req: NextRequest): Promise<AuthContext>
 
 /**
  * Auth + read-access gate. Allows `active`, `grace`, `cancelled`. Blocks
- * `none`. Re-reads subscription status from DB. The
- * `HOSTED_BACKUP_TEST_EMAIL_PATTERN` write-only bypass intentionally does
- * not apply here.
+ * `none`. Re-reads subscription status from DB.
+ *
+ * Honors the same `HOSTED_BACKUP_TEST_EMAIL_PATTERN` bypass as
+ * `requireWriteAccess` — see that function's JSDoc for full semantics and
+ * threat model. The bypass covers reads so a smoke-test account in
+ * `status="none"` can complete the pull half of the round-trip
+ * (`GET /api/backups`, `GET /api/backups/:id/versions`,
+ * `POST /api/backups/:id/versions/:vid/download-urls`) which would
+ * otherwise reject the smoke test before any data could be retrieved.
  */
 export async function requireReadAccess(req: NextRequest): Promise<AuthContext> {
   const ctx = await requireAuth(req);
+  const bypassRegex = getTestEmailBypassPattern();
+  if (bypassRegex) {
+    const user = await findUserById(ctx.userId);
+    if (user && bypassRegex.test(user.email)) {
+      console.warn(
+        `[hosted-backup] subscription gate bypassed for test account user=${ctx.userId}`,
+      );
+      return ctx;
+    }
+  }
   const live = await getSubscriptionStatus(ctx.userId);
   if (live === 'none') {
     throw errors.subscriptionRequired('no subscription on file');
