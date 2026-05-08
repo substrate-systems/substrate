@@ -175,6 +175,9 @@ Each of these has bitten us in production at least once during hosted-backup rol
 **3. Env-var name must match what the code actually reads — `process.env.X` and `vercel env ls X` are two independent strings.** Project convention is `ENDSTATE_*` for hosted-backup secrets (`ENDSTATE_JWT_*`, `ENDSTATE_OIDC_*`, `ENDSTATE_R2_*`). Code that drifts from the convention — e.g. reads `R2_BUCKET` while ops sets `ENDSTATE_R2_BUCKET` — produces a 500 INTERNAL_ERROR with `Error: <NAME> is not set` the first time the code path runs in production. **Always grep the source for `process.env.<NAME>` and compare to `vercel env ls` before assuming an env var is wired up.** A missed reference is invisible until the unhappy path is exercised.
 *(First seen: PR #6, R2 client constructor threw `Error: R2_BUCKET is not set` on the engine smoke test's first POST `/api/backups/:id/versions`. The endpoint had never run authenticated in production before — the bypass that lets a smoke account reach it only landed in PR #5.)*
 
+**4. Asymmetric handling between paired endpoints.** When two endpoints implement opposite halves of the same protocol contract (upload mints URL → download fetches URL; encrypt → decrypt; write → read), an invariant on one side has to be honored on the other. Drift is invisible in unit tests that exercise each half in isolation. The hosted-backup contract uses `chunkIndex = -1` as the sentinel for the manifest blob in **both** the upload-URL response (`POST /api/backups/:id/versions`) and the download-URL request (`POST /api/backups/:id/versions/:vid/download-urls`); the upload side was correct from PR #2, but the download side validated all requested indices against the chunks table — where `-1` is by definition absent — and threw `NOT_FOUND` before ever reaching the manifest case. **When you find a sentinel value or magic-number convention in code, grep the codebase for every other place that value could appear and verify the symmetry.** Add an end-to-end test that round-trips through both endpoints with the sentinel.
+*(First seen: PR #7, `POST .../download-urls` with `chunkIndices: [-1]` returned `NOT_FOUND`, blocking the engine smoke test's pull half on a real prod backup `9e6f8cc9-…`/`910f3c00-…`. Push had worked because that path mints the manifest URL itself; download couldn't fetch what push had written.)*
+
 ### Verify the bypass is wired (substrate-side, no engine needed)
 
 1. Confirm the env var is registered in every relevant environment:
@@ -214,7 +217,22 @@ Each of these has bitten us in production at least once during hosted-backup rol
 
    `length:29`, `compiles:true`, `matchesSample:true` is the green-light state. Remove the diagnostic log immediately after.
 
-4. (End-to-end) Run the production round-trip from the substrate side without involving the engine. Provision a fresh smoke account, exercise the bypass on both gates, **and** the R2 presign path that the engine push depends on, then clean up:
+4. (End-to-end) Run a full round-trip against production from the substrate side, without involving the engine. **The recipe below MUST exercise every endpoint the engine smoke test touches** — adding a new endpoint to the engine flow without adding it here is how regressions slip through. Update this script before extending the engine flow.
+
+   The engine smoke test surface is exactly these endpoints:
+
+   | Endpoint                                                                       | Auth                | Why it's in the recipe                                                  |
+   |--------------------------------------------------------------------------------|---------------------|-------------------------------------------------------------------------|
+   | `POST /api/auth/signup`                                                        | none                | provision a fresh smoke account                                          |
+   | `POST /api/backups`                                                            | `requireWriteAccess`| create backup; bypass on writes                                          |
+   | `GET /api/backups`                                                             | `requireReadAccess` | list backups; bypass on reads                                            |
+   | `POST /api/backups/{id}/versions`                                              | `requireWriteAccess`| create version + R2 upload-URL mint (incl. manifest URL with `-1`)       |
+   | `POST /api/backups/{id}/versions/{vid}/download-urls` with `[-1]`              | `requireReadAccess` | manifest-only download; sentinel handling                                |
+   | `POST /api/backups/{id}/versions/{vid}/download-urls` with `[-1, 0]`           | `requireReadAccess` | mixed manifest + chunk download; symmetry with upload                    |
+   | `GET /api/backups/{id}/versions`                                               | `requireReadAccess` | list versions for pull                                                   |
+   | `DELETE /api/account`                                                          | `requireAuth`       | smoke-account cleanup                                                    |
+
+   Recipe:
 
    ```bash
    node --input-type=module <<'EOF'
@@ -223,7 +241,12 @@ Each of these has bitten us in production at least once during hosted-backup rol
    const email = `smoketest+${Math.floor(Date.now()/1000)}@example.com`;
    const b64 = (n) => randomBytes(n).toString('base64');
    const hex = (buf) => Buffer.from(buf).toString('hex');
-   const signup = await (await fetch(`${BASE}/api/auth/signup`, {
+   const status = async (label, p) => { const r = await p; return [label, r.status, await r.text()]; };
+
+   const out = {};
+
+   // 1. signup
+   const signupRes = await fetch(`${BASE}/api/auth/signup`, {
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
      body: JSON.stringify({
@@ -235,14 +258,23 @@ Each of these has bitten us in production at least once during hosted-backup rol
        recoveryKeyVerifier: b64(32),
        recoveryKeyWrappedDEK: b64(64),
      }),
-   })).json();
+   });
+   const signup = await signupRes.json();
+   out.signup = signupRes.status;
    const auth = { authorization: `Bearer ${signup.accessToken}` };
-   const write = await fetch(`${BASE}/api/backups`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ name: 'verify' }) });
-   const { backupId } = await write.json();
-   const read  = await fetch(`${BASE}/api/backups`, { headers: auth });
-   // Exercise R2 presign path. Body must satisfy the contract §7 schema.
+
+   // 2. POST /api/backups (write — bypass)
+   const writeRes = await fetch(`${BASE}/api/backups`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ name: 'verify' }) });
+   const { backupId } = await writeRes.json();
+   out.write = writeRes.status;
+
+   // 3. GET /api/backups (read — bypass)
+   const readRes = await fetch(`${BASE}/api/backups`, { headers: auth });
+   out.read = readRes.status;
+
+   // 4. POST /api/backups/{id}/versions (write — bypass + R2 upload presign incl. manifest with chunkIndex=-1)
    const chunkBytes = randomBytes(64);
-   const versions = await fetch(`${BASE}/api/backups/${backupId}/versions`, {
+   const versionsRes = await fetch(`${BASE}/api/backups/${backupId}/versions`, {
      method: 'POST',
      headers: { 'Content-Type': 'application/json', ...auth },
      body: JSON.stringify({
@@ -250,19 +282,73 @@ Each of these has bitten us in production at least once during hosted-backup rol
        chunkMetadata: [{ index: 0, encryptedSize: chunkBytes.length, sha256: hex(createHash('sha256').update(chunkBytes).digest()) }],
      }),
    });
-   const versionsBody = await versions.json();
-   await fetch(`${BASE}/api/account`, { method: 'DELETE', headers: auth });
-   console.log({
-     email,
-     write: write.status,
-     read: read.status,
-     versions: versions.status,
-     hasUploadUrls: Array.isArray(versionsBody.uploadUrls) && versionsBody.uploadUrls.length > 0,
+   const versionsBody = await versionsRes.json();
+   out.versions = versionsRes.status;
+   out.versions_uploadUrlIndices = (versionsBody.uploadUrls ?? []).map(u => u.chunkIndex);
+   const versionId = versionsBody.versionId;
+
+   // 5. POST .../download-urls with [-1] (manifest only)
+   const dlManifestRes = await fetch(`${BASE}/api/backups/${backupId}/versions/${versionId}/download-urls`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json', ...auth },
+     body: JSON.stringify({ chunkIndices: [-1] }),
    });
+   const dlManifest = await dlManifestRes.json();
+   out.dlManifest = dlManifestRes.status;
+   out.dlManifest_indices = (dlManifest.urls ?? []).map(u => u.chunkIndex);
+
+   // 6. POST .../download-urls with [-1, 0] (manifest + chunk)
+   const dlMixedRes = await fetch(`${BASE}/api/backups/${backupId}/versions/${versionId}/download-urls`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json', ...auth },
+     body: JSON.stringify({ chunkIndices: [-1, 0] }),
+   });
+   const dlMixed = await dlMixedRes.json();
+   out.dlMixed = dlMixedRes.status;
+   out.dlMixed_indices = (dlMixed.urls ?? []).map(u => u.chunkIndex);
+
+   // 7. GET /api/backups/{id}/versions (list versions)
+   const listVersionsRes = await fetch(`${BASE}/api/backups/${backupId}/versions`, { headers: auth });
+   const listVersions = await listVersionsRes.json();
+   out.listVersions = listVersionsRes.status;
+   out.listVersions_count = (listVersions.versions ?? []).length;
+
+   // 8. DELETE /api/account (cleanup)
+   const delRes = await fetch(`${BASE}/api/account`, { method: 'DELETE', headers: auth });
+   out.cleanup = delRes.status;
+
+   console.log(JSON.stringify({ email, userId: signup.userId, ...out }, null, 2));
    EOF
    ```
 
-   Green-light state: `{ write: 200, read: 200, versions: 200, hasUploadUrls: true }`. The `versions: 200` step exercises the R2 client construction, presign signing, and quota check end-to-end — i.e. catches both bypass and R2 env-var regressions in one round-trip. A 500 on the `versions` step almost always means an R2 env var is missing, mis-prefixed, or scoped only to Preview (see *Common pitfalls* above); check Vercel logs for `Error: ENDSTATE_R2_<NAME> is not set`. Confirm in production runtime logs that **three** `[hosted-backup] subscription gate bypassed` lines appeared for the userId returned by signup (one per gated endpoint: write, read, versions).
+   **Green-light state — every line must match exactly:**
+
+   ```json
+   {
+     "signup": 200,
+     "write": 200,
+     "read": 200,
+     "versions": 200,
+     "versions_uploadUrlIndices": [-1, 0],
+     "dlManifest": 200,
+     "dlManifest_indices": [-1],
+     "dlMixed": 200,
+     "dlMixed_indices": [-1, 0],
+     "listVersions": 200,
+     "listVersions_count": 1,
+     "cleanup": 200
+   }
+   ```
+
+   Anything else means the engine smoke test will fail at that step. Common interpretations:
+   - any `402` → bypass not firing; walk pitfalls 1–3.
+   - `500` on `versions` → R2 env var missing or mis-prefixed (pitfall 3); check Vercel logs for `Error: ENDSTATE_R2_<NAME> is not set`.
+   - `404` on `dlManifest` (with `[-1]`) → manifest-sentinel handling drift between upload and download paths; this is pitfall 4.
+   - Missing `-1` in `versions_uploadUrlIndices` → upload path no longer emits the manifest URL; engine push will succeed for chunks but never upload the manifest blob, so pull will 404.
+
+   Confirm in production runtime logs that **six** `[hosted-backup] subscription gate bypassed for test account user=<id>` lines appear for the userId returned by signup. The recipe makes six gated calls (`POST /api/backups`, `GET /api/backups`, `POST .../versions`, `POST .../download-urls` ×2, `GET .../versions`); the bypass fires once per gated call. `DELETE /api/account` is `requireAuth`-only (no subscription gate, no audit log).
+
+   **Do not signal green-light to the engine team unless the JSON above matches exactly and the audit log lines are present.**
 
 ### Disable the bypass (e.g., to re-validate the paywall)
 

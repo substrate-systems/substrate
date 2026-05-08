@@ -36,11 +36,21 @@ type FakeVersionRow = {
   deleted_at: string | null;
 };
 
+type FakeChunkRow = {
+  version_id: string;
+  chunk_index: number;
+  object_key: string;
+  size_bytes: number;
+  sha256: Uint8Array;
+};
+
 type DbMockState = {
   ownedBackups: Map<string, FakeBackupRow>;
   totalSize: number;
   insertedVersion: FakeVersionRow | null;
   softDeletedBeyondRetention: number;
+  ownedVersions: Map<string, FakeVersionRow>;
+  chunksByVersionId: Map<string, FakeChunkRow[]>;
 };
 
 let state: DbMockState;
@@ -51,6 +61,8 @@ function setupMocks(opts: { totalSizeForUser?: number } = {}) {
     totalSize: opts.totalSizeForUser ?? 0,
     insertedVersion: null,
     softDeletedBeyondRetention: 0,
+    ownedVersions: new Map(),
+    chunksByVersionId: new Map(),
   };
   mock.module('../db', {
     namedExports: {
@@ -90,8 +102,12 @@ function setupMocks(opts: { totalSizeForUser?: number } = {}) {
       listBackupsForUser: async () => [],
       deleteBackupOwned: async () => 1,
       listVersions: async () => [],
-      getVersionOwned: async () => null,
-      listChunksForVersion: async () => [],
+      getVersionOwned: async (params: { userId: string; backupId: string; versionId: string }) => {
+        const key = `${params.userId}:${params.backupId}:${params.versionId}`;
+        return state.ownedVersions.get(key) ?? null;
+      },
+      listChunksForVersion: async (versionId: string) =>
+        state.chunksByVersionId.get(versionId) ?? [],
       softDeleteVersionOwned: async () => 1,
     },
   });
@@ -218,5 +234,109 @@ describe('createVersionWithUploads — quota enforcement', () => {
     assert.equal(result.uploadUrls[1].chunkIndex, 0);
     assert.ok(state.insertedVersion);
     assert.equal(state.softDeletedBeyondRetention, 1);
+  });
+});
+
+describe('getDownloadUrls — manifest sentinel + chunk lookup', () => {
+  function seedVersionWithChunks(opts: {
+    userId: string;
+    backupId: string;
+    versionId: string;
+    chunkIndices: number[];
+  }) {
+    setupMocks();
+    state.ownedVersions.set(
+      `${opts.userId}:${opts.backupId}:${opts.versionId}`,
+      {
+        id: opts.versionId,
+        backup_id: opts.backupId,
+        created_at: new Date().toISOString(),
+        size_bytes: 1024,
+        manifest_object_key: `users/${opts.userId}/backups/${opts.backupId}/versions/${opts.versionId}/manifest`,
+        manifest_sha256: new Uint8Array(32),
+        chunk_count: opts.chunkIndices.length,
+        deleted_at: null,
+      },
+    );
+    state.chunksByVersionId.set(
+      opts.versionId,
+      opts.chunkIndices.map((i) => ({
+        version_id: opts.versionId,
+        chunk_index: i,
+        object_key: `users/${opts.userId}/backups/${opts.backupId}/versions/${opts.versionId}/chunks/${i}`,
+        size_bytes: 512,
+        sha256: new Uint8Array(32),
+      })),
+    );
+  }
+
+  const userId = 'user-D';
+  const backupId = 'bk-D';
+  const versionId = 'v-D';
+
+  it('chunkIndices [-1] returns the manifest URL', async () => {
+    seedVersionWithChunks({ userId, backupId, versionId, chunkIndices: [0, 1] });
+    const { getDownloadUrls } = await import('../storage');
+    const urls = await getDownloadUrls({ userId, backupId, versionId, chunkIndices: [-1] });
+    assert.equal(urls.length, 1);
+    assert.equal(urls[0].chunkIndex, -1);
+    assert.match(urls[0].presignedUrl, /^https?:\/\//);
+    assert.match(urls[0].presignedUrl, /\/manifest/);
+    assert.equal(typeof urls[0].expiresAt, 'string');
+  });
+
+  it('chunkIndices [-1, 0, 1] returns three URLs with the manifest first', async () => {
+    seedVersionWithChunks({ userId, backupId, versionId, chunkIndices: [0, 1] });
+    const { getDownloadUrls } = await import('../storage');
+    const urls = await getDownloadUrls({ userId, backupId, versionId, chunkIndices: [-1, 0, 1] });
+    assert.equal(urls.length, 3);
+    assert.equal(urls[0].chunkIndex, -1);
+    assert.match(urls[0].presignedUrl, /\/manifest/);
+    assert.equal(urls[1].chunkIndex, 0);
+    assert.match(urls[1].presignedUrl, /\/chunks\/0/);
+    assert.equal(urls[2].chunkIndex, 1);
+    assert.match(urls[2].presignedUrl, /\/chunks\/1/);
+  });
+
+  it('chunkIndices [0] returns one chunk URL with no manifest entry', async () => {
+    seedVersionWithChunks({ userId, backupId, versionId, chunkIndices: [0] });
+    const { getDownloadUrls } = await import('../storage');
+    const urls = await getDownloadUrls({ userId, backupId, versionId, chunkIndices: [0] });
+    assert.equal(urls.length, 1);
+    assert.equal(urls[0].chunkIndex, 0);
+    assert.match(urls[0].presignedUrl, /\/chunks\/0/);
+  });
+
+  it('chunkIndices [-2] returns NOT_FOUND (the only valid sentinel is -1)', async () => {
+    seedVersionWithChunks({ userId, backupId, versionId, chunkIndices: [0] });
+    const { getDownloadUrls } = await import('../storage');
+    await assert.rejects(
+      getDownloadUrls({ userId, backupId, versionId, chunkIndices: [-2] }),
+      (err: Error) => (err as unknown as { code: string }).code === 'NOT_FOUND',
+    );
+  });
+
+  it('chunkIndices [-1, 99] still rejects when chunk 99 does not exist', async () => {
+    seedVersionWithChunks({ userId, backupId, versionId, chunkIndices: [0] });
+    const { getDownloadUrls } = await import('../storage');
+    await assert.rejects(
+      getDownloadUrls({ userId, backupId, versionId, chunkIndices: [-1, 99] }),
+      (err: Error) => (err as unknown as { code: string }).code === 'NOT_FOUND',
+    );
+  });
+
+  it('returns NOT_FOUND when the version is owned by another user', async () => {
+    setupMocks();
+    // No ownedVersion entry for user-X.
+    const { getDownloadUrls } = await import('../storage');
+    await assert.rejects(
+      getDownloadUrls({
+        userId: 'user-X',
+        backupId,
+        versionId,
+        chunkIndices: [-1],
+      }),
+      (err: Error) => (err as unknown as { code: string }).code === 'NOT_FOUND',
+    );
   });
 });
