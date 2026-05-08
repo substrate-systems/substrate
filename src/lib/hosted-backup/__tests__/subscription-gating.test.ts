@@ -30,6 +30,7 @@ function bytesFromHex(hex: string): Uint8Array {
 }
 
 let mockedDbStatus: 'none' | 'active' | 'grace' | 'cancelled' = 'none';
+let mockedUserEmail: string | null = null;
 
 async function setupMocks() {
   mock.module('../db', {
@@ -47,6 +48,16 @@ async function setupMocks() {
         ];
       },
       getSubscriptionStatus: async () => mockedDbStatus,
+      findUserById: async (userId: string) =>
+        mockedUserEmail === null
+          ? null
+          : {
+              id: userId,
+              email: mockedUserEmail,
+              email_verified_at: null,
+              created_at: new Date().toISOString(),
+              deleted_at: null,
+            },
     },
   });
 }
@@ -57,7 +68,11 @@ function makeReqWithBearer(token: string): import('next/server').NextRequest {
   return new Request('https://test.local/api/whatever', { headers }) as unknown as import('next/server').NextRequest;
 }
 
-afterEach(() => mock.reset());
+afterEach(() => {
+  mock.reset();
+  delete process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN;
+  mockedUserEmail = null;
+});
 
 describe('requireWriteAccess', () => {
   it('allows when DB status is active', async () => {
@@ -116,6 +131,96 @@ describe('requireReadAccess', () => {
     const { token } = await mintAccessToken({
       userId: 'u-4',
       subscriptionStatus: 'active',
+    });
+    await assert.rejects(
+      requireReadAccess(makeReqWithBearer(token)),
+      (err: Error) =>
+        (err as unknown as { code: string }).code === 'SUBSCRIPTION_REQUIRED',
+    );
+  });
+});
+
+describe('requireWriteAccess test-email bypass', () => {
+  const TEST_PATTERN = '^smoketest\\+\\d+@example\\.com$';
+
+  it('default empty pattern — none-status user is still rejected', async () => {
+    await setupMocks();
+    mockedDbStatus = 'none';
+    mockedUserEmail = 'smoketest+1@example.com'; // matching email is irrelevant when env var is unset
+    const { mintAccessToken } = await import('../jwt');
+    const { requireWriteAccess } = await import('../auth-middleware');
+    const { token } = await mintAccessToken({
+      userId: 'u-bypass-1',
+      subscriptionStatus: 'none',
+    });
+    await assert.rejects(
+      requireWriteAccess(makeReqWithBearer(token)),
+      (err: Error) =>
+        (err as unknown as { code: string }).code === 'SUBSCRIPTION_REQUIRED',
+    );
+  });
+
+  it('pattern set + matching email — none-status user is allowed', async () => {
+    await setupMocks();
+    mockedDbStatus = 'none';
+    mockedUserEmail = 'smoketest+42@example.com';
+    process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN = TEST_PATTERN;
+    const { mintAccessToken } = await import('../jwt');
+    const { requireWriteAccess } = await import('../auth-middleware');
+    const { token } = await mintAccessToken({
+      userId: 'u-bypass-2',
+      subscriptionStatus: 'none',
+    });
+    const ctx = await requireWriteAccess(makeReqWithBearer(token));
+    assert.equal(ctx.userId, 'u-bypass-2');
+  });
+
+  it('pattern set + non-matching email — none-status user is rejected', async () => {
+    await setupMocks();
+    mockedDbStatus = 'none';
+    mockedUserEmail = 'alice@example.com';
+    process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN = TEST_PATTERN;
+    const { mintAccessToken } = await import('../jwt');
+    const { requireWriteAccess } = await import('../auth-middleware');
+    const { token } = await mintAccessToken({
+      userId: 'u-bypass-3',
+      subscriptionStatus: 'none',
+    });
+    await assert.rejects(
+      requireWriteAccess(makeReqWithBearer(token)),
+      (err: Error) =>
+        (err as unknown as { code: string }).code === 'SUBSCRIPTION_REQUIRED',
+    );
+  });
+
+  it('pattern set to invalid regex — bypass disabled, every user is gated', async () => {
+    await setupMocks();
+    mockedDbStatus = 'none';
+    mockedUserEmail = 'smoketest+1@example.com';
+    process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN = '['; // invalid regex source
+    const { mintAccessToken } = await import('../jwt');
+    const { requireWriteAccess } = await import('../auth-middleware');
+    const { token } = await mintAccessToken({
+      userId: 'u-bypass-4',
+      subscriptionStatus: 'none',
+    });
+    await assert.rejects(
+      requireWriteAccess(makeReqWithBearer(token)),
+      (err: Error) =>
+        (err as unknown as { code: string }).code === 'SUBSCRIPTION_REQUIRED',
+    );
+  });
+
+  it('bypass does not apply to read endpoints', async () => {
+    await setupMocks();
+    mockedDbStatus = 'none';
+    mockedUserEmail = 'smoketest+1@example.com';
+    process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN = TEST_PATTERN;
+    const { mintAccessToken } = await import('../jwt');
+    const { requireReadAccess } = await import('../auth-middleware');
+    const { token } = await mintAccessToken({
+      userId: 'u-bypass-5',
+      subscriptionStatus: 'none',
     });
     await assert.rejects(
       requireReadAccess(makeReqWithBearer(token)),
