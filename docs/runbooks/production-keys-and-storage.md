@@ -162,11 +162,18 @@ Disable the bypass entirely by removing the env var and redeploying — see *Dis
 |---------|-------|--------------|
 | `HOSTED_BACKUP_TEST_EMAIL_PATTERN` | `^smoketest\+\d+@example\.com$` | Production, Preview, Development |
 
-### ⚠️ Gotcha: env-var changes do not retroactively affect running deployments
+### ⚠️ Common pitfalls (env-var debugging)
 
-Vercel env vars only apply to deployments created **after** the variable is added or changed. The previous production deployment continues to run with the env it captured at build time. Setting or changing `HOSTED_BACKUP_TEST_EMAIL_PATTERN` requires a redeploy before functions see the new value.
+Each of these has bitten us in production at least once during hosted-backup rollout. Walk all three before assuming a deeper bug.
 
-This bit us once: on first install, the env var was added to Production but the existing deployment kept rejecting smoke-test pushes with `SUBSCRIPTION_REQUIRED` until a fresh deployment was promoted. Vercel's GitHub integration auto-deploys on env-var change in many cases, but **don't rely on that** — always confirm a newer "Ready" production deploy exists before testing.
+**1. Env-var changes do not retroactively affect running deployments.** Vercel env vars only apply to deployments created **after** the variable is added or changed. The previous production deployment keeps the env it captured at build time. Setting or changing any env var requires a redeploy before functions see the new value. Vercel's GitHub integration auto-deploys on env-var change in many cases, but **don't rely on that** — always confirm a newer "Ready" production deploy exists before testing.
+*(First seen: PR #4, `HOSTED_BACKUP_TEST_EMAIL_PATTERN` first install — smoke-test pushes kept hitting `SUBSCRIPTION_REQUIRED` until a fresh prod deploy was promoted.)*
+
+**2. Env vars are scoped per environment (Production / Preview / Development) and do NOT propagate.** Setting in one scope does not set in others. Code that "works in Preview" may be entirely unconfigured in Production. Always run `vercel env ls` and verify the var is registered in **every** scope your test surface needs.
+*(First seen: PR #5, scope diagnosis during the read-bypass extension.)*
+
+**3. Env-var name must match what the code actually reads — `process.env.X` and `vercel env ls X` are two independent strings.** Project convention is `ENDSTATE_*` for hosted-backup secrets (`ENDSTATE_JWT_*`, `ENDSTATE_OIDC_*`, `ENDSTATE_R2_*`). Code that drifts from the convention — e.g. reads `R2_BUCKET` while ops sets `ENDSTATE_R2_BUCKET` — produces a 500 INTERNAL_ERROR with `Error: <NAME> is not set` the first time the code path runs in production. **Always grep the source for `process.env.<NAME>` and compare to `vercel env ls` before assuming an env var is wired up.** A missed reference is invisible until the unhappy path is exercised.
+*(First seen: PR #6, R2 client constructor threw `Error: R2_BUCKET is not set` on the engine smoke test's first POST `/api/backups/:id/versions`. The endpoint had never run authenticated in production before — the bypass that lets a smoke account reach it only landed in PR #5.)*
 
 ### Verify the bypass is wired (substrate-side, no engine needed)
 
@@ -207,14 +214,15 @@ This bit us once: on first install, the env var was added to Production but the 
 
    `length:29`, `compiles:true`, `matchesSample:true` is the green-light state. Remove the diagnostic log immediately after.
 
-4. (End-to-end) Run the production round-trip from the substrate side without involving the engine. Provision a fresh smoke account, exercise both write and read paths, then clean up:
+4. (End-to-end) Run the production round-trip from the substrate side without involving the engine. Provision a fresh smoke account, exercise the bypass on both gates, **and** the R2 presign path that the engine push depends on, then clean up:
 
    ```bash
    node --input-type=module <<'EOF'
-   import { randomBytes } from 'node:crypto';
+   import { randomBytes, createHash } from 'node:crypto';
    const BASE = 'https://substratesystems.io';
    const email = `smoketest+${Math.floor(Date.now()/1000)}@example.com`;
    const b64 = (n) => randomBytes(n).toString('base64');
+   const hex = (buf) => Buffer.from(buf).toString('hex');
    const signup = await (await fetch(`${BASE}/api/auth/signup`, {
      method: 'POST',
      headers: { 'Content-Type': 'application/json' },
@@ -230,13 +238,31 @@ This bit us once: on first install, the env var was added to Production but the 
    })).json();
    const auth = { authorization: `Bearer ${signup.accessToken}` };
    const write = await fetch(`${BASE}/api/backups`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify({ name: 'verify' }) });
+   const { backupId } = await write.json();
    const read  = await fetch(`${BASE}/api/backups`, { headers: auth });
+   // Exercise R2 presign path. Body must satisfy the contract §7 schema.
+   const chunkBytes = randomBytes(64);
+   const versions = await fetch(`${BASE}/api/backups/${backupId}/versions`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json', ...auth },
+     body: JSON.stringify({
+       encryptedManifest: b64(128),
+       chunkMetadata: [{ index: 0, encryptedSize: chunkBytes.length, sha256: hex(createHash('sha256').update(chunkBytes).digest()) }],
+     }),
+   });
+   const versionsBody = await versions.json();
    await fetch(`${BASE}/api/account`, { method: 'DELETE', headers: auth });
-   console.log({ email, write: write.status, read: read.status });
+   console.log({
+     email,
+     write: write.status,
+     read: read.status,
+     versions: versions.status,
+     hasUploadUrls: Array.isArray(versionsBody.uploadUrls) && versionsBody.uploadUrls.length > 0,
+   });
    EOF
    ```
 
-   Green-light state: `{ write: 200, read: 200 }`. Anything other than 200 on either step (especially HTTP 402 with code `SUBSCRIPTION_REQUIRED`) means the bypass isn't reaching that gate — re-walk steps 1–3 above. Confirm in production runtime logs that two `[hosted-backup] subscription gate bypassed for test account user=<id>` lines appeared (one for the write, one for the read) for the userId returned by signup.
+   Green-light state: `{ write: 200, read: 200, versions: 200, hasUploadUrls: true }`. The `versions: 200` step exercises the R2 client construction, presign signing, and quota check end-to-end — i.e. catches both bypass and R2 env-var regressions in one round-trip. A 500 on the `versions` step almost always means an R2 env var is missing, mis-prefixed, or scoped only to Preview (see *Common pitfalls* above); check Vercel logs for `Error: ENDSTATE_R2_<NAME> is not set`. Confirm in production runtime logs that **three** `[hosted-backup] subscription gate bypassed` lines appeared for the userId returned by signup (one per gated endpoint: write, read, versions).
 
 ### Disable the bypass (e.g., to re-validate the paywall)
 

@@ -67,11 +67,10 @@ Then set `ENDSTATE_JWT_PRIVATE_KEY_HEX` and `ENDSTATE_JWT_ACTIVE_KID` in your en
 
 | Variable | Purpose |
 |---|---|
-| `R2_ACCOUNT_ID` | Cloudflare account ID |
-| `R2_ACCESS_KEY_ID` | R2 token's access key |
-| `R2_SECRET_ACCESS_KEY` | R2 token's secret |
-| `R2_BUCKET` | Bucket name (e.g. `endstate-backups`) |
-| `R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
+| `ENDSTATE_R2_ACCESS_KEY_ID` | R2 token's access key |
+| `ENDSTATE_R2_SECRET_ACCESS_KEY` | R2 token's secret |
+| `ENDSTATE_R2_BUCKET` | Bucket name (e.g. `endstate-backups`) |
+| `ENDSTATE_R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
 | `HOSTED_BACKUP_QUOTA_BYTES` | Optional override of the 1 GiB per-user quota |
 
 The server only mints presigned PUT/GET URLs (5-minute TTL); chunks transit directly between client and R2.
