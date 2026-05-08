@@ -11,10 +11,10 @@ import assert from 'node:assert/strict';
 // R2 env vars must be set so the lazy R2 client can be constructed if any
 // presign helper is invoked (most of these tests don't reach R2 because
 // validation fails before that point, but the manifest-PUT path does).
-process.env.R2_ENDPOINT = 'https://test-account.r2.cloudflarestorage.com';
-process.env.R2_ACCESS_KEY_ID = 'AKIATESTKEY1234567890';
-process.env.R2_SECRET_ACCESS_KEY = 'secret-test-key-very-long-string';
-process.env.R2_BUCKET = 'endstate-backups-test';
+process.env.ENDSTATE_R2_ENDPOINT = 'https://test-account.r2.cloudflarestorage.com';
+process.env.ENDSTATE_R2_ACCESS_KEY_ID = 'AKIATESTKEY1234567890';
+process.env.ENDSTATE_R2_SECRET_ACCESS_KEY = 'secret-test-key-very-long-string';
+process.env.ENDSTATE_R2_BUCKET = 'endstate-backups-test';
 
 type FakeBackupRow = {
   id: string;

@@ -16,12 +16,12 @@ let _client: S3Client | null = null;
 
 function getClient(): S3Client {
   if (_client) return _client;
-  const endpoint = process.env.R2_ENDPOINT;
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-  if (!endpoint) throw new Error('R2_ENDPOINT is not set');
-  if (!accessKeyId) throw new Error('R2_ACCESS_KEY_ID is not set');
-  if (!secretAccessKey) throw new Error('R2_SECRET_ACCESS_KEY is not set');
+  const endpoint = process.env.ENDSTATE_R2_ENDPOINT;
+  const accessKeyId = process.env.ENDSTATE_R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.ENDSTATE_R2_SECRET_ACCESS_KEY;
+  if (!endpoint) throw new Error('ENDSTATE_R2_ENDPOINT is not set');
+  if (!accessKeyId) throw new Error('ENDSTATE_R2_ACCESS_KEY_ID is not set');
+  if (!secretAccessKey) throw new Error('ENDSTATE_R2_SECRET_ACCESS_KEY is not set');
   _client = new S3Client({
     region: 'auto',
     endpoint,
@@ -32,8 +32,8 @@ function getClient(): S3Client {
 }
 
 function getBucket(): string {
-  const bucket = process.env.R2_BUCKET;
-  if (!bucket) throw new Error('R2_BUCKET is not set');
+  const bucket = process.env.ENDSTATE_R2_BUCKET;
+  if (!bucket) throw new Error('ENDSTATE_R2_BUCKET is not set');
   return bucket;
 }
 

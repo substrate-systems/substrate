@@ -2,10 +2,10 @@ import { before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 before(() => {
-  process.env.R2_ENDPOINT = 'https://test-account.r2.cloudflarestorage.com';
-  process.env.R2_ACCESS_KEY_ID = 'AKIATESTKEY1234567890';
-  process.env.R2_SECRET_ACCESS_KEY = 'secret-test-key-very-long-string';
-  process.env.R2_BUCKET = 'endstate-backups-test';
+  process.env.ENDSTATE_R2_ENDPOINT = 'https://test-account.r2.cloudflarestorage.com';
+  process.env.ENDSTATE_R2_ACCESS_KEY_ID = 'AKIATESTKEY1234567890';
+  process.env.ENDSTATE_R2_SECRET_ACCESS_KEY = 'secret-test-key-very-long-string';
+  process.env.ENDSTATE_R2_BUCKET = 'endstate-backups-test';
 });
 
 describe('R2 object key helpers', () => {
