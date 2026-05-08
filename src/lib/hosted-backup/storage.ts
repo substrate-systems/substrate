@@ -217,15 +217,20 @@ export async function getDownloadUrls(params: {
     allChunks.map((c) => [c.chunk_index, c]),
   );
 
-  // Validate all requested indices exist
+  // Validate all requested indices exist. The sentinel -1 is the manifest,
+  // stored on the version row (not in `backup_chunks`), so it's always
+  // valid for any owned version and is excluded from the chunk-table check.
+  // This mirrors the upload path in `createVersionWithUploads`, which emits
+  // the manifest URL with chunkIndex = -1. Any other negative index is a
+  // genuine not-found.
   for (const idx of params.chunkIndices) {
+    if (idx === -1) continue;
     if (!byIndex.has(idx)) {
       throw errors.notFound(`chunk index ${idx} not found`);
     }
   }
 
   const urls: UploadUrl[] = [];
-  // Always include the manifest as chunkIndex = -1
   if (params.chunkIndices.includes(-1)) {
     const signed = await presignGet(version.manifest_object_key);
     urls.push({
