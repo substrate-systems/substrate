@@ -178,6 +178,18 @@ Each of these has bitten us in production at least once during hosted-backup rol
 **4. Asymmetric handling between paired endpoints.** When two endpoints implement opposite halves of the same protocol contract (upload mints URL → download fetches URL; encrypt → decrypt; write → read), an invariant on one side has to be honored on the other. Drift is invisible in unit tests that exercise each half in isolation. The hosted-backup contract uses `chunkIndex = -1` as the sentinel for the manifest blob in **both** the upload-URL response (`POST /api/backups/:id/versions`) and the download-URL request (`POST /api/backups/:id/versions/:vid/download-urls`); the upload side was correct from PR #2, but the download side validated all requested indices against the chunks table — where `-1` is by definition absent — and threw `NOT_FOUND` before ever reaching the manifest case. **When you find a sentinel value or magic-number convention in code, grep the codebase for every other place that value could appear and verify the symmetry.** Add an end-to-end test that round-trips through both endpoints with the sentinel.
 *(First seen: PR #7, `POST .../download-urls` with `chunkIndices: [-1]` returned `NOT_FOUND`, blocking the engine smoke test's pull half on a real prod backup `9e6f8cc9-…`/`910f3c00-…`. Push had worked because that path mints the manifest URL itself; download couldn't fetch what push had written.)*
 
+**5. Migrations do NOT auto-run on Vercel deploy.** Vercel runs `next build` and ships the bundle; nothing in the deploy pipeline executes `migrations/*.sql`. Code that depends on a new schema (a new column, a new table) ships and starts taking traffic against the OLD database. The first request to hit the new code path returns 500 with a Postgres `relation "<table>" does not exist` error. **After merging any PR that adds a file under `migrations/`, run the migration manually before the consumer code can take traffic:**
+
+```bash
+vercel env pull .env.production.local --environment=production
+npm run migrate:dry      # confirm the pending list is what you expect
+npm run migrate          # apply
+rm .env.production.local # wipe local credentials
+```
+
+If the migration is on a critical path (consumer code already merged), run this between the substrate merge and any client release that calls the new path. If the migration is independent (e.g., a backfill or a new analytics column), it can run after consumer merge — but err on the side of "before."
+*(First seen: v2.0.0 cutover, migration `0011_recovery_tokens_used.sql` was caught pre-merge by manual review during the substrate→engine handoff. Without that catch, the engine PR's recovery flow would have 500'd in production on the first user attempt: substrate's `recoverFinalizeAtomic` would have thrown `relation "recovery_tokens_used" does not exist`.)*
+
 ### Verify the bypass is wired (substrate-side, no engine needed)
 
 1. Confirm the env var is registered in every relevant environment:
