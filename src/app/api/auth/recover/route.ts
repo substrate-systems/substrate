@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { errors, errorResponse, HostedBackupError } from '@/lib/hosted-backup/errors';
 import { verifyServerSecret } from '@/lib/hosted-backup/kdf';
-import { mintRecoveryToken } from '@/lib/hosted-backup/jwt';
+import { _internal as jwtInternal, mintRecoveryToken } from '@/lib/hosted-backup/jwt';
 import {
   findUserByEmail,
   getAuthCredentials,
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
       recoveryKeyWrappedDEK: Buffer.from(creds.recovery_key_wrapped_dek).toString(
         'base64',
       ),
+      ttlSeconds: jwtInternal.RECOVERY_TOKEN_TTL_S,
     };
     return jsonWithApiVersion(responseBody, 200);
   } catch (err) {

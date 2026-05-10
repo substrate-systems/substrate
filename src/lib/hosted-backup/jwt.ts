@@ -34,7 +34,7 @@ const te = new TextEncoder();
 const td = new TextDecoder();
 
 const ACCESS_TOKEN_TTL_S = 900; // 15 min, contract §4
-const RECOVERY_TOKEN_TTL_S = 300; // 5 min, design.md
+const RECOVERY_TOKEN_TTL_S = 600; // 10 min, contract §6
 const ACCESS_AUDIENCE = 'endstate-backup';
 const RECOVERY_AUDIENCE = 'endstate-recover';
 
@@ -214,9 +214,11 @@ export async function verifyAccessToken(
   };
 }
 
-export async function verifyRecoveryToken(token: string): Promise<{ userId: string }> {
+export async function verifyRecoveryToken(
+  token: string,
+): Promise<{ userId: string; jti: string }> {
   const claims = await verifyAccessToken(token, { audience: RECOVERY_AUDIENCE });
-  return { userId: claims.userId };
+  return { userId: claims.userId, jti: claims.jti };
 }
 
 export const _internal = {

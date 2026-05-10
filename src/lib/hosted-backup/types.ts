@@ -3,7 +3,7 @@
  * Shapes locked in `hosted-backup-contract.md` (repo root).
  */
 
-export const SchemaVersion = '1.0' as const;
+export const SchemaVersion = '2.0' as const;
 export type SchemaVersion = typeof SchemaVersion;
 
 export type SubscriptionStatus = 'none' | 'active' | 'grace' | 'cancelled';
@@ -72,18 +72,21 @@ export type RecoverRequest = { email: string; recoveryKeyProof: string };
 export type RecoverResponse = {
   recoveryToken: string;
   recoveryKeyWrappedDEK: string;
+  ttlSeconds: number;
 };
 
+// Contract §6: recoveryToken is carried as Authorization: Bearer, not in body.
 export type RecoverFinalizeRequest = {
-  recoveryToken: string;
   newServerPassword: string;
   newSalt: string;
   newKdfParams: KdfParams;
   newWrappedDEK: string;
 };
 export type RecoverFinalizeResponse = {
+  userId: string;
   accessToken: string;
   refreshToken: string;
+  subscriptionStatus: SubscriptionStatus;
 };
 
 // --- Account ---

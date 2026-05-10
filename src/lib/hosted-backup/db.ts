@@ -149,6 +149,64 @@ export async function updateAuthCredentialsForRecovery(params: {
   `;
 }
 
+// Atomically apply the three writes that finalize a recovery: burn the
+// recovery token (jti → recovery_tokens_used), update credentials, and
+// revoke all live refresh chains. All three roll back together if any
+// fails — closing the crash-window between burn and update that would
+// otherwise leave a token consumed but credentials unchanged. Contract §6.
+//
+// Returns `tokenAlreadyUsed: true` on primary-key collision in
+// recovery_tokens_used (i.e. a replay or concurrent finalize). The caller
+// translates that into RECOVERY_TOKEN_EXPIRED. Other errors propagate.
+export async function recoverFinalizeAtomic(params: {
+  jti: string;
+  userId: string;
+  serverPasswordHash: string;
+  clientSalt: Uint8Array;
+  kdfParams: KdfParams;
+  wrappedDek: Uint8Array;
+}): Promise<{ tokenAlreadyUsed: boolean }> {
+  if (!_sql) {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error('DATABASE_URL is not set');
+    _sql = neon(url, { fullResults: true });
+  }
+  try {
+    await _sql.transaction((tx) => [
+      tx`
+        INSERT INTO recovery_tokens_used (jti, user_id)
+        VALUES (${params.jti}, ${params.userId})
+      `,
+      tx`
+        UPDATE auth_credentials
+        SET server_password_hash = ${params.serverPasswordHash},
+            client_salt = ${Buffer.from(params.clientSalt)},
+            kdf_params = ${JSON.stringify(params.kdfParams)}::jsonb,
+            wrapped_dek = ${Buffer.from(params.wrappedDek)},
+            updated_at = now()
+        WHERE user_id = ${params.userId}
+      `,
+      tx`
+        UPDATE refresh_tokens
+        SET revoked_at = now()
+        WHERE user_id = ${params.userId}
+          AND revoked_at IS NULL
+      `,
+    ]);
+    return { tokenAlreadyUsed: false };
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: string }).code === '23505'
+    ) {
+      return { tokenAlreadyUsed: true };
+    }
+    throw err;
+  }
+}
+
 // --- Refresh tokens ---
 
 export async function insertRefreshToken(params: {
