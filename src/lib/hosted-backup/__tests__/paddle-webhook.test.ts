@@ -76,7 +76,7 @@ describe('Paddle webhook signature path', () => {
     const req = makeReq(body, '');
     const res = await POST(req as unknown as import('next/server').NextRequest);
     assert.equal(res.status, 401);
-    assert.equal(res.headers.get('X-Endstate-API-Version'), '1.0');
+    assert.equal(res.headers.get('X-Endstate-API-Version'), '2.0');
     const j = (await res.json()) as { error: { code: string } };
     assert.equal(j.error.code, 'PADDLE_SIGNATURE_INVALID');
   });

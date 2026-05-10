@@ -12,7 +12,7 @@ describe('GET /api/.well-known/openid-configuration', () => {
     );
     const res = await GET();
     assert.equal(res.status, 200);
-    assert.equal(res.headers.get('X-Endstate-API-Version'), '1.0');
+    assert.equal(res.headers.get('X-Endstate-API-Version'), '2.0');
     assert.match(
       res.headers.get('Cache-Control') ?? '',
       /public, s-maxage=300, stale-while-revalidate=60/,
