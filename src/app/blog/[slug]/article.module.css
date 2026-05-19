@@ -60,7 +60,16 @@
 .prose ul,
 .prose ol {
   margin: 0 0 1.25rem;
-  padding-left: 1.25rem;
+  padding-left: 1.5rem;
+}
+
+/* Tailwind's preflight resets list markers; restore them for prose. */
+.prose ul {
+  list-style: disc outside;
+}
+
+.prose ol {
+  list-style: decimal outside;
 }
 
 .prose li {

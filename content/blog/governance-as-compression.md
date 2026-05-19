@@ -22,15 +22,15 @@ Most discussions of AI-augmented productivity measure tokens-per-minute or accep
 
 I'll describe the pattern I shipped to fix this. Two layers — contracts and skills. The architectural insight that came out of measuring it is the part most worth landing first: the documentation matters far less than the runtime mechanism that brings it to the right task at the right time.
 
-## The reframe: executor, not autocomplete
+## An executor with no memory
 
-The default mental model for an LLM in a codebase is autocomplete. You type; the model finishes the sentence. With agentic tools — Claude Code, Cursor's composer, an IDE running an agent loop — the model has stopped finishing your sentence. It's executing tasks. A task is a unit of work that needs context, makes decisions, and produces output that has to be correct against rules the model doesn't know.
+The friction points at something structural. The model isn't completing your code — it's executing tasks: reading files, making decisions, producing output that has to hold against rules it can't see. And it carries nothing from one task to the next. Each one starts cold.
 
-Autocomplete doesn't need to know the rules. An executor does.
+The gap that creates is worth naming precisely, because it isn't a reasoning gap — it's a starting-context gap. An executor that resets every task needs what a new engineer needs on day one: how the system actually behaves, the edge cases nobody wrote down, the business logic that governs the surface it's touching. The difference is it needs them on every task, and no one is going to re-explain them by hand each time.
 
-The reframe is operational, not philosophical. Treat the model as an executor that needs the same context a new engineer would need on day one: how the system actually behaves, the edge cases nobody wrote down, the business logic that governs the surface it's working on. Difference is, the executor has no memory between sessions. The context has to be persistent, loadable, and structured so something — not a human — can bring it into the working window at the moment it matters.
+So the context has to live somewhere durable, in a form something other than a human can pull into the working window at the moment a decision gets made.
 
-That infrastructure has two units. One holds the knowledge. The other binds the knowledge to the moment.
+That infrastructure has two units. One holds the knowledge. The other brings it to the moment.
 
 ## Contracts: the invariant layer
 
