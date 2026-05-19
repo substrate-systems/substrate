@@ -1,7 +1,15 @@
 import type { MetadataRoute } from "next";
+import { getAllPostsMeta } from "@/lib/blog";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://substratesystems.io";
+
+  const blogEntries: MetadataRoute.Sitemap = getAllPostsMeta().map((post) => ({
+    url: `${baseUrl}/blog/${post.slug}`,
+    lastModified: post.published ? new Date(post.published) : new Date(),
+    changeFrequency: "yearly",
+    priority: 0.6,
+  }));
 
   return [
     {
@@ -28,5 +36,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "yearly",
       priority: 0.3,
     },
+    ...blogEntries,
   ];
 }

@@ -1,0 +1,143 @@
+/* Long-form prose styling for rendered blog markdown.
+   References existing design-system CSS custom properties only (defined in
+   src/app/globals.css). No new tokens, no hardcoded palette. */
+
+.prose {
+  color: var(--fg-secondary);
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+.prose h2 {
+  color: var(--fg-primary);
+  font-size: 1.6rem;
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  margin: 2.75rem 0 1rem;
+}
+
+.prose h3 {
+  color: var(--fg-primary);
+  font-size: 1.2rem;
+  font-weight: 400;
+  line-height: 1.4;
+  margin: 2rem 0 0.75rem;
+}
+
+/* rehype-autolink-headings wraps heading text in an anchor; keep it text-colored */
+.prose h2 a,
+.prose h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.prose p {
+  margin: 0 0 1.25rem;
+}
+
+.prose strong {
+  color: var(--fg-primary);
+  font-weight: 600;
+}
+
+.prose em {
+  font-style: italic;
+}
+
+.prose a {
+  color: var(--fg-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--border-strong);
+  transition: text-decoration-color var(--duration-micro) var(--ease-out);
+}
+
+.prose a:hover {
+  text-decoration-color: var(--fg-primary);
+}
+
+.prose ul,
+.prose ol {
+  margin: 0 0 1.25rem;
+  padding-left: 1.25rem;
+}
+
+.prose li {
+  margin-bottom: 0.5rem;
+}
+
+.prose li::marker {
+  color: var(--fg-tertiary);
+}
+
+.prose blockquote {
+  margin: 0 0 1.25rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--border-default);
+  color: var(--fg-tertiary);
+}
+
+.prose hr {
+  margin: 2.75rem 0;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Inline code */
+.prose :not(pre) > code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875em;
+  color: var(--fg-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+/* Fenced code blocks (rehype-pretty-code / shiki) */
+.prose figure[data-rehype-pretty-code-figure] {
+  margin: 0 0 1.5rem;
+}
+
+.prose pre {
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.prose figure[data-rehype-pretty-code-figure] pre {
+  margin: 0;
+}
+
+.prose pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* GFM tables */
+.prose table {
+  width: 100%;
+  margin: 0 0 1.5rem;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.prose th,
+.prose td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.prose th {
+  color: var(--fg-primary);
+  font-weight: 600;
+}
