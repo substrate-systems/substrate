@@ -32,15 +32,32 @@ function makeReq(body: object, headerValue: string | null = null): Request {
   });
 }
 
+type UpsertCall = {
+  userId: string;
+  paddleSubscriptionId: string;
+  paddleCustomerId: string;
+  status: string;
+  plan: string | null;
+};
+
 type DbState = {
   events: Map<string, { eventType: string; processedAt: string | null }>;
   freshInserts: number;
+  customerIdToUserId: Map<string, string>;
+  upserts: UpsertCall[];
 };
 
 let state: DbState;
 
-function setupDbMocks() {
-  state = { events: new Map(), freshInserts: 0 };
+function setupDbMocks(
+  options: { customerIdToUserId?: Record<string, string> } = {},
+) {
+  state = {
+    events: new Map(),
+    freshInserts: 0,
+    customerIdToUserId: new Map(Object.entries(options.customerIdToUserId ?? {})),
+    upserts: [],
+  };
   mock.module('../db', {
     namedExports: {
       recordPaddleEventIfFresh: async (params: {
@@ -59,9 +76,23 @@ function setupDbMocks() {
         const ev = state.events.get(eventId);
         if (ev) ev.processedAt = new Date().toISOString();
       },
-      // Subscription module imports findUserIdByPaddleCustomerId; stub it.
-      findUserIdByPaddleCustomerId: async () => null,
-      upsertSubscription: async () => undefined,
+      findUserIdByPaddleCustomerId: async (cid: string) =>
+        state.customerIdToUserId.get(cid) ?? null,
+      upsertSubscription: async (params: {
+        userId: string;
+        paddleSubscriptionId: string;
+        paddleCustomerId: string;
+        status: string;
+        plan?: string | null;
+      }) => {
+        state.upserts.push({
+          userId: params.userId,
+          paddleSubscriptionId: params.paddleSubscriptionId,
+          paddleCustomerId: params.paddleCustomerId,
+          status: params.status,
+          plan: params.plan ?? null,
+        });
+      },
     },
   });
 }
@@ -139,5 +170,102 @@ describe('Paddle webhook unknown event types', () => {
     const j = (await res.json()) as { ok: true; ignored?: boolean; event_type?: string };
     assert.equal(j.ignored, true);
     assert.equal(j.event_type, 'transaction.completed');
+  });
+});
+
+describe('Paddle webhook user_id correlation', () => {
+  it('first-time subscription.created with custom_data.user_id upserts without a prior row', async () => {
+    // No customer_id mapping exists yet — this is the first event for the user.
+    setupDbMocks();
+    const { POST } = await import('../../../app/api/webhooks/paddle/route');
+    const body = {
+      event_id: 'evt_first_created',
+      event_type: 'subscription.created',
+      data: {
+        id: 'sub_first',
+        customer_id: 'cus_first',
+        custom_data: { user_id: 'u-first' },
+        items: [{ price: { id: 'pri_hosted_backup' } }],
+      },
+    };
+    const req = makeReq(body);
+    const res = await POST(req as unknown as import('next/server').NextRequest);
+    assert.equal(res.status, 200);
+    const j = (await res.json()) as { ok: true; userId?: string; status?: string };
+    assert.equal(j.userId, 'u-first');
+    assert.equal(j.status, 'active');
+    assert.equal(state.upserts.length, 1);
+    assert.equal(state.upserts[0].userId, 'u-first');
+    assert.equal(state.upserts[0].paddleCustomerId, 'cus_first');
+    assert.equal(state.upserts[0].plan, 'pri_hosted_backup');
+  });
+
+  it('subsequent event without custom_data falls back to paddle_customer_id lookup', async () => {
+    setupDbMocks({ customerIdToUserId: { cus_existing: 'u-existing' } });
+    const { POST } = await import('../../../app/api/webhooks/paddle/route');
+    const body = {
+      event_id: 'evt_past_due',
+      event_type: 'subscription.past_due',
+      data: { id: 'sub_existing', customer_id: 'cus_existing' },
+    };
+    const req = makeReq(body);
+    const res = await POST(req as unknown as import('next/server').NextRequest);
+    assert.equal(res.status, 200);
+    const j = (await res.json()) as { ok: true; userId?: string; status?: string };
+    assert.equal(j.userId, 'u-existing');
+    assert.equal(j.status, 'grace');
+    assert.equal(state.upserts.length, 1);
+    assert.equal(state.upserts[0].userId, 'u-existing');
+    assert.equal(state.upserts[0].status, 'grace');
+  });
+
+  it('event with neither custom_data nor a known customer returns unknown_user', async () => {
+    setupDbMocks();
+    const { POST } = await import('../../../app/api/webhooks/paddle/route');
+    const body = {
+      event_id: 'evt_orphan',
+      event_type: 'subscription.created',
+      data: { id: 'sub_orphan', customer_id: 'cus_orphan' },
+    };
+    const req = makeReq(body);
+    const res = await POST(req as unknown as import('next/server').NextRequest);
+    assert.equal(res.status, 200);
+    const j = (await res.json()) as { ok: true; unknown_user?: boolean };
+    assert.equal(j.unknown_user, true);
+    assert.equal(state.upserts.length, 0);
+  });
+});
+
+describe('Paddle webhook pause/resume', () => {
+  it('subscription.paused upserts status=paused', async () => {
+    setupDbMocks({ customerIdToUserId: { cus_p: 'u-p' } });
+    const { POST } = await import('../../../app/api/webhooks/paddle/route');
+    const body = {
+      event_id: 'evt_paused',
+      event_type: 'subscription.paused',
+      data: { id: 'sub_p', customer_id: 'cus_p' },
+    };
+    const req = makeReq(body);
+    const res = await POST(req as unknown as import('next/server').NextRequest);
+    assert.equal(res.status, 200);
+    assert.equal(state.upserts.length, 1);
+    assert.equal(state.upserts[0].status, 'paused');
+    assert.equal(state.upserts[0].userId, 'u-p');
+  });
+
+  it('subscription.resumed upserts status=active', async () => {
+    setupDbMocks({ customerIdToUserId: { cus_r: 'u-r' } });
+    const { POST } = await import('../../../app/api/webhooks/paddle/route');
+    const body = {
+      event_id: 'evt_resumed',
+      event_type: 'subscription.resumed',
+      data: { id: 'sub_r', customer_id: 'cus_r' },
+    };
+    const req = makeReq(body);
+    const res = await POST(req as unknown as import('next/server').NextRequest);
+    assert.equal(res.status, 200);
+    assert.equal(state.upserts.length, 1);
+    assert.equal(state.upserts[0].status, 'active');
+    assert.equal(state.upserts[0].userId, 'u-r');
   });
 });

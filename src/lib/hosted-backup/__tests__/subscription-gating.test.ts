@@ -29,7 +29,7 @@ function bytesFromHex(hex: string): Uint8Array {
   return out;
 }
 
-let mockedDbStatus: 'none' | 'active' | 'grace' | 'cancelled' = 'none';
+let mockedDbStatus: 'none' | 'active' | 'grace' | 'paused' | 'cancelled' = 'none';
 let mockedUserEmail: string | null = null;
 
 async function setupMocks() {
@@ -88,7 +88,7 @@ describe('requireWriteAccess', () => {
     assert.equal(ctx.subscriptionStatus, 'active');
   });
 
-  for (const status of ['none', 'grace', 'cancelled'] as const) {
+  for (const status of ['none', 'grace', 'paused', 'cancelled'] as const) {
     it(`blocks when DB status is ${status}`, async () => {
       await setupMocks();
       mockedDbStatus = status;
@@ -108,7 +108,7 @@ describe('requireWriteAccess', () => {
 });
 
 describe('requireReadAccess', () => {
-  for (const status of ['active', 'grace', 'cancelled'] as const) {
+  for (const status of ['active', 'grace', 'paused', 'cancelled'] as const) {
     it(`allows when DB status is ${status}`, async () => {
       await setupMocks();
       mockedDbStatus = status;

@@ -11,6 +11,7 @@ import {
   upsertSubscription,
   type SubscriptionRow,
 } from './db';
+import { paddleFetch, assertOk } from './paddle-client';
 import type { SubscriptionStatus } from './types';
 
 type PaddleSubscriptionEventData = {
@@ -20,6 +21,9 @@ type PaddleSubscriptionEventData = {
   next_billed_at?: string;
   canceled_at?: string;
   scheduled_change?: { effective_at?: string; action?: string };
+  custom_data?: { user_id?: string } | null;
+  passthrough?: string | { user_id?: string } | null;
+  items?: Array<{ price?: { id?: string } }>;
 };
 
 export type PaddleSubscriptionEvent = {
@@ -38,11 +42,43 @@ const HANDLED_EVENTS = new Set([
   'subscription.activated',
   'subscription.past_due',
   'subscription.canceled',
+  'subscription.paused',
+  'subscription.resumed',
   'subscription.updated',
 ]);
 
 export function isHandledEvent(eventType: string): boolean {
   return HANDLED_EVENTS.has(eventType);
+}
+
+function extractUserIdFromEvent(
+  data: PaddleSubscriptionEventData | undefined,
+): string | null {
+  const direct = data?.custom_data?.user_id;
+  if (typeof direct === 'string' && direct.length > 0) return direct;
+  const pt = data?.passthrough;
+  if (pt && typeof pt === 'object') {
+    const uid = (pt as { user_id?: unknown }).user_id;
+    if (typeof uid === 'string' && uid.length > 0) return uid;
+  }
+  if (typeof pt === 'string' && pt.length > 0) {
+    try {
+      const parsed = JSON.parse(pt) as { user_id?: unknown };
+      if (typeof parsed.user_id === 'string' && parsed.user_id.length > 0) {
+        return parsed.user_id;
+      }
+    } catch {
+      // legacy passthrough that isn't JSON — ignore
+    }
+  }
+  return null;
+}
+
+function extractPlan(
+  data: PaddleSubscriptionEventData | undefined,
+): string | null {
+  const id = data?.items?.[0]?.price?.id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
 /**
@@ -61,11 +97,15 @@ export async function applyPaddleEvent(
     return { kind: 'ignored', reason: 'missing subscription_id or customer_id' };
   }
 
-  // Resolve user. We expect an existing subscriptions row keyed by
-  // paddle_customer_id (set during signup checkout). For first-time
-  // subscription.created, the row may not exist yet — in that case we cannot
-  // proceed and surface unknown_user; Paddle will retry until it succeeds.
-  const userId = await findUserIdByPaddleCustomerId(customerId);
+  // Resolve user. Prefer the GUI-supplied custom_data (or legacy passthrough)
+  // so the very first subscription.created can land — at that point the
+  // subscriptions row does not yet exist, so a paddle_customer_id lookup
+  // would fail. Fall back to the lookup for events that originated from
+  // outside our checkout flow (e.g. a Paddle-dashboard-initiated change).
+  let userId = extractUserIdFromEvent(event.data);
+  if (!userId) {
+    userId = await findUserIdByPaddleCustomerId(customerId);
+  }
   if (!userId) {
     return { kind: 'unknown_user' };
   }
@@ -83,6 +123,7 @@ export async function applyPaddleEvent(
     paddleSubscriptionId: subscriptionId,
     paddleCustomerId: customerId,
     status: transition.status,
+    plan: extractPlan(event.data),
     graceStartedAt: transition.graceStartedAt,
     cancelStartedAt: transition.cancelStartedAt,
     currentPeriodEnd: transition.currentPeriodEnd,
@@ -106,6 +147,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
   switch (event.event_type) {
     case 'subscription.created':
     case 'subscription.activated':
+    case 'subscription.resumed':
       return {
         status: 'active',
         graceStartedAt: null,
@@ -116,6 +158,13 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
       return {
         status: 'grace',
         graceStartedAt: now,
+        cancelStartedAt: null,
+        currentPeriodEnd: periodEnd,
+      };
+    case 'subscription.paused':
+      return {
+        status: 'paused',
+        graceStartedAt: null,
         cancelStartedAt: null,
         currentPeriodEnd: periodEnd,
       };
@@ -148,6 +197,14 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
           currentPeriodEnd: periodEnd,
         };
       }
+      if (paddleStatus === 'paused') {
+        return {
+          status: 'paused',
+          graceStartedAt: null,
+          cancelStartedAt: null,
+          currentPeriodEnd: periodEnd,
+        };
+      }
       if (paddleStatus === 'canceled') {
         return {
           status: 'cancelled',
@@ -169,40 +226,23 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
 export async function cancelPaddleSubscription(
   paddleSubscriptionId: string,
 ): Promise<boolean> {
-  const apiKey = process.env.PADDLE_API_KEY;
-  if (!apiKey) {
-    console.error(
-      '[hosted-backup paddle cancel] PADDLE_API_KEY not set; cannot cancel',
-    );
-    return false;
-  }
   try {
-    const res = await fetch(
-      `https://api.paddle.com/subscriptions/${encodeURIComponent(paddleSubscriptionId)}/cancel`,
+    const res = await paddleFetch(
+      `/subscriptions/${encodeURIComponent(paddleSubscriptionId)}/cancel`,
       {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'content-type': 'application/json',
-        },
         body: JSON.stringify({ effective_from: 'immediately' }),
       },
     );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error(
-        `[hosted-backup paddle cancel] failed ${res.status}: ${body}`,
-      );
-      return false;
-    }
+    await assertOk(res);
     return true;
   } catch (err) {
-    console.error('[hosted-backup paddle cancel] threw:', err);
+    console.error('[hosted-backup paddle cancel] failed:', err);
     return false;
   }
 }
 
-export const _internal = { mapEventToStatus, HANDLED_EVENTS };
+export const _internal = { mapEventToStatus, extractUserIdFromEvent, extractPlan, HANDLED_EVENTS };
 
 // Test seam — re-export type for tests
 export type { SubscriptionRow };
