@@ -334,27 +334,121 @@ export type SubscriptionRow = {
   paddle_subscription_id: string | null;
   paddle_customer_id: string | null;
   status: SubscriptionStatus;
+  plan: string | null;
   grace_started_at: string | null;
   cancel_started_at: string | null;
   current_period_end: string | null;
   updated_at: string;
 };
 
+// Past-due grace window per hosted-backup contract: Paddle's `past_due` keeps
+// a user entitled for this many days, then they are cut off at read time. The
+// stored row is left as `grace` so a late `subscription.activated` from
+// Paddle can still recover the user without an extra state path.
+export const GRACE_WINDOW_DAYS = 14;
+
 export async function getSubscriptionStatus(
   userId: string,
 ): Promise<SubscriptionStatus> {
   const { rows } = await sql`
-    SELECT status FROM subscriptions WHERE user_id = ${userId} LIMIT 1
+    SELECT
+      CASE
+        WHEN status = 'grace'
+         AND grace_started_at IS NOT NULL
+         AND grace_started_at < now() - (${GRACE_WINDOW_DAYS} || ' days')::interval
+        THEN 'cancelled'
+        ELSE status
+      END AS effective_status
+    FROM subscriptions WHERE user_id = ${userId} LIMIT 1
   `;
-  const row = rows[0] as { status: SubscriptionStatus } | undefined;
-  return row?.status ?? 'none';
+  const row = rows[0] as { effective_status: SubscriptionStatus } | undefined;
+  return row?.effective_status ?? 'none';
+}
+
+export type SubscriptionEntitlement = {
+  effectiveStatus: SubscriptionStatus;
+  storedStatus: SubscriptionStatus;
+  plan: string | null;
+  currentPeriodEnd: string | null;
+  gracePeriodEndsAt: string | null;
+  paddleSubscriptionId: string | null;
+  paddleCustomerId: string | null;
+  updatedAt: string | null;
+};
+
+/**
+ * Returns the full debug view of a user's subscription, including the 14-day
+ * grace-cutoff-adjusted effective status and a computed grace period end.
+ * Used by `GET /api/account/me`.
+ */
+export async function getSubscriptionEntitlement(
+  userId: string,
+): Promise<SubscriptionEntitlement> {
+  const { rows } = await sql`
+    SELECT
+      status,
+      plan,
+      current_period_end,
+      grace_started_at,
+      paddle_subscription_id,
+      paddle_customer_id,
+      updated_at,
+      CASE
+        WHEN status = 'grace'
+         AND grace_started_at IS NOT NULL
+         AND grace_started_at < now() - (${GRACE_WINDOW_DAYS} || ' days')::interval
+        THEN 'cancelled'
+        ELSE status
+      END AS effective_status,
+      CASE
+        WHEN status = 'grace' AND grace_started_at IS NOT NULL
+        THEN grace_started_at + (${GRACE_WINDOW_DAYS} || ' days')::interval
+        ELSE NULL
+      END AS grace_period_ends_at
+    FROM subscriptions WHERE user_id = ${userId} LIMIT 1
+  `;
+  const row = rows[0] as
+    | {
+        status: SubscriptionStatus;
+        plan: string | null;
+        current_period_end: string | null;
+        grace_started_at: string | null;
+        paddle_subscription_id: string | null;
+        paddle_customer_id: string | null;
+        updated_at: string;
+        effective_status: SubscriptionStatus;
+        grace_period_ends_at: string | null;
+      }
+    | undefined;
+  if (!row) {
+    return {
+      effectiveStatus: 'none',
+      storedStatus: 'none',
+      plan: null,
+      currentPeriodEnd: null,
+      gracePeriodEndsAt: null,
+      paddleSubscriptionId: null,
+      paddleCustomerId: null,
+      updatedAt: null,
+    };
+  }
+  return {
+    effectiveStatus: row.effective_status,
+    storedStatus: row.status,
+    plan: row.plan,
+    currentPeriodEnd: row.current_period_end,
+    gracePeriodEndsAt: row.grace_period_ends_at,
+    paddleSubscriptionId: row.paddle_subscription_id,
+    paddleCustomerId: row.paddle_customer_id,
+    updatedAt: row.updated_at,
+  };
 }
 
 export async function getSubscriptionByUserId(
   userId: string,
 ): Promise<SubscriptionRow | null> {
   const { rows } = await sql`
-    SELECT user_id, paddle_subscription_id, paddle_customer_id, status,
+    SELECT user_id, paddle_subscription_id, paddle_customer_id, status, plan,
            grace_started_at, cancel_started_at, current_period_end, updated_at
     FROM subscriptions WHERE user_id = ${userId} LIMIT 1
   `;
@@ -365,7 +459,7 @@ export async function getSubscriptionByPaddleId(
   paddleSubscriptionId: string,
 ): Promise<SubscriptionRow | null> {
   const { rows } = await sql`
-    SELECT user_id, paddle_subscription_id, paddle_customer_id, status,
+    SELECT user_id, paddle_subscription_id, paddle_customer_id, status, plan,
            grace_started_at, cancel_started_at, current_period_end, updated_at
     FROM subscriptions WHERE paddle_subscription_id = ${paddleSubscriptionId} LIMIT 1
   `;
@@ -386,19 +480,21 @@ export async function upsertSubscription(params: {
   paddleSubscriptionId: string;
   paddleCustomerId: string;
   status: SubscriptionStatus;
+  plan?: string | null;
   graceStartedAt?: Date | null;
   cancelStartedAt?: Date | null;
   currentPeriodEnd?: Date | null;
 }): Promise<void> {
   await sql`
     INSERT INTO subscriptions (
-      user_id, paddle_subscription_id, paddle_customer_id, status,
+      user_id, paddle_subscription_id, paddle_customer_id, status, plan,
       grace_started_at, cancel_started_at, current_period_end, updated_at
     ) VALUES (
       ${params.userId},
       ${params.paddleSubscriptionId},
       ${params.paddleCustomerId},
       ${params.status},
+      ${params.plan ?? null},
       ${params.graceStartedAt?.toISOString() ?? null},
       ${params.cancelStartedAt?.toISOString() ?? null},
       ${params.currentPeriodEnd?.toISOString() ?? null},
@@ -408,6 +504,7 @@ export async function upsertSubscription(params: {
       paddle_subscription_id = EXCLUDED.paddle_subscription_id,
       paddle_customer_id = EXCLUDED.paddle_customer_id,
       status = EXCLUDED.status,
+      plan = EXCLUDED.plan,
       grace_started_at = EXCLUDED.grace_started_at,
       cancel_started_at = EXCLUDED.cancel_started_at,
       current_period_end = EXCLUDED.current_period_end,

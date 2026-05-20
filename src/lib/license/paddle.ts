@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { paddleFetch } from '@/lib/hosted-backup/paddle-client';
 
 export class PaddleSignatureError extends Error {
   constructor(message: string) {
@@ -78,18 +79,8 @@ export function extractTransactionFields(event: unknown): {
 export async function fetchPaddleCustomerEmail(
   customerId: string,
 ): Promise<string | null> {
-  const apiKey = process.env.PADDLE_API_KEY;
-  if (!apiKey) {
-    throw new Error('PADDLE_API_KEY is not set');
-  }
-  const res = await fetch(
-    `https://api.paddle.com/customers/${encodeURIComponent(customerId)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        accept: 'application/json',
-      },
-    },
+  const res = await paddleFetch(
+    `/customers/${encodeURIComponent(customerId)}`,
   );
   if (!res.ok) {
     const detail = await res.text().catch(() => '');

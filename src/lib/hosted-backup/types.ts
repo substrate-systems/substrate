@@ -6,7 +6,12 @@
 export const SchemaVersion = '2.0' as const;
 export type SchemaVersion = typeof SchemaVersion;
 
-export type SubscriptionStatus = 'none' | 'active' | 'grace' | 'cancelled';
+export type SubscriptionStatus =
+  | 'none'
+  | 'active'
+  | 'grace'
+  | 'paused'
+  | 'cancelled';
 
 export type KdfParams = {
   algorithm: 'argon2id';
@@ -94,8 +99,18 @@ export type RecoverFinalizeResponse = {
 export type AccountMeResponse = {
   userId: string;
   email: string;
-  subscriptionStatus: SubscriptionStatus;
   createdAt: string;
+  subscriptionStatus: SubscriptionStatus;
+  plan: string | null;
+  currentPeriodEnd: string | null;
+  gracePeriodEndsAt: string | null;
+  paddleSubscriptionId: string | null;
+  paddleCustomerId: string | null;
+};
+
+export type CheckoutResponse = {
+  checkoutUrl: string;
+  transactionId: string;
 };
 
 export type AccountDeleteResponse = { ok: true };

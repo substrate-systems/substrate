@@ -110,8 +110,19 @@ export async function requireWriteAccess(req: NextRequest): Promise<AuthContext>
 }
 
 /**
- * Auth + read-access gate. Allows `active`, `grace`, `cancelled`. Blocks
- * `none`. Re-reads subscription status from DB.
+ * Auth + read-access gate. Allows `active`, `grace`, `paused`, and
+ * `cancelled`. Blocks `none`. Re-reads subscription status from DB.
+ *
+ * `paused` is admitted here for parity with `cancelled`: a user whose
+ * subscription has been paused (e.g. by Paddle's billing pause feature)
+ * retains read access to existing backups but cannot push new versions
+ * (`requireWriteAccess` rejects anything other than `active`). A
+ * `subscription.resumed` webhook transitions them back to `active`.
+ *
+ * The 14-day past_due grace cutoff is applied inside
+ * `getSubscriptionStatus`, so a user whose stored status is `grace` but
+ * whose `grace_started_at` is older than 14 days is observed here as
+ * `cancelled` (i.e. read-allowed, write-blocked).
  *
  * Honors the same `HOSTED_BACKUP_TEST_EMAIL_PATTERN` bypass as
  * `requireWriteAccess` — see that function's JSDoc for full semantics and
