@@ -68,8 +68,8 @@ export default function WorkPage() {
             move fast without breaking the rules that matter.
           </p>
           <p className="mt-6 max-w-2xl text-body font-light leading-relaxed text-fg-secondary">
-            My contract-based governance framework runs in production on high-throughput
-            transaction platforms that process hundreds of millions of operations a day. It
+            My contract-based governance framework runs in production on a high-throughput
+            transaction platform that processes hundreds of millions of operations a day. It
             encodes business invariants into versioned contracts and binds them to the agent
             at the moment of the task, so AI-augmented work ships without a human re-reviewing
             every step. I operate this work through Substrate Systems, my software company.
