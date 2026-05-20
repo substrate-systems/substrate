@@ -7,7 +7,7 @@ import Footer from "@/components/Footer";
 // Owner-supplied, gated assets. The links render only when these are present,
 // so the page never ships a broken link. Set LINKEDIN_URL when provided; drop
 // the CV PDF into public/downloads/ to enable the download link.
-const LINKEDIN_URL = "";
+const LINKEDIN_URL = "https://www.linkedin.com/in/hugo-ander-kivi/";
 const CV_FILENAME = "hugo-ander-kivi-cv.pdf";
 const cvAvailable = existsSync(path.join(process.cwd(), "public/downloads", CV_FILENAME));
 
