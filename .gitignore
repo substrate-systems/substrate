@@ -52,3 +52,4 @@ next-env.d.ts
 
 # Claude Code: per-user local overrides (shared config is committed)
 .claude/settings.local.json
+.vercel
