@@ -4,8 +4,10 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import { getAllPostsMeta } from "@/lib/blog";
 
+// Title intentionally omitted: the blog layout's title.default ("Writing · Substrate")
+// applies to this segment. A title here would not receive the layout's template
+// (templates apply to child segments only), so it would render bare "Writing".
 export const metadata: Metadata = {
-  title: "Writing",
   description: "Writing by Hugo Ander Kivi on AI-augmented development, governance, and systems.",
 };
 
