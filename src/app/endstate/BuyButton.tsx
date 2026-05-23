@@ -9,6 +9,7 @@ type Props = {
   className?: string;
   style?: CSSProperties;
   completionLabel?: string;
+  action?: (() => Promise<void> | void) | null;
 };
 
 export function BuyButton({
@@ -16,8 +17,10 @@ export function BuyButton({
   className,
   style,
   completionLabel = 'Thanks — check your email for your license key.',
+  action,
 }: Props) {
   const { ready, completed, openEndstateCheckout } = usePaddle();
+  const runAction = action ?? openEndstateCheckout;
 
   if (completed) {
     return (
@@ -42,7 +45,7 @@ export function BuyButton({
     <button
       type="button"
       onClick={() => {
-        void openEndstateCheckout();
+        void runAction();
       }}
       disabled={!ready}
       className={className}

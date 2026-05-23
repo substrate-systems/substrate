@@ -5,6 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
+import { BuyButton } from "./BuyButton";
+import { PaddleTransactionOpener } from "./PaddleTransactionOpener";
+import { usePaddle, type HostedBackupCadence } from "@/lib/paddle";
 
 function useInView(options = { threshold: 0.15 }) {
   const ref = useRef<HTMLElement>(null);
@@ -699,13 +702,131 @@ type PricingTier = {
   cadence: string;
   blurb: string;
   features: string[];
-  cta: { label: string; href: string; primary?: boolean; external?: boolean };
+  cta: {
+    label: string;
+    href?: string;
+    primary?: boolean;
+    external?: boolean;
+    kind?: "paddle-hosted-backup";
+  };
   badge?: string;
   highlight?: boolean;
+  cadenceToggle?: React.ReactNode;
 };
+
+function HostedBackupCadenceToggle({
+  cadence,
+  onChange,
+}: {
+  cadence: HostedBackupCadence;
+  onChange: (next: HostedBackupCadence) => void;
+}) {
+  const optionBase: React.CSSProperties = {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: "0.7rem",
+    fontWeight: 500,
+    padding: "0.3rem 0.65rem",
+    borderRadius: 4,
+    cursor: "pointer",
+    border: "none",
+    background: "transparent",
+    color: c.textSec,
+    letterSpacing: "0.02em",
+    textTransform: "uppercase",
+    transition: "background 120ms ease, color 120ms ease",
+  };
+  const activeStyle: React.CSSProperties = {
+    background: "rgba(200,121,65,0.12)",
+    color: c.copper,
+  };
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Hosted Backup billing cadence"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: 3,
+        border: `1px solid ${c.border}`,
+        borderRadius: 6,
+        marginBottom: "0.75rem",
+      }}
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={cadence === "monthly"}
+        onClick={() => onChange("monthly")}
+        style={{
+          ...optionBase,
+          ...(cadence === "monthly" ? activeStyle : {}),
+        }}
+      >
+        Monthly
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={cadence === "yearly"}
+        onClick={() => onChange("yearly")}
+        style={{
+          ...optionBase,
+          ...(cadence === "yearly" ? activeStyle : {}),
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        Yearly
+        <span
+          style={{
+            fontSize: "0.6rem",
+            fontWeight: 500,
+            color: c.green,
+            textTransform: "none",
+            letterSpacing: 0,
+          }}
+        >
+          save 17%
+        </span>
+      </button>
+    </div>
+  );
+}
 
 function Pricing() {
   const { ref, visible } = useInView();
+  const { openHostedBackupCheckout } = usePaddle();
+  const [hostedBackupCadence, setHostedBackupCadence] =
+    useState<HostedBackupCadence>("monthly");
+
+  const hostedBackupPrice =
+    hostedBackupCadence === "monthly" ? (
+      <>
+        <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
+        <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+          4
+        </span>
+        <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>/mo</span>
+      </>
+    ) : (
+      <>
+        <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
+        <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+          40
+        </span>
+        <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>/yr</span>
+      </>
+    );
+  const hostedBackupCadenceLabel =
+    hostedBackupCadence === "monthly"
+      ? "Billed monthly · Cancel any time"
+      : "Billed yearly · Cancel any time";
+  const hostedBackupCtaLabel =
+    hostedBackupCadence === "monthly"
+      ? "Get Hosted Backup — €4/mo"
+      : "Get Hosted Backup — €40/yr";
 
   const tiers: PricingTier[] = [
     {
@@ -732,16 +853,8 @@ function Pricing() {
     },
     {
       name: "Hosted Backup",
-      price: (
-        <>
-          <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
-          <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
-            4
-          </span>
-          <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>/mo</span>
-        </>
-      ),
-      cadence: "or €40/year · Coming in v2",
+      price: hostedBackupPrice,
+      cadence: hostedBackupCadenceLabel,
       blurb: "Optional managed backup if you want it. Encrypted on your machine before it leaves.",
       features: [
         "End-to-end encrypted, client-side keys",
@@ -751,10 +864,15 @@ function Pricing() {
         "Cancel any time",
       ],
       cta: {
-        label: "Join the waitlist",
-        href: "mailto:founder@substratesystems.io?subject=Endstate%20Backup%20%E2%80%94%20early%20access&body=Sign%20me%20up%20for%20early%20access%20to%20Endstate%20Hosted%20Backup.",
+        label: hostedBackupCtaLabel,
+        kind: "paddle-hosted-backup",
       },
-      badge: "Early access",
+      cadenceToggle: (
+        <HostedBackupCadenceToggle
+          cadence={hostedBackupCadence}
+          onChange={setHostedBackupCadence}
+        />
+      ),
     },
     {
       name: "Supporter License",
@@ -885,6 +1003,7 @@ function Pricing() {
                 )}
               </div>
 
+              {tier.cadenceToggle}
               <div style={{ marginBottom: "0.25rem" }}>{tier.price}</div>
               <p style={{ fontSize: "0.82rem", color: c.textMuted, marginBottom: "1rem" }}>{tier.cadence}</p>
               <p style={{ fontSize: "0.92rem", color: c.textSec, lineHeight: 1.6, marginBottom: "1.5rem" }}>
@@ -904,7 +1023,21 @@ function Pricing() {
                 ))}
               </ul>
 
-              {tier.cta.href.startsWith("mailto:") || tier.cta.external ? (
+              {tier.cta.kind === "paddle-hosted-backup" ? (
+                <BuyButton
+                  action={() => openHostedBackupCheckout(hostedBackupCadence)}
+                  completionLabel="Thanks — check your email to finish setup."
+                  className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
+                  style={{
+                    background: tier.cta.primary ? c.text : "transparent",
+                    color: tier.cta.primary ? c.bg : c.text,
+                    border: tier.cta.primary ? "none" : `1px solid ${c.border}`,
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  {tier.cta.label}
+                </BuyButton>
+              ) : tier.cta.href && (tier.cta.href.startsWith("mailto:") || tier.cta.external) ? (
                 <a
                   href={tier.cta.href}
                   className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
@@ -920,7 +1053,7 @@ function Pricing() {
                 </a>
               ) : (
                 <Link
-                  href={tier.cta.href}
+                  href={tier.cta.href ?? "#"}
                   className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
                   style={{
                     background: tier.cta.primary ? c.text : "transparent",
@@ -970,6 +1103,7 @@ export default function EndstatePage() {
         rel="stylesheet"
       />
       <main style={{ fontFamily: "'DM Sans', -apple-system, sans-serif", background: c.bg, minHeight: "100vh", WebkitFontSmoothing: "antialiased" }}>
+        <PaddleTransactionOpener />
         <Nav />
         <Hero />
         <Showcase />
