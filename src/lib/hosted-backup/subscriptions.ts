@@ -33,9 +33,30 @@ export type PaddleSubscriptionEvent = {
 };
 
 export type ApplyResult =
-  | { kind: 'applied'; userId: string; status: SubscriptionStatus }
+  | {
+      kind: 'applied';
+      userId: string;
+      status: SubscriptionStatus;
+      /**
+       * Set when the user was resolved via the email-fallback path (only on
+       * `subscription.created` for unauthenticated marketing-page checkouts).
+       * `isNewPreAccount` is true when the users row was created by this very
+       * event (no prior account for the email). Absent for the standard
+       * custom_data / paddle_customer_id resolution paths.
+       */
+      preAccountFlow?: { resolvedByEmail: true; isNewPreAccount: boolean };
+    }
   | { kind: 'unknown_user' }
   | { kind: 'ignored'; reason: string };
+
+/**
+ * Optional injection for unauthenticated checkout resolution. The webhook
+ * route closes over Paddle API + ensurePreAccount and passes this in so the
+ * pure state machine stays unaware of those concerns.
+ */
+export type EmailResolver = (
+  customerId: string,
+) => Promise<{ userId: string; isNew: boolean } | null>;
 
 const HANDLED_EVENTS = new Set([
   'subscription.created',
@@ -84,9 +105,18 @@ function extractPlan(
 /**
  * Applies a Paddle subscription event to our state machine. Returns a
  * structured result so the route handler can respond appropriately.
+ *
+ * `opts.resolveByEmail`, when provided, is used as a final-fallback
+ * resolution for `subscription.created` events that carry no
+ * custom_data.user_id and whose customer_id has no prior subscription row.
+ * This is how the unauthenticated marketing-page checkout (no auth on
+ * /endstate, no user_id in Paddle's custom_data) gets attached to a real
+ * user_id — the route handler closes over fetchPaddleCustomerEmail +
+ * ensurePreAccount and passes the result in.
  */
 export async function applyPaddleEvent(
   event: PaddleSubscriptionEvent,
+  opts?: { resolveByEmail?: EmailResolver },
 ): Promise<ApplyResult> {
   if (!isHandledEvent(event.event_type)) {
     return { kind: 'ignored', reason: `unhandled event type: ${event.event_type}` };
@@ -105,6 +135,19 @@ export async function applyPaddleEvent(
   let userId = extractUserIdFromEvent(event.data);
   if (!userId) {
     userId = await findUserIdByPaddleCustomerId(customerId);
+  }
+  let preAccountFlow: { resolvedByEmail: true; isNewPreAccount: boolean } | undefined;
+  if (
+    !userId &&
+    event.event_type === 'subscription.created' &&
+    opts?.resolveByEmail
+  ) {
+    // Anonymous marketing-page checkout. Try the email-fallback path.
+    const resolved = await opts.resolveByEmail(customerId);
+    if (resolved) {
+      userId = resolved.userId;
+      preAccountFlow = { resolvedByEmail: true, isNewPreAccount: resolved.isNew };
+    }
   }
   if (!userId) {
     return { kind: 'unknown_user' };
@@ -129,7 +172,10 @@ export async function applyPaddleEvent(
     currentPeriodEnd: transition.currentPeriodEnd,
   });
 
-  return { kind: 'applied', userId, status: transition.status };
+  const result: ApplyResult = preAccountFlow
+    ? { kind: 'applied', userId, status: transition.status, preAccountFlow }
+    : { kind: 'applied', userId, status: transition.status };
+  return result;
 }
 
 type Transition = {

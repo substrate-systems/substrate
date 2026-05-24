@@ -108,6 +108,37 @@ export const errors = {
       status: 409,
       message: 'an account already exists for this email',
     }),
+  pendingClaim: () =>
+    new HostedBackupError({
+      code: 'PENDING_CLAIM',
+      status: 409,
+      message:
+        'a Hosted Backup purchase for this email is awaiting claim — check your inbox for the claim link or contact founder@substratesystems.io',
+    }),
+  claimTokenInvalid: () =>
+    new HostedBackupError({
+      code: 'CLAIM_TOKEN_INVALID',
+      status: 401,
+      message: 'claim token is invalid',
+    }),
+  claimTokenExpired: () =>
+    new HostedBackupError({
+      code: 'CLAIM_TOKEN_EXPIRED',
+      status: 401,
+      message: 'claim token expired',
+    }),
+  claimTokenConsumed: () =>
+    new HostedBackupError({
+      code: 'CLAIM_TOKEN_CONSUMED',
+      status: 409,
+      message: 'claim token already used',
+    }),
+  rateLimited: (message = 'rate limited') =>
+    new HostedBackupError({
+      code: 'RATE_LIMITED',
+      status: 429,
+      message,
+    }),
   emailNotFound: () =>
     new HostedBackupError({
       code: 'EMAIL_NOT_FOUND',

@@ -8,6 +8,7 @@ import {
   insertUser,
   insertAuthCredentials,
   getSubscriptionStatus,
+  userHasAuthCredentials,
 } from '@/lib/hosted-backup/db';
 import { jsonWithApiVersion } from '@/lib/hosted-backup/api-version';
 import type {
@@ -70,7 +71,16 @@ export async function POST(req: NextRequest) {
     );
 
     const existing = await findUserByEmail(email);
-    if (existing) throw errors.emailTaken();
+    if (existing) {
+      // Distinguish pre-account (users row without auth_credentials, minted by
+      // the Paddle webhook for an anonymous marketing-page checkout) from a
+      // fully-credentialed user. Pre-accounts MUST be claimed via
+      // POST /api/auth/claim with the email-link token — otherwise an attacker
+      // who learns the buyer's email could hijack the subscription by racing
+      // to set credentials here.
+      const hasCreds = await userHasAuthCredentials(existing.id);
+      throw hasCreds ? errors.emailTaken() : errors.pendingClaim();
+    }
 
     const serverPasswordHash = await hashServerSecret(serverPassword);
     const recoveryKeyVerifier = await hashServerSecret(recoveryKeyProof);

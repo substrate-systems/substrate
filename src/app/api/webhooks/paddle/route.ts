@@ -1,24 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   PaddleSignatureError,
+  fetchPaddleCustomerEmail,
   verifyPaddleSignature,
 } from '@/lib/license/paddle';
 import { withApiVersion } from '@/lib/hosted-backup/api-version';
 import {
-  recordPaddleEventIfFresh,
+  ensurePreAccount,
+  getSubscriptionByUserId,
   markPaddleEventProcessed,
+  recordPaddleEventIfFresh,
+  userHasAuthCredentials,
 } from '@/lib/hosted-backup/db';
 import {
   applyPaddleEvent,
   isHandledEvent,
+  type EmailResolver,
   type PaddleSubscriptionEvent,
 } from '@/lib/hosted-backup/subscriptions';
+import { mintClaimToken } from '@/lib/hosted-backup/claim-tokens';
+import { sendTransactionalEmail } from '@/lib/brevo';
+import {
+  renderClaimEmail,
+  renderFyiEmail,
+} from '@/lib/email-templates/claim';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function ok(body: Record<string, unknown>, status = 200): NextResponse {
   return withApiVersion(NextResponse.json(body, { status }));
+}
+
+// Closure for the email-fallback path. Called by applyPaddleEvent ONLY when
+// the standard resolution paths (custom_data → paddle_customer_id) miss on a
+// subscription.created event. Returns null on any failure so the webhook
+// falls through to the existing unknown_user response (Paddle stops retrying;
+// we'd lose visibility but the event is at least audited in
+// paddle_webhook_events).
+function makeEmailResolver(): EmailResolver {
+  return async (customerId) => {
+    let email: string | null;
+    try {
+      email = await fetchPaddleCustomerEmail(customerId);
+    } catch (err) {
+      console.warn(
+        '[hosted-backup paddle webhook] fetchPaddleCustomerEmail failed',
+        { customerId, err: err instanceof Error ? err.message : String(err) },
+      );
+      return null;
+    }
+    if (!email) {
+      console.warn(
+        '[hosted-backup paddle webhook] Paddle customer has no email',
+        { customerId },
+      );
+      return null;
+    }
+    return ensurePreAccount(email);
+  };
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -120,7 +160,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   let result;
   try {
-    result = await applyPaddleEvent(event);
+    result = await applyPaddleEvent(event, {
+      resolveByEmail: makeEmailResolver(),
+    });
   } catch (err) {
     console.error('[hosted-backup paddle webhook] apply threw:', err);
     return ok(
@@ -148,5 +190,94 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (result.kind === 'ignored') {
     return ok({ ok: true, ignored: true, reason: result.reason }, 200);
   }
+
+  // If we resolved via the email-fallback path, fire the right follow-up
+  // email. Failures here log + continue — we don't want Brevo hiccups to
+  // make Paddle retry the webhook (which would mint duplicate claim
+  // tokens).
+  if (result.preAccountFlow) {
+    try {
+      await dispatchPostResolveEmail(result.userId);
+    } catch (err) {
+      console.error(
+        '[hosted-backup paddle webhook] follow-up email dispatch threw',
+        err,
+      );
+    }
+  }
+
   return ok({ ok: true, userId: result.userId, status: result.status }, 200);
+}
+
+// Looks at the resolved user. If they have no auth_credentials, they're a
+// pre-account — mint a claim token + send the claim email. Otherwise they're
+// a real existing user who happened to buy via the marketing CTA — send the
+// FYI email.
+async function dispatchPostResolveEmail(userId: string): Promise<void> {
+  const hasCreds = await userHasAuthCredentials(userId);
+  // We need the email + (for FYI) the subscription detail. Both live on
+  // the rows we just touched.
+  const sub = await getSubscriptionByUserId(userId);
+  if (!sub) {
+    // Should not happen — applyPaddleEvent just upserted the row. Log and
+    // bail.
+    console.warn(
+      '[hosted-backup paddle webhook] post-resolve email: subscription missing',
+      { userId },
+    );
+    return;
+  }
+  // userHasAuthCredentials told us whether the user is a pre-account; we
+  // still need their email. Fetch the users row directly (avoids adding
+  // another helper).
+  const userRow = await fetchUserEmail(userId);
+  if (!userRow) {
+    console.warn(
+      '[hosted-backup paddle webhook] post-resolve email: user row missing',
+      { userId },
+    );
+    return;
+  }
+  if (!hasCreds) {
+    const { token } = await mintClaimToken({ userId, email: userRow.email });
+    const rendered = renderClaimEmail({ email: userRow.email, token });
+    const sendResult = await sendTransactionalEmail({
+      to: userRow.email,
+      subject: rendered.subject,
+      htmlContent: rendered.htmlContent,
+      textContent: rendered.textContent,
+    });
+    if (!sendResult.success) {
+      console.warn(
+        '[hosted-backup paddle webhook] claim email send failed',
+        { userId, error: sendResult.error },
+      );
+    }
+    return;
+  }
+  const rendered = renderFyiEmail({
+    email: userRow.email,
+    plan: sub.plan,
+    currentPeriodEnd: sub.current_period_end,
+  });
+  const sendResult = await sendTransactionalEmail({
+    to: userRow.email,
+    subject: rendered.subject,
+    htmlContent: rendered.htmlContent,
+    textContent: rendered.textContent,
+  });
+  if (!sendResult.success) {
+    console.warn(
+      '[hosted-backup paddle webhook] fyi email send failed',
+      { userId, error: sendResult.error },
+    );
+  }
+}
+
+async function fetchUserEmail(userId: string): Promise<{ email: string } | null> {
+  // Small ad-hoc query — pulling in findUserById from db.ts would also work,
+  // but it returns a richer shape than we need. Keep it local.
+  const { findUserById } = await import('@/lib/hosted-backup/db');
+  const row = await findUserById(userId);
+  return row ? { email: row.email } : null;
 }

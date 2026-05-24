@@ -91,6 +91,51 @@ export async function insertUser(email: string): Promise<UserRow> {
   return rows[0] as UserRow;
 }
 
+// Insert-or-fetch the users row for `email` (citext, case-insensitive). Used
+// by the Paddle webhook when an unauthenticated marketing-page checkout
+// arrives — we mint a pre-account (users row without auth_credentials) so the
+// subscription can attach to a real user_id. Concurrent webhooks for the same
+// email are safe: ON CONFLICT DO NOTHING + a follow-up SELECT in the same
+// statement returns the canonical row. `isNew` is true when this call
+// inserted the row.
+export async function ensurePreAccount(
+  email: string,
+): Promise<{ userId: string; isNew: boolean }> {
+  const { rows } = await sql`
+    WITH ins AS (
+      INSERT INTO users (email)
+      VALUES (${email})
+      ON CONFLICT (email) DO NOTHING
+      RETURNING id
+    )
+    SELECT id, TRUE AS is_new FROM ins
+    UNION ALL
+    SELECT id, FALSE AS is_new FROM users
+      WHERE email = ${email}
+        AND deleted_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM ins)
+    LIMIT 1
+  `;
+  const row = rows[0] as { id: string; is_new: boolean } | undefined;
+  if (!row) {
+    throw new Error(
+      'ensurePreAccount: no row returned (user is soft-deleted?)',
+    );
+  }
+  return { userId: row.id, isNew: row.is_new };
+}
+
+// Cheap presence check, used by the webhook + signup paths to distinguish a
+// pre-account (no credentials yet) from a fully-credentialed user.
+export async function userHasAuthCredentials(
+  userId: string,
+): Promise<boolean> {
+  const { rows } = await sql`
+    SELECT 1 FROM auth_credentials WHERE user_id = ${userId} LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
 // --- Auth credentials ---
 
 export async function insertAuthCredentials(params: {
