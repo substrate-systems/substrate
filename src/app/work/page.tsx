@@ -3,6 +3,7 @@ import path from "node:path";
 import Image from "next/image";
 import Link from "next/link";
 import Footer from "@/components/Footer";
+import { getAllPostsMeta } from "@/lib/blog";
 
 // Owner-supplied, gated assets. The links render only when these are present,
 // so the page never ships a broken link. Set LINKEDIN_URL when provided; drop
@@ -10,6 +11,21 @@ import Footer from "@/components/Footer";
 const LINKEDIN_URL = "https://www.linkedin.com/in/hugo-ander-kivi/";
 const CV_FILENAME = "hugo-ander-kivi-cv.pdf";
 const cvAvailable = existsSync(path.join(process.cwd(), "public/downloads", CV_FILENAME));
+
+const featuredWriting = [
+  {
+    slug: "governance-as-compression",
+    title: "Governance as compression: contracts and skills for AI-augmented codebases",
+    description:
+      "The contract-and-skill pattern I shipped to production, and the controlled three-condition benchmark that showed the binding mechanism — not the documentation — is what moves outcomes.",
+  },
+  {
+    slug: "lazy-loading-vs-instruction-following",
+    title: "Lazy loading vs. instruction-following",
+    description:
+      "The direct follow-up: why skill-triggered loading reliably outperforms bulk-context approaches — the cognitive distinction between retrieval and instruction-following that explains the benchmark gap.",
+  },
+];
 
 const workItems = [
   {
@@ -35,7 +51,18 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
+function formatDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
 export default function WorkPage() {
+  const featuredSlugs = new Set(featuredWriting.map((w) => w.slug));
+  const moreWriting = getAllPostsMeta()
+    .filter((post) => !featuredSlugs.has(post.slug))
+    .sort((a, b) => b.published.localeCompare(a.published));
+
   return (
     <div className="min-h-screen bg-bg-base">
       <header className="mx-auto w-full max-w-3xl px-6 pt-10 sm:pt-14">
@@ -79,19 +106,41 @@ export default function WorkPage() {
         {/* Writing */}
         <section className="mt-16 border-t border-border-subtle pt-16">
           <Label>Writing</Label>
-          <Link href="/blog/governance-as-compression" className="group mt-6 block">
-            <h2 className="text-xl font-light tracking-tight text-fg-primary transition-colors duration-default group-hover:text-white sm:text-2xl">
-              Governance as compression: contracts and skills for AI-augmented codebases
-            </h2>
-            <p className="mt-3 max-w-2xl text-body font-light text-fg-secondary">
-              The contract-and-skill pattern I shipped to production, and the controlled
-              three-condition benchmark that showed the binding mechanism — not the
-              documentation — is what moves outcomes.
-            </p>
-            <span className="mt-3 inline-block text-sm font-light text-fg-tertiary transition-colors duration-default group-hover:text-fg-secondary">
-              Read →
-            </span>
-          </Link>
+          <div className="mt-6 space-y-10">
+            {featuredWriting.map((post) => (
+              <Link key={post.slug} href={`/blog/${post.slug}`} className="group block">
+                <h2 className="text-xl font-light tracking-tight text-fg-primary transition-colors duration-default group-hover:text-white sm:text-2xl">
+                  {post.title}
+                </h2>
+                <p className="mt-3 max-w-2xl text-body font-light text-fg-secondary">
+                  {post.description}
+                </p>
+                <span className="mt-3 inline-block text-sm font-light text-fg-tertiary transition-colors duration-default group-hover:text-fg-secondary">
+                  Read →
+                </span>
+              </Link>
+            ))}
+          </div>
+
+          {moreWriting.length > 0 ? (
+            <ul className="mt-10 space-y-3 border-t border-border-subtle pt-8">
+              {moreWriting.map((post) => (
+                <li key={post.slug}>
+                  <Link
+                    href={`/blog/${post.slug}`}
+                    className="group flex flex-wrap items-baseline gap-x-4 gap-y-1"
+                  >
+                    <span className="text-body font-light text-fg-secondary transition-colors duration-default group-hover:text-fg-primary">
+                      {post.title}
+                    </span>
+                    <span className="text-body-sm text-fg-tertiary">
+                      {formatDate(post.published)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </section>
 
         {/* Selected work */}
