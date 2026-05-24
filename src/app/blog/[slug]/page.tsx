@@ -83,7 +83,13 @@ export default async function BlogPostPage({
       </header>
 
       <article className="mx-auto w-full max-w-3xl px-6 py-16 sm:py-20">
-        <h1 className="text-display-sm font-light tracking-tight text-fg-primary sm:text-display">
+        <Link
+          href="/blog"
+          className="inline-flex items-center gap-2 text-sm font-light text-fg-tertiary transition-colors duration-default hover:text-fg-secondary"
+        >
+          <span aria-hidden="true">←</span> Writing
+        </Link>
+        <h1 className="mt-8 text-display-sm font-light tracking-tight text-fg-primary sm:text-display">
           {title}
         </h1>
         <p className="mt-4 text-body-sm text-fg-tertiary">
