@@ -13,19 +13,11 @@ const c = {
 const MONO_FAMILY =
   "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
-export function ClaimCopyButton({
-  code,
-  token,
-}: {
-  code: string;
-  token: string;
-}) {
+export function ClaimCopyButton({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);
 
   async function onCopy() {
     try {
-      // Copy the FULL token (what the GUI needs), not the truncated display
-      // code. The display code is a friendlier preview.
       await navigator.clipboard.writeText(token);
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
@@ -39,7 +31,7 @@ export function ClaimCopyButton({
       style={{
         display: 'flex',
         gap: 12,
-        alignItems: 'center',
+        alignItems: 'stretch',
         flexWrap: 'wrap',
       }}
     >
@@ -47,19 +39,20 @@ export function ClaimCopyButton({
         style={{
           flex: '1 1 320px',
           fontFamily: MONO_FAMILY,
-          fontSize: '1.5rem',
+          fontSize: '0.95rem',
           fontWeight: 500,
-          letterSpacing: '0.14em',
           color: c.text,
           background: 'rgba(0,0,0,0.35)',
           border: `1px solid ${c.border}`,
           borderRadius: 8,
-          padding: '22px 24px',
-          textAlign: 'center',
+          padding: '18px 20px',
+          textAlign: 'left',
+          wordBreak: 'break-all',
+          lineHeight: 1.5,
           userSelect: 'all',
         }}
       >
-        {code}
+        {token}
       </code>
       <button
         type="button"

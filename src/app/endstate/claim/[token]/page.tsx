@@ -29,12 +29,6 @@ const FONT_FAMILY =
 const MONO_FAMILY =
   "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
-function formatCode(token: string): string {
-  const cleaned = token.replace(/[^A-Za-z0-9_-]/g, '');
-  const head = cleaned.slice(0, 16).toUpperCase();
-  return head.match(/.{1,4}/g)?.join('-') ?? head;
-}
-
 type VerifyResult = Awaited<ReturnType<typeof verifyClaimToken>>;
 
 // In development, tokens starting with `preview-` render a synthetic valid
@@ -133,7 +127,6 @@ export default async function ClaimPage({ params }: Props) {
 }
 
 function SuccessState({ token, email }: { token: string; email: string }) {
-  const code = formatCode(token);
   return (
     <section style={{ padding: '120px 24px 96px' }}>
       <div style={{ maxWidth: 880, margin: '0 auto' }}>
@@ -187,7 +180,7 @@ function SuccessState({ token, email }: { token: string; email: string }) {
               fresh local account. It expires in 30 days. You won&rsquo;t need
               it again after setup.
             </p>
-            <ClaimCopyButton code={code} token={token} />
+            <ClaimCopyButton token={token} />
           </StepCard>
 
           <StepCard number="02 — OPEN ENDSTATE" heading="If you already have it installed.">

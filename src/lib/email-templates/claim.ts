@@ -62,7 +62,6 @@ function renderClaimEmailVariant(
   opts: { intro: string; eyebrow?: string; headline?: string },
 ): RenderedEmail {
   const claimUrl = `${SITE_BASE_URL}/endstate/claim/${encodeURIComponent(token)}`;
-  const code = formatCodeFromToken(token);
   const subject = "You're in. Here's your Hosted Backup claim link.";
   const eyebrow = opts.eyebrow ?? 'Welcome';
   const headline = opts.headline ?? "You're in.";
@@ -110,7 +109,7 @@ function renderClaimEmailVariant(
                 <p style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; font-weight: 500; color: #666; letter-spacing: 0.14em; text-transform: uppercase; margin: 36px 0 10px;">Or paste this code into Endstate</p>
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: #0c0c0c; border-radius: 8px;">
                   <tr>
-                    <td align="center" style="padding: 22px 16px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 20px; font-weight: 600; color: #ffffff; letter-spacing: 0.14em;">${escapeHtml(code)}</td>
+                    <td align="center" style="padding: 18px 16px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; font-weight: 500; color: #ffffff; word-break: break-all;">${escapeHtml(token)}</td>
                   </tr>
                 </table>
                 <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 12px 0 32px;">On Endstate&rsquo;s sign-in screen, choose &ldquo;I have a claim code&rdquo; and paste it in.</p>
@@ -145,7 +144,7 @@ function renderClaimEmailVariant(
 
 Or paste this code into Endstate after installing:
 
-  ${code}
+  ${token}
 
 On Endstate's sign-in screen, choose "I have a claim code" and paste it in.
 
@@ -244,16 +243,6 @@ export function renderFounderDigest({
 ${rows}`;
 
   return { subject, htmlContent, textContent };
-}
-
-// Format a 43-char URL-safe base64 token as a copy-friendly grouped code.
-// We expose the first ~16 chars in 4-char groups so it's easy to type if
-// someone is bridging from a different device. The full token is in the
-// URL; the code is a convenience fallback.
-function formatCodeFromToken(token: string): string {
-  const cleaned = token.replace(/[^A-Za-z0-9_-]/g, '');
-  const head = cleaned.slice(0, 16).toUpperCase();
-  return head.match(/.{1,4}/g)?.join('-') ?? head;
 }
 
 function cadenceLabel(plan: string | null | undefined): string {
