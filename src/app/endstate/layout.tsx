@@ -14,8 +14,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: "/endstate/01-landing.png",
-        width: 1400,
-        height: 900,
+        width: 1680,
+        height: 1240,
         alt: "Endstate application",
       },
     ],
