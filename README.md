@@ -32,6 +32,27 @@ npm start
 - TypeScript
 - Tailwind CSS v4
 
+This single codebase serves the marketing site, the blog, the Hosted Backup API, and the account surface. There is no separate backend service.
+
+## Content discipline
+
+Public copy on this site must match the canonical product facts. The source of truth for product positioning lives in the Knowledge Base under `Identity/` (notably `Identity/Tech Stack.md` and `Identity/Products.md`). Check those before adding or editing any product description.
+
+### Endstate
+
+- **Scope.** Endstate is a **Windows** machine setup and restore tool today. The Go engine is structured for cross-platform use, and macOS/Linux support is coming via Nix. Never write "cross-platform machine provisioning" as an unqualified headline; if cross-platform is mentioned, qualify it as forward work.
+- **Stack.** Go end-to-end engine (CLI). The desktop GUI is **shipped** — Tauri shell in Rust + TypeScript with shadcn/ui (`github.com/Artexis10/endstate-gui`). Don't describe the GUI as planned or coming.
+- **Hosted Backup.** The Hosted Backup API is part of this Next.js codebase — see the "Hosted Backup" section below. There is no separate "Substrate backend" service and no Elixir backend anywhere. If copy implies a separate service, fix it.
+- **Roadmap framing.** The cross-platform path is Nix via the Go engine, not "additional platform drivers" or "winget/apt/brew expansion". `winget` is the current Windows install mechanism, not a roadmap item.
+
+### Q
+
+- When a count is needed, write "around 500 testers" — without "active". Don't write "active testers" or "active users". `useq.ai` is not controlled from this repo; if it states something different, surface the conflict rather than silently editing it from here.
+
+### Hugo's personal stack
+
+If the site references languages he writes day-to-day, the defendable list is **Elixir, PHP, Python, TypeScript**. Go, Rust, and PowerShell appear in product context (Endstate engine, GUI shell, etc.) and may be described that way, but should not be claimed as personal language depth.
+
 ## SEO / link previews
 
 Every page emits Open Graph and Twitter Card meta tags so previews render on LinkedIn, X, Slack, Discord, and iMessage.
