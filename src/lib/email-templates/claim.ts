@@ -50,48 +50,112 @@ export function renderResendClaimEmail({
   token,
 }: ClaimEmailInput): RenderedEmail {
   return renderClaimEmailVariant(token, {
+    eyebrow: 'Still here for you',
+    headline: 'Your subscription is waiting.',
     intro:
-      'A reminder — your Endstate Hosted Backup subscription is waiting to be claimed. Tap the button below or paste the code into Endstate.',
+      'Just a friendly nudge — your Hosted Backup subscription is ready to claim. Tap the button or paste the code into Endstate.',
   });
 }
 
 function renderClaimEmailVariant(
   token: string,
-  opts: { intro: string },
+  opts: { intro: string; eyebrow?: string; headline?: string },
 ): RenderedEmail {
   const claimUrl = `${SITE_BASE_URL}/endstate/claim/${encodeURIComponent(token)}`;
   const code = formatCodeFromToken(token);
-  const subject = 'Claim your Endstate Hosted Backup subscription';
+  const subject = "You're in. Here's your Hosted Backup claim link.";
+  const eyebrow = opts.eyebrow ?? 'Welcome';
+  const headline = opts.headline ?? "You're in.";
 
+  // Email-safe (works in Gmail, Apple Mail, Outlook desktop): table-based
+  // outer frame, inline styles, system fonts only, no flexbox/grid/web
+  // fonts. The teal→green top bar + dark code block carry the Endstate
+  // brand without depending on any client-side asset loading.
   const htmlContent = `<!doctype html>
 <html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 16px;">${escapeHtml(opts.intro)}</p>
-    <p style="font-size: 14px; line-height: 1.6; color: #333; margin: 0 0 20px;">
-      <a href="${claimUrl}" style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 22px; border-radius: 6px; font-weight: 600;">Claim your subscription</a>
-    </p>
-    <p style="font-size: 14px; line-height: 1.6; color: #333; margin: 0 0 8px;">Or paste this code into Endstate after installing:</p>
-    <pre style="background: #f4f4f5; border: 1px solid #e4e4e7; border-radius: 6px; padding: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; letter-spacing: 0.05em; margin: 0 0 20px; text-align: center; font-weight: 600;">${escapeHtml(code)}</pre>
-    <p style="font-size: 14px; line-height: 1.6; color: #333; margin: 0 0 16px;">Don&rsquo;t have Endstate yet? <a href="${DOWNLOAD_URL}" style="color: #2563eb; text-decoration: underline;">Download it here</a> &mdash; the local product is free, your subscription unlocks Hosted Backup.</p>
-    <p style="font-size: 13px; line-height: 1.6; color: #666; margin: 0 0 16px;">Your link expires in 30 days. If it expires, reply to this email and we&rsquo;ll send a fresh one.</p>
-    <p style="font-size: 14px; line-height: 1.6; color: #111; margin: 24px 0 0;">&mdash; Hugo, Substrate Systems</p>
+  <body style="margin: 0; padding: 0; background: #f4f4f5;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: #f4f4f5;">
+      <tr>
+        <td align="center" style="padding: 32px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="max-width: 560px; width: 100%; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+            <!-- Top accent bar -->
+            <tr>
+              <td style="height: 4px; background: linear-gradient(90deg, #2dd4bf 0%, #22c55e 100%); line-height: 4px; font-size: 0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding: 40px 40px 32px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0c0c0c;">
+                <!-- Eyebrow -->
+                <p style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; color: #c87941; letter-spacing: 0.18em; text-transform: uppercase; margin: 0 0 14px;">${escapeHtml(eyebrow)}</p>
+                <!-- Headline -->
+                <h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.1; margin: 0 0 14px; color: #0c0c0c;">${escapeHtml(headline)}</h1>
+                <!-- Intro -->
+                <p style="font-size: 16px; line-height: 1.55; color: #444; margin: 0 0 32px;">${escapeHtml(opts.intro)}</p>
+
+                <!-- CTA — centered, auto-width -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr>
+                    <td align="center">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td style="border-radius: 8px; background: #0c0c0c;">
+                            <a href="${claimUrl}" style="display: inline-block; background: #0c0c0c; color: #ffffff; text-decoration: none; padding: 16px 28px; border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-weight: 600; font-size: 15px;">Claim your subscription &rarr;</a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Code section -->
+                <p style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; font-weight: 500; color: #666; letter-spacing: 0.14em; text-transform: uppercase; margin: 36px 0 10px;">Or paste this code into Endstate</p>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: #0c0c0c; border-radius: 8px;">
+                  <tr>
+                    <td align="center" style="padding: 22px 16px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 20px; font-weight: 600; color: #ffffff; letter-spacing: 0.14em;">${escapeHtml(code)}</td>
+                  </tr>
+                </table>
+                <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 12px 0 32px;">On Endstate&rsquo;s sign-in screen, choose &ldquo;I have a claim code&rdquo; and paste it in.</p>
+
+                <!-- Download -->
+                <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 6px;">Don&rsquo;t have Endstate yet?</p>
+                <p style="font-size: 14px; line-height: 1.6; margin: 0 0 32px;"><a href="${DOWNLOAD_URL}" style="color: #0c0c0c; text-decoration: none; border-bottom: 1px solid #0c0c0c; padding-bottom: 1px;">Download it free</a> <span style="color: #888;">&mdash; the local product is free, your subscription unlocks Hosted Backup.</span></p>
+
+                <!-- Divider -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr><td style="height: 1px; background: #eee; line-height: 1px; font-size: 0;">&nbsp;</td></tr>
+                </table>
+
+                <!-- Footer copy -->
+                <p style="font-size: 13px; line-height: 1.55; color: #888; margin: 24px 0 16px;">Your link expires in 30 days. If it expires, just reply to this email and I&rsquo;ll send a fresh one.</p>
+                <p style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.55; color: #0c0c0c; margin: 0;">&mdash; Hugo, founder of Endstate</p>
+              </td>
+            </tr>
+          </table>
+          <!-- Brand mark below the card -->
+          <p style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; color: #aaa; letter-spacing: 0.12em; text-transform: uppercase; margin: 20px 0 0;">Endstate &middot; Substrate Systems</p>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>`;
 
   const textContent = `${opts.intro}
 
-Claim your subscription: ${claimUrl}
+▸ Claim your subscription:
+  ${claimUrl}
 
 Or paste this code into Endstate after installing:
 
   ${code}
 
-Don't have Endstate yet? Download it here: ${DOWNLOAD_URL}
-The local product is free; your subscription unlocks Hosted Backup.
+On Endstate's sign-in screen, choose "I have a claim code" and paste it in.
 
-Your link expires in 30 days. If it expires, reply to this email and we'll send a fresh one.
+Don't have Endstate yet? Download it free: ${DOWNLOAD_URL}
+(The local product is free; your subscription unlocks Hosted Backup.)
 
-— Hugo, Substrate Systems`;
+Your link expires in 30 days. If it expires, just reply to this email and I'll send a fresh one.
+
+— Hugo, Endstate
+   Substrate Systems`;
 
   return { subject, htmlContent, textContent };
 }
@@ -108,12 +172,32 @@ export function renderFyiEmail({
 
   const htmlContent = `<!doctype html>
 <html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 16px;">A Hosted Backup subscription (${escapeHtml(cadence)}) has been added to your Endstate account.</p>
-    ${renewalLine ? `<p style="font-size: 14px; line-height: 1.6; color: #333; margin: 0 0 16px;">${escapeHtml(renewalLine)}</p>` : ''}
-    <p style="font-size: 14px; line-height: 1.6; color: #333; margin: 0 0 16px;">Your existing account credentials are unchanged — sign in to Endstate the same way you always do, and Hosted Backup is now available.</p>
-    <p style="font-size: 13px; line-height: 1.6; color: #666; margin: 0 0 16px;">Didn&rsquo;t make this purchase? Reply to this email and we&rsquo;ll sort it out.</p>
-    <p style="font-size: 14px; line-height: 1.6; color: #111; margin: 24px 0 0;">&mdash; Hugo, Substrate Systems</p>
+  <body style="margin: 0; padding: 0; background: #f4f4f5;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background: #f4f4f5;">
+      <tr>
+        <td align="center" style="padding: 32px 16px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="max-width: 560px; width: 100%; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+            <tr>
+              <td style="height: 4px; background: linear-gradient(90deg, #2dd4bf 0%, #22c55e 100%); line-height: 4px; font-size: 0;">&nbsp;</td>
+            </tr>
+            <tr>
+              <td style="padding: 40px 40px 32px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0c0c0c;">
+                <p style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; color: #c87941; letter-spacing: 0.18em; text-transform: uppercase; margin: 0 0 14px;">Subscription added</p>
+                <h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 14px; color: #0c0c0c;">Hosted Backup is on your account.</h1>
+                <p style="font-size: 16px; line-height: 1.55; color: #444; margin: 0 0 20px;">A ${escapeHtml(cadence)} subscription has been linked to your existing Endstate account.${renewalLine ? ' ' + escapeHtml(renewalLine) : ''}</p>
+                <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 24px;">Your credentials are unchanged. Sign in to Endstate the way you always do, and Hosted Backup is now available.</p>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                  <tr><td style="height: 1px; background: #eee; line-height: 1px; font-size: 0;">&nbsp;</td></tr>
+                </table>
+                <p style="font-size: 13px; line-height: 1.55; color: #888; margin: 20px 0 16px;">Didn&rsquo;t make this purchase? Just reply &mdash; I&rsquo;ll sort it out.</p>
+                <p style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.55; color: #0c0c0c; margin: 0;">&mdash; Hugo, founder of Endstate</p>
+              </td>
+            </tr>
+          </table>
+          <p style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; color: #aaa; letter-spacing: 0.12em; text-transform: uppercase; margin: 20px 0 0;">Endstate &middot; Substrate Systems</p>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>`;
 
@@ -121,9 +205,10 @@ export function renderFyiEmail({
 
 ${renewalLine ? `${renewalLine}\n\n` : ''}Your existing account credentials are unchanged — sign in to Endstate the same way you always do, and Hosted Backup is now available.
 
-Didn't make this purchase? Reply to this email and we'll sort it out.
+Didn't make this purchase? Reply to this email and I'll sort it out.
 
-— Hugo, Substrate Systems`;
+— Hugo, Endstate
+   Substrate Systems`;
 
   return { subject, htmlContent, textContent };
 }

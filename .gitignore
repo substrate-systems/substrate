@@ -53,3 +53,9 @@ next-env.d.ts
 # Claude Code: per-user local overrides (shared config is committed)
 .claude/settings.local.json
 .vercel
+
+# Design iteration scratch — local-only mockups, screenshots, render scripts
+.design/
+.vis-*
+.claim-page-*.png
+.endstate-pricing-*.png

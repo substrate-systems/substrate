@@ -22,7 +22,10 @@ type BrevoErrorResponse = {
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const DEFAULT_SENDER_EMAIL = 'licenses@substratesystems.io';
-const SENDER_NAME = 'Substrate Systems';
+// Friendlier display name in the inbox. Trust signals come from the
+// from-address + DKIM/SPF/DMARC — the name is just for the human reading.
+// Override via BREVO_SENDER_NAME if needed (e.g. for the founder digest).
+const DEFAULT_SENDER_NAME = 'Hugo at Endstate';
 
 export async function sendTransactionalEmail(
   input: SendTransactionalEmailInput,
@@ -45,7 +48,8 @@ export async function sendTransactionalEmail(
   }
 
   const senderEmail = process.env.BREVO_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
-  const sender = { email: senderEmail, name: SENDER_NAME };
+  const senderName = process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
+  const sender = { email: senderEmail, name: senderName };
 
   let res: Response;
   try {
