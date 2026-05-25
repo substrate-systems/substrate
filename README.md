@@ -32,6 +32,64 @@ npm start
 - TypeScript
 - Tailwind CSS v4
 
+## SEO / link previews
+
+Every page emits Open Graph and Twitter Card meta tags so previews render on LinkedIn, X, Slack, Discord, and iMessage.
+
+**Where the tags come from**
+
+- Site-wide defaults: `src/app/layout.tsx` exports a `metadata` object with `metadataBase`, a title template (`%s · Substrate`), `openGraph`, and `twitter` defaults. Relative URLs (e.g. `/api/og`) are resolved against `metadataBase` at render time.
+- Per-route overrides: a route segment can export `metadata` from `layout.tsx` (e.g. `src/app/work/layout.tsx`) or `generateMetadata` from `page.tsx`. The closest definition wins.
+- Per-post: `src/app/blog/[slug]/page.tsx` pulls `title` / `description` / `published` from the post frontmatter and passes the title into the OG image URL.
+
+**Dynamic OG images**
+
+`src/app/api/og/route.tsx` renders a 1200×630 PNG with `next/og` (Satori). It reads a `?title=...` query param; missing or empty title falls back to the site default.
+
+Example URLs:
+
+- `https://substratesystems.io/api/og` — default
+- `https://substratesystems.io/api/og?title=Proof%20of%20work` — per-page
+
+**Adding metadata to a new page**
+
+For a static page, export `metadata` from the route's `page.tsx` (or `layout.tsx` if you also want the children to inherit). Set at minimum a `title` and `description`; add `openGraph.images` and `twitter.images` pointing to `/api/og?title=<urlencoded title>` so the link preview renders the right card:
+
+```ts
+import type { Metadata } from "next";
+
+const TITLE = "Example";
+const DESCRIPTION = "One-line summary.";
+const OG_IMAGE = `/api/og?title=${encodeURIComponent(TITLE)}`;
+
+export const metadata: Metadata = {
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    title: `${TITLE} · Substrate`,
+    description: DESCRIPTION,
+    url: "/example",
+    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
+  },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: [OG_IMAGE] },
+};
+```
+
+For a new blog post, do nothing extra — drop a `.md` file in `content/blog/` with `title` / `description` / `published` frontmatter and the OG image is generated automatically.
+
+**Verifying previews post-deploy**
+
+- LinkedIn Post Inspector: <https://www.linkedin.com/post-inspector/> — paste the URL; LinkedIn caches aggressively, so use this to force a re-scrape after any metadata change.
+- X / Twitter Card Validator: <https://cards-dev.twitter.com/validator>
+- Slack: paste the link into any channel; if the preview is stale, edit the message and re-paste, or use `/remind` to unfurl.
+- Quick local check:
+
+  ```bash
+  npm run build && npx next start
+  curl -s http://localhost:3000/blog/<slug> | grep -E 'og:|twitter:'
+  open http://localhost:3000/api/og?title=Test+Title
+  ```
+
 ## Hosted Backup
 
 The substrate also serves as the auth issuer + metadata store + presigned-URL minter for **Endstate Hosted Backup v2**. Protocol locked in [`hosted-backup-contract.md`](./hosted-backup-contract.md) (OIDC discovery, EdDSA JWTs, Argon2id-derived `serverPassword + masterKey` split, R2 storage with 5-version retention).

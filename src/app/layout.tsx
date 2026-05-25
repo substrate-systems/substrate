@@ -9,7 +9,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Substrate — Foundational Systems",
+  title: {
+    template: "%s · Substrate",
+    default: "Substrate — Foundational Systems",
+  },
   description: "Software infrastructure for durable systems.",
   metadataBase: new URL("https://substratesystems.io"),
   icons: {
@@ -27,10 +30,10 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/brand/logos/substrate-logo-dark.png",
+        url: "/api/og",
         width: 1200,
         height: 630,
-        alt: "Substrate",
+        alt: "Substrate — Foundational Systems",
       },
     ],
   },
@@ -38,7 +41,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Substrate — Foundational Systems",
     description: "Software infrastructure for durable systems.",
-    images: ["/brand/logos/substrate-logo-dark.png"],
+    images: ["/api/og"],
   },
   robots: {
     index: true,

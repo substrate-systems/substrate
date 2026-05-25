@@ -22,6 +22,7 @@ export async function generateMetadata({
   if (!post) return {};
 
   const { title, description, published, author } = post.frontmatter;
+  const ogImage = `/api/og?title=${encodeURIComponent(title)}`;
   return {
     title,
     description,
@@ -32,11 +33,13 @@ export async function generateMetadata({
       type: "article",
       publishedTime: published,
       url: `/blog/${slug}`,
+      images: [{ url: ogImage, width: 1200, height: 630, alt: title }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
+      images: [ogImage],
     },
   };
 }
