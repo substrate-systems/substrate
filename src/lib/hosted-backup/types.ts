@@ -115,6 +115,20 @@ export type CheckoutResponse = {
 
 export type AccountDeleteResponse = { ok: true };
 
+// /api/auth/browser-session — Account Portal handoff token.
+// Engine mints via this endpoint; GUI opens `accountUrl?session=<token>`.
+// Substrate redeems on landing, sets HttpOnly cookie, redirects to clean URL.
+export type BrowserSessionResponse = {
+  sessionToken: string;
+  accountUrl: string;
+};
+
+// /api/billing/portal — Paddle customer-portal session URL.
+// Cookie-authenticated (via the account session cookie set by redeem).
+export type BillingPortalResponse = {
+  portalUrl: string;
+};
+
 // --- Backups (storage) ---
 
 export type BackupSummary = {

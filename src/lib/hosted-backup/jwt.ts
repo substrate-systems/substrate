@@ -35,8 +35,10 @@ const td = new TextDecoder();
 
 const ACCESS_TOKEN_TTL_S = 900; // 15 min, contract §4
 const RECOVERY_TOKEN_TTL_S = 600; // 10 min, contract §6
+const BROWSER_SESSION_TOKEN_TTL_S = 60; // contract §4 (Account Portal handoff)
 const ACCESS_AUDIENCE = 'endstate-backup';
 const RECOVERY_AUDIENCE = 'endstate-recover';
+const BROWSER_SESSION_AUDIENCE = 'endstate-account';
 
 function getIssuer(): string {
   return process.env.ENDSTATE_OIDC_ISSUER_URL ?? 'https://substratesystems.io';
@@ -141,6 +143,25 @@ export async function mintRecoveryToken(params: {
   return { token, exp };
 }
 
+export async function mintBrowserSessionToken(params: {
+  userId: string;
+}): Promise<{ token: string; jti: string; exp: number }> {
+  const iat = Math.floor(Date.now() / 1000);
+  const exp = iat + BROWSER_SESSION_TOKEN_TTL_S;
+  const jti = randomUUID();
+  const claims = {
+    iss: getIssuer(),
+    sub: params.userId,
+    aud: BROWSER_SESSION_AUDIENCE,
+    iat,
+    nbf: iat,
+    exp,
+    jti,
+  };
+  const token = await signCompactJwt(claims);
+  return { token, jti, exp };
+}
+
 type VerifyOptions = {
   audience?: string;
 };
@@ -221,6 +242,15 @@ export async function verifyRecoveryToken(
   return { userId: claims.userId, jti: claims.jti };
 }
 
+export async function verifyBrowserSessionToken(
+  token: string,
+): Promise<{ userId: string; jti: string; exp: number }> {
+  const claims = await verifyAccessToken(token, {
+    audience: BROWSER_SESSION_AUDIENCE,
+  });
+  return { userId: claims.userId, jti: claims.jti, exp: claims.exp };
+}
+
 export const _internal = {
   hexToBytes,
   base64url,
@@ -228,6 +258,8 @@ export const _internal = {
   signCompactJwt,
   ACCESS_TOKEN_TTL_S,
   RECOVERY_TOKEN_TTL_S,
+  BROWSER_SESSION_TOKEN_TTL_S,
   ACCESS_AUDIENCE,
   RECOVERY_AUDIENCE,
+  BROWSER_SESSION_AUDIENCE,
 };
