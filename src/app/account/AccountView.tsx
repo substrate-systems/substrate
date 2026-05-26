@@ -270,7 +270,7 @@ function PrimaryAction({
 
 function ManageInPaddleButton({ disabled }: { disabled: boolean }) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode | null>(null);
   async function go() {
     setPending(true);
     setError(null);
@@ -280,9 +280,15 @@ function ManageInPaddleButton({ disabled }: { disabled: boolean }) {
         const body = await res.json().catch(() => null);
         const code = body?.error?.code ?? `HTTP_${res.status}`;
         setError(
-          code === 'PADDLE_PORTAL_UNAVAILABLE'
-            ? "We don't have a payment record on file yet — email founder@substratesystems.io if you need to update billing."
-            : "We couldn't open Paddle's billing portal. Try again in a moment.",
+          code === 'PADDLE_PORTAL_UNAVAILABLE' ? (
+            <>
+              We don&rsquo;t have a payment record on file yet —{' '}
+              <FounderMailLink subject="Hosted Backup billing update" /> if you
+              need to update billing.
+            </>
+          ) : (
+            "We couldn't open Paddle's billing portal. Try again in a moment."
+          ),
         );
         return;
       }
@@ -419,7 +425,7 @@ function RecoveryKeyReminder() {
 function DangerZone() {
   const [pending, setPending] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode | null>(null);
 
   async function signOut() {
     setPending(true);
@@ -440,7 +446,12 @@ function DangerZone() {
     try {
       const res = await fetch('/api/account/web-delete', { method: 'POST' });
       if (!res.ok) {
-        setError("We couldn't delete your account right now. Email founder@substratesystems.io for help.");
+        setError(
+          <>
+            We couldn&rsquo;t delete your account right now.{' '}
+            <FounderMailLink subject="Hosted Backup account deletion" /> for help.
+          </>,
+        );
         return;
       }
       window.location.href = '/endstate?deleted=1';
@@ -575,6 +586,21 @@ function DangerZone() {
         .
       </p>
     </section>
+  );
+}
+
+function FounderMailLink({ subject }: { subject: string }) {
+  return (
+    <a
+      href={`mailto:founder@substratesystems.io?subject=${encodeURIComponent(subject)}`}
+      style={{
+        color: c.textSec,
+        borderBottom: '1px solid rgba(153,153,153,0.3)',
+        textDecoration: 'none',
+      }}
+    >
+      email founder@substratesystems.io
+    </a>
   );
 }
 

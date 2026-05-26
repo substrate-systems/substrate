@@ -144,7 +144,7 @@ function SessionErrorState({ code }: { code: string }) {
   );
 }
 
-function friendlyForCode(code: string): { heading: string; body: string } {
+function friendlyForCode(code: string): { heading: string; body: React.ReactNode } {
   switch (code) {
     case 'BROWSER_SESSION_CONSUMED':
       return {
@@ -168,10 +168,30 @@ function friendlyForCode(code: string): { heading: string; body: string } {
     default:
       return {
         heading: "We couldn't open your account portal.",
-        body:
-          'Open Endstate and click "Manage subscription" to start a fresh session. If this keeps happening, email founder@substratesystems.io.',
+        body: (
+          <>
+            Open Endstate and click &ldquo;Manage subscription&rdquo; to start a
+            fresh session. If this keeps happening,{' '}
+            <FounderMailLink subject="Hosted Backup account portal error" />.
+          </>
+        ),
       };
   }
+}
+
+function FounderMailLink({ subject }: { subject: string }) {
+  return (
+    <a
+      href={`mailto:founder@substratesystems.io?subject=${encodeURIComponent(subject)}`}
+      style={{
+        color: c.textSec,
+        borderBottom: '1px solid rgba(153,153,153,0.3)',
+        textDecoration: 'none',
+      }}
+    >
+      email founder@substratesystems.io
+    </a>
+  );
 }
 
 function Eyebrow({
