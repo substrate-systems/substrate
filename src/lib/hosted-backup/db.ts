@@ -845,3 +845,49 @@ export async function deleteUserCascade(userId: string): Promise<number> {
   `;
   return rowCount ?? 0;
 }
+
+// --- Account portal: cookie sessions + redeemed-jti ledger ---
+
+export async function insertAccountSession(params: {
+  sessionId: string;
+  userId: string;
+  expiresAt: Date;
+}): Promise<void> {
+  await sql`
+    INSERT INTO account_sessions (session_id, user_id, expires_at)
+    VALUES (${params.sessionId}, ${params.userId}, ${params.expiresAt.toISOString()})
+  `;
+}
+
+export async function findAccountSession(
+  sessionId: string,
+): Promise<{ userId: string; expiresAt: string } | null> {
+  const { rows } = await sql`
+    SELECT user_id, expires_at FROM account_sessions
+    WHERE session_id = ${sessionId} AND expires_at > now()
+    LIMIT 1
+  `;
+  const row = rows[0] as
+    | { user_id: string; expires_at: string }
+    | undefined;
+  if (!row) return null;
+  return { userId: row.user_id, expiresAt: row.expires_at };
+}
+
+export async function deleteAccountSession(sessionId: string): Promise<void> {
+  await sql`DELETE FROM account_sessions WHERE session_id = ${sessionId}`;
+}
+
+/**
+ * Mark a browser-session JWT as redeemed. Returns true if this is the first
+ * time the jti is being burned; false if it had already been redeemed (the
+ * caller must reject the request to prevent URL replay).
+ */
+export async function burnBrowserSessionJti(jti: string): Promise<boolean> {
+  const { rowCount } = await sql`
+    INSERT INTO redeemed_browser_session_jtis (jti)
+    VALUES (${jti})
+    ON CONFLICT (jti) DO NOTHING
+  `;
+  return (rowCount ?? 0) > 0;
+}

@@ -175,4 +175,28 @@ export const errors = {
       message: 'paddle webhook signature did not verify',
       detail,
     }),
+  browserSessionConsumed: () =>
+    new HostedBackupError({
+      code: 'BROWSER_SESSION_CONSUMED',
+      status: 401,
+      message: 'browser-session token has already been redeemed',
+    }),
+  accountSessionInvalid: (message = 'account session is invalid') =>
+    new HostedBackupError({
+      code: 'ACCOUNT_SESSION_INVALID',
+      status: 401,
+      message,
+    }),
+  accountSessionExpired: () =>
+    new HostedBackupError({
+      code: 'ACCOUNT_SESSION_EXPIRED',
+      status: 401,
+      message: 'account session expired',
+    }),
+  paddlePortalUnavailable: (message = 'no Paddle customer on file yet') =>
+    new HostedBackupError({
+      code: 'PADDLE_PORTAL_UNAVAILABLE',
+      status: 404,
+      message,
+    }),
 };
