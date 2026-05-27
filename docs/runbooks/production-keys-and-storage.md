@@ -178,17 +178,23 @@ Each of these has bitten us in production at least once during hosted-backup rol
 **4. Asymmetric handling between paired endpoints.** When two endpoints implement opposite halves of the same protocol contract (upload mints URL → download fetches URL; encrypt → decrypt; write → read), an invariant on one side has to be honored on the other. Drift is invisible in unit tests that exercise each half in isolation. The hosted-backup contract uses `chunkIndex = -1` as the sentinel for the manifest blob in **both** the upload-URL response (`POST /api/backups/:id/versions`) and the download-URL request (`POST /api/backups/:id/versions/:vid/download-urls`); the upload side was correct from PR #2, but the download side validated all requested indices against the chunks table — where `-1` is by definition absent — and threw `NOT_FOUND` before ever reaching the manifest case. **When you find a sentinel value or magic-number convention in code, grep the codebase for every other place that value could appear and verify the symmetry.** Add an end-to-end test that round-trips through both endpoints with the sentinel.
 *(First seen: PR #7, `POST .../download-urls` with `chunkIndices: [-1]` returned `NOT_FOUND`, blocking the engine smoke test's pull half on a real prod backup `9e6f8cc9-…`/`910f3c00-…`. Push had worked because that path mints the manifest URL itself; download couldn't fetch what push had written.)*
 
-**5. Migrations do NOT auto-run on Vercel deploy.** Vercel runs `next build` and ships the bundle; nothing in the deploy pipeline executes `migrations/*.sql`. Code that depends on a new schema (a new column, a new table) ships and starts taking traffic against the OLD database. The first request to hit the new code path returns 500 with a Postgres `relation "<table>" does not exist` error. **After merging any PR that adds a file under `migrations/`, run the migration manually before the consumer code can take traffic:**
+**5. Migrations auto-run on Vercel *production* deploys via `vercel-build`** (since 2026-05-27). `package.json`'s `vercel-build` script chains `scripts/vercel-maybe-migrate.ts` before `next build`. The migrate step checks `VERCEL_ENV` and only runs against the production database when `VERCEL_ENV === 'production'` — preview and development builds skip it. A failing migration aborts the build and the previous deploy stays live.
 
-```bash
-vercel env pull .env.production.local --environment=production
-npm run migrate:dry      # confirm the pending list is what you expect
-npm run migrate          # apply
-rm .env.production.local # wipe local credentials
-```
+**Implications:**
 
-If the migration is on a critical path (consumer code already merged), run this between the substrate merge and any client release that calls the new path. If the migration is independent (e.g., a backfill or a new analytics column), it can run after consumer merge — but err on the side of "before."
-*(First seen: v2.0.0 cutover, migration `0011_recovery_tokens_used.sql` was caught pre-merge by manual review during the substrate→engine handoff. Without that catch, the engine PR's recovery flow would have 500'd in production on the first user attempt: substrate's `recoverFinalizeAtomic` would have thrown `relation "recovery_tokens_used" does not exist`.)*
+- **Adding a migration: just merge.** When you add `migrations/00XX_*.sql` and a PR that depends on the schema in the same merge, the Vercel deploy of `main` applies the migration before serving traffic. No manual step needed for the happy path.
+- **Manual override:** set `SKIP_VERCEL_MIGRATE=1` in Vercel project env to disable temporarily (e.g. during incident response where a migration is hot-failing and you need the previous code path back up faster than a revert). Unset it once recovered.
+- **Manual application is still possible** for one-off backfills or pre-merge dry-runs:
+
+  ```bash
+  vercel env pull .env.production.local --environment=production
+  npx tsx --env-file=.env.production.local scripts/migrate.ts --dry  # confirm pending
+  npx tsx --env-file=.env.production.local scripts/migrate.ts        # apply
+  rm .env.production.local                                            # wipe local credentials
+  ```
+
+- **Preview deploys** still skip migrations entirely. If you need to test a migration's effect on a preview env, point that preview's `DATABASE_URL` at a separate Neon branch and apply via the manual `tsx --env-file=...` form above.
+*(First seen: v2.0.0 cutover, migration `0011_recovery_tokens_used.sql` was caught pre-merge by manual review during the substrate→engine handoff. Repeated 2026-05-27 with `0015_account_sessions.sql` — engine v2.4.0 and gui-v2.7.0 / v2.8.0 all shipped before the migration was applied, and the new `/account/start` route 500'd at production until the manual migration ran. That incident motivated wiring the auto-migration into `vercel-build`.)*
 
 ### Verify the bypass is wired (substrate-side, no engine needed)
 
