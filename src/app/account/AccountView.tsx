@@ -141,11 +141,20 @@ function StatusCard(props: {
   graceEnd: string | null;
   hasPaddleCustomer: boolean;
 }) {
+  // Tonal background + border + top stripe, scaled to the state's accent.
+  // Mirrors the `StepCard` pattern from /endstate/claim/[token] (featured
+  // variant) so /account inherits the same visual vocabulary.
+  const rgb = hexToRgbTriplet(props.accent);
+  const tinted = rgb
+    ? `linear-gradient(180deg, rgba(${rgb},0.04), rgba(${rgb},0.015))`
+    : c.card;
+  const tintedBorder = rgb ? `1px solid rgba(${rgb},0.25)` : `1px solid ${c.border}`;
+
   return (
     <section
       style={{
-        background: c.card,
-        border: `1px solid ${c.border}`,
+        background: tinted,
+        border: tintedBorder,
         borderRadius: 10,
         padding: '28px 32px',
         position: 'relative',
@@ -161,55 +170,59 @@ function StatusCard(props: {
           right: 0,
           height: 2,
           background: props.accent,
-          opacity: 0.65,
         }}
       />
       <div
         style={{
+          fontFamily: MONO_FAMILY,
+          fontSize: '0.72rem',
+          fontWeight: 500,
+          color: props.accent,
+          letterSpacing: '0.16em',
+          textTransform: 'uppercase',
+          marginBottom: 12,
           display: 'flex',
           alignItems: 'center',
-          gap: 14,
-          marginBottom: 18,
+          gap: 10,
         }}
       >
         <span
           style={{
             display: 'inline-block',
-            width: 8,
-            height: 8,
+            width: 6,
+            height: 6,
             borderRadius: 999,
             background: props.accent,
             flexShrink: 0,
           }}
         />
-        <div>
-          <div
-            style={{
-              fontSize: '0.95rem',
-              color: c.text,
-              fontWeight: 500,
-            }}
-          >
-            {props.label}
-          </div>
-          <div
-            style={{
-              fontFamily: MONO_FAMILY,
-              fontSize: '0.75rem',
-              color: c.textMuted,
-              letterSpacing: '0.06em',
-            }}
-          >
-            {props.plan}
-          </div>
-        </div>
+        {props.label}
       </div>
+      <h3
+        style={{
+          fontSize: '1.35rem',
+          fontWeight: 600,
+          letterSpacing: '-0.015em',
+          marginBottom: 8,
+          color: c.text,
+        }}
+      >
+        {props.plan}
+      </h3>
 
       <DateLine status={props.status} periodEnd={props.periodEnd} graceEnd={props.graceEnd} />
 
       <PrimaryAction status={props.status} hasPaddleCustomer={props.hasPaddleCustomer} />
     </section>
   );
+}
+
+// Hex `#rrggbb` → `r,g,b` (CSS rgba() body). Returns null on unsupported
+// shapes so callers can fall back gracefully.
+function hexToRgbTriplet(hex: string): string | null {
+  const m = hex.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (!m) return null;
+  return `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}`;
 }
 
 function DateLine({
@@ -327,7 +340,11 @@ function ResubscribeButton({ label }: { label: string }) {
     setPending(true);
     setError(null);
     try {
-      const res = await fetch('/api/billing/checkout', { method: 'POST' });
+      // Cookie-authenticated sibling of /api/billing/checkout. The
+      // bearer-auth route stays for the engine path; the web page uses
+      // /web-checkout so the session cookie is honored. See route handler
+      // for the auth-surface rationale.
+      const res = await fetch('/api/billing/web-checkout', { method: 'POST' });
       if (!res.ok) {
         setError("We couldn't open checkout. Try again in a moment.");
         return;
@@ -363,6 +380,9 @@ function PrimaryButton({
   onClick: () => void;
   disabled?: boolean;
 }) {
+  // Light-on-dark primary CTA, matching the `OpenInEndstateButton` style on
+  // /endstate/claim. Keeps the page's accent palette restrained — the status
+  // card already carries the state colour; the button itself is identity-neutral.
   return (
     <button
       type="button"
@@ -370,18 +390,19 @@ function PrimaryButton({
       disabled={disabled}
       style={{
         appearance: 'none',
-        border: '1px solid rgba(45,212,191,0.4)',
-        background: disabled
-          ? 'rgba(45,212,191,0.05)'
-          : 'linear-gradient(180deg, rgba(45,212,191,0.18), rgba(34,197,94,0.08))',
-        color: disabled ? c.textMuted : c.text,
+        border: 'none',
+        background: disabled ? c.border : c.text,
+        color: disabled ? c.textMuted : c.bg,
         fontFamily: 'inherit',
         fontSize: '0.95rem',
-        fontWeight: 500,
-        padding: '12px 22px',
+        fontWeight: 600,
+        padding: '14px 24px',
         borderRadius: 8,
         cursor: disabled ? 'not-allowed' : 'pointer',
         letterSpacing: '-0.005em',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
       }}
     >
       {label}
