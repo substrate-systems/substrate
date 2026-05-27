@@ -6,6 +6,7 @@
     "dev": "rm -rf .next && next dev --port 3000",
     "dev:next": "next dev",
     "build": "next build",
+    "vercel-build": "tsx scripts/vercel-maybe-migrate.ts && next build",
     "start": "next start",
     "lint": "next lint",
     "format": "prettier --write .",

@@ -20,6 +20,7 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const MIGRATIONS_DIR = resolve(process.cwd(), 'migrations');
 
@@ -82,8 +83,18 @@ async function applyFile(sql: Sql, filename: string): Promise<void> {
   `;
 }
 
-async function main(): Promise<void> {
-  const dryRun = process.argv.includes('--dry');
+/**
+ * Apply all pending migrations (or list them, if `dry: true`).
+ *
+ * Exported so `scripts/vercel-maybe-migrate.ts` can call the same code path
+ * during Vercel production builds without spawning a child process. Throws on
+ * any migration failure so callers can decide whether to abort the build /
+ * non-zero exit / etc.
+ */
+export async function applyMigrations(
+  opts: { dry?: boolean } = {},
+): Promise<void> {
+  const { dry = false } = opts;
   const sql = getSql();
 
   await ensureTrackingTable(sql);
@@ -101,7 +112,7 @@ async function main(): Promise<void> {
   );
   for (const name of pending) console.log(`  - ${name}`);
 
-  if (dryRun) {
+  if (dry) {
     console.log('[migrate] --dry: not applying');
     return;
   }
@@ -113,15 +124,18 @@ async function main(): Promise<void> {
       console.log('ok');
     } catch (err) {
       console.log('FAIL');
-      console.error(`[migrate] ${name} failed:`, err);
-      process.exitCode = 1;
-      return;
+      throw new Error(`migration ${name} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   console.log('[migrate] done');
 }
 
-main().catch((err) => {
-  console.error('[migrate] runner error:', err);
-  process.exit(1);
-});
+// CLI entry point. Only runs when invoked directly (`tsx scripts/migrate.ts`)
+// — not when imported as a module by `vercel-maybe-migrate.ts`. Standard ESM
+// idiom: compare process.argv[1] against the file path of this module.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  applyMigrations({ dry: process.argv.includes('--dry') }).catch((err) => {
+    console.error('[migrate] runner error:', err);
+    process.exit(1);
+  });
+}
