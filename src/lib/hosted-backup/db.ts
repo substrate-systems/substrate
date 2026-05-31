@@ -742,6 +742,39 @@ export async function sumActiveStorageForUser(userId: string): Promise<number> {
   return Number(total);
 }
 
+/**
+ * Per-user backup storage stats for the account/me surface (issue #59):
+ * total active bytes, active version count, and the most recent version's
+ * createdAt. One round-trip; excludes soft-deleted versions and backups
+ * (matches sumActiveStorageForUser). `lastBackupAt` is null when the user has
+ * no active versions.
+ */
+export async function getUserBackupStats(
+  userId: string,
+): Promise<{ usedBytes: number; versionCount: number; lastBackupAt: string | null }> {
+  const { rows } = await sql`
+    SELECT
+      COALESCE(SUM(v.size_bytes)::bigint, 0)::text AS used_bytes,
+      COUNT(v.id)::int                             AS version_count,
+      MAX(v.created_at)                            AS last_backup_at
+    FROM backup_versions v
+    JOIN backups b ON b.id = v.backup_id
+    WHERE b.user_id = ${userId}
+      AND v.deleted_at IS NULL
+      AND b.deleted_at IS NULL
+  `;
+  const row = rows[0] as {
+    used_bytes: string;
+    version_count: number;
+    last_backup_at: string | null;
+  };
+  return {
+    usedBytes: Number(row.used_bytes),
+    versionCount: Number(row.version_count),
+    lastBackupAt: row.last_backup_at,
+  };
+}
+
 export async function insertVersionWithChunks(params: {
   versionId: string;
   backupId: string;
