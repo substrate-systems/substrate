@@ -14,7 +14,7 @@ const TEXTURE_DATA_URI = `data:image/jpeg;base64,${readFileSync(
 
 const DEFAULT_TITLE = "Substrate — Foundational Systems";
 const MAX_TITLE = 180;
-const TEXTURE_OPACITY = 0.5;
+const TEXTURE_OPACITY = 0.25;
 
 export function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
