@@ -39,7 +39,14 @@ import {
   type BackupSummary,
 } from './types';
 
-function getQuotaBytes(): number {
+/**
+ * The storage quota limit in bytes (contract §8). Default 1 GiB, overridable via
+ * HOSTED_BACKUP_QUOTA_BYTES. Single source of truth for both quota enforcement
+ * (below) and the account/me `quotaTotalBytes` surface, so the total the GUI
+ * displays always equals the limit actually enforced. (Per-plan limits are not
+ * modelled yet — a future enhancement.)
+ */
+export function getQuotaBytes(): number {
   const override = process.env.HOSTED_BACKUP_QUOTA_BYTES;
   if (!override) return DEFAULT_QUOTA_BYTES;
   const parsed = Number(override);

@@ -106,6 +106,13 @@ export type AccountMeResponse = {
   gracePeriodEndsAt: string | null;
   paddleSubscriptionId: string | null;
   paddleCustomerId: string | null;
+  // Backup freshness + quota surface (issue #59). lastBackupAt is the most
+  // recent active version's createdAt (null if none); quota is current usage
+  // vs the plan limit; versionCount is the active version count.
+  lastBackupAt: string | null;
+  quotaUsedBytes: number;
+  quotaTotalBytes: number;
+  versionCount: number;
 };
 
 export type CheckoutResponse = {

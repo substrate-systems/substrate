@@ -4,7 +4,9 @@ import { requireAuth } from '@/lib/hosted-backup/auth-middleware';
 import {
   findUserById,
   getSubscriptionEntitlement,
+  getUserBackupStats,
 } from '@/lib/hosted-backup/db';
+import { getQuotaBytes } from '@/lib/hosted-backup/storage';
 import { jsonWithApiVersion } from '@/lib/hosted-backup/api-version';
 import type { AccountMeResponse } from '@/lib/hosted-backup/types';
 
@@ -26,6 +28,9 @@ export async function GET(req: NextRequest) {
     // (claim is a hint; DB is authoritative per contract §10). The
     // effective status already applies the 14-day past_due grace cutoff.
     const ent = await getSubscriptionEntitlement(user.id);
+    // Backup freshness + quota (issue #59): one round-trip for usage/count/last,
+    // plus the enforced quota limit so the GUI's meter total matches enforcement.
+    const stats = await getUserBackupStats(user.id);
     const responseBody: AccountMeResponse = {
       userId: user.id,
       email: user.email,
@@ -36,6 +41,10 @@ export async function GET(req: NextRequest) {
       gracePeriodEndsAt: ent.gracePeriodEndsAt,
       paddleSubscriptionId: ent.paddleSubscriptionId,
       paddleCustomerId: ent.paddleCustomerId,
+      lastBackupAt: stats.lastBackupAt,
+      quotaUsedBytes: stats.usedBytes,
+      quotaTotalBytes: getQuotaBytes(),
+      versionCount: stats.versionCount,
     };
     return jsonWithApiVersion(responseBody, 200);
   } catch (err) {
