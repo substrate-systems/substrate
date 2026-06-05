@@ -669,6 +669,26 @@ export async function deleteBackupOwned(
   return rowCount ?? 0;
 }
 
+// Owner-scoped partial update of a backup's mutable metadata. Today only
+// `name`; COALESCE leaves a field unchanged when its param is null, so adding
+// a future field (description, tags, …) is a one-line extension here plus the
+// column. Returns the updated row, or null when no owned, non-deleted row
+// matched (not-found / not-owned are indistinguishable, per contract §7).
+export async function updateBackupOwned(
+  userId: string,
+  backupId: string,
+  fields: { name?: string | null },
+): Promise<BackupRow | null> {
+  const { rows } = await sql`
+    UPDATE backups
+    SET name = COALESCE(${fields.name ?? null}, name),
+        updated_at = now()
+    WHERE id = ${backupId} AND user_id = ${userId} AND deleted_at IS NULL
+    RETURNING id, user_id, name, created_at, updated_at, deleted_at
+  `;
+  return (rows[0] as BackupRow | undefined) ?? null;
+}
+
 export async function listVersions(
   backupId: string,
 ): Promise<BackupVersionRow[]> {
