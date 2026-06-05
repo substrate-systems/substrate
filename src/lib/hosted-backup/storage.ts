@@ -11,6 +11,7 @@ import {
   listBackupsForUser as dbListBackups,
   getBackupOwned,
   deleteBackupOwned,
+  updateBackupOwned,
   listVersions,
   getVersionOwned,
   listChunksForVersion,
@@ -82,6 +83,24 @@ export async function deleteBackup(params: {
     removed: removed > 0,
     r2Prefix: `users/${params.userId}/backups/${params.backupId}/`,
   };
+}
+
+/**
+ * Update a backup's mutable metadata (the first instance of a general
+ * update-backup-metadata primitive). `patch` is partial — today only `name`;
+ * future fields extend `patch` + `updateBackupOwned` without a new route.
+ * Throws notFound when the backup does not exist or is not owned.
+ */
+export async function updateBackup(params: {
+  userId: string;
+  backupId: string;
+  patch: { name?: string };
+}): Promise<{ id: string; name: string; updatedAt: string }> {
+  const row = await updateBackupOwned(params.userId, params.backupId, {
+    name: params.patch.name,
+  });
+  if (!row) throw errors.notFound('backup not found');
+  return { id: row.id, name: row.name, updatedAt: row.updated_at };
 }
 
 export async function listVersionsOwned(params: {
