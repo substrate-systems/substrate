@@ -13,7 +13,8 @@ export const metadata: Metadata = {
     template: "%s · Substrate",
     default: "Substrate — Foundational Systems",
   },
-  description: "Software infrastructure for durable systems.",
+  description:
+    "A foundational systems company building durable software infrastructure — including Endstate (Windows setup & backup) and Q (AI knowledge infrastructure).",
   metadataBase: new URL("https://substratesystems.io"),
   icons: {
     icon: "/favicon.ico",
@@ -23,7 +24,8 @@ export const metadata: Metadata = {
   manifest: "/site.webmanifest",
   openGraph: {
     title: "Substrate — Foundational Systems",
-    description: "Software infrastructure for durable systems.",
+    description:
+      "A foundational systems company building durable software infrastructure — including Endstate (Windows setup & backup) and Q (AI knowledge infrastructure).",
     url: "https://substratesystems.io",
     siteName: "Substrate",
     locale: "en_US",
@@ -40,7 +42,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Substrate — Foundational Systems",
-    description: "Software infrastructure for durable systems.",
+    description:
+      "A foundational systems company building durable software infrastructure — including Endstate (Windows setup & backup) and Q (AI knowledge infrastructure).",
     images: ["/api/og"],
   },
   robots: {
