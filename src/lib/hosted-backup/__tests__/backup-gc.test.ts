@@ -14,6 +14,7 @@ type GcState = {
   hardDeletedVersionIds: string[];
   pendingPurges: Array<{ id: string; r2_prefix: string }>;
   purgesMarkedDone: string[];
+  purgeAttemptsFailed: string[];
   uncheckedVersions: Array<{ id: string; manifest_object_key: string }>;
   stampedVersionIds: string[];
   softDeletedVersionIds: string[];
@@ -35,6 +36,7 @@ function setup(overrides: Partial<GcState> = {}) {
     hardDeletedVersionIds: [],
     pendingPurges: [],
     purgesMarkedDone: [],
+    purgeAttemptsFailed: [],
     uncheckedVersions: [],
     stampedVersionIds: [],
     softDeletedVersionIds: [],
@@ -59,6 +61,9 @@ function setup(overrides: Partial<GcState> = {}) {
       findPendingPurges: async () => state.pendingPurges,
       markPurgeDone: async (id: string) => {
         state.purgesMarkedDone.push(id);
+      },
+      markPurgeAttemptFailed: async (params: { id: string; error: string }) => {
+        state.purgeAttemptsFailed.push(params.id);
       },
       findUncheckedManifestVersions: async () => state.uncheckedVersions,
       stampManifestSeen: async (versionId: string) => {
@@ -221,6 +226,19 @@ describe('backup-gc — Pass B (purge queue)', () => {
     assert.deepEqual(state.purgesMarkedDone, ['q-3']);
     assert.deepEqual(state.r2DeletedKeys, []);
     assert.equal(body.purgeQueueMarkedDone, 1);
+  });
+
+  it('records a failed attempt so a poison prefix rotates back, not blocks', async () => {
+    setup({
+      pendingPurges: [{ id: 'q-poison', r2_prefix: 'users/u-4/' }],
+      r2ListPagesByPrefix: { 'users/u-4/': [['users/u-4/k']] },
+      r2DeleteFails: true,
+    });
+    const res = await runGc();
+    const body = await res.json();
+    assert.deepEqual(state.purgesMarkedDone, []);
+    assert.deepEqual(state.purgeAttemptsFailed, ['q-poison']);
+    assert.ok(body.errorCount >= 1);
   });
 });
 

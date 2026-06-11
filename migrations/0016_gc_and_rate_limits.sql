@@ -5,15 +5,23 @@
 -- because the deleted rows carried the only object-key knowledge. Drained
 -- by the daily backup-gc cron; purged_at is set only once the prefix lists
 -- empty in R2.
+-- attempts/last_attempt_at/last_error: failure bookkeeping so a poison
+-- prefix (persistent R2 error) rotates to the back of the queue instead of
+-- head-of-line-blocking newer purges, and dead-letters after a cap (the cron
+-- selects attempts < cap). last_attempt_at stays NULL while a large prefix
+-- is still being drained within budget, keeping it at the front until done.
 CREATE TABLE r2_purge_queue (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   r2_prefix text NOT NULL,
   enqueued_at timestamptz NOT NULL DEFAULT now(),
+  attempts int NOT NULL DEFAULT 0,
+  last_attempt_at timestamptz,
+  last_error text,
   purged_at timestamptz
 );
 
 CREATE INDEX r2_purge_queue_pending_idx
-  ON r2_purge_queue (enqueued_at)
+  ON r2_purge_queue (last_attempt_at, enqueued_at)
   WHERE purged_at IS NULL;
 
 -- rate_limit_events: sliding-window counters for credential endpoints

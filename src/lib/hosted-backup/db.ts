@@ -1011,13 +1011,23 @@ export type PurgeQueueRow = {
   r2_prefix: string;
 };
 
-export async function findPendingPurges(limit: number): Promise<PurgeQueueRow[]> {
+/**
+ * Pending purge prefixes, failure-aware: never-failed rows come first
+ * (last_attempt_at NULL — includes large prefixes still draining within
+ * budget, which keeps them at the front until done), failed rows rotate to
+ * the back, and rows past `maxAttempts` are dead-lettered (left in the table
+ * for inspection, no longer selected).
+ */
+export async function findPendingPurges(params: {
+  limit: number;
+  maxAttempts: number;
+}): Promise<PurgeQueueRow[]> {
   const { rows } = await sql`
     SELECT id, r2_prefix
     FROM r2_purge_queue
-    WHERE purged_at IS NULL
-    ORDER BY enqueued_at ASC
-    LIMIT ${limit}
+    WHERE purged_at IS NULL AND attempts < ${params.maxAttempts}
+    ORDER BY last_attempt_at ASC NULLS FIRST, enqueued_at ASC
+    LIMIT ${params.limit}
   `;
   return rows as PurgeQueueRow[];
 }
@@ -1025,6 +1035,19 @@ export async function findPendingPurges(limit: number): Promise<PurgeQueueRow[]>
 export async function markPurgeDone(id: string): Promise<void> {
   await sql`
     UPDATE r2_purge_queue SET purged_at = now() WHERE id = ${id}
+  `;
+}
+
+export async function markPurgeAttemptFailed(params: {
+  id: string;
+  error: string;
+}): Promise<void> {
+  await sql`
+    UPDATE r2_purge_queue
+    SET attempts = attempts + 1,
+        last_attempt_at = now(),
+        last_error = ${params.error.slice(0, 1000)}
+    WHERE id = ${params.id}
   `;
 }
 

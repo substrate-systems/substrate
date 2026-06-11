@@ -7,8 +7,8 @@
  * `harden-hosted-backup-operations`):
  *   - login:   failures only — a successful sign-in consumes no budget.
  *   - recover: failed proofs only.
- *   - signup:  every shape-valid attempt (spam is the threat, successes
- *     included).
+ *   - signup:  every attempt (spam is the threat; recorded before body
+ *     parsing so malformed floods self-limit too).
  *
  * The check-then-insert pair is not atomic; a concurrent burst can slightly
  * overshoot a cap. That is acceptable for abuse throttling — these limits
@@ -37,12 +37,20 @@ export const RATE_LIMITS = {
   signupPerIp: { scope: 'signup:ip', limit: 10, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitRule>;
 
-/** First `x-forwarded-for` hop (Vercel sets it); `'unknown'` fallback. */
-export function clientIpFrom(req: NextRequest): string {
+/**
+ * First `x-forwarded-for` hop. Vercel OVERWRITES this header with the real
+ * connecting IP (it does not append like a generic reverse proxy), so the
+ * first hop is the trustworthy one on this platform. Returns `null` when no
+ * IP is derivable (e.g. local dev) — per-IP limiting then fails OPEN for
+ * that request rather than collapsing all header-less callers into one
+ * shared bucket a single client could exhaust. Per-account limits still
+ * apply regardless.
+ */
+export function clientIpFrom(req: NextRequest): string | null {
   const xff = req.headers.get('x-forwarded-for');
-  if (!xff) return 'unknown';
+  if (!xff) return null;
   const first = xff.split(',')[0]?.trim();
-  return first || 'unknown';
+  return first || null;
 }
 
 function hashedKey(rule: RateLimitRule, key: string): string {
@@ -58,8 +66,9 @@ function hashedKey(rule: RateLimitRule, key: string): string {
  */
 export async function enforceRateLimit(
   rule: RateLimitRule,
-  key: string,
+  key: string | null,
 ): Promise<void> {
+  if (key === null) return; // no derivable key — fail open for this rule
   const n = await countRateLimitEvents({
     scope: rule.scope,
     key: hashedKey(rule, key),
@@ -79,8 +88,9 @@ export async function enforceRateLimit(
  */
 export async function recordRateLimitEvent(
   rule: RateLimitRule,
-  key: string,
+  key: string | null,
 ): Promise<void> {
+  if (key === null) return;
   try {
     await insertRateLimitEvent({
       scope: rule.scope,

@@ -97,7 +97,7 @@ describe('recordRateLimitEvent', () => {
 });
 
 describe('clientIpFrom', () => {
-  it('takes the first x-forwarded-for hop and falls back to unknown', async () => {
+  it('takes the first x-forwarded-for hop and returns null when absent', async () => {
     const { clientIpFrom } = await import('../rate-limit');
     const withXff = new Request('https://test.local/', {
       headers: { 'x-forwarded-for': '203.0.113.7, 10.0.0.1' },
@@ -107,6 +107,20 @@ describe('clientIpFrom', () => {
     const without = new Request(
       'https://test.local/',
     ) as unknown as import('next/server').NextRequest;
-    assert.equal(clientIpFrom(without), 'unknown');
+    assert.equal(clientIpFrom(without), null);
+  });
+});
+
+describe('null key (no derivable IP)', () => {
+  it('fails open: neither enforces nor records', async () => {
+    setup();
+    const { enforceRateLimit, recordRateLimitEvent, RATE_LIMITS } =
+      await import('../rate-limit');
+    // Even a saturated scope must not throw for a null key…
+    state.counts['login:ip|anything'] = 999;
+    await enforceRateLimit(RATE_LIMITS.loginPerIp, null);
+    // …and recording a null key writes nothing (no shared bucket).
+    await recordRateLimitEvent(RATE_LIMITS.loginPerIp, null);
+    assert.equal(state.inserts.length, 0);
   });
 });

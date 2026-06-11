@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { NextRequest } from 'next/server';
 
 /**
@@ -17,5 +18,9 @@ export function verifyCronAuth(req: NextRequest): { ok: boolean } {
   if (!header) return { ok: false };
   if (!header.toLowerCase().startsWith('bearer ')) return { ok: false };
   const provided = header.slice('bearer '.length).trim();
-  return { ok: provided === expected };
+  // Constant-time compare; timingSafeEqual throws on length mismatch, so
+  // gate on length first (length itself is not secret).
+  const a = Buffer.from(provided, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return { ok: a.length === b.length && timingSafeEqual(a, b) };
 }

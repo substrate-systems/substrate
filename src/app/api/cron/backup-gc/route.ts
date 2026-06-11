@@ -7,6 +7,7 @@ import {
   hardDeleteVersion,
   findPendingPurges,
   markPurgeDone,
+  markPurgeAttemptFailed,
   findUncheckedManifestVersions,
   stampManifestSeen,
   softDeleteVersionById,
@@ -29,6 +30,10 @@ export const dynamic = 'force-dynamic';
 const EXPIRED_VERSIONS_PER_RUN = 25;
 const PURGE_PREFIXES_PER_RUN = 5;
 const PURGE_PAGES_PER_PREFIX = 10;
+// A prefix that fails this many runs is dead-lettered (stays in the table
+// with last_error for inspection, no longer selected) so a poison prefix
+// can't head-of-line-block the queue forever. ~1 month at daily cadence.
+const PURGE_MAX_ATTEMPTS = 30;
 const ABANDONED_CHECKS_PER_RUN = 50;
 // Presigned PUT URLs live 5 minutes, so a manifest absent 48h after mint can
 // never appear later — HEAD-404 at that age is a definitive abandon signal.
@@ -79,9 +84,16 @@ export async function GET(req: NextRequest) {
   let purgeQueueMarkedDone = 0;
   let purgeQueueObjectsDeleted = 0;
   try {
-    const pending = await findPendingPurges(PURGE_PREFIXES_PER_RUN);
+    const pending = await findPendingPurges({
+      limit: PURGE_PREFIXES_PER_RUN,
+      maxAttempts: PURGE_MAX_ATTEMPTS,
+    });
     for (const row of pending) {
       try {
+        // Always lists from the prefix root (no continuation token): this
+        // works because every listed key is deleted before the next list, so
+        // each iteration sees only what remains. A partial failure throws,
+        // leaving the row pending for a clean restart next run.
         for (let page = 0; page <= PURGE_PAGES_PER_PREFIX; page++) {
           const { keys } = await listObjectKeys(row.r2_prefix);
           if (keys.length === 0) {
@@ -96,6 +108,11 @@ export async function GET(req: NextRequest) {
         }
       } catch (err) {
         fail(`pass B prefix ${row.r2_prefix}`, err);
+        try {
+          await markPurgeAttemptFailed({ id: row.id, error: String(err) });
+        } catch (markErr) {
+          fail(`pass B mark-attempt ${row.id}`, markErr);
+        }
       }
     }
   } catch (err) {

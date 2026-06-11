@@ -24,6 +24,14 @@ Instead, the delete statement itself enqueues the R2 prefix into
 the account UI's "purged within 24 hours" promise and is crash-safe: the
 queue row survives until the prefix is confirmed empty.
 
+Failure bookkeeping (review finding m3): each failed drain increments
+`attempts` and stamps `last_attempt_at`/`last_error`. Selection orders
+`last_attempt_at NULLS FIRST` — so never-failed rows (including large
+prefixes still draining within budget) stay at the front while a poison
+prefix rotates to the back — and rows past 30 attempts are dead-lettered
+(kept in the table for inspection, no longer selected) instead of
+head-of-line-blocking the queue forever.
+
 **Atomicity without transactions.** The Neon HTTP driver executes one
 statement per call, so enqueue + delete are combined into a single CTE
 statement (`WITH deleted AS (DELETE … RETURNING id) INSERT INTO
@@ -72,9 +80,13 @@ limit; `recordRateLimitEvent` inserts. No new infrastructure, mockable in
 
 - Failures-only recording for `login` and `recover` (a successful sign-in
   must not consume budget); all-attempts recording for `signup` (spam is the
-  threat, successes included).
+  threat; recorded before body parsing so malformed floods self-limit too).
 - Keys: lowercased email for per-account scopes; first `x-forwarded-for` hop
-  (Vercel-set) for per-IP scopes, `'unknown'` fallback.
+  for per-IP scopes — Vercel OVERWRITES the header with the real connecting
+  IP (it does not append), so the first hop is the trustworthy one on this
+  platform. When no IP is derivable (local dev), per-IP limiting fails OPEN
+  for that request rather than collapsing all header-less callers into one
+  shared bucket; per-account limits still apply.
 - The check-then-insert pair is not atomic; a burst can slightly overshoot
   the cap. Acceptable for abuse throttling (limits are an order-of-magnitude
   guard, not an exact quota).

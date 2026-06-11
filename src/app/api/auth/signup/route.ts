@@ -45,10 +45,12 @@ function isValidEmail(email: unknown): email is string {
 
 export async function POST(req: NextRequest) {
   try {
-    // Every shape-valid attempt counts (successes included) — account-spam
-    // is the threat here, not credential guessing.
+    // Every attempt counts (successes and garbage included) — account-spam
+    // is the threat here, not credential guessing — so record immediately
+    // after the gate, before any parsing an attacker controls.
     const ip = clientIpFrom(req);
     await enforceRateLimit(RATE_LIMITS.signupPerIp, ip);
+    await recordRateLimitEvent(RATE_LIMITS.signupPerIp, ip);
 
     let body: SignupRequest;
     try {
@@ -61,7 +63,6 @@ export async function POST(req: NextRequest) {
       throw errors.badRequest('email is invalid');
     }
     const email = body.email.trim();
-    await recordRateLimitEvent(RATE_LIMITS.signupPerIp, ip);
 
     const kdfParams = validateKdfParams(body.kdfParams);
     const serverPassword = decodeBase64('serverPassword', body.serverPassword);
