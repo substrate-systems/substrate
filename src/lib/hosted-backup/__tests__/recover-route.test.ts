@@ -68,6 +68,9 @@ async function setupMocks() {
         recovery_key_wrapped_dek: new Uint8Array(60).fill(0xCC),
         updated_at: new Date().toISOString(),
       }),
+      // Rate limiting (recover records failed proofs; never throttled here).
+      countRateLimitEvents: async () => 0,
+      insertRateLimitEvent: async () => {},
     },
   });
 }

@@ -72,6 +72,9 @@ function setupMocks(opts: {
       insertRefreshToken: async () => {
         throw new Error('insertRefreshToken should not be called on collision');
       },
+      // Rate limiting (signup records attempts; never throttled in tests).
+      countRateLimitEvents: async () => 0,
+      insertRateLimitEvent: async () => {},
     },
   });
 }
