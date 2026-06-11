@@ -8,6 +8,9 @@ import {
   S3Client,
   GetObjectCommand,
   PutObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PRESIGNED_URL_TTL_S } from './types';
@@ -72,6 +75,79 @@ export async function presignGet(objectKey: string): Promise<PresignedUrl> {
     url,
     expiresAt: new Date(Date.now() + PRESIGNED_URL_TTL_S * 1000),
   };
+}
+
+// --- GC primitives (backup-gc cron) ---
+
+/**
+ * Tri-state existence check. `'absent'` is returned ONLY on an explicit
+ * not-found from R2; any other failure throws, so callers can distinguish
+ * "definitively gone" from "couldn't tell" (the abandoned-upload sweep
+ * soft-deletes on `'absent'` and must never do so on a transport error).
+ */
+export async function headObjectExists(
+  objectKey: string,
+): Promise<'present' | 'absent'> {
+  try {
+    await getClient().send(
+      new HeadObjectCommand({ Bucket: getBucket(), Key: objectKey }),
+    );
+    return 'present';
+  } catch (err) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } })
+      ?.$metadata?.httpStatusCode;
+    const name = (err as { name?: string })?.name;
+    if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') {
+      return 'absent';
+    }
+    throw err;
+  }
+}
+
+/** One page of object keys under a prefix (page size ≤ 1000, R2/S3 limit). */
+export async function listObjectKeys(
+  prefix: string,
+  continuationToken?: string,
+): Promise<{ keys: string[]; nextToken?: string }> {
+  const resp = await getClient().send(
+    new ListObjectsV2Command({
+      Bucket: getBucket(),
+      Prefix: prefix,
+      ContinuationToken: continuationToken,
+    }),
+  );
+  return {
+    keys: (resp.Contents ?? [])
+      .map((o) => o.Key)
+      .filter((k): k is string => typeof k === 'string'),
+    nextToken: resp.IsTruncated ? resp.NextContinuationToken : undefined,
+  };
+}
+
+/**
+ * Batch-delete objects (chunks of ≤ 1000 keys per request, the S3 API cap).
+ * Deleting a missing key is a success in S3 semantics, which is what makes
+ * GC re-runs idempotent. Throws if R2 reports per-key errors.
+ */
+export async function deleteObjects(keys: string[]): Promise<number> {
+  let deleted = 0;
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    const resp = await getClient().send(
+      new DeleteObjectsCommand({
+        Bucket: getBucket(),
+        Delete: { Objects: batch.map((k) => ({ Key: k })), Quiet: true },
+      }),
+    );
+    const errs = resp.Errors ?? [];
+    if (errs.length > 0) {
+      throw new Error(
+        `R2 DeleteObjects reported ${errs.length} error(s); first: ${errs[0].Key}: ${errs[0].Message}`,
+      );
+    }
+    deleted += batch.length;
+  }
+  return deleted;
 }
 
 // --- Object key helpers ---

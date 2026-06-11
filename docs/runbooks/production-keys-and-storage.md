@@ -383,6 +383,51 @@ After redeploy, every user — including `smoketest+...@example.com` accounts �
 
 ---
 
+## CRON_SECRET — scheduled cron authentication
+
+Vercel invokes the crons declared in `vercel.json` (`/api/cron/claim-followups`
+daily 12:00 UTC, `/api/cron/backup-gc` daily 03:17 UTC) with
+`Authorization: Bearer <CRON_SECRET>`. Both routes fail closed: when the env
+var is unset, **every** invocation is rejected with 401 — including Vercel's
+own scheduled ones — so the crons silently do nothing until the secret is
+installed.
+
+### 1. Generate
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+### 2. Install
+
+Vercel dashboard → project → Settings → Environment Variables → Production:
+
+- `CRON_SECRET` → the generated value
+
+Redeploy (env vars apply on the next deployment).
+
+### 3. Verify
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://substratesystems.io/api/cron/backup-gc
+```
+
+Expected `401`. Then with the secret:
+
+```bash
+curl -s -H "Authorization: Bearer <CRON_SECRET>" https://substratesystems.io/api/cron/backup-gc
+```
+
+Expected `200` with per-pass GC counts. Scheduled runs appear under the
+project's Cron Jobs tab in the Vercel dashboard.
+
+### Rotation
+
+Generate a new value, overwrite the env var, redeploy. There is no grace
+window to manage — the next scheduled invocation simply uses the new secret.
+
+---
+
 ## Reference
 
 - Schema: `migrations/0004_signing_keys.sql`

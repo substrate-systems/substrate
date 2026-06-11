@@ -11,6 +11,12 @@ import {
   userHasAuthCredentials,
 } from '@/lib/hosted-backup/db';
 import { jsonWithApiVersion } from '@/lib/hosted-backup/api-version';
+import {
+  RATE_LIMITS,
+  clientIpFrom,
+  enforceRateLimit,
+  recordRateLimitEvent,
+} from '@/lib/hosted-backup/rate-limit';
 import type {
   SignupRequest,
   SignupResponse,
@@ -39,6 +45,13 @@ function isValidEmail(email: unknown): email is string {
 
 export async function POST(req: NextRequest) {
   try {
+    // Every attempt counts (successes and garbage included) — account-spam
+    // is the threat here, not credential guessing — so record immediately
+    // after the gate, before any parsing an attacker controls.
+    const ip = clientIpFrom(req);
+    await enforceRateLimit(RATE_LIMITS.signupPerIp, ip);
+    await recordRateLimitEvent(RATE_LIMITS.signupPerIp, ip);
+
     let body: SignupRequest;
     try {
       body = (await req.json()) as SignupRequest;

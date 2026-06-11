@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiVersion } from '@/lib/hosted-backup/api-version';
+import { verifyCronAuth } from '@/lib/hosted-backup/cron-auth';
 import {
   findFounderAlertableClaims,
   findResendableClaims,
@@ -20,23 +21,6 @@ const FOUNDER_FALLBACK_EMAIL = 'founder@substratesystems.io';
 
 function ok(body: Record<string, unknown>, status = 200): NextResponse {
   return withApiVersion(NextResponse.json(body, { status }));
-}
-
-// Vercel cron convention: the platform sets Authorization: Bearer <CRON_SECRET>
-// on scheduled invocations. Manual hits without the secret are rejected.
-function verifyCronAuth(req: NextRequest): { ok: true } | { ok: false } {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) {
-    // Defense in depth: if the secret isn't set, refuse rather than letting
-    // a misconfigured deploy allow unauthenticated cron runs.
-    return { ok: false };
-  }
-  const header =
-    req.headers.get('authorization') ?? req.headers.get('Authorization');
-  if (!header) return { ok: false };
-  if (!header.toLowerCase().startsWith('bearer ')) return { ok: false };
-  const provided = header.slice('bearer '.length).trim();
-  return provided === expected ? { ok: true } : { ok: false };
 }
 
 export async function GET(req: NextRequest) {

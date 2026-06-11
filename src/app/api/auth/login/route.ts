@@ -9,6 +9,12 @@ import {
   getSubscriptionStatus,
 } from '@/lib/hosted-backup/db';
 import { jsonWithApiVersion } from '@/lib/hosted-backup/api-version';
+import {
+  RATE_LIMITS,
+  clientIpFrom,
+  enforceRateLimit,
+  recordRateLimitEvent,
+} from '@/lib/hosted-backup/rate-limit';
 import type {
   LoginStep1Response,
   LoginStep2Response,
@@ -23,6 +29,11 @@ type Body = {
 
 export async function POST(req: NextRequest) {
   try {
+    // Failures-only budgets: unknown-email probes and wrong passwords are
+    // recorded; a successful step 1 or step 2 consumes nothing.
+    const ip = clientIpFrom(req);
+    await enforceRateLimit(RATE_LIMITS.loginPerIp, ip);
+
     let body: Body;
     try {
       body = (await req.json()) as Body;
@@ -33,10 +44,21 @@ export async function POST(req: NextRequest) {
       throw errors.badRequest('email is required');
     }
     const email = body.email.trim();
+    const accountKey = email.toLowerCase();
     const isStep2 = typeof body.serverPassword === 'string';
+    if (isStep2) {
+      await enforceRateLimit(RATE_LIMITS.loginPerAccount, accountKey);
+    }
+    const recordFailure = async () => {
+      await recordRateLimitEvent(RATE_LIMITS.loginPerIp, ip);
+      await recordRateLimitEvent(RATE_LIMITS.loginPerAccount, accountKey);
+    };
 
     const user = await findUserByEmail(email);
-    if (!user) throw errors.emailNotFound();
+    if (!user) {
+      await recordFailure();
+      throw errors.emailNotFound();
+    }
 
     const creds = await getAuthCredentials(user.id);
     if (!creds) {
@@ -45,6 +67,7 @@ export async function POST(req: NextRequest) {
         '[hosted-backup login] missing credentials for existing user',
         user.id,
       );
+      await recordFailure();
       throw errors.emailNotFound();
     }
 
@@ -70,7 +93,10 @@ export async function POST(req: NextRequest) {
     }
 
     const ok = await verifyServerSecret(creds.server_password_hash, serverPassword);
-    if (!ok) throw errors.invalidCredentials();
+    if (!ok) {
+      await recordFailure();
+      throw errors.invalidCredentials();
+    }
 
     const subscriptionStatus = await getSubscriptionStatus(user.id);
     const access = await mintAccessToken({

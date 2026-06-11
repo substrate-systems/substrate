@@ -7,6 +7,12 @@ import {
   getAuthCredentials,
 } from '@/lib/hosted-backup/db';
 import { jsonWithApiVersion } from '@/lib/hosted-backup/api-version';
+import {
+  RATE_LIMITS,
+  clientIpFrom,
+  enforceRateLimit,
+  recordRateLimitEvent,
+} from '@/lib/hosted-backup/rate-limit';
 import type { RecoverResponse } from '@/lib/hosted-backup/types';
 
 export const runtime = 'nodejs';
@@ -18,6 +24,12 @@ type Body = {
 
 export async function POST(req: NextRequest) {
   try {
+    // Failed proofs only — a successful recovery consumes no budget. The
+    // recovery key is high-entropy (BIP39), so 5/h per IP and per account is
+    // generous for humans and hopeless for brute force.
+    const ip = clientIpFrom(req);
+    await enforceRateLimit(RATE_LIMITS.recoverPerIp, ip);
+
     let body: Body;
     try {
       body = (await req.json()) as Body;
@@ -34,6 +46,13 @@ export async function POST(req: NextRequest) {
       throw errors.badRequest('recoveryKeyProof is required');
     }
     const email = body.email.trim();
+    const accountKey = email.toLowerCase();
+    await enforceRateLimit(RATE_LIMITS.recoverPerAccount, accountKey);
+    const failedProof = async () => {
+      await recordRateLimitEvent(RATE_LIMITS.recoverPerIp, ip);
+      await recordRateLimitEvent(RATE_LIMITS.recoverPerAccount, accountKey);
+      return errors.invalidRecoveryKey();
+    };
 
     let recoveryKeyProof: Uint8Array;
     try {
@@ -48,15 +67,15 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await findUserByEmail(email);
-    if (!user) throw errors.invalidRecoveryKey();
+    if (!user) throw await failedProof();
     const creds = await getAuthCredentials(user.id);
-    if (!creds) throw errors.invalidRecoveryKey();
+    if (!creds) throw await failedProof();
 
     const ok = await verifyServerSecret(
       creds.recovery_key_verifier,
       recoveryKeyProof,
     );
-    if (!ok) throw errors.invalidRecoveryKey();
+    if (!ok) throw await failedProof();
 
     const recovery = await mintRecoveryToken({ userId: user.id });
 

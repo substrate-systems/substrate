@@ -661,12 +661,27 @@ export async function deleteBackupOwned(
   userId: string,
   backupId: string,
 ): Promise<number> {
-  // Hard delete; FKs cascade to versions and chunks.
-  const { rowCount } = await sql`
-    DELETE FROM backups
-    WHERE id = ${backupId} AND user_id = ${userId}
+  // Hard delete; FKs cascade to versions and chunks — which is exactly why
+  // the R2 prefix must be enqueued in the SAME statement: the cascaded rows
+  // carried the only object-key knowledge. The CTE enqueues if-and-only-if a
+  // row was actually removed, so a failed delete can never schedule a purge
+  // of live data, and a successful delete can never lose its prefix. Drained
+  // by the backup-gc cron.
+  const prefix = `users/${userId}/backups/${backupId}/`;
+  const { rows } = await sql`
+    WITH deleted AS (
+      DELETE FROM backups
+      WHERE id = ${backupId} AND user_id = ${userId}
+      RETURNING id
+    ),
+    enqueued AS (
+      INSERT INTO r2_purge_queue (r2_prefix)
+      SELECT ${prefix} FROM deleted
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS removed FROM deleted
   `;
-  return rowCount ?? 0;
+  return (rows[0] as { removed: number }).removed;
 }
 
 // Owner-scoped partial update of a backup's mutable metadata. Today only
@@ -892,11 +907,26 @@ export async function insertAccountDeletionAudit(params: {
 
 export async function deleteUserCascade(userId: string): Promise<number> {
   // FKs cascade across auth_credentials, refresh_tokens, subscriptions,
-  // backups (and via backups, backup_versions and backup_chunks).
-  const { rowCount } = await sql`
-    DELETE FROM users WHERE id = ${userId}
+  // backups (and via backups, backup_versions and backup_chunks). The user's
+  // R2 prefix is enqueued for purge in the same statement: the audit log only
+  // keeps sha256(userId), so once this row is gone the prefix cannot be
+  // reconstructed. Enqueued if-and-only-if the user row was removed; the
+  // backup-gc cron drains the queue (the /account UI promises purge within
+  // 24 hours).
+  const prefix = `users/${userId}/`;
+  const { rows } = await sql`
+    WITH deleted AS (
+      DELETE FROM users WHERE id = ${userId}
+      RETURNING id
+    ),
+    enqueued AS (
+      INSERT INTO r2_purge_queue (r2_prefix)
+      SELECT ${prefix} FROM deleted
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS removed FROM deleted
   `;
-  return rowCount ?? 0;
+  return (rows[0] as { removed: number }).removed;
 }
 
 // --- Account portal: cookie sessions + redeemed-jti ledger ---
@@ -943,4 +973,152 @@ export async function burnBrowserSessionJti(jti: string): Promise<boolean> {
     ON CONFLICT (jti) DO NOTHING
   `;
   return (rowCount ?? 0) > 0;
+}
+
+// --- backup-gc cron: expired soft-deleted versions (Pass A) ---
+
+export type ExpiredVersionRow = {
+  id: string;
+  manifest_object_key: string;
+};
+
+export async function findExpiredDeletedVersions(
+  limit: number,
+): Promise<ExpiredVersionRow[]> {
+  const { rows } = await sql`
+    SELECT id, manifest_object_key
+    FROM backup_versions
+    WHERE deleted_at < now() - interval '7 days'
+    ORDER BY deleted_at ASC
+    LIMIT ${limit}
+  `;
+  return rows as ExpiredVersionRow[];
+}
+
+export async function hardDeleteVersion(versionId: string): Promise<number> {
+  // Chunk rows cascade via the backup_chunks FK. Callers MUST have deleted
+  // the R2 objects first — these rows carry the only object-key knowledge.
+  const { rowCount } = await sql`
+    DELETE FROM backup_versions WHERE id = ${versionId}
+  `;
+  return rowCount ?? 0;
+}
+
+// --- backup-gc cron: R2 purge queue (Pass B) ---
+
+export type PurgeQueueRow = {
+  id: string;
+  r2_prefix: string;
+};
+
+/**
+ * Pending purge prefixes, failure-aware: never-failed rows come first
+ * (last_attempt_at NULL — includes large prefixes still draining within
+ * budget, which keeps them at the front until done), failed rows rotate to
+ * the back, and rows past `maxAttempts` are dead-lettered (left in the table
+ * for inspection, no longer selected).
+ */
+export async function findPendingPurges(params: {
+  limit: number;
+  maxAttempts: number;
+}): Promise<PurgeQueueRow[]> {
+  const { rows } = await sql`
+    SELECT id, r2_prefix
+    FROM r2_purge_queue
+    WHERE purged_at IS NULL AND attempts < ${params.maxAttempts}
+    ORDER BY last_attempt_at ASC NULLS FIRST, enqueued_at ASC
+    LIMIT ${params.limit}
+  `;
+  return rows as PurgeQueueRow[];
+}
+
+export async function markPurgeDone(id: string): Promise<void> {
+  await sql`
+    UPDATE r2_purge_queue SET purged_at = now() WHERE id = ${id}
+  `;
+}
+
+export async function markPurgeAttemptFailed(params: {
+  id: string;
+  error: string;
+}): Promise<void> {
+  await sql`
+    UPDATE r2_purge_queue
+    SET attempts = attempts + 1,
+        last_attempt_at = now(),
+        last_error = ${params.error.slice(0, 1000)}
+    WHERE id = ${params.id}
+  `;
+}
+
+// --- backup-gc cron: abandoned-upload sweep (Pass C) ---
+
+export type UncheckedManifestVersionRow = {
+  id: string;
+  manifest_object_key: string;
+};
+
+export async function findUncheckedManifestVersions(params: {
+  olderThanHours: number;
+  limit: number;
+}): Promise<UncheckedManifestVersionRow[]> {
+  const { rows } = await sql`
+    SELECT id, manifest_object_key
+    FROM backup_versions
+    WHERE deleted_at IS NULL
+      AND manifest_seen_at IS NULL
+      AND created_at < now() - (interval '1 hour' * ${params.olderThanHours})
+    ORDER BY created_at ASC
+    LIMIT ${params.limit}
+  `;
+  return rows as UncheckedManifestVersionRow[];
+}
+
+export async function stampManifestSeen(versionId: string): Promise<void> {
+  await sql`
+    UPDATE backup_versions SET manifest_seen_at = now()
+    WHERE id = ${versionId}
+  `;
+}
+
+export async function softDeleteVersionById(versionId: string): Promise<void> {
+  await sql`
+    UPDATE backup_versions SET deleted_at = now()
+    WHERE id = ${versionId} AND deleted_at IS NULL
+  `;
+}
+
+// --- rate limiting (credential endpoints; pruned by backup-gc Pass D) ---
+
+export async function countRateLimitEvents(params: {
+  scope: string;
+  key: string;
+  windowSeconds: number;
+}): Promise<number> {
+  const { rows } = await sql`
+    SELECT COUNT(*)::int AS n
+    FROM rate_limit_events
+    WHERE scope = ${params.scope}
+      AND key = ${params.key}
+      AND at > now() - (interval '1 second' * ${params.windowSeconds})
+  `;
+  return (rows[0] as { n: number }).n;
+}
+
+export async function insertRateLimitEvent(params: {
+  scope: string;
+  key: string;
+}): Promise<void> {
+  await sql`
+    INSERT INTO rate_limit_events (scope, key)
+    VALUES (${params.scope}, ${params.key})
+  `;
+}
+
+export async function deleteRateLimitEventsBefore(hours: number): Promise<number> {
+  const { rowCount } = await sql`
+    DELETE FROM rate_limit_events
+    WHERE at < now() - (interval '1 hour' * ${hours})
+  `;
+  return rowCount ?? 0;
 }
