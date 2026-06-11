@@ -65,10 +65,10 @@
 ## 7. Verification
 
 - [x] 7.1 `npm test` and `npm run openspec:validate` green.
-- [ ] 7.2 Post-deploy: crons visible in Vercel dashboard; manual
+- [x] 7.2 Post-deploy: crons visible in Vercel dashboard; manual
   `curl -H "Authorization: Bearer $CRON_SECRET"` hits both routes (200) and a
   secretless hit returns 401.
-- [ ] 7.3 Live GC seed check: delete a test backup → queue row → next run
+- [x] 7.3 Live GC seed check: delete a test backup → queue row → next run
   purges prefix and stamps `purged_at`.
-- [ ] 7.4 Live rate-limit check: 11 bad logins on a test account → 429
+- [x] 7.4 Live rate-limit check: 11 bad logins on a test account → 429
   `RATE_LIMITED`.
