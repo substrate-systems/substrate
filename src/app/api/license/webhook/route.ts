@@ -197,6 +197,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 // so Paddle does not retry; a rare double-delivery could send a duplicate email.
 // Add dedup when the supporters DB table lands.
 async function handleSupporterPurchase(event: unknown): Promise<NextResponse> {
+  // HTML-escape any value interpolated into an HTML email body. email/transactionId
+  // are Paddle-derived (semi-trusted); escaping prevents HTML/script injection into
+  // the founder notification rendered in an inbox.
+  const esc = (s: string) =>
+    s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
   let transactionId = 'unknown';
   let email: string | null = null;
   let customerId: string | null = null;
@@ -219,7 +230,7 @@ async function handleSupporterPurchase(event: unknown): Promise<NextResponse> {
   await sendTransactionalEmail({
     to: 'founder@substratesystems.io',
     subject: `New Endstate supporter: ${email ?? 'unknown email'}`,
-    htmlContent: `<p>New Supporter License purchase.</p><p>Email: ${email ?? 'unknown'}<br/>Transaction: ${transactionId}</p><p>If they reply opting in, add their name to SUPPORTERS.md.</p>`,
+    htmlContent: `<p>New Supporter License purchase.</p><p>Email: ${esc(email ?? 'unknown')}<br/>Transaction: ${esc(transactionId)}</p><p>If they reply opting in, add their name to SUPPORTERS.md.</p>`,
     textContent: `New Supporter License purchase.\nEmail: ${email ?? 'unknown'}\nTransaction: ${transactionId}\nIf they reply opting in, add their name to SUPPORTERS.md.`,
   }).catch((err) =>
     console.error('[supporter webhook] founder notification failed:', err),
