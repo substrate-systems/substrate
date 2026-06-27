@@ -130,6 +130,15 @@ export function EndstateFooter() {
           >
             Why Endstate
           </Link>
+          <Link
+            href="/endstate/supporters"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Supporters
+          </Link>
           <a
             href="https://github.com/Artexis10/endstate/blob/main/PRINCIPLES.md"
             target="_blank"
