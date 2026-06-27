@@ -60,6 +60,7 @@ export type UsePaddleResult = {
   error: string | null;
   completed: boolean;
   openEndstateCheckout: () => Promise<void>;
+  openSupporterCheckout: () => Promise<void>;
   openHostedBackupCheckout: (cadence: HostedBackupCadence) => Promise<void>;
   openTransactionCheckout: (transactionId: string) => Promise<void>;
 };
@@ -121,6 +122,20 @@ export function usePaddle(): UsePaddleResult {
     });
   }
 
+  async function openSupporterCheckout(): Promise<void> {
+    const priceId = process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
+    if (!priceId) {
+      console.error(
+        '[paddle] NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER is not set',
+      );
+      alert(UNAVAILABLE_MESSAGE);
+      return;
+    }
+    await openCheckoutWith((paddle) => {
+      paddle.Checkout.open({ items: [{ priceId, quantity: 1 }] });
+    });
+  }
+
   async function openHostedBackupCheckout(
     cadence: HostedBackupCadence,
   ): Promise<void> {
@@ -155,6 +170,7 @@ export function usePaddle(): UsePaddleResult {
     error,
     completed,
     openEndstateCheckout,
+    openSupporterCheckout,
     openHostedBackupCheckout,
     openTransactionCheckout,
   };

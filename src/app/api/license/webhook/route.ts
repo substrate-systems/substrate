@@ -58,6 +58,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ignored: true, event_type: eventType }, { status: 200 });
   }
 
+  // Price gate (defensive): this legacy webhook must ONLY ever issue a license
+  // key for the old lifetime-license SKU. Any other one-time purchase — notably
+  // the Supporter tier (recognition only, no key) — must NOT receive a license
+  // key. Without this gate, every transaction.completed mints and emails a key.
+  const lifetimePriceId =
+    process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME;
+  const eventItems =
+    (event as { data?: { items?: Array<{ price?: { id?: string } }> } })?.data
+      ?.items ?? [];
+  const eventPriceIds = eventItems
+    .map((item) => item?.price?.id)
+    .filter((id): id is string => Boolean(id));
+  if (!lifetimePriceId || !eventPriceIds.includes(lifetimePriceId)) {
+    return NextResponse.json(
+      { ignored: true, reason: 'not a lifetime-license transaction' },
+      { status: 200 },
+    );
+  }
+
   let transactionId: string;
   let email: string | null;
   let customerId: string | null;

@@ -707,7 +707,7 @@ type PricingTier = {
     href?: string;
     primary?: boolean;
     external?: boolean;
-    kind?: "paddle-hosted-backup";
+    kind?: "paddle-hosted-backup" | "paddle-supporter";
   };
   badge?: string;
   highlight?: boolean;
@@ -797,7 +797,7 @@ function HostedBackupCadenceToggle({
 
 function Pricing() {
   const { ref, visible } = useInView();
-  const { openHostedBackupCheckout } = usePaddle();
+  const { openHostedBackupCheckout, openSupporterCheckout } = usePaddle();
   const [hostedBackupCadence, setHostedBackupCadence] =
     useState<HostedBackupCadence>("monthly");
 
@@ -894,7 +894,7 @@ function Pricing() {
       ],
       cta: {
         label: "Support development",
-        href: "mailto:founder@substratesystems.io?subject=Supporter%20License%20%E2%80%94%20interested",
+        kind: "paddle-supporter",
       },
     },
     {
@@ -1023,7 +1023,21 @@ function Pricing() {
                 ))}
               </ul>
 
-              {tier.cta.kind === "paddle-hosted-backup" ? (
+              {tier.cta.kind === "paddle-supporter" ? (
+                <BuyButton
+                  action={() => openSupporterCheckout()}
+                  completionLabel="Thank you — you're now an Endstate supporter."
+                  className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
+                  style={{
+                    background: tier.cta.primary ? c.text : "transparent",
+                    color: tier.cta.primary ? c.bg : c.text,
+                    border: tier.cta.primary ? "none" : `1px solid ${c.border}`,
+                    fontSize: "0.95rem",
+                  }}
+                >
+                  {tier.cta.label}
+                </BuyButton>
+              ) : tier.cta.kind === "paddle-hosted-backup" ? (
                 <BuyButton
                   action={() => openHostedBackupCheckout(hostedBackupCadence)}
                   completionLabel="Thanks — check your email to finish setup."
