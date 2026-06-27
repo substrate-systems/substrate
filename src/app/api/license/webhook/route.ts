@@ -58,18 +58,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ignored: true, event_type: eventType }, { status: 200 });
   }
 
-  // Price gate (defensive): this legacy webhook must ONLY ever issue a license
-  // key for the old lifetime-license SKU. Any other one-time purchase — notably
-  // the Supporter tier (recognition only, no key) — must NOT receive a license
-  // key. Without this gate, every transaction.completed mints and emails a key.
-  const lifetimePriceId =
-    process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME;
+  // Determine which one-time SKU this purchase is for.
   const eventItems =
     (event as { data?: { items?: Array<{ price?: { id?: string } }> } })?.data
       ?.items ?? [];
   const eventPriceIds = eventItems
     .map((item) => item?.price?.id)
     .filter((id): id is string => Boolean(id));
+
+  const supporterPriceId =
+    process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
+  const lifetimePriceId =
+    process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME;
+
+  // Supporter tier: recognition only — NO license key. Thank the buyer (and
+  // invite opt-in public listing) + notify founder@ so the name can be added to
+  // SUPPORTERS.md. Reuses the existing Brevo infra; no license key is issued.
+  if (supporterPriceId && eventPriceIds.includes(supporterPriceId)) {
+    return handleSupporterPurchase(event);
+  }
+
+  // Price gate (defensive): ONLY the legacy lifetime SKU may mint a license key.
+  // Any other one-time purchase is ignored, so it can never receive a key.
   if (!lifetimePriceId || !eventPriceIds.includes(lifetimePriceId)) {
     return NextResponse.json(
       { ignored: true, reason: 'not a lifetime-license transaction' },
@@ -179,4 +189,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   );
 
   return NextResponse.json({ ok: true, messageId: result.messageId }, { status: 200 });
+}
+
+// Supporter tier handler (recognition only, NO license key). Thanks the buyer,
+// invites opt-in public listing, and notifies founder@ to update SUPPORTERS.md.
+// v1: no persistent idempotency (low-volume goodwill tier) — always returns 200
+// so Paddle does not retry; a rare double-delivery could send a duplicate email.
+// Add dedup when the supporters DB table lands.
+async function handleSupporterPurchase(event: unknown): Promise<NextResponse> {
+  let transactionId = 'unknown';
+  let email: string | null = null;
+  let customerId: string | null = null;
+  try {
+    ({ transactionId, email, customerId } = extractTransactionFields(event));
+  } catch (err) {
+    console.warn(
+      '[supporter webhook] extractTransactionFields failed:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+  if (!email && customerId) {
+    try {
+      email = await fetchPaddleCustomerEmail(customerId);
+    } catch {
+      /* best effort — still notify founder below */
+    }
+  }
+
+  await sendTransactionalEmail({
+    to: 'founder@substratesystems.io',
+    subject: `New Endstate supporter: ${email ?? 'unknown email'}`,
+    htmlContent: `<p>New Supporter License purchase.</p><p>Email: ${email ?? 'unknown'}<br/>Transaction: ${transactionId}</p><p>If they reply opting in, add their name to SUPPORTERS.md.</p>`,
+    textContent: `New Supporter License purchase.\nEmail: ${email ?? 'unknown'}\nTransaction: ${transactionId}\nIf they reply opting in, add their name to SUPPORTERS.md.`,
+  }).catch((err) =>
+    console.error('[supporter webhook] founder notification failed:', err),
+  );
+
+  if (email) {
+    await sendTransactionalEmail({
+      to: email,
+      subject: 'Thank you for supporting Endstate',
+      htmlContent: `<p>Thank you for becoming an Endstate supporter. This directly funds development and keeps Endstate free for everyone — that's the whole pitch.</p><p>If you'd like your name listed publicly (supporters page + GitHub repo), just reply with the name you'd like shown. Prefer to stay anonymous? Nothing to do.</p><p>— Hugo</p>`,
+      textContent: `Thank you for becoming an Endstate supporter. This directly funds development and keeps Endstate free for everyone — that's the whole pitch.\n\nIf you'd like your name listed publicly (supporters page + GitHub repo), just reply with the name you'd like shown. Prefer to stay anonymous? Nothing to do.\n\n— Hugo`,
+    }).catch((err) =>
+      console.error('[supporter webhook] thank-you email failed:', err),
+    );
+  }
+
+  return NextResponse.json({ ok: true, supporter: true }, { status: 200 });
 }
