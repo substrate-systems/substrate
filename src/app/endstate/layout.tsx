@@ -13,12 +13,19 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/endstate/01-landing.png",
-        width: 1680,
-        height: 1240,
-        alt: "Endstate application",
+        url: "/endstate/og",
+        width: 1200,
+        height: 630,
+        alt: "Endstate — Windows setup and restore in minutes",
       },
     ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Endstate — Save your machine. Set up the next one.",
+    description:
+      "Capture every app and setting on your Windows machine, then restore them on a fresh install.",
+    images: ["/endstate/og"],
   },
   icons: {
     icon: "/endstate/icons/dark-full/dark-sw4.svg",
