@@ -2,63 +2,22 @@ import { ImageResponse } from "next/og";
 
 export const runtime = "nodejs";
 
-function Node({
-  label,
-  x,
-  y,
-  tone = "neutral",
-}: {
-  label: string;
-  x: number;
-  y: number;
-  tone?: "neutral" | "accent";
-}) {
+function FileLine({ title, meta }: { title: string; meta: string }) {
   return (
     <div
       style={{
-        position: "absolute",
-        left: x,
-        top: y,
-        width: 150,
-        height: 58,
-        borderRadius: 18,
-        border:
-          tone === "accent"
-            ? "1px solid rgba(94,234,212,0.55)"
-            : "1px solid rgba(255,255,255,0.14)",
-        background: tone === "accent" ? "rgba(20,184,166,0.16)" : "rgba(255,255,255,0.055)",
-        color: tone === "accent" ? "#ccfbf1" : "#d4d4d4",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: 19,
-        fontWeight: 650,
+        flexDirection: "column",
+        gap: 5,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.035)",
+        borderRadius: 8,
+        padding: "14px 16px",
       }}
     >
-      {label}
+      <div style={{ color: "#f5f5f5", fontSize: 18, fontWeight: 600 }}>{title}</div>
+      <div style={{ color: "#737373", fontSize: 14 }}>{meta}</div>
     </div>
-  );
-}
-
-function Line({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: x1,
-        top: y1,
-        width: length,
-        height: 2,
-        background:
-          "linear-gradient(90deg, rgba(94,234,212,0.08), rgba(94,234,212,0.42), rgba(94,234,212,0.08))",
-        transformOrigin: "left center",
-        transform: `rotate(${angle}deg)`,
-      }}
-    />
   );
 }
 
@@ -80,42 +39,88 @@ export function GET() {
         style={{
           position: "absolute",
           inset: 0,
+          display: "flex",
           background:
-            "radial-gradient(circle at 78% 24%, rgba(94,234,212,0.18), transparent 28%), radial-gradient(circle at 48% 76%, rgba(59,130,246,0.12), transparent 32%), linear-gradient(135deg, #050505 0%, #081211 54%, #040607 100%)",
+            "radial-gradient(circle at 72% 46%, rgba(255,255,255,0.075), transparent 32%), radial-gradient(circle at 16% 86%, rgba(255,255,255,0.045), transparent 26%), linear-gradient(135deg, #050505 0%, #0a0a0a 54%, #111111 100%)",
         }}
       />
       <div
         style={{
           position: "absolute",
           inset: 0,
-          opacity: 0.07,
+          display: "flex",
+          opacity: 0.42,
           backgroundImage:
-            "linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px)",
-          backgroundSize: "64px 64px",
-          maskImage: "radial-gradient(circle at 70% 48%, black, transparent 68%)",
+            "linear-gradient(rgba(255,255,255,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px)",
+          backgroundSize: "80px 80px",
+          maskImage: "linear-gradient(90deg, transparent 0%, black 55%, black 100%)",
         }}
       />
 
       <div
         style={{
           position: "absolute",
-          right: 72,
+          right: 76,
           top: 78,
-          width: 470,
-          height: 470,
+          width: 438,
+          height: 474,
           display: "flex",
+          flexDirection: "column",
+          gap: 12,
         }}
       >
-        <Line x1={132} y1={120} x2={250} y2={200} />
-        <Line x1={132} y1={318} x2={250} y2={228} />
-        <Line x1={280} y1={116} x2={250} y2={200} />
-        <Line x1={292} y1={320} x2={250} y2={228} />
-        <Line x1={252} y1={229} x2={330} y2={218} />
-        <Node label="Sources" x={20} y={88} />
-        <Node label="Evidence" x={20} y={286} />
-        <Node label="Notes" x={262} y={84} />
-        <Node label="Review" x={276} y={288} />
-        <Node label="Exomem" x={176} y={184} tone="accent" />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(10,10,10,0.86)",
+            boxShadow: "0 32px 100px rgba(0,0,0,0.62)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "14px 16px",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              color: "#737373",
+              fontSize: 14,
+            }}
+          >
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: "#525252" }} />
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: "#737373" }} />
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: "#a3a3a3" }} />
+            <span style={{ marginLeft: 8 }}>agent-memory</span>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+              padding: 22,
+              fontFamily: "JetBrains Mono, Consolas, monospace",
+            }}
+          >
+            <div style={{ color: "#a3a3a3", fontSize: 18 }}>
+              $ exomem find &quot;stale plan&quot;
+            </div>
+            <div style={{ color: "#f5f5f5", fontSize: 19 }}>Notes/Research/q4-architecture.md</div>
+            <div style={{ color: "#f5f5f5", fontSize: 19 }}>Notes/Insights/context-budget.md</div>
+            <div style={{ color: "#737373", fontSize: 17 }}>
+              2 reviewed results · provenance attached
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <FileLine title="Sources" meta="articles, PDFs, images, transcripts" />
+          <FileLine title="Compiled notes" meta="decisions, insights, failures, patterns" />
+          <FileLine title="Review queue" meta="stale, nearby, unprocessed" />
+        </div>
       </div>
 
       <div
@@ -125,71 +130,54 @@ export function GET() {
           height: "100%",
           display: "flex",
           flexDirection: "column",
-          padding: "72px 76px 58px",
+          padding: "72px 76px 56px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 12,
-              border: "1px solid rgba(94,234,212,0.55)",
-              background: "rgba(94,234,212,0.12)",
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.20)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "#99f6e4",
-              fontSize: 22,
-              fontWeight: 800,
+              background: "rgba(255,255,255,0.04)",
+              color: "#f5f5f5",
+              fontSize: 24,
+              fontWeight: 700,
             }}
           >
             E
           </div>
-          <div style={{ fontSize: 24, color: "#ccfbf1", fontWeight: 700 }}>Exomem</div>
+          <div style={{ color: "#f5f5f5", fontSize: 28, fontWeight: 650 }}>Exomem</div>
         </div>
 
-        <div style={{ maxWidth: 620, display: "flex", flexDirection: "column", marginTop: 132 }}>
+        <div style={{ display: "flex", flexDirection: "column", marginTop: 126, maxWidth: 608 }}>
           <div
             style={{
+              color: "#fafafa",
               fontSize: 78,
-              lineHeight: 0.94,
+              lineHeight: 0.98,
               letterSpacing: 0,
-              fontWeight: 760,
+              fontWeight: 680,
             }}
           >
             External memory for agents.
           </div>
           <div
             style={{
-              marginTop: 22,
-              maxWidth: 540,
-              color: "#b8c8c5",
+              marginTop: 24,
+              color: "#a3a3a3",
               fontSize: 26,
-              lineHeight: 1.22,
+              lineHeight: 1.32,
+              maxWidth: 510,
+              fontWeight: 400,
             }}
           >
-            Owned Markdown memory exposed through MCP.
+            Durable context over owned Markdown and Obsidian vaults.
           </div>
-        </div>
-
-        <div
-          style={{
-            position: "absolute",
-            left: 76,
-            bottom: 50,
-            display: "flex",
-            gap: 18,
-            color: "#99f6e4",
-            fontSize: 19,
-            fontWeight: 650,
-          }}
-        >
-          <span>hybrid retrieval</span>
-          <span style={{ color: "#31534e" }}>·</span>
-          <span>multimodal indexing</span>
-          <span style={{ color: "#31534e" }}>·</span>
-          <span>review queues</span>
         </div>
       </div>
     </div>,
