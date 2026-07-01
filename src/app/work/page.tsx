@@ -29,6 +29,12 @@ const featuredWriting = [
 
 const workItems = [
   {
+    name: "Q",
+    description:
+      "AI knowledge infrastructure. Turn a content library into a branded, searchable knowledge base with citations back to the original source.",
+    links: [{ label: "Visit ↗", href: "https://useq.ai", external: true }],
+  },
+  {
     name: "Endstate",
     description:
       "Capture a Windows machine's apps and settings, then restore them on a fresh install. Local-first, with optional end-to-end encrypted backup. A shipped desktop product.",
@@ -38,13 +44,16 @@ const workItems = [
     ],
   },
   {
-    name: "Q",
+    name: "Exomem",
     description:
-      "AI knowledge infrastructure. Turn a content library into a branded, searchable knowledge base with citations back to the original source.",
-    links: [{ label: "Visit ↗", href: "https://useq.ai", external: true }],
+      "External memory for MCP-capable agents over an owned Markdown and Obsidian vault. Agents get durable context; the user keeps the files, provenance, and review loop.",
+    links: [
+      { label: "Overview →", href: "/exomem", external: false },
+      { label: "Source ↗", href: "https://github.com/Artexis10/exomem", external: true },
+      { label: "PyPI ↗", href: "https://pypi.org/project/exomem/", external: true },
+    ],
   },
 ];
-
 function Label({ children }: { children: React.ReactNode }) {
   return (
     <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">{children}</span>

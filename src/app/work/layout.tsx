@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 const TITLE = "Proof of work";
 const DESCRIPTION =
-  "Hugo Ander Kivi — selected work and writing on contract-based LLM governance for AI-augmented teams, plus Endstate (Windows backup) and Q (knowledge infrastructure).";
+  "Hugo Ander Kivi — selected work and writing on contract-based LLM governance for AI-augmented teams, plus Q, Endstate, and Exomem.";
 const OG_IMAGE = `/api/og?title=${encodeURIComponent(TITLE)}`;
 
 export const metadata: Metadata = {
