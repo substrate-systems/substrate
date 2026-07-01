@@ -154,21 +154,25 @@ export function GET() {
           <div style={{ color: "#f5f5f5", fontSize: 28, fontWeight: 650 }}>Exomem</div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", marginTop: 126, maxWidth: 608 }}>
+        <div style={{ display: "flex", flexDirection: "column", marginTop: 118, maxWidth: 608 }}>
           <div
             style={{
+              display: "flex",
+              flexDirection: "column",
               color: "#fafafa",
               fontSize: 78,
-              lineHeight: 0.98,
+              lineHeight: 1.04,
               letterSpacing: 0,
               fontWeight: 680,
             }}
           >
-            External memory for agents.
+            <div>External</div>
+            <div>memory for</div>
+            <div>agents.</div>
           </div>
           <div
             style={{
-              marginTop: 24,
+              marginTop: 26,
               color: "#a3a3a3",
               fontSize: 26,
               lineHeight: 1.32,
