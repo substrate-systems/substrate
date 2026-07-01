@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 const TITLE = "Exomem";
 const DESCRIPTION =
   "External memory for MCP-capable agents over an owned Markdown and Obsidian vault.";
-const OG_IMAGE = `/api/og?title=${encodeURIComponent(TITLE)}`;
+const OG_IMAGE = "/exomem/og";
 
 export const metadata: Metadata = {
   title: TITLE,

@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Endstate — Save your machine. Set up the next one.",
+  title: "Endstate — machine provisioning and backup",
   description:
-    "Endstate captures every app and setting on your Windows machine, then restores them on a fresh install. One scan. One file. Done.",
+    "Local-first machine setup and restore. Windows-first today, with Linux/macOS support through the cross-platform engine and Nix path.",
   openGraph: {
-    title: "Endstate — Save your machine. Set up the next one.",
+    title: "Endstate — machine provisioning and backup",
     description:
-      "Declarative Windows machine provisioning. Capture every app and setting, restore on any machine.",
+      "Local-first machine setup and restore, with optional hosted backup the server cannot decrypt.",
     url: "https://substratesystems.io/endstate",
     siteName: "Substrate Systems",
     type: "website",
@@ -16,15 +16,15 @@ export const metadata: Metadata = {
         url: "/endstate/og",
         width: 1200,
         height: 630,
-        alt: "Endstate — Windows setup and restore in minutes",
+        alt: "Endstate — machine provisioning and backup",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Endstate — Save your machine. Set up the next one.",
+    title: "Endstate — machine provisioning and backup",
     description:
-      "Capture every app and setting on your Windows machine, then restore them on a fresh install.",
+      "Local-first machine setup and restore. Windows-first today, with Linux/macOS support in validation.",
     images: ["/endstate/og"],
   },
   icons: {
@@ -39,7 +39,7 @@ const jsonLd = {
   applicationCategory: "UtilitiesApplication",
   operatingSystem: "Windows",
   description:
-    "Declarative Windows machine provisioning — captures installed apps and settings, saves to a portable file, restores on a fresh install.",
+    "Local-first machine provisioning and backup. Windows-first today, with Linux and macOS support moving through validation.",
   url: "https://substratesystems.io/endstate",
   offers: {
     "@type": "Offer",
