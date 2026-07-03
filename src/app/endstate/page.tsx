@@ -298,7 +298,7 @@ const features = [
     icon: "⚙",
     iconColor: c.green,
     title: "Bring your settings",
-    body: "Captures and restores settings for supported apps — VS Code, Git, PowerShell, PowerToys, and more. Opt-in per app.",
+    body: "Captures and restores settings for 300+ apps — editors, terminals, creative tools, emulators, and more. Opt-in per app.",
   },
   {
     icon: "📦",
@@ -402,6 +402,15 @@ function Features() {
               </p>
             </motion.div>
           ))}
+        </div>
+
+        <div style={{ marginTop: "2.5rem" }}>
+          <a
+            href="/endstate/apps"
+            style={{ fontSize: "0.95rem", color: c.teal, textDecoration: "none" }}
+          >
+            See all 300+ supported apps →
+          </a>
         </div>
       </div>
     </section>
