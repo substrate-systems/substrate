@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/cron/claim-followups", "schedule": "0 12 * * *" },
-    { "path": "/api/cron/backup-gc", "schedule": "17 3 * * *" }
+    { "path": "/api/cron/backup-gc", "schedule": "17 3 * * *" },
+    { "path": "/api/indexnow", "schedule": "0 6 * * 1" }
   ]
 }
