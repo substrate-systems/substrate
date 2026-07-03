@@ -9,6 +9,11 @@ export const metadata: Metadata = {
     template: `%s ${siteConfig.titleSuffix}`,
     default: "Writing on infrastructure & LLM governance",
   },
+  alternates: {
+    types: {
+      "application/rss+xml": [{ url: "/feed.xml", title: "Substrate — Writing" }],
+    },
+  },
 };
 
 export default function BlogLayout({ children }: { children: React.ReactNode }) {
