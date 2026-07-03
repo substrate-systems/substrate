@@ -82,6 +82,25 @@ const HOWTO_BY_SLUG: Record<
       },
     ],
   },
+  "share-your-app-setup": {
+    name: "How to share your app setup with someone else",
+    description:
+      "Hand someone your exact app configuration as one portable file with Endstate.",
+    steps: [
+      {
+        name: "Capture your setup",
+        text: "Use Endstate to capture your apps and the settings you want to share into one portable file.",
+      },
+      {
+        name: "Send the file",
+        text: "Share the setup file however you share files — a message, a shared drive, or a repo. No account required.",
+      },
+      {
+        name: "They restore what they want",
+        text: "The recipient opens the file in Endstate; restore is opt-in per app, so they pull in only the configs they want, like your OBS or MSI Afterburner profile.",
+      },
+    ],
+  },
 };
 
 export function howToJsonLd(slug: string) {

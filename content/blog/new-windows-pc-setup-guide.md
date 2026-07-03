@@ -36,7 +36,7 @@ I wrote both of these up in detail: [how to reinstall all your apps with winget 
 
 This is the part nobody automates, and it's the part that costs the most time. Your editor config, your terminal, your keybindings, your creative-tool presets — rebuilding those by hand from memory is the real tax of a new machine.
 
-It's also the hardest thing to copy safely, which is why the settings coverage matters more than the app count. If a tool backs up settings for a handful of apps, it's a demo. Endstate has settings modules for [300+ apps](/endstate/apps), from editors and IDEs to creative suites, media players, and emulators.
+It's also the hardest thing to copy safely, which is why the settings coverage matters more than the app count. If a tool backs up settings for a handful of apps, it's a demo. Endstate has settings modules for [300+ apps](/endstate/apps), from editors and IDEs to creative suites, media players, and emulators. And because each setup is a portable file, you can even [hand your exact configuration to someone else](/blog/share-your-app-setup).
 
 ## Doing it fast, and repeatably
 
