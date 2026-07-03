@@ -68,7 +68,7 @@ export default function Products() {
           animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
-          <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">Products</span>
+          <h2 className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">Products</h2>
         </motion.div>
 
         <div className="space-y-16">

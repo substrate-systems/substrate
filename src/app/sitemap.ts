@@ -1,10 +1,10 @@
 import type { MetadataRoute } from "next";
-import { getAllPostsMeta } from "@/lib/blog";
+import { getPublishedPostsMeta } from "@/lib/blog";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://substratesystems.io";
 
-  const blogEntries: MetadataRoute.Sitemap = getAllPostsMeta().map((post) => ({
+  const blogEntries: MetadataRoute.Sitemap = getPublishedPostsMeta().map((post) => ({
     url: `${baseUrl}/blog/${post.slug}`,
     lastModified: post.published ? new Date(post.published) : new Date(),
     changeFrequency: "yearly",
@@ -35,6 +35,12 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: new Date(),
       changeFrequency: "monthly",
       priority: 0.7,
+    },
+    {
+      url: `${baseUrl}/endstate/supporters`,
+      lastModified: new Date(),
+      changeFrequency: "monthly",
+      priority: 0.4,
     },
     {
       url: `${baseUrl}/work`,

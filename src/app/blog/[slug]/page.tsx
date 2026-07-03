@@ -3,7 +3,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Footer from "@/components/Footer";
-import { getPostBySlug, getPostSlugs } from "@/lib/blog";
+import { getPostBySlug, getPostSlugs, isDraft } from "@/lib/blog";
+import { breadcrumbJsonLd, buildMetadata } from "@/lib/seo";
 import styles from "./article.module.css";
 
 export const dynamicParams = false;
@@ -22,26 +23,16 @@ export async function generateMetadata({
   if (!post) return {};
 
   const { title, description, published, author } = post.frontmatter;
-  const ogImage = `/api/og?title=${encodeURIComponent(title)}`;
-  return {
+  return buildMetadata({
     title,
     description,
-    authors: author ? [{ name: author }] : undefined,
-    openGraph: {
-      title,
-      description,
-      type: "article",
-      publishedTime: published,
-      url: `/blog/${slug}`,
-      images: [{ url: ogImage, width: 1200, height: 630, alt: title }],
-    },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: [ogImage],
-    },
-  };
+    path: `/blog/${slug}`,
+    ogImage: `/api/og?title=${encodeURIComponent(title)}`,
+    ogType: "article",
+    publishedTime: published,
+    authors: author ? [author] : undefined,
+    noIndex: isDraft(post.frontmatter),
+  });
 }
 
 function formatDate(iso: string): string {
@@ -64,9 +55,18 @@ export default async function BlogPostPage({
   if (!post) notFound();
 
   const { title, published, author } = post.frontmatter;
+  const breadcrumb = breadcrumbJsonLd([
+    { name: "Home", path: "/" },
+    { name: "Writing", path: "/blog" },
+    { name: title, path: `/blog/${slug}` },
+  ]);
 
   return (
     <div className="min-h-screen bg-bg-base">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
+      />
       <header className="mx-auto w-full max-w-3xl px-6 pt-10 sm:pt-14">
         <Link
           href="/"

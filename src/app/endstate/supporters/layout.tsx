@@ -1,33 +1,31 @@
-import type { Metadata } from "next";
+import { breadcrumbJsonLd, buildMetadata } from "@/lib/seo";
 
-const TITLE = "Supporters";
-const DESCRIPTION =
-  "The people who fund Endstate. They bought a Supporter License so the product can stay free, open, and without telemetry for everyone.";
-const OG_IMAGE = `/api/og?title=${encodeURIComponent(TITLE)}`;
+export const metadata = buildMetadata({
+  title: "Endstate Supporters — who funds free, open setup",
+  description:
+    "The people who bought a Supporter License so Endstate stays free, open source, and telemetry-free for everyone. Thank you.",
+  path: "/endstate/supporters",
+  ogImage: `/api/og?title=${encodeURIComponent("Supporters")}`,
+});
 
-export const metadata: Metadata = {
-  title: `${TITLE} — Endstate`,
-  description: DESCRIPTION,
-  openGraph: {
-    title: `${TITLE} — Endstate`,
-    description: DESCRIPTION,
-    url: "https://substratesystems.io/endstate/supporters",
-    siteName: "Substrate Systems",
-    type: "website",
-    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: `${TITLE} — Endstate`,
-    description: DESCRIPTION,
-    images: [OG_IMAGE],
-  },
-};
+const breadcrumb = breadcrumbJsonLd([
+  { name: "Home", path: "/" },
+  { name: "Endstate", path: "/endstate" },
+  { name: "Supporters", path: "/endstate/supporters" },
+]);
 
 export default function SupportersLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
+      />
+      {children}
+    </>
+  );
 }

@@ -1,29 +1,15 @@
-import type { Metadata } from "next";
 import Link from "next/link";
 import Footer from "@/components/Footer";
+import { buildMetadata } from "@/lib/seo";
 
-const TITLE = "Exomem";
-const DESCRIPTION =
-  "External memory for MCP-capable agents over an owned Markdown and Obsidian vault.";
-const OG_IMAGE = "/exomem/og";
-
-export const metadata: Metadata = {
-  title: TITLE,
-  description: DESCRIPTION,
-  openGraph: {
-    title: `${TITLE} · Substrate`,
-    description: DESCRIPTION,
-    url: "/exomem",
-    type: "website",
-    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: `${TITLE} · Substrate`,
-    description: DESCRIPTION,
-    images: [OG_IMAGE],
-  },
-};
+export const metadata = buildMetadata({
+  title: "Exomem — long-term memory for AI agents over Markdown",
+  description:
+    "Give Claude, Codex, and Cursor persistent memory via MCP — over a Markdown and Obsidian vault you own. Hybrid search, local indexing, human review queues.",
+  path: "/exomem",
+  ogImage: "/exomem/og",
+  standaloneTitle: true,
+});
 
 const capabilities = [
   "MCP tools for search, capture, notes, evidence, audit, and review queues",

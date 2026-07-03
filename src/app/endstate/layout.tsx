@@ -1,46 +1,37 @@
-import type { Metadata } from "next";
+import { buildMetadata, siteConfig } from "@/lib/seo";
+import { faqs } from "./faq-data";
 
-export const metadata: Metadata = {
-  title: "Endstate — machine provisioning and backup",
-  description:
-    "Local-first machine setup and restore. Windows-first today, with Linux/macOS support through the cross-platform engine and Nix path.",
-  openGraph: {
-    title: "Endstate — machine provisioning and backup",
-    description:
-      "Local-first machine setup and restore, with optional hosted backup the server cannot decrypt.",
-    url: "https://substratesystems.io/endstate",
-    siteName: "Substrate Systems",
-    type: "website",
-    images: [
-      {
-        url: "/endstate/og",
-        width: 1200,
-        height: 630,
-        alt: "Endstate — machine provisioning and backup",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Endstate — machine provisioning and backup",
-    description:
-      "Local-first machine setup and restore. Windows-first today, with Linux/macOS support in validation.",
-    images: ["/endstate/og"],
-  },
-  icons: {
-    icon: "/endstate/icons/dark-full/dark-sw4.svg",
-  },
+const DESCRIPTION =
+  "Endstate scans your Windows PC, saves your apps and settings to one portable file, and reinstalls everything on a fresh machine in minutes. Free, open-source, local-first — no account.";
+
+export const metadata = {
+  ...buildMetadata({
+    title: "Endstate — Set Up a New Windows PC & Restore Your Apps in Minutes",
+    description: DESCRIPTION,
+    path: "/endstate",
+    ogImage: "/endstate/og",
+    standaloneTitle: true,
+  }),
+  // Endstate subtree uses its own mark as the favicon.
+  icons: { icon: "/endstate/icons/dark-full/dark-sw4.svg" },
 };
 
-const jsonLd = {
+const softwareJsonLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   name: "Endstate",
   applicationCategory: "UtilitiesApplication",
   operatingSystem: "Windows",
   description:
-    "Local-first machine provisioning and backup. Windows-first today, with Linux and macOS support moving through validation.",
-  url: "https://substratesystems.io/endstate",
+    "Reinstall your apps and restore your settings on a new Windows PC. Scan your current machine, save a portable setup file, then restore everything on a fresh install in minutes.",
+  url: `${siteConfig.url}/endstate`,
+  downloadUrl: `${siteConfig.url}/download`,
+  installUrl: `${siteConfig.url}/download`,
+  screenshot: [
+    `${siteConfig.url}/endstate/01-landing.png`,
+    `${siteConfig.url}/endstate/02-save-results.png`,
+    `${siteConfig.url}/endstate/03-setup-results.png`,
+  ],
   offers: {
     "@type": "Offer",
     price: "0",
@@ -49,12 +40,24 @@ const jsonLd = {
   },
   author: {
     "@type": "Organization",
-    name: "Substrate Systems",
-    url: "https://substratesystems.io",
+    name: siteConfig.name,
+    url: siteConfig.url,
   },
-  license: "https://substratesystems.io/terms",
+  license: `${siteConfig.url}/terms`,
   codeRepository: "https://github.com/Artexis10/endstate",
-  softwareVersion: "1.0",
+};
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: typeof faq.a === "string" ? faq.a : (faq.aText ?? ""),
+    },
+  })),
 };
 
 export default function EndstateLayout({ children }: { children: React.ReactNode }) {
@@ -62,7 +65,11 @@ export default function EndstateLayout({ children }: { children: React.ReactNode
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
       {children}
     </>

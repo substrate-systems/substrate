@@ -21,6 +21,8 @@ export type BlogFrontmatter = {
   published: string;
   tags: string[];
   author: string;
+  /** "draft" posts stay reachable by URL but are noindex + excluded from listings/sitemap. */
+  status: string;
 };
 
 export type BlogPost = {
@@ -41,7 +43,12 @@ function normalizeFrontmatter(data: Record<string, unknown>): BlogFrontmatter {
     published,
     tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
     author: String(data.author ?? ""),
+    status: String(data.status ?? ""),
   };
+}
+
+export function isDraft(frontmatter: BlogFrontmatter): boolean {
+  return frontmatter.status.toLowerCase() === "draft";
 }
 
 export function getPostSlugs(): string[] {
@@ -55,6 +62,11 @@ export function getAllPostsMeta(): BlogFrontmatter[] {
     const raw = readFileSync(path.join(BLOG_DIR, `${slug}.md`), "utf8");
     return normalizeFrontmatter(matter(raw).data);
   });
+}
+
+/** Non-draft posts only — for public listings (blog index) and the sitemap. */
+export function getPublishedPostsMeta(): BlogFrontmatter[] {
+  return getAllPostsMeta().filter((post) => !isDraft(post));
 }
 
 export async function getPostBySlug(slug: string): Promise<BlogPost | null> {

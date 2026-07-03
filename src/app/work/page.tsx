@@ -3,7 +3,7 @@ import path from "node:path";
 import Image from "next/image";
 import Link from "next/link";
 import Footer from "@/components/Footer";
-import { getAllPostsMeta } from "@/lib/blog";
+import { getPublishedPostsMeta } from "@/lib/blog";
 
 // Owner-supplied, gated assets. The links render only when these are present,
 // so the page never ships a broken link. Set LINKEDIN_URL when provided; drop
@@ -68,7 +68,7 @@ function formatDate(iso: string): string {
 
 export default function WorkPage() {
   const featuredSlugs = new Set(featuredWriting.map((w) => w.slug));
-  const moreWriting = getAllPostsMeta()
+  const moreWriting = getPublishedPostsMeta()
     .filter((post) => !featuredSlugs.has(post.slug))
     .sort((a, b) => b.published.localeCompare(a.published));
 

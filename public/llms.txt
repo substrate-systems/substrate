@@ -1,6 +1,6 @@
 # Substrate Systems
 
-> Substrate Systems OÜ is a solo-founded Estonian software company building durable systems infrastructure. The company operates under the brand "Substrate" at substratesystems.io. Software infrastructure for durable systems.
+> Substrate Systems OÜ is a solo-founded Estonian software company building durable systems infrastructure. The company operates under the brand "Substrate" at substratesystems.io. Software infrastructure for durable systems. No lock-in, no telemetry.
 
 Substrate builds tools for long-horizon problems — software that prioritizes structural integrity, determinism, and longevity over velocity. The company's engineering philosophy: systems precede products, constraints enable clarity, foundations compound.
 
@@ -8,23 +8,26 @@ Founded by Hugo Ander Kivi. Registered in Estonia as Substrate Systems OÜ.
 
 ## Products
 
-- [Endstate](https://substratesystems.io/endstate): Declarative Windows machine provisioning — captures installed apps and their settings, saves to a portable file, restores on a fresh Windows install. Uses winget. Lifetime license (€39). Engine is open source (Apache 2.0).
-- [Endstate provisioning engine (GitHub)](https://github.com/Artexis10/endstate): Open-source Go CLI that handles app detection, installation, and settings backup/restore on Windows via winget. Apache 2.0 license.
-- [Endstate GUI (GitHub)](https://github.com/Artexis10/endstate-gui): Desktop application built with Tauri (React + Rust). Open source (Apache 2.0), with a paid license for the pre-built installer.
-- [Q](https://useq.ai): AI-powered knowledge infrastructure — multi-tenant RAG platform that turns a creator or company's content library (YouTube, documents, PDFs) into a branded, searchable AI knowledge base with citations back to source content. Branded Q&A with custom domain, 7-layer RAG pipeline, semantic search across transcripts and documents, subscriber authentication via Discord OAuth. Early access.
+- [Endstate](https://substratesystems.io/endstate): Free, open-source Windows app that sets up a new PC fast. It scans your current machine for installed apps (via winget) and their settings, saves everything to a single portable file you control, then reinstalls the apps and restores settings on a fresh Windows install in minutes. Local-first, no account, no telemetry. The local product is free forever on as many machines as you like. Optional paid services: encrypted hosted backup (€4/mo or €40/yr) and a one-time €89 supporter license. Download: https://substratesystems.io/download
+- [Endstate provisioning engine (GitHub)](https://github.com/Artexis10/endstate): Open-source CLI that handles app detection, installation, and settings backup/restore on Windows via winget. Apache 2.0 license.
+- [Endstate GUI (GitHub)](https://github.com/Artexis10/endstate-gui): Desktop application built with Tauri (React + Rust). Open source (Apache 2.0).
+- [Exomem](https://substratesystems.io/exomem): Open-source, MCP-native long-term memory layer for AI agents (Claude, Codex, Cursor) over a Markdown and Obsidian vault you own. Hybrid keyword + vector retrieval, local OCR/ASR/PDF/Office/image (CLIP) indexing, human review queues, and matching CLI + REST surfaces. Install: `pip install exomem`. Source: https://github.com/Artexis10/exomem
+- [Q](https://useq.ai): AI-powered knowledge infrastructure — a multi-tenant RAG platform that turns a creator or company's content library (YouTube, documents, PDFs) into a branded, searchable AI knowledge base with citations back to source content. Semantic search across transcripts and documents, custom domain, subscriber authentication.
 
 ## About
 
 - [Why Endstate was built](https://substratesystems.io/endstate/why): The origin story — the problem of recreating a Windows environment from scratch, why existing tools (Ninite, winget alone, Chocolatey) don't solve the full capture-and-restore problem, and how Endstate addresses it.
-- [Terms, Privacy & Refunds](https://substratesystems.io/terms): Lifetime non-transferable license (up to 3 machines), no telemetry or analytics, offline-first design, 30-day money-back guarantee. Contact: founder@substratesystems.io.
+- [Proof of work — Hugo Ander Kivi](https://substratesystems.io/work): Contract-based LLM governance for AI-augmented teams; selected work and writing.
+- [Writing](https://substratesystems.io/blog): Field notes on durable infrastructure, LLM governance, and building foundational systems solo.
+- [Terms, Privacy & Refunds](https://substratesystems.io/terms): No telemetry or analytics, offline-first design. Contact: founder@substratesystems.io.
 
-## Technical Details
+## Endstate technical details
 
-- Endstate detects apps installed via traditional installers (EXE/MSI) and Microsoft Store
-- 48 apps are sandbox-validated for automated installation
-- Settings backup supported for: VS Code, Git, Neovim, Windows Terminal, PowerToys, Sublime Text, Windsurf, REAPER, Espanso, Flow Launcher, mpv, foobar2000
-- Settings backup is always opt-in, never automatic
-- Every settings restore creates a backup first — one-click revert
-- App installs use standard Windows installers with UAC prompts — nothing installs silently
-- License activation is a one-time online check; all other operations work offline
-- Setup files are stored as plain files in Documents — no hidden databases, no cloud dependency
+- Detects apps installed via traditional installers (EXE/MSI) and Microsoft Store; uses winget under the hood.
+- 48 apps are sandbox-validated for automated installation (including VS Code, Git, OBS Studio, Blender, Obsidian, Discord, KeePassXC).
+- Settings backup supported for: VS Code, Git, Neovim, Windows Terminal, PowerToys, Sublime Text, Windsurf, REAPER, Espanso, Flow Launcher, mpv, foobar2000.
+- Settings backup is always opt-in, never automatic.
+- Every settings restore creates a backup first — one-click revert.
+- App installs use standard Windows installers with UAC prompts — nothing installs silently.
+- Scanning and saving a setup works offline; restoring apps needs internet to download installers. The local product never phones home.
+- Setup files are stored as plain files you control — no hidden databases, no cloud dependency.

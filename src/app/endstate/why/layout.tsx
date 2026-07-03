@@ -1,52 +1,50 @@
-import type { Metadata } from "next";
+import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
 
 const ARTICLE_TITLE = "Why I Built Endstate";
-const OG_IMAGE = `/api/og?title=${encodeURIComponent(ARTICLE_TITLE)}`;
 
-export const metadata: Metadata = {
-  title: `${ARTICLE_TITLE} — Endstate`,
+export const metadata = buildMetadata({
+  title: "Why I Built Endstate — the new-PC setup problem",
   description:
-    "Every time I set up a fresh Windows machine, the same ritual begins. Open a browser. Search for the apps I need. Download them one by one. Install them. Then the worse part — realize my settings are gone.",
-  openGraph: {
-    title: `${ARTICLE_TITLE} — Endstate`,
-    description:
-      "Every time I set up a fresh Windows machine, the same ritual begins. Open a browser. Search for the apps I need. Download them one by one.",
-    url: "https://substratesystems.io/endstate/why",
-    siteName: "Substrate Systems",
-    type: "article",
-    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: ARTICLE_TITLE }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: `${ARTICLE_TITLE} — Endstate`,
-    description:
-      "Every time I set up a fresh Windows machine, the same ritual begins. Open a browser. Search for the apps I need. Download them one by one.",
-    images: [OG_IMAGE],
-  },
-};
+    "Every fresh Windows machine means the same ritual: hunt for apps, install one by one, lose your settings. Why I built Endstate to end it.",
+  path: "/endstate/why",
+  ogImage: `/api/og?title=${encodeURIComponent(ARTICLE_TITLE)}`,
+  ogType: "article",
+  authors: ["Hugo Ander Kivi"],
+  publishedTime: "2026-04",
+});
 
-const jsonLd = {
+const articleJsonLd = {
   "@context": "https://schema.org",
   "@type": "Article",
-  headline: "Why I Built Endstate",
+  headline: ARTICLE_TITLE,
   author: {
     "@type": "Person",
     name: "Hugo Ander Kivi",
   },
   publisher: {
     "@type": "Organization",
-    name: "Substrate Systems",
+    name: siteConfig.name,
   },
   datePublished: "2026-04",
-  url: "https://substratesystems.io/endstate/why",
+  url: `${siteConfig.url}/endstate/why`,
 };
+
+const breadcrumb = breadcrumbJsonLd([
+  { name: "Home", path: "/" },
+  { name: "Endstate", path: "/endstate" },
+  { name: ARTICLE_TITLE, path: "/endstate/why" },
+]);
 
 export default function WhyLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
       />
       {children}
     </>

@@ -2,22 +2,23 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Analytics } from "@vercel/analytics/react";
+import { siteConfig } from "@/lib/seo";
 
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
 });
 
-const description =
-  "A foundational systems company building durable software infrastructure, including Q, Endstate, and Exomem.";
+const description = siteConfig.defaultDescription;
 
 export const metadata: Metadata = {
   title: {
-    template: "%s · Substrate",
-    default: "Substrate — Foundational Systems",
+    template: `%s ${siteConfig.titleSuffix}`,
+    default: siteConfig.defaultTitle,
   },
   description,
-  metadataBase: new URL("https://substratesystems.io"),
+  metadataBase: new URL(siteConfig.url),
+  alternates: { canonical: "/" },
   icons: {
     icon: "/favicon.ico",
     shortcut: "/favicon-16x16.png",
@@ -25,26 +26,26 @@ export const metadata: Metadata = {
   },
   manifest: "/site.webmanifest",
   openGraph: {
-    title: "Substrate — Foundational Systems",
+    title: siteConfig.defaultTitle,
     description,
-    url: "https://substratesystems.io",
-    siteName: "Substrate",
-    locale: "en_US",
+    url: siteConfig.url,
+    siteName: siteConfig.name,
+    locale: siteConfig.locale,
     type: "website",
     images: [
       {
-        url: "/api/og",
+        url: siteConfig.defaultOgImage,
         width: 1200,
         height: 630,
-        alt: "Substrate — Foundational Systems",
+        alt: siteConfig.defaultTitle,
       },
     ],
   },
   twitter: {
-    card: "summary_large_image",
-    title: "Substrate — Foundational Systems",
+    card: siteConfig.twitterCard,
+    title: siteConfig.defaultTitle,
     description,
-    images: ["/api/og"],
+    images: [siteConfig.defaultOgImage],
   },
   robots: {
     index: true,
@@ -85,6 +86,21 @@ export default function RootLayout({
               },
               description: "Software infrastructure for durable systems.",
               sameAs: ["https://github.com/Artexis10"],
+            }),
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: siteConfig.name,
+              url: siteConfig.url,
+              publisher: {
+                "@type": "Organization",
+                name: siteConfig.name,
+              },
             }),
           }}
         />

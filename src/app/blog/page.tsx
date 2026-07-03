@@ -1,15 +1,17 @@
-import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import Footer from "@/components/Footer";
-import { getAllPostsMeta } from "@/lib/blog";
+import { getPublishedPostsMeta } from "@/lib/blog";
+import { buildMetadata } from "@/lib/seo";
 
-// Title intentionally omitted: the blog layout's title.default ("Writing · Substrate")
-// applies to this segment. A title here would not receive the layout's template
-// (templates apply to child segments only), so it would render bare "Writing".
-export const metadata: Metadata = {
-  description: "Writing by Hugo Ander Kivi on AI-augmented development, governance, and systems.",
-};
+// The blog layout's template applies only to child segments (blog/[slug]), not to this
+// same-segment page — so the "· Substrate" suffix here comes from the root template.
+export const metadata = buildMetadata({
+  title: "Writing on infrastructure & LLM governance",
+  description:
+    "Field notes from Substrate on durable infrastructure, LLM governance, contracts for AI-augmented codebases, and building foundational systems solo.",
+  path: "/blog",
+});
 
 function formatDate(iso: string): string {
   const date = new Date(iso);
@@ -18,7 +20,7 @@ function formatDate(iso: string): string {
 }
 
 export default function BlogIndexPage() {
-  const posts = getAllPostsMeta().sort((a, b) => b.published.localeCompare(a.published));
+  const posts = getPublishedPostsMeta().sort((a, b) => b.published.localeCompare(a.published));
 
   return (
     <div className="min-h-screen bg-bg-base">

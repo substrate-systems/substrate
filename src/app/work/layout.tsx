@@ -1,27 +1,13 @@
-import type { Metadata } from "next";
+import { buildMetadata } from "@/lib/seo";
 
-const TITLE = "Proof of work";
-const DESCRIPTION =
-  "Hugo Ander Kivi — selected work and writing on contract-based LLM governance for AI-augmented teams, plus Q, Endstate, and Exomem.";
-const OG_IMAGE = `/api/og?title=${encodeURIComponent(TITLE)}`;
-
-export const metadata: Metadata = {
-  title: TITLE,
-  description: DESCRIPTION,
-  openGraph: {
-    title: `${TITLE} · Substrate`,
-    description: DESCRIPTION,
-    url: "/work",
-    type: "profile",
-    images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: `${TITLE} · Substrate`,
-    description: DESCRIPTION,
-    images: [OG_IMAGE],
-  },
-};
+export const metadata = buildMetadata({
+  title: "Hugo Ander Kivi — LLM governance & systems engineering",
+  description:
+    "Hugo Ander Kivi: contract-based LLM governance for AI-augmented teams, plus the systems behind Q, Endstate, and Exomem. Selected work and writing.",
+  path: "/work",
+  ogImage: `/api/og?title=${encodeURIComponent("Hugo Ander Kivi")}`,
+  ogType: "profile",
+});
 
 export default function WorkLayout({ children }: { children: React.ReactNode }) {
   return children;
