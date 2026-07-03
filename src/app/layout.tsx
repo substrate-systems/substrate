@@ -86,7 +86,10 @@ export default function RootLayout({
                 name: "Estonia",
               },
               description: "Software infrastructure for durable systems.",
-              sameAs: ["https://github.com/Artexis10"],
+              sameAs: [
+                "https://github.com/Artexis10",
+                "https://www.linkedin.com/company/substratesystems/",
+              ],
             }),
           }}
         />

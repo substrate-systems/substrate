@@ -7,6 +7,8 @@ const navLinks = [
   { label: "Q", href: "https://useq.ai", external: true },
   { label: "Endstate", href: "/endstate" },
   { label: "Exomem", href: "/exomem" },
+  { label: "GitHub", href: "https://github.com/Artexis10", external: true },
+  { label: "LinkedIn", href: "https://www.linkedin.com/company/substratesystems/", external: true },
 ];
 
 export default function Footer() {
