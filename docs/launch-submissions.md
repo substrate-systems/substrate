@@ -98,7 +98,7 @@ everything to one portable file. On a fresh Windows install you point it at that
 it reinstalls the apps and restores the settings in a few minutes. No manual clicking
 through installers.
 
-Tech: the engine is Rust (Apache 2.0) and drives winget for install/detection; the GUI is
+Tech: the engine is Go (Apache 2.0) and drives winget for install/detection; the GUI is
 Tauri (Rust core + React front-end), so the app is small and doesn't ship a Chromium bundle.
 Local-first — no account, no telemetry, the file stays on your disk. Free forever on unlimited
 machines. There's an optional encrypted hosted backup (€4/mo) and a €89 supporter license if
