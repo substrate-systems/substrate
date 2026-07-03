@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import Footer from "@/components/Footer";
 import { getPostBySlug, getPostSlugs, isDraft } from "@/lib/blog";
 import { breadcrumbJsonLd, buildMetadata } from "@/lib/seo";
+import { articleJsonLd, howToJsonLd } from "@/lib/structured-data";
 import styles from "./article.module.css";
 
 export const dynamicParams = false;
@@ -60,6 +61,13 @@ export default async function BlogPostPage({
     { name: "Writing", path: "/blog" },
     { name: title, path: `/blog/${slug}` },
   ]);
+  const article = articleJsonLd({
+    title,
+    description: post.frontmatter.description,
+    slug,
+    published,
+  });
+  const howto = howToJsonLd(slug);
 
   return (
     <div className="min-h-screen bg-bg-base">
@@ -67,6 +75,16 @@ export default async function BlogPostPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(article) }}
+      />
+      {howto ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(howto) }}
+        />
+      ) : null}
       <header className="mx-auto w-full max-w-3xl px-6 pt-10 sm:pt-14">
         <Link
           href="/"
@@ -97,7 +115,17 @@ export default async function BlogPostPage({
         </h1>
         <p className="mt-4 text-body-sm text-fg-tertiary">
           {formatDate(published)}
-          {author ? ` · ${author}` : ""}
+          {author ? (
+            <>
+              {" · "}
+              <Link
+                href="/work"
+                className="transition-colors duration-default hover:text-fg-secondary"
+              >
+                {author}
+              </Link>
+            </>
+          ) : null}
         </p>
 
         <div className="mt-10 border-t border-border-subtle pt-10">

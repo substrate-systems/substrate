@@ -1,4 +1,5 @@
 import { buildMetadata } from "@/lib/seo";
+import { personJsonLd } from "@/lib/structured-data";
 
 export const metadata = buildMetadata({
   title: "Hugo Ander Kivi — LLM governance & systems engineering",
@@ -10,5 +11,13 @@ export const metadata = buildMetadata({
 });
 
 export default function WorkLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(personJsonLd()) }}
+      />
+      {children}
+    </>
+  );
 }

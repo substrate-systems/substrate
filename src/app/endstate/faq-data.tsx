@@ -22,7 +22,24 @@ export const faqs: Faq[] = [
   },
   {
     q: "Which app settings does it back up?",
-    a: "Endstate has settings modules for 300+ apps — editors and IDEs (VS Code, the JetBrains suite, Neovim), terminals, creative tools (Blender, DaVinci Resolve, Ableton Live), media players, emulators, note-taking apps, and many more. The full list is open source and growing. Settings backup is always opt-in — never automatic.",
+    a: (
+      <>
+        Endstate has settings modules for 300+ apps — editors and IDEs (VS Code,
+        the JetBrains suite, Neovim), terminals, creative tools (Blender, DaVinci
+        Resolve, Ableton Live), media players, emulators, note-taking apps, and
+        many more.{" "}
+        <a
+          href="/endstate/apps"
+          style={{ color: "#2dd4bf", textDecoration: "none" }}
+        >
+          See the full list of supported apps
+        </a>
+        . The list is open source and growing, and settings backup is always
+        opt-in — never automatic.
+      </>
+    ),
+    aText:
+      "Endstate has settings modules for 300+ apps — editors and IDEs (VS Code, the JetBrains suite, Neovim), terminals, creative tools (Blender, DaVinci Resolve, Ableton Live), media players, emulators, note-taking apps, and many more. The list is open source and growing, and settings backup is always opt-in — never automatic.",
   },
   {
     q: "Can I use it across multiple machines?",
