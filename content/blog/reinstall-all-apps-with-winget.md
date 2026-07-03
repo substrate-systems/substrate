@@ -52,6 +52,6 @@ There is also no safety net. `winget import` installs; it doesn't take a restore
 
 ## Where Endstate fits
 
-I hit all three of these often enough that I built Endstate around them. It uses winget as the install engine, so you get the same reliable reinstall. On top of that it detects Microsoft Store apps, backs up the settings for supported tools like VS Code, Git, Neovim, Windows Terminal, and PowerToys, and writes the whole thing to one portable file. Before it changes any settings it takes a backup, so a bad restore is one click to undo. It's free, open source, and needs no account: [substratesystems.io/endstate](/endstate).
+I hit all three of these often enough that I built Endstate around them. It uses winget as the install engine, so you get the same reliable reinstall. On top of that it detects Microsoft Store apps, backs up settings for 300+ apps (editors and IDEs, terminals, creative apps like Blender and DaVinci Resolve, media players, emulators, note apps like Obsidian, and more), and writes the whole thing to one portable file. Before it changes any settings it takes a backup, so a bad restore is one click to undo. It's free, open source, and needs no account: [substratesystems.io/endstate](/endstate).
 
 winget is a good building block. For "reinstall my apps," it gets you most of the way. For "make this new machine mine again," it's the first step, not the whole job.

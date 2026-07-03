@@ -45,7 +45,7 @@ Microsoft's built-in **Restore Apps** (App Restore) re-downloads your Microsoft 
 Endstate takes the position that byte-copying installed programs is the wrong default, not because it's technically impossible to do safely, but because a clean reinstall is a better outcome even when the risky copy would have worked. So instead of copying programs, Endstate:
 
 1. Scans your current PC for installed apps — both traditional EXE/MSI installs and Microsoft Store apps — using winget as the detection engine.
-2. Captures the settings for supported tools (things like VS Code, Git, Neovim, Windows Terminal, PowerToys, and more).
+2. Captures the settings for 300+ apps (editors and IDEs, terminals, creative apps like Blender and DaVinci Resolve, media players, emulators, note apps like Obsidian, and more).
 3. Saves all of it to one portable file that you control — no account, no cloud dependency for this step.
 4. On your new machine, reinstalls each app fresh from its real installer and, if you opt in, restores your captured settings.
 

@@ -48,7 +48,7 @@ For the winget-source apps, that's minutes instead of an evening. Then restore y
 
 ## The version I actually use
 
-I got tired of stitching this together every time, so I built Endstate to do all three steps as one. It scans your current machine for installed apps, including Microsoft Store apps, and the settings for supported tools like VS Code, Git, Neovim, Windows Terminal, and PowerToys. It writes everything to a single portable file. On a fresh install you point it at that file and it reinstalls the apps and, if you opt in, restores your settings. It takes a backup before it changes anything, so nothing is one-way.
+I got tired of stitching this together every time, so I built Endstate to do all three steps as one. It scans your current machine for installed apps, including Microsoft Store apps, and the settings for 300+ apps (editors and IDEs, terminals, creative apps like Blender and DaVinci Resolve, media players, emulators, note apps like Obsidian, and more). It writes everything to a single portable file. On a fresh install you point it at that file and it reinstalls the apps and, if you opt in, restores your settings. It takes a backup before it changes anything, so nothing is one-way.
 
 It runs locally, uses winget under the hood, keeps no account, and sends no telemetry. The file stays on your disk. Free and open source: [substratesystems.io/endstate](/endstate).
 

@@ -48,6 +48,6 @@ It works, but you're back to doing it one app at a time, which is the thing you 
 
 ## How Endstate handles it
 
-I built Endstate on winget precisely because winget is the right install engine. But I hit the Store-app gap on my own machines, so Endstate detects Microsoft Store apps directly rather than relying on what export happens to serialize, and it brings them across with everything else. It also backs up settings for supported tools and writes the whole setup to one portable file you control. Free, open source, no account: [substratesystems.io/endstate](/endstate).
+I built Endstate on winget precisely because winget is the right install engine. But I hit the Store-app gap on my own machines, so Endstate detects Microsoft Store apps directly rather than relying on what export happens to serialize, and it brings them across with everything else. It also backs up settings for 300+ apps and writes the whole setup to one portable file you control. Free, open source, no account: [substratesystems.io/endstate](/endstate).
 
 `winget export` is genuinely useful. Just know what it's handing you: your winget-source apps, not your whole machine. Check the Source column before you trust the file.

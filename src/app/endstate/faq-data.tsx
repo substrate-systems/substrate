@@ -22,7 +22,7 @@ export const faqs: Faq[] = [
   },
   {
     q: "Which app settings does it back up?",
-    a: "VS Code, Git, Neovim, Windows Terminal, PowerToys, Sublime Text, Windsurf, REAPER, Espanso, Flow Launcher, mpv, and foobar2000. Settings backup is always opt-in — never automatic.",
+    a: "Endstate has settings modules for 300+ apps — editors and IDEs (VS Code, the JetBrains suite, Neovim), terminals, creative tools (Blender, DaVinci Resolve, Ableton Live), media players, emulators, note-taking apps, and many more. The full list is open source and growing. Settings backup is always opt-in — never automatic.",
   },
   {
     q: "Can I use it across multiple machines?",

@@ -25,7 +25,7 @@ Founded by Hugo Ander Kivi. Registered in Estonia as Substrate Systems OÜ.
 
 - Detects apps installed via traditional installers (EXE/MSI) and Microsoft Store; uses winget under the hood.
 - 48 apps are sandbox-validated for automated installation (including VS Code, Git, OBS Studio, Blender, Obsidian, Discord, KeePassXC).
-- Settings backup supported for: VS Code, Git, Neovim, Windows Terminal, PowerToys, Sublime Text, Windsurf, REAPER, Espanso, Flow Launcher, mpv, foobar2000.
+- Settings backup for 300+ apps across categories: editors and IDEs (VS Code, JetBrains, Neovim), terminals, creative tools (Blender, DaVinci Resolve, Ableton Live), media players, emulators, note-taking apps (Obsidian, Logseq), and many more. The list is open source and growing.
 - Settings backup is always opt-in, never automatic.
 - Every settings restore creates a backup first — one-click revert.
 - App installs use standard Windows installers with UAC prompts — nothing installs silently.
