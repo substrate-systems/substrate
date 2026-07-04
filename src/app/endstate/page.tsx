@@ -292,7 +292,7 @@ const features = [
     icon: "⚡",
     iconColor: c.teal,
     title: "Automatic app detection",
-    body: "Scans your machine and finds every installed app. No manual lists, no guesswork. If it's installed, Endstate sees it.",
+    body: "Scans your machine and finds every installed app, then reinstalls anything winget can — thousands of apps. No manual lists, no guesswork. If it's installed, Endstate sees it.",
   },
   {
     icon: "⚙",
@@ -409,7 +409,7 @@ function Features() {
             href="/endstate/apps"
             style={{ fontSize: "0.95rem", color: c.teal, textDecoration: "none" }}
           >
-            See all 300+ supported apps →
+            See the 300+ apps with settings support →
           </a>
         </div>
       </div>
