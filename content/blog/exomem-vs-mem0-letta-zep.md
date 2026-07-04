@@ -31,8 +31,8 @@ Neither camp is "correct." Which one you want depends entirely on whether you're
 
 | Tool | Hosting | Your data | Multimodal | Knowledge layer | Retrieval | License | Price |
 |---|---|---|---|---|---|---|---|
-| **Exomem** | Self-hosted, local-first | Plain Markdown you own | **OCR + audio/video ASR + CLIP image, all local** | **Typed sources / notes / entities / evidence, supersession, human review queues** | Hybrid FTS5 + local vectors + graph — benchmarked (864 ms @ 50k notes) | AGPL-3.0 | Free (self-host) |
-| **Basic Memory** | Local-first; optional cloud | Plain Markdown you own | Text only | Notes + wikilinks | Full-text + vector + wikilink graph | AGPL-3.0 | Free local; $15/mo cloud |
+| Exomem | Self-hosted, local-first | Plain Markdown you own | OCR + audio/video ASR + CLIP image, all local | Typed sources / notes / entities / evidence, supersession, human review queues | Hybrid FTS5 + local vectors + graph — benchmarked (864 ms @ 50k notes) | AGPL-3.0 | Free (self-host) |
+| Basic Memory | Local-first; optional cloud | Plain Markdown you own | Text only | Notes + wikilinks | Full-text + vector + wikilink graph | AGPL-3.0 | Free local; $15/mo cloud |
 | mem0 | OSS core + managed cloud | LLM-extracted facts in a vector store (their cloud / your DB) | Text only | Auto-extracted memories | Semantic/vector + optional graph | Apache-2.0 (core) | Free 10k; $19–$249/mo |
 | Letta (ex-MemGPT) | OSS server + managed cloud | Agent state in Postgres/pgvector | Text only | Self-editing memory blocks | Tiered core / recall / archival | Apache-2.0 | Free; $20/mo + usage |
 | Zep | Cloud-first (self-host CE discontinued) | Temporal graph (their cloud / your graph DB) | Text only | Temporal knowledge graph | Embeddings + BM25 + graph, temporal | Graphiti Apache-2.0; cloud proprietary | Free 10k credits; $1,250–$3,750/yr |
