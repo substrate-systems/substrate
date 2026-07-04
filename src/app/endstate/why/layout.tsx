@@ -10,7 +10,7 @@ export const metadata = buildMetadata({
   ogImage: `/api/og?title=${encodeURIComponent(ARTICLE_TITLE)}`,
   ogType: "article",
   authors: ["Hugo Ander Kivi"],
-  publishedTime: "2026-04",
+  publishedTime: "2026-04-01",
 });
 
 const articleJsonLd = {
@@ -25,7 +25,7 @@ const articleJsonLd = {
     "@type": "Organization",
     name: siteConfig.name,
   },
-  datePublished: "2026-04",
+  datePublished: "2026-04-01",
   url: `${siteConfig.url}/endstate/why`,
 };
 

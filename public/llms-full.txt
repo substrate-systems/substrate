@@ -6,7 +6,7 @@
 
 ## Company Overview
 
-Substrate is a foundational systems company. Software infrastructure for durable systems.
+Substrate is a foundational systems company. Software infrastructure for durable systems. No lock-in, no telemetry.
 
 ### Philosophy
 
@@ -21,12 +21,13 @@ Substrate is a foundational systems company. Software infrastructure for durable
 
 **Tagline:** Save your machine. Set up the next one.
 
-Endstate is a desktop app for Windows that captures your installed applications and optionally their settings, saves everything to a portable file, and restores them on a fresh Windows install.
+Endstate is a free, open-source desktop app for Windows that captures your installed applications and optionally their settings, saves everything to a portable file you control, and restores them on a fresh Windows install in minutes.
 
-- Uses winget for app installation
-- Provisioning engine is open source (Apache 2.0): https://github.com/Artexis10/endstate
-- Desktop GUI built with Tauri (React + Rust), also open source (Apache 2.0): https://github.com/Artexis10/endstate-gui
-- Paid license for the pre-built installer: €39 lifetime, up to 3 machines
+- The local product is free forever, on any number of machines, with no account and no telemetry.
+- Uses winget for app installation.
+- Provisioning engine is an open-source Go CLI (Apache 2.0): https://github.com/Artexis10/endstate
+- Desktop GUI built with Tauri (React + Rust), also open source: https://github.com/Artexis10/endstate-gui
+- Download: https://substratesystems.io/download
 
 ### How It Works
 
@@ -36,7 +37,7 @@ Endstate is a desktop app for Windows that captures your installed applications 
 ### Features
 
 - **Automatic app detection:** Scans and finds every installed app — EXE/MSI and Microsoft Store. No manual lists.
-- **Settings backup:** Captures and restores settings for supported apps (VS Code, Git, Neovim, Windows Terminal, PowerToys, Sublime Text, Windsurf, REAPER, Espanso, Flow Launcher, mpv, foobar2000). Always opt-in.
+- **Settings backup for 300+ apps:** Editors and IDEs (VS Code, JetBrains, Neovim), terminals, creative tools (Blender, DaVinci Resolve, Ableton Live), media players, emulators, note-taking apps (Obsidian, Logseq), and many more. The list is open source and growing. Always opt-in, never automatic.
 - **Portable setup files:** Stored as plain files in Documents. Copy, back up, share. No cloud account required.
 - **User control:** Apps install one at a time with UAC prompts. Nothing installs silently. Stop at any point.
 - **Preview mode:** Check machine state against a saved setup without changing anything.
@@ -44,25 +45,24 @@ Endstate is a desktop app for Windows that captures your installed applications 
 
 ### Validated Apps
 
-48 apps are sandbox-validated and passing, including VS Code, Git, OBS Studio, Blender, Obsidian, Discord, KeePassXC, and more.
+48 apps are sandbox-validated for automated installation, including VS Code, Git, OBS Studio, Blender, Obsidian, Discord, KeePassXC, and more.
 
 ### System Requirements
 
 - Windows (uses winget)
 - Internet connection required for restoring apps (downloading installers)
-- License activation is a one-time online check
-- Scanning and saving works offline
+- Scanning and saving works offline; the local product never phones home
 
 ### Pricing
 
-- €39 one-time payment
-- Lifetime license
-- Up to 3 machines
-- All future updates included
-- No account required — offline license key
-- 30-day money-back guarantee
+- **Endstate local product: Free forever.** Any number of machines. No account, no license key, no telemetry.
+- **Hosted Backup (optional): €4/month or €40/year.** Encrypted off-machine backup of your setup files.
+- **Supporter License (optional): €89 one-time.** A one-time, non-exclusive, non-transferable way to support development.
 
 ### FAQ
+
+**How much does Endstate cost?**
+The local product is free forever on as many machines as you like. Optional paid services: encrypted Hosted Backup at €4/month or €40/year, and a one-time €89 Supporter License.
 
 **What types of apps does Endstate detect?**
 Apps installed via traditional installers (EXE/MSI) and Microsoft Store. Uses winget under the hood. Portable apps not registered in Windows are not detected.
@@ -71,16 +71,51 @@ Apps installed via traditional installers (EXE/MSI) and Microsoft Store. Uses wi
 Scanning doesn't require admin. Restoring apps may need admin depending on what's being installed.
 
 **Can I use it across multiple machines?**
-Yes. License covers up to 3 machines.
+Yes — the free local product runs on any number of machines.
 
 **What if something goes wrong during restore?**
 Endstate creates a backup before changing any settings. One-click revert. App installs use standard Windows installers, uninstallable normally.
 
 **Is an internet connection required?**
-Scanning and saving works offline. Restoring needs internet. License activation is one-time online.
+Scanning and saving works offline. Restoring needs internet to download installers.
 
 **Is this safe to run?**
 The provisioning engine is open source — you can read exactly what it does before running anything.
+
+---
+
+## Exomem
+
+**Tagline:** External memory for AI agents over a Markdown vault you own.
+
+Exomem is an open-source, self-hosted MCP server that gives AI agents (Claude, Codex, Cursor, or any MCP client) durable long-term memory over your own Markdown / Obsidian vault. Your files stay plain markdown on your machine — no import into a proprietary store, no cloud dependency.
+
+- Install: `pip install exomem` (PyPI: https://pypi.org/project/exomem/)
+- Source (AGPL-3.0): https://github.com/Artexis10/exomem
+- Product page: https://substratesystems.io/exomem
+
+### Features
+
+- **Hybrid retrieval, measured fast at scale:** keyword/BM25 lanes served by SQLite FTS5 indexes plus local vector search (sqlite-vec) fused with graph and reranking signals. Sub-second end-to-end search at 50,000 notes, measured; benchmark methodology is published in the repository (docs/benchmarks.md).
+- **Multimodal indexing, fully local:** OCR (Tesseract), speech-to-text (faster-whisper), PDF and Office documents, and CLIP image search — text, screenshots, audio, and video become searchable.
+- **Typed knowledge operations:** raw sources, compiled notes, entities, evidence, and supersession history live in typed folders; MCP tools cover search, capture, notes, evidence, audit, and review queues.
+- **Human review loop:** audit and attention queues surface stale conclusions, unprocessed sources, broken links, and close-by claims for human review.
+- **Measures, never judges:** the server does deterministic work (search, extraction, ranking, embeddings, file writes, graph checks); reasoning stays in the client model.
+- **Three matching surfaces:** MCP tools, a CLI (`kb`/`exomem`), and a personal REST facade — all generated from the same operation registry.
+
+### FAQ
+
+**Which agents can use Exomem?**
+Any MCP-capable client: Claude Code, Claude Desktop, Codex, Cursor, custom agents, or scripts via the CLI/REST surfaces.
+
+**Do my notes leave my machine?**
+No. The vault stays plain markdown files you own. Search indexes are local SQLite sidecar files next to your vault. The lean install has no cloud dependency.
+
+**Does it need a GPU?**
+No. The lean install works with keyword/BM25 search out of the box (FTS5 ships inside Python's bundled SQLite). Optional extras add local embedding, CLIP, OCR, and ASR models — GPU accelerates them but is not required.
+
+**How fast is search on a large vault?**
+Measured on a 50,000-note corpus: sub-second hybrid search end-to-end, with the lexical lanes answering in milliseconds from the FTS5 index. Numbers and methodology: https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md
 
 ---
 
@@ -125,15 +160,29 @@ The problem: every fresh Windows install requires manually remembering apps, hun
 
 Endstate captures what's installed and how it's configured, then restores it. It's declarative — describe the desired end state, and the tool converges the machine toward it. Idempotent — run it twice, nothing breaks. The engine is a Go CLI (open source, Apache 2.0). The desktop app is Tauri (React + Rust). Setup is a folder in Documents — inspectable, copyable, backable up. No hidden databases, no cloud dependency, no account required.
 
+Full article: https://substratesystems.io/endstate/why
+
+---
+
+## Guides
+
+- [The complete guide to setting up a new Windows PC](https://substratesystems.io/blog/new-windows-pc-setup-guide): Reinstall your apps, bring your settings, handle the Store gap, and skip the paid migration tools.
+- [A free, open-source alternative to EaseUS Todo PCTrans, Zinstall, and Laplink PCmover](https://substratesystems.io/blog/free-open-source-pc-migration-alternative): Endstate compared to paid PC migration tools on price, method, and trust.
+- [How to set up a new Windows PC in minutes, not a weekend](https://substratesystems.io/blog/set-up-new-windows-pc-fast): Capture your apps and settings once, then restore them on any fresh install.
+- [How to reinstall all your apps with winget (and what it misses)](https://substratesystems.io/blog/reinstall-all-apps-with-winget): Exactly how winget export/import works, plus the apps and settings it quietly leaves behind.
+- [Why winget export skips your Microsoft Store apps](https://substratesystems.io/blog/winget-export-microsoft-store-apps): Why it happens, how to see what's missing, and how to capture everything.
+- [Share your whole app setup as one file](https://substratesystems.io/blog/share-your-app-setup): Hand someone your exact app config — OBS scenes, MSI Afterburner profiles, your dev setup.
+- [Governance as compression: contracts and skills for AI-augmented codebases](https://substratesystems.io/blog/governance-as-compression): The pattern that fixes AI-augmented development correction loops, with a controlled three-condition benchmark.
+
 ---
 
 ## Terms, Privacy & Refunds
 
-**Terms:** Purchase grants lifetime, non-exclusive, non-transferable license for up to 3 machines. License is personal, not resellable. Engine and GUI framework are Apache 2.0 — purchase covers the pre-built desktop application and activation key. All future updates to current major version included. Software provided "as is" without warranty.
+**Terms:** The local Endstate product is free, on any number of machines, without an account. The engine is licensed under Apache 2.0. The Supporter License is a one-time, non-exclusive, non-transferable purchase. Software provided "as is" without warranty.
 
-**Privacy:** No data collection during normal use. No analytics, telemetry, or tracking. Scanning and saving is entirely offline. License activation sends license key and machine fingerprint to payment processor only. App installation downloads via winget directly from publishers — Substrate is not involved.
+**Privacy:** No data collection during normal use. No analytics, telemetry, or tracking in the local product. Scanning and saving is entirely offline. Subscription and Supporter License purchases are processed by Paddle. App installation downloads via winget directly from publishers — Substrate is not involved.
 
-**Refunds:** 30-day money-back guarantee, no questions asked. Email founder@substratesystems.io with order number.
+**Refunds:** Hosted Backup subscriptions: full refund within 14 days of purchase or renewal, no questions asked (no mid-period pro-rating — cancel anytime and keep access until period end). Supporter License: refundable within 30 days of purchase, no questions asked. Email founder@substratesystems.io with your order number.
 
 **Entity:** Substrate Systems OÜ, Estonia.
 **Contact:** founder@substratesystems.io
@@ -144,8 +193,14 @@ Endstate captures what's installed and how it's configured, then restores it. It
 
 - Website: https://substratesystems.io
 - Endstate product page: https://substratesystems.io/endstate
+- Endstate download: https://substratesystems.io/download
+- Endstate supported apps: https://substratesystems.io/endstate/apps
 - Endstate engine (GitHub): https://github.com/Artexis10/endstate
 - Endstate GUI (GitHub): https://github.com/Artexis10/endstate-gui
+- Exomem product page: https://substratesystems.io/exomem
+- Exomem (GitHub): https://github.com/Artexis10/exomem
+- Exomem (PyPI): https://pypi.org/project/exomem/
 - Q: https://useq.ai
-- Terms & Privacy: https://substratesystems.io/terms
+- Writing: https://substratesystems.io/blog
 - Why Endstate: https://substratesystems.io/endstate/why
+- Terms & Privacy: https://substratesystems.io/terms

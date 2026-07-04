@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Footer from "@/components/Footer";
-import { buildMetadata } from "@/lib/seo";
+import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
 
 export const metadata = buildMetadata({
   title: "Exomem — long-term memory for AI agents over Markdown",
@@ -10,6 +10,38 @@ export const metadata = buildMetadata({
   ogImage: "/exomem/og",
   standaloneTitle: true,
 });
+
+const softwareJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Exomem",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "Windows, macOS, Linux",
+  description:
+    "Open-source, MCP-native long-term memory for AI agents over a Markdown and Obsidian vault you own. Hybrid keyword and vector retrieval — sub-second at 50,000 notes, measured — with local OCR, ASR, and image indexing.",
+  url: `${siteConfig.url}/exomem`,
+  downloadUrl: "https://pypi.org/project/exomem/",
+  installUrl: "https://pypi.org/project/exomem/",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "EUR",
+    availability: "https://schema.org/InStock",
+  },
+  author: {
+    "@type": "Organization",
+    name: siteConfig.name,
+    url: siteConfig.url,
+  },
+  license: "https://github.com/Artexis10/exomem/blob/main/LICENSE",
+  codeRepository: "https://github.com/Artexis10/exomem",
+  programmingLanguage: "Python",
+};
+
+const breadcrumb = breadcrumbJsonLd([
+  { name: "Home", path: "/" },
+  { name: "Exomem", path: "/exomem" },
+]);
 
 const capabilities = [
   "MCP tools for search, capture, notes, evidence, audit, and review queues",
@@ -37,6 +69,14 @@ const surfaces = [
 export default function ExomemPage() {
   return (
     <div className="min-h-screen bg-bg-base text-fg-primary">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
+      />
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-8">
         <Link
           href="/"

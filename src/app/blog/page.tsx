@@ -43,7 +43,7 @@ export default function BlogIndexPage() {
       </header>
 
       <main className="mx-auto w-full max-w-3xl px-6 py-16 sm:py-20">
-        <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">Writing</span>
+        <h1 className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">Writing</h1>
 
         <ul className="mt-10 space-y-12">
           {posts.map((post) => (
