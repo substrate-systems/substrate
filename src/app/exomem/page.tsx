@@ -248,6 +248,12 @@ $ kb note --note-type insight \
               >
                 README
               </a>
+              <Link
+                href="/blog"
+                className="text-fg-secondary transition-colors duration-default hover:text-fg-primary"
+              >
+                Writing
+              </Link>
             </div>
           </div>
         </section>

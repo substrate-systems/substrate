@@ -5,7 +5,6 @@ subtitle: "Why skill-triggered governance produces the benchmark improvement"
 description: "Skill-triggered context loading reliably outperforms bulk-loaded AGENTS.md. The mechanism behind the benchmark result — two cognitive operations, one binding layer."
 published: 2026-05-24
 date: 2026-05-24
-status: draft
 related: governance-as-compression
 tags:
   - llm-governance
