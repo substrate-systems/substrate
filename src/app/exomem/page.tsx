@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Footer from "@/components/Footer";
 import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
+import { faqs } from "./faq-data";
 
 export const metadata = buildMetadata({
   title: "Exomem — long-term memory for AI agents over Markdown",
@@ -43,6 +44,19 @@ const breadcrumb = breadcrumbJsonLd([
   { name: "Exomem", path: "/exomem" },
 ]);
 
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: typeof faq.a === "string" ? faq.a : (faq.aText ?? ""),
+    },
+  })),
+};
+
 const capabilities = [
   "MCP tools for search, capture, notes, evidence, audit, and review queues",
   "Hybrid keyword and vector retrieval over typed Markdown knowledge bases — sub-second at 50,000 notes, measured",
@@ -66,6 +80,21 @@ const surfaces = [
   },
 ];
 
+const benchmarks = [
+  {
+    value: "864 ms",
+    label: "Hybrid find() end-to-end at 50,000 notes, measured with hot cache off",
+  },
+  {
+    value: "single-digit ms",
+    label: "Keyword and lexical lanes, served straight from the SQLite FTS5 index",
+  },
+  {
+    value: "zero",
+    label: "Cloud dependencies in the lean install — a GPU is optional, never required",
+  },
+];
+
 export default function ExomemPage() {
   return (
     <div className="min-h-screen bg-bg-base text-fg-primary">
@@ -76,6 +105,10 @@ export default function ExomemPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumb) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-8">
         <Link
@@ -217,6 +250,88 @@ $ kb note --note-type insight \
         <section className="border-t border-border-subtle px-6 py-24">
           <div className="mx-auto max-w-6xl">
             <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
+              Measured at scale
+            </p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-light tracking-tight text-fg-primary sm:text-4xl">
+              Sub-second retrieval at 50,000 notes — measured, not asserted.
+            </h2>
+            <p className="mt-6 max-w-2xl text-body font-light leading-relaxed text-fg-secondary">
+              Most memory tools claim they scale. Exomem publishes the numbers. Hybrid{" "}
+              <span className="font-mono text-fg-primary">find()</span> runs end-to-end
+              in under a second on a 50,000-note vault, with the keyword and lexical
+              lanes answering in milliseconds from the FTS5 index — and the full
+              methodology is in the repository so you can reproduce it.
+            </p>
+            <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border-subtle bg-border-subtle sm:grid-cols-3">
+              {benchmarks.map((benchmark) => (
+                <div key={benchmark.value} className="bg-bg-base p-6">
+                  <p className="font-mono text-3xl font-light tracking-tight text-fg-primary">
+                    {benchmark.value}
+                  </p>
+                  <p className="mt-3 text-sm font-light leading-relaxed text-fg-secondary">
+                    {benchmark.label}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-6 text-sm font-light text-fg-tertiary">
+              Reference desktop — Ryzen 7 5800X3D, RTX 5080, 32 GB RAM.{" "}
+              <a
+                href="https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-fg-secondary underline decoration-border-emphasis underline-offset-4 transition-opacity duration-default hover:opacity-70"
+              >
+                See the methodology
+              </a>
+            </p>
+          </div>
+        </section>
+
+        <section className="border-t border-border-subtle px-6 py-24">
+          <div className="mx-auto max-w-6xl">
+            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
+              The difference
+            </p>
+            <h2 className="mt-4 max-w-3xl text-3xl font-light tracking-tight text-fg-primary sm:text-4xl">
+              Your memory stays yours — not extracted into someone else's cloud.
+            </h2>
+            <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border-subtle bg-border-subtle md:grid-cols-2">
+              <div className="bg-bg-base p-8">
+                <p className="text-xs uppercase tracking-[0.16em] text-fg-tertiary">
+                  Cloud memory services
+                </p>
+                <ul className="mt-5 space-y-3 text-body font-light leading-relaxed text-fg-secondary">
+                  <li>Extract your data into a vector database or knowledge graph in their cloud</li>
+                  <li>The memory is a derived copy — you never get plain files back</li>
+                  <li>Account and subscription required; your data leaves your machine</li>
+                </ul>
+              </div>
+              <div className="bg-bg-base p-8">
+                <p className="text-xs uppercase tracking-[0.16em] text-fg-primary">
+                  Exomem
+                </p>
+                <ul className="mt-5 space-y-3 text-body font-light leading-relaxed text-fg-secondary">
+                  <li>Your notes stay plain Markdown in a vault you own and can edit anywhere</li>
+                  <li>The index is a local SQLite sidecar — the files themselves are the memory</li>
+                  <li>Self-hosted, no account; with the lean install, nothing leaves your machine</li>
+                </ul>
+              </div>
+            </div>
+            <p className="mt-8 text-body font-light text-fg-secondary">
+              <Link
+                href="/blog/exomem-vs-mem0-letta-zep"
+                className="text-fg-primary underline decoration-border-emphasis underline-offset-4 transition-opacity duration-default hover:opacity-70"
+              >
+                See the full comparison vs mem0, Letta, Zep, cognee, and Basic Memory
+              </Link>
+            </p>
+          </div>
+        </section>
+
+        <section className="border-t border-border-subtle px-6 py-24">
+          <div className="mx-auto max-w-6xl">
+            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
               Install
             </p>
             <div className="mt-6 rounded-lg border border-border-subtle bg-bg-elevated/70 p-5 font-mono text-sm text-fg-secondary">
@@ -254,6 +369,29 @@ $ kb note --note-type insight \
               >
                 Writing
               </Link>
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t border-border-subtle px-6 py-24">
+          <div className="mx-auto max-w-4xl">
+            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
+              FAQ
+            </p>
+            <h2 className="mt-4 text-3xl font-light tracking-tight text-fg-primary sm:text-4xl">
+              Common questions
+            </h2>
+            <div className="mt-10 border-t border-border-subtle">
+              {faqs.map((faq) => (
+                <div key={faq.q} className="border-b border-border-subtle py-6">
+                  <h3 className="text-lg font-light tracking-tight text-fg-primary">
+                    {faq.q}
+                  </h3>
+                  <p className="mt-3 text-body font-light leading-relaxed text-fg-secondary">
+                    {faq.a}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
