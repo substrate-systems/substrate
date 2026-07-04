@@ -29,14 +29,16 @@ Neither camp is "correct." Which one you want depends entirely on whether you're
 
 ## Comparison
 
-| Tool | Hosting | Storage format | Who owns your data | Retrieval | MCP-native | License | Price |
+| Tool | Hosting | Your data | Multimodal | Knowledge layer | Retrieval | License | Price |
 |---|---|---|---|---|---|---|---|
-| **Exomem** | Self-hosted, local-first | Plain Markdown vault + local SQLite index | You — plain files | Hybrid: FTS5/BM25 + local vectors + graph | Yes | AGPL-3.0 | Free (self-host) |
-| **Basic Memory** | Local-first; optional cloud | Plain Markdown files + SQLite/Postgres | You — plain files | Full-text + vector + wikilink graph | Yes | AGPL-3.0 | Free local; $15/mo cloud |
-| mem0 | OSS core + managed cloud | Vector store (e.g. Qdrant); LLM-extracted facts | mem0 cloud, or your DB if self-hosted | Semantic/vector + optional graph | Yes (hosted MCP server) | Apache-2.0 (core) | Free 10k memories; $19–$249/mo |
-| Letta (ex-MemGPT) | OSS server + managed cloud | Agent state in Postgres/pgvector | Letta cloud, or your Postgres | Tiered core / recall / archival memory | MCP client (mounts tools) | Apache-2.0 | Free; Pro $20/mo; usage-based API |
-| Zep | Cloud-first (self-host CE discontinued) | Temporal knowledge graph | Zep cloud, or your graph DB via Graphiti | Embeddings + BM25 + graph, temporal | Yes (Graphiti MCP server) | Graphiti Apache-2.0; cloud proprietary | Free 10k credits; $1,250–$3,750/yr |
-| cognee | OSS + managed cloud | Graph + vector stores (Kuzu/Neo4j + LanceDB/pgvector) | Your infra, or cognee cloud | Knowledge graph + vector (ECL pipeline) | Yes (cognee-mcp) | Apache-2.0 | Free 1M tokens; $2.50/1M tokens |
+| **Exomem** | Self-hosted, local-first | Plain Markdown you own | **OCR + audio/video ASR + CLIP image, all local** | **Typed sources / notes / entities / evidence, supersession, human review queues** | Hybrid FTS5 + local vectors + graph — benchmarked (864 ms @ 50k notes) | AGPL-3.0 | Free (self-host) |
+| **Basic Memory** | Local-first; optional cloud | Plain Markdown you own | Text only | Notes + wikilinks | Full-text + vector + wikilink graph | AGPL-3.0 | Free local; $15/mo cloud |
+| mem0 | OSS core + managed cloud | LLM-extracted facts in a vector store (their cloud / your DB) | Text only | Auto-extracted memories | Semantic/vector + optional graph | Apache-2.0 (core) | Free 10k; $19–$249/mo |
+| Letta (ex-MemGPT) | OSS server + managed cloud | Agent state in Postgres/pgvector | Text only | Self-editing memory blocks | Tiered core / recall / archival | Apache-2.0 | Free; $20/mo + usage |
+| Zep | Cloud-first (self-host CE discontinued) | Temporal graph (their cloud / your graph DB) | Text only | Temporal knowledge graph | Embeddings + BM25 + graph, temporal | Graphiti Apache-2.0; cloud proprietary | Free 10k credits; $1,250–$3,750/yr |
+| cognee | OSS + managed cloud | Graph + vector stores you run (or their cloud) | Documents (many formats) | Ontology knowledge graph | Knowledge graph + vector (ECL) | Apache-2.0 | Free 1M tokens; $2.50/1M tokens |
+
+The two columns most people skim are the ones that decide it as a vault grows: **multimodal** — everything except Exomem is effectively text-only — and the **knowledge layer**, where typed entities, evidence, and human-review queues keep a large corpus *trustworthy*, not just a searchable pile of notes. That, plus retrieval actually benchmarked at 50,000 notes, is where Exomem separates from even the closest plain-files peer.
 
 Prices and terms are current as of July 2026; check each vendor's own page before you commit.
 
