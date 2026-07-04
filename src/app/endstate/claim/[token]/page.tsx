@@ -25,9 +25,9 @@ const c = {
 };
 
 const FONT_FAMILY =
-  "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  "var(--font-dm-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const MONO_FAMILY =
-  "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  "var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 type VerifyResult = Awaited<ReturnType<typeof verifyClaimToken>>;
 
@@ -66,11 +66,6 @@ export default async function ClaimPage({ params }: Props) {
 
   return (
     <>
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link
-        href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap"
-        rel="stylesheet"
-      />
       <main
         style={{
           background: c.bg,

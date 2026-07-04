@@ -1,4 +1,5 @@
 import { buildMetadata, siteConfig } from "@/lib/seo";
+import { dmSans, jetbrainsMono } from "@/lib/fonts";
 import { faqs } from "./faq-data";
 
 const DESCRIPTION =
@@ -71,7 +72,7 @@ export default function EndstateLayout({ children }: { children: React.ReactNode
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
-      {children}
+      <div className={`${dmSans.variable} ${jetbrainsMono.variable}`}>{children}</div>
     </>
   );
 }

@@ -36,7 +36,7 @@ function Hero() {
         <motion.span
           className="inline-block rounded-full mb-8"
           style={{
-            fontFamily: "'JetBrains Mono', monospace",
+            fontFamily: "var(--font-jetbrains-mono), monospace",
             fontSize: "0.75rem",
             fontWeight: 500,
             color: c.teal,
@@ -150,7 +150,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <span
       className="block uppercase mb-3"
       style={{
-        fontFamily: "'JetBrains Mono', monospace",
+        fontFamily: "var(--font-jetbrains-mono), monospace",
         fontSize: "0.7rem",
         fontWeight: 500,
         color: c.copper,
@@ -210,7 +210,7 @@ function HowItWorks() {
             <span
               className="block mb-3 uppercase"
               style={{
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: "var(--font-jetbrains-mono), monospace",
                 fontSize: "0.7rem",
                 fontWeight: 500,
                 color: c.teal,
@@ -250,7 +250,7 @@ function HowItWorks() {
             <span
               className="block mb-3 uppercase"
               style={{
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: "var(--font-jetbrains-mono), monospace",
                 fontSize: "0.7rem",
                 fontWeight: 500,
                 color: c.teal,
@@ -661,7 +661,7 @@ function HostedBackupCadenceToggle({
   onChange: (next: HostedBackupCadence) => void;
 }) {
   const optionBase: React.CSSProperties = {
-    fontFamily: "'JetBrains Mono', monospace",
+    fontFamily: "var(--font-jetbrains-mono), monospace",
     fontSize: "0.7rem",
     fontWeight: 500,
     padding: "0.3rem 0.65rem",
@@ -925,7 +925,7 @@ function Pricing() {
                 {tier.badge && (
                   <span
                     style={{
-                      fontFamily: "'JetBrains Mono', monospace",
+                      fontFamily: "var(--font-jetbrains-mono), monospace",
                       fontSize: "0.65rem",
                       fontWeight: 500,
                       color: c.copper,
@@ -1115,12 +1115,7 @@ function Guides() {
 export default function EndstatePage() {
   return (
     <>
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link
-        href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap"
-        rel="stylesheet"
-      />
-      <main style={{ fontFamily: "'DM Sans', -apple-system, sans-serif", background: c.bg, minHeight: "100vh", WebkitFontSmoothing: "antialiased" }}>
+      <main style={{ fontFamily: "var(--font-dm-sans), -apple-system, sans-serif", background: c.bg, minHeight: "100vh", WebkitFontSmoothing: "antialiased" }}>
         <PaddleTransactionOpener />
         <Nav />
         <Hero />

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { dmSans } from "@/lib/fonts";
 
 const c = {
   bg: "#0c0c0c",
@@ -50,14 +51,10 @@ function Li({ children }: { children: React.ReactNode }) {
 export default function TermsPage() {
   return (
     <>
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link
-        href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap"
-        rel="stylesheet"
-      />
       <main
+        className={dmSans.variable}
         style={{
-          fontFamily: "'DM Sans', -apple-system, sans-serif",
+          fontFamily: "var(--font-dm-sans), -apple-system, sans-serif",
           background: c.bg,
           minHeight: "100vh",
           WebkitFontSmoothing: "antialiased",

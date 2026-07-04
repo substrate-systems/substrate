@@ -11,7 +11,7 @@ const c = {
 };
 
 const MONO_FAMILY =
-  "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  "var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 export function ClaimCopyButton({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);

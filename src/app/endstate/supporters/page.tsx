@@ -35,14 +35,9 @@ export default async function SupportersPage() {
 
   return (
     <>
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link
-        href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap"
-        rel="stylesheet"
-      />
       <main
         style={{
-          fontFamily: "'DM Sans', -apple-system, sans-serif",
+          fontFamily: "var(--font-dm-sans), -apple-system, sans-serif",
           background: c.bg,
           minHeight: "100vh",
           WebkitFontSmoothing: "antialiased",
@@ -54,7 +49,7 @@ export default async function SupportersPage() {
           <div className="mx-auto" style={{ maxWidth: 680 }}>
             <p
               style={{
-                fontFamily: "'JetBrains Mono', monospace",
+                fontFamily: "var(--font-jetbrains-mono), monospace",
                 fontSize: "0.75rem",
                 fontWeight: 500,
                 color: c.textMuted,

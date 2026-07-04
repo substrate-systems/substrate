@@ -19,7 +19,7 @@ const c = {
 };
 
 const MONO_FAMILY =
-  "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  "var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
 type Tone = 'positive' | 'warning' | 'danger' | 'neutral';
 
