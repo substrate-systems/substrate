@@ -273,6 +273,27 @@ storage instead of ours — that's on my mind. Feedback welcome.
 
 ---
 
+### 3d. Helpful-comment snippets (lowest-risk, highest-conversion for a newer account)
+
+Instead of a standalone promo post (higher removal/ban risk on a fresh account), drop a genuine reply in an EXISTING thread where someone is asking. Search r/Windows, r/windows11, r/pcmasterrace, r/software for: "new PC setup", "reinstall apps", "moving to a new laptop", "free alternative to EaseUS / PCmover". Rules: disclose you're the dev, one comment, vary the wording (don't paste identically), and only where it's genuinely on-topic.
+
+**Thread about setting up a new PC / reinstalling apps:**
+```
+Had this exact problem so I built a free tool for it — Endstate. It scans your current machine for installed apps (via winget) plus their settings, saves it to one file, then reinstalls everything on the new PC. Free, no account, engine's open source (Apache 2.0): https://substratesystems.io/endstate — I'm the dev, happy to answer anything.
+```
+
+**Thread about moving to a new laptop / transferring apps:**
+```
+Unless you specifically need to byte-copy programs across (the paid tools do that, but it's fragile on a different install), the cleaner route is reinstall fresh + restore your settings. I made a free, open-source tool that does both from one file — Endstate: https://substratesystems.io/endstate. Disclosure: I built it, but it's genuinely free with no signup.
+```
+
+**Thread asking for a free alternative to EaseUS / PCmover:**
+```
+Free + open-source option: Endstate. It doesn't copy programs byte-for-byte like EaseUS/PCmover — it records what you have plus your settings and reinstalls clean on the new machine (safer, no dragging rot across). No account, engine on GitHub: https://substratesystems.io/endstate. (I'm the dev.)
+```
+
+---
+
 ## 4. GitHub discoverability (highest-authority backlink you already own — do first)
 
 GitHub is crawled hard by Google and by every major LLM. Making both repos discoverable and giving
