@@ -1046,6 +1046,71 @@ function Pricing() {
   );
 }
 
+/* ── Guides ── */
+function Guides() {
+  const { ref, visible } = useInView();
+  const guides = [
+    {
+      href: "/blog/new-windows-pc-setup-guide",
+      label: "The complete guide to setting up a new Windows PC",
+    },
+    {
+      href: "/blog/free-open-source-pc-migration-alternative",
+      label: "A free, open-source alternative to EaseUS, Zinstall & Laplink",
+    },
+    {
+      href: "/blog/set-up-new-windows-pc-fast",
+      label: "Set up a new Windows PC in minutes, not a weekend",
+    },
+    {
+      href: "/blog/winget-export-microsoft-store-apps",
+      label: "Why winget export skips your Microsoft Store apps",
+    },
+  ];
+  return (
+    <section
+      ref={ref}
+      className="py-32 px-6"
+      style={{ background: c.bg, borderTop: `1px solid ${c.border}` }}
+    >
+      <div className="mx-auto" style={{ maxWidth: 1100 }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={visible ? { opacity: 1 } : {}}
+          transition={{ duration: 0.7 }}
+        >
+          <SectionLabel>Guides</SectionLabel>
+        </motion.div>
+        <motion.h2
+          className="mb-8"
+          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          initial={{ opacity: 0, y: 8 }}
+          animate={visible ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.8, delay: 0.1 }}
+        >
+          Setting up a new PC?
+        </motion.h2>
+        <motion.div
+          className="flex flex-col gap-4"
+          initial={{ opacity: 0, y: 8 }}
+          animate={visible ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.8, delay: 0.2 }}
+        >
+          {guides.map((guide) => (
+            <a
+              key={guide.href}
+              href={guide.href}
+              style={{ fontSize: "0.95rem", color: c.teal, textDecoration: "none" }}
+            >
+              {guide.label} →
+            </a>
+          ))}
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
 /* ── Page ── */
 export default function EndstatePage() {
   return (
@@ -1065,6 +1130,7 @@ export default function EndstatePage() {
         <Contrast />
         <FAQ />
         <Pricing />
+        <Guides />
         <EndstateFooter />
       </main>
     </>
