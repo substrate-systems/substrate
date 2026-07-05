@@ -71,10 +71,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ? TIER_LABELS[tierRaw]
       : "not specified";
 
+  // Default to the founder inbox (forwards to Gmail) so signals actually reach a
+  // human without extra env config. Override with EXOMEM_INTEREST_NOTIFY_TO.
   const notifyTo =
-    process.env.EXOMEM_INTEREST_NOTIFY_TO ??
-    process.env.BREVO_SENDER_EMAIL ??
-    "licenses@substratesystems.io";
+    process.env.EXOMEM_INTEREST_NOTIFY_TO ?? "founder@substratesystems.io";
 
   try {
     const result = await sendTransactionalEmail({
