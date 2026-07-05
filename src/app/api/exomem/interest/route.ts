@@ -79,6 +79,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const result = await sendTransactionalEmail({
       to: notifyTo,
+      // Keep the verified from-address; brand the display name for Exomem.
+      senderName: "Exomem",
       subject: `Exomem hosted interest — ${cleanEmail}`,
       htmlContent:
         `<p>New Exomem hosted-tier interest.</p>` +

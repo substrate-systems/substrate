@@ -3,6 +3,14 @@ export type SendTransactionalEmailInput = {
   subject: string;
   htmlContent: string;
   textContent: string;
+  /**
+   * Optional per-call sender overrides. Default to the env/DEFAULT_SENDER_*
+   * values when omitted. Override the display `name` freely; only override
+   * `email` with an address verified in Brevo (DKIM/SPF/DMARC), or delivery
+   * will suffer.
+   */
+  senderName?: string;
+  senderEmail?: string;
 };
 
 export type SendTransactionalEmailResult = {
@@ -47,8 +55,10 @@ export async function sendTransactionalEmail(
     throw new Error('BREVO_API_KEY is not set');
   }
 
-  const senderEmail = process.env.BREVO_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
+  const senderEmail =
+    input.senderEmail ?? process.env.BREVO_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
+  const senderName =
+    input.senderName ?? process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
   const sender = { email: senderEmail, name: senderName };
 
   let res: Response;
