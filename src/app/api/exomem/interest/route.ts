@@ -20,8 +20,22 @@ const TIER_LABELS: Record<string, string> = {
   "20": "€20+ / month",
 };
 
+// Deliberately lenient on address shape (we only count demand, never deliver
+// here), but strict on characters: the value flows into both the email subject
+// and the HTML body, so this rejects whitespace/newlines (header + subject
+// injection) and HTML metacharacters (`<>"'&` and backtick) outright.
 const isValidEmail = (v: string) =>
-  v.indexOf("@") >= 1 && v.indexOf(".") > v.indexOf("@") && v.length <= 254;
+  v.length <= 254 && /^[^\s<>"'`&]+@[^\s<>"'`&]+\.[^\s<>"'`&]+$/.test(v);
+
+// Defense in depth: escape before interpolating into htmlContent, so tightening
+// the validator later can't silently reintroduce an injection path.
+const escapeHtml = (s: string) =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 export async function GET(): Promise<NextResponse> {
   return NextResponse.json(
@@ -68,8 +82,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       subject: `Exomem hosted interest — ${cleanEmail}`,
       htmlContent:
         `<p>New Exomem hosted-tier interest.</p>` +
-        `<p><strong>Email:</strong> ${cleanEmail}<br>` +
-        `<strong>Willingness to pay:</strong> ${tier}</p>`,
+        `<p><strong>Email:</strong> ${escapeHtml(cleanEmail)}<br>` +
+        `<strong>Willingness to pay:</strong> ${escapeHtml(tier)}</p>`,
       textContent:
         `New Exomem hosted-tier interest.\n\n` +
         `Email: ${cleanEmail}\nWillingness to pay: ${tier}\n`,
