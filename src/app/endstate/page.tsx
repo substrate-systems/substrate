@@ -4,11 +4,25 @@ import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import {
+  Zap,
+  SlidersHorizontal,
+  Package,
+  ShieldCheck,
+  ScanSearch,
+  Undo2,
+  FileDown,
+  type LucideIcon,
+} from "lucide-react";
 import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
 import { BuyButton } from "./BuyButton";
 import { PaddleTransactionOpener } from "./PaddleTransactionOpener";
 import { usePaddle, type HostedBackupCadence } from "@/lib/paddle";
 import { faqs } from "./faq-data";
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function useInView(options = { threshold: 0.15 }) {
   const ref = useRef<HTMLElement>(null);
@@ -26,6 +40,314 @@ function useInView(options = { threshold: 0.15 }) {
     return () => obs.disconnect();
   }, []);
   return { ref, visible };
+}
+
+/* ── Global styles: hero underline draw, signature grid, tile hover, focus ── */
+function ElevationStyles() {
+  return (
+    <style>{`
+      @keyframes esUnderline { from { background-size: 0% 0.09em; } to { background-size: 100% 0.09em; } }
+      .es-underline {
+        background-image: linear-gradient(90deg, #2dd4bf, #22c55e);
+        background-repeat: no-repeat;
+        background-position: 0% 100%;
+        background-size: 100% 0.09em;
+        padding-bottom: 0.06em;
+        animation: esUnderline 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s backwards;
+      }
+      .es-sig { display: grid; grid-template-columns: 1fr 104px 1fr; align-items: stretch; }
+      .es-sig-conn { position: relative; display: flex; align-items: center; justify-content: center; min-height: 64px; }
+      .es-card:hover .es-tile { filter: brightness(1.4); }
+      a:focus-visible, button:focus-visible { outline: 2px solid rgba(255,255,255,0.4); outline-offset: 3px; }
+      @media (max-width: 720px) {
+        .es-sig { grid-template-columns: 1fr; }
+        .es-sig-conn { height: 88px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .es-underline { animation: none; }
+      }
+    `}</style>
+  );
+}
+
+/* ── Signature moment: live "Save → Set up" animation ── */
+const SIG_APPS = [
+  { name: "VS Code", source: "winget" },
+  { name: "Git", source: "winget" },
+  { name: "Blender", source: "winget" },
+  { name: "OBS Studio", source: "winget" },
+  { name: "Obsidian", source: "msstore" },
+  { name: "Discord", source: "winget" },
+];
+
+function SignatureMoment() {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const sig = rootRef.current;
+    if (!sig) return;
+    const q = (s: string) => sig.querySelector(s) as HTMLElement | null;
+    const qa = (s: string) =>
+      Array.from(sig.querySelectorAll(s)) as HTMLElement[];
+    const el = {
+      aRows: qa("[data-smarow]"),
+      aDots: qa("[data-smadot]"),
+      bRows: qa("[data-smbrow]"),
+      bChecks: qa("[data-smbcheck]"),
+      apps: q("#smApps"),
+      sets: q("#smSet"),
+      scanLabel: q("#smScanLabel"),
+      bLabel: q("#smBLabel"),
+      chip: q("#smChip"),
+      fill: q("#smLineFill"),
+      done: q("#smDone"),
+    };
+    if (!el.apps || !el.sets || !el.scanLabel || !el.bLabel || !el.chip || !el.fill || !el.done) return;
+    const N = el.aRows.length;
+    const clamp = (x: number) => Math.max(0, Math.min(1, x));
+    const ease = (x: number) => 1 - Math.pow(1 - x, 3);
+
+    const setStatic = () => {
+      el.apps!.textContent = "81";
+      el.sets!.textContent = "8";
+      el.scanLabel!.textContent = "SAVED";
+      el.scanLabel!.style.color = "#22c55e";
+      el.aRows.forEach((r) => (r.style.opacity = "1"));
+      el.aDots.forEach((d) => (d.style.background = "#2dd4bf"));
+      el.fill!.style.width = "100%";
+      el.chip!.style.opacity = "1";
+      el.chip!.style.transform = "translateX(0px)";
+      el.bRows.forEach((r) => (r.style.opacity = "1"));
+      el.bChecks.forEach((chk) => (chk.style.opacity = "1"));
+      el.bLabel!.textContent = "READY";
+      el.bLabel!.style.color = "#22c55e";
+      el.done!.style.opacity = "1";
+    };
+
+    if (prefersReducedMotion()) {
+      setStatic();
+      return;
+    }
+
+    let visible = false;
+    const sigIo = new IntersectionObserver(
+      (es) => (visible = es[0].isIntersecting),
+      { threshold: 0.2 }
+    );
+    sigIo.observe(sig);
+
+    const DUR = 9.5;
+    let elapsed = 0;
+    let last: number | null = null;
+    let raf = 0;
+
+    const travelDist = () => {
+      const conn = sig.querySelector(".es-sig-conn") as HTMLElement | null;
+      return conn ? Math.max(40, conn.offsetWidth / 2 + 10) : 62;
+    };
+
+    const apply = (t: number) => {
+      const scanP = clamp(t / 2.6);
+      el.apps!.textContent = String(Math.round(ease(scanP) * 81));
+      el.sets!.textContent = String(Math.round(ease(scanP) * 8));
+      el.aRows.forEach((r, i) => {
+        const on = scanP >= (i + 1) / N - 0.001;
+        r.style.opacity = on ? "1" : "0.4";
+        if (el.aDots[i]) el.aDots[i].style.background = on ? "#2dd4bf" : "#3a3a3a";
+      });
+      el.scanLabel!.textContent = t < 2.6 ? "SCANNING" : "SAVED";
+      el.scanLabel!.style.color = t < 2.6 ? "#2dd4bf" : "#22c55e";
+
+      let chipO = t >= 2.6 ? clamp((t - 2.6) / 0.4) : 0;
+      const trav = clamp((t - 3.2) / 1.3);
+      if (t > 4.7) chipO = 1 - clamp((t - 4.7) / 0.4);
+      const D = travelDist();
+      el.chip!.style.opacity = String(chipO);
+      el.chip!.style.transform =
+        "translateX(" + (-D + ease(trav) * 2 * D).toFixed(1) + "px)";
+      el.fill!.style.width = (ease(trav) * 100).toFixed(1) + "%";
+
+      const restoreStart = 4.7;
+      el.bRows.forEach((r, i) => {
+        const on = t >= restoreStart + i * 0.22;
+        r.style.opacity = on ? "1" : "0.25";
+        if (el.bChecks[i]) el.bChecks[i].style.opacity = on ? "1" : "0";
+      });
+      const restoreEnd = restoreStart + N * 0.22;
+      if (t < 4.5) {
+        el.bLabel!.textContent = "WAITING";
+        el.bLabel!.style.color = "#666";
+      } else if (t < restoreEnd) {
+        el.bLabel!.textContent = "RESTORING";
+        el.bLabel!.style.color = "#2dd4bf";
+      } else {
+        el.bLabel!.textContent = "READY";
+        el.bLabel!.style.color = "#22c55e";
+      }
+      el.done!.style.opacity = String(clamp((t - restoreEnd - 0.2) / 0.5));
+
+      sig.style.opacity = t > DUR - 0.35 ? String(clamp((DUR - t) / 0.35)) : "1";
+    };
+
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame);
+      if (!visible) {
+        last = null;
+        return;
+      }
+      if (last == null) last = now;
+      elapsed += (now - last) / 1000;
+      last = now;
+      apply(elapsed % DUR);
+    };
+    raf = requestAnimationFrame(frame);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      sigIo.disconnect();
+    };
+  }, []);
+
+  const rowBase: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "7px 0",
+    fontSize: "0.82rem",
+    color: "#c0c0c0",
+  };
+  const mono = "var(--font-jetbrains-mono), monospace";
+  const cardShell: React.CSSProperties = {
+    background: c.elevated,
+    border: `1px solid ${c.border}`,
+    borderRadius: 12,
+    overflow: "hidden",
+  };
+  const headerRow: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "12px 18px",
+    borderBottom: `1px solid ${c.border}`,
+  };
+  const headerLabel: React.CSSProperties = {
+    fontFamily: mono,
+    fontSize: "0.65rem",
+    fontWeight: 500,
+    letterSpacing: "0.12em",
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      id="sig"
+      role="img"
+      aria-label="Endstate scans a machine, detects 81 apps and 8 settings, saves them to one portable file, and restores them on a new machine in minutes."
+      style={{ maxWidth: 960, margin: "88px auto 0" }}
+    >
+      <div className="es-sig" aria-hidden="true">
+        {/* THIS MACHINE */}
+        <div style={cardShell}>
+          <div style={headerRow}>
+            <span style={{ ...headerLabel, color: c.textMuted }}>THIS MACHINE</span>
+            <span id="smScanLabel" style={{ ...headerLabel, color: c.teal }}>SCANNING</span>
+          </div>
+          <div style={{ padding: "10px 18px 8px" }}>
+            {SIG_APPS.map((app, i) => (
+              <div key={app.name} data-smarow={i} style={{ ...rowBase, opacity: 0.4 }}>
+                <span
+                  data-smadot={i}
+                  style={{ width: 6, height: 6, borderRadius: "50%", background: "#3a3a3a", flexShrink: 0 }}
+                />
+                {app.name}
+                <span style={{ marginLeft: "auto", fontFamily: mono, fontSize: "0.62rem", color: c.textMuted }}>
+                  {app.source}
+                </span>
+              </div>
+            ))}
+            <div style={{ ...rowBase, color: c.textMuted, opacity: 0.5 }}>
+              <span style={{ width: 6, height: 6, flexShrink: 0 }} />+ 75 more
+            </div>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 5,
+              padding: "12px 18px",
+              borderTop: `1px solid ${c.border}`,
+              fontFamily: mono,
+              fontSize: "0.72rem",
+            }}
+          >
+            <span id="smApps" style={{ color: c.teal, fontWeight: 500 }}>0</span>
+            <span style={{ color: c.textMuted }}>apps ·</span>
+            <span id="smSet" style={{ color: c.teal, fontWeight: 500 }}>0</span>
+            <span style={{ color: c.textMuted }}>settings detected</span>
+          </div>
+        </div>
+
+        {/* Connector */}
+        <div className="es-sig-conn">
+          <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 2, background: "#222" }} />
+          <div
+            id="smLineFill"
+            style={{ position: "absolute", left: 0, top: "50%", height: 2, width: "0%", background: "linear-gradient(90deg, #2dd4bf, #22c55e)" }}
+          />
+          <div
+            id="smChip"
+            style={{
+              position: "relative",
+              zIndex: 1,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              opacity: 0,
+              background: c.card,
+              border: "1px solid rgba(45, 212, 191, 0.45)",
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontFamily: mono,
+              fontSize: "0.65rem",
+              color: c.teal,
+              whiteSpace: "nowrap",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+            }}
+          >
+            <FileDown size={12} aria-hidden="true" />
+            setup.zip
+          </div>
+        </div>
+
+        {/* NEW MACHINE */}
+        <div style={cardShell}>
+          <div style={headerRow}>
+            <span style={{ ...headerLabel, color: c.textMuted }}>NEW MACHINE</span>
+            <span id="smBLabel" style={{ ...headerLabel, color: c.textMuted }}>WAITING</span>
+          </div>
+          <div style={{ padding: "10px 18px 8px" }}>
+            {SIG_APPS.map((app, i) => (
+              <div key={app.name} data-smbrow={i} style={{ ...rowBase, opacity: 0.25 }}>
+                {app.name}
+                <span
+                  data-smbcheck={i}
+                  style={{ marginLeft: "auto", color: c.teal, fontSize: "0.75rem", fontWeight: 700, opacity: 0 }}
+                >
+                  ✓
+                </span>
+              </div>
+            ))}
+            <div style={{ ...rowBase, color: c.textMuted, opacity: 0.5 }}>+ 75 more</div>
+          </div>
+          <div style={{ padding: "12px 18px", borderTop: `1px solid ${c.border}` }}>
+            <span id="smDone" style={{ fontFamily: mono, fontSize: "0.72rem", color: c.green, opacity: 0 }}>
+              Ready in minutes, not a weekend.
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ── Hero ── */
@@ -54,7 +376,7 @@ function Hero() {
           style={{
             fontSize: "clamp(2.5rem, 5.5vw, 4rem)",
             fontWeight: 700,
-            lineHeight: 1.1,
+            lineHeight: 1.12,
             letterSpacing: "-0.035em",
             color: c.text,
           }}
@@ -62,16 +384,7 @@ function Hero() {
         >
           Spent a weekend setting up your last laptop?
           <br />
-          <span
-            style={{
-              background: "linear-gradient(135deg, #2dd4bf, #22c55e)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}
-          >
-            Don&apos;t do it again.
-          </span>
+          <span className="es-underline">Don&apos;t do it again.</span>
         </motion.h1>
         <motion.p
           className="mx-auto mb-10"
@@ -109,6 +422,8 @@ function Hero() {
           Free forever · <strong style={{ color: c.textSec, fontWeight: 600 }}>Open source engine</strong> · No account required
         </motion.p>
       </div>
+
+      <SignatureMoment />
     </section>
   );
 }
@@ -140,6 +455,20 @@ function Showcase() {
           priority
         />
       </motion.div>
+      <motion.p
+        className="text-center mt-5"
+        style={{
+          fontFamily: "var(--font-jetbrains-mono), monospace",
+          fontSize: "0.68rem",
+          letterSpacing: "0.12em",
+          color: c.textMuted,
+        }}
+        initial={{ opacity: 0, y: 8 }}
+        animate={visible ? { opacity: 1, y: 0 } : {}}
+        transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+      >
+        ONE WINDOW · TWO JOBS · EVERYTHING LOCAL
+      </motion.p>
     </section>
   );
 }
@@ -165,6 +494,39 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 /* ── How it works ── */
 function HowItWorks() {
   const { ref, visible } = useInView();
+  const threadRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = threadRef.current;
+    if (!container) return;
+    const threads = Array.from(
+      container.querySelectorAll("[data-thread]")
+    ) as HTMLElement[];
+    if (!threads.length) return;
+    threads.forEach((t) => {
+      t.style.transformOrigin =
+        t.getAttribute("data-thread") === "l" ? "100% 50%" : "0% 50%";
+    });
+    if (prefersReducedMotion()) {
+      threads.forEach((t) => (t.style.transform = "scaleX(1)"));
+      return;
+    }
+    threads.forEach((t) => (t.style.transform = "scaleX(0)"));
+    const io = new IntersectionObserver(
+      (es) => {
+        if (!es[0].isIntersecting) return;
+        threads.forEach((t) => {
+          t.style.transition = "transform 0.9s cubic-bezier(0.16, 1, 0.3, 1) 200ms";
+          t.style.transform = "scaleX(1)";
+        });
+        io.disconnect();
+      },
+      { threshold: 0.5 }
+    );
+    io.observe(container);
+    return () => io.disconnect();
+  }, []);
+
   return (
     <section
       ref={ref}
@@ -190,7 +552,7 @@ function HowItWorks() {
           Two screens. Zero guesswork.
         </motion.h2>
         <motion.p
-          className="mb-20"
+          className="mb-10"
           style={{ fontSize: "1.05rem", color: c.textSec, maxWidth: 600, lineHeight: 1.7 }}
           initial={{ opacity: 0, y: 8 }}
           animate={visible ? { opacity: 1, y: 0 } : {}}
@@ -199,6 +561,40 @@ function HowItWorks() {
           Scan your current machine, save your setup to a file you control,
           then load it on any fresh Windows install. Everything runs locally.
         </motion.p>
+
+        {/* Portable-file thread */}
+        <div
+          ref={threadRef}
+          className="flex items-center gap-4 mb-10"
+          aria-hidden="true"
+        >
+          <div
+            data-thread="l"
+            style={{ flex: 1, height: 1, background: "linear-gradient(90deg, transparent, rgba(45,212,191,0.35))" }}
+          />
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontFamily: "var(--font-jetbrains-mono), monospace",
+              fontSize: "0.65rem",
+              color: c.teal,
+              border: "1px solid rgba(45,212,191,0.3)",
+              borderRadius: 6,
+              padding: "5px 10px",
+              background: "rgba(45,212,191,0.05)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <FileDown size={12} aria-hidden="true" />
+            one portable file carries it
+          </span>
+          <div
+            data-thread="r"
+            style={{ flex: 1, height: 1, background: "linear-gradient(90deg, rgba(34,197,94,0.35), transparent)" }}
+          />
+        </div>
 
         <div className="grid md:grid-cols-2 gap-12">
           {/* Save */}
@@ -239,6 +635,17 @@ function HowItWorks() {
                 className="w-full block"
               />
             </div>
+            <div
+              style={{
+                marginTop: 12,
+                fontFamily: "var(--font-jetbrains-mono), monospace",
+                fontSize: "0.65rem",
+                letterSpacing: "0.08em",
+                color: c.textMuted,
+              }}
+            >
+              81 APPS DETECTED · 8 SETTINGS CAPTURED
+            </div>
           </motion.div>
 
           {/* Set up */}
@@ -253,7 +660,7 @@ function HowItWorks() {
                 fontFamily: "var(--font-jetbrains-mono), monospace",
                 fontSize: "0.7rem",
                 fontWeight: 500,
-                color: c.teal,
+                color: c.green,
                 letterSpacing: "0.12em",
               }}
             >
@@ -279,6 +686,17 @@ function HowItWorks() {
                 className="w-full block"
               />
             </div>
+            <div
+              style={{
+                marginTop: 12,
+                fontFamily: "var(--font-jetbrains-mono), monospace",
+                fontSize: "0.65rem",
+                letterSpacing: "0.08em",
+                color: c.textMuted,
+              }}
+            >
+              3 TO INSTALL · 69 ALREADY PRESENT
+            </div>
           </motion.div>
         </div>
       </div>
@@ -287,39 +705,44 @@ function HowItWorks() {
 }
 
 /* ── Features ── */
-const features = [
+const features: {
+  Icon: LucideIcon;
+  iconColor: string;
+  title: string;
+  body: string;
+}[] = [
   {
-    icon: "⚡",
+    Icon: Zap,
     iconColor: c.teal,
     title: "Automatic app detection",
     body: "Scans your machine and finds every installed app, then reinstalls anything winget can — thousands of apps. No manual lists, no guesswork. If it's installed, Endstate sees it.",
   },
   {
-    icon: "⚙",
+    Icon: SlidersHorizontal,
     iconColor: c.green,
     title: "Bring your settings",
     body: "Captures and restores settings for 300+ apps — editors, terminals, creative tools, emulators, and more. Opt-in per app.",
   },
   {
-    icon: "📦",
+    Icon: Package,
     iconColor: c.blue,
     title: "Portable setup files",
     body: "Your saved setup lives as plain files in your Documents folder. Copy them, back them up, share them. No cloud account required.",
   },
   {
-    icon: "🔁",
+    Icon: ShieldCheck,
     iconColor: c.copper,
     title: "You stay in control",
     body: "Apps install one at a time. Windows asks for permission before each one — nothing installs silently. You can stop at any point.",
   },
   {
-    icon: "🔍",
+    Icon: ScanSearch,
     iconColor: c.teal,
     title: "Preview first",
     body: "Check whether your machine matches a saved setup without changing anything. See exactly what's missing before you act.",
   },
   {
-    icon: "↩",
+    Icon: Undo2,
     iconColor: c.green,
     title: "Always reversible",
     body: "Every settings restore creates a backup first. One click to revert. Nothing changes without your explicit confirmation.",
@@ -368,7 +791,7 @@ function Features() {
           {features.map((f, i) => (
             <motion.div
               key={f.title}
-              className="p-6 rounded-lg transition-colors duration-200"
+              className="es-card p-6 rounded-lg transition-colors duration-200"
               style={{
                 border: `1px solid ${c.border}`,
                 background: c.card,
@@ -386,13 +809,15 @@ function Features() {
               transition={{ duration: 0.7, delay: 0.15 + i * 0.06 }}
             >
               <div
-                className="w-9 h-9 rounded-lg flex items-center justify-center mb-4 text-base"
+                className="es-tile w-9 h-9 rounded-lg flex items-center justify-center mb-4"
                 style={{
-                  background: `${f.iconColor}12`,
-                  border: `1px solid ${f.iconColor}25`,
+                  background: `${f.iconColor}14`,
+                  border: `1px solid ${f.iconColor}40`,
+                  color: f.iconColor,
+                  transition: "filter 200ms ease",
                 }}
               >
-                {f.icon}
+                <f.Icon size={18} aria-hidden="true" />
               </div>
               <h3 className="mb-2" style={{ fontSize: "1rem", fontWeight: 600, color: c.text }}>
                 {f.title}
@@ -428,6 +853,35 @@ const contrastRows = [
 
 function Contrast() {
   const { ref, visible } = useInView();
+  const withoutRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const card = withoutRef.current;
+    if (!card) return;
+    const strikes = Array.from(
+      card.querySelectorAll("[data-strike]")
+    ) as HTMLElement[];
+    if (!strikes.length) return;
+    if (prefersReducedMotion()) {
+      strikes.forEach((s) => (s.style.width = "100%"));
+      return;
+    }
+    const io = new IntersectionObserver(
+      (es) => {
+        if (!es[0].isIntersecting) return;
+        strikes.forEach((s, i) => {
+          s.style.transition =
+            "width 0.45s cubic-bezier(0.33, 1, 0.68, 1) " + (400 + i * 260) + "ms";
+          s.style.width = "100%";
+        });
+        io.disconnect();
+      },
+      { threshold: 0.4 }
+    );
+    io.observe(card);
+    return () => io.disconnect();
+  }, []);
+
   return (
     <section
       ref={ref}
@@ -455,6 +909,7 @@ function Contrast() {
         <div className="grid md:grid-cols-2 gap-5">
           {/* Without card */}
           <motion.div
+            ref={withoutRef}
             className="rounded-xl p-8"
             style={{
               border: `1px solid ${c.border}`,
@@ -483,16 +938,26 @@ function Contrast() {
                 return (
                   <div
                     key={row.without}
-                    className="flex items-center gap-3"
                     style={{
                       fontSize: isLast ? "1.1rem" : "0.92rem",
                       fontWeight: isLast ? 600 : 400,
                       color: c.textMuted,
-                      textDecoration: "line-through",
-                      textDecorationColor: "rgba(102,102,102,0.4)",
                     }}
                   >
-                    {row.without}
+                    <span style={{ position: "relative", display: "inline-block" }}>
+                      {row.without}
+                      <span
+                        data-strike={i}
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          top: "52%",
+                          height: isLast ? 1.5 : 1,
+                          width: "0%",
+                          background: isLast ? "rgba(200,121,65,0.6)" : "rgba(153,153,153,0.6)",
+                        }}
+                      />
+                    </span>
                   </div>
                 );
               })}
@@ -615,7 +1080,7 @@ function FAQ() {
               <div
                 style={{
                   overflow: "hidden",
-                  maxHeight: openIndex === i ? 200 : 0,
+                  maxHeight: openIndex === i ? 520 : 0,
                   transition: "max-height 0.3s ease",
                 }}
               >
@@ -1091,7 +1556,8 @@ function Guides() {
           Setting up a new PC?
         </motion.h2>
         <motion.div
-          className="flex flex-col gap-4"
+          className="flex flex-col"
+          style={{ maxWidth: 720, borderTop: `1px solid #1f1f1f` }}
           initial={{ opacity: 0, y: 8 }}
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.2 }}
@@ -1100,11 +1566,64 @@ function Guides() {
             <a
               key={guide.href}
               href={guide.href}
-              style={{ fontSize: "0.95rem", color: c.teal, textDecoration: "none" }}
+              className="flex items-center justify-between gap-4 transition-colors duration-200"
+              style={{
+                padding: "16px 0",
+                borderBottom: `1px solid #1f1f1f`,
+                fontSize: "0.95rem",
+                color: c.text,
+                textDecoration: "none",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = c.teal)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = c.text)}
             >
-              {guide.label} →
+              <span>{guide.label}</span>
+              <span style={{ color: c.teal, flexShrink: 0 }} aria-hidden="true">→</span>
             </a>
           ))}
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+/* ── Closing ── */
+function Closing() {
+  const { ref, visible } = useInView();
+  return (
+    <section
+      ref={ref}
+      className="px-6"
+      style={{ background: c.bg, borderTop: `1px solid #1f1f1f`, padding: "96px 24px" }}
+    >
+      <div className="mx-auto text-center" style={{ maxWidth: 768 }}>
+        <motion.p
+          className="mb-6"
+          style={{
+            fontSize: "clamp(1.3rem, 2.5vw, 1.7rem)",
+            fontWeight: 600,
+            letterSpacing: "-0.02em",
+            color: c.text,
+            lineHeight: 1.4,
+          }}
+          initial={{ opacity: 0, y: 12 }}
+          animate={visible ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.8, ease: "easeOut" }}
+        >
+          Next time you&apos;re staring at a fresh Windows install — this is the first thing to install.
+        </motion.p>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={visible ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
+        >
+          <Link
+            href="/download"
+            className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-lg font-semibold hover:opacity-88 transition-all duration-200"
+            style={{ background: c.text, color: c.bg, fontSize: "1rem", textDecoration: "none" }}
+          >
+            Download free
+          </Link>
         </motion.div>
       </div>
     </section>
@@ -1115,6 +1634,7 @@ function Guides() {
 export default function EndstatePage() {
   return (
     <>
+      <ElevationStyles />
       <main style={{ fontFamily: "var(--font-dm-sans), -apple-system, sans-serif", background: c.bg, minHeight: "100vh", WebkitFontSmoothing: "antialiased" }}>
         <PaddleTransactionOpener />
         <Nav />
@@ -1126,6 +1646,7 @@ export default function EndstatePage() {
         <FAQ />
         <Pricing />
         <Guides />
+        <Closing />
         <EndstateFooter />
       </main>
     </>
