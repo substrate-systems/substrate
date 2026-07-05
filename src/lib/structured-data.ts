@@ -8,7 +8,7 @@ export const PERSON = {
   url: `${siteConfig.url}/work`,
   jobTitle: "Founder & Software Engineer",
   worksFor: { "@type": "Organization", name: siteConfig.name },
-  sameAs: ["https://github.com/Artexis10"],
+  sameAs: ["https://github.com/Artexis10", "https://x.com/hugoanderkivi"],
 } as const;
 
 export function personJsonLd() {
