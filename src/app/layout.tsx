@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { Analytics } from "@vercel/analytics/react";
 import { siteConfig } from "@/lib/seo";
@@ -8,6 +8,14 @@ import { PostHogProvider } from "./providers";
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+});
+
+// Exomem's mono-forward identity (see .brand-exomem in globals.css). Deliberately
+// IBM Plex Mono — distinct from Endstate's JetBrains Mono. Only /exomem consumes it.
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-plex-mono",
 });
 
 const description = siteConfig.defaultDescription;
@@ -109,7 +117,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.variable} antialiased`}>
+      <body className={`${inter.variable} ${plexMono.variable} antialiased`}>
         <PostHogProvider>{children}</PostHogProvider>
         <Analytics />
       </body>

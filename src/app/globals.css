@@ -258,3 +258,134 @@ body {
     animation: none;
   }
 }
+
+/* =============================================================================
+   Exomem identity scope — .brand-exomem
+   -----------------------------------------------------------------------------
+   Exomem is a sibling brand within the Substrate family: warm near-black,
+   IBM Plex Mono display type, and a single phosphor-amber accent. Scoped to
+   `.brand-exomem` so it never leaks into the rest of the site (which stays on
+   the neutral Substrate palette above).
+
+   THE ONE HARD RULE: --exo-amber lights ONLY live / retrieved / current state —
+   never decoration. Its uses on the page are exhaustive and deliberate (graph
+   retrieval + supersession arrow, cursor, 864 ms status + benchmark value,
+   superseded_by frontmatter + wikilinks, "current" chip, Exomem card hairline
+   + markers, ✓ confirmation, focus rings, input focus borders, open-FAQ glyph).
+============================================================================= */
+.brand-exomem {
+  --bg-base: #0a0908; /* warm near-black — a hair warmer than Endstate's #0C0C0C */
+  --bg-panel: #100e0c; /* cards, terminal, graph panel */
+  --bg-elevated: #14120f; /* inputs, chips */
+
+  --fg-primary: #ece9e2;
+  --fg-secondary: #a39e93;
+  --fg-tertiary: #5c574d;
+  --fg-dim-struck: #6b655a; /* struck / superseded text */
+
+  --exo-amber: #ffb000; /* phosphor amber — live state only */
+
+  --exo-rule: rgba(236, 233, 226, 0.07); /* section rules */
+  --exo-border-card: rgba(236, 233, 226, 0.1); /* cards */
+  --exo-border-input: rgba(236, 233, 226, 0.12); /* inputs, chips */
+
+  --font-mono-exo: var(--font-plex-mono), ui-monospace, monospace;
+
+  background: var(--bg-base);
+  color: var(--fg-primary);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+.brand-exomem ::selection {
+  background: rgba(255, 176, 0, 0.22);
+}
+
+/* Rings for keyboard users only; inputs additionally get an amber border on any
+   focus (set inline on the field). */
+.brand-exomem :focus {
+  outline: none;
+}
+.brand-exomem :focus-visible {
+  outline: 1px solid rgba(255, 176, 0, 0.65);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Terminal cursor blink — steps(1) so it snaps rather than fades. */
+@keyframes exoBlink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Scroll reveals are applied imperatively by RevealManager (fade-up 14px → 0,
+   0.9s out-expo, per-element stagger). Under reduced motion the manager bails and
+   content is shown as-is — so we intentionally do NOT hide [data-reveal] in CSS. */
+@media (prefers-reduced-motion: reduce) {
+  .brand-exomem [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Hover states for server-rendered links/rows (house rule: color/border/opacity
+   only — never scale or translate on press). */
+.brand-exomem .exo-link-sp {
+  color: var(--fg-secondary);
+  text-decoration: none;
+  transition: color 200ms var(--ease-out);
+}
+.brand-exomem .exo-link-sp:hover {
+  color: var(--fg-primary);
+}
+
+.brand-exomem .exo-link-ts {
+  color: var(--fg-tertiary);
+  text-decoration: none;
+  transition: color 200ms var(--ease-out);
+}
+.brand-exomem .exo-link-ts:hover {
+  color: var(--fg-secondary);
+}
+
+.brand-exomem .exo-cta-primary {
+  transition: opacity 200ms var(--ease-out);
+}
+.brand-exomem .exo-cta-primary:hover {
+  opacity: 0.88;
+}
+
+.brand-exomem .exo-underline-sp {
+  color: var(--fg-secondary);
+  text-decoration: underline;
+  text-decoration-color: rgba(236, 233, 226, 0.25);
+  text-underline-offset: 4px;
+  transition: color 200ms var(--ease-out);
+}
+.brand-exomem .exo-underline-sp:hover {
+  color: var(--fg-primary);
+}
+
+.brand-exomem .exo-underline-pp {
+  color: var(--fg-primary);
+  text-decoration: underline;
+  text-decoration-color: rgba(236, 233, 226, 0.25);
+  text-underline-offset: 4px;
+  transition: opacity 200ms var(--ease-out);
+}
+.brand-exomem .exo-underline-pp:hover {
+  opacity: 0.7;
+}
+
+.brand-exomem .exo-cap {
+  border-top: 1px solid var(--exo-border-card);
+  transition: border-color 300ms var(--ease-out);
+}
+.brand-exomem .exo-cap:hover {
+  border-top-color: rgba(236, 233, 226, 0.25);
+}

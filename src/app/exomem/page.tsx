@@ -1,16 +1,25 @@
+import type { CSSProperties } from "react";
 import Link from "next/link";
-import Footer from "@/components/Footer";
 import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
 import { faqs } from "./faq-data";
+import RevealManager from "./reveal-manager";
+import MemoryGraph from "./memory-graph";
+import CopyButton from "./copy-button";
+import HostedInterestForm from "./hosted-interest-form";
+import FaqAccordion, { type ExoFaq } from "./faq-accordion";
 
-export const metadata = buildMetadata({
-  title: "Exomem — long-term memory for AI agents over Markdown",
-  description:
-    "Give Claude, Codex, and Cursor persistent memory via MCP — over a Markdown and Obsidian vault you own. Hybrid search, local indexing, human review queues.",
-  path: "/exomem",
-  ogImage: "/exomem/og",
-  standaloneTitle: true,
-});
+export const metadata = {
+  ...buildMetadata({
+    title: "Exomem — long-term memory for AI agents over Markdown",
+    description:
+      "Give Claude, Codex, and Cursor persistent memory via MCP — over a Markdown and Obsidian vault you own. Hybrid search, local indexing, human review queues.",
+    path: "/exomem",
+    ogImage: "/exomem/og",
+    standaloneTitle: true,
+  }),
+  // Exomem subtree uses its own "E" monogram as the favicon (matches /exomem/og lockup).
+  icons: { icon: "/exomem/icons/mark.svg" },
+};
 
 const softwareJsonLd = {
   "@context": "https://schema.org",
@@ -44,6 +53,8 @@ const breadcrumb = breadcrumbJsonLd([
   { name: "Exomem", path: "/exomem" },
 ]);
 
+// All eight FAQs stay in the FAQPage JSON-LD for SEO; the page renders the five
+// approved for the redesign (below).
 const faqJsonLd = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
@@ -58,46 +69,115 @@ const faqJsonLd = {
 };
 
 const capabilities = [
-  "MCP tools for search, capture, notes, evidence, audit, and review queues",
-  "Hybrid keyword and vector retrieval over typed Markdown knowledge bases — sub-second at 50,000 notes, measured",
-  "Indexed lexical search (SQLite FTS5) and local vectors (sqlite-vec); no external search service",
-  "Local OCR, ASR, PDF, Office document, and CLIP image indexing",
-  "CLI and REST surfaces generated from the same operation registry",
-];
-
-const surfaces = [
   {
-    label: "MCP",
-    text: "Use the same memory from Codex, Claude Code, Cursor, or custom agents.",
+    num: "01",
+    title: "MCP tools",
+    text: "Search, capture, notes, evidence, audit, and review queues — usable from any MCP client.",
   },
   {
-    label: "Files",
-    text: "Keep Markdown, sources, evidence, and compiled notes in a vault you control.",
+    num: "02",
+    title: "Hybrid retrieval",
+    text: "Keyword and vector search over typed Markdown knowledge bases. Sub-second at 50,000 notes, measured.",
   },
   {
-    label: "Review",
-    text: "Surface stale conclusions, unprocessed sources, and nearby claims for human review.",
+    num: "03",
+    title: "Local index",
+    text: "SQLite FTS5 for lexical lanes, sqlite-vec for vectors. No external search service, ever.",
+  },
+  {
+    num: "04",
+    title: "Media ingestion",
+    text: "Local OCR, ASR, PDF, Office extraction, and CLIP image indexing — screenshots and recordings become searchable.",
+  },
+  {
+    num: "05",
+    title: "One registry",
+    text: "CLI and REST surfaces generated from the same operation registry as the MCP tools.",
   },
 ];
 
 const benchmarks = [
   {
-    value: "864 ms",
-    label: "Hybrid find() end-to-end at 50,000 notes, measured with hot cache off",
+    value: "864",
+    unit: "ms",
+    color: "var(--exo-amber)", // the measured live value — amber is earned
+    label:
+      "Hybrid find() end-to-end at 50,000 notes — hot cache off, methodology public in the repo.",
   },
   {
-    value: "single-digit ms",
-    label: "Keyword and lexical lanes, served straight from the SQLite FTS5 index",
+    value: "<10",
+    unit: "ms",
+    color: "var(--fg-primary)",
+    label:
+      "Keyword and lexical lanes, served straight from the SQLite FTS5 index.",
   },
   {
-    value: "zero",
-    label: "Cloud dependencies in the lean install — a GPU is optional, never required",
+    value: "0",
+    unit: "cloud deps",
+    color: "var(--fg-primary)",
+    label: "In the lean install. A GPU is optional — never required.",
   },
 ];
 
+// Grounded in faq-data.tsx / the exomem README; approved copy for the redesign.
+const displayFaqs: ExoFaq[] = [
+  {
+    q: "Which agents and clients work with Exomem?",
+    a: "Any MCP-capable client — Claude Code, Claude Desktop, Codex, Cursor, or a custom agent. The same memory is also reachable from a CLI (kb / exomem) and a personal REST facade, all generated from one operation registry.",
+  },
+  {
+    q: "Do my notes ever leave my machine?",
+    a: "No. Your vault stays plain Markdown files you own, and the search indexes are local SQLite sidecar files next to it. The lean install has no cloud dependency — nothing is uploaded.",
+  },
+  {
+    q: "How fast is search on a large vault?",
+    a: "Measured on a 50,000-note corpus: hybrid search runs end-to-end in 864 ms on the reference desktop, hot cache off, with the keyword and lexical lanes answering in milliseconds from the FTS5 index. The methodology is published in docs/benchmarks.md.",
+  },
+  {
+    q: "How is Exomem different from cloud memory services?",
+    a: "Cloud memory tools extract your data into a vector database or knowledge graph in their cloud. Exomem keeps your memory as plain Markdown in a vault you own and indexes it locally — your files are the memory, not a derived copy.",
+  },
+  {
+    q: "Do I need a GPU?",
+    a: "No. The lean install runs keyword and BM25 search out of the box — SQLite's FTS5 engine ships inside Python's standard library. Optional extras add local embeddings, CLIP image search, OCR, and speech-to-text; a GPU accelerates those, but is never required.",
+  },
+];
+
+// ---- shared style tokens ----------------------------------------------------
+const MONO = "var(--font-mono-exo)";
+
+const shell: CSSProperties = {
+  maxWidth: "72rem",
+  margin: "0 auto",
+  padding: "clamp(72px,10vh,120px) clamp(20px,5vw,48px)",
+};
+const sectionBorder: CSSProperties = { borderTop: "1px solid var(--exo-rule)" };
+const label: CSSProperties = {
+  margin: 0,
+  fontFamily: MONO,
+  fontSize: "11px",
+  fontWeight: 500,
+  letterSpacing: "0.18em",
+  textTransform: "uppercase",
+  color: "var(--fg-tertiary)",
+};
+const h2: CSSProperties = {
+  margin: "24px 0 0",
+  fontFamily: MONO,
+  fontSize: "clamp(1.5rem,2.8vw,2.15rem)",
+  fontWeight: 500,
+  lineHeight: 1.3,
+  letterSpacing: "-0.03em",
+  color: "var(--fg-primary)",
+};
+const externalLink = {
+  target: "_blank",
+  rel: "noopener noreferrer",
+} as const;
+
 export default function ExomemPage() {
   return (
-    <div className="min-h-screen bg-bg-base text-fg-primary">
+    <div className="brand-exomem" style={{ minHeight: "100vh" }}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
@@ -110,27 +190,80 @@ export default function ExomemPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-8">
-        <Link
-          href="/"
-          className="text-sm font-light text-fg-tertiary transition-colors duration-default hover:text-fg-secondary"
+      <RevealManager />
+
+      {/* ============ NAV ============ */}
+      <header
+        style={{
+          maxWidth: "72rem",
+          margin: "0 auto",
+          padding: "28px clamp(20px,5vw,48px)",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "10px 16px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <span
+            aria-hidden="true"
+            style={{
+              width: "26px",
+              height: "26px",
+              borderRadius: "7px",
+              background: "#171512",
+              border: "1px solid rgba(236,233,226,0.14)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontFamily: MONO,
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "#fafafa",
+            }}
+          >
+            E
+          </span>
+          <span
+            style={{
+              fontFamily: MONO,
+              fontSize: "14px",
+              fontWeight: 600,
+              letterSpacing: "-0.02em",
+              color: "var(--fg-primary)",
+            }}
+          >
+            exomem
+          </span>
+          <Link
+            href="/"
+            className="exo-link-ts"
+            style={{ fontSize: "12px", fontWeight: 300 }}
+          >
+            by Substrate Systems
+          </Link>
+        </div>
+        <nav
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "22px",
+            fontFamily: MONO,
+            fontSize: "12px",
+          }}
         >
-          Substrate Systems
-        </Link>
-        <nav className="flex items-center gap-5 text-sm font-light text-fg-tertiary">
           <a
             href="https://github.com/Artexis10/exomem"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition-colors duration-default hover:text-fg-secondary"
+            {...externalLink}
+            className="exo-link-sp"
           >
             GitHub
           </a>
           <a
             href="https://pypi.org/project/exomem/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="transition-colors duration-default hover:text-fg-secondary"
+            {...externalLink}
+            className="exo-link-sp"
           >
             PyPI
           </a>
@@ -138,266 +271,909 @@ export default function ExomemPage() {
       </header>
 
       <main>
-        <section className="mx-auto grid w-full max-w-6xl gap-14 px-6 pb-24 pt-10 lg:grid-cols-[1fr_0.9fr] lg:items-center lg:pb-32 lg:pt-20">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-              External memory for agents
-            </p>
-            <h1 className="mt-5 text-display-sm font-light tracking-tight text-fg-primary sm:text-display lg:text-[5rem] lg:leading-[0.95]">
-              Exomem
-            </h1>
-            <p className="mt-6 max-w-2xl text-body-lg font-light leading-relaxed text-fg-secondary">
-              An MCP-native memory layer over your own Markdown and Obsidian vault.
-              Agents get durable context; you keep the files, provenance, and review loop.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <a
-                href="https://github.com/Artexis10/exomem"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-md bg-fg-primary px-5 py-3 text-sm font-medium text-bg-base transition-opacity duration-default hover:opacity-85"
+        {/* ============ HERO ============ */}
+        <section
+          style={{
+            maxWidth: "72rem",
+            margin: "0 auto",
+            padding:
+              "clamp(40px,7vh,88px) clamp(20px,5vw,48px) clamp(72px,10vh,128px)",
+          }}
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit,minmax(min(100%,440px),1fr))",
+              gap: "clamp(40px,5vw,72px)",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ containerType: "inline-size" }}>
+              <p data-reveal data-reveal-delay="0" style={label}>
+                External memory for agents
+              </p>
+              <h1
+                data-reveal
+                data-reveal-delay="100"
+                style={{
+                  margin: "22px 0 0",
+                  fontFamily: MONO,
+                  fontSize: "clamp(1.75rem,8.4cqw,2.95rem)",
+                  fontWeight: 600,
+                  lineHeight: 1.12,
+                  letterSpacing: "-0.045em",
+                  color: "var(--fg-primary)",
+                  textWrap: "balance",
+                }}
               >
-                View source
-              </a>
-              <a
-                href="https://pypi.org/project/exomem/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded-md border border-border-default px-5 py-3 text-sm font-medium text-fg-primary transition-colors duration-default hover:border-border-emphasis"
+                Agents get memory.
+                <br />
+                You keep the files.
+              </h1>
+              <p
+                data-reveal
+                data-reveal-delay="200"
+                style={{
+                  margin: "26px 0 0",
+                  maxWidth: "34rem",
+                  fontSize: "1.125rem",
+                  fontWeight: 300,
+                  lineHeight: 1.7,
+                  color: "var(--fg-secondary)",
+                }}
               >
-                Install from PyPI
-              </a>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-border-subtle bg-bg-elevated/70 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.32)]">
-            <div className="rounded-md border border-border-subtle bg-black/40 p-4 font-mono text-xs text-fg-secondary sm:text-sm">
-              <div className="mb-4 flex items-center gap-2 border-b border-border-subtle pb-3 text-fg-tertiary">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
-                <span className="h-2.5 w-2.5 rounded-full bg-[#eab308]" />
-                <span className="h-2.5 w-2.5 rounded-full bg-[#22c55e]" />
-                <span className="ml-2">agent-memory</span>
+                Exomem is an open-source, MCP-native memory layer over the
+                Markdown or Obsidian vault you already own. Claude Code, Codex,
+                and Cursor get durable context — you keep the files, the
+                provenance, and the review loop.
+              </p>
+              <div
+                data-reveal
+                data-reveal-delay="300"
+                style={{
+                  marginTop: "36px",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "12px",
+                  alignItems: "center",
+                }}
+              >
+                <a
+                  href="https://github.com/Artexis10/exomem"
+                  {...externalLink}
+                  className="exo-cta-primary"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    background: "var(--fg-primary)",
+                    color: "var(--bg-base)",
+                    fontFamily: MONO,
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    padding: "13px 22px",
+                    borderRadius: "8px",
+                    textDecoration: "none",
+                  }}
+                >
+                  View source →
+                </a>
+                <CopyButton variant="cta" />
               </div>
-              <pre className="whitespace-pre-wrap leading-relaxed text-fg-secondary">{`$ kb find "stale decision" --json
-{
-  "success": true,
-  "data": [
-    "Notes/Research/Project/old-plan.md",
-    "Notes/Insights/newer-constraint.md"
-  ]
-}
+              <p
+                data-reveal
+                data-reveal-delay="400"
+                style={{
+                  margin: "26px 0 0",
+                  fontFamily: MONO,
+                  fontSize: "11.5px",
+                  color: "var(--fg-tertiary)",
+                }}
+              >
+                Python · AGPL-3.0 · self-hosted · no account
+              </p>
+            </div>
 
-$ kb note --note-type insight \
-  --title "Agents need durable context"`}</pre>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              {surfaces.map((surface) => (
-                <div key={surface.label} className="border-t border-border-subtle pt-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-fg-tertiary">
-                    {surface.label}
-                  </p>
-                  <p className="mt-2 text-sm font-light leading-relaxed text-fg-secondary">
-                    {surface.text}
-                  </p>
-                </div>
-              ))}
-            </div>
+            <MemoryGraph />
           </div>
         </section>
 
-        <section className="border-t border-border-subtle px-6 py-24">
-          <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[0.85fr_1fr]">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-                Why it exists
-              </p>
-              <h2 className="mt-4 text-3xl font-light tracking-tight text-fg-primary sm:text-4xl">
-                Memory should be inspectable infrastructure, not hidden assistant state.
+        {/* ============ 01 — WHY ============ */}
+        <section style={sectionBorder}>
+          <div style={shell}>
+            <p data-reveal style={label}>
+              01 — Why it exists
+            </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(min(100%,420px),1fr))",
+                gap: "clamp(28px,4vw,64px)",
+                marginTop: "28px",
+              }}
+            >
+              <h2
+                data-reveal
+                data-reveal-delay="80"
+                style={{ ...h2, margin: 0, textWrap: "balance" }}
+              >
+                Memory should be inspectable infrastructure you own — not hidden
+                assistant state in someone else&rsquo;s cloud.
               </h2>
-            </div>
-            <div className="space-y-6 text-body font-light leading-relaxed text-fg-secondary">
-              <p>
-                Exomem gives agents a shared substrate without asking you to move your
-                knowledge into another app. The source material, compiled notes, entities,
-                evidence, and supersession history remain plain files.
-              </p>
-              <p>
-                The server measures and routes: search results, embeddings, extraction,
-                file writes, graph health, and review queues. Judgment stays with the
-                human and the client model using the tools.
-              </p>
-            </div>
-          </div>
-        </section>
+              <div
+                data-reveal
+                data-reveal-delay="180"
+                style={{
+                  fontSize: "1rem",
+                  fontWeight: 300,
+                  lineHeight: 1.75,
+                  color: "var(--fg-secondary)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "20px",
+                }}
+              >
+                <p style={{ margin: 0 }}>
+                  Exomem gives agents a shared substrate without asking you to
+                  move your knowledge into another app. Source material, compiled
+                  notes, typed entities, evidence, and supersession history remain
+                  plain files — open any of them in a text editor.
+                </p>
+                <p style={{ margin: 0 }}>
+                  The server measures and routes: search, embeddings, extraction,
+                  file writes, graph health, review queues. Judgment stays with
+                  the human and the client model using the tools.
+                </p>
+              </div>
 
-        <section className="border-t border-border-subtle px-6 py-24">
-          <div className="mx-auto max-w-6xl">
-            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-              Capabilities
-            </p>
-            <div className="mt-10 grid gap-5 md:grid-cols-2">
-              {capabilities.map((capability) => (
-                <div key={capability} className="border-t border-border-subtle pt-5">
-                  <p className="text-body font-light leading-relaxed text-fg-secondary">
-                    {capability}
-                  </p>
+              {/* file-proof card */}
+              <div
+                data-reveal
+                data-reveal-delay="260"
+                style={{
+                  gridColumn: "1 / -1",
+                  maxWidth: "44rem",
+                  marginTop: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    border: "1px solid var(--exo-border-card)",
+                    borderRadius: "12px",
+                    background: "var(--bg-panel)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      padding: "12px 18px",
+                      borderBottom: "1px solid var(--exo-rule)",
+                      fontFamily: MONO,
+                      fontSize: "11px",
+                      color: "var(--fg-tertiary)",
+                    }}
+                  >
+                    <span>notes/old-plan.md</span>
+                    <span>plain Markdown</span>
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      padding: "18px 18px 20px",
+                      fontFamily: MONO,
+                      fontSize: "12.5px",
+                      lineHeight: 1.8,
+                      color: "var(--fg-secondary)",
+                      whiteSpace: "pre-wrap",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    <span style={{ color: "var(--fg-tertiary)" }}>
+                      {"---\ntype:"}
+                    </span>
+                    {" decision\n"}
+                    <span style={{ color: "var(--fg-tertiary)" }}>status:</span>
+                    {" superseded\n"}
+                    <span style={{ color: "var(--fg-tertiary)" }}>
+                      superseded_by:
+                    </span>{" "}
+                    <span style={{ color: "var(--exo-amber)" }}>
+                      &quot;[[newer-constraint]]&quot;
+                    </span>
+                    {"\n"}
+                    <span style={{ color: "var(--fg-tertiary)" }}>---</span>
+                    {"\n\nBatch embeddings at 256 on 16 GB cards.\nReplaced after "}
+                    <span style={{ color: "rgba(255,176,0,0.8)" }}>
+                      [[benchmark-run-014]]
+                    </span>
+                    {" showed VRAM\nheadroom, not throughput, is the bound."}
+                  </pre>
                 </div>
-              ))}
+                <p
+                  style={{
+                    margin: "14px 0 0",
+                    fontSize: "13px",
+                    fontWeight: 300,
+                    lineHeight: 1.6,
+                    color: "var(--fg-tertiary)",
+                  }}
+                >
+                  Supersession lives in the file, not in a hidden database — grep
+                  it, diff it, version it.
+                </p>
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="border-t border-border-subtle px-6 py-24">
-          <div className="mx-auto max-w-6xl">
-            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-              Measured at scale
+        {/* ============ 02 — CAPABILITIES ============ */}
+        <section style={sectionBorder}>
+          <div style={shell}>
+            <p data-reveal style={label}>
+              02 — Capabilities
             </p>
-            <h2 className="mt-4 max-w-3xl text-3xl font-light tracking-tight text-fg-primary sm:text-4xl">
-              Sub-second retrieval at 50,000 notes — measured, not asserted.
+            <h2 data-reveal data-reveal-delay="80" style={h2}>
+              The whole stack, local.
             </h2>
-            <p className="mt-6 max-w-2xl text-body font-light leading-relaxed text-fg-secondary">
-              Most memory tools claim they scale. Exomem publishes the numbers. Hybrid{" "}
-              <span className="font-mono text-fg-primary">find()</span> runs end-to-end
-              in under a second on a 50,000-note vault, with the keyword and lexical
-              lanes answering in milliseconds from the FTS5 index — and the full
-              methodology is in the repository so you can reproduce it.
-            </p>
-            <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border-subtle bg-border-subtle sm:grid-cols-3">
-              {benchmarks.map((benchmark) => (
-                <div key={benchmark.value} className="bg-bg-base p-6">
-                  <p className="font-mono text-3xl font-light tracking-tight text-fg-primary">
-                    {benchmark.value}
-                  </p>
-                  <p className="mt-3 text-sm font-light leading-relaxed text-fg-secondary">
-                    {benchmark.label}
+            <div
+              style={{
+                marginTop: "44px",
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(min(100%,300px),1fr))",
+                gap: "0 clamp(24px,3vw,48px)",
+              }}
+            >
+              {capabilities.map((cap) => (
+                <div
+                  key={cap.num}
+                  data-reveal
+                  className="exo-cap"
+                  style={{ padding: "20px 0 30px" }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: "14px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: MONO,
+                        fontSize: "11px",
+                        color: "var(--fg-tertiary)",
+                      }}
+                    >
+                      {cap.num}
+                    </span>
+                    <h3
+                      style={{
+                        margin: 0,
+                        fontFamily: MONO,
+                        fontSize: "15px",
+                        fontWeight: 500,
+                        letterSpacing: "-0.01em",
+                        color: "var(--fg-primary)",
+                      }}
+                    >
+                      {cap.title}
+                    </h3>
+                  </div>
+                  <p
+                    style={{
+                      margin: "10px 0 0",
+                      paddingLeft: "33px",
+                      fontSize: "0.9rem",
+                      fontWeight: 300,
+                      lineHeight: 1.65,
+                      color: "var(--fg-secondary)",
+                    }}
+                  >
+                    {cap.text}
                   </p>
                 </div>
               ))}
             </div>
-            <p className="mt-6 text-sm font-light text-fg-tertiary">
-              Reference desktop — Ryzen 7 5800X3D, RTX 5080, 32 GB RAM.{" "}
+          </div>
+        </section>
+
+        {/* ============ 03 — MEASURED ============ */}
+        <section style={sectionBorder}>
+          <div style={shell}>
+            <p data-reveal style={label}>
+              03 — Measured at scale
+            </p>
+            <h2
+              data-reveal
+              data-reveal-delay="80"
+              style={{ ...h2, maxWidth: "44rem", textWrap: "balance" }}
+            >
+              Sub-second at 50,000 notes — measured, not asserted.
+            </h2>
+            <p
+              data-reveal
+              data-reveal-delay="160"
+              style={{
+                margin: "22px 0 0",
+                maxWidth: "38rem",
+                fontSize: "1rem",
+                fontWeight: 300,
+                lineHeight: 1.7,
+                color: "var(--fg-secondary)",
+              }}
+            >
+              Most memory tools claim they scale. Exomem publishes the numbers —
+              and the methodology, so you can reproduce them on your own vault.
+            </p>
+            <div
+              style={{
+                marginTop: "48px",
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(min(100%,260px),1fr))",
+                gap: "1px",
+                background: "rgba(236,233,226,0.09)",
+                border: "1px solid rgba(236,233,226,0.09)",
+                borderRadius: "12px",
+                overflow: "hidden",
+              }}
+            >
+              {benchmarks.map((b) => (
+                <div
+                  key={b.value}
+                  data-reveal
+                  style={{ background: "#0e0c0a", padding: "30px 28px 32px" }}
+                >
+                  <p
+                    style={{
+                      margin: 0,
+                      fontFamily: MONO,
+                      fontSize: "clamp(2rem,3.4vw,2.6rem)",
+                      fontWeight: 500,
+                      letterSpacing: "-0.03em",
+                      lineHeight: 1,
+                      color: b.color,
+                    }}
+                  >
+                    {b.value}
+                    <span
+                      style={{
+                        fontSize: "0.45em",
+                        fontWeight: 400,
+                        color: "var(--fg-tertiary)",
+                        marginLeft: "8px",
+                      }}
+                    >
+                      {b.unit}
+                    </span>
+                  </p>
+                  <p
+                    style={{
+                      margin: "16px 0 0",
+                      fontSize: "0.875rem",
+                      fontWeight: 300,
+                      lineHeight: 1.6,
+                      color: "var(--fg-secondary)",
+                    }}
+                  >
+                    {b.label}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p
+              data-reveal
+              style={{
+                margin: "24px 0 0",
+                fontFamily: MONO,
+                fontSize: "12px",
+                lineHeight: 1.7,
+                color: "var(--fg-tertiary)",
+              }}
+            >
+              Reference desktop — Ryzen 7 5800X3D · RTX 5080 · 32 GB RAM.{" "}
               <a
                 href="https://github.com/Artexis10/exomem/blob/main/docs/benchmarks.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-fg-secondary underline decoration-border-emphasis underline-offset-4 transition-opacity duration-default hover:opacity-70"
+                {...externalLink}
+                className="exo-underline-sp"
               >
-                See the methodology
+                See the methodology →
               </a>
             </p>
           </div>
         </section>
 
-        <section className="border-t border-border-subtle px-6 py-24">
-          <div className="mx-auto max-w-6xl">
-            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-              The difference
+        {/* ============ 04 — THE DIFFERENCE ============ */}
+        <section style={sectionBorder}>
+          <div style={shell}>
+            <p data-reveal style={label}>
+              04 — The difference
             </p>
-            <h2 className="mt-4 max-w-3xl text-3xl font-light tracking-tight text-fg-primary sm:text-4xl">
-              Your memory stays yours — not extracted into someone else's cloud.
+            <h2
+              data-reveal
+              data-reveal-delay="80"
+              style={{ ...h2, maxWidth: "44rem" }}
+            >
+              Your memory stays yours.
             </h2>
-            <div className="mt-12 grid gap-px overflow-hidden rounded-lg border border-border-subtle bg-border-subtle md:grid-cols-2">
-              <div className="bg-bg-base p-8">
-                <p className="text-xs uppercase tracking-[0.16em] text-fg-tertiary">
+            <div
+              style={{
+                marginTop: "44px",
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(min(100%,320px),1fr))",
+                gap: "clamp(16px,2vw,24px)",
+              }}
+            >
+              <div
+                data-reveal
+                style={{
+                  border: "1px solid rgba(236,233,226,0.08)",
+                  borderRadius: "12px",
+                  padding: "30px 28px",
+                  background: "transparent",
+                }}
+              >
+                <p
+                  style={{
+                    ...label,
+                    fontSize: "11px",
+                    letterSpacing: "0.16em",
+                  }}
+                >
                   Cloud memory services
                 </p>
-                <ul className="mt-5 space-y-3 text-body font-light leading-relaxed text-fg-secondary">
-                  <li>Extract your data into a vector database or knowledge graph in their cloud</li>
-                  <li>The memory is a derived copy — you never get plain files back</li>
-                  <li>Account and subscription required; your data leaves your machine</li>
+                <ul
+                  style={{
+                    margin: "22px 0 0",
+                    padding: 0,
+                    listStyle: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "14px",
+                  }}
+                >
+                  {[
+                    "Extract your data into a vector database or knowledge graph in their cloud",
+                    "The memory is a derived copy — you never get plain files back",
+                    "Account and subscription required; your data leaves your machine",
+                  ].map((li) => (
+                    <li
+                      key={li}
+                      style={{
+                        display: "flex",
+                        gap: "12px",
+                        fontSize: "0.95rem",
+                        fontWeight: 300,
+                        lineHeight: 1.6,
+                        color: "#8a8478",
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{ color: "var(--fg-tertiary)", flex: "none" }}
+                      >
+                        –
+                      </span>
+                      {li}
+                    </li>
+                  ))}
                 </ul>
               </div>
-              <div className="bg-bg-base p-8">
-                <p className="text-xs uppercase tracking-[0.16em] text-fg-primary">
+
+              <div
+                data-reveal
+                data-reveal-delay="120"
+                style={{
+                  position: "relative",
+                  border: "1px solid rgba(255,176,0,0.22)",
+                  borderRadius: "12px",
+                  padding: "30px 28px",
+                  background: "#100e0b",
+                  boxShadow: "0 0 60px rgba(255,176,0,0.05)",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: "-1px",
+                    left: "24px",
+                    right: "24px",
+                    height: "1px",
+                    background: "var(--exo-amber)",
+                  }}
+                />
+                <p
+                  style={{
+                    margin: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    fontFamily: MONO,
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    letterSpacing: "0.16em",
+                    textTransform: "uppercase",
+                    color: "var(--exo-amber)",
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: "6px",
+                      height: "6px",
+                      borderRadius: "50%",
+                      background: "var(--exo-amber)",
+                      display: "inline-block",
+                    }}
+                  />
                   Exomem
                 </p>
-                <ul className="mt-5 space-y-3 text-body font-light leading-relaxed text-fg-secondary">
-                  <li>Your notes stay plain Markdown in a vault you own and can edit anywhere</li>
-                  <li>The index is a local SQLite sidecar — the files themselves are the memory</li>
-                  <li>Self-hosted, no account; with the lean install, nothing leaves your machine</li>
+                <ul
+                  style={{
+                    margin: "22px 0 0",
+                    padding: 0,
+                    listStyle: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "14px",
+                  }}
+                >
+                  {[
+                    "Plain Markdown in a vault you own — edit it anywhere, forever",
+                    "The index is a local SQLite sidecar — the files themselves are the memory",
+                    "Self-hosted, no account — with the lean install, nothing leaves your machine",
+                  ].map((li) => (
+                    <li
+                      key={li}
+                      style={{
+                        display: "flex",
+                        gap: "12px",
+                        fontSize: "0.95rem",
+                        fontWeight: 300,
+                        lineHeight: 1.6,
+                        color: "#c8c3b8",
+                      }}
+                    >
+                      <span
+                        aria-hidden="true"
+                        style={{ color: "var(--exo-amber)", flex: "none" }}
+                      >
+                        ▸
+                      </span>
+                      {li}
+                    </li>
+                  ))}
                 </ul>
               </div>
             </div>
-            <p className="mt-8 text-body font-light text-fg-secondary">
+            <p
+              data-reveal
+              style={{
+                margin: "28px 0 0",
+                fontSize: "0.95rem",
+                fontWeight: 300,
+                color: "var(--fg-secondary)",
+              }}
+            >
               <Link
                 href="/blog/exomem-vs-mem0-letta-zep"
-                className="text-fg-primary underline decoration-border-emphasis underline-offset-4 transition-opacity duration-default hover:opacity-70"
+                className="exo-underline-pp"
               >
-                See the full comparison vs mem0, Letta, Zep, cognee, and Basic Memory
+                Full comparison vs mem0, Letta, Zep, cognee, and Basic Memory →
               </Link>
             </p>
           </div>
         </section>
 
-        <section className="border-t border-border-subtle px-6 py-24">
-          <div className="mx-auto max-w-6xl">
-            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-              Install
+        {/* ============ 05 — INSTALL ============ */}
+        <section style={sectionBorder}>
+          <div style={shell}>
+            <p data-reveal style={label}>
+              05 — Install
             </p>
-            <div className="mt-6 rounded-lg border border-border-subtle bg-bg-elevated/70 p-5 font-mono text-sm text-fg-secondary">
-              <p>pip install exomem</p>
-              <p className="mt-2">exomem --help</p>
+            <div
+              style={{
+                marginTop: "28px",
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(min(100%,340px),1fr))",
+                gap: "clamp(24px,4vw,56px)",
+                alignItems: "start",
+                maxWidth: "64rem",
+              }}
+            >
+              <div
+                data-reveal
+                data-reveal-delay="80"
+                style={{
+                  border: "1px solid var(--exo-border-card)",
+                  borderRadius: "12px",
+                  background: "var(--bg-panel)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    padding: "12px 18px",
+                    borderBottom: "1px solid var(--exo-rule)",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: "11px",
+                      color: "var(--fg-tertiary)",
+                    }}
+                  >
+                    terminal
+                  </span>
+                  <CopyButton variant="terminal" />
+                </div>
+                <div
+                  style={{
+                    padding: "20px 18px",
+                    fontFamily: MONO,
+                    fontSize: "13.5px",
+                    lineHeight: 2,
+                    color: "var(--fg-secondary)",
+                  }}
+                >
+                  <p style={{ margin: 0 }}>
+                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>pip
+                    install exomem
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>exomem
+                    --help
+                  </p>
+                  <p style={{ margin: 0, color: "var(--fg-tertiary)" }}>
+                    # extras: local embeddings · CLIP · OCR · ASR
+                  </p>
+                </div>
+              </div>
+
+              <div data-reveal data-reveal-delay="140">
+                <p style={{ ...label, margin: "4px 0 0" }}>Works with</p>
+                <div
+                  style={{
+                    marginTop: "18px",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "10px",
+                  }}
+                >
+                  {[
+                    "Claude Code",
+                    "Claude Desktop",
+                    "Codex",
+                    "Cursor",
+                    "any MCP client",
+                  ].map((chip) => (
+                    <span
+                      key={chip}
+                      style={{
+                        border: "1px solid var(--exo-border-input)",
+                        borderRadius: "999px",
+                        padding: "7px 15px",
+                        fontFamily: MONO,
+                        fontSize: "11.5px",
+                        color: "var(--fg-secondary)",
+                      }}
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+                <p
+                  style={{
+                    margin: "22px 0 0",
+                    maxWidth: "26rem",
+                    fontSize: "13.5px",
+                    fontWeight: 300,
+                    lineHeight: 1.7,
+                    color: "var(--fg-secondary)",
+                  }}
+                >
+                  The same memory is also reachable from the CLI and a personal
+                  REST facade — all generated from one operation registry.
+                </p>
+              </div>
             </div>
-            <div className="mt-8 flex flex-wrap gap-x-8 gap-y-3 text-sm font-light">
+            <div
+              data-reveal
+              data-reveal-delay="160"
+              style={{
+                marginTop: "28px",
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "12px 32px",
+                fontFamily: MONO,
+                fontSize: "12.5px",
+              }}
+            >
               <a
                 href="https://github.com/Artexis10/exomem"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-fg-secondary transition-colors duration-default hover:text-fg-primary"
+                {...externalLink}
+                className="exo-link-sp"
               >
-                GitHub source
+                GitHub source →
               </a>
               <a
                 href="https://pypi.org/project/exomem/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-fg-secondary transition-colors duration-default hover:text-fg-primary"
+                {...externalLink}
+                className="exo-link-sp"
               >
-                PyPI package
+                PyPI package →
               </a>
               <a
                 href="https://github.com/Artexis10/exomem/blob/main/README.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-fg-secondary transition-colors duration-default hover:text-fg-primary"
+                {...externalLink}
+                className="exo-link-sp"
               >
-                README
+                README →
               </a>
-              <Link
-                href="/blog"
-                className="text-fg-secondary transition-colors duration-default hover:text-fg-primary"
-              >
-                Writing
-              </Link>
             </div>
           </div>
         </section>
 
-        <section className="border-t border-border-subtle px-6 py-24">
-          <div className="mx-auto max-w-4xl">
-            <p className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">
-              FAQ
+        {/* ============ 06 — HOSTED INTEREST ============ */}
+        <section style={sectionBorder}>
+          <div style={shell}>
+            <div
+              data-reveal
+              style={{
+                maxWidth: "44rem",
+                margin: "0 auto",
+                border: "1px solid var(--exo-border-card)",
+                borderRadius: "12px",
+                padding: "clamp(28px,4vw,44px)",
+                background: "#0e0c0a",
+              }}
+            >
+              <p style={label}>06 — A question</p>
+              <h2
+                style={{
+                  ...h2,
+                  margin: "20px 0 0",
+                  fontSize: "clamp(1.3rem,2.4vw,1.7rem)",
+                  lineHeight: 1.3,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                Interested in a hosted version?
+              </h2>
+              <p
+                style={{
+                  margin: "18px 0 0",
+                  fontSize: "0.95rem",
+                  fontWeight: 300,
+                  lineHeight: 1.7,
+                  color: "var(--fg-secondary)",
+                }}
+              >
+                Exomem is free and self-hosted forever. If you&rsquo;d rather not
+                run it yourself, a managed tier is on the table. Register interest
+                and help decide whether it gets built.
+              </p>
+              <p
+                style={{
+                  margin: "16px 0 0",
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "6px 10px",
+                  fontFamily: MONO,
+                  fontSize: "11.5px",
+                  lineHeight: 1.6,
+                  color: "var(--fg-tertiary)",
+                }}
+              >
+                <span>end-to-end encrypted</span>
+                <span aria-hidden="true">·</span>
+                <span>your data exportable any time</span>
+                <span aria-hidden="true">·</span>
+                <span>self-host or leave whenever</span>
+              </p>
+              <HostedInterestForm />
+            </div>
+          </div>
+        </section>
+
+        {/* ============ 07 — FAQ ============ */}
+        <section style={sectionBorder}>
+          <div style={{ ...shell, maxWidth: "48rem" }}>
+            <p data-reveal style={label}>
+              07 — FAQ
             </p>
-            <h2 className="mt-4 text-3xl font-light tracking-tight text-fg-primary sm:text-4xl">
+            <h2 data-reveal data-reveal-delay="80" style={h2}>
               Common questions
             </h2>
-            <div className="mt-10 border-t border-border-subtle">
-              {faqs.map((faq) => (
-                <div key={faq.q} className="border-b border-border-subtle py-6">
-                  <h3 className="text-lg font-light tracking-tight text-fg-primary">
-                    {faq.q}
-                  </h3>
-                  <p className="mt-3 text-body font-light leading-relaxed text-fg-secondary">
-                    {faq.a}
-                  </p>
-                </div>
-              ))}
-            </div>
+            <FaqAccordion items={displayFaqs} />
           </div>
         </section>
       </main>
 
-      <Footer />
+      {/* ============ FOOTER ============ */}
+      <footer style={sectionBorder}>
+        <div
+          style={{
+            maxWidth: "72rem",
+            margin: "0 auto",
+            padding: "56px clamp(20px,5vw,48px)",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "24px 48px",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: MONO,
+                fontSize: "13px",
+                fontWeight: 500,
+                color: "var(--fg-primary)",
+              }}
+            >
+              exomem
+            </p>
+            <p
+              style={{
+                margin: "8px 0 0",
+                fontSize: "12px",
+                fontWeight: 300,
+                color: "var(--fg-tertiary)",
+              }}
+            >
+              © 2026 Substrate Systems OÜ · AGPL-3.0
+            </p>
+          </div>
+          <nav
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "12px 28px",
+              fontSize: "12.5px",
+              fontWeight: 300,
+            }}
+          >
+            <Link href="/" className="exo-link-ts">
+              Substrate
+            </Link>
+            <Link href="/endstate" className="exo-link-ts">
+              Endstate
+            </Link>
+            <a
+              href="https://github.com/Artexis10/exomem"
+              {...externalLink}
+              className="exo-link-ts"
+            >
+              Exomem source
+            </a>
+            <a
+              href="https://pypi.org/project/exomem/"
+              {...externalLink}
+              className="exo-link-ts"
+            >
+              PyPI
+            </a>
+          </nav>
+        </div>
+      </footer>
     </div>
   );
 }
