@@ -20,14 +20,12 @@ const TIER_LABELS: Record<string, string> = {
   "20": "€20+ / month",
 };
 
-// Deliberately lenient (we only count demand, never deliver to this address),
-// but reject HTML metacharacters outright so nothing user-controlled can inject
-// markup into the notification email below.
+// Deliberately lenient on address shape (we only count demand, never deliver
+// here), but strict on characters: the value flows into both the email subject
+// and the HTML body, so this rejects whitespace/newlines (header + subject
+// injection) and HTML metacharacters (`<>"'&` and backtick) outright.
 const isValidEmail = (v: string) =>
-  v.indexOf("@") >= 1 &&
-  v.indexOf(".") > v.indexOf("@") &&
-  v.length <= 254 &&
-  !/[<>"'&]/.test(v);
+  v.length <= 254 && /^[^\s<>"'`&]+@[^\s<>"'`&]+\.[^\s<>"'`&]+$/.test(v);
 
 // Defense in depth: escape before interpolating into htmlContent, so tightening
 // the validator later can't silently reintroduce an injection path.
