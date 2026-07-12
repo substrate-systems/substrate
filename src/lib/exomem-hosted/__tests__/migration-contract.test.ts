@@ -115,6 +115,9 @@ describe("Exomem hosted migration contract", () => {
 
   it("adds tenant-scoped restore pins and proof-gated export tombstones", () => {
     const sql = readFileSync(exportLifecyclePath, "utf8");
+    assert.match(sql, /UPDATE exomem_lifecycle_operations AS operation[\s\S]*input_export_id/i);
+    assert.match(sql, /operation\.input_reference_digest = export_row\.storage_reference_digest/i);
+    assert.match(sql, /exomem_lifecycle_active_restore_export_pin_check/i);
     assert.match(sql, /FOREIGN KEY \(tenant_id, input_export_id\)/i);
     assert.match(sql, /REFERENCES exomem_exports\(tenant_id, id\)/i);
     assert.match(sql, /export_release_reference_ciphertext jsonb/i);
@@ -122,5 +125,6 @@ describe("Exomem hosted migration contract", () => {
     assert.match(sql, /gc_next_attempt_at timestamptz/i);
     assert.match(sql, /state = 'deleted'[\s\S]*storage_reference_digest IS NULL/i);
     assert.match(sql, /provider_deleted_at IS NOT NULL/i);
+    assert.match(sql, /provider_deleted_at = export_row\.deleted_at/i);
   });
 });
