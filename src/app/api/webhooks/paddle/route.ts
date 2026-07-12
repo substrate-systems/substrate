@@ -1,32 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
 import {
   PaddleSignatureError,
   fetchPaddleCustomerEmail,
   verifyPaddleSignature,
-} from '@/lib/license/paddle';
-import { withApiVersion } from '@/lib/hosted-backup/api-version';
+} from "@/lib/license/paddle";
+import { withApiVersion } from "@/lib/hosted-backup/api-version";
 import {
   ensurePreAccount,
   getSubscriptionByUserId,
   markPaddleEventProcessed,
   recordPaddleEventIfFresh,
   userHasAuthCredentials,
-} from '@/lib/hosted-backup/db';
+} from "@/lib/hosted-backup/db";
 import {
   applyPaddleEvent,
   isHandledEvent,
   type EmailResolver,
   type PaddleSubscriptionEvent,
-} from '@/lib/hosted-backup/subscriptions';
-import { mintClaimToken } from '@/lib/hosted-backup/claim-tokens';
-import { sendTransactionalEmail } from '@/lib/brevo';
-import {
-  renderClaimEmail,
-  renderFyiEmail,
-} from '@/lib/email-templates/claim';
+} from "@/lib/hosted-backup/subscriptions";
+import { mintClaimToken } from "@/lib/hosted-backup/claim-tokens";
+import { sendTransactionalEmail } from "@/lib/brevo";
+import { renderClaimEmail, renderFyiEmail } from "@/lib/email-templates/claim";
+import { dispatchVerifiedExomemPaddleEvent } from "@/lib/exomem-hosted/paddle-webhook";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function ok(body: Record<string, unknown>, status = 200): NextResponse {
   return withApiVersion(NextResponse.json(body, { status }));
@@ -44,17 +42,14 @@ function makeEmailResolver(): EmailResolver {
     try {
       email = await fetchPaddleCustomerEmail(customerId);
     } catch (err) {
-      console.warn(
-        '[hosted-backup paddle webhook] fetchPaddleCustomerEmail failed',
-        { customerId, err: err instanceof Error ? err.message : String(err) },
-      );
+      console.warn("[hosted-backup paddle webhook] fetchPaddleCustomerEmail failed", {
+        customerId,
+        err: err instanceof Error ? err.message : String(err),
+      });
       return null;
     }
     if (!email) {
-      console.warn(
-        '[hosted-backup paddle webhook] Paddle customer has no email',
-        { customerId },
-      );
+      console.warn("[hosted-backup paddle webhook] Paddle customer has no email", { customerId });
       return null;
     }
     return ensurePreAccount(email);
@@ -64,20 +59,15 @@ function makeEmailResolver(): EmailResolver {
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const secret = process.env.PADDLE_WEBHOOK_SECRET;
   if (!secret) {
-    console.error(
-      '[hosted-backup paddle webhook] PADDLE_WEBHOOK_SECRET is not set',
-    );
-    return ok(
-      { success: false, error: { code: 'SERVER_MISCONFIGURED' } },
-      500,
-    );
+    console.error("[hosted-backup paddle webhook] PADDLE_WEBHOOK_SECRET is not set");
+    return ok({ success: false, error: { code: "SERVER_MISCONFIGURED" } }, 500);
   }
 
   const rawBody = await req.text();
 
   try {
     verifyPaddleSignature({
-      header: req.headers.get('paddle-signature'),
+      header: req.headers.get("paddle-signature"),
       rawBody,
       secret,
     });
@@ -86,9 +76,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return ok(
         {
           success: false,
-          error: { code: 'PADDLE_SIGNATURE_INVALID', message: err.message },
+          error: { code: "PADDLE_SIGNATURE_INVALID", message: err.message },
         },
-        401,
+        401
       );
     }
     throw err;
@@ -101,28 +91,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return ok(
       {
         success: false,
-        error: { code: 'BAD_REQUEST', message: 'invalid JSON' },
+        error: { code: "BAD_REQUEST", message: "invalid JSON" },
       },
-      400,
+      400
     );
   }
 
-  if (typeof event.event_id !== 'string' || event.event_id.length === 0) {
+  if (typeof event.event_id !== "string" || event.event_id.length === 0) {
     return ok(
       {
         success: false,
-        error: { code: 'BAD_REQUEST', message: 'event_id is required' },
+        error: { code: "BAD_REQUEST", message: "event_id is required" },
       },
-      400,
+      400
     );
   }
-  if (typeof event.event_type !== 'string') {
+  if (typeof event.event_type !== "string") {
     return ok(
       {
         success: false,
-        error: { code: 'BAD_REQUEST', message: 'event_type is required' },
+        error: { code: "BAD_REQUEST", message: "event_type is required" },
       },
-      400,
+      400
+    );
+  }
+
+  let exomemResult;
+  try {
+    exomemResult = await dispatchVerifiedExomemPaddleEvent(event);
+  } catch {
+    console.error("[exomem paddle webhook] dispatch failed", {
+      code: "EXOMEM_PADDLE_TRANSIENT_FAILURE",
+    });
+    return ok(
+      {
+        success: false,
+        error: { code: "EXOMEM_PADDLE_TRANSIENT_FAILURE" },
+      },
+      503
+    );
+  }
+  if (exomemResult.kind === "rejected") {
+    return ok({ success: false, error: { code: exomemResult.code } }, exomemResult.status);
+  }
+  if (exomemResult.kind === "handled") {
+    return ok(
+      {
+        ok: true,
+        product: "exomem-hosted",
+        outcome: exomemResult.outcome,
+      },
+      200
     );
   }
 
@@ -135,13 +154,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   } catch (err) {
     // If the idempotency insert blows up (e.g. DB hiccup), let Paddle retry.
-    console.error('[hosted-backup paddle webhook] idempotency insert failed:', err);
+    console.error("[hosted-backup paddle webhook] idempotency insert failed:", err);
     return ok(
       {
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'transient failure' },
+        error: { code: "INTERNAL_ERROR", message: "transient failure" },
       },
-      500,
+      500
     );
   }
 
@@ -150,10 +169,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (!isHandledEvent(event.event_type)) {
-    console.warn(
-      '[hosted-backup paddle webhook] ignoring unhandled event_type:',
-      event.event_type,
-    );
+    console.warn("[hosted-backup paddle webhook] ignoring unhandled event_type:", event.event_type);
     await markPaddleEventProcessed(event.event_id);
     return ok({ ok: true, ignored: true, event_type: event.event_type }, 200);
   }
@@ -164,30 +180,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       resolveByEmail: makeEmailResolver(),
     });
   } catch (err) {
-    console.error('[hosted-backup paddle webhook] apply threw:', err);
+    console.error("[hosted-backup paddle webhook] apply threw:", err);
     return ok(
       {
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: 'transient failure' },
+        error: { code: "INTERNAL_ERROR", message: "transient failure" },
       },
-      500,
+      500
     );
   }
 
   await markPaddleEventProcessed(event.event_id);
 
-  if (result.kind === 'unknown_user') {
+  if (result.kind === "unknown_user") {
     // Subscription event for a user we don't have on file yet. Return 200 so
     // Paddle stops retrying immediately; if our row appears later we'll get
     // a subsequent event we can act on. (Paddle's retry policy means we'd
     // get this event again on transient errors anyway.)
     console.warn(
-      '[hosted-backup paddle webhook] unknown user for customer_id; recording as processed',
-      { event_id: event.event_id, event_type: event.event_type },
+      "[hosted-backup paddle webhook] unknown user for customer_id; recording as processed",
+      { event_id: event.event_id, event_type: event.event_type }
     );
     return ok({ ok: true, unknown_user: true }, 200);
   }
-  if (result.kind === 'ignored') {
+  if (result.kind === "ignored") {
     return ok({ ok: true, ignored: true, reason: result.reason }, 200);
   }
 
@@ -199,10 +215,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       await dispatchPostResolveEmail(result.userId);
     } catch (err) {
-      console.error(
-        '[hosted-backup paddle webhook] follow-up email dispatch threw',
-        err,
-      );
+      console.error("[hosted-backup paddle webhook] follow-up email dispatch threw", err);
     }
   }
 
@@ -221,10 +234,9 @@ async function dispatchPostResolveEmail(userId: string): Promise<void> {
   if (!sub) {
     // Should not happen — applyPaddleEvent just upserted the row. Log and
     // bail.
-    console.warn(
-      '[hosted-backup paddle webhook] post-resolve email: subscription missing',
-      { userId },
-    );
+    console.warn("[hosted-backup paddle webhook] post-resolve email: subscription missing", {
+      userId,
+    });
     return;
   }
   // userHasAuthCredentials told us whether the user is a pre-account; we
@@ -232,10 +244,7 @@ async function dispatchPostResolveEmail(userId: string): Promise<void> {
   // another helper).
   const userRow = await fetchUserEmail(userId);
   if (!userRow) {
-    console.warn(
-      '[hosted-backup paddle webhook] post-resolve email: user row missing',
-      { userId },
-    );
+    console.warn("[hosted-backup paddle webhook] post-resolve email: user row missing", { userId });
     return;
   }
   if (!hasCreds) {
@@ -248,10 +257,10 @@ async function dispatchPostResolveEmail(userId: string): Promise<void> {
       textContent: rendered.textContent,
     });
     if (!sendResult.success) {
-      console.warn(
-        '[hosted-backup paddle webhook] claim email send failed',
-        { userId, error: sendResult.error },
-      );
+      console.warn("[hosted-backup paddle webhook] claim email send failed", {
+        userId,
+        error: sendResult.error,
+      });
     }
     return;
   }
@@ -267,17 +276,17 @@ async function dispatchPostResolveEmail(userId: string): Promise<void> {
     textContent: rendered.textContent,
   });
   if (!sendResult.success) {
-    console.warn(
-      '[hosted-backup paddle webhook] fyi email send failed',
-      { userId, error: sendResult.error },
-    );
+    console.warn("[hosted-backup paddle webhook] fyi email send failed", {
+      userId,
+      error: sendResult.error,
+    });
   }
 }
 
 async function fetchUserEmail(userId: string): Promise<{ email: string } | null> {
   // Small ad-hoc query — pulling in findUserById from db.ts would also work,
   // but it returns a richer shape than we need. Keep it local.
-  const { findUserById } = await import('@/lib/hosted-backup/db');
+  const { findUserById } = await import("@/lib/hosted-backup/db");
   const row = await findUserById(userId);
   return row ? { email: row.email } : null;
 }
