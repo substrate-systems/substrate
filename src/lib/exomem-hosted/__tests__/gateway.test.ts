@@ -369,15 +369,15 @@ describe("registry-derived Exomem gateway", () => {
     );
   });
 
-  it("does not accept an altered digest after the same cache identity expires", async () => {
+  it("does not let a cached contract hide an immediately altered digest", async () => {
     const row = target({
       userId: USER_A,
       tenantId: TENANT_A,
       cellId: "cell-a",
       endpoint: "https://cell-a.internal/",
     });
-    let now = 1_000;
     let contractCalls = 0;
+    let commandCalls = 0;
     const drifted = alteredContract((value) => {
       const command = value.commands.find((candidate) => candidate.name === "ask_memory");
       assert.ok(command);
@@ -388,13 +388,13 @@ describe("registry-derived Exomem gateway", () => {
         contractCalls += 1;
         return Response.json(contractCalls === 1 ? contract() : drifted);
       }
+      commandCalls += 1;
       return Response.json({ success: true, data: {} });
     };
     const dependencies = {
       resolveTarget: async () => row,
       fetch: fetchMock,
       expectedProtocol: "1",
-      now: () => now,
       decrypt,
       principalScope: () => "A".repeat(43),
     };
@@ -405,7 +405,6 @@ describe("registry-derived Exomem gateway", () => {
       args: { query: "first" },
       dependencies,
     });
-    now += 60_001;
     await assert.rejects(
       routeExomemCommand({
         session: { userId: USER_A, tenantId: TENANT_A },
@@ -417,5 +416,6 @@ describe("registry-derived Exomem gateway", () => {
         error instanceof ExomemHostedError && error.code === "CELL_PROTOCOL_MISMATCH"
     );
     assert.equal(contractCalls, 2);
+    assert.equal(commandCalls, 1);
   });
 });

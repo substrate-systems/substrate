@@ -381,12 +381,7 @@ async function fetchContract(
   requestId: string
 ): Promise<HostedContract> {
   const now = (dependencies.now ?? Date.now)();
-  const expected = contractFixture(target.row);
-  const key = cacheKey(target.row, expected.digest);
-  const cached = contractCache.get(key);
-  if (cached && cached.expiresAt > now && cached.contract.digest.value === expected.digest) {
-    return cached.contract;
-  }
+  contractFixture(target.row);
   const fetchImpl = dependencies.fetch ?? fetch;
   const url = new URL(
     "private/exomem/v1/contract",
@@ -409,6 +404,9 @@ async function fetchContract(
     await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES),
     target.row
   );
+  const key = cacheKey(target.row, contract.digest.value);
+  const cached = contractCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.contract;
   if (contractCache.size >= MAX_CONTRACT_CACHE_ENTRIES) {
     contractCache.delete(contractCache.keys().next().value as string);
   }
