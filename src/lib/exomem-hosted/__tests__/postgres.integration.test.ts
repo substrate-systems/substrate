@@ -230,6 +230,115 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.deepEqual(firstOutbox.rows[0], { state: "failed", secret_ciphertext: null });
   });
 
+  it("admits only the newest generation when magic-link requests race", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    const secret = {
+      version: 1 as const,
+      algorithm: "A256GCM" as const,
+      iv: "opaque-iv",
+      ciphertext: "opaque-ciphertext",
+      tag: "opaque-tag",
+    };
+    const candidates = [
+      {
+        tokenDigest: Buffer.alloc(32, 0x65),
+        browserChallengeDigest: Buffer.alloc(32, 0x66),
+      },
+      {
+        tokenDigest: Buffer.alloc(32, 0x67),
+        browserChallengeDigest: Buffer.alloc(32, 0x68),
+      },
+    ];
+
+    const created = await Promise.all(
+      candidates.map((candidate) =>
+        createMagicAccessToken({
+          emailNormalized: "owner@example.com",
+          ...candidate,
+          expiresAt: new Date(Date.now() + 15 * 60_000),
+          deliverySecretCiphertext: secret,
+        })
+      )
+    );
+    assert.equal(created.filter(Boolean).length, 2);
+
+    const firstClaim = await claimMagicLinkDelivery({
+      leaseOwner: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    });
+    assert.ok(firstClaim);
+    const secondClaim = await claimMagicLinkDelivery({
+      leaseOwner: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    });
+    assert.equal(secondClaim, null);
+
+    assert.equal(
+      await markMagicLinkDeliverySent({
+        deliveryId: firstClaim.deliveryId,
+        leaseOwner: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      }),
+      true
+    );
+    const generations = await pool.query<{
+      token_digest: Buffer;
+      magic_link_generation: string;
+      tenant_generation: string;
+    }>(
+      `SELECT token.token_digest,
+              token.magic_link_generation::text,
+              tenant.magic_link_generation::text AS tenant_generation
+       FROM exomem_access_tokens AS token
+       JOIN exomem_tenants AS tenant ON tenant.id = token.tenant_id
+       WHERE token.purpose = 'magic_link'
+       ORDER BY token.magic_link_generation`
+    );
+    assert.equal(generations.rows.length, 2);
+    const winner = generations.rows.find(
+      (row) => row.magic_link_generation === row.tenant_generation
+    );
+    const loser = generations.rows.find(
+      (row) => row.magic_link_generation !== row.tenant_generation
+    );
+    assert.ok(winner);
+    assert.ok(loser);
+    assert.deepEqual(firstClaim.tokenDigest, winner.token_digest);
+
+    // Delivery state is not the authority: even a stale row marked sent must
+    // fail the generation fence at redemption.
+    await pool.query(
+      "UPDATE exomem_access_tokens SET delivery_state = 'sent', delivered_at = now()"
+    );
+    const loserCandidate = candidates.find((candidate) =>
+      candidate.tokenDigest.equals(loser.token_digest)
+    );
+    const winnerCandidate = candidates.find((candidate) =>
+      candidate.tokenDigest.equals(winner.token_digest)
+    );
+    assert.ok(loserCandidate);
+    assert.ok(winnerCandidate);
+    assert.equal(
+      await redeemMagicAccessTokenAtomic({
+        ...loserCandidate,
+        sessionDigest: Buffer.alloc(32, 0x69),
+        csrfDigest: Buffer.alloc(32, 0x6a),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      }),
+      null
+    );
+    assert.ok(
+      await redeemMagicAccessTokenAtomic({
+        ...winnerCandidate,
+        sessionDigest: Buffer.alloc(32, 0x6b),
+        csrfDigest: Buffer.alloc(32, 0x6c),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      })
+    );
+  });
+
   it("deletes a consumed invite and scrubs restore secrets after destruction", async () => {
     const session = "44444444-4444-4444-8444-444444444444";
     const restore = "55555555-5555-4555-8555-555555555555";

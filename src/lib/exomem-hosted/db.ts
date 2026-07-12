@@ -297,14 +297,24 @@ export async function createMagicAccessToken(
         AND users.deleted_at IS NULL
         AND tenant.status IN ('provisioning', 'active', 'suspended')
         AND tenant.deleted_at IS NULL
+    ), generation AS (
+      UPDATE exomem_tenants AS tenant
+      SET magic_link_generation = tenant.magic_link_generation + 1,
+          updated_at = now()
+      FROM owner
+      WHERE tenant.id = owner.tenant_id
+        AND tenant.owner_user_id = owner.user_id
+      RETURNING tenant.owner_user_id AS user_id,
+                tenant.id AS tenant_id,
+                tenant.magic_link_generation
     ), prior_tokens AS (
       UPDATE exomem_access_tokens AS prior
       SET revoked_at = COALESCE(prior.revoked_at, now()),
           delivery_state = 'failed',
           delivery_error_code = 'SUPERSEDED_MAGIC_LINK'
-      FROM owner
-      WHERE prior.user_id = owner.user_id
-        AND prior.tenant_id = owner.tenant_id
+      FROM generation
+      WHERE prior.user_id = generation.user_id
+        AND prior.tenant_id = generation.tenant_id
         AND prior.purpose = 'magic_link'
         AND prior.consumed_at IS NULL
         AND prior.revoked_at IS NULL
@@ -322,15 +332,17 @@ export async function createMagicAccessToken(
       RETURNING outbox.id
     ), token AS (
       INSERT INTO exomem_access_tokens (
-        purpose, token_digest, browser_challenge_digest, user_id, tenant_id, expires_at
+        purpose, token_digest, browser_challenge_digest, magic_link_generation,
+        user_id, tenant_id, expires_at
       )
       SELECT 'magic_link',
              ${input.tokenDigest},
              ${input.browserChallengeDigest},
-             owner.user_id,
-             owner.tenant_id,
+             generation.magic_link_generation,
+             generation.user_id,
+             generation.tenant_id,
              ${input.expiresAt.toISOString()}
-      FROM owner
+      FROM generation
       CROSS JOIN (SELECT count(*) FROM prior_outbox) AS invalidated
       ON CONFLICT (token_digest) DO NOTHING
       RETURNING id, user_id, tenant_id
@@ -409,6 +421,7 @@ export async function expireInvalidMagicLinkDeliveries(limit = 100): Promise<num
               AND users.deleted_at IS NULL
               AND tenant.status IN ('provisioning', 'active', 'suspended')
               AND tenant.deleted_at IS NULL
+              AND token.magic_link_generation = tenant.magic_link_generation
           )
         )
       ORDER BY outbox.created_at
@@ -457,6 +470,7 @@ export async function claimMagicLinkDelivery(input: {
        AND tenant.owner_user_id = token.user_id
        AND tenant.status IN ('provisioning', 'active', 'suspended')
        AND tenant.deleted_at IS NULL
+       AND token.magic_link_generation = tenant.magic_link_generation
       WHERE (
           (outbox.state = 'pending' AND outbox.next_attempt_at <= now())
           OR (outbox.state = 'leased' AND outbox.lease_expires_at <= now())
@@ -632,6 +646,7 @@ export async function redeemMagicAccessTokenAtomic(
        AND tenant.owner_user_id = token.user_id
        AND tenant.status IN ('provisioning', 'active', 'suspended')
        AND tenant.deleted_at IS NULL
+       AND token.magic_link_generation = tenant.magic_link_generation
       WHERE token.token_digest = ${input.tokenDigest}
         AND token.browser_challenge_digest = ${input.browserChallengeDigest}
         AND token.purpose = 'magic_link'
@@ -639,7 +654,7 @@ export async function redeemMagicAccessTokenAtomic(
         AND token.consumed_at IS NULL
         AND token.revoked_at IS NULL
         AND token.expires_at > now()
-      FOR UPDATE OF token
+      FOR UPDATE OF token, tenant
     ),
     product_session AS (
       INSERT INTO exomem_sessions (

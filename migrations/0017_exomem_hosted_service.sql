@@ -11,6 +11,7 @@ CREATE TABLE exomem_tenants (
   desired_state text NOT NULL DEFAULT 'running'
     CHECK (desired_state IN ('running', 'suspended', 'deleted')),
   fence_generation bigint NOT NULL DEFAULT 1 CHECK (fence_generation > 0),
+  magic_link_generation bigint NOT NULL DEFAULT 0 CHECK (magic_link_generation >= 0),
   bound_cell_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -133,6 +134,7 @@ CREATE TABLE exomem_access_tokens (
   purpose text NOT NULL CHECK (purpose IN ('magic_link', 'deletion_confirmation')),
   token_digest bytea NOT NULL UNIQUE,
   browser_challenge_digest bytea,
+  magic_link_generation bigint,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id uuid NOT NULL REFERENCES exomem_tenants(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -146,8 +148,12 @@ CREATE TABLE exomem_access_tokens (
   CHECK (octet_length(token_digest) = 32),
   CHECK (
     (purpose = 'magic_link' AND browser_challenge_digest IS NOT NULL
-      AND octet_length(browser_challenge_digest) = 32)
-    OR (purpose = 'deletion_confirmation' AND browser_challenge_digest IS NULL)
+      AND octet_length(browser_challenge_digest) = 32
+      AND magic_link_generation IS NOT NULL
+      AND magic_link_generation >= 0)
+    OR (purpose = 'deletion_confirmation'
+      AND browser_challenge_digest IS NULL
+      AND magic_link_generation IS NULL)
   ),
   CHECK (expires_at > created_at),
   CHECK (consumed_at IS NULL OR revoked_at IS NULL)
