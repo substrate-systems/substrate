@@ -8,6 +8,7 @@ const accessUpgradePath = resolve(
   process.cwd(),
   "migrations/0018_exomem_access_browser_challenge.sql"
 );
+const exportLifecyclePath = resolve(process.cwd(), "migrations/0019_exomem_export_lifecycle.sql");
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -110,5 +111,16 @@ describe("Exomem hosted migration contract", () => {
     assert.match(sql, /lease_owner uuid/i);
     assert.match(sql, /lease_expires_at timestamptz/i);
     assert.match(sql, /UNIQUE REFERENCES exomem_access_tokens\(id\) ON DELETE CASCADE/i);
+  });
+
+  it("adds tenant-scoped restore pins and proof-gated export tombstones", () => {
+    const sql = readFileSync(exportLifecyclePath, "utf8");
+    assert.match(sql, /FOREIGN KEY \(tenant_id, input_export_id\)/i);
+    assert.match(sql, /REFERENCES exomem_exports\(tenant_id, id\)/i);
+    assert.match(sql, /export_release_reference_ciphertext jsonb/i);
+    assert.match(sql, /gc_lease_owner text/i);
+    assert.match(sql, /gc_next_attempt_at timestamptz/i);
+    assert.match(sql, /state = 'deleted'[\s\S]*storage_reference_digest IS NULL/i);
+    assert.match(sql, /provider_deleted_at IS NOT NULL/i);
   });
 });

@@ -6,13 +6,18 @@ import {
   expectedCellConfiguration,
 } from "../reconciler";
 import { FakeCellProvisioner, ProvisionerFailure } from "../provisioner";
+import { digestSecret, encryptSecret } from "../security";
 
 const TENANT = "018f2d91-7c42-7000-8000-000000000051";
 
-function harness(storeOverride?: InMemoryLifecycleStore) {
+function harness(
+  storeOverride?: InMemoryLifecycleStore,
+  terminateBilling: (tenantId: string) => Promise<boolean> = async () => true,
+  provisionerOverride?: FakeCellProvisioner
+) {
   const nowState = { value: new Date("2026-07-12T12:00:00.000Z") };
   const store = storeOverride ?? new InMemoryLifecycleStore({ now: () => nowState.value });
-  const provisioner = new FakeCellProvisioner();
+  const provisioner = provisionerOverride ?? new FakeCellProvisioner();
   const reconciler = new LifecycleReconciler({
     store,
     provisioner,
@@ -24,6 +29,7 @@ function harness(storeOverride?: InMemoryLifecycleStore) {
     now: () => nowState.value,
     randomBytes: (size) => Buffer.alloc(size, 0x51),
     envelopeKey: Buffer.alloc(32, 0x61),
+    terminateBilling,
   });
   return { store, provisioner, reconciler, nowState };
 }
@@ -62,6 +68,55 @@ describe("Exomem lifecycle reconciler", () => {
 
     assert.equal(results.filter((result) => result.kind === "advanced").length, 1);
     assert.equal(store.checkpointHistory.length, 1);
+  });
+
+  it("drains a fenced in-flight provision before tenant-wide deletion", async () => {
+    class DeferredProvisioner extends FakeCellProvisioner {
+      readonly started: Promise<void>;
+      readonly release: Promise<void>;
+      markStarted: () => void;
+      releaseProvision: () => void;
+
+      constructor() {
+        super();
+        this.markStarted = () => undefined;
+        this.releaseProvision = () => undefined;
+        this.started = new Promise<void>((resolve) => {
+          this.markStarted = resolve;
+        });
+        this.release = new Promise<void>((resolve) => {
+          this.releaseProvision = resolve;
+        });
+      }
+
+      override async provision(request: Parameters<FakeCellProvisioner["provision"]>[0]) {
+        this.markStarted();
+        await this.release;
+        return super.provision(request);
+      }
+    }
+
+    const provisioner = new DeferredProvisioner();
+    const { store, reconciler, nowState } = harness(undefined, async () => true, provisioner);
+    const provision = await store.enqueue(TENANT, "provision", "deferred-provision");
+    await reconciler.reconcileOne({ owner: "candidate", tenantId: TENANT });
+    const providerCall = reconciler.reconcileOne({ owner: "provider", tenantId: TENANT });
+    await provisioner.started;
+
+    const deletion = await store.enqueue(TENANT, "delete", "delete-during-provision");
+    assert.equal(
+      (await reconciler.reconcileOne({ owner: "delete-too-early", tenantId: TENANT })).kind,
+      "idle"
+    );
+    provisioner.releaseProvision();
+    await providerCall;
+    assert.equal(store.operations.get(provision.id)?.state, "running");
+
+    nowState.value = new Date(nowState.value.getTime() + 31_000);
+    await convergeProvision(reconciler, TENANT, 20);
+    assert.equal(store.operations.get(deletion.id)?.state, "succeeded");
+    assert.equal(store.statusForTenant(TENANT).state, "deleted");
+    assert.equal(provisioner.resources.size, 0);
   });
 
   it("takes over a stale lease and reuses the exact checkpoint idempotency key", async () => {
@@ -135,10 +190,15 @@ describe("Exomem lifecycle reconciler", () => {
       provisioner.readinessOverride = { [mismatch]: "wrong-value" };
 
       await reconciler.reconcileOne({ owner: "readiness", tenantId: TENANT });
+      await convergeProvision(reconciler, TENANT, 4);
 
       assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
       assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
       assert.equal(store.operations.get(operation.id)?.errorCode, "CELL_READINESS_MISMATCH");
+      assert.equal(provisioner.resources.size, 0);
+      const failedCell = store.cells.get(store.operations.get(operation.id)?.cellId ?? "");
+      assert.equal(failedCell?.providerRef, null);
+      assert.equal(failedCell?.credentialEnvelope, null);
     });
   }
 
@@ -156,8 +216,10 @@ describe("Exomem lifecycle reconciler", () => {
       await reconciler.reconcileOne({ owner: "provider", tenantId: TENANT });
       provisioner.readinessOverride = override;
       await reconciler.reconcileOne({ owner: "readiness", tenantId: TENANT });
+      await convergeProvision(reconciler, TENANT, 4);
       assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
       assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
+      assert.equal(provisioner.resources.size, 0);
     }
   });
 
@@ -172,6 +234,11 @@ describe("Exomem lifecycle reconciler", () => {
       await store.makeRunnable(TENANT);
       await reconciler.reconcileOne({ owner: `worker-${attempt}`, tenantId: TENANT });
     }
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "candidate-cleanup");
+    assert.equal(store.operations.get(operation.id)?.state, "failed_retryable");
+    provisioner.failure = null;
+    await store.makeRunnable(TENANT);
+    await convergeProvision(reconciler, TENANT, 4);
     assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
     assert.equal(store.operations.get(operation.id)?.errorCode, "LIFECYCLE_MAX_ATTEMPTS");
     assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
@@ -185,7 +252,21 @@ describe("Exomem lifecycle reconciler", () => {
     const prior = store.tenants.get(TENANT)?.boundCellId;
     assert.ok(prior);
 
-    await store.enqueue(TENANT, "restore", "restore-1");
+    const restoreRef = "stored-export-restore-1";
+    await store.enqueue(TENANT, "restore", "restore-1", null, {
+      inputReferenceEnvelope: encryptSecret(restoreRef, {
+        key: Buffer.alloc(32, 0x61),
+        randomBytes: (size) => Buffer.alloc(size, 0x41),
+      }),
+      inputReferenceDigest: digestSecret(restoreRef),
+      restoreBinding: {
+        exportId: "018f2d91-7c42-7000-8000-000000000052",
+        sourceCellId: prior,
+        archiveSha256: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        archiveSize: 1024,
+      },
+    });
     provisioner.readinessOverride = { cellId: "wrong-cell" };
     await convergeProvision(reconciler);
 
@@ -231,8 +312,158 @@ describe("Exomem lifecycle reconciler", () => {
       store.checkpointHistory
         .filter((entry) => entry.operationId === operation.id)
         .map((entry) => entry.checkpoint),
-      ["rotation-prepared", "rotation-staged", "rotation-promoted", "rotation-finalized"]
+      [
+        "rotation-prepared",
+        "rotation-staged",
+        "rotation-verified",
+        "rotation-promoted",
+        "rotation-finalized",
+        "rotation-confirmed",
+      ]
     );
+  });
+
+  it("records only a verified encrypted export and restores the prior running state", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "export", "owner-export-1", cellId);
+    await convergeProvision(reconciler, TENANT, 16);
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    const exported = store.exports.get(operation.id);
+    assert.ok(exported);
+    assert.match(exported.archiveSha256, /^[0-9a-f]{64}$/);
+    assert.match(exported.manifestSha256, /^[0-9a-f]{64}$/);
+    assert.equal(exported.archiveSize, 1024);
+    assert.equal(JSON.stringify(exported).includes(`export-${operation.id}`), false);
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+    assert.deepEqual(
+      provisioner.calls
+        .filter((call) => call.idempotencyKey.startsWith(operation.id))
+        .map((call) => call.action),
+      ["quiesce", "export", "release-export", "resume", "health"]
+    );
+  });
+
+  it("retries a lost cell-release acknowledgement without exporting again", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "export", "release-ack-loss", cellId);
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "export", tenantId: TENANT });
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "export-stored");
+    assert.equal(provisioner.exportArtifacts.size, 1);
+    provisioner.loseNextAcknowledgement("release-export");
+    await reconciler.reconcileOne({ owner: "lost-release-ack", tenantId: TENANT });
+
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "export-stored");
+    assert.equal(provisioner.exportArtifacts.size, 0);
+    await store.makeRunnable(TENANT);
+    await convergeProvision(reconciler, TENANT, 12);
+
+    const calls = provisioner.calls.filter((call) => call.idempotencyKey.startsWith(operation.id));
+    assert.equal(calls.filter((call) => call.action === "export").length, 1);
+    assert.equal(calls.filter((call) => call.action === "release-export").length, 2);
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+  });
+
+  it("leaves an already suspended tenant quiesced after export", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    await store.enqueue(TENANT, "suspend", "suspend-before-export", cellId);
+    await convergeProvision(reconciler);
+
+    const operation = await store.enqueue(TENANT, "export", "suspended-export", cellId);
+    assert.equal(operation.resumeAfterOperation, false);
+    await convergeProvision(reconciler, TENANT, 16);
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(store.statusForTenant(TENANT).state, "suspended");
+    assert.equal(
+      provisioner.calls.some(
+        (call) => call.action === "resume" && call.idempotencyKey.startsWith(operation.id)
+      ),
+      false
+    );
+  });
+
+  it("marks deletion complete only after quiesce, seal, and full destruction proof", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "delete", "confirmed-delete", cellId);
+    await convergeProvision(reconciler, TENANT, 16);
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(store.statusForTenant(TENANT).state, "deleted");
+    assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
+    assert.equal(provisioner.resources.has(cellId), false);
+    assert.deepEqual(
+      provisioner.calls
+        .filter((call) => call.idempotencyKey.startsWith(operation.id))
+        .map((call) => call.action),
+      ["quiesce", "seal", "destroy"]
+    );
+  });
+
+  it("keeps deletion pending and routing closed until billing termination is proven", async () => {
+    const { store, reconciler, provisioner } = harness(undefined, async () => false);
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    const operation = await store.enqueue(TENANT, "delete", "paid-delete", cellId);
+
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    const result = await reconciler.reconcileOne({ owner: "billing", tenantId: TENANT });
+
+    assert.equal(result.kind, "retry_scheduled");
+    assert.equal(store.operations.get(operation.id)?.errorCode, "BILLING_TERMINATION_UNAVAILABLE");
+    assert.equal(store.statusForTenant(TENANT).state, "deletion_pending");
+    assert.equal(
+      provisioner.calls.some(
+        (call) => call.action === "quiesce" && call.idempotencyKey.startsWith(operation.id)
+      ),
+      false
+    );
+  });
+
+  it("finishes destruction and secret scrubbing after an earlier deletion retry", async () => {
+    let billingAttempts = 0;
+    const { store, reconciler, provisioner } = harness(
+      undefined,
+      async () => ++billingAttempts > 1
+    );
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    const operation = await store.enqueue(TENANT, "delete", "retrying-delete", cellId);
+
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "billing-first", tenantId: TENANT });
+    await store.makeRunnable(TENANT);
+    await convergeProvision(reconciler, TENANT, 20);
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(store.statusForTenant(TENANT).state, "deleted");
+    assert.equal(provisioner.resources.has(cellId), false);
+    assert.equal(store.cells.get(cellId)?.credentialEnvelope, null);
   });
 
   it("never exposes provider or credential sentinels in stored failure/status", async () => {
@@ -248,5 +479,96 @@ describe("Exomem lifecycle reconciler", () => {
 
     assert.equal(JSON.stringify(store.operations.get(operation.id)).includes(sentinel), false);
     assert.equal(JSON.stringify(store.statusForTenant(TENANT)).includes(sentinel), false);
+  });
+
+  it("runs the two-tenant alpha lifecycle drill without widening either blast radius", async () => {
+    const alphaTenant = "018f2d91-7c42-7000-8000-000000000061";
+    const bravoTenant = "018f2d91-7c42-7000-8000-000000000062";
+    const now = new Date("2026-07-12T16:00:00.000Z");
+    const store = new InMemoryLifecycleStore({ now: () => now });
+    const provisioner = new FakeCellProvisioner();
+    let entropy = 1;
+    const reconciler = new LifecycleReconciler({
+      store,
+      provisioner,
+      config: expectedCellConfiguration({
+        protocolVersion: "1",
+        releaseVersion: "0.19.1",
+        workerPolicy: { workerCount: 0, semantic: false, media: false },
+      }),
+      now: () => now,
+      randomBytes: (size) => Buffer.alloc(size, entropy++),
+      envelopeKey: Buffer.alloc(32, 0x71),
+      terminateBilling: async () => true,
+    });
+
+    // The same public retry key remains tenant-scoped and provisions two
+    // distinct cells, credentials, endpoints, and provider resources.
+    const alphaProvision = await store.enqueue(alphaTenant, "provision", "same-public-retry-key");
+    const bravoProvision = await store.enqueue(bravoTenant, "provision", "same-public-retry-key");
+    await convergeProvision(reconciler, alphaTenant);
+    await convergeProvision(reconciler, bravoTenant);
+    const alphaCell = store.tenants.get(alphaTenant)?.boundCellId;
+    const bravoCell = store.tenants.get(bravoTenant)?.boundCellId;
+    assert.ok(alphaCell);
+    assert.ok(bravoCell);
+    assert.notEqual(alphaProvision.id, bravoProvision.id);
+    assert.notEqual(alphaCell, bravoCell);
+    assert.equal(store.statusForTenant(alphaTenant).state, "ready");
+    assert.equal(store.statusForTenant(bravoTenant).state, "ready");
+    assert.notDeepEqual(
+      store.cells.get(alphaCell)?.credentialDigest,
+      store.cells.get(bravoCell)?.credentialDigest
+    );
+
+    await store.enqueue(alphaTenant, "suspend", "alpha-suspend", alphaCell);
+    await convergeProvision(reconciler, alphaTenant);
+    assert.equal(store.statusForTenant(alphaTenant).state, "suspended");
+    assert.equal(store.statusForTenant(bravoTenant).state, "ready");
+    assert.equal(provisioner.resources.get(bravoCell)?.state, "running");
+
+    await store.enqueue(alphaTenant, "resume", "alpha-resume", alphaCell);
+    await convergeProvision(reconciler, alphaTenant);
+    const exportOperation = await store.enqueue(alphaTenant, "export", "alpha-export", alphaCell);
+    await convergeProvision(reconciler, alphaTenant, 24);
+    const exported = store.exports.get(exportOperation.id);
+    assert.ok(exported);
+    const exportReference = exported.storageReferenceEnvelope;
+    assert.ok(exportReference);
+    assert.equal(exported.tenantId, alphaTenant);
+    assert.equal(store.statusForTenant(bravoTenant).state, "ready");
+
+    const restoreOperation = await store.enqueue(alphaTenant, "restore", "alpha-restore", null, {
+      inputReferenceEnvelope: exportReference,
+      inputReferenceDigest: exported.storageReferenceDigest,
+      restoreBinding: {
+        exportId: exported.id,
+        sourceCellId: exported.cellId,
+        archiveSha256: exported.archiveSha256,
+        manifestSha256: exported.manifestSha256,
+        archiveSize: exported.archiveSize,
+      },
+    });
+    await convergeProvision(reconciler, alphaTenant, 16);
+    const replacementAlpha = store.tenants.get(alphaTenant)?.boundCellId;
+    assert.ok(replacementAlpha);
+    assert.notEqual(replacementAlpha, alphaCell);
+    assert.equal(store.operations.get(restoreOperation.id)?.state, "succeeded");
+    assert.equal(store.statusForTenant(alphaTenant).state, "ready");
+    assert.equal(store.tenants.get(bravoTenant)?.boundCellId, bravoCell);
+
+    const credentialBefore = store.cells.get(replacementAlpha)?.credentialVersion;
+    await store.enqueue(alphaTenant, "rotate_credential", "alpha-rotate", replacementAlpha);
+    await convergeProvision(reconciler, alphaTenant);
+    assert.equal(store.cells.get(replacementAlpha)?.credentialVersion, (credentialBefore ?? 0) + 1);
+    assert.equal(store.statusForTenant(bravoTenant).state, "ready");
+
+    await store.enqueue(alphaTenant, "delete", "alpha-delete", replacementAlpha);
+    await convergeProvision(reconciler, alphaTenant, 16);
+    assert.equal(store.statusForTenant(alphaTenant).state, "deleted");
+    assert.equal(provisioner.resources.has(replacementAlpha), false);
+    assert.equal(store.statusForTenant(bravoTenant).state, "ready");
+    assert.equal(store.tenants.get(bravoTenant)?.boundCellId, bravoCell);
+    assert.equal(provisioner.resources.get(bravoCell)?.state, "running");
   });
 });

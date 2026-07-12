@@ -96,7 +96,8 @@ Every call is `POST {EXOMEM_PROVISIONER_ENDPOINT}/cells/{action}` with:
 - `X-Exomem-Provisioner-Protocol: exomem-cell-provisioner.v1`.
 
 Actions are `provision`, `health`, `rotate-credential`, `quiesce`, `resume`,
-`stop`, `export`, `export-download`, `restore`, `seal`, and `destroy`. Calls with
+`stop`, `export`, `export-release`, `export-download`, `export-delete`, `restore`,
+`seal`, and `destroy`. Calls with
 the same idempotency key and input must converge to the same result; reusing a
 key with different input must fail.
 
@@ -105,9 +106,14 @@ ID, protocol, release, authenticated-service state, mutation authority, read and
 write admissions, and exact worker policy. Substrate does not bind or route a
 candidate that fails any field.
 
-`export` must return a non-empty opaque `exportRef`, 64-character lowercase
+`export` must return non-empty opaque `exportRef` and `releaseRef` values, 64-character lowercase
 `archiveSha256` and `manifestSha256`, positive `archiveSize`,
 `encryptionScheme: "envelope-aes-256-gcm"`, and `integrityVerified: true`.
+Substrate records the verified provider object before calling `export-release`;
+the cell keeps its local artifact until that idempotent acknowledgement. Expired
+provider objects are removed by the bounded hourly `exomem-export-gc` pass.
+`export-delete` must return `objectDestroyed: true` before the control plane
+scrubs the encrypted reference and integrity metadata into a tombstone.
 `export-download` returns an HTTPS URL expiring within 15 minutes. `destroy`
 must prove `computeDestroyed`, `storageDestroyed`, and `keysDestroyed`; deletion
 stays pending unless all three are true.
@@ -154,11 +160,14 @@ Never call a private cell directly to work around a stuck checkpoint.
   overlapping credential, verifies it, promotes the encrypted control-plane
   copy, and only then finalizes the old credential.
 - **Export:** the owner uses Home. The workflow quiesces, obtains and records a
-  verified encrypted export, resumes only if the tenant was previously running,
+  verified encrypted export, acknowledges release of the cell-local artifact,
+  resumes only if the tenant was previously running,
   and exposes a short-lived owner-only download. Retrying returns the same
-  operation/export.
+  operation/export. A lost release acknowledgement retries the same release key
+  without creating or uploading another export.
 - **Restore:** select one of that tenant's non-expired exports. Restore creates a
-  replacement cell and keeps the old cell bound until the candidate proves
+  durable same-tenant pin before GC can claim the object, creates a replacement
+  cell, and keeps the old cell bound until the candidate proves
   identity, protocol, release, mutation authority, and worker policy. A failed
   restore leaves the old cell untouched.
 - **Deletion:** Home sends a fresh one-use email confirmation. Consumption

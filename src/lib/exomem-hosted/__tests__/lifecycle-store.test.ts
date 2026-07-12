@@ -20,7 +20,7 @@ describe("SQL lifecycle operation store", () => {
       tenantId: "018f2d91-7c42-7000-8000-000000000071",
     });
 
-    assert.match(statement, /FOR UPDATE SKIP LOCKED/i);
+    assert.match(statement, /FOR UPDATE(?: OF operation)? SKIP LOCKED/i);
     assert.match(statement, /state = 'running'/i);
     assert.match(statement, /lease_expires_at <= now\(\)/i);
     assert.match(statement, /attempts <=/i);
@@ -79,5 +79,38 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /expected_previous_cell_id/i);
     assert.match(statement, /UPDATE exomem_lifecycle_operations/i);
     assert.equal(statement.includes("never-persist-this-credential"), false);
+  });
+
+  it("atomically pins an owner restore to a same-tenant unexpired export", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [] };
+    });
+    const store = new SqlLifecycleStore();
+    await assert.rejects(
+      store.enqueue("018f2d91-7c42-7000-8000-000000000071", "restore", "restore-pinned", null, {
+        inputReferenceEnvelope: {
+          version: 1,
+          algorithm: "A256GCM",
+          iv: "opaque-iv",
+          ciphertext: "opaque-ciphertext",
+          tag: "opaque-tag",
+        },
+        inputReferenceDigest: Buffer.alloc(32, 0x71),
+        restoreBinding: {
+          exportId: "018f2d91-7c42-7000-8000-000000000072",
+          sourceCellId: "018f2d91-7c42-7000-8000-000000000073",
+          archiveSha256: "a".repeat(64),
+          manifestSha256: "b".repeat(64),
+          archiveSize: 1024,
+        },
+      })
+    );
+    assert.match(statement, /export_row\.state = 'available'/);
+    assert.match(statement, /export_row\.expires_at > now\(\)/);
+    assert.match(statement, /FOR UPDATE OF export_row/);
+    assert.match(statement, /input_export_id/);
+    assert.match(statement, /source_export\.storage_reference_ciphertext/);
   });
 });

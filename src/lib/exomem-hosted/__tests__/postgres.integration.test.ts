@@ -15,6 +15,9 @@ import {
   type ExomemSql,
 } from "../db";
 import { SqlLifecycleStore } from "../lifecycle-store";
+import { getOwnerExport, listOwnerExports } from "../durability";
+import { SqlExportGcStore } from "../export-gc";
+import { digestSecret, encryptSecret } from "../security";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -343,6 +346,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const session = "44444444-4444-4444-8444-444444444444";
     const restore = "55555555-5555-4555-8555-555555555555";
     const deletion = "66666666-6666-4666-8666-666666666666";
+    const exportOperation = "77777777-7777-4777-8777-777777777777";
+    const exportId = "88888888-8888-4888-8888-888888888888";
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
@@ -387,6 +392,33 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          '{"encrypted":true}', $4, $3, $5, $6, 1024
        )`,
       [restore, TENANT, CELL, Buffer.alloc(32, 0x45), "a".repeat(64), "b".repeat(64)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, cell_id, operation_type, state, checkpoint,
+         idempotency_key, fence_generation, completed_at
+       ) VALUES ($1, $2, $3, 'export', 'succeeded', 'readiness-proved',
+                 'export-before-delete', 1, now())`,
+      [exportOperation, TENANT, CELL]
+    );
+    await pool.query(
+      `INSERT INTO exomem_exports (
+         id, tenant_id, cell_id, operation_id,
+         storage_reference_ciphertext, storage_reference_digest,
+         archive_sha256, manifest_sha256, archive_size,
+         encryption_scheme, integrity_verified, expires_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1024,
+                 'envelope-aes-256-gcm', true, now() + interval '1 hour')`,
+      [
+        exportId,
+        TENANT,
+        CELL,
+        exportOperation,
+        JSON.stringify({ encrypted: true }),
+        Buffer.alloc(32, 0x46),
+        "c".repeat(64),
+        "d".repeat(64),
+      ]
     );
     await pool.query(
       `INSERT INTO exomem_lifecycle_operations (
@@ -442,6 +474,25 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       service_credential_ciphertext: null,
       service_credential_digest: null,
     });
+    const deletedExport = await pool.query<{
+      state: string;
+      storage_reference_digest: Buffer | null;
+      archive_sha256: string | null;
+      provider_deleted_at: Date | null;
+    }>(
+      `SELECT state, storage_reference_digest, archive_sha256, provider_deleted_at
+       FROM exomem_exports WHERE id = $1`,
+      [exportId]
+    );
+    assert.deepEqual(
+      {
+        state: deletedExport.rows[0]?.state,
+        digest: deletedExport.rows[0]?.storage_reference_digest,
+        archive: deletedExport.rows[0]?.archive_sha256,
+        providerDeleted: deletedExport.rows[0]?.provider_deleted_at instanceof Date,
+      },
+      { state: "deleted", digest: null, archive: null, providerDeleted: true }
+    );
   });
 
   it("fences and gates confirmed deletion even before any cell is bound", async () => {
@@ -490,5 +541,133 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.equal(operation?.cellId, null);
     assert.equal(operation?.fenceGeneration, 2);
     assert.equal(await store.applyLocalGate(operation!.id, "delete-worker", "deleted"), true);
+  });
+
+  it("runs the normal SQL lifecycle enqueue, claim, and advance path", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'provisioning', 'running')`,
+      [TENANT, USER]
+    );
+    const store = new SqlLifecycleStore();
+    await assert.rejects(store.enqueue(TENANT, "delete", "unsafe-direct-delete"));
+
+    const queued = await store.enqueue(TENANT, "provision", "normal-provision");
+    const claimed = await store.claim({
+      owner: "normal-worker",
+      leaseMs: 30_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(claimed?.id, queued.id);
+    assert.equal(claimed?.checkpoint, "created");
+    assert.equal(
+      await store.advance(queued.id, "normal-worker", "created", "candidate-created"),
+      true
+    );
+    const row = await pool.query<{ state: string; checkpoint: string }>(
+      "SELECT state, checkpoint FROM exomem_lifecycle_operations WHERE id = $1",
+      [queued.id]
+    );
+    assert.deepEqual(row.rows[0], { state: "waiting", checkpoint: "candidate-created" });
+  });
+
+  it("filters expired owner artifacts and pins an unexpired restore against GC", async () => {
+    const failed = "44444444-4444-4444-8444-444444444491";
+    const availableOperation = "44444444-4444-4444-8444-444444444492";
+    const expiredOperation = "44444444-4444-4444-8444-444444444493";
+    const availableExport = "55555555-5555-4555-8555-555555555591";
+    const expiredExport = "55555555-5555-4555-8555-555555555592";
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state, fence_generation)
+       VALUES ($1, $2, 'active', 'running', 7)`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state,
+         protocol_version, release_version, provider_ref,
+         service_credential_ciphertext, service_credential_digest
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', 'test', 'provider-ref', $3, $4)`,
+      [CELL, TENANT, JSON.stringify({ encrypted: true }), Buffer.alloc(32, 0x21)]
+    );
+    await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations
+         (id, tenant_id, cell_id, operation_type, state, idempotency_key,
+          fence_generation, checkpoint, completed_at)
+       VALUES
+         ($1, $4, $5, 'export', 'failed_terminal', 'failed-export', 7, 'created', now()),
+         ($2, $4, $5, 'export', 'succeeded', 'available-export', 7, 'readiness-proved', now()),
+         ($3, $4, $5, 'export', 'succeeded', 'expired-export', 7, 'readiness-proved', now())`,
+      [failed, availableOperation, expiredOperation, TENANT, CELL]
+    );
+    const availableRef = "provider-available-export";
+    const expiredRef = "provider-expired-export";
+    const key = Buffer.alloc(32, 0x31);
+    await pool.query(
+      `INSERT INTO exomem_exports (
+         id, tenant_id, cell_id, operation_id, storage_reference_ciphertext,
+         storage_reference_digest, archive_sha256, manifest_sha256, archive_size,
+         encryption_scheme, integrity_verified, expires_at
+       ) VALUES
+         ($1, $3, $4, $5, $6, $7, $8, $9, 1024,
+          'envelope-aes-256-gcm', true, now() + interval '1 hour'),
+         ($2, $3, $4, $10, $11, $12, $13, $14, 2048,
+          'envelope-aes-256-gcm', true, now() - interval '1 hour')`,
+      [
+        availableExport,
+        expiredExport,
+        TENANT,
+        CELL,
+        availableOperation,
+        JSON.stringify(
+          encryptSecret(availableRef, { key, randomBytes: (size) => Buffer.alloc(size, 0x32) })
+        ),
+        digestSecret(availableRef),
+        "a".repeat(64),
+        "b".repeat(64),
+        expiredOperation,
+        JSON.stringify(
+          encryptSecret(expiredRef, { key, randomBytes: (size) => Buffer.alloc(size, 0x33) })
+        ),
+        digestSecret(expiredRef),
+        "c".repeat(64),
+        "d".repeat(64),
+      ]
+    );
+
+    const listed = await listOwnerExports(USER, TENANT);
+    assert.deepEqual(
+      listed.map((row) => row.operationId).sort(),
+      [availableOperation, failed].sort()
+    );
+    assert.equal(await getOwnerExport(USER, TENANT, expiredExport), null);
+    assert.equal((await getOwnerExport(USER, TENANT, availableExport))?.fenceGeneration, 7);
+
+    await pool.query("DELETE FROM exomem_exports WHERE id = $1", [expiredExport]);
+    const store = new SqlLifecycleStore();
+    const restore = await store.enqueue(TENANT, "restore", "pinned-restore", null, {
+      inputReferenceEnvelope: encryptSecret(availableRef, {
+        key,
+        randomBytes: (size) => Buffer.alloc(size, 0x34),
+      }),
+      inputReferenceDigest: digestSecret(availableRef),
+      restoreBinding: {
+        exportId: availableExport,
+        sourceCellId: CELL,
+        archiveSha256: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        archiveSize: 1024,
+      },
+    });
+    assert.equal(restore.inputExportId, availableExport);
+    await pool.query(
+      "UPDATE exomem_exports SET expires_at = now() - interval '1 minute' WHERE id = $1",
+      [availableExport]
+    );
+    assert.equal(await new SqlExportGcStore().claim({ owner: "gc-racer", leaseMs: 30_000 }), null);
   });
 });

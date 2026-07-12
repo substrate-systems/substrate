@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { SensitiveSecret } from "./security";
 
 export const PROVISIONER_PROTOCOL = "exomem-cell-provisioner.v1";
+const MAX_PROVISIONER_RESPONSE_BYTES = 1024 * 1024;
 
 export type CellWorkerPolicy = {
   workerCount: number;
@@ -13,6 +14,7 @@ export type ProvisionerCallContext = {
   operationId: string;
   checkpoint: string;
   idempotencyKey: string;
+  fenceGeneration: number;
 };
 
 export type ProvisionCellRequest = {
@@ -35,8 +37,16 @@ export type RotateCredentialRequest = CellTargetRequest & {
   nextCredential: SensitiveSecret;
 };
 
+export type CredentialRotationResult = {
+  previousCredentialRejected: boolean;
+};
+
 export type RestoreCellRequest = CellTargetRequest & {
-  restoreRef?: string;
+  restoreRef: SensitiveSecret;
+  sourceCellId: string;
+  archiveSha256: string;
+  manifestSha256: string;
+  archiveSize: number;
 };
 
 export type ProvisionedCell = {
@@ -60,27 +70,79 @@ export type CellReadiness = {
 
 export type ExportRequestResult = {
   exportRef: string;
+  releaseRef: string;
+  archiveSha256: string;
+  manifestSha256: string;
+  archiveSize: number;
+  encryptionScheme: "envelope-aes-256-gcm";
+  integrityVerified: true;
+};
+
+export type ReleaseExportRequest = CellTargetRequest & {
+  releaseRef: SensitiveSecret;
+};
+
+export type DeleteExportRequest = {
+  context: ProvisionerCallContext;
+  tenantId: string;
+  exportRef: SensitiveSecret;
+};
+
+export type ExportDeletionProof = {
+  objectDestroyed: true;
+};
+
+export type DestructionProof = {
+  computeDestroyed: true;
+  storageDestroyed: true;
+  keysDestroyed: true;
+};
+
+export type TenantDestructionProof = DestructionProof & {
+  tenantResourcesDestroyed: true;
+};
+
+export type DestroyTenantRequest = {
+  context: ProvisionerCallContext;
+  tenantId: string;
+};
+
+export type ExportDownloadRequest = {
+  context: ProvisionerCallContext;
+  tenantId: string;
+  exportRef: SensitiveSecret;
+};
+
+export type ExportDownloadResult = {
+  url: URL;
+  expiresAt: Date;
 };
 
 export interface CellProvisioner {
   provision(request: ProvisionCellRequest): Promise<ProvisionedCell>;
   health(request: CellTargetRequest): Promise<CellReadiness>;
-  rotateCredential(request: RotateCredentialRequest): Promise<void>;
+  rotateCredential(request: RotateCredentialRequest): Promise<CredentialRotationResult>;
   quiesce(request: CellTargetRequest): Promise<void>;
   resume(request: CellTargetRequest): Promise<void>;
   stop(request: CellTargetRequest): Promise<void>;
   export(request: CellTargetRequest): Promise<ExportRequestResult>;
+  releaseExport(request: ReleaseExportRequest): Promise<void>;
+  deleteExport(request: DeleteExportRequest): Promise<ExportDeletionProof>;
+  createExportDownload(request: ExportDownloadRequest): Promise<ExportDownloadResult>;
   restore(request: RestoreCellRequest): Promise<void>;
   seal(request: CellTargetRequest): Promise<void>;
-  destroy(request: CellTargetRequest): Promise<void>;
+  discard(request: CellTargetRequest): Promise<DestructionProof>;
+  destroy(request: DestroyTenantRequest): Promise<TenantDestructionProof>;
 }
 
 export type ProvisionerFailureCode =
+  | "CONTROL_PLANE_STATE_CONFLICT"
   | "PROVISIONER_CONFIGURATION_INVALID"
   | "PROVISIONER_UNAVAILABLE"
   | "PROVISIONER_TIMEOUT"
   | "PROVISIONER_REJECTED"
-  | "PROVISIONER_RESPONSE_INVALID";
+  | "PROVISIONER_RESPONSE_INVALID"
+  | "BILLING_TERMINATION_UNAVAILABLE";
 
 export class ProvisionerFailure extends Error {
   readonly code: ProvisionerFailureCode;
@@ -125,7 +187,13 @@ export function provisionerConfigFromEnv(
   } catch {
     throw configurationFailure();
   }
-  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) {
+  if (
+    endpoint.protocol !== "https:" ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
     throw configurationFailure();
   }
   const timeoutRaw = env.EXOMEM_PROVISIONER_TIMEOUT_MS ?? "5000";
@@ -142,10 +210,11 @@ export function provisionerConfigFromEnv(
 
 type Fetch = typeof fetch;
 
-function contextBody(context: ProvisionerCallContext): Record<string, string> {
+function contextBody(context: ProvisionerCallContext): Record<string, unknown> {
   return {
     operationId: context.operationId,
     checkpoint: context.checkpoint,
+    fenceGeneration: context.fenceGeneration,
   };
 }
 
@@ -205,7 +274,11 @@ export class HttpCellProvisioner implements CellProvisioner {
     this.#fetch = fetchImplementation;
   }
 
-  async #call(action: string, request: ProvisionCellRequest, body: Record<string, unknown>) {
+  async #call(
+    action: string,
+    request: Pick<ProvisionCellRequest, "context">,
+    body: Record<string, unknown>
+  ) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.#config.timeoutMs);
     try {
@@ -221,6 +294,7 @@ export class HttpCellProvisioner implements CellProvisioner {
         body: JSON.stringify(body),
         signal: controller.signal,
         cache: "no-store",
+        redirect: "error",
       });
       if (!response.ok) {
         const retryable =
@@ -232,7 +306,13 @@ export class HttpCellProvisioner implements CellProvisioner {
       }
       if (response.status === 204) return {};
       try {
-        return (await response.json()) as Record<string, unknown>;
+        const declared = Number(response.headers.get("content-length") ?? "0");
+        if (declared > MAX_PROVISIONER_RESPONSE_BYTES) throw new Error("oversized");
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength > MAX_PROVISIONER_RESPONSE_BYTES) throw new Error("oversized");
+        const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+        return parsed as Record<string, unknown>;
       } catch {
         throw new ProvisionerFailure({
           code: "PROVISIONER_RESPONSE_INVALID",
@@ -320,13 +400,17 @@ export class HttpCellProvisioner implements CellProvisioner {
     };
   }
 
-  async rotateCredential(request: RotateCredentialRequest): Promise<void> {
-    await this.#call("rotate-credential", request, {
+  async rotateCredential(request: RotateCredentialRequest): Promise<CredentialRotationResult> {
+    const response = await this.#call("rotate-credential", request, {
       ...targetBody(request),
       phase: request.phase,
       credentialVersion: request.credentialVersion,
       nextCredential: request.nextCredential.reveal(),
     });
+    if (request.phase === "finalize" && response.previousCredentialRejected !== true) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_RESPONSE_INVALID", retryable: false });
+    }
+    return { previousCredentialRejected: response.previousCredentialRejected === true };
   }
 
   async quiesce(request: CellTargetRequest): Promise<void> {
@@ -344,31 +428,164 @@ export class HttpCellProvisioner implements CellProvisioner {
   async export(request: CellTargetRequest): Promise<ExportRequestResult> {
     const response = await this.#call("export", request, targetBody(request));
     const exportRef = boundedOpaqueReference(response.exportRef);
-    if (!exportRef) {
+    const releaseRef = boundedOpaqueReference(response.releaseRef);
+    const archiveSha256 = boundedLabel(response.archiveSha256, 64);
+    const manifestSha256 = boundedLabel(response.manifestSha256, 64);
+    const archiveSize = Number(response.archiveSize);
+    if (
+      !exportRef ||
+      !releaseRef ||
+      !archiveSha256 ||
+      !manifestSha256 ||
+      !/^[0-9a-f]{64}$/.test(archiveSha256) ||
+      !/^[0-9a-f]{64}$/.test(manifestSha256) ||
+      !Number.isSafeInteger(archiveSize) ||
+      archiveSize <= 0 ||
+      response.encryptionScheme !== "envelope-aes-256-gcm" ||
+      response.integrityVerified !== true
+    ) {
       throw new ProvisionerFailure({
         code: "PROVISIONER_RESPONSE_INVALID",
         retryable: false,
       });
     }
-    return { exportRef };
+    return {
+      exportRef,
+      releaseRef,
+      archiveSha256,
+      manifestSha256,
+      archiveSize,
+      encryptionScheme: "envelope-aes-256-gcm",
+      integrityVerified: true,
+    };
+  }
+
+  async releaseExport(request: ReleaseExportRequest): Promise<void> {
+    if (!boundedOpaqueReference(request.releaseRef.reveal())) throw configurationFailure();
+    await this.#call("export-release", request, {
+      ...targetBody(request),
+      releaseRef: request.releaseRef.reveal(),
+    });
+  }
+
+  async deleteExport(request: DeleteExportRequest): Promise<ExportDeletionProof> {
+    if (!boundedOpaqueReference(request.exportRef.reveal())) throw configurationFailure();
+    const response = await this.#call("export-delete", request, {
+      ...contextBody(request.context),
+      tenantId: request.tenantId,
+      exportRef: request.exportRef.reveal(),
+    });
+    if (response.objectDestroyed !== true) {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_RESPONSE_INVALID",
+        retryable: false,
+      });
+    }
+    return { objectDestroyed: true };
   }
 
   async restore(request: RestoreCellRequest): Promise<void> {
-    if (request.restoreRef && !boundedOpaqueReference(request.restoreRef)) {
+    if (
+      !boundedOpaqueReference(request.restoreRef.reveal()) ||
+      !boundedOpaqueReference(request.sourceCellId) ||
+      !/^[0-9a-f]{64}$/.test(request.archiveSha256) ||
+      !/^[0-9a-f]{64}$/.test(request.manifestSha256) ||
+      !Number.isSafeInteger(request.archiveSize) ||
+      request.archiveSize <= 0
+    ) {
       throw configurationFailure();
     }
     await this.#call("restore", request, {
       ...targetBody(request),
-      ...(request.restoreRef ? { restoreRef: request.restoreRef } : {}),
+      restoreRef: request.restoreRef.reveal(),
+      sourceCellId: request.sourceCellId,
+      archiveSha256: request.archiveSha256,
+      manifestSha256: request.manifestSha256,
+      archiveSize: request.archiveSize,
     });
+  }
+
+  async createExportDownload(request: ExportDownloadRequest): Promise<ExportDownloadResult> {
+    if (!boundedOpaqueReference(request.exportRef.reveal())) throw configurationFailure();
+    const response = await this.#call("export-download", request, {
+      ...contextBody(request.context),
+      tenantId: request.tenantId,
+      exportRef: request.exportRef.reveal(),
+    });
+    if (typeof response.url !== "string" || typeof response.expiresAt !== "string") {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_RESPONSE_INVALID",
+        retryable: false,
+      });
+    }
+    let url: URL;
+    const expiresAt = new Date(response.expiresAt);
+    try {
+      url = new URL(response.url);
+    } catch {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_RESPONSE_INVALID",
+        retryable: false,
+      });
+    }
+    const ttlMs = expiresAt.getTime() - Date.now();
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      !Number.isFinite(expiresAt.getTime()) ||
+      ttlMs <= 0 ||
+      ttlMs > 15 * 60 * 1000
+    ) {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_RESPONSE_INVALID",
+        retryable: false,
+      });
+    }
+    return { url, expiresAt };
   }
 
   async seal(request: CellTargetRequest): Promise<void> {
     await this.#call("seal", request, targetBody(request));
   }
 
-  async destroy(request: CellTargetRequest): Promise<void> {
-    await this.#call("destroy", request, targetBody(request));
+  async discard(request: CellTargetRequest): Promise<DestructionProof> {
+    const response = await this.#call("discard", request, targetBody(request));
+    if (
+      response.computeDestroyed !== true ||
+      response.storageDestroyed !== true ||
+      response.keysDestroyed !== true
+    ) {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_RESPONSE_INVALID",
+        retryable: false,
+      });
+    }
+    return { computeDestroyed: true, storageDestroyed: true, keysDestroyed: true };
+  }
+
+  async destroy(request: DestroyTenantRequest): Promise<TenantDestructionProof> {
+    const response = await this.#call("destroy", request, {
+      ...contextBody(request.context),
+      tenantId: request.tenantId,
+    });
+    if (
+      response.computeDestroyed !== true ||
+      response.storageDestroyed !== true ||
+      response.keysDestroyed !== true ||
+      response.tenantResourcesDestroyed !== true
+    ) {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_RESPONSE_INVALID",
+        retryable: false,
+      });
+    }
+    return {
+      computeDestroyed: true,
+      storageDestroyed: true,
+      keysDestroyed: true,
+      tenantResourcesDestroyed: true,
+    };
   }
 }
 
@@ -394,12 +611,19 @@ type ProvisionerAction =
   | "resume"
   | "stop"
   | "export"
+  | "release-export"
+  | "delete-export"
   | "restore"
   | "seal"
+  | "discard"
   | "destroy";
 
 export class FakeCellProvisioner implements CellProvisioner {
   readonly resources = new Map<string, FakeResource>();
+  readonly deletedTenants = new Set<string>();
+  readonly exportArtifacts = new Map<string, string>();
+  readonly deletedExports = new Set<string>();
+  readonly tenantFences = new Map<string, number>();
   readonly calls: Array<{
     action: ProvisionerAction;
     cellId: string;
@@ -426,12 +650,30 @@ export class FakeCellProvisioner implements CellProvisioner {
       idempotencyKey: request.context.idempotencyKey,
     });
     if (this.failure) throw this.failure;
+    if (
+      !Number.isSafeInteger(request.context.fenceGeneration) ||
+      request.context.fenceGeneration < 1
+    ) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+    }
+    const currentFence = this.tenantFences.get(request.tenantId) ?? 0;
+    if (
+      request.context.fenceGeneration < currentFence ||
+      (action !== "destroy" && this.deletedTenants.has(request.tenantId))
+    ) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+    }
+    this.tenantFences.set(
+      request.tenantId,
+      Math.max(currentFence, request.context.fenceGeneration)
+    );
     const key = `${action}\0${request.context.idempotencyKey}`;
     const requestDigest = createHash("sha256")
       .update(
         JSON.stringify({
           operationId: request.context.operationId,
           checkpoint: request.context.checkpoint,
+          fenceGeneration: request.context.fenceGeneration,
           tenantId: request.tenantId,
           cellId: request.cellId,
           protocolVersion: request.protocolVersion,
@@ -470,6 +712,9 @@ export class FakeCellProvisioner implements CellProvisioner {
     const key = this.#before("provision", request);
     const prior = this.#results.get(key) as ProvisionedCell | undefined;
     if (prior) return prior;
+    if (this.deletedTenants.has(request.tenantId)) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+    }
     const providerRef = `provider-${request.cellId}`;
     const endpoint = new SensitiveSecret(`https://${request.cellId}.cells.internal`);
     this.resources.set(request.cellId, {
@@ -492,16 +737,20 @@ export class FakeCellProvisioner implements CellProvisioner {
     const key = this.#before("health", request, { providerRef: request.providerRef });
     const resource = this.#resource(request);
     const running = resource.state === "running";
+    const presented = request.serviceCredential.reveal();
+    const serviceAuthenticated =
+      presented === resource.credential.reveal() ||
+      presented === resource.pendingCredential?.reveal();
     const readiness: CellReadiness = {
       live: resource.state !== "stopped",
       ready: running,
       cellId: resource.cellId,
       protocolVersion: resource.protocolVersion,
       releaseVersion: resource.releaseVersion,
-      serviceAuthenticated: true,
-      mutationAuthority: running,
-      readAdmission: running,
-      writeAdmission: running,
+      serviceAuthenticated,
+      mutationAuthority: running && serviceAuthenticated,
+      readAdmission: running && serviceAuthenticated,
+      writeAdmission: running && serviceAuthenticated,
       workerPolicy: structuredClone(resource.workerPolicy),
       code: running ? "CELL_READY" : "CELL_NOT_READY",
       ...this.readinessOverride,
@@ -509,14 +758,15 @@ export class FakeCellProvisioner implements CellProvisioner {
     return this.#after("health", key, readiness);
   }
 
-  async rotateCredential(request: RotateCredentialRequest): Promise<void> {
+  async rotateCredential(request: RotateCredentialRequest): Promise<CredentialRotationResult> {
     const key = this.#before("rotate-credential", request, {
       providerRef: request.providerRef,
       phase: request.phase,
       credentialVersion: request.credentialVersion,
       nextCredential: request.nextCredential.reveal(),
     });
-    if (this.#results.has(key)) return;
+    const prior = this.#results.get(key) as CredentialRotationResult | undefined;
+    if (prior) return prior;
     const resource = this.#resource(request);
     if (request.phase === "stage") resource.pendingCredential = request.nextCredential;
     else {
@@ -524,7 +774,9 @@ export class FakeCellProvisioner implements CellProvisioner {
       resource.pendingCredential = null;
       resource.credentialVersion = request.credentialVersion;
     }
-    this.#after("rotate-credential", key, true);
+    return this.#after("rotate-credential", key, {
+      previousCredentialRejected: request.phase === "finalize",
+    });
   }
 
   async quiesce(request: CellTargetRequest): Promise<void> {
@@ -553,20 +805,85 @@ export class FakeCellProvisioner implements CellProvisioner {
     const prior = this.#results.get(key) as ExportRequestResult | undefined;
     if (prior) return prior;
     this.#resource(request);
-    return this.#after("export", key, { exportRef: `export-${request.context.operationId}` });
+    const archiveSha256 = createHash("sha256")
+      .update(`archive\0${request.cellId}\0${request.context.operationId}`)
+      .digest("hex");
+    const manifestSha256 = createHash("sha256")
+      .update(`manifest\0${request.cellId}\0${request.context.operationId}`)
+      .digest("hex");
+    const exportRef = `export-${request.context.operationId}`;
+    const releaseRef = `release-${request.context.operationId}`;
+    this.exportArtifacts.set(releaseRef, exportRef);
+    return this.#after("export", key, {
+      exportRef,
+      releaseRef,
+      archiveSha256,
+      manifestSha256,
+      archiveSize: 1024,
+      encryptionScheme: "envelope-aes-256-gcm",
+      integrityVerified: true,
+    });
+  }
+
+  async releaseExport(request: ReleaseExportRequest): Promise<void> {
+    const releaseRef = request.releaseRef.reveal();
+    if (!boundedOpaqueReference(releaseRef)) throw configurationFailure();
+    const key = this.#before("release-export", request, {
+      providerRef: request.providerRef,
+      releaseRef,
+    });
+    if (this.#results.has(key)) return;
+    this.#resource(request);
+    this.exportArtifacts.delete(releaseRef);
+    this.#after("release-export", key, true);
+  }
+
+  async deleteExport(request: DeleteExportRequest): Promise<ExportDeletionProof> {
+    const exportRef = request.exportRef.reveal();
+    if (!boundedOpaqueReference(exportRef)) throw configurationFailure();
+    const key = `delete-export\0${request.context.idempotencyKey}`;
+    this.calls.push({
+      action: "delete-export",
+      cellId: "export-object",
+      idempotencyKey: request.context.idempotencyKey,
+    });
+    if (this.failure) throw this.failure;
+    const prior = this.#results.get(key) as ExportDeletionProof | undefined;
+    if (prior) return prior;
+    this.deletedExports.add(exportRef);
+    return this.#after("delete-export", key, { objectDestroyed: true });
   }
 
   async restore(request: RestoreCellRequest): Promise<void> {
-    if (request.restoreRef && !boundedOpaqueReference(request.restoreRef)) {
+    if (
+      !boundedOpaqueReference(request.restoreRef.reveal()) ||
+      !boundedOpaqueReference(request.sourceCellId) ||
+      !/^[0-9a-f]{64}$/.test(request.archiveSha256) ||
+      !/^[0-9a-f]{64}$/.test(request.manifestSha256) ||
+      !Number.isSafeInteger(request.archiveSize) ||
+      request.archiveSize <= 0
+    ) {
       throw configurationFailure();
     }
     const key = this.#before("restore", request, {
       providerRef: request.providerRef,
-      restoreRef: request.restoreRef ?? null,
+      restoreRef: request.restoreRef.reveal(),
+      sourceCellId: request.sourceCellId,
+      archiveSha256: request.archiveSha256,
+      manifestSha256: request.manifestSha256,
+      archiveSize: request.archiveSize,
     });
     if (this.#results.has(key)) return;
     this.#resource(request).state = "running";
     this.#after("restore", key, true);
+  }
+
+  async createExportDownload(request: ExportDownloadRequest): Promise<ExportDownloadResult> {
+    const digest = createHash("sha256").update(request.exportRef.reveal()).digest("base64url");
+    return {
+      url: new URL(`https://downloads.invalid/exomem/${digest}`),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
+    };
   }
 
   async seal(request: CellTargetRequest): Promise<void> {
@@ -576,11 +893,43 @@ export class FakeCellProvisioner implements CellProvisioner {
     this.#after("seal", key, true);
   }
 
-  async destroy(request: CellTargetRequest): Promise<void> {
-    const key = this.#before("destroy", request, { providerRef: request.providerRef });
-    if (this.#results.has(key)) return;
+  async discard(request: CellTargetRequest): Promise<DestructionProof> {
+    const key = this.#before("discard", request, { providerRef: request.providerRef });
+    const prior = this.#results.get(key) as DestructionProof | undefined;
+    if (prior) return prior;
     this.#resource(request);
     this.resources.delete(request.cellId);
-    this.#after("destroy", key, true);
+    return this.#after("discard", key, {
+      computeDestroyed: true,
+      storageDestroyed: true,
+      keysDestroyed: true,
+    });
+  }
+
+  async destroy(request: DestroyTenantRequest): Promise<TenantDestructionProof> {
+    const currentFence = this.tenantFences.get(request.tenantId) ?? 0;
+    if (request.context.fenceGeneration < currentFence) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+    }
+    this.tenantFences.set(request.tenantId, request.context.fenceGeneration);
+    const key = `destroy\0${request.context.idempotencyKey}`;
+    this.calls.push({
+      action: "destroy",
+      cellId: "tenant-wide",
+      idempotencyKey: request.context.idempotencyKey,
+    });
+    if (this.failure) throw this.failure;
+    const prior = this.#results.get(key) as TenantDestructionProof | undefined;
+    if (prior) return prior;
+    this.deletedTenants.add(request.tenantId);
+    for (const [cellId, resource] of this.resources) {
+      if (resource.tenantId === request.tenantId) this.resources.delete(cellId);
+    }
+    return this.#after("destroy", key, {
+      computeDestroyed: true,
+      storageDestroyed: true,
+      keysDestroyed: true,
+      tenantResourcesDestroyed: true,
+    });
   }
 }
