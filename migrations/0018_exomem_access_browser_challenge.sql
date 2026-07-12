@@ -98,6 +98,9 @@ ALTER TABLE exomem_access_tokens
   );
 
 ALTER TABLE exomem_tenants
+  DROP CONSTRAINT IF EXISTS exomem_tenants_magic_link_generation_check;
+
+ALTER TABLE exomem_tenants
   ADD CONSTRAINT exomem_tenants_magic_link_generation_check
   CHECK (magic_link_generation >= 0);
 
