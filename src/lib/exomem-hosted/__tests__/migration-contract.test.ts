@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { describe, it } from "node:test";
 
 const migrationPath = resolve(process.cwd(), "migrations/0017_exomem_hosted_service.sql");
+const accessUpgradePath = resolve(
+  process.cwd(),
+  "migrations/0018_exomem_access_browser_challenge.sql"
+);
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -69,6 +73,14 @@ describe("Exomem hosted migration contract", () => {
     const sql = migration();
     assert.doesNotMatch(sql, /DO\s+\$\$/i);
     assert.doesNotMatch(sql, /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
+  });
+
+  it("upgrades databases that applied the pre-challenge draft migration", () => {
+    const sql = readFileSync(accessUpgradePath, "utf8");
+    assert.match(sql, /ADD COLUMN IF NOT EXISTS browser_challenge_digest bytea/i);
+    assert.match(sql, /LEGACY_MAGIC_LINK_REVOKED/i);
+    assert.match(sql, /secret_ciphertext = NULL/i);
+    assert.match(sql, /ADD CONSTRAINT exomem_access_tokens_browser_challenge_check/i);
   });
 
   it("retains ignored Paddle receipts as a distinct terminal audit disposition", () => {
