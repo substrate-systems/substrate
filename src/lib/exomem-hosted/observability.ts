@@ -1,0 +1,107 @@
+import { ExomemHostedError } from "./errors";
+
+const EVENT_NAMES = new Set([
+  "access.invite.created",
+  "access.invite.redeemed",
+  "access.invite.delivery_failed",
+  "access.magic_link.requested",
+  "access.magic_link.redeemed",
+  "access.magic_link.delivery_failed",
+  "access.logout.succeeded",
+  "access.request.denied",
+]);
+
+const ERROR_CODES = new Set([
+  "ACCESS_TOKEN_INVALID",
+  "ADMIN_DISABLED",
+  "ADMIN_UNAUTHORIZED",
+  "CELL_MAPPING_AMBIGUOUS",
+  "CELL_MAPPING_MISSING",
+  "CSRF_REJECTED",
+  "EMAIL_DELIVERY_UNAVAILABLE",
+  "EXOMEM_SESSION_INVALID",
+  "INTERNAL_ERROR",
+  "INVALID_EMAIL",
+  "INVALID_ENTITLEMENT_SOURCE",
+  "INVALID_EXPIRY",
+  "INVALID_REQUEST",
+  "RATE_LIMITED",
+]);
+
+const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export type OperationalEvent = {
+  timestamp: string;
+  event: string;
+  outcome: string;
+  requestId?: string;
+  tenantId?: string;
+  cellId?: string;
+  operationId?: string;
+  errorCode?: string;
+  protocolVersion?: string;
+  releaseVersion?: string;
+  durationBucket?: string;
+  byteBucket?: string;
+  countBucket?: string;
+};
+
+function optionalUuid(value: unknown): string | undefined {
+  return typeof value === "string" && UUID.test(value) ? value : undefined;
+}
+
+function optionalBoundedLabel(value: unknown): string | undefined {
+  return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(value) ? value : undefined;
+}
+
+export function buildOperationalEvent(
+  input: Record<string, unknown>,
+  now: () => Date = () => new Date()
+): OperationalEvent {
+  const event = typeof input.event === "string" ? input.event : "";
+  const outcome = typeof input.outcome === "string" ? input.outcome : "";
+  if (!EVENT_NAMES.has(event) || !OUTCOMES.has(outcome)) {
+    throw new ExomemHostedError({
+      code: "INVALID_REQUEST",
+      status: 500,
+      message: "operational event metadata is invalid",
+    });
+  }
+  const errorCode =
+    typeof input.errorCode === "string" && ERROR_CODES.has(input.errorCode)
+      ? input.errorCode
+      : undefined;
+  return {
+    timestamp: now().toISOString(),
+    event,
+    outcome,
+    ...(optionalUuid(input.requestId) ? { requestId: optionalUuid(input.requestId) } : {}),
+    ...(optionalUuid(input.tenantId) ? { tenantId: optionalUuid(input.tenantId) } : {}),
+    ...(optionalUuid(input.cellId) ? { cellId: optionalUuid(input.cellId) } : {}),
+    ...(optionalUuid(input.operationId) ? { operationId: optionalUuid(input.operationId) } : {}),
+    ...(errorCode ? { errorCode } : {}),
+    ...(optionalBoundedLabel(input.protocolVersion)
+      ? { protocolVersion: optionalBoundedLabel(input.protocolVersion) }
+      : {}),
+    ...(optionalBoundedLabel(input.releaseVersion)
+      ? { releaseVersion: optionalBoundedLabel(input.releaseVersion) }
+      : {}),
+    ...(optionalBoundedLabel(input.durationBucket)
+      ? { durationBucket: optionalBoundedLabel(input.durationBucket) }
+      : {}),
+    ...(optionalBoundedLabel(input.byteBucket)
+      ? { byteBucket: optionalBoundedLabel(input.byteBucket) }
+      : {}),
+    ...(optionalBoundedLabel(input.countBucket)
+      ? { countBucket: optionalBoundedLabel(input.countBucket) }
+      : {}),
+  };
+}
+
+export function emitOperationalEvent(
+  event: OperationalEvent,
+  sink: (line: string) => void = console.info
+): void {
+  sink(JSON.stringify(event));
+}
