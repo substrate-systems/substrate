@@ -1,4 +1,5 @@
 import { paddleFetch } from "@/lib/hosted-backup/paddle-client";
+import { recordExomemCheckoutTransaction } from "./db";
 import {
   assertExomemPaddlePurpose,
   ExomemPaddleConfigurationError,
@@ -14,6 +15,7 @@ export class ExomemBillingError extends Error {
     | "EXOMEM_PAID_CHECKOUT_DISABLED"
     | "EXOMEM_PADDLE_CONFIGURATION_INVALID"
     | "EXOMEM_PADDLE_ENVIRONMENT_MISMATCH"
+    | "EXOMEM_BILLING_STATE_CONFLICT"
     | "EXOMEM_PADDLE_UNAVAILABLE"
     | "EXOMEM_PADDLE_RESPONSE_INVALID";
   readonly status: number;
@@ -29,6 +31,7 @@ export class ExomemBillingError extends Error {
 type BillingDependencies = {
   config?: ExomemPaddleConfig;
   transport?: PaddleTransport;
+  recordCheckoutTransaction?: typeof recordExomemCheckoutTransaction;
 };
 
 type CheckoutInput = {
@@ -39,6 +42,10 @@ type CheckoutInput = {
 type PortalInput = CheckoutInput & {
   customerId: string;
   subscriptionId?: string;
+};
+
+type ResumeCheckoutInput = CheckoutInput & {
+  transactionId: string;
 };
 
 function assertExactInput(
@@ -109,6 +116,28 @@ function safeHttpsUrl(value: unknown): string | null {
   }
 }
 
+function safePaddleId(value: unknown, prefix: "txn"): string | null {
+  return typeof value === "string" && new RegExp(`^${prefix}_[a-z0-9]{26}$`).test(value)
+    ? value
+    : null;
+}
+
+function safeObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+async function cancelUnboundTransaction(
+  transactionId: string,
+  transport: PaddleTransport
+): Promise<void> {
+  await safePaddleJson(transport, `/transactions/${encodeURIComponent(transactionId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status: "canceled" }),
+  });
+}
+
 export async function createExomemCheckout(
   input: CheckoutInput,
   dependencies: BillingDependencies = {}
@@ -136,8 +165,66 @@ export async function createExomemCheckout(
   const checkoutUrl = safeHttpsUrl(
     (payload as { data?: { checkout?: { url?: unknown } } })?.data?.checkout?.url
   );
-  if (!checkoutUrl) {
+  const transactionId = safePaddleId((payload as { data?: { id?: unknown } })?.data?.id, "txn");
+  if (!checkoutUrl || !transactionId) {
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  let recorded = false;
+  let recordFailed = false;
+  try {
+    recorded = await (dependencies.recordCheckoutTransaction ?? recordExomemCheckoutTransaction)({
+      userId: input.userId,
+      tenantId: input.tenantId,
+      transactionId,
+    });
+  } catch {
+    recordFailed = true;
+  }
+  if (!recorded) {
+    await cancelUnboundTransaction(transactionId, dependencies.transport ?? paddleFetch);
+    if (recordFailed) throw new ExomemBillingError("EXOMEM_PADDLE_UNAVAILABLE", 503);
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  return { checkoutUrl };
+}
+
+export async function resumeExomemCheckout(
+  input: ResumeCheckoutInput,
+  dependencies: BillingDependencies = {}
+): Promise<{ checkoutUrl: string }> {
+  assertExactInput(input, ["userId", "tenantId", "transactionId"]);
+  if (!safePaddleId(input.transactionId, "txn")) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  const config = dependencies.config ?? loadExomemPaddleConfig();
+  try {
+    assertExomemPaddlePurpose(config, "checkout");
+  } catch (error) {
+    throw safeConfigurationError(error);
+  }
+  const payload = await safePaddleJson(
+    dependencies.transport ?? paddleFetch,
+    `/transactions/${encodeURIComponent(input.transactionId)}`,
+    { method: "GET" }
+  );
+  const data = safeObject(safeObject(payload)?.data);
+  const customData = safeObject(data?.custom_data);
+  const items = Array.isArray(data?.items) ? data.items : [];
+  const catalogMatches = items.some((item) => {
+    const price = safeObject(safeObject(item)?.price);
+    return price?.id === config.priceId && price?.product_id === config.productId;
+  });
+  const checkoutUrl = safeHttpsUrl(safeObject(data?.checkout)?.url);
+  if (
+    data?.id !== input.transactionId ||
+    (data?.status !== "draft" && data?.status !== "ready") ||
+    customData?.product_key !== config.productKey ||
+    customData?.user_id !== input.userId ||
+    customData?.tenant_id !== input.tenantId ||
+    !catalogMatches ||
+    !checkoutUrl
+  ) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
   }
   return { checkoutUrl };
 }

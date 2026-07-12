@@ -4,6 +4,7 @@ import {
   createExomemCheckout,
   createExomemCustomerPortal,
   ExomemBillingError,
+  resumeExomemCheckout,
   type PaddleTransport,
 } from "../paddle-billing";
 import { loadExomemPaddleConfig } from "../paddle-config";
@@ -22,12 +23,13 @@ describe("Exomem Paddle billing adapters", () => {
   it("creates checkout with only the server price and trusted correlation", async () => {
     let path = "";
     let body: unknown;
+    let recorded: unknown;
     const transport: PaddleTransport = async (nextPath, init) => {
       path = nextPath;
       body = JSON.parse(String(init?.body));
       return Response.json({
         data: {
-          id: "txn_secret_provider_id",
+          id: "txn_01kxatbjfrehbp0sxbjefcacqs",
           checkout: { url: "https://checkout.paddle.test/exomem" },
         },
       });
@@ -35,7 +37,14 @@ describe("Exomem Paddle billing adapters", () => {
 
     const result = await createExomemCheckout(
       { userId: "user-internal", tenantId: "tenant-internal" },
-      { config: loadExomemPaddleConfig(configEnv()), transport }
+      {
+        config: loadExomemPaddleConfig(configEnv()),
+        transport,
+        recordCheckoutTransaction: async (input) => {
+          recorded = input;
+          return true;
+        },
+      }
     );
 
     assert.equal(path, "/transactions");
@@ -51,6 +60,123 @@ describe("Exomem Paddle billing adapters", () => {
     assert.deepEqual(result, {
       checkoutUrl: "https://checkout.paddle.test/exomem",
     });
+    assert.deepEqual(recorded, {
+      userId: "user-internal",
+      tenantId: "tenant-internal",
+      transactionId: "txn_01kxatbjfrehbp0sxbjefcacqs",
+    });
+  });
+
+  it("fails closed when the server-created transaction cannot bind to the tenant", async () => {
+    const calls: Array<{ path: string; method: string; body: string }> = [];
+    await assert.rejects(
+      createExomemCheckout(
+        { userId: "user-internal", tenantId: "tenant-internal" },
+        {
+          config: loadExomemPaddleConfig(configEnv()),
+          transport: async (path, init) => {
+            calls.push({
+              path,
+              method: init?.method ?? "GET",
+              body: String(init?.body ?? ""),
+            });
+            return path === "/transactions"
+              ? Response.json({
+                  data: {
+                    id: "txn_01kxatbjfrehbp0sxbjefcacqs",
+                    checkout: { url: "https://checkout.paddle.test/exomem" },
+                  },
+                })
+              : Response.json({ data: { status: "canceled" } });
+          },
+          recordCheckoutTransaction: async () => false,
+        }
+      ),
+      (error: unknown) =>
+        error instanceof ExomemBillingError &&
+        error.code === "EXOMEM_BILLING_STATE_CONFLICT" &&
+        error.status === 409
+    );
+    assert.deepEqual(calls, [
+      { path: "/transactions", method: "POST", body: calls[0]?.body ?? "" },
+      {
+        path: "/transactions/txn_01kxatbjfrehbp0sxbjefcacqs",
+        method: "PATCH",
+        body: JSON.stringify({ status: "canceled" }),
+      },
+    ]);
+  });
+
+  it("retrieves the stored Paddle transaction and verifies its owner-bound checkout", async () => {
+    const transactionId = "txn_01kxatbjfrehbp0sxbjefcacqs";
+    let call: { path: string; method: string } | undefined;
+    const result = await resumeExomemCheckout(
+      { userId: "user-internal", tenantId: "tenant-internal", transactionId },
+      {
+        config: loadExomemPaddleConfig(configEnv()),
+        transport: async (path, init) => {
+          call = { path, method: init?.method ?? "GET" };
+          return Response.json({
+            data: {
+              id: transactionId,
+              status: "draft",
+              custom_data: {
+                product_key: "exomem-hosted",
+                user_id: "user-internal",
+                tenant_id: "tenant-internal",
+              },
+              items: [
+                {
+                  price: {
+                    id: "pri_server_selected",
+                    product_id: "pro_server_selected",
+                  },
+                },
+              ],
+              checkout: { url: "https://checkout.paddle.test/resumed" },
+            },
+          });
+        },
+      }
+    );
+
+    assert.deepEqual(call, { path: `/transactions/${transactionId}`, method: "GET" });
+    assert.deepEqual(result, { checkoutUrl: "https://checkout.paddle.test/resumed" });
+  });
+
+  it("does not reuse a terminal Paddle transaction even when a checkout URL remains", async () => {
+    const transactionId = "txn_01kxatbjfrehbp0sxbjefcacqs";
+    await assert.rejects(
+      resumeExomemCheckout(
+        { userId: "user-internal", tenantId: "tenant-internal", transactionId },
+        {
+          config: loadExomemPaddleConfig(configEnv()),
+          transport: async () =>
+            Response.json({
+              data: {
+                id: transactionId,
+                status: "completed",
+                custom_data: {
+                  product_key: "exomem-hosted",
+                  user_id: "user-internal",
+                  tenant_id: "tenant-internal",
+                },
+                items: [
+                  {
+                    price: {
+                      id: "pri_server_selected",
+                      product_id: "pro_server_selected",
+                    },
+                  },
+                ],
+                checkout: { url: "https://checkout.paddle.test/stale" },
+              },
+            }),
+        }
+      ),
+      (error: unknown) =>
+        error instanceof ExomemBillingError && error.code === "EXOMEM_BILLING_STATE_CONFLICT"
+    );
   });
 
   it("rejects arbitrary browser catalog fields before calling Paddle", async () => {

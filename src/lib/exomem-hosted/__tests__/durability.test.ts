@@ -122,6 +122,41 @@ describe("owner Exomem durability workflows", () => {
     assert.equal(JSON.stringify(operation).includes("provider-export-reference-1"), false);
   });
 
+  it("requires active write authority before queuing a replacement restore", async () => {
+    const deniedTargets: GatewayTarget[] = [
+      target({
+        entitlementSource: "paddle",
+        entitlementSourceState: "past_due",
+        entitlementEffectiveState: "grace",
+        capabilities: ["recall", "export"],
+      }),
+      target({ tenantStatus: "suspended" }),
+      target({ manuallySuspended: true }),
+    ];
+
+    for (const denied of deniedTargets) {
+      const store = new InMemoryLifecycleStore();
+      await assert.rejects(
+        requestOwnerRestore(
+          {
+            userId: USER,
+            tenantId: TENANT,
+            exportId: EXPORT,
+            idempotencyKey: "owner-restore-denied",
+          },
+          {
+            resolveTarget: async () => denied,
+            getExport: async () => storedExport(),
+            enqueue: store.enqueue.bind(store),
+            reconcile: async () => ({ attempted: true, code: "RECONCILE_STEP_ACCEPTED" }),
+          }
+        ),
+        (error) => error instanceof ExomemHostedError && error.code === "EXOMEM_ENTITLEMENT_DENIED"
+      );
+      assert.equal(store.operations.size, 0);
+    }
+  });
+
   it("keeps expired artifacts out of owner reads while preserving pending operation visibility", async () => {
     const queries: string[] = [];
     __setExomemSqlForTests(async (strings) => {

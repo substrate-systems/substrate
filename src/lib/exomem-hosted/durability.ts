@@ -89,6 +89,24 @@ function assertExportEntitled(
   }
 }
 
+function assertRestoreEntitled(
+  target: GatewayTarget | null,
+  userId: string,
+  tenantId: string
+): void {
+  assertExportEntitled(target, userId, tenantId);
+  if (
+    !target ||
+    target.tenantStatus !== "active" ||
+    target.tenantDesiredState !== "running" ||
+    target.manuallySuspended ||
+    target.entitlementEffectiveState !== "active" ||
+    !target.capabilities.includes("capture")
+  ) {
+    throw exomemErrors.entitlementDenied();
+  }
+}
+
 function validateRetryKey(value: string): string {
   const key = value.trim();
   if (!IDEMPOTENCY_KEY.test(key)) throw exomemErrors.invalidRequest();
@@ -127,7 +145,7 @@ export async function requestOwnerRestore(
     deps.resolveTarget({ userId: input.userId, tenantId: input.tenantId }),
     deps.getExport(input.userId, input.tenantId, input.exportId),
   ]);
-  assertExportEntitled(target, input.userId, input.tenantId);
+  assertRestoreEntitled(target, input.userId, input.tenantId);
   if (!record || record.state !== "available") throw exomemErrors.exportNotFound();
   if (!record.expiresAt || new Date(record.expiresAt) <= new Date()) {
     throw exomemErrors.exportExpired();
