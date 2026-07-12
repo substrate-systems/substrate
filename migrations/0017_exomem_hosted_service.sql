@@ -10,6 +10,7 @@ CREATE TABLE exomem_tenants (
     CHECK (status IN ('provisioning', 'active', 'suspended', 'deletion_pending', 'deleted')),
   desired_state text NOT NULL DEFAULT 'running'
     CHECK (desired_state IN ('running', 'suspended', 'deleted')),
+  fence_generation bigint NOT NULL DEFAULT 1 CHECK (fence_generation > 0),
   bound_cell_id uuid,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -131,6 +132,7 @@ CREATE TABLE exomem_access_tokens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   purpose text NOT NULL CHECK (purpose IN ('magic_link', 'deletion_confirmation')),
   token_digest bytea NOT NULL UNIQUE,
+  browser_challenge_digest bytea,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tenant_id uuid NOT NULL REFERENCES exomem_tenants(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -142,6 +144,11 @@ CREATE TABLE exomem_access_tokens (
   delivered_at timestamptz,
   delivery_error_code text,
   CHECK (octet_length(token_digest) = 32),
+  CHECK (
+    (purpose = 'magic_link' AND browser_challenge_digest IS NOT NULL
+      AND octet_length(browser_challenge_digest) = 32)
+    OR (purpose = 'deletion_confirmation' AND browser_challenge_digest IS NULL)
+  ),
   CHECK (expires_at > created_at),
   CHECK (consumed_at IS NULL OR revoked_at IS NULL)
 );
@@ -149,6 +156,46 @@ CREATE TABLE exomem_access_tokens (
 CREATE INDEX exomem_access_tokens_valid_idx
   ON exomem_access_tokens (purpose, expires_at)
   WHERE consumed_at IS NULL AND revoked_at IS NULL;
+
+CREATE TABLE exomem_access_delivery_outbox (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  token_id uuid NOT NULL UNIQUE REFERENCES exomem_access_tokens(id) ON DELETE CASCADE,
+  secret_ciphertext jsonb,
+  state text NOT NULL DEFAULT 'pending'
+    CHECK (state IN ('pending', 'leased', 'sent', 'failed')),
+  attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  lease_owner uuid,
+  lease_expires_at timestamptz,
+  expires_at timestamptz NOT NULL,
+  last_error_code text,
+  sent_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (expires_at > created_at),
+  CHECK (
+    (state = 'leased' AND lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL)
+    OR (state <> 'leased' AND lease_owner IS NULL AND lease_expires_at IS NULL)
+  ),
+  CHECK (state NOT IN ('pending', 'leased') OR secret_ciphertext IS NOT NULL),
+  CHECK (state <> 'sent' OR (sent_at IS NOT NULL AND secret_ciphertext IS NULL))
+);
+
+CREATE INDEX exomem_access_delivery_outbox_ready_idx
+  ON exomem_access_delivery_outbox (next_attempt_at, created_at)
+  WHERE state IN ('pending', 'leased');
+
+CREATE TABLE exomem_rate_limit_buckets (
+  scope text NOT NULL CHECK (char_length(scope) BETWEEN 1 AND 128),
+  key_digest text NOT NULL CHECK (key_digest ~ '^[0-9a-f]{64}$'),
+  window_started_at timestamptz NOT NULL DEFAULT now(),
+  admitted_count integer NOT NULL DEFAULT 1 CHECK (admitted_count > 0),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (scope, key_digest)
+);
+
+CREATE INDEX exomem_rate_limit_buckets_updated_idx
+  ON exomem_rate_limit_buckets (updated_at);
 
 CREATE TABLE exomem_invites (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -204,6 +251,7 @@ CREATE TABLE exomem_lifecycle_operations (
   state text NOT NULL DEFAULT 'pending'
     CHECK (state IN ('pending', 'running', 'waiting', 'succeeded', 'failed_retryable', 'failed_terminal')),
   idempotency_key text NOT NULL,
+  fence_generation bigint NOT NULL CHECK (fence_generation > 0),
   checkpoint text NOT NULL DEFAULT 'created',
   request_id uuid NOT NULL DEFAULT gen_random_uuid(),
   attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -212,11 +260,52 @@ CREATE TABLE exomem_lifecycle_operations (
   lease_expires_at timestamptz,
   error_code text,
   provider_result_ref text,
+  input_reference_ciphertext jsonb,
+  input_reference_digest bytea,
+  input_source_cell_id uuid,
+  input_archive_sha256 text CHECK (
+    input_archive_sha256 IS NULL OR input_archive_sha256 ~ '^[0-9a-f]{64}$'
+  ),
+  input_manifest_sha256 text CHECK (
+    input_manifest_sha256 IS NULL OR input_manifest_sha256 ~ '^[0-9a-f]{64}$'
+  ),
+  input_archive_size bigint CHECK (input_archive_size IS NULL OR input_archive_size > 0),
+  input_destroyed_at timestamptz,
+  resume_after_operation boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   completed_at timestamptz,
   UNIQUE (tenant_id, operation_type, idempotency_key),
-  CHECK ((lease_owner IS NULL) = (lease_expires_at IS NULL))
+  CHECK ((lease_owner IS NULL) = (lease_expires_at IS NULL)),
+  CHECK (
+    (input_reference_ciphertext IS NULL AND input_reference_digest IS NULL)
+    OR
+    (input_reference_ciphertext IS NOT NULL AND octet_length(input_reference_digest) = 32)
+  ),
+  CHECK (
+    operation_type <> 'restore'
+    OR (
+      (
+        input_destroyed_at IS NULL
+        AND input_reference_ciphertext IS NOT NULL
+        AND input_source_cell_id IS NOT NULL
+        AND input_archive_sha256 IS NOT NULL
+        AND input_manifest_sha256 IS NOT NULL
+        AND input_archive_size IS NOT NULL
+      )
+      OR
+      (
+        input_destroyed_at IS NOT NULL
+        AND input_reference_ciphertext IS NULL
+        AND input_reference_digest IS NULL
+        AND input_source_cell_id IS NULL
+        AND input_archive_sha256 IS NULL
+        AND input_manifest_sha256 IS NULL
+        AND input_archive_size IS NULL
+      )
+    )
+  ),
+  CHECK (input_destroyed_at IS NULL OR operation_type = 'restore')
 );
 
 CREATE INDEX exomem_lifecycle_operations_runnable_idx
@@ -250,6 +339,33 @@ CREATE TABLE exomem_transfer_grants (
 CREATE INDEX exomem_transfer_grants_tenant_expiry_idx
   ON exomem_transfer_grants (tenant_id, expires_at);
 
+CREATE TABLE exomem_exports (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid NOT NULL REFERENCES exomem_tenants(id) ON DELETE CASCADE,
+  cell_id uuid NOT NULL REFERENCES exomem_cells(id) ON DELETE RESTRICT,
+  operation_id uuid NOT NULL UNIQUE REFERENCES exomem_lifecycle_operations(id) ON DELETE RESTRICT,
+  state text NOT NULL DEFAULT 'available'
+    CHECK (state IN ('available', 'released', 'deleting', 'deleted', 'failed')),
+  storage_reference_ciphertext jsonb,
+  storage_reference_digest bytea NOT NULL UNIQUE,
+  archive_sha256 text NOT NULL CHECK (archive_sha256 ~ '^[0-9a-f]{64}$'),
+  manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
+  archive_size bigint NOT NULL CHECK (archive_size > 0),
+  encryption_scheme text NOT NULL CHECK (encryption_scheme = 'envelope-aes-256-gcm'),
+  integrity_verified boolean NOT NULL CHECK (integrity_verified),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  available_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  deleted_at timestamptz,
+  CHECK ((state = 'deleted') = (deleted_at IS NOT NULL)),
+  CHECK (octet_length(storage_reference_digest) = 32),
+  UNIQUE (tenant_id, id)
+);
+
+CREATE INDEX exomem_exports_tenant_available_idx
+  ON exomem_exports (tenant_id, available_at DESC)
+  WHERE state = 'available';
+
 CREATE TABLE exomem_paddle_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   paddle_event_id text NOT NULL UNIQUE,
@@ -261,7 +377,7 @@ CREATE TABLE exomem_paddle_events (
   received_at timestamptz NOT NULL DEFAULT now(),
   applied_at timestamptz,
   disposition text NOT NULL DEFAULT 'received'
-    CHECK (disposition IN ('received', 'applied', 'duplicate', 'stale', 'rejected')),
+    CHECK (disposition IN ('received', 'applied', 'duplicate', 'stale', 'ignored', 'rejected')),
   error_code text
 );
 

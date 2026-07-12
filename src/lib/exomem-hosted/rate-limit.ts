@@ -1,5 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { takeRateLimit as takeRateLimitQuery } from "./db";
+import { controlPlaneKeyFromEnv } from "./security";
 
 export type ExomemRateLimitRule = {
   scope: string;
@@ -23,19 +24,44 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 20,
     windowSeconds: 60 * 60,
   },
+  deletionConfirmation: {
+    scope: "exomem:deletion-confirmation",
+    limit: 3,
+    windowSeconds: 60 * 60,
+  },
 } as const satisfies Record<string, ExomemRateLimitRule>;
 
-export function hashRateLimitKey(rule: ExomemRateLimitRule, value: string): string {
-  return createHash("sha256").update(`${rule.scope}\0${value}`, "utf8").digest("hex");
+const MAX_RATE_LIMIT_WINDOW_SECONDS = Math.max(
+  ...Object.values(EXOMEM_RATE_LIMITS).map((rule) => rule.windowSeconds)
+);
+export const EXOMEM_RATE_LIMIT_RETENTION_MARGIN_SECONDS = 60 * 60;
+export const EXOMEM_RATE_LIMIT_RETENTION_SECONDS =
+  MAX_RATE_LIMIT_WINDOW_SECONDS + EXOMEM_RATE_LIMIT_RETENTION_MARGIN_SECONDS;
+
+export function hashRateLimitKey(
+  rule: ExomemRateLimitRule,
+  value: string,
+  key: Buffer = controlPlaneKeyFromEnv()
+): string {
+  return createHmac("sha256", key)
+    .update("exomem-rate-limit:v1\0", "utf8")
+    .update(rule.scope, "utf8")
+    .update("\0", "utf8")
+    .update(value, "utf8")
+    .digest("hex");
 }
 
 export async function takeExomemRateLimit(
   rule: ExomemRateLimitRule,
-  value: string
+  value: string,
+  dependencies: {
+    key?: Buffer;
+    take?: typeof takeRateLimitQuery;
+  } = {}
 ): Promise<boolean> {
-  return takeRateLimitQuery({
+  return (dependencies.take ?? takeRateLimitQuery)({
     scope: rule.scope,
-    keyDigest: hashRateLimitKey(rule, value),
+    keyDigest: hashRateLimitKey(rule, value, dependencies.key),
     limit: rule.limit,
     windowSeconds: rule.windowSeconds,
   });

@@ -17,7 +17,9 @@ import {
 export const EXOMEM_SESSION_COOKIE = "exomem_session";
 export const EXOMEM_CSRF_COOKIE = "exomem_csrf";
 export const EXOMEM_CSRF_HEADER = "x-exomem-csrf";
+export const EXOMEM_MAGIC_CHALLENGE_COOKIE = "exomem_magic_challenge";
 export const EXOMEM_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const EXOMEM_MAGIC_CHALLENGE_TTL_MS = 15 * 60 * 1000;
 export const EXOMEM_SESSION_MAX_AGE_S = Math.floor(EXOMEM_SESSION_TTL_MS / 1000);
 
 export type SessionMaterial = {
@@ -27,6 +29,24 @@ export type SessionMaterial = {
   csrfDigest: Buffer;
   expiresAt: Date;
 };
+
+export type MagicLinkChallengeMaterial = {
+  challengeToken: string;
+  challengeDigest: Buffer;
+  expiresAt: Date;
+};
+
+export function mintMagicLinkChallenge(
+  input: { now?: Date; randomBytes?: RandomBytesSource } = {}
+): MagicLinkChallengeMaterial {
+  const now = input.now ?? new Date();
+  const challengeToken = generateExternalToken(input.randomBytes);
+  return {
+    challengeToken,
+    challengeDigest: digestSecret(challengeToken),
+    expiresAt: new Date(now.getTime() + EXOMEM_MAGIC_CHALLENGE_TTL_MS),
+  };
+}
 
 export function mintSessionMaterial(
   input: {
@@ -59,7 +79,62 @@ function cookieValue(request: Request, name: string): string | null {
   return null;
 }
 
+export function magicLinkChallengeFromRequest(request: Request): string | null {
+  return cookieValue(request, EXOMEM_MAGIC_CHALLENGE_COOKIE);
+}
+
+export function applyMagicLinkChallengeCookie(
+  response: NextResponse,
+  material: MagicLinkChallengeMaterial
+): void {
+  response.cookies.set(EXOMEM_MAGIC_CHALLENGE_COOKIE, material.challengeToken, {
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/api/exomem/access/magic-link",
+    expires: material.expiresAt,
+    maxAge: Math.floor(EXOMEM_MAGIC_CHALLENGE_TTL_MS / 1000),
+    httpOnly: true,
+  });
+}
+
+export function clearMagicLinkChallengeCookie(response: NextResponse): void {
+  response.cookies.set(EXOMEM_MAGIC_CHALLENGE_COOKIE, "", {
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/api/exomem/access/magic-link",
+    maxAge: 0,
+    httpOnly: true,
+  });
+}
+
 export type ExomemSessionContext = ExomemSessionRow;
+
+/**
+ * Login/token redemption sets authentication cookies, so it needs an origin
+ * check even though there is no pre-existing CSRF cookie to validate. Requiring
+ * JSON also prevents a cross-site HTML form from smuggling a token as
+ * `text/plain` and swapping the victim browser into the attacker's tenant.
+ */
+export function validatePublicAccessRequest(request: Request): void {
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  const origin = request.headers.get("origin");
+  const host = request.headers.get("host");
+  if (contentType !== "application/json" || !origin || !host) {
+    throw exomemErrors.csrfRejected();
+  }
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    throw exomemErrors.csrfRejected();
+  }
+  if (
+    !["http:", "https:"].includes(originUrl.protocol) ||
+    originUrl.host.toLowerCase() !== host.toLowerCase()
+  ) {
+    throw exomemErrors.csrfRejected();
+  }
+}
 
 export async function resolveExomemSession(
   request: Request,

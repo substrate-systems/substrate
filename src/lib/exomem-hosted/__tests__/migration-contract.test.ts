@@ -21,6 +21,7 @@ describe("Exomem hosted migration contract", () => {
       "exomem_invites",
       "exomem_lifecycle_operations",
       "exomem_transfer_grants",
+      "exomem_exports",
       "exomem_paddle_events",
       "exomem_audit_events",
     ]) {
@@ -41,6 +42,8 @@ describe("Exomem hosted migration contract", () => {
       /CREATE UNIQUE INDEX exomem_cells_one_bound_per_tenant_idx[\s\S]*WHERE routing_state = 'bound'/i
     );
     assert.match(sql, /token_digest bytea NOT NULL UNIQUE/i);
+    assert.match(sql, /browser_challenge_digest bytea/i);
+    assert.match(sql, /octet_length\(browser_challenge_digest\) = 32/i);
     assert.match(sql, /session_digest bytea NOT NULL UNIQUE/i);
     assert.match(sql, /CHECK \(octet_length\(token_digest\) = 32\)/i);
     assert.match(sql, /UNIQUE \(tenant_id, operation_type, idempotency_key\)/i);
@@ -66,5 +69,34 @@ describe("Exomem hosted migration contract", () => {
     const sql = migration();
     assert.doesNotMatch(sql, /DO\s+\$\$/i);
     assert.doesNotMatch(sql, /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
+  });
+
+  it("retains ignored Paddle receipts as a distinct terminal audit disposition", () => {
+    assert.match(migration(), /disposition IN \([^)]*'ignored'[^)]*\)/i);
+  });
+
+  it("stores only encrypted verified export references and product-scoped deletion state", () => {
+    const sql = migration();
+    assert.match(sql, /storage_reference_ciphertext jsonb/i);
+    assert.match(sql, /storage_reference_digest bytea NOT NULL UNIQUE/i);
+    assert.match(sql, /integrity_verified boolean NOT NULL CHECK \(integrity_verified\)/i);
+    assert.match(sql, /encryption_scheme = 'envelope-aes-256-gcm'/i);
+    assert.match(sql, /input_reference_ciphertext jsonb/i);
+    assert.match(sql, /input_archive_sha256 text/i);
+    assert.match(sql, /input_manifest_sha256 text/i);
+    assert.match(sql, /input_source_cell_id uuid/i);
+    assert.match(sql, /input_destroyed_at timestamptz/i);
+    assert.match(sql, /fence_generation bigint NOT NULL DEFAULT 1/i);
+    assert.match(sql, /fence_generation bigint NOT NULL CHECK \(fence_generation > 0\)/i);
+    assert.match(
+      sql,
+      /purpose text NOT NULL CHECK \(purpose IN \('magic_link', 'deletion_confirmation'\)\)/i
+    );
+    assert.match(sql, /CREATE TABLE exomem_access_delivery_outbox/i);
+    assert.match(sql, /CREATE TABLE exomem_rate_limit_buckets/i);
+    assert.match(sql, /secret_ciphertext jsonb/i);
+    assert.match(sql, /lease_owner uuid/i);
+    assert.match(sql, /lease_expires_at timestamptz/i);
+    assert.match(sql, /UNIQUE REFERENCES exomem_access_tokens\(id\) ON DELETE CASCADE/i);
   });
 });
