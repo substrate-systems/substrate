@@ -78,6 +78,7 @@ export async function sendTransactionalEmail(
         htmlContent,
         textContent,
       }),
+      signal: AbortSignal.timeout(8_000),
     });
   } catch (err) {
     return {

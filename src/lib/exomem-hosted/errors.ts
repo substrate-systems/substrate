@@ -127,6 +127,94 @@ export const exomemErrors = {
       status: 503,
       message: "the Exomem service mapping is unavailable",
     }),
+  cellUnavailable: () =>
+    new ExomemHostedError({
+      code: "CELL_UNAVAILABLE",
+      status: 503,
+      message: "your Exomem is temporarily unavailable",
+      retryable: true,
+    }),
+  protocolMismatch: () =>
+    new ExomemHostedError({
+      code: "CELL_PROTOCOL_MISMATCH",
+      status: 503,
+      message: "the Exomem service is being updated",
+      retryable: true,
+    }),
+  selectorRejected: () =>
+    new ExomemHostedError({
+      code: "HOSTED_SELECTOR_REJECTED",
+      status: 400,
+      message: "the request contains unsupported routing fields",
+    }),
+  commandNotFound: () =>
+    new ExomemHostedError({
+      code: "COMMAND_NOT_FOUND",
+      status: 404,
+      message: "that Exomem action is not available",
+    }),
+  commandInterceptRequired: () =>
+    new ExomemHostedError({
+      code: "HOSTED_INTERCEPT_REQUIRED",
+      status: 409,
+      message: "use the dedicated Exomem import or transfer flow",
+    }),
+  entitlementDenied: () =>
+    new ExomemHostedError({
+      code: "EXOMEM_ENTITLEMENT_DENIED",
+      status: 403,
+      message: "your current Exomem access does not include this action",
+    }),
+  suspensionActive: () =>
+    new ExomemHostedError({
+      code: "EXOMEM_SUSPENDED",
+      status: 403,
+      message: "your Exomem is currently suspended",
+    }),
+  idempotencyRequired: () =>
+    new ExomemHostedError({
+      code: "IDEMPOTENCY_KEY_REQUIRED",
+      status: 400,
+      message: "a retry key is required for this change",
+    }),
+  idempotencyConflict: () =>
+    new ExomemHostedError({
+      code: "IDEMPOTENCY_KEY_REUSED",
+      status: 409,
+      message: "that retry key is already bound to a different request",
+    }),
+  cellResponseInvalid: () =>
+    new ExomemHostedError({
+      code: "CELL_RESPONSE_INVALID",
+      status: 502,
+      message: "the Exomem cell returned an invalid response",
+      retryable: true,
+    }),
+  requestTooLarge: () =>
+    new ExomemHostedError({
+      code: "TOO_LARGE",
+      status: 413,
+      message: "the request is too large",
+    }),
+  exportNotFound: () =>
+    new ExomemHostedError({
+      code: "EXOMEM_EXPORT_NOT_FOUND",
+      status: 404,
+      message: "that verified export is not available",
+    }),
+  exportExpired: () =>
+    new ExomemHostedError({
+      code: "EXOMEM_EXPORT_EXPIRED",
+      status: 410,
+      message: "that export has expired",
+    }),
+  exportUnavailable: () =>
+    new ExomemHostedError({
+      code: "EXOMEM_EXPORT_UNAVAILABLE",
+      status: 503,
+      message: "verified export is temporarily unavailable",
+      retryable: true,
+    }),
 } as const;
 
 export function safeErrorEnvelope(error: unknown, requestId?: string): ExomemHostedErrorEnvelope {

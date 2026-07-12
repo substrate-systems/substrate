@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/exomem/status", () => {
-  it("uses the product session, kicks one reconcile step, and returns content-free status", async () => {
+  it("is a pure product-session read and returns content-free status", async () => {
     const { GET } = await import("../route");
     const response = await GET(
       new Request(
@@ -59,7 +59,7 @@ describe("GET /api/exomem/status", () => {
       ) as unknown as import("next/server").NextRequest
     );
     assert.equal(response.status, 200);
-    assert.equal(reconcileCalls, 1);
+    assert.equal(reconcileCalls, 0);
     const text = await response.text();
     assert.equal(text.includes(TENANT), false);
     assert.equal(text.includes(SENTINEL), false);

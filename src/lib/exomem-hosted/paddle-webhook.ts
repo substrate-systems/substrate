@@ -84,12 +84,19 @@ type DispatchDependencies = {
   store?: AtomicExomemPaddleEventStore;
 };
 
+const INTERNAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function internalUuid(value: unknown): string | null {
+  const candidate = nonEmptyString(value);
+  return candidate && INTERNAL_UUID.test(candidate) ? candidate.toLowerCase() : null;
 }
 
 function itemReferences(data: Record<string, unknown>): Array<{
@@ -227,8 +234,8 @@ export async function dispatchVerifiedExomemPaddleEvent(
       status: 400,
     };
   }
-  const userId = nonEmptyString(customData.user_id);
-  const tenantId = nonEmptyString(customData.tenant_id);
+  const userId = internalUuid(customData.user_id);
+  const tenantId = internalUuid(customData.tenant_id);
   if (!userId || !tenantId) {
     return {
       kind: "rejected",
@@ -274,7 +281,11 @@ export async function dispatchVerifiedExomemPaddleEvent(
     providerReferences: {
       customerId: nonEmptyString(data.customer_id),
       subscriptionId: eventType.startsWith("subscription.") ? nonEmptyString(data.id) : null,
-      transactionId: eventType.startsWith("transaction.") ? nonEmptyString(data.id) : null,
+      transactionId: eventType.startsWith("transaction.")
+        ? nonEmptyString(data.id)
+        : eventType === "subscription.created"
+          ? nonEmptyString(data.transaction_id)
+          : null,
       productId: matchingReference?.productId ?? null,
       priceId: matchingReference?.priceId ?? null,
     },

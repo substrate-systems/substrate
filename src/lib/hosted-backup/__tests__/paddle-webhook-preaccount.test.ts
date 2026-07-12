@@ -16,7 +16,7 @@ const SECRET = 'test-paddle-secret';
 
 before(() => {
   process.env.PADDLE_WEBHOOK_SECRET = SECRET;
-  process.env.NODE_ENV = 'test';
+  Object.assign(process.env, { NODE_ENV: 'test' });
 });
 
 class PaddleSignatureError extends Error {

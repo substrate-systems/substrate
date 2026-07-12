@@ -3,6 +3,9 @@ import { describe, it } from "node:test";
 import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
 
+const USER_ID = "018f2d91-7c42-7000-8000-000000000061";
+const TENANT_ID = "018f2d91-7c42-7000-8000-000000000062";
+
 function application(
   overrides: Partial<ExomemPaddleEventApplication> = {}
 ): ExomemPaddleEventApplication {
@@ -17,8 +20,8 @@ function application(
     },
     correlation: {
       productKey: "exomem-hosted",
-      userId: "user-internal",
-      tenantId: "tenant-internal",
+      userId: USER_ID,
+      tenantId: TENANT_ID,
     },
     sourceState: "past_due",
     capabilities: ["capture", "recall", "export"],
@@ -55,7 +58,9 @@ describe("SQL Exomem Paddle event store", () => {
 
     assert.deepEqual(result, { outcome: "applied" });
     assert.equal(calls, 1, "the adapter must expose no split begin/apply window");
-    assert.match(sqlText, /WITH claimed AS/i);
+    assert.match(sqlText, /WITH authoritative_target AS/i);
+    assert.match(sqlText, /provider_transaction_ref/i);
+    assert.match(sqlText, /owner_user_id/i);
     assert.match(sqlText, /INSERT INTO exomem_paddle_events/i);
     assert.match(sqlText, /UPDATE exomem_entitlements/i);
     assert.match(sqlText, /source_occurred_at/i);

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { terminateExomemBillingForDeletion } from "./billing-deletion";
 import { SqlLifecycleStore } from "./lifecycle-store";
 import { HttpCellProvisioner, provisionerConfigFromEnv } from "./provisioner";
 import {
@@ -14,6 +15,7 @@ function runtime() {
     store,
     provisioner,
     config: expectedCellConfigurationFromEnv(),
+    terminateBilling: terminateExomemBillingForDeletion,
   });
   return { store, reconciler };
 }

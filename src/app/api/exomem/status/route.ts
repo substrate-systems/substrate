@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeErrorResponse } from "@/lib/exomem-hosted/errors";
-import {
-  getOwnerLifecycleStatus,
-  immediateBestEffortReconcile,
-} from "@/lib/exomem-hosted/reconcile-runtime";
+import { getOwnerLifecycleStatus } from "@/lib/exomem-hosted/reconcile-runtime";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
 import type { LifecycleStatus } from "@/lib/exomem-hosted/reconciler";
 
@@ -24,6 +21,7 @@ const SAFE_STATUS_CODES = new Set([
   "PROVISIONER_CONFIGURATION_INVALID",
   "PROVISIONER_REJECTED",
   "PROVISIONER_RESPONSE_INVALID",
+  "BILLING_TERMINATION_UNAVAILABLE",
   "EXOMEM_SUSPENDED",
   "DELETION_IN_PROGRESS",
   "EXOMEM_DELETED",
@@ -39,7 +37,6 @@ function safeStatus(status: LifecycleStatus): LifecycleStatus {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const session = await resolveExomemSession(request);
-    await immediateBestEffortReconcile(session.tenantId);
     const status = safeStatus(await getOwnerLifecycleStatus(session.tenantId));
     return NextResponse.json(
       { success: true, status },

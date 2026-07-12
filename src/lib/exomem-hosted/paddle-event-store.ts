@@ -44,10 +44,50 @@ export function createSqlExomemPaddleEventStore(
       );
       const isSubscriptionEvent = application.eventType.startsWith("subscription.");
       const isTransactionEvent = application.eventType.startsWith("transaction.");
+      const isSubscriptionCreated = application.eventType === "subscription.created";
 
       const { rows } = await sql`
         /* exomem:paddle-event-atomic-apply */
-        WITH claimed AS (
+        WITH authoritative_target AS (
+          SELECT tenant.id AS tenant_id,
+                 tenant.status AS tenant_status,
+                 entitlement.id AS entitlement_id,
+                 entitlement.manual_suspended_at,
+                 entitlement.source_occurred_at,
+                 entitlement.source_revision
+          FROM exomem_tenants AS tenant
+          JOIN exomem_entitlements AS entitlement
+            ON entitlement.tenant_id = tenant.id
+          WHERE tenant.id = ${application.correlation.tenantId}::uuid
+            AND tenant.owner_user_id = ${application.correlation.userId}::uuid
+            AND entitlement.source = 'paddle'
+            AND (
+              (
+                ${application.origin}::text = 'reconciliation'
+                AND ${application.providerReferences.subscriptionId}::text IS NOT NULL
+                AND entitlement.provider_subscription_ref = ${application.providerReferences.subscriptionId}
+              )
+              OR (
+                ${isTransactionEvent}
+                AND ${application.providerReferences.transactionId}::text IS NOT NULL
+                AND entitlement.provider_transaction_ref = ${application.providerReferences.transactionId}
+              )
+              OR (
+                ${isSubscriptionEvent}
+                AND ${application.providerReferences.subscriptionId}::text IS NOT NULL
+                AND (
+                  entitlement.provider_subscription_ref = ${application.providerReferences.subscriptionId}
+                  OR (
+                    ${isSubscriptionCreated}
+                    AND ${application.providerReferences.transactionId}::text IS NOT NULL
+                    AND entitlement.provider_transaction_ref = ${application.providerReferences.transactionId}
+                  )
+                )
+              )
+            )
+          FOR UPDATE OF tenant, entitlement
+        ),
+        claimed AS (
           INSERT INTO exomem_paddle_events (
             paddle_event_id,
             environment,
@@ -59,29 +99,28 @@ export function createSqlExomemPaddleEventStore(
             ${application.eventId},
             ${databaseEnvironment},
             ${application.eventType},
-            ${application.correlation.tenantId},
+            (SELECT tenant_id FROM authoritative_target),
             ${application.revision.eventId},
             ${application.revision.occurredAt}
           )
           ON CONFLICT (paddle_event_id) DO UPDATE
           SET paddle_event_id = exomem_paddle_events.paddle_event_id
-          RETURNING id, tenant_id, disposition, applied_at
+          RETURNING id, tenant_id, environment, event_type,
+                    disposition, applied_at, error_code
         ),
         authoritative AS (
           SELECT claimed.id AS event_row_id,
                  claimed.applied_at,
-                 tenant.status AS tenant_status,
-                 entitlement.id AS entitlement_id,
-                 entitlement.manual_suspended_at,
-                 entitlement.source_occurred_at,
-                 entitlement.source_revision
+                 authoritative_target.tenant_status,
+                 authoritative_target.entitlement_id,
+                 authoritative_target.manual_suspended_at,
+                 authoritative_target.source_occurred_at,
+                 authoritative_target.source_revision
           FROM claimed
-          JOIN exomem_tenants AS tenant
-            ON tenant.id = ${application.correlation.tenantId}
-           AND tenant.owner_user_id = ${application.correlation.userId}
-          JOIN exomem_entitlements AS entitlement
-            ON entitlement.tenant_id = tenant.id
-          WHERE claimed.tenant_id = tenant.id
+          JOIN authoritative_target
+            ON claimed.tenant_id = authoritative_target.tenant_id
+          WHERE claimed.environment = ${databaseEnvironment}
+            AND claimed.event_type = ${application.eventType}
         ),
         projected AS (
           UPDATE exomem_entitlements AS entitlement
@@ -154,7 +193,7 @@ export function createSqlExomemPaddleEventStore(
                 WHEN decision.outcome = 'duplicate' THEN paddle_event.disposition
                 WHEN decision.outcome = 'applied' THEN 'applied'
                 WHEN decision.outcome = 'stale' THEN 'stale'
-                WHEN decision.is_authoritative THEN 'applied'
+                WHEN decision.is_authoritative THEN 'ignored'
                 ELSE 'rejected'
               END,
               applied_at = CASE
@@ -162,6 +201,7 @@ export function createSqlExomemPaddleEventStore(
                 ELSE COALESCE(paddle_event.applied_at, now())
               END,
               error_code = CASE
+                WHEN decision.outcome = 'duplicate' THEN paddle_event.error_code
                 WHEN decision.is_authoritative THEN NULL
                 ELSE 'CORRELATION_INVALID'
               END

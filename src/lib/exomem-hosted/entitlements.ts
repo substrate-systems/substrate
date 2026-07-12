@@ -35,7 +35,7 @@ export type ExomemEntitlementBundle = {
 };
 
 export const EXOMEM_ALPHA_BUNDLE: Readonly<ExomemEntitlementBundle> = Object.freeze({
-  capabilities: Object.freeze(["capture", "recall", "export"]),
+  capabilities: Object.freeze(["capture", "recall", "export"] satisfies ExomemCapability[]),
   resourceLimits: Object.freeze({
     storageBytes: 5 * 1024 * 1024 * 1024,
     uploadBytes: 100 * 1024 * 1024,

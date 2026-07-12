@@ -66,3 +66,17 @@ export function renderExomemMagicLinkEmail(input: {
     expiryLabel: `This sign-in link expires ${input.expiresAt.toISOString()}.`,
   });
 }
+
+export function renderExomemDeletionEmail(input: {
+  accessUrl: string;
+  expiresAt: Date;
+}): RenderedExomemAccessEmail {
+  return renderAccessEmail({
+    subject: "Confirm deletion of your Exomem",
+    introduction:
+      "You asked to permanently delete your hosted Exomem. This removes the Exomem vault, hosted exports, and its encryption keys. It does not delete your shared Substrate identity or other products.",
+    actionLabel: "Review and confirm deletion",
+    accessUrl: input.accessUrl,
+    expiryLabel: `This confirmation expires ${input.expiresAt.toISOString()}.`,
+  });
+}

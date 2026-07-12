@@ -4,6 +4,7 @@ import {
   EXOMEM_CSRF_COOKIE,
   EXOMEM_SESSION_COOKIE,
   mintSessionMaterial,
+  validatePublicAccessRequest,
   resolveExomemSession,
   rotateResolvedSession,
   validateMutationRequest,
@@ -11,6 +12,47 @@ import {
 import { digestSecret } from "../security";
 
 describe("Exomem product sessions", () => {
+  it("requires same-origin JSON before any access token can set cookies", () => {
+    assert.doesNotThrow(() =>
+      validatePublicAccessRequest(
+        new Request("https://substratesystems.io/api/exomem/access/redeem", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            host: "substratesystems.io",
+            origin: "https://substratesystems.io",
+          },
+        })
+      )
+    );
+    const invalidHeaders: HeadersInit[] = [
+      {
+        "content-type": "text/plain",
+        host: "substratesystems.io",
+        origin: "https://substratesystems.io",
+      },
+      {
+        "content-type": "application/json",
+        host: "substratesystems.io",
+        origin: "https://attacker.example",
+      },
+      { "content-type": "application/json", host: "substratesystems.io" },
+    ];
+    for (const headers of invalidHeaders) {
+      assert.throws(
+        () =>
+          validatePublicAccessRequest(
+            new Request("https://substratesystems.io/api/exomem/access/redeem", {
+              method: "POST",
+              headers,
+            })
+          ),
+        (error: unknown) =>
+          error instanceof Error && "code" in error && error.code === "CSRF_REJECTED"
+      );
+    }
+  });
+
   it("mints separate session and CSRF material", () => {
     const material = mintSessionMaterial({
       now: new Date("2026-07-12T12:00:00.000Z"),

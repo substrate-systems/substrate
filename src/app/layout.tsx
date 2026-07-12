@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
-import { Analytics } from "@vercel/analytics/react";
 import { siteConfig } from "@/lib/seo";
 import { PostHogProvider } from "./providers";
+import { PrivacySafeAnalytics } from "./privacy-safe-analytics";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -119,7 +119,7 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} ${plexMono.variable} antialiased`}>
         <PostHogProvider>{children}</PostHogProvider>
-        <Analytics />
+        <PrivacySafeAnalytics />
       </body>
     </html>
   );

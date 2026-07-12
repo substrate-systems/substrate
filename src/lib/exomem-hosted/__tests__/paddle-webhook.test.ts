@@ -10,6 +10,9 @@ import {
 } from "../paddle-webhook";
 import { EXOMEM_ALPHA_BUNDLE, evaluateExomemEntitlement } from "../entitlements";
 
+const USER_ID = "018f2d91-7c42-7000-8000-000000000061";
+const TENANT_ID = "018f2d91-7c42-7000-8000-000000000062";
+
 function env(overrides: Record<string, string | undefined> = {}) {
   return {
     PADDLE_ENVIRONMENT: "sandbox",
@@ -27,12 +30,13 @@ function event(overrides: Record<string, unknown> = {}): Record<string, unknown>
     environment: "sandbox",
     data: {
       id: "sub_provider_internal",
+      transaction_id: "txn_provider_internal",
       customer_id: "ctm_provider_internal",
       status: "active",
       custom_data: {
         product_key: "exomem-hosted",
-        user_id: "user-internal",
-        tenant_id: "tenant-internal",
+        user_id: USER_ID,
+        tenant_id: TENANT_ID,
       },
       items: [{ price: { id: "pri_exomem", product_id: "pro_exomem" } }],
     },
@@ -106,11 +110,12 @@ describe("Exomem Paddle webhook dispatcher", () => {
     assert.equal(store.audit.length, 1);
     assert.deepEqual(store.audit[0].correlation, {
       productKey: "exomem-hosted",
-      userId: "user-internal",
-      tenantId: "tenant-internal",
+      userId: USER_ID,
+      tenantId: TENANT_ID,
     });
     assert.equal(store.audit[0].providerReferences.customerId, "ctm_provider_internal");
     assert.equal(store.audit[0].providerReferences.subscriptionId, "sub_provider_internal");
+    assert.equal(store.audit[0].providerReferences.transactionId, "txn_provider_internal");
     assert.equal(store.audit[0].sourceState, "active");
   });
 
@@ -119,8 +124,8 @@ describe("Exomem Paddle webhook dispatcher", () => {
     const candidate = event();
     const data = candidate.data as Record<string, unknown>;
     data.custom_data = {
-      user_id: "user-internal",
-      tenant_id: "tenant-internal",
+      user_id: USER_ID,
+      tenant_id: TENANT_ID,
     };
 
     const result = await dispatchVerifiedExomemPaddleEvent(candidate, {
@@ -243,6 +248,11 @@ describe("Exomem Paddle webhook dispatcher", () => {
       event({
         event_id: "evt_exomem_transaction",
         event_type: "transaction.completed",
+        data: {
+          ...(event().data as Record<string, unknown>),
+          id: "txn_provider_internal",
+          subscription_id: "sub_provider_internal",
+        },
       }),
       { env: env(), store }
     );
@@ -325,6 +335,26 @@ describe("Exomem Paddle webhook dispatcher", () => {
       code: "EXOMEM_PADDLE_CORRELATION_INVALID",
       status: 400,
     });
+    assert.equal(store.calls, 0);
+  });
+
+  it("rejects non-UUID correlation before the atomic PostgreSQL boundary", async () => {
+    const store = new MemoryAtomicStore();
+    const malformed = event();
+    const data = malformed.data as { custom_data: Record<string, string> };
+    data.custom_data.user_id = "not-a-database-id";
+
+    assert.deepEqual(
+      await dispatchVerifiedExomemPaddleEvent(malformed, {
+        env: env(),
+        store,
+      }),
+      {
+        kind: "rejected",
+        code: "EXOMEM_PADDLE_CORRELATION_INVALID",
+        status: 400,
+      }
+    );
     assert.equal(store.calls, 0);
   });
 });
