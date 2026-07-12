@@ -4,11 +4,11 @@ Verified on 2026-07-12 in the isolated Substrate worktree.
 
 ## Scorecard
 
-| Dimension | Result |
-| --- | --- |
-| Completeness | 43/44 tasks complete; paid Paddle sandbox drill is the only open task |
-| Correctness | 44/44 requirements and 97 scenarios are implemented; paid billing code is covered by deterministic tests, while its real sandbox drill remains open |
-| Coherence | Shared Substrate control plane, provider-neutral isolated cells, product-scoped access, and internal entitlements follow the approved design |
+| Dimension    | Result                                                                                                                                              |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Completeness | 43/44 tasks complete; paid Paddle sandbox drill is the only open task                                                                               |
+| Correctness  | 44/44 requirements and 97 scenarios are implemented; paid billing code is covered by deterministic tests, while its real sandbox drill remains open |
+| Coherence    | Shared Substrate control plane, provider-neutral isolated cells, product-scoped access, and internal entitlements follow the approved design        |
 
 ## Evidence
 
