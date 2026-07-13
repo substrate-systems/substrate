@@ -17,6 +17,8 @@ const PRIVATE_TIMEOUT_MS = 10_000;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const COMMAND_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
+class CellResponseBodyReadError extends Error {}
+
 const RESERVED_FIELDS = new Set([
   "tenant",
   "tenant_id",
@@ -294,12 +296,46 @@ export function privateGatewayHeaders(
 
 async function boundedJsonResponse(
   response: Response,
-  maxBytes: number
+  maxBytes: number,
+  signal?: AbortSignal
 ): Promise<Record<string, unknown>> {
   const length = response.headers.get("content-length");
-  if (length && Number(length) > maxBytes) throw exomemErrors.cellResponseInvalid();
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > maxBytes) throw exomemErrors.cellResponseInvalid();
+  if (length && (!/^\d+$/.test(length) || Number(length) > maxBytes)) {
+    cancelResponseBody(response);
+    throw exomemErrors.cellResponseInvalid();
+  }
+  const reader = response.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  if (reader) {
+    try {
+      while (true) {
+        let chunk: ReadableStreamReadResult<Uint8Array>;
+        try {
+          chunk = await readResponseChunk(reader, signal);
+        } catch {
+          void reader.cancel().catch(() => undefined);
+          throw new CellResponseBodyReadError();
+        }
+        const { done, value } = chunk;
+        if (done) break;
+        if (totalBytes + value.byteLength > maxBytes) {
+          void reader.cancel().catch(() => undefined);
+          throw exomemErrors.cellResponseInvalid();
+        }
+        chunks.push(value);
+        totalBytes += value.byteLength;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   try {
     const parsed = JSON.parse(new TextDecoder().decode(bytes));
     const object = safeJsonObject(parsed);
@@ -307,6 +343,33 @@ async function boundedJsonResponse(
     return object;
   } catch {
     throw exomemErrors.cellResponseInvalid();
+  }
+}
+
+async function readResponseChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!signal) return reader.read();
+  if (signal.aborted) throw new CellResponseBodyReadError();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new CellResponseBodyReadError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    void reader
+      .read()
+      .then(resolve, reject)
+      .finally(() => {
+        signal.removeEventListener("abort", onAbort);
+      });
+  });
+}
+
+function cancelResponseBody(response: Response): void {
+  try {
+    void response.body?.cancel().catch(() => undefined);
+  } catch {
+    // A retry never depends on draining or successfully canceling a cell
+    // error body. The next attempt remains bounded by its own timeout.
   }
 }
 
@@ -388,22 +451,30 @@ async function fetchContract(
     `${target.endpoint.toString().replace(/\/$/, "")}/`
   );
   let response: Response;
+  const signal = AbortSignal.timeout(PRIVATE_TIMEOUT_MS);
   try {
     response = await fetchImpl(url, {
       method: "GET",
       headers: privateGatewayHeaders(target, requestId),
       cache: "no-store",
       redirect: "error",
-      signal: AbortSignal.timeout(PRIVATE_TIMEOUT_MS),
+      signal,
     });
   } catch {
     throw exomemErrors.cellUnavailable();
   }
-  if (!response.ok) throw exomemErrors.cellUnavailable();
-  const contract = parseContract(
-    await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES),
-    target.row
-  );
+  if (!response.ok) {
+    cancelResponseBody(response);
+    throw exomemErrors.cellUnavailable();
+  }
+  let contractBody: Record<string, unknown>;
+  try {
+    contractBody = await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES, signal);
+  } catch (error) {
+    if (error instanceof CellResponseBodyReadError) throw exomemErrors.cellUnavailable();
+    throw error;
+  }
+  const contract = parseContract(contractBody, target.row);
   const key = cacheKey(target.row, contract.digest.value);
   const cached = contractCache.get(key);
   if (cached && cached.expiresAt > now) return cached.contract;
@@ -471,8 +542,13 @@ async function forwardCommand(input: {
   }
   const body = JSON.stringify(input.args);
   const attempts = !input.command.read_only && !input.idempotencyKey ? 1 : 2;
-  let response: Response | null = null;
+  const now = input.dependencies.now ?? Date.now;
+  const deadline = now() + PRIVATE_TIMEOUT_MS;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const remainingMs = Math.floor(deadline - now());
+    if (remainingMs <= 0) throw exomemErrors.cellUnavailable();
+    const signal = AbortSignal.timeout(Math.max(1, remainingMs));
+    let response: Response;
     try {
       response = await fetchImpl(url, {
         method: "POST",
@@ -480,23 +556,34 @@ async function forwardCommand(input: {
         body,
         cache: "no-store",
         redirect: "error",
-        signal: AbortSignal.timeout(PRIVATE_TIMEOUT_MS),
+        signal,
       });
-      if (response.status < 500 || attempt + 1 === attempts) break;
-      await response.arrayBuffer().catch(() => undefined);
     } catch {
-      response = null;
       if (attempt + 1 === attempts) throw exomemErrors.cellUnavailable();
+      continue;
     }
+    if (response.status >= 500 && attempt + 1 < attempts) {
+      cancelResponseBody(response);
+      continue;
+    }
+    let envelope: Record<string, unknown>;
+    try {
+      envelope = await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES, signal);
+    } catch (error) {
+      if (!(error instanceof CellResponseBodyReadError)) throw error;
+      if (attempt + 1 === attempts || now() >= deadline) {
+        throw exomemErrors.cellUnavailable();
+      }
+      continue;
+    }
+    if (!validEnvelope(envelope)) throw exomemErrors.cellResponseInvalid();
+    return {
+      status: response.status,
+      body: envelope,
+      requestId: input.requestId,
+    };
   }
-  if (!response) throw exomemErrors.cellUnavailable();
-  const envelope = await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES);
-  if (!validEnvelope(envelope)) throw exomemErrors.cellResponseInvalid();
-  return {
-    status: response.status,
-    body: envelope,
-    requestId: input.requestId,
-  };
+  throw exomemErrors.cellUnavailable();
 }
 
 export async function routeExomemCommand(input: {

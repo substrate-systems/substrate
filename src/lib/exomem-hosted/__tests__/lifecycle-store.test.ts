@@ -45,6 +45,47 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /lease_owner = NULL/i);
   });
 
+  it("atomically binds billing proof to the one deletion checkpoint transition", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "operation-1" }], rowCount: 1 };
+    });
+    const store = new SqlLifecycleStore();
+    assert.equal(
+      await store.advanceBillingTerminated({
+        operationId: "018f2d91-7c42-7000-8000-000000000070",
+        owner: "billing-worker",
+        proof: {
+          tenantId: "018f2d91-7c42-7000-8000-000000000071",
+          userId: "018f2d91-7c42-7000-8000-000000000072",
+          source: "paddle",
+          sourceState: "active",
+          sourceRevision: "evt_exact",
+          providerEnvironment: "sandbox",
+          customerRef: "ctm_exact",
+          subscriptionRef: "sub_exact",
+          transactionRef: "txn_exact",
+        },
+      }),
+      true
+    );
+
+    assert.match(statement, /operation\.operation_type = 'delete'/i);
+    assert.match(statement, /operation\.checkpoint = 'local-gated'/i);
+    assert.match(statement, /operation\.lease_owner =/i);
+    assert.match(statement, /operation\.lease_expires_at > now\(\)/i);
+    assert.match(statement, /operation\.fence_generation = tenant\.fence_generation/i);
+    assert.match(statement, /tenant\.status = 'deletion_pending'/i);
+    assert.match(statement, /tenant\.desired_state = 'deleted'/i);
+    assert.match(statement, /IS NOT DISTINCT FROM/g);
+    assert.match(statement, /FOR UPDATE OF operation, tenant, entitlement/i);
+    assert.match(statement, /provider_subscription_ref = NULL/i);
+    assert.match(statement, /provider_transaction_ref = NULL/i);
+    assert.match(statement, /checkpoint = 'billing-terminated'/i);
+    assert.match(statement, /matching[\s\S]*entitlement_marked[\s\S]*operation_advanced/i);
+  });
+
   it("creates or adopts one operation-owned unbound candidate atomically", async () => {
     let statement = "";
     const sql: ExomemSql = async (strings) => {

@@ -25,6 +25,7 @@ const target: PaddleReconciliationTarget = {
   userId: "user-internal",
   tenantId: "tenant-internal",
   subscriptionId: "sub_control_plane_only",
+  environment: "sandbox",
 };
 
 class CapturingStore implements AtomicExomemPaddleEventStore {
@@ -43,12 +44,16 @@ describe("periodic Paddle reconciliation seam", () => {
   it("reuses the atomic projection boundary without entering request-time paths", async () => {
     const store = new CapturingStore();
     let path = "";
+    let requestSignal: AbortSignal | null | undefined;
+    const signal = new AbortController().signal;
     const result = await reconcileExomemPaddleSubscription(target, {
       config: config(),
       store,
+      signal,
       now: () => new Date("2026-07-12T13:00:00.000Z"),
-      transport: async (nextPath) => {
+      transport: async (nextPath, init) => {
         path = nextPath;
+        requestSignal = init?.signal;
         return Response.json({
           data: {
             id: "sub_control_plane_only",
@@ -67,6 +72,7 @@ describe("periodic Paddle reconciliation seam", () => {
     });
 
     assert.equal(path, "/subscriptions/sub_control_plane_only");
+    assert.equal(requestSignal, signal);
     assert.deepEqual(result, { outcome: "applied" });
     assert.equal(store.applications.length, 1);
     assert.equal(store.applications[0].origin, "reconciliation");
@@ -118,6 +124,27 @@ describe("periodic Paddle reconciliation seam", () => {
       (error: unknown) =>
         error instanceof Error && error.message === "EXOMEM_PADDLE_RECONCILIATION_INVALID"
     );
+    assert.equal(store.applications.length, 0);
+  });
+
+  it("rejects a stored environment mismatch before contacting Paddle", async () => {
+    const store = new CapturingStore();
+    let calls = 0;
+    await assert.rejects(
+      reconcileExomemPaddleSubscription(
+        { ...target, environment: "production" },
+        {
+          config: config(),
+          store,
+          transport: async () => {
+            calls += 1;
+            return Response.json({});
+          },
+        }
+      ),
+      /EXOMEM_PADDLE_RECONCILIATION_INVALID/
+    );
+    assert.equal(calls, 0);
     assert.equal(store.applications.length, 0);
   });
 });

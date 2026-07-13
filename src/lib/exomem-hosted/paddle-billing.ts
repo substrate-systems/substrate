@@ -4,6 +4,7 @@ import {
   assertExomemPaddlePurpose,
   ExomemPaddleConfigurationError,
   loadExomemPaddleConfig,
+  loadExomemPaddleTransactionConfig,
   type ExomemPaddleConfig,
 } from "./paddle-config";
 
@@ -42,11 +43,22 @@ type CheckoutInput = {
 type PortalInput = CheckoutInput & {
   customerId: string;
   subscriptionId?: string;
+  environment: ExomemPaddleConfig["environment"];
 };
 
 type ResumeCheckoutInput = CheckoutInput & {
   transactionId: string;
+  environment: ExomemPaddleConfig["environment"];
 };
+
+export type ExomemCheckoutState =
+  | { state: "open"; checkoutUrl: string }
+  | { state: "canceled" }
+  | { state: "completed"; customerId: string | null; subscriptionId: string };
+
+type InspectedExomemCheckoutState =
+  | { state: "open"; checkoutUrl: string | null }
+  | Exclude<ExomemCheckoutState, { state: "open" }>;
 
 function assertExactInput(
   value: unknown,
@@ -116,7 +128,35 @@ function safeHttpsUrl(value: unknown): string | null {
   }
 }
 
-function safePaddleId(value: unknown, prefix: "txn"): string | null {
+function safeTransactionCheckoutUrl(
+  value: unknown,
+  configuredUrl: string | null,
+  transactionId: string
+): string | null {
+  if (typeof value !== "string" || !configuredUrl) return null;
+  try {
+    const candidate = new URL(value);
+    const configured = new URL(configuredUrl);
+    const query = [...candidate.searchParams];
+    if (
+      candidate.origin !== configured.origin ||
+      candidate.pathname !== configured.pathname ||
+      candidate.username ||
+      candidate.password ||
+      candidate.hash ||
+      query.length !== 1 ||
+      query[0][0] !== "_ptxn" ||
+      query[0][1] !== transactionId
+    ) {
+      return null;
+    }
+    return candidate.toString();
+  } catch {
+    return null;
+  }
+}
+
+function safePaddleId(value: unknown, prefix: "txn" | "sub" | "ctm"): string | null {
   return typeof value === "string" && new RegExp(`^${prefix}_[a-z0-9]{26}$`).test(value)
     ? value
     : null;
@@ -160,12 +200,19 @@ export async function createExomemCheckout(
         tenant_id: input.tenantId,
       },
       collection_mode: "automatic",
+      checkout: {
+        url: config.checkoutUrl,
+      },
     }),
   });
-  const checkoutUrl = safeHttpsUrl(
-    (payload as { data?: { checkout?: { url?: unknown } } })?.data?.checkout?.url
-  );
   const transactionId = safePaddleId((payload as { data?: { id?: unknown } })?.data?.id, "txn");
+  const checkoutUrl = transactionId
+    ? safeTransactionCheckoutUrl(
+        (payload as { data?: { checkout?: { url?: unknown } } })?.data?.checkout?.url,
+        config.checkoutUrl,
+        transactionId
+      )
+    : null;
   if (!checkoutUrl || !transactionId) {
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
   }
@@ -176,6 +223,7 @@ export async function createExomemCheckout(
       userId: input.userId,
       tenantId: input.tenantId,
       transactionId,
+      environment: config.environment,
     });
   } catch {
     recordFailed = true;
@@ -188,19 +236,27 @@ export async function createExomemCheckout(
   return { checkoutUrl };
 }
 
-export async function resumeExomemCheckout(
+async function inspectExomemCheckout(
   input: ResumeCheckoutInput,
-  dependencies: BillingDependencies = {}
-): Promise<{ checkoutUrl: string }> {
-  assertExactInput(input, ["userId", "tenantId", "transactionId"]);
+  dependencies: BillingDependencies,
+  options: { purpose: "checkout" | "transaction" }
+): Promise<InspectedExomemCheckoutState> {
+  assertExactInput(input, ["userId", "tenantId", "transactionId", "environment"]);
   if (!safePaddleId(input.transactionId, "txn")) {
     throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
   }
-  const config = dependencies.config ?? loadExomemPaddleConfig();
+  let config: ExomemPaddleConfig;
   try {
-    assertExomemPaddlePurpose(config, "checkout");
+    config = dependencies.config ?? loadExomemPaddleTransactionConfig();
+    // Exact terminal recovery needs only the stored environment and merchant
+    // API. Current browser/catalog configuration is checked later only if the
+    // transaction is still open.
+    assertExomemPaddlePurpose(config, "transaction");
   } catch (error) {
     throw safeConfigurationError(error);
+  }
+  if (config.environment !== input.environment) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
   }
   const payload = await safePaddleJson(
     dependencies.transport ?? paddleFetch,
@@ -209,36 +265,101 @@ export async function resumeExomemCheckout(
   );
   const data = safeObject(safeObject(payload)?.data);
   const customData = safeObject(data?.custom_data);
-  const items = Array.isArray(data?.items) ? data.items : [];
-  const catalogMatches = items.some((item) => {
-    const price = safeObject(safeObject(item)?.price);
-    return price?.id === config.priceId && price?.product_id === config.productId;
-  });
-  const checkoutUrl = safeHttpsUrl(safeObject(data?.checkout)?.url);
   if (
     data?.id !== input.transactionId ||
-    (data?.status !== "draft" && data?.status !== "ready") ||
     customData?.product_key !== config.productKey ||
     customData?.user_id !== input.userId ||
-    customData?.tenant_id !== input.tenantId ||
-    !catalogMatches ||
-    !checkoutUrl
+    customData?.tenant_id !== input.tenantId
   ) {
     throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
   }
-  return { checkoutUrl };
+  if (data.status === "draft" || data.status === "ready") {
+    let checkoutUrl: string | null = null;
+    if (options.purpose === "checkout") {
+      let checkoutConfig: ExomemPaddleConfig;
+      try {
+        checkoutConfig = dependencies.config ?? loadExomemPaddleConfig();
+        assertExomemPaddlePurpose(checkoutConfig, "checkout");
+      } catch (error) {
+        throw safeConfigurationError(error);
+      }
+      if (checkoutConfig.environment !== input.environment) {
+        throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
+      }
+      const items = Array.isArray(data.items) ? data.items : [];
+      const catalogMatches = items.some((item) => {
+        const price = safeObject(safeObject(item)?.price);
+        return (
+          price?.id === checkoutConfig.priceId && price?.product_id === checkoutConfig.productId
+        );
+      });
+      checkoutUrl = safeTransactionCheckoutUrl(
+        safeObject(data.checkout)?.url,
+        checkoutConfig.checkoutUrl,
+        input.transactionId
+      );
+      if (!catalogMatches || !checkoutUrl) {
+        throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+      }
+    }
+    return { state: "open", checkoutUrl };
+  }
+  if (data.status === "canceled") return { state: "canceled" };
+  if (["completed", "billed", "paid", "past_due"].includes(String(data.status))) {
+    const subscriptionId = safePaddleId(data.subscription_id, "sub");
+    const customerId = data.customer_id ? safePaddleId(data.customer_id, "ctm") : null;
+    if (!subscriptionId || (data.customer_id && !customerId)) {
+      throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+    }
+    return { state: "completed", customerId, subscriptionId };
+  }
+  throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+}
+
+export async function resumeExomemCheckout(
+  input: ResumeCheckoutInput,
+  dependencies: BillingDependencies = {}
+): Promise<ExomemCheckoutState> {
+  const inspection = await inspectExomemCheckout(input, dependencies, { purpose: "checkout" });
+  if (inspection.state === "open" && !inspection.checkoutUrl) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  return inspection as ExomemCheckoutState;
+}
+
+export async function cancelExomemCheckoutTransaction(
+  input: ResumeCheckoutInput,
+  dependencies: BillingDependencies = {}
+): Promise<Exclude<ExomemCheckoutState, { state: "open" }> | { state: "canceled" }> {
+  const inspection = await inspectExomemCheckout(input, dependencies, {
+    purpose: "transaction",
+  });
+  if (inspection.state !== "open") return inspection;
+  const payload = await safePaddleJson(
+    dependencies.transport ?? paddleFetch,
+    `/transactions/${encodeURIComponent(input.transactionId)}`,
+    { method: "PATCH", body: JSON.stringify({ status: "canceled" }) }
+  );
+  const data = safeObject(safeObject(payload)?.data);
+  if (data?.id !== input.transactionId || data.status !== "canceled") {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  return { state: "canceled" };
 }
 
 export async function createExomemCustomerPortal(
   input: PortalInput,
   dependencies: BillingDependencies = {}
 ): Promise<{ portalUrl: string }> {
-  assertExactInput(input, ["userId", "tenantId", "customerId", "subscriptionId"]);
+  assertExactInput(input, ["userId", "tenantId", "customerId", "subscriptionId", "environment"]);
   const config = dependencies.config ?? loadExomemPaddleConfig();
   try {
     assertExomemPaddlePurpose(config, "portal");
   } catch (error) {
     throw safeConfigurationError(error);
+  }
+  if (config.environment !== input.environment) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
   }
 
   const body = input.subscriptionId ? { subscription_ids: [input.subscriptionId] } : {};

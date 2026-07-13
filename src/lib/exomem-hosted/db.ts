@@ -1,5 +1,6 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { exomemErrors } from "./errors";
+import type { ExomemPaddleEnvironment } from "./paddle-config";
 import type { SecretEnvelope } from "./security";
 
 export type ExomemSqlResult = {
@@ -1262,21 +1263,121 @@ export async function recordExomemCheckoutTransaction(input: {
   userId: string;
   tenantId: string;
   transactionId: string;
+  environment: ExomemPaddleEnvironment;
 }): Promise<boolean> {
   const { rows } = await sql`
     /* exomem:record-checkout-transaction */
+    WITH active_tenant AS (
+      SELECT tenant.id
+      FROM exomem_tenants AS tenant
+      WHERE tenant.id = ${input.tenantId}
+        AND tenant.owner_user_id = ${input.userId}
+        AND tenant.status IN ('provisioning', 'active', 'suspended')
+        AND tenant.desired_state <> 'deleted'
+      FOR UPDATE OF tenant
+    )
     UPDATE exomem_entitlements AS entitlement
-    SET provider_transaction_ref = ${input.transactionId},
+    SET provider_environment = ${input.environment},
+        provider_transaction_ref = ${input.transactionId},
+        provider_provenance_unresolved_fingerprint = NULL,
+        source_state = 'checkout_pending',
         updated_at = now()
-    FROM exomem_tenants AS tenant
-    WHERE entitlement.tenant_id = tenant.id
-      AND tenant.id = ${input.tenantId}
-      AND tenant.owner_user_id = ${input.userId}
-      AND tenant.status <> 'deleted'
+    FROM active_tenant
+    WHERE entitlement.tenant_id = active_tenant.id
       AND entitlement.source = 'paddle'
+      AND entitlement.source_state IN ('awaiting_checkout', 'checkout_pending')
+      AND entitlement.effective_state <> 'deleted'
+      AND entitlement.provider_customer_ref IS NULL
+      AND entitlement.provider_subscription_ref IS NULL
+      AND (
+        entitlement.provider_environment IS NULL
+        OR entitlement.provider_environment = ${input.environment}
+      )
       AND (
         entitlement.provider_transaction_ref IS NULL
         OR entitlement.provider_transaction_ref = ${input.transactionId}
+      )
+    RETURNING entitlement.id
+  `;
+  return rows.length === 1;
+}
+
+export async function clearExomemCheckoutTransaction(input: {
+  userId: string;
+  tenantId: string;
+  transactionId: string;
+  environment: ExomemPaddleEnvironment;
+}): Promise<boolean> {
+  const { rows } = await sql`
+    /* exomem:clear-terminal-checkout-transaction */
+    WITH active_tenant AS (
+      SELECT tenant.id
+      FROM exomem_tenants AS tenant
+      WHERE tenant.id = ${input.tenantId}
+        AND tenant.owner_user_id = ${input.userId}
+        AND tenant.status IN ('provisioning', 'active', 'suspended')
+        AND tenant.desired_state <> 'deleted'
+      FOR UPDATE OF tenant
+    )
+    UPDATE exomem_entitlements AS entitlement
+    SET provider_transaction_ref = NULL,
+        provider_provenance_unresolved_fingerprint = NULL,
+        source_state = 'awaiting_checkout',
+        provider_environment = CASE
+          WHEN entitlement.provider_customer_ref IS NULL
+            AND entitlement.provider_subscription_ref IS NULL THEN NULL
+          ELSE entitlement.provider_environment
+        END,
+        updated_at = now()
+    FROM active_tenant
+    WHERE entitlement.tenant_id = active_tenant.id
+      AND entitlement.source = 'paddle'
+      AND entitlement.provider_environment = ${input.environment}
+      AND entitlement.provider_transaction_ref = ${input.transactionId}
+      AND entitlement.provider_customer_ref IS NULL
+      AND entitlement.provider_subscription_ref IS NULL
+    RETURNING entitlement.id
+  `;
+  return rows.length === 1;
+}
+
+export async function promoteExomemCheckoutSubscription(input: {
+  userId: string;
+  tenantId: string;
+  transactionId: string;
+  subscriptionId: string;
+  customerId: string | null;
+  environment: ExomemPaddleEnvironment;
+}): Promise<boolean> {
+  const { rows } = await sql`
+    /* exomem:promote-checkout-subscription */
+    WITH active_tenant AS (
+      SELECT tenant.id
+      FROM exomem_tenants AS tenant
+      WHERE tenant.id = ${input.tenantId}
+        AND tenant.owner_user_id = ${input.userId}
+        AND tenant.status IN ('provisioning', 'active', 'suspended')
+        AND tenant.desired_state <> 'deleted'
+      FOR UPDATE OF tenant
+    )
+    UPDATE exomem_entitlements AS entitlement
+    SET provider_customer_ref = COALESCE(
+          ${input.customerId},
+          entitlement.provider_customer_ref
+        ),
+        provider_subscription_ref = ${input.subscriptionId},
+        provider_provenance_unresolved_fingerprint = NULL,
+        provider_reconcile_after = now(),
+        updated_at = now()
+    FROM active_tenant
+    WHERE entitlement.tenant_id = active_tenant.id
+      AND entitlement.source = 'paddle'
+      AND entitlement.source_state <> 'cancelled'
+      AND entitlement.provider_environment = ${input.environment}
+      AND entitlement.provider_transaction_ref = ${input.transactionId}
+      AND (
+        entitlement.provider_subscription_ref IS NULL
+        OR entitlement.provider_subscription_ref = ${input.subscriptionId}
       )
     RETURNING entitlement.id
   `;

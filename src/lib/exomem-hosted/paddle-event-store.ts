@@ -54,13 +54,21 @@ export function createSqlExomemPaddleEventStore(
                  entitlement.id AS entitlement_id,
                  entitlement.manual_suspended_at,
                  entitlement.source_occurred_at,
-                 entitlement.source_revision
+                 entitlement.source_revision,
+                 entitlement.provider_environment
           FROM exomem_tenants AS tenant
           JOIN exomem_entitlements AS entitlement
             ON entitlement.tenant_id = tenant.id
           WHERE tenant.id = ${application.correlation.tenantId}::uuid
             AND tenant.owner_user_id = ${application.correlation.userId}::uuid
             AND entitlement.source = 'paddle'
+            AND (
+              entitlement.provider_environment = ${application.environment}
+              OR (
+                entitlement.provider_environment IS NULL
+                AND ${application.origin}::text = 'webhook'
+              )
+            )
             AND (
               (
                 ${application.origin}::text = 'reconciliation'
@@ -87,6 +95,32 @@ export function createSqlExomemPaddleEventStore(
             )
           FOR UPDATE OF tenant, entitlement
         ),
+        decision AS (
+          SELECT authoritative_target.tenant_id,
+                 authoritative_target.tenant_status,
+                 authoritative_target.entitlement_id,
+                 authoritative_target.manual_suspended_at,
+                 authoritative_target.source_occurred_at,
+                 authoritative_target.source_revision,
+                 authoritative_target.entitlement_id IS NOT NULL AS is_authoritative,
+                 CASE
+                   WHEN authoritative_target.entitlement_id IS NULL THEN 'ignored'
+                   WHEN ${application.origin}::text = 'reconciliation'
+                     AND authoritative_target.tenant_status IN ('deletion_pending', 'deleted')
+                     THEN 'ignored'
+                   WHEN ${application.sourceState}::text IS NULL THEN 'ignored'
+                   WHEN authoritative_target.source_occurred_at IS NULL THEN 'applied'
+                   WHEN authoritative_target.source_occurred_at
+                          < ${application.revision.occurredAt}::timestamptz THEN 'applied'
+                   WHEN authoritative_target.source_occurred_at
+                          = ${application.revision.occurredAt}::timestamptz
+                     AND COALESCE(authoritative_target.source_revision, '')
+                          < ${application.revision.eventId} THEN 'applied'
+                   ELSE 'stale'
+                 END AS outcome
+          FROM (VALUES (1)) AS singleton(seed)
+          LEFT JOIN authoritative_target ON true
+        ),
         claimed AS (
           INSERT INTO exomem_paddle_events (
             paddle_event_id,
@@ -94,42 +128,40 @@ export function createSqlExomemPaddleEventStore(
             event_type,
             tenant_id,
             source_revision,
-            occurred_at
-          ) VALUES (
-            ${application.eventId},
-            ${databaseEnvironment},
-            ${application.eventType},
-            (SELECT tenant_id FROM authoritative_target),
-            ${application.revision.eventId},
-            ${application.revision.occurredAt}
+            occurred_at,
+            applied_at,
+            disposition,
+            error_code
           )
-          ON CONFLICT (paddle_event_id) DO UPDATE
-          SET paddle_event_id = exomem_paddle_events.paddle_event_id
-          RETURNING id, tenant_id, environment, event_type,
-                    disposition, applied_at, error_code
-        ),
-        authoritative AS (
-          SELECT claimed.id AS event_row_id,
-                 claimed.applied_at,
-                 authoritative_target.tenant_status,
-                 authoritative_target.entitlement_id,
-                 authoritative_target.manual_suspended_at,
-                 authoritative_target.source_occurred_at,
-                 authoritative_target.source_revision
-          FROM claimed
-          JOIN authoritative_target
-            ON claimed.tenant_id = authoritative_target.tenant_id
-          WHERE claimed.environment = ${databaseEnvironment}
-            AND claimed.event_type = ${application.eventType}
+          SELECT ${application.eventId},
+                 ${databaseEnvironment},
+                 ${application.eventType},
+                 decision.tenant_id,
+                 ${application.revision.eventId},
+                 ${application.revision.occurredAt},
+                 now(),
+                 CASE
+                   WHEN decision.outcome = 'applied' THEN 'applied'
+                   WHEN decision.outcome = 'stale' THEN 'stale'
+                   WHEN decision.is_authoritative THEN 'ignored'
+                   ELSE 'rejected'
+                 END,
+                 CASE
+                   WHEN decision.is_authoritative THEN NULL
+                   ELSE 'CORRELATION_INVALID'
+                 END
+          FROM decision
+          ON CONFLICT (paddle_event_id) DO NOTHING
+          RETURNING id
         ),
         projected AS (
           UPDATE exomem_entitlements AS entitlement
           SET source = 'paddle',
               source_state = ${application.sourceState},
               effective_state = CASE
-                WHEN authoritative.tenant_status = 'deleted' THEN 'deleted'
-                WHEN authoritative.tenant_status = 'provisioning' THEN 'provisioning'
-                WHEN authoritative.manual_suspended_at IS NOT NULL THEN 'suspended'
+                WHEN decision.tenant_status IN ('deletion_pending', 'deleted') THEN 'deleted'
+                WHEN decision.tenant_status = 'provisioning' THEN 'provisioning'
+                WHEN decision.manual_suspended_at IS NOT NULL THEN 'suspended'
                 WHEN ${application.sourceState} IN ('active', 'trialing') THEN 'active'
                 WHEN ${application.sourceState} = 'past_due' THEN 'grace'
                 WHEN ${application.sourceState} = 'paused' THEN 'suspended'
@@ -137,8 +169,8 @@ export function createSqlExomemPaddleEventStore(
                 ELSE entitlement.effective_state
               END,
               capabilities = CASE
-                WHEN authoritative.tenant_status IN ('deleted', 'provisioning')
-                  OR authoritative.manual_suspended_at IS NOT NULL
+                WHEN decision.tenant_status IN ('deletion_pending', 'deleted', 'provisioning')
+                  OR decision.manual_suspended_at IS NOT NULL
                   THEN '[]'::jsonb
                 WHEN ${application.sourceState} IN ('active', 'trialing')
                   THEN ${JSON.stringify(application.capabilities)}::jsonb
@@ -147,6 +179,8 @@ export function createSqlExomemPaddleEventStore(
               resource_limits = ${JSON.stringify(application.resourceLimits)}::jsonb,
               source_revision = ${application.revision.eventId},
               source_occurred_at = ${application.revision.occurredAt},
+              provider_environment = ${application.environment},
+              provider_provenance_unresolved_fingerprint = NULL,
               provider_customer_ref = COALESCE(
                 ${application.providerReferences.customerId},
                 entitlement.provider_customer_ref
@@ -160,56 +194,42 @@ export function createSqlExomemPaddleEventStore(
                 entitlement.provider_transaction_ref
               ),
               updated_at = now()
-          FROM authoritative
-          WHERE entitlement.id = authoritative.entitlement_id
-            AND authoritative.applied_at IS NULL
-            AND ${application.sourceState}::text IS NOT NULL
-            AND (
-              authoritative.source_occurred_at IS NULL
-              OR authoritative.source_occurred_at < ${application.revision.occurredAt}::timestamptz
-              OR (
-                authoritative.source_occurred_at = ${application.revision.occurredAt}::timestamptz
-                AND COALESCE(authoritative.source_revision, '') < ${application.revision.eventId}
-              )
-            )
+          FROM decision
+          WHERE entitlement.id = decision.entitlement_id
+            AND decision.outcome = 'applied'
+            AND EXISTS (SELECT 1 FROM claimed)
           RETURNING entitlement.id
         ),
-        decision AS (
-          SELECT claimed.id AS event_row_id,
-                 EXISTS (SELECT 1 FROM authoritative) AS is_authoritative,
-                 CASE
-                   WHEN claimed.applied_at IS NOT NULL THEN 'duplicate'
-                   WHEN ${application.sourceState}::text IS NULL
-                     AND EXISTS (SELECT 1 FROM authoritative) THEN 'ignored'
-                   WHEN EXISTS (SELECT 1 FROM projected) THEN 'applied'
-                   WHEN EXISTS (SELECT 1 FROM authoritative) THEN 'stale'
-                   ELSE 'ignored'
-                 END AS outcome
-          FROM claimed
-        ),
-        marked AS (
-          UPDATE exomem_paddle_events AS paddle_event
-          SET disposition = CASE
-                WHEN decision.outcome = 'duplicate' THEN paddle_event.disposition
-                WHEN decision.outcome = 'applied' THEN 'applied'
-                WHEN decision.outcome = 'stale' THEN 'stale'
-                WHEN decision.is_authoritative THEN 'ignored'
-                ELSE 'rejected'
-              END,
-              applied_at = CASE
-                WHEN decision.outcome = 'duplicate' THEN paddle_event.applied_at
-                ELSE COALESCE(paddle_event.applied_at, now())
-              END,
-              error_code = CASE
-                WHEN decision.outcome = 'duplicate' THEN paddle_event.error_code
-                WHEN decision.is_authoritative THEN NULL
-                ELSE 'CORRELATION_INVALID'
-              END
+        provenance_repaired AS (
+          UPDATE exomem_entitlements AS entitlement
+          SET provider_environment = ${application.environment},
+              provider_provenance_unresolved_fingerprint = NULL,
+              updated_at = now()
           FROM decision
-          WHERE paddle_event.id = decision.event_row_id
-          RETURNING decision.outcome
+          WHERE entitlement.id = decision.entitlement_id
+            AND entitlement.provider_environment IS NULL
+            AND ${application.origin}::text = 'webhook'
+            AND ${application.sourceState}::text IS NULL
+            AND EXISTS (SELECT 1 FROM claimed)
+          RETURNING entitlement.id
+        ),
+        completion AS (
+          SELECT count(*)::integer AS claimed_count,
+                 (SELECT count(*)::integer FROM projected) AS projected_count,
+                 (SELECT count(*)::integer FROM provenance_repaired) AS repaired_count
+          FROM claimed
         )
-        SELECT outcome FROM marked
+        SELECT CASE
+                 WHEN completion.claimed_count = 0 THEN 'duplicate'
+                 ELSE decision.outcome
+               END AS outcome,
+               CASE
+                 WHEN completion.claimed_count = 1 AND decision.outcome = 'applied'
+                   THEN 1 / completion.projected_count
+                 ELSE 1
+               END AS projection_guard
+        FROM decision
+        CROSS JOIN completion
       `;
 
       const outcome = rows[0]?.outcome;

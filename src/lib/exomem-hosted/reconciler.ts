@@ -16,6 +16,7 @@ import {
   type SecretEnvelope,
 } from "./security";
 import { exomemErrors } from "./errors";
+import type { BillingDeletionTarget } from "./billing-deletion";
 
 export type LifecycleOperationType =
   | "provision"
@@ -118,7 +119,7 @@ export type CandidateSecret = {
   digest: Buffer;
 };
 
-export type ProductBillingTerminator = (tenantId: string) => Promise<boolean>;
+export type ProductBillingTerminator = (tenantId: string) => Promise<BillingDeletionTarget | null>;
 
 export type RestoreBinding = {
   exportId: string;
@@ -155,6 +156,11 @@ export interface LifecycleStore {
     expectedCheckpoint: string,
     nextCheckpoint: string
   ): Promise<boolean>;
+  advanceBillingTerminated(input: {
+    operationId: string;
+    owner: string;
+    proof: BillingDeletionTarget;
+  }): Promise<boolean>;
   retry(
     operationId: string,
     owner: string,
@@ -354,7 +360,7 @@ export class LifecycleReconciler {
     this.#now = input.now ?? (() => new Date());
     this.#randomBytes = input.randomBytes ?? nodeRandomBytes;
     this.#envelopeKey = input.envelopeKey;
-    this.#terminateBilling = input.terminateBilling ?? (async () => true);
+    this.#terminateBilling = input.terminateBilling ?? (async () => null);
   }
 
   #credential(): CandidateSecret {
@@ -1051,14 +1057,29 @@ export class LifecycleReconciler {
     }
     if (operation.checkpoint === "local-gated") {
       if (deleting) {
-        const terminated = await this.#terminateBilling(operation.tenantId);
-        if (!terminated) {
+        const proof = await this.#terminateBilling(operation.tenantId);
+        if (!proof) {
           throw new ProvisionerFailure({
             code: "BILLING_TERMINATION_UNAVAILABLE",
             retryable: true,
           });
         }
-        return this.#advance(operation, owner, "billing-terminated");
+        const advanced = await this.#store.advanceBillingTerminated({
+          operationId: operation.id,
+          owner,
+          proof,
+        });
+        if (!advanced) {
+          throw new ProvisionerFailure({
+            code: "BILLING_TERMINATION_UNAVAILABLE",
+            retryable: true,
+          });
+        }
+        return {
+          kind: "advanced",
+          operationId: operation.id,
+          checkpoint: "billing-terminated",
+        };
       }
       const cell = await this.#cell(operation);
       await this.#provisioner.quiesce(this.#target(operation, cell));
@@ -1448,6 +1469,23 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     operation.updatedAt = this.#now();
     this.checkpointHistory.push({ operationId, checkpoint: nextCheckpoint });
     return true;
+  }
+
+  async advanceBillingTerminated(input: {
+    operationId: string;
+    owner: string;
+    proof: BillingDeletionTarget;
+  }): Promise<boolean> {
+    const operation = this.#owned(input.operationId, input.owner);
+    if (
+      !operation ||
+      operation.operationType !== "delete" ||
+      operation.checkpoint !== "local-gated" ||
+      operation.tenantId !== input.proof.tenantId
+    ) {
+      return false;
+    }
+    return this.advance(input.operationId, input.owner, "local-gated", "billing-terminated");
   }
 
   async retry(

@@ -4,11 +4,13 @@ import { Pool } from "pg";
 import {
   __setExomemSqlForTests,
   claimMagicLinkDelivery,
+  clearExomemCheckoutTransaction,
   consumeDeletionConfirmationAtomic,
   createDeletionConfirmationToken,
   createMagicAccessToken,
   markMagicLinkDeliverySent,
   pruneStaleRateLimitBuckets,
+  recordExomemCheckoutTransaction,
   redeemMagicAccessTokenAtomic,
   releaseMagicLinkDelivery,
   takeRateLimit,
@@ -17,12 +19,35 @@ import {
 import { SqlLifecycleStore } from "../lifecycle-store";
 import { getOwnerExport, listOwnerExports } from "../durability";
 import { SqlExportGcStore } from "../export-gc";
+import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
+import {
+  claimPaddleReconciliationTargets,
+  releasePaddleReconciliationLease,
+} from "../paddle-reconciliation-runtime";
 import { digestSecret, encryptSecret } from "../security";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const USER = "11111111-1111-4111-8111-111111111111";
 const TENANT = "22222222-2222-4222-8222-222222222222";
 const CELL = "33333333-3333-4333-8333-333333333333";
+
+async function waitForBlockedQuery(pool: Pool, marker: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await pool.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+         FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid()
+           AND query LIKE $1
+           AND wait_event_type = 'Lock'
+       ) AS waiting`,
+      [`%${marker}%`]
+    );
+    if (result.rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`query did not block on ${marker}`);
+}
 
 describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   let pool: Pool;
@@ -84,6 +109,652 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       "SELECT scope FROM exomem_rate_limit_buckets ORDER BY scope"
     );
     assert.deepEqual(rows.rows, [{ scope: "fresh" }]);
+  });
+
+  it("commits a fresh Paddle projection with a terminal receipt so retries are duplicates", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state,
+         capabilities, resource_limits, provider_environment, provider_transaction_ref
+       ) VALUES ($1, 'paddle', 'awaiting_checkout', 'provisioning', '[]', '{}', 'sandbox', $2)`,
+      [TENANT, "txn_atomic_fresh"]
+    );
+    const sql: ExomemPaddleSql = async (strings, ...values) => {
+      const text = strings.reduce(
+        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
+        ""
+      );
+      const result = await pool.query(text, values);
+      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+    };
+    const store = createSqlExomemPaddleEventStore(sql);
+    const application = {
+      eventId: "evt_atomic_fresh",
+      eventType: "subscription.created",
+      environment: "sandbox" as const,
+      origin: "webhook" as const,
+      revision: {
+        occurredAt: "2026-07-13T06:13:03.661Z",
+        eventId: "evt_atomic_fresh",
+      },
+      correlation: {
+        productKey: "exomem-hosted" as const,
+        userId: USER,
+        tenantId: TENANT,
+      },
+      sourceState: "active" as const,
+      capabilities: ["capture", "recall", "export"] as const,
+      resourceLimits: {
+        storageBytes: 5 * 1024 * 1024 * 1024,
+        uploadBytes: 100 * 1024 * 1024,
+        workerCount: 0,
+      },
+      providerReferences: {
+        customerId: "ctm_atomic_fresh",
+        subscriptionId: "sub_atomic_fresh",
+        transactionId: "txn_atomic_fresh",
+        productId: "pro_atomic_fresh",
+        priceId: "pri_atomic_fresh",
+      },
+    };
+
+    assert.deepEqual(await store.applyVerifiedEventAndMarkProcessedAtomically(application), {
+      outcome: "applied",
+    });
+    assert.deepEqual(await store.applyVerifiedEventAndMarkProcessedAtomically(application), {
+      outcome: "duplicate",
+    });
+
+    const receipt = await pool.query<{
+      disposition: string;
+      applied_at: Date | null;
+      receipt_count: string;
+    }>(
+      `SELECT disposition, applied_at,
+              count(*) OVER ()::text AS receipt_count
+         FROM exomem_paddle_events
+        WHERE paddle_event_id = $1`,
+      [application.eventId]
+    );
+    assert.equal(receipt.rows[0]?.disposition, "applied");
+    assert.ok(receipt.rows[0]?.applied_at);
+    assert.equal(receipt.rows[0]?.receipt_count, "1");
+    const entitlement = await pool.query<{
+      source_state: string;
+      effective_state: string;
+      provider_subscription_ref: string | null;
+    }>(
+      `SELECT source_state, effective_state, provider_subscription_ref
+         FROM exomem_entitlements
+        WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(entitlement.rows[0], {
+      source_state: "active",
+      effective_state: "active",
+      provider_subscription_ref: "sub_atomic_fresh",
+    });
+  });
+
+  it("serializes checkout binding against deletion on the tenant row", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state, capabilities, resource_limits
+       ) VALUES ($1, 'paddle', 'awaiting_checkout', 'provisioning', '[]', '{}')`,
+      [TENANT]
+    );
+
+    const deletion = await pool.connect();
+    try {
+      await deletion.query("BEGIN");
+      await deletion.query(
+        `UPDATE exomem_tenants
+            SET status = 'deletion_pending', desired_state = 'deleted'
+          WHERE id = $1`,
+        [TENANT]
+      );
+      const record = recordExomemCheckoutTransaction({
+        userId: USER,
+        tenantId: TENANT,
+        transactionId: `txn_${"a".repeat(26)}`,
+        environment: "sandbox",
+      });
+      await waitForBlockedQuery(pool, "exomem:record-checkout-transaction");
+      await deletion.query("COMMIT");
+      assert.equal(await record, false);
+    } finally {
+      await deletion.query("ROLLBACK").catch(() => undefined);
+      deletion.release();
+    }
+
+    const state = await pool.query<{ provider_transaction_ref: string | null }>(
+      "SELECT provider_transaction_ref FROM exomem_entitlements WHERE tenant_id = $1",
+      [TENANT]
+    );
+    assert.equal(state.rows[0]?.provider_transaction_ref, null);
+  });
+
+  it("retains a bind-first checkout for deletion cancellation", async () => {
+    const transactionId = `txn_${"b".repeat(26)}`;
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state, capabilities, resource_limits
+       ) VALUES ($1, 'paddle', 'awaiting_checkout', 'provisioning', '[]', '{}')`,
+      [TENANT]
+    );
+
+    assert.equal(
+      await recordExomemCheckoutTransaction({
+        userId: USER,
+        tenantId: TENANT,
+        transactionId,
+        environment: "sandbox",
+      }),
+      true
+    );
+    await pool.query(
+      `UPDATE exomem_tenants
+          SET status = 'deletion_pending', desired_state = 'deleted'
+        WHERE id = $1`,
+      [TENANT]
+    );
+    const state = await pool.query<{
+      provider_environment: string;
+      provider_transaction_ref: string;
+      source_state: string;
+    }>(
+      `SELECT provider_environment, provider_transaction_ref, source_state
+       FROM exomem_entitlements WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(state.rows[0], {
+      provider_environment: "sandbox",
+      provider_transaction_ref: transactionId,
+      source_state: "checkout_pending",
+    });
+  });
+
+  it("does not clear checkout state over a concurrently promoted subscription", async () => {
+    const transactionId = `txn_${"c".repeat(26)}`;
+    const subscriptionId = `sub_${"d".repeat(26)}`;
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state, capabilities, resource_limits,
+         source_revision, provider_environment, provider_transaction_ref
+       ) VALUES ($1, 'paddle', 'checkout_pending', 'provisioning', '[]', '{}',
+                 'before-promotion', 'sandbox', $2)`,
+      [TENANT, transactionId]
+    );
+    await pool.query(
+      `UPDATE exomem_entitlements
+          SET provider_subscription_ref = $1, source_revision = 'after-promotion'
+        WHERE tenant_id = $2`,
+      [subscriptionId, TENANT]
+    );
+
+    assert.equal(
+      await clearExomemCheckoutTransaction({
+        userId: USER,
+        tenantId: TENANT,
+        transactionId,
+        environment: "sandbox",
+      }),
+      false
+    );
+    const retained = await pool.query<{
+      provider_subscription_ref: string;
+      provider_transaction_ref: string;
+      source_revision: string;
+    }>(
+      `SELECT provider_subscription_ref, provider_transaction_ref, source_revision
+       FROM exomem_entitlements WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(retained.rows[0], {
+      provider_subscription_ref: subscriptionId,
+      provider_transaction_ref: transactionId,
+      source_revision: "after-promotion",
+    });
+  });
+
+  it("atomically couples exact billing proof to the leased deletion checkpoint", async () => {
+    const operationId = "44444444-4444-4444-8444-444444444401";
+    const transactionId = `txn_${"m".repeat(26)}`;
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants
+         (id, owner_user_id, status, desired_state, fence_generation)
+       VALUES ($1, $2, 'deletion_pending', 'deleted', 3)`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state, capabilities, resource_limits,
+         source_revision, provider_environment, provider_transaction_ref
+       ) VALUES (
+         $1, 'paddle', 'checkout_pending', 'deleted', '[]', '{}',
+         'before-provider-race', 'sandbox', $2
+       )`,
+      [TENANT, transactionId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, operation_type, state, idempotency_key, fence_generation,
+         checkpoint, attempts, lease_owner, lease_expires_at
+       ) VALUES (
+         $1, $2, 'delete', 'running', 'atomic-billing-proof', 3,
+         'local-gated', 2, 'billing-worker', now() + interval '1 minute'
+       )`,
+      [operationId, TENANT]
+    );
+
+    const exactTarget = {
+      tenantId: TENANT,
+      userId: USER,
+      source: "paddle" as const,
+      sourceState: "checkout_pending",
+      sourceRevision: "before-provider-race",
+      providerEnvironment: "sandbox" as const,
+      customerRef: null,
+      subscriptionRef: null,
+      transactionRef: transactionId,
+    };
+    const store = new SqlLifecycleStore();
+    const providerUpdate = await pool.connect();
+    const promotedSubscription = `sub_${"n".repeat(26)}`;
+    try {
+      await providerUpdate.query("BEGIN");
+      await providerUpdate.query(
+        `UPDATE exomem_entitlements
+            SET source_revision = 'after-provider-race', provider_subscription_ref = $1
+          WHERE tenant_id = $2`,
+        [promotedSubscription, TENANT]
+      );
+      const staleAdvance = store.advanceBillingTerminated({
+        operationId,
+        owner: "billing-worker",
+        proof: exactTarget,
+      });
+      await waitForBlockedQuery(pool, "exomem:lifecycle-advance-billing-terminated");
+      await providerUpdate.query("COMMIT");
+      assert.equal(await staleAdvance, false);
+    } finally {
+      await providerUpdate.query("ROLLBACK").catch(() => undefined);
+      providerUpdate.release();
+    }
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT source_state, source_revision, provider_subscription_ref
+             FROM exomem_entitlements WHERE tenant_id = $1`,
+          [TENANT]
+        )
+      ).rows[0],
+      {
+        source_state: "checkout_pending",
+        source_revision: "after-provider-race",
+        provider_subscription_ref: promotedSubscription,
+      }
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT state, checkpoint FROM exomem_lifecycle_operations WHERE id = $1`,
+          [operationId]
+        )
+      ).rows[0],
+      { state: "running", checkpoint: "local-gated" }
+    );
+
+    await pool.query(
+      `UPDATE exomem_entitlements
+          SET source_revision = 'before-provider-race', provider_subscription_ref = NULL
+        WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    assert.equal(
+      await store.advanceBillingTerminated({
+        operationId,
+        owner: "billing-worker",
+        proof: exactTarget,
+      }),
+      true
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT source_state, provider_environment, provider_customer_ref,
+                  provider_subscription_ref, provider_transaction_ref
+             FROM exomem_entitlements WHERE tenant_id = $1`,
+          [TENANT]
+        )
+      ).rows[0],
+      {
+        source_state: "deletion_cancelled",
+        provider_environment: null,
+        provider_customer_ref: null,
+        provider_subscription_ref: null,
+        provider_transaction_ref: null,
+      }
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT state, checkpoint, attempts, lease_owner, lease_expires_at
+             FROM exomem_lifecycle_operations WHERE id = $1`,
+          [operationId]
+        )
+      ).rows[0],
+      {
+        state: "waiting",
+        checkpoint: "billing-terminated",
+        attempts: 0,
+        lease_owner: null,
+        lease_expires_at: null,
+      }
+    );
+
+    const eventSql: ExomemPaddleSql = async (strings, ...values) => {
+      const text = strings.reduce(
+        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
+        ""
+      );
+      const result = await pool.query(text, values);
+      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+    };
+    const eventStore = createSqlExomemPaddleEventStore(eventSql);
+    assert.deepEqual(
+      await eventStore.applyVerifiedEventAndMarkProcessedAtomically({
+        eventId: "evt_after_billing_gate",
+        eventType: "transaction.completed",
+        environment: "sandbox",
+        origin: "webhook",
+        revision: {
+          occurredAt: "2026-07-13T08:45:00Z",
+          eventId: "evt_after_billing_gate",
+        },
+        correlation: {
+          productKey: "exomem-hosted",
+          userId: USER,
+          tenantId: TENANT,
+        },
+        sourceState: "active",
+        capabilities: ["capture", "recall", "export"],
+        resourceLimits: {
+          storageBytes: 5 * 1024 * 1024 * 1024,
+          uploadBytes: 100 * 1024 * 1024,
+          workerCount: 0,
+        },
+        providerReferences: {
+          customerId: null,
+          subscriptionId: null,
+          transactionId,
+          productId: "pro_after_billing_gate",
+          priceId: "pri_after_billing_gate",
+        },
+      }),
+      { outcome: "ignored" }
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT source_state, provider_environment, provider_transaction_ref
+             FROM exomem_entitlements WHERE tenant_id = $1`,
+          [TENANT]
+        )
+      ).rows[0],
+      {
+        source_state: "deletion_cancelled",
+        provider_environment: null,
+        provider_transaction_ref: null,
+      }
+    );
+  });
+
+  it("advances Paddle source state without reopening a deletion-pending entitlement", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'deletion_pending', 'deleted')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state,
+         capabilities, resource_limits, source_revision, source_occurred_at,
+         provider_environment, provider_subscription_ref
+       ) VALUES (
+         $1, 'paddle', 'cancelled', 'deleted', '[]', '{}',
+         'evt_before_deletion', '2026-07-13T06:20:00Z', 'sandbox', $2
+       )`,
+      [TENANT, "sub_deletion_pending"]
+    );
+    const sql: ExomemPaddleSql = async (strings, ...values) => {
+      const text = strings.reduce(
+        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
+        ""
+      );
+      const result = await pool.query(text, values);
+      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+    };
+    const store = createSqlExomemPaddleEventStore(sql);
+
+    assert.deepEqual(
+      await store.applyVerifiedEventAndMarkProcessedAtomically({
+        eventId: "evt_after_deletion_started",
+        eventType: "subscription.updated",
+        environment: "sandbox",
+        origin: "webhook",
+        revision: {
+          occurredAt: "2026-07-13T06:30:00Z",
+          eventId: "evt_after_deletion_started",
+        },
+        correlation: {
+          productKey: "exomem-hosted",
+          userId: USER,
+          tenantId: TENANT,
+        },
+        sourceState: "active",
+        capabilities: ["capture", "recall", "export"],
+        resourceLimits: {
+          storageBytes: 5 * 1024 * 1024 * 1024,
+          uploadBytes: 100 * 1024 * 1024,
+          workerCount: 0,
+        },
+        providerReferences: {
+          customerId: "ctm_after_deletion_started",
+          subscriptionId: "sub_deletion_pending",
+          transactionId: null,
+          productId: "pro_after_deletion_started",
+          priceId: "pri_after_deletion_started",
+        },
+      }),
+      { outcome: "applied" }
+    );
+
+    const entitlement = await pool.query<{
+      source_state: string;
+      source_revision: string | null;
+      effective_state: string;
+      capabilities: string[];
+    }>(
+      `SELECT source_state, source_revision, effective_state, capabilities
+         FROM exomem_entitlements
+        WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(entitlement.rows[0], {
+      source_state: "active",
+      source_revision: "evt_after_deletion_started",
+      effective_state: "deleted",
+      capabilities: [],
+    });
+
+    assert.deepEqual(
+      await store.applyVerifiedEventAndMarkProcessedAtomically({
+        eventId: `reconcile:${TENANT}:2026-07-13T06:40:00Z`,
+        eventType: "subscription.reconciled",
+        environment: "sandbox",
+        origin: "reconciliation",
+        revision: {
+          occurredAt: "2026-07-13T06:40:00Z",
+          eventId: `reconcile:${TENANT}:2026-07-13T06:40:00Z`,
+        },
+        correlation: {
+          productKey: "exomem-hosted",
+          userId: USER,
+          tenantId: TENANT,
+        },
+        sourceState: "past_due",
+        capabilities: ["capture", "recall", "export"],
+        resourceLimits: {
+          storageBytes: 5 * 1024 * 1024 * 1024,
+          uploadBytes: 100 * 1024 * 1024,
+          workerCount: 0,
+        },
+        providerReferences: {
+          customerId: "ctm_reconciliation_must_not_project",
+          subscriptionId: "sub_deletion_pending",
+          transactionId: null,
+          productId: "pro_reconciliation_must_not_project",
+          priceId: null,
+        },
+      }),
+      { outcome: "ignored" }
+    );
+
+    const afterReconciliation = await pool.query<{
+      source_state: string;
+      source_revision: string | null;
+      effective_state: string;
+      capabilities: string[];
+      provider_customer_ref: string | null;
+    }>(
+      `SELECT source_state, source_revision, effective_state, capabilities,
+              provider_customer_ref
+         FROM exomem_entitlements
+        WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(afterReconciliation.rows[0], {
+      source_state: "active",
+      source_revision: "evt_after_deletion_started",
+      effective_state: "deleted",
+      capabilities: [],
+      provider_customer_ref: "ctm_after_deletion_started",
+    });
+    const ignoredReceipt = await pool.query<{ disposition: string; error_code: string | null }>(
+      `SELECT disposition, error_code
+         FROM exomem_paddle_events
+        WHERE paddle_event_id = $1`,
+      [`reconcile:${TENANT}:2026-07-13T06:40:00Z`]
+    );
+    assert.deepEqual(ignoredReceipt.rows[0], {
+      disposition: "ignored",
+      error_code: null,
+    });
+  });
+
+  it("leases each due Paddle subscription once and excludes future or deleting tenants", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state,
+         capabilities, resource_limits, provider_environment, provider_subscription_ref
+       ) VALUES ($1, 'paddle', 'active', 'active', '[]', '{}', 'sandbox', $2)`,
+      [TENANT, "sub_reconciliation_lease"]
+    );
+    const sql: ExomemPaddleSql = async (strings, ...values) => {
+      const text = strings.reduce(
+        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
+        ""
+      );
+      const result = await pool.query(text, values);
+      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+    };
+    const firstOwner = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const secondOwner = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const claims = await Promise.all([
+      claimPaddleReconciliationTargets(
+        { limit: 1, leaseOwner: firstOwner, leaseMs: 30_000, environment: "sandbox" },
+        sql
+      ),
+      claimPaddleReconciliationTargets(
+        { limit: 1, leaseOwner: secondOwner, leaseMs: 30_000, environment: "sandbox" },
+        sql
+      ),
+    ]);
+    assert.equal(claims.flat().length, 1);
+    const winningIndex = claims.findIndex((claim) => claim.length === 1);
+    assert.notEqual(winningIndex, -1);
+    const winner = winningIndex === 0 ? firstOwner : secondOwner;
+    const winningTarget = claims[winningIndex]?.[0];
+    assert.ok(winningTarget);
+    assert.equal(
+      await releasePaddleReconciliationLease({ target: winningTarget, leaseOwner: winner }, sql),
+      true
+    );
+
+    await pool.query(
+      `UPDATE exomem_entitlements
+          SET provider_reconcile_after = now() + interval '1 hour'
+        WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(
+      await claimPaddleReconciliationTargets(
+        { limit: 1, leaseOwner: firstOwner, leaseMs: 30_000, environment: "sandbox" },
+        sql
+      ),
+      []
+    );
+
+    await pool.query(
+      `UPDATE exomem_entitlements SET provider_reconcile_after = now() WHERE tenant_id = $1`,
+      [TENANT]
+    );
+    await pool.query(
+      `UPDATE exomem_tenants
+          SET status = 'deletion_pending', desired_state = 'deleted'
+        WHERE id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(
+      await claimPaddleReconciliationTargets(
+        { limit: 1, leaseOwner: firstOwner, leaseMs: 30_000, environment: "sandbox" },
+        sql
+      ),
+      []
+    );
   });
 
   it("creates token plus encrypted outbox atomically and leases it once", async () => {

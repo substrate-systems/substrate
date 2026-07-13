@@ -10,6 +10,20 @@ import { digestSecret, encryptSecret } from "../security";
 
 const TENANT = "018f2d91-7c42-7000-8000-000000000051";
 
+function billingProof(tenantId: string) {
+  return {
+    tenantId,
+    userId: "018f2d91-7c42-7000-8000-000000000050",
+    source: "complimentary" as const,
+    sourceState: "complimentary_active",
+    sourceRevision: null,
+    providerEnvironment: null,
+    customerRef: null,
+    subscriptionRef: null,
+    transactionRef: null,
+  };
+}
+
 function harness(
   storeOverride?: InMemoryLifecycleStore,
   terminateBilling: (tenantId: string) => Promise<boolean> = async () => true,
@@ -29,7 +43,8 @@ function harness(
     now: () => nowState.value,
     randomBytes: (size) => Buffer.alloc(size, 0x51),
     envelopeKey: Buffer.alloc(32, 0x61),
-    terminateBilling,
+    terminateBilling: async (tenantId) =>
+      (await terminateBilling(tenantId)) ? billingProof(tenantId) : null,
   });
   return { store, provisioner, reconciler, nowState };
 }
@@ -499,7 +514,7 @@ describe("Exomem lifecycle reconciler", () => {
       now: () => now,
       randomBytes: (size) => Buffer.alloc(size, entropy++),
       envelopeKey: Buffer.alloc(32, 0x71),
-      terminateBilling: async () => true,
+      terminateBilling: async (tenantId) => billingProof(tenantId),
     });
 
     // The same public retry key remains tenant-scoped and provisions two

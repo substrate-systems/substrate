@@ -20,6 +20,7 @@
 - [x] 3.3 Extend the verified Paddle webhook dispatcher with idempotent Exomem product routing, monotonic event handling, entitlement projection, and unchanged Endstate behavior.
 - [x] 3.4 Add periodic Paddle reconciliation hooks without placing Paddle calls in normal capture, recall, Home, transfer, or cell-readiness execution.
 - [x] 3.5 Add tests for complimentary alpha, arbitrary-price rejection, missing catalog, duplicate/out-of-order events, manual-suspension precedence, grace policy, sandbox/live separation, and Endstate regression.
+- [x] 3.6 Persist Paddle environment provenance, owner-bind checkout returns, and recover canceled/completed transactions without duplicate checkout.
 
 ## 4. Cell Control Plane And Reconciler
 
@@ -53,6 +54,7 @@
 - [x] 7.2 Implement staged replacement-cell restore with archive verification, readiness proof, atomic active binding swap, and failed-restore preservation of the prior cell.
 - [x] 7.3 Implement fresh emailed deletion confirmation, Exomem session/transfer revocation, routing suspension, policy-driven final export, cell seal, external storage/key destruction, and verified completion.
 - [x] 7.4 Add tests for export retry/interruption, corrupt manifest, restore rollback, object isolation, partial destruction, deletion replay, minimum audit retention, and preservation of Endstate/shared identity data.
+- [x] 7.5 Serialize checkout binding with deletion, terminate pending/completed Paddle billing, and atomically fence webhook races by coupling the exact billing-reference proof, reference scrub, and deletion checkpoint.
 
 ## 8. Configuration, Documentation, And Catalog
 
@@ -66,5 +68,5 @@
 - [x] 9.1 Run focused access, database, entitlement, Paddle, control-plane, gateway, transfer, Home, export/restore, deletion, and privacy tests.
 - [x] 9.2 Run formatting, type checking/build, full test suite, and strict OpenSpec validation with no Endstate behavior regressions.
 - [x] 9.3 Run a local two-cell lifecycle drill from two invites through independent capture/recall, retry, transfer, suspend/resume, export/restore, credential rotation, and deletion while proving sentinel isolation.
-- [ ] 9.4 Run Paddle sandbox checkout/webhook/duplicate/out-of-order/cancel/portal reconciliation against a test entitlement without exposing provider IDs to a cell.
+- [x] 9.4 Run Paddle sandbox checkout/webhook/duplicate/out-of-order/cancel/portal reconciliation against a test entitlement without exposing provider IDs to a cell.
 - [x] 9.5 Record verification evidence, review every security-boundary diff, leave production provisioner/retention/price gates explicit, and keep complimentary alpha ready without requiring live billing.

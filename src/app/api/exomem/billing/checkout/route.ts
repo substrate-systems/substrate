@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { startOwnerCheckout } from "@/lib/exomem-hosted/billing-account";
+import {
+  resumeReturnedOwnerCheckout,
+  startOwnerCheckout,
+} from "@/lib/exomem-hosted/billing-account";
 import { exomemErrors, safeErrorResponse } from "@/lib/exomem-hosted/errors";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PADDLE_TRANSACTION_ID = /^txn_[a-z0-9]{26}$/;
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -16,10 +21,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } catch {
       body = null;
     }
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
       throw exomemErrors.invalidRequest();
     }
-    const result = await startOwnerCheckout(session.userId, session.tenantId);
+    const keys = Object.keys(body);
+    const transactionId = (body as Record<string, unknown>).transactionId;
+    if (
+      keys.length > 1 ||
+      (keys.length === 1 &&
+        (keys[0] !== "transactionId" ||
+          typeof transactionId !== "string" ||
+          !PADDLE_TRANSACTION_ID.test(transactionId)))
+    ) {
+      throw exomemErrors.invalidRequest();
+    }
+    let result: Record<string, unknown>;
+    if (typeof transactionId === "string") {
+      const returned = await resumeReturnedOwnerCheckout(
+        session.userId,
+        session.tenantId,
+        transactionId
+      );
+      result =
+        returned.state === "settled" ? { ...returned, redirectUrl: "/exomem/home" } : returned;
+    } else {
+      result = await startOwnerCheckout(session.userId, session.tenantId);
+    }
     return NextResponse.json(
       { success: true, ...result },
       { headers: { "cache-control": "private, no-store, max-age=0" } }

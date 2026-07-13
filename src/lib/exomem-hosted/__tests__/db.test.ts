@@ -187,12 +187,16 @@ describe("Exomem hosted database boundary", () => {
         userId: "018f2d91-7c42-7000-8000-000000000061",
         tenantId: "018f2d91-7c42-7000-8000-000000000062",
         transactionId: "txn_01kxatbjfrehbp0sxbjefcacqs",
+        environment: "sandbox",
       }),
       true
     );
     assert.match(statement, /tenant\.owner_user_id/i);
     assert.match(statement, /entitlement\.source = 'paddle'/i);
     assert.match(statement, /provider_transaction_ref IS NULL/i);
+    assert.match(statement, /provider_environment/i);
+    assert.match(statement, /FOR UPDATE OF tenant/i);
+    assert.match(statement, /status IN \('provisioning', 'active', 'suspended'\)/i);
   });
 
   it("consumes deletion confirmation and gates only Exomem rows in one transaction", async () => {

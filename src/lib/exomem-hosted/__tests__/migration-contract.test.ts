@@ -9,6 +9,14 @@ const accessUpgradePath = resolve(
   "migrations/0018_exomem_access_browser_challenge.sql"
 );
 const exportLifecyclePath = resolve(process.cwd(), "migrations/0019_exomem_export_lifecycle.sql");
+const paddleReconciliationPath = resolve(
+  process.cwd(),
+  "migrations/0020_exomem_paddle_reconciliation.sql"
+);
+const paddleProvenancePath = resolve(
+  process.cwd(),
+  "migrations/0021_exomem_paddle_provider_provenance.sql"
+);
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -126,5 +134,59 @@ describe("Exomem hosted migration contract", () => {
     assert.match(sql, /state = 'deleted'[\s\S]*storage_reference_digest IS NULL/i);
     assert.match(sql, /provider_deleted_at IS NOT NULL/i);
     assert.match(sql, /provider_deleted_at = export_row\.deleted_at/i);
+  });
+
+  it("adds durable scheduling, leasing, and bounded retry state for Paddle reconciliation", () => {
+    const sql = readFileSync(paddleReconciliationPath, "utf8");
+    for (const column of [
+      "provider_reconcile_after",
+      "provider_reconciled_at",
+      "provider_reconcile_lease_owner",
+      "provider_reconcile_lease_expires_at",
+      "provider_reconcile_attempts",
+      "provider_reconcile_error_code",
+    ]) {
+      assert.match(sql, new RegExp(`ADD COLUMN ${column}`, "i"));
+    }
+    assert.match(sql, /provider_reconcile_attempts >= 0/i);
+    assert.match(
+      sql,
+      /\(provider_reconcile_lease_owner IS NULL\)\s*=\s*\(provider_reconcile_lease_expires_at IS NULL\)/i
+    );
+    assert.match(sql, /exomem_entitlements_provider_reconcile_ready_idx/i);
+    assert.match(sql, /WHERE source = 'paddle'/i);
+    assert.match(sql, /provider_subscription_ref IS NOT NULL/i);
+    assert.match(sql, /source_state <> 'cancelled'/i);
+    assert.doesNotMatch(sql, /DO\s+\$\$/i);
+    assert.doesNotMatch(sql, /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
+  });
+
+  it("adds receipt-backed Paddle environment provenance without guessing ambiguous legacy rows", () => {
+    const sql = readFileSync(paddleProvenancePath, "utf8");
+    assert.match(sql, /ADD COLUMN provider_environment text/i);
+    assert.match(sql, /provider_environment IN \('sandbox', 'production'\)/i);
+    assert.match(sql, /UPDATE exomem_entitlements AS entitlement[\s\S]*exomem_paddle_events/i);
+    assert.match(sql, /COUNT\s*\(\s*DISTINCT\s+(?:receipt\.)?environment\s*\)\s*=\s*1/i);
+    assert.match(sql, /CASE[\s\S]*'live'[\s\S]*'production'/i);
+    assert.match(sql, /ADD COLUMN provider_provenance_unresolved_fingerprint text/i);
+    assert.match(sql, /exomem_entitlements_provider_reference_provenance_check[\s\S]*NOT VALID/i);
+    assert.match(sql, /provider_transaction_ref IS NULL[\s\S]*source\s*=\s*'paddle'/i);
+    assert.match(sql, /provider_provenance_unresolved_fingerprint[\s\S]*provider_customer_ref/i);
+    assert.match(
+      sql,
+      /source\s*=\s*'paddle'[\s\S]*provider_environment IS NOT NULL[\s\S]*provider_environment IN/i
+    );
+
+    for (const reference of ["customer", "subscription", "transaction"]) {
+      assert.match(
+        sql,
+        new RegExp(
+          `CREATE UNIQUE INDEX exomem_entitlements_provider_${reference}_environment_idx[\\s\\S]*\\(provider_environment, provider_${reference}_ref\\)[\\s\\S]*WHERE[^;]*provider_${reference}_ref IS NOT NULL`,
+          "i"
+        )
+      );
+    }
+    assert.doesNotMatch(sql, /DO\s+\$\$/i);
+    assert.doesNotMatch(sql, /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
   });
 });

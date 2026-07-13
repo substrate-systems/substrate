@@ -14,8 +14,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
-1. migration `0017_exomem_hosted_service.sql` applied to the production Neon
-   database;
+1. migrations `0017` through `0021` applied to the production Neon database;
 2. an Exomem `0.19.1` cell image exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -23,8 +22,9 @@ The complimentary alpha does **not** require Paddle or a price. It does require:
 5. the minute reconciliation cron reaching `/api/cron/exomem-reconcile`; and
 6. a two-cell isolation/export/deletion drill before a real invite is sent.
 
-Paid launch remains deliberately disabled until an Exomem price, checkout
-domain, terms/tax review, live webhook, and cancellation drill are approved.
+The friends-tier sandbox lifecycle is approved and drilled. Live paid launch
+remains deliberately disabled until the public price, checkout domain,
+terms/tax review, and live webhook are approved and configured.
 
 ## Substrate configuration
 
@@ -73,19 +73,51 @@ sandbox product created for this change is `pro_01kxatbjfrehbp0sxbjefcacqs`.
 Keep `EXOMEM_PADDLE_PRICE_ID` unset for complimentary alpha; that makes paid
 checkout fail closed while Home and every memory operation continue to work.
 
-| Variable                            | Complimentary alpha                       | Paid sandbox drill               |
-| ----------------------------------- | ----------------------------------------- | -------------------------------- |
-| `PADDLE_ENVIRONMENT`                | optional                                  | `sandbox`                        |
-| `PADDLE_API_KEY`                    | optional                                  | sandbox API key                  |
-| `PADDLE_WEBHOOK_SECRET`             | optional unless shared webhook is enabled | sandbox notification secret      |
-| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`   | optional                                  | sandbox client token             |
-| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT` | optional                                  | `sandbox`                        |
-| `EXOMEM_PADDLE_PRODUCT_ID`          | optional                                  | `pro_01kxatbjfrehbp0sxbjefcacqs` |
-| `EXOMEM_PADDLE_PRICE_ID`            | **unset**                                 | exact approved sandbox price ID  |
+The approved friends price is `pri_01kxd05eg20ezcy2ecvrcwv3a6`: **EUR 5 per
+month**, quantity one. The future public tier is intentionally not in the
+catalog yet; choose its exact price within the EUR 10–15 range before creating
+it rather than overloading the friends price.
+
+| Variable                            | Complimentary alpha                       | Friends paid sandbox                         |
+| ----------------------------------- | ----------------------------------------- | -------------------------------------------- |
+| `PADDLE_ENVIRONMENT`                | optional                                  | `sandbox`                                    |
+| `PADDLE_API_KEY`                    | optional                                  | sandbox API key                              |
+| `PADDLE_WEBHOOK_SECRET`             | optional unless shared webhook is enabled | active destination's endpoint secret         |
+| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`   | optional                                  | token from `exomem-hosted-sandbox`           |
+| `NEXT_PUBLIC_PADDLE_ENVIRONMENT`    | optional                                  | `sandbox`                                    |
+| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT` | optional                                  | `sandbox`                                    |
+| `EXOMEM_PADDLE_PRODUCT_ID`          | optional                                  | `pro_01kxatbjfrehbp0sxbjefcacqs`             |
+| `EXOMEM_PADDLE_PRICE_ID`            | **unset**                                 | `pri_01kxd05eg20ezcy2ecvrcwv3a6`             |
+| `EXOMEM_PUBLIC_BASE_URL`            | required for normal hosted access         | required; checkout returns to `/exomem/home` |
 
 Sandbox and production identifiers are never interchangeable. The adapter
 checks the API-key prefix, selected environment, catalog environment, product,
-and price before creating a transaction.
+price, and public origin before creating a transaction. It sends an explicit
+checkout URL derived from `EXOMEM_PUBLIC_BASE_URL`; Home removes the returned
+`_ptxn` from browser history and opens Paddle.js only after an authenticated,
+CSRF-protected server check proves that exact transaction is still bound to the
+owner's tenant and provider environment. Until Paddle.js actually opens, Home
+keeps that exact candidate only in session storage; transient validation or
+Paddle initialization failures show retry/dismiss controls, and retry performs
+the authenticated check again. A terminal completed or canceled return needs
+only the stored environment plus merchant API access, so catalog, browser-token,
+or return-origin rotation cannot strand it. A draft or ready return still needs
+the complete current checkout configuration and exact catalog/URL match. Paddle still requires an approved
+account-level default payment link before its transaction API will issue a
+checkout URL. The sandbox default payment link and public checkout domain are
+configured and were exercised successfully; configure and verify the equivalent
+live link before enabling a live price.
+
+For an active paid environment, extend the existing shared Paddle destination
+at `$EXOMEM_PUBLIC_BASE_URL/api/webhooks/paddle`; do not create a second
+destination with a different secret. Preserve its endpoint secret in
+`PADDLE_WEBHOOK_SECRET` and add `transaction.completed` plus subscription
+`created`, `activated`, `updated`, `past_due`, `paused`, `resumed`, and
+`canceled` to its complete event list. A coordinated secret rotation must update
+the destination and deployment together or existing Endstate deliveries will
+fail verification. Provider customer, subscription, transaction, product, and
+price IDs stay in Substrate's control-plane tables; they are never forwarded to
+a tenant cell.
 
 ## Provisioner contract
 
@@ -147,6 +179,19 @@ Lifecycle operations are durable and idempotent. Enqueue one operation with a
 stable operator-selected key; then let `/api/cron/exomem-reconcile` advance it.
 Never call a private cell directly to work around a stuck checkpoint.
 
+The same cron also reconciles due Paddle-backed entitlements independently of
+lifecycle work. Each eligible subscription is durably scheduled, claimed with a
+30-second exclusive lease, and checked no more than once per successful six-hour
+cadence. Failures retry from one minute with exponential backoff capped at six
+hours; overlapping cron calls use `SKIP LOCKED`, and unstarted claims are
+released. The Paddle request inherits the remaining eight-second cron budget.
+If eligible paid rows exist but the Paddle product/API configuration disappears,
+provider provenance is unresolved, or a stored reference belongs to a different
+environment, the cron returns a stable 503 before any Paddle call instead of
+silently skipping or guessing. A tenant that enters deletion while a check is in
+flight records the reconciliation as ignored and cannot have its billing
+projection reopened.
+
 - **Provisioning recovery:** inspect only tenant/operation IDs, checkpoint,
   attempt count, next-attempt time, and stable error code. Fix the provisioner or
   release mismatch, then allow the retry lease to run. A terminal configuration
@@ -173,9 +218,16 @@ Never call a private cell directly to work around a stuck checkpoint.
 - **Deletion:** Home sends a fresh one-use email confirmation. Consumption
   immediately closes routing and revokes Exomem sessions, invites, access
   tokens, transfers, entitlement, and export downloads. It never deletes the
-  shared `users` row or Endstate data. Paid accounts must prove subscription
-  cancellation before cell destruction; complimentary accounts make no Paddle
-  call. Completion waits for full provider destruction proof.
+  shared `users` row or Endstate data. Checkout binding serializes with deletion.
+  Paid accounts cancel the exact pending transaction in its stored environment,
+  or discover and cancel its subscription if checkout completed concurrently.
+  Cleanup remains available when the sale price is disabled or rotated. A 404 is
+  not cancellation proof because it can indicate the wrong Paddle account; keep
+  deletion pending. One atomic transaction compares the complete billing
+  fingerprint, marks termination, scrubs the dead Paddle references, and
+  advances the leased deletion checkpoint, so webhook races cannot slip between
+  proof and cell destruction; complimentary accounts make no Paddle call.
+  Completion waits for full provider destruction proof.
 
 ## Two-cell isolation drill
 
@@ -229,19 +281,22 @@ ship incident: keep routing closed and preserve only content-free audit evidence
 
 ## Rollback
 
-Application rollback is safe because migration `0017` is additive. Stop new
-invites, keep affected tenant routing closed, deploy the prior Substrate release,
-and pin cells to its compatible protocol/release. Never roll back by copying or
-rewriting live vault content.
+Application rollback is safe because the Exomem migrations are additive. Stop
+new invites, keep affected tenant routing closed, deploy the prior Substrate
+release, and pin cells to its compatible protocol/release. Leave the additive
+schema in place; never roll back by copying or rewriting live vault content.
 
 Before a cell release rollback, quiesce and verify an export. Start a replacement
 cell on the prior compatible image, restore into an empty volume, require full
 readiness, then atomically swap the binding. Keep the prior cell sealed but not
 destroyed until the replacement passes recall and sentinel-isolation checks.
 
-Paddle rollback only disables checkout by removing `EXOMEM_PADDLE_PRICE_ID` and
-redeploying. Existing internal entitlements and complimentary accounts continue
-to route without a Paddle request.
+Paddle rollback disables new checkout by removing `EXOMEM_PADDLE_PRICE_ID` and
+redeploying. Keep the matching Paddle API, product, and environment configuration
+until every existing transaction and paid subscription is terminated; portal,
+reconciliation, and deletion deliberately fail closed if that configuration is
+removed too early. Existing internal entitlements and complimentary accounts
+continue normal memory operations without a Paddle request.
 
 ## Honest privacy and ownership boundary
 

@@ -5,6 +5,7 @@ import {
   assertExomemPaddlePurpose,
   EXOMEM_PADDLE_PRODUCT_KEY,
   type ExomemPaddleConfig,
+  type ExomemPaddleEnvironment,
 } from "./paddle-config";
 import {
   mapPaddleSubscriptionState,
@@ -17,6 +18,7 @@ export type PaddleReconciliationTarget = Readonly<{
   userId: string;
   tenantId: string;
   subscriptionId: string;
+  environment: ExomemPaddleEnvironment;
 }>;
 
 type ReconciliationDependencies = {
@@ -24,6 +26,7 @@ type ReconciliationDependencies = {
   store: AtomicExomemPaddleEventStore;
   transport?: PaddleTransport;
   now?: () => Date;
+  signal?: AbortSignal;
 };
 
 function invalid(): Error {
@@ -44,11 +47,13 @@ export async function reconcileExomemPaddleSubscription(
   dependencies: ReconciliationDependencies
 ): Promise<ExomemPaddleStoreResult> {
   assertExomemPaddlePurpose(dependencies.config, "reconciliation");
+  if (target.environment !== dependencies.config.environment) throw invalid();
   const transport = dependencies.transport ?? paddleFetch;
   let response: Response;
   try {
     response = await transport(`/subscriptions/${encodeURIComponent(target.subscriptionId)}`, {
       method: "GET",
+      signal: dependencies.signal,
     });
   } catch {
     throw invalid();
@@ -101,7 +106,7 @@ export async function reconcileExomemPaddleSubscription(
   const application: ExomemPaddleEventApplication = {
     eventId: `reconcile:${target.tenantId}:${occurredAt}`,
     eventType: "subscription.reconciled",
-    environment: dependencies.config.environment,
+    environment: target.environment,
     origin: "reconciliation",
     revision: {
       occurredAt,

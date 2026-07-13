@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PaddleTransactionOpener } from "@/components/PaddleTransactionOpener";
 import { PrivateShell } from "../private-shell";
 import HomeClient from "./home-client";
 
@@ -14,6 +15,7 @@ export const metadata: Metadata = {
 export default function ExomemHomePage() {
   return (
     <PrivateShell>
+      <PaddleTransactionOpener validationEndpoint="/api/exomem/billing/checkout" />
       <HomeClient />
     </PrivateShell>
   );

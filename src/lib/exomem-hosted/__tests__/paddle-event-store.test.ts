@@ -60,14 +60,22 @@ describe("SQL Exomem Paddle event store", () => {
     assert.equal(calls, 1, "the adapter must expose no split begin/apply window");
     assert.match(sqlText, /WITH authoritative_target AS/i);
     assert.match(sqlText, /provider_transaction_ref/i);
+    assert.match(sqlText, /provider_environment/i);
+    assert.match(sqlText, /provider_environment IS NULL[\s\S]+webhook/i);
+    assert.match(sqlText, /provenance_repaired/i);
     assert.match(sqlText, /owner_user_id/i);
     assert.match(sqlText, /INSERT INTO exomem_paddle_events/i);
     assert.match(sqlText, /UPDATE exomem_entitlements/i);
     assert.match(sqlText, /source_occurred_at/i);
     assert.match(sqlText, /source_revision/i);
     assert.match(sqlText, /manual_suspended_at IS NOT NULL/i);
-    assert.match(sqlText, /SET disposition/i);
+    assert.match(
+      sqlText,
+      /reconciliation[\s\S]+tenant_status IN \('deletion_pending', 'deleted'\)[\s\S]+THEN 'ignored'/i
+    );
+    assert.match(sqlText, /disposition[\s\S]+ON CONFLICT \(paddle_event_id\) DO NOTHING/i);
     assert.match(sqlText, /applied_at/i);
+    assert.match(sqlText, /projection_guard/i);
     assert.equal(
       values.includes("live"),
       true,

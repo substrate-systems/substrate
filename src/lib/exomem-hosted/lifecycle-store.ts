@@ -11,6 +11,7 @@ import type {
 } from "./reconciler";
 import type { CellWorkerPolicy } from "./provisioner";
 import type { SecretEnvelope } from "./security";
+import type { BillingDeletionTarget } from "./billing-deletion";
 
 type Row = Record<string, unknown>;
 
@@ -381,6 +382,76 @@ export class SqlLifecycleStore implements LifecycleStore {
             AND tenant.fence_generation = operation.fence_generation
         )
       RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async advanceBillingTerminated(input: {
+    operationId: string;
+    owner: string;
+    proof: BillingDeletionTarget;
+  }): Promise<boolean> {
+    const { proof } = input;
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-advance-billing-terminated */
+      WITH matching AS MATERIALIZED (
+        SELECT operation.id AS operation_id,
+               entitlement.id AS entitlement_id
+        FROM exomem_lifecycle_operations AS operation
+        JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+        JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
+        WHERE operation.id = ${input.operationId}
+          AND operation.operation_type = 'delete'
+          AND operation.state = 'running'
+          AND operation.checkpoint = 'local-gated'
+          AND operation.lease_owner = ${input.owner}
+          AND operation.lease_expires_at > now()
+          AND operation.fence_generation = tenant.fence_generation
+          AND operation.tenant_id = ${proof.tenantId}
+          AND tenant.owner_user_id = ${proof.userId}
+          AND tenant.status = 'deletion_pending'
+          AND tenant.desired_state = 'deleted'
+          AND entitlement.effective_state = 'deleted'
+          AND entitlement.source = ${proof.source}
+          AND entitlement.source_state = ${proof.sourceState}
+          AND entitlement.source_revision IS NOT DISTINCT FROM ${proof.sourceRevision}
+          AND entitlement.provider_environment IS NOT DISTINCT FROM ${proof.providerEnvironment}
+          AND entitlement.provider_customer_ref IS NOT DISTINCT FROM ${proof.customerRef}
+          AND entitlement.provider_subscription_ref IS NOT DISTINCT FROM ${proof.subscriptionRef}
+          AND entitlement.provider_transaction_ref IS NOT DISTINCT FROM ${proof.transactionRef}
+        FOR UPDATE OF operation, tenant, entitlement
+      ),
+      entitlement_marked AS (
+        UPDATE exomem_entitlements AS entitlement
+        SET source_state = CASE
+              WHEN entitlement.source = 'paddle' THEN 'deletion_cancelled'
+              ELSE entitlement.source_state
+            END,
+            provider_environment = NULL,
+            provider_provenance_unresolved_fingerprint = NULL,
+            provider_customer_ref = NULL,
+            provider_subscription_ref = NULL,
+            provider_transaction_ref = NULL,
+            updated_at = now()
+        FROM matching
+        WHERE entitlement.id = matching.entitlement_id
+        RETURNING matching.operation_id
+      ),
+      operation_advanced AS (
+        UPDATE exomem_lifecycle_operations AS operation
+        SET checkpoint = 'billing-terminated',
+            state = 'waiting',
+            attempts = 0,
+            error_code = NULL,
+            next_attempt_at = now(),
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            updated_at = now()
+        FROM entitlement_marked
+        WHERE operation.id = entitlement_marked.operation_id
+        RETURNING operation.id
+      )
+      SELECT id FROM operation_advanced
     `;
     return rows.length === 1;
   }
@@ -1140,6 +1211,8 @@ export class SqlLifecycleStore implements LifecycleStore {
         SET provider_customer_ref = NULL,
             provider_subscription_ref = NULL,
             provider_transaction_ref = NULL,
+            provider_environment = NULL,
+            provider_provenance_unresolved_fingerprint = NULL,
             updated_at = now()
         FROM tenant_updated
         WHERE ${deleting}

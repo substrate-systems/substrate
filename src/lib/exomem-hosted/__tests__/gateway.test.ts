@@ -247,6 +247,253 @@ describe("registry-derived Exomem gateway", () => {
     assert.equal(seenHeaders[0].get("idempotency-key"), "retry-once");
   });
 
+  it("retries a reset 200 response body against the same cell and request identity", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-a",
+      endpoint: "https://cell-a.internal/",
+    });
+    let commandCalls = 0;
+    const seenHeaders: Headers[] = [];
+    const fetchMock: typeof fetch = async (input, init) => {
+      if (String(input).endsWith("/contract")) return Response.json(contract());
+      commandCalls += 1;
+      seenHeaders.push(new Headers(init?.headers));
+      if (commandCalls === 1) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.error(new Error("stream reset after headers"));
+            },
+          }),
+          { status: 200 }
+        );
+      }
+      return Response.json({ success: true, data: { replayed: true } });
+    };
+
+    const result = await routeExomemCommand({
+      session: { userId: USER_A, tenantId: TENANT_A },
+      commandName: "remember",
+      args: { title: "Retry", content: "lost body acknowledgement" },
+      idempotencyKey: "retry-reset-body",
+      dependencies: {
+        resolveTarget: async () => row,
+        fetch: fetchMock,
+        expectedProtocol: "1",
+        decrypt,
+        principalScope: () => "A".repeat(43),
+      },
+    });
+
+    assert.deepEqual(result.body, { success: true, data: { replayed: true } });
+    assert.equal(commandCalls, 2);
+    assert.equal(
+      seenHeaders[0].get("x-exomem-request-id"),
+      seenHeaders[1].get("x-exomem-request-id")
+    );
+    assert.equal(seenHeaders[1].get("idempotency-key"), "retry-reset-body");
+  });
+
+  it("does not retry a malformed successful command envelope", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-a",
+      endpoint: "https://cell-a.internal/",
+    });
+    let commandCalls = 0;
+
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "invalid response is not transport failure" },
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) => {
+            if (String(input).endsWith("/contract")) return Response.json(contract());
+            commandCalls += 1;
+            return new Response("not json", { status: 200 });
+          },
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_RESPONSE_INVALID"
+    );
+    assert.equal(commandCalls, 1);
+  });
+
+  it("does not begin a retry after the command's absolute deadline", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-a",
+      endpoint: "https://cell-a.internal/",
+    });
+    let now = 0;
+    let commandCalls = 0;
+
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "one bounded deadline" },
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) => {
+            if (String(input).endsWith("/contract")) return Response.json(contract());
+            commandCalls += 1;
+            now = 10_001;
+            throw new Error("deadline consumed");
+          },
+          expectedProtocol: "1",
+          now: () => now,
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) => error instanceof ExomemHostedError && error.code === "CELL_UNAVAILABLE"
+    );
+    assert.equal(commandCalls, 1);
+  });
+
+  it("stops reading an oversized streamed command response at the configured bound", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-a",
+      endpoint: "https://cell-a.internal/",
+    });
+    const chunk = new Uint8Array(64 * 1024).fill(0x78);
+    let pulls = 0;
+    let cancelled = false;
+    const oversized = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(chunk);
+        if (pulls === 128) controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "bounded response" },
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) =>
+            String(input).endsWith("/contract")
+              ? Response.json(contract())
+              : new Response(oversized, { status: 200 }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_RESPONSE_INVALID"
+    );
+    assert.equal(cancelled, true);
+    assert.ok(pulls <= 66, `read ${pulls} chunks after crossing the 4 MiB bound`);
+  });
+
+  it("cancels a retryable error body without draining an unbounded stream", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-a",
+      endpoint: "https://cell-a.internal/",
+    });
+    const chunk = new Uint8Array(64 * 1024).fill(0x78);
+    let pulls = 0;
+    let cancelled = false;
+    let commandCalls = 0;
+    const fetchMock: typeof fetch = async (input) => {
+      if (String(input).endsWith("/contract")) return Response.json(contract());
+      commandCalls += 1;
+      if (commandCalls === 2) return Response.json({ success: true, data: { replayed: true } });
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulls += 1;
+            controller.enqueue(chunk);
+            if (pulls === 128) controller.close();
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 503 }
+      );
+    };
+
+    const result = await routeExomemCommand({
+      session: { userId: USER_A, tenantId: TENANT_A },
+      commandName: "remember",
+      args: { title: "Retry", content: "bounded error body" },
+      idempotencyKey: "bounded-error-body",
+      dependencies: {
+        resolveTarget: async () => row,
+        fetch: fetchMock,
+        expectedProtocol: "1",
+        decrypt,
+        principalScope: () => "A".repeat(43),
+      },
+    });
+    assert.deepEqual(result.body, { success: true, data: { replayed: true } });
+    assert.equal(commandCalls, 2);
+    assert.equal(cancelled, true);
+    assert.ok(pulls <= 2, `drained ${pulls} chunks before retrying`);
+  });
+
+  it("cancels an unsuccessful contract body without draining an unbounded stream", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-a",
+      endpoint: "https://cell-a.internal/",
+    });
+    const chunk = new Uint8Array(64 * 1024).fill(0x78);
+    let pulls = 0;
+    let cancelled = false;
+    const unbounded = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "bounded contract error" },
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async () => new Response(unbounded, { status: 503 }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) => error instanceof ExomemHostedError && error.code === "CELL_UNAVAILABLE"
+    );
+    assert.equal(cancelled, true);
+    assert.ok(pulls <= 2, `drained ${pulls} contract chunks before failing closed`);
+  });
+
   it("fails closed for a tampered contract and absent capabilities", async () => {
     const row = target({
       userId: USER_A,

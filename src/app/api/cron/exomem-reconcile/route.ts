@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCronAuth } from "@/lib/hosted-backup/cron-auth";
 import { runBoundedLifecycleReconcile } from "@/lib/exomem-hosted/reconcile-runtime";
+import { runBoundedPaddleReconcile } from "@/lib/exomem-hosted/paddle-reconciliation-runtime";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,10 +14,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
   try {
-    const result = await runBoundedLifecycleReconcile({
-      maxOperations: 10,
-      timeBudgetMs: 8_000,
-    });
+    const [lifecycleResult, paddleResult] = await Promise.allSettled([
+      runBoundedLifecycleReconcile({
+        maxOperations: 10,
+        timeBudgetMs: 8_000,
+      }),
+      runBoundedPaddleReconcile({
+        maxSubscriptions: 5,
+        timeBudgetMs: 8_000,
+      }),
+    ]);
+    if (lifecycleResult.status === "rejected" || paddleResult.status === "rejected") {
+      throw new Error("EXOMEM_RECONCILIATION_LANE_FAILED");
+    }
+    const result = lifecycleResult.value;
+    const paddle = paddleResult.value;
     return NextResponse.json(
       {
         success: true,
@@ -26,6 +38,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           succeeded: result.succeeded,
           retryScheduled: result.retryScheduled,
           terminal: result.terminal,
+          paddle: {
+            configured: paddle.configured,
+            attempted: paddle.attempted,
+            applied: paddle.applied,
+            duplicate: paddle.duplicate,
+            stale: paddle.stale,
+            ignored: paddle.ignored,
+            failed: paddle.failed,
+          },
         },
       },
       { headers: { "cache-control": "no-store" } }

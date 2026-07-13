@@ -113,13 +113,15 @@ Uploads are size-limited before and during streaming. Request bodies and filenam
 
 ### 6. Entitlements are provider-neutral; Paddle is one adapter
 
-`exomem_entitlements` stores effective state, source, capability set, resource limits, provider references, source revision, and timestamps. Request-time checks read this internal row only. Effective states are `provisioning`, `active`, `grace`, `suspended`, `cancelled`, and `deleted`.
+`exomem_entitlements` stores effective state, source, capability set, resource limits, provider references with their environment provenance, source revision, and timestamps. Request-time checks read only its provider-neutral capability projection. Effective states are `provisioning`, `active`, `grace`, `suspended`, `cancelled`, and `deleted`.
 
 Complimentary invites create an `active` entitlement with source `complimentary` and the alpha capability bundle. This makes the first invites independent of pricing and Paddle configuration.
 
-Paid checkout uses the existing Paddle client and environment switch. The server selects the configured Exomem price; callers cannot submit a price ID. The Paddle transaction receives `custom_data` containing a product key, internal user ID, and tenant ID. The shared webhook verifies the signature once, dispatches Exomem product events by product key/catalog membership, stores event IDs idempotently, and projects provider state into the Exomem entitlement. Endstate events continue through the existing handler unchanged.
+Paid checkout uses the existing Paddle client and environment switch. The server selects the configured Exomem price; callers cannot submit a price ID. The Paddle transaction receives `custom_data` containing a product key, internal user ID, and tenant ID. Its identifier and provider environment are atomically bound to the owner while serialized against deletion. A `_ptxn` checkout return is removed from browser history and sent through an authenticated, CSRF-protected server check before Paddle.js opens it. The candidate remains only in session-scoped browser storage until validation settles or Paddle.js actually opens, so transient validation or client initialization failures have an explicit retry/dismiss path without restoring the URL. Inspection first uses transaction-only merchant configuration; terminal completed/canceled recovery therefore survives browser, return-origin, and sale-catalog rotation, while a still-open transaction must pass the full current checkout, catalog, and URL checks. A canceled transaction is compare-and-cleared before one replacement can be created; a completed transaction promotes its subscription/customer, triggers reconciliation, and never creates a second charge path. The shared webhook verifies the signature once, dispatches Exomem product events by product key/catalog membership, stores event IDs idempotently, and projects provider state into the Exomem entitlement. Endstate events continue through the existing handler unchanged.
 
-Paddle customer, subscription, transaction, product, and price IDs remain in control-plane tables and billing responses. They are never forwarded to a cell or written into a vault. Checkout and customer-portal creation are the only request paths that call Paddle; normal Exomem capture/recall never does. Webhook ordering uses occurrence time plus a provider revision/event record so an older event cannot reactivate a newer suspension.
+Paddle customer, subscription, transaction, product, and price IDs remain in control-plane tables and billing responses. Their sandbox/production provenance is stored with the references and repaired for legacy rows only from exact receipts or verified webhooks. Unresolved legacy references are frozen while unrelated lifecycle updates remain possible. They are never forwarded to a cell or written into a vault. Paddle calls are confined to checkout, customer-portal creation, webhooks, periodic billing reconciliation, and deletion-time termination; normal Exomem capture/recall never calls Paddle. Webhook and reconciliation ordering use occurrence time plus a provider revision/event record so an older observation cannot reactivate a newer suspension.
+
+Periodic billing reconciliation is durable rather than a minute-by-minute scan. Eligible Paddle entitlements carry next-check, lease, attempt, and stable error metadata. Each cron claims a small due batch with `FOR UPDATE SKIP LOCKED`; success schedules the next check six hours later, failure uses exponential backoff capped at six hours, and the provider request inherits the remaining cron deadline. Lifecycle and billing lanes start together and both settle before the cron responds. If catalog configuration disappears, provider provenance is unresolved, or stored and configured environments differ while eligible paid rows remain, reconciliation fails visibly before calling Paddle. The atomic projection rechecks tenant deletion state after the provider call and records a reconciliation observation as ignored rather than mutating a deletion-pending tenant.
 
 Manual safety suspension always wins over billing state. Grace can retain reads/exports while disabling new writes according to policy. Complimentary and Paddle sources project the same capabilities, so replacing the commercial provider does not change the cell contract.
 
@@ -148,10 +150,11 @@ Deletion is product-scoped. It does not delete a shared `users` row or Endstate 
 1. require a fresh Exomem session and an emailed single-use confirmation;
 2. set the tenant to suspended and revoke Exomem sessions/transfers;
 3. optionally create the policy-required final export;
-4. seal and stop the cell;
-5. call the provisioner to delete compute, volumes, backups, and tenant key;
-6. remove the active cell binding and mark Exomem entitlement/tenant deleted; and
-7. retain only the minimum content-free audit proof allowed by policy.
+4. cancel the exact pending Paddle transaction or its completed subscription in the stored provider environment, independently of the currently saleable price, then atomically compare the complete billing-reference fingerprint, scrub the terminated references, and advance the leased billing checkpoint; a provider 404 is unverified rather than cancellation proof;
+5. seal and stop the cell;
+6. call the provisioner to delete compute, volumes, backups, and tenant key;
+7. remove the active cell binding and mark Exomem entitlement/tenant deleted; and
+8. retain only the minimum content-free audit proof allowed by policy.
 
 Every destructive checkpoint is replayable and externally verified before advancing. UI never claims deletion is complete while storage/KMS destruction is merely queued.
 
@@ -165,7 +168,7 @@ Secrets use constant-time comparison where applicable, are never serialized by `
 
 ### 10. The first release is alpha-complete without a live price
 
-The code and sandbox catalog support Paddle from day one, but the initial invite journey uses complimentary entitlements. A paid launch requires an explicit catalog price, live webhook endpoint/secret, checkout domain, tax/terms review, and successful sandbox reconciliation drills. This separates product onboarding risk from billing risk without building a throwaway entitlement path.
+The code and sandbox catalog support Paddle from day one, and the EUR 5 monthly friends price has completed the sandbox lifecycle drill, but the initial invite journey can still use complimentary entitlements. A public paid launch requires selecting the exact monthly price within EUR 10–15, then configuring its live catalog item, webhook endpoint/secret, checkout domain, and tax/terms handling. This separates product onboarding risk from live billing risk without building a throwaway entitlement path.
 
 ## Risks / Trade-offs
 
@@ -195,7 +198,7 @@ Rollback stops new routing, marks affected cells draining, pins the previous com
 
 ## Open Questions
 
-- What monthly/annual price and capability tiers should be published after the complimentary alpha? The implementation uses an environment-selected catalog and does not block on this.
+- What exact public monthly price within EUR 10–15, annual price, and capability tiers should be published after the EUR 5 friends tier? The implementation uses an environment-selected catalog and does not block on this.
 - Which production provisioner backs the HTTP adapter first, and in which region? The application protocol remains provider-neutral; a deployment adapter must be selected before real invites.
 - What are the exact backup retention, deletion grace, and export expiry windows? Conservative alpha defaults can be configured, but terms must be finalized before paid live use.
 - When should semantic embeddings and media extraction be enabled per tier? They remain explicit grants and default off for the alpha.
