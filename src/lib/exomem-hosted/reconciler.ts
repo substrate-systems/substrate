@@ -350,6 +350,7 @@ function pendingCheckpointMatches(operation: LifecycleOperation, checkpoint: str
     "export-failure-resume": ["export-failure-readiness"],
     "rotation-staged": ["rotation-pending-readiness"],
     "export-stored": ["export-release"],
+    "export-expired-release": ["export-expired-resume", "export-expired-readiness"],
     "prior-retirement": ["restored-prior-discard"],
     "billing-terminated": ["tenant-destroy"],
     "billing-quiesced": ["tenant-destroy"],

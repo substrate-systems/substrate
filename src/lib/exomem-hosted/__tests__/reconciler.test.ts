@@ -713,6 +713,82 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(provisioner.exportArtifacts.size, 0);
   });
 
+  it("accepts provider-pending resume and readiness while restoring an expired export", async () => {
+    class PendingExpiredRestorationProvisioner extends FakeCellProvisioner {
+      resumePending = true;
+      readinessPending = true;
+
+      override async resume(request: Parameters<FakeCellProvisioner["resume"]>[0]): Promise<void> {
+        if (request.context.checkpoint === "export-expired-resume" && this.resumePending) {
+          this.resumePending = false;
+          throw new ProvisionerPending({
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 2,
+          });
+        }
+        return super.resume(request);
+      }
+
+      override async health(request: Parameters<FakeCellProvisioner["health"]>[0]) {
+        if (request.context.checkpoint === "export-expired-readiness" && this.readinessPending) {
+          this.readinessPending = false;
+          throw new ProvisionerPending({
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 2,
+          });
+        }
+        return super.health(request);
+      }
+    }
+
+    const providerClock = { value: new Date("2026-07-12T12:00:00.000Z") };
+    const provisioner = new PendingExpiredRestorationProvisioner({
+      now: () => providerClock.value,
+    });
+    const { store, reconciler, nowState } = harness(undefined, async () => true, provisioner);
+    providerClock.value = nowState.value;
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    const operation = await store.enqueue(TENANT, "export", "expired-restoration-pending", cellId);
+    const storedOperation = store.operations.get(operation.id);
+    assert.ok(storedOperation);
+    storedOperation.createdAt = new Date(nowState.value.getTime() - 24 * 60 * 60 * 1000 + 1);
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
+    const createExport = provisioner.export.bind(provisioner);
+    provisioner.export = async (request) => {
+      const result = await createExport(request);
+      nowState.value = new Date(request.expiresAt.getTime() + 1);
+      providerClock.value = nowState.value;
+      return result;
+    };
+
+    for (const owner of ["resume-pending", "readiness-pending"]) {
+      const result = await reconciler.reconcileOne({ owner, tenantId: TENANT });
+      assert.equal(result.kind, "retry_scheduled");
+      const current = store.operations.get(operation.id);
+      assert.equal(current?.checkpoint, "export-expired-release");
+      assert.equal(current?.state, "waiting");
+      assert.equal(current?.attempts, 0);
+      assert.notEqual(current?.exportReleaseEnvelope, null);
+      nowState.value = new Date(nowState.value.getTime() + 2_001);
+      providerClock.value = nowState.value;
+    }
+
+    const completed = await reconciler.reconcileOne({
+      owner: "restoration-complete",
+      tenantId: TENANT,
+    });
+    assert.equal(completed.kind, "terminal");
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+    assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+    assert.equal(store.operations.get(operation.id)?.exportReleaseEnvelope, null);
+  });
+
   it("retries expired export release beyond the ordinary attempt cap", async () => {
     class FailingExpiredReleaseProvisioner extends FakeCellProvisioner {
       remaining = 8;
