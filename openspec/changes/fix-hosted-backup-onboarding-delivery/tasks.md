@@ -36,7 +36,7 @@
 - [x] 4.2 Run full tests, lint/build, migration dry run, and strict OpenSpec
       validation.
 - [x] 4.3 Run independent security/retry/idempotency review.
-- [ ] 4.4 Deploy through the normal production path and apply the migration.
-- [ ] 4.5 Create and verify the dedicated Paddle destination and production env.
-- [ ] 4.6 Replay/repair the original activation without another charge.
-- [ ] 4.7 Verify the onboarding email, claim flow, and active subscription.
+- [x] 4.4 Deploy through the normal production path and apply the migration.
+- [x] 4.5 Create and verify the dedicated Paddle destination and production env.
+- [x] 4.6 Replay/repair the original activation without another charge.
+- [x] 4.7 Verify the onboarding email, claim flow, and active subscription.
