@@ -15,7 +15,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
 1. migrations `0017` through `0021` applied to the production Neon database;
-2. an Exomem `0.22.0` cell image from commit `c255ffb2dfcd7bc470372d4efa0e8a11b00f0640` exposing private protocol `1`;
+2. an Exomem `0.22.0` cell image from commit `54618b931dec8f0ad053dce48dd80cc36c95c549` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
@@ -37,7 +37,7 @@ node scripts/generate-exomem-hosted-contract.mjs \
   --exomem-repo /path/to/exomem \
   --output src/lib/exomem-hosted/gateway-contract-0-22-0.ts \
   --json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-22-0.json \
-  --expected-commit c255ffb2dfcd7bc470372d4efa0e8a11b00f0640
+  --expected-commit 54618b931dec8f0ad053dce48dd80cc36c95c549
 npx prettier --write \
   src/lib/exomem-hosted/gateway-contract-0-22-0.ts \
   src/lib/exomem-hosted/__tests__/gateway-contract-0-22-0.json

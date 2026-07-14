@@ -16,7 +16,7 @@ const TENANT_A = "018f2d91-7c42-7000-8000-000000000072";
 const USER_B = "018f2d91-7c42-7000-8000-000000000073";
 const TENANT_B = "018f2d91-7c42-7000-8000-000000000074";
 
-// Generated from Exomem 0.22.0 commit c255ffb2dfcd7bc470372d4efa0e8a11b00f0640.
+// Generated from Exomem 0.22.0 commit 54618b931dec8f0ad053dce48dd80cc36c95c549.
 const CANONICAL_CONTRACT = canonicalContractFixture as TestContract;
 
 type TestContract = {

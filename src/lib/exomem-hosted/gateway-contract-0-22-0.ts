@@ -1,4 +1,4 @@
-// Generated from Exomem 0.22.0 commit c255ffb2dfcd7bc470372d4efa0e8a11b00f0640 build_gateway_contract(); semantic fields only.
+// Generated from Exomem 0.22.0 commit 54618b931dec8f0ad053dce48dd80cc36c95c549 build_gateway_contract(); semantic fields only.
 export type ExomemContractCommandFixture = readonly [
   name: string,
   readOnly: boolean,
@@ -437,7 +437,7 @@ const commands = [
 ] as const satisfies readonly ExomemContractCommandFixture[];
 
 export const exomemContractFixture0220 = {
-  sourceCommit: "c255ffb2dfcd7bc470372d4efa0e8a11b00f0640",
+  sourceCommit: "54618b931dec8f0ad053dce48dd80cc36c95c549",
   release: "0.22.0",
   protocol: "1",
   digest: "49ac4d346991f0f1de5f692a78ad043de6020f9a1692cafc951ec84490f02940",
