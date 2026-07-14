@@ -1134,6 +1134,31 @@ export class LifecycleReconciler {
       ...this.#targetForAction(operation, cell, "export-expired-release"),
       releaseRef,
     });
+    if (operation.resumeAfterOperation) {
+      const target = this.#targetForAction(operation, cell, "export-expired-resume");
+      await this.#provisioner.resume(target);
+      const readiness = await this.#provisioner.health({
+        ...target,
+        context: {
+          ...target.context,
+          checkpoint: "export-expired-readiness",
+          idempotencyKey: `${operation.id}:export-expired-readiness:${cell.id}`,
+        },
+      });
+      if (readinessMismatch(readiness, cell, this.#config) || !readiness.live || !readiness.ready) {
+        throw new ProvisionerFailure({ code: "PROVISIONER_UNAVAILABLE", retryable: true });
+      }
+      this.#requireStored(
+        await this.#store.recordReadiness({
+          operationId: operation.id,
+          owner,
+          code: readiness.code,
+        })
+      );
+      this.#requireStored(await this.#store.activateAfterReadiness(operation.id, owner));
+    } else {
+      this.#requireStored(await this.#store.markCellState(operation.id, owner, "quiesced"));
+    }
     this.#requireStored(await this.#store.completeExpiredExportRelease(operation.id, owner));
     return { kind: "terminal", operationId: operation.id, code: "EXPORT_EXPIRED" };
   }

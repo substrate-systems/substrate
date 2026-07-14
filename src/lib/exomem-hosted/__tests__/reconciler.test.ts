@@ -643,6 +643,13 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.operations.get(operation.id)?.exportReleaseEnvelope, null);
     assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
     assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+    assert.equal(
+      provisioner.calls.some(
+        (call) => call.action === "resume" && call.idempotencyKey.startsWith(operation.id)
+      ),
+      true
+    );
   });
 
   it("accepts repeated provider-pending responses while releasing an expired export", async () => {
@@ -763,6 +770,41 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(completed.kind, "terminal");
     assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
     assert.equal(provisioner.exportArtifacts.size, 0);
+  });
+
+  it("returns an expired export from a suspended tenant to a quiesced cell", async () => {
+    const { store, reconciler, provisioner, nowState } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    await store.enqueue(TENANT, "suspend", "suspend-before-expired-export", cellId);
+    await convergeProvision(reconciler);
+
+    const operation = await store.enqueue(TENANT, "export", "suspended-expired-export", cellId);
+    const storedOperation = store.operations.get(operation.id);
+    assert.ok(storedOperation);
+    storedOperation.createdAt = new Date(nowState.value.getTime() - 24 * 60 * 60 * 1000 + 1);
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
+    const createExport = provisioner.export.bind(provisioner);
+    provisioner.export = async (request) => {
+      const result = await createExport(request);
+      nowState.value = new Date(request.expiresAt.getTime() + 1);
+      return result;
+    };
+
+    await convergeProvision(reconciler, TENANT, 8);
+
+    assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+    assert.equal(store.statusForTenant(TENANT).state, "suspended");
+    assert.equal(store.cells.get(cellId)?.lifecycleState, "quiesced");
+    assert.equal(
+      provisioner.calls.some(
+        (call) => call.action === "resume" && call.idempotencyKey.startsWith(operation.id)
+      ),
+      false
+    );
   });
 
   it("leaves an already suspended tenant quiesced after export", async () => {
