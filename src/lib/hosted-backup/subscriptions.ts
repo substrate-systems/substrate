@@ -6,13 +6,9 @@
  * here.
  */
 
-import {
-  findUserIdByPaddleCustomerId,
-  upsertSubscription,
-  type SubscriptionRow,
-} from './db';
-import { paddleFetch, assertOk } from './paddle-client';
-import type { SubscriptionStatus } from './types';
+import { findUserIdByPaddleCustomerId, upsertSubscription, type SubscriptionRow } from "./db";
+import { paddleFetch, assertOk } from "./paddle-client";
+import type { SubscriptionStatus } from "./types";
 
 type PaddleSubscriptionEventData = {
   id?: string; // paddle_subscription_id
@@ -34,20 +30,21 @@ export type PaddleSubscriptionEvent = {
 
 export type ApplyResult =
   | {
-      kind: 'applied';
+      kind: "applied";
       userId: string;
       status: SubscriptionStatus;
       /**
-       * Set when the user was resolved via the email-fallback path (only on
-       * `subscription.created` for unauthenticated marketing-page checkouts).
+       * Set for anonymous first-subscription events so required onboarding can
+       * resume on a retry even after the first attempt created the customer
+       * mapping.
        * `isNewPreAccount` is true when the users row was created by this very
        * event (no prior account for the email). Absent for the standard
        * custom_data / paddle_customer_id resolution paths.
        */
       preAccountFlow?: { resolvedByEmail: true; isNewPreAccount: boolean };
     }
-  | { kind: 'unknown_user' }
-  | { kind: 'ignored'; reason: string };
+  | { kind: "unknown_user" }
+  | { kind: "ignored"; reason: string };
 
 /**
  * Optional injection for unauthenticated checkout resolution. The webhook
@@ -55,37 +52,37 @@ export type ApplyResult =
  * pure state machine stays unaware of those concerns.
  */
 export type EmailResolver = (
-  customerId: string,
+  customerId: string
 ) => Promise<{ userId: string; isNew: boolean } | null>;
 
 const HANDLED_EVENTS = new Set([
-  'subscription.created',
-  'subscription.activated',
-  'subscription.past_due',
-  'subscription.canceled',
-  'subscription.paused',
-  'subscription.resumed',
-  'subscription.updated',
+  "subscription.created",
+  "subscription.activated",
+  "subscription.past_due",
+  "subscription.canceled",
+  "subscription.paused",
+  "subscription.resumed",
+  "subscription.updated",
 ]);
+
+const ANONYMOUS_BOOTSTRAP_EVENTS = new Set(["subscription.created", "subscription.activated"]);
 
 export function isHandledEvent(eventType: string): boolean {
   return HANDLED_EVENTS.has(eventType);
 }
 
-function extractUserIdFromEvent(
-  data: PaddleSubscriptionEventData | undefined,
-): string | null {
+function extractUserIdFromEvent(data: PaddleSubscriptionEventData | undefined): string | null {
   const direct = data?.custom_data?.user_id;
-  if (typeof direct === 'string' && direct.length > 0) return direct;
+  if (typeof direct === "string" && direct.length > 0) return direct;
   const pt = data?.passthrough;
-  if (pt && typeof pt === 'object') {
+  if (pt && typeof pt === "object") {
     const uid = (pt as { user_id?: unknown }).user_id;
-    if (typeof uid === 'string' && uid.length > 0) return uid;
+    if (typeof uid === "string" && uid.length > 0) return uid;
   }
-  if (typeof pt === 'string' && pt.length > 0) {
+  if (typeof pt === "string" && pt.length > 0) {
     try {
       const parsed = JSON.parse(pt) as { user_id?: unknown };
-      if (typeof parsed.user_id === 'string' && parsed.user_id.length > 0) {
+      if (typeof parsed.user_id === "string" && parsed.user_id.length > 0) {
         return parsed.user_id;
       }
     } catch {
@@ -95,11 +92,9 @@ function extractUserIdFromEvent(
   return null;
 }
 
-function extractPlan(
-  data: PaddleSubscriptionEventData | undefined,
-): string | null {
+function extractPlan(data: PaddleSubscriptionEventData | undefined): string | null {
   const id = data?.items?.[0]?.price?.id;
-  return typeof id === 'string' && id.length > 0 ? id : null;
+  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 /**
@@ -107,7 +102,7 @@ function extractPlan(
  * structured result so the route handler can respond appropriately.
  *
  * `opts.resolveByEmail`, when provided, is used as a final-fallback
- * resolution for `subscription.created` events that carry no
+ * resolution for first-subscription events that carry no
  * custom_data.user_id and whose customer_id has no prior subscription row.
  * This is how the unauthenticated marketing-page checkout (no auth on
  * /endstate, no user_id in Paddle's custom_data) gets attached to a real
@@ -116,15 +111,15 @@ function extractPlan(
  */
 export async function applyPaddleEvent(
   event: PaddleSubscriptionEvent,
-  opts?: { resolveByEmail?: EmailResolver },
+  opts?: { resolveByEmail?: EmailResolver }
 ): Promise<ApplyResult> {
   if (!isHandledEvent(event.event_type)) {
-    return { kind: 'ignored', reason: `unhandled event type: ${event.event_type}` };
+    return { kind: "ignored", reason: `unhandled event type: ${event.event_type}` };
   }
   const subscriptionId = event.data?.id;
   const customerId = event.data?.customer_id;
   if (!subscriptionId || !customerId) {
-    return { kind: 'ignored', reason: 'missing subscription_id or customer_id' };
+    return { kind: "ignored", reason: "missing subscription_id or customer_id" };
   }
 
   // Resolve user. Prefer the GUI-supplied custom_data (or legacy passthrough)
@@ -132,16 +127,14 @@ export async function applyPaddleEvent(
   // subscriptions row does not yet exist, so a paddle_customer_id lookup
   // would fail. Fall back to the lookup for events that originated from
   // outside our checkout flow (e.g. a Paddle-dashboard-initiated change).
-  let userId = extractUserIdFromEvent(event.data);
+  const directUserId = extractUserIdFromEvent(event.data);
+  const anonymousBootstrap = !directUserId && ANONYMOUS_BOOTSTRAP_EVENTS.has(event.event_type);
+  let userId = directUserId;
   if (!userId) {
     userId = await findUserIdByPaddleCustomerId(customerId);
   }
   let preAccountFlow: { resolvedByEmail: true; isNewPreAccount: boolean } | undefined;
-  if (
-    !userId &&
-    event.event_type === 'subscription.created' &&
-    opts?.resolveByEmail
-  ) {
+  if (!userId && anonymousBootstrap && opts?.resolveByEmail) {
     // Anonymous marketing-page checkout. Try the email-fallback path.
     const resolved = await opts.resolveByEmail(customerId);
     if (resolved) {
@@ -150,13 +143,20 @@ export async function applyPaddleEvent(
     }
   }
   if (!userId) {
-    return { kind: 'unknown_user' };
+    return { kind: "unknown_user" };
+  }
+
+  // A prior failed attempt may already have upserted the subscription, so a
+  // retry resolves through paddle_customer_id instead of email. Preserve the
+  // onboarding signal for the same anonymous first-event shape.
+  if (anonymousBootstrap && !preAccountFlow) {
+    preAccountFlow = { resolvedByEmail: true, isNewPreAccount: false };
   }
 
   const transition = mapEventToStatus(event);
   if (!transition) {
     return {
-      kind: 'ignored',
+      kind: "ignored",
       reason: `event ${event.event_type} did not map to a transition`,
     };
   }
@@ -173,8 +173,8 @@ export async function applyPaddleEvent(
   });
 
   const result: ApplyResult = preAccountFlow
-    ? { kind: 'applied', userId, status: transition.status, preAccountFlow }
-    : { kind: 'applied', userId, status: transition.status };
+    ? { kind: "applied", userId, status: transition.status, preAccountFlow }
+    : { kind: "applied", userId, status: transition.status };
   return result;
 }
 
@@ -187,73 +187,69 @@ type Transition = {
 
 function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
   const now = new Date();
-  const periodEnd = event.data?.next_billed_at
-    ? new Date(event.data.next_billed_at)
-    : null;
+  const periodEnd = event.data?.next_billed_at ? new Date(event.data.next_billed_at) : null;
   switch (event.event_type) {
-    case 'subscription.created':
-    case 'subscription.activated':
-    case 'subscription.resumed':
+    case "subscription.created":
+    case "subscription.activated":
+    case "subscription.resumed":
       return {
-        status: 'active',
+        status: "active",
         graceStartedAt: null,
         cancelStartedAt: null,
         currentPeriodEnd: periodEnd,
       };
-    case 'subscription.past_due':
+    case "subscription.past_due":
       return {
-        status: 'grace',
+        status: "grace",
         graceStartedAt: now,
         cancelStartedAt: null,
         currentPeriodEnd: periodEnd,
       };
-    case 'subscription.paused':
+    case "subscription.paused":
       return {
-        status: 'paused',
+        status: "paused",
         graceStartedAt: null,
         cancelStartedAt: null,
         currentPeriodEnd: periodEnd,
       };
-    case 'subscription.canceled':
+    case "subscription.canceled":
       // Paddle's spelling, one l. Internal: cancelled, two l's.
       return {
-        status: 'cancelled',
+        status: "cancelled",
         graceStartedAt: null,
-        cancelStartedAt: event.data?.canceled_at
-          ? new Date(event.data.canceled_at)
-          : now,
+        cancelStartedAt: event.data?.canceled_at ? new Date(event.data.canceled_at) : now,
         currentPeriodEnd: periodEnd,
       };
-    case 'subscription.updated': {
+    case "subscription.updated": {
       // Paddle's status field carries the canonical state; map it.
       const paddleStatus = event.data?.status;
-      if (paddleStatus === 'active') {
+      if (paddleStatus === "active") {
         return {
-          status: 'active',
+          status: "active",
           graceStartedAt: null,
           cancelStartedAt: null,
           currentPeriodEnd: periodEnd,
         };
       }
-      if (paddleStatus === 'past_due') {
+      if (paddleStatus === "past_due") {
         return {
-          status: 'grace',
+          status: "grace",
           graceStartedAt: now,
           cancelStartedAt: null,
           currentPeriodEnd: periodEnd,
         };
       }
-      if (paddleStatus === 'paused') {
+      if (paddleStatus === "paused") {
         return {
-          status: 'paused',
+          status: "paused",
           graceStartedAt: null,
           cancelStartedAt: null,
           currentPeriodEnd: periodEnd,
         };
       }
-      if (paddleStatus === 'canceled') {
+      if (paddleStatus === "canceled") {
         return {
-          status: 'cancelled',
+          status: "cancelled",
           graceStartedAt: null,
           cancelStartedAt: now,
           currentPeriodEnd: periodEnd,
@@ -269,26 +265,30 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
 /**
  * Best-effort Paddle subscription cancel. Logs and returns false on failure.
  */
-export async function cancelPaddleSubscription(
-  paddleSubscriptionId: string,
-): Promise<boolean> {
+export async function cancelPaddleSubscription(paddleSubscriptionId: string): Promise<boolean> {
   try {
     const res = await paddleFetch(
       `/subscriptions/${encodeURIComponent(paddleSubscriptionId)}/cancel`,
       {
-        method: 'POST',
-        body: JSON.stringify({ effective_from: 'immediately' }),
-      },
+        method: "POST",
+        body: JSON.stringify({ effective_from: "immediately" }),
+      }
     );
     await assertOk(res);
     return true;
   } catch (err) {
-    console.error('[hosted-backup paddle cancel] failed:', err);
+    console.error("[hosted-backup paddle cancel] failed:", err);
     return false;
   }
 }
 
-export const _internal = { mapEventToStatus, extractUserIdFromEvent, extractPlan, HANDLED_EVENTS };
+export const _internal = {
+  mapEventToStatus,
+  extractUserIdFromEvent,
+  extractPlan,
+  HANDLED_EVENTS,
+  ANONYMOUS_BOOTSTRAP_EVENTS,
+};
 
 // Test seam — re-export type for tests
 export type { SubscriptionRow };

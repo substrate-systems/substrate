@@ -3,8 +3,8 @@
  * Mirrors the lazy-singleton, template-literal pattern in `src/lib/license/db.ts`.
  */
 
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
-import type { KdfParams, SubscriptionStatus } from './types';
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import type { KdfParams, SubscriptionStatus } from "./types";
 
 let _sql: NeonQueryFunction<false, true> | null = null;
 
@@ -14,7 +14,7 @@ function sql(
 ): ReturnType<NeonQueryFunction<false, true>> {
   if (!_sql) {
     const url = process.env.DATABASE_URL;
-    if (!url) throw new Error('DATABASE_URL is not set');
+    if (!url) throw new Error("DATABASE_URL is not set");
     _sql = neon(url, { fullResults: true });
   }
   return _sql(strings, ...values);
@@ -98,9 +98,7 @@ export async function insertUser(email: string): Promise<UserRow> {
 // email are safe: ON CONFLICT DO NOTHING + a follow-up SELECT in the same
 // statement returns the canonical row. `isNew` is true when this call
 // inserted the row.
-export async function ensurePreAccount(
-  email: string,
-): Promise<{ userId: string; isNew: boolean }> {
+export async function ensurePreAccount(email: string): Promise<{ userId: string; isNew: boolean }> {
   const { rows } = await sql`
     WITH ins AS (
       INSERT INTO users (email)
@@ -118,18 +116,14 @@ export async function ensurePreAccount(
   `;
   const row = rows[0] as { id: string; is_new: boolean } | undefined;
   if (!row) {
-    throw new Error(
-      'ensurePreAccount: no row returned (user is soft-deleted?)',
-    );
+    throw new Error("ensurePreAccount: no row returned (user is soft-deleted?)");
   }
   return { userId: row.id, isNew: row.is_new };
 }
 
 // Cheap presence check, used by the webhook + signup paths to distinguish a
 // pre-account (no credentials yet) from a fully-credentialed user.
-export async function userHasAuthCredentials(
-  userId: string,
-): Promise<boolean> {
+export async function userHasAuthCredentials(userId: string): Promise<boolean> {
   const { rows } = await sql`
     SELECT 1 FROM auth_credentials WHERE user_id = ${userId} LIMIT 1
   `;
@@ -163,9 +157,7 @@ export async function insertAuthCredentials(params: {
   `;
 }
 
-export async function getAuthCredentials(
-  userId: string,
-): Promise<AuthCredentialsRow | null> {
+export async function getAuthCredentials(userId: string): Promise<AuthCredentialsRow | null> {
   const { rows } = await sql`
     SELECT user_id, server_password_hash, client_salt, kdf_params,
            wrapped_dek, recovery_key_verifier, recovery_key_wrapped_dek, updated_at
@@ -213,7 +205,7 @@ export async function recoverFinalizeAtomic(params: {
 }): Promise<{ tokenAlreadyUsed: boolean }> {
   if (!_sql) {
     const url = process.env.DATABASE_URL;
-    if (!url) throw new Error('DATABASE_URL is not set');
+    if (!url) throw new Error("DATABASE_URL is not set");
     _sql = neon(url, { fullResults: true });
   }
   try {
@@ -242,9 +234,9 @@ export async function recoverFinalizeAtomic(params: {
   } catch (err: unknown) {
     if (
       err &&
-      typeof err === 'object' &&
-      'code' in err &&
-      (err as { code?: string }).code === '23505'
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: string }).code === "23505"
     ) {
       return { tokenAlreadyUsed: true };
     }
@@ -278,7 +270,7 @@ export async function insertRefreshToken(params: {
 }
 
 export async function findRefreshTokenByHash(
-  tokenHash: Uint8Array,
+  tokenHash: Uint8Array
 ): Promise<RefreshTokenRow | null> {
   const { rows } = await sql`
     SELECT id, user_id, chain_id, parent_id, token_hash,
@@ -290,9 +282,7 @@ export async function findRefreshTokenByHash(
   return (rows[0] as RefreshTokenRow | undefined) ?? null;
 }
 
-export async function getChainRoot(
-  chainId: string,
-): Promise<RefreshTokenRow | null> {
+export async function getChainRoot(chainId: string): Promise<RefreshTokenRow | null> {
   const { rows } = await sql`
     SELECT id, user_id, chain_id, parent_id, token_hash,
            issued_at, expires_at, revoked_at
@@ -319,9 +309,7 @@ export async function revokeRefreshChain(chainId: string): Promise<void> {
   `;
 }
 
-export async function revokeAllRefreshChainsForUser(
-  userId: string,
-): Promise<void> {
+export async function revokeAllRefreshChainsForUser(userId: string): Promise<void> {
   await sql`
     UPDATE refresh_tokens
     SET revoked_at = now()
@@ -331,9 +319,7 @@ export async function revokeAllRefreshChainsForUser(
 
 // --- Signing keys ---
 
-export async function getActiveAndRecentlyRetiredSigningKeys(): Promise<
-  SigningKeyRow[]
-> {
+export async function getActiveAndRecentlyRetiredSigningKeys(): Promise<SigningKeyRow[]> {
   const { rows } = await sql`
     SELECT kid, public_key, algorithm, created_at, retired_at
     FROM signing_keys
@@ -359,7 +345,7 @@ export async function insertSigningKey(params: {
     VALUES (
       ${params.kid},
       ${Buffer.from(params.publicKey)},
-      ${params.algorithm ?? 'EdDSA'}
+      ${params.algorithm ?? "EdDSA"}
     )
   `;
 }
@@ -392,9 +378,7 @@ export type SubscriptionRow = {
 // Paddle can still recover the user without an extra state path.
 export const GRACE_WINDOW_DAYS = 14;
 
-export async function getSubscriptionStatus(
-  userId: string,
-): Promise<SubscriptionStatus> {
+export async function getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {
   const { rows } = await sql`
     SELECT
       CASE
@@ -407,7 +391,7 @@ export async function getSubscriptionStatus(
     FROM subscriptions WHERE user_id = ${userId} LIMIT 1
   `;
   const row = rows[0] as { effective_status: SubscriptionStatus } | undefined;
-  return row?.effective_status ?? 'none';
+  return row?.effective_status ?? "none";
 }
 
 export type SubscriptionEntitlement = {
@@ -426,9 +410,7 @@ export type SubscriptionEntitlement = {
  * grace-cutoff-adjusted effective status and a computed grace period end.
  * Used by `GET /api/account/me`.
  */
-export async function getSubscriptionEntitlement(
-  userId: string,
-): Promise<SubscriptionEntitlement> {
+export async function getSubscriptionEntitlement(userId: string): Promise<SubscriptionEntitlement> {
   const { rows } = await sql`
     SELECT
       status,
@@ -467,8 +449,8 @@ export async function getSubscriptionEntitlement(
     | undefined;
   if (!row) {
     return {
-      effectiveStatus: 'none',
-      storedStatus: 'none',
+      effectiveStatus: "none",
+      storedStatus: "none",
       plan: null,
       currentPeriodEnd: null,
       gracePeriodEndsAt: null,
@@ -489,9 +471,7 @@ export async function getSubscriptionEntitlement(
   };
 }
 
-export async function getSubscriptionByUserId(
-  userId: string,
-): Promise<SubscriptionRow | null> {
+export async function getSubscriptionByUserId(userId: string): Promise<SubscriptionRow | null> {
   const { rows } = await sql`
     SELECT user_id, paddle_subscription_id, paddle_customer_id, status, plan,
            grace_started_at, cancel_started_at, current_period_end, updated_at
@@ -501,7 +481,7 @@ export async function getSubscriptionByUserId(
 }
 
 export async function getSubscriptionByPaddleId(
-  paddleSubscriptionId: string,
+  paddleSubscriptionId: string
 ): Promise<SubscriptionRow | null> {
   const { rows } = await sql`
     SELECT user_id, paddle_subscription_id, paddle_customer_id, status, plan,
@@ -512,7 +492,7 @@ export async function getSubscriptionByPaddleId(
 }
 
 export async function findUserIdByPaddleCustomerId(
-  paddleCustomerId: string,
+  paddleCustomerId: string
 ): Promise<string | null> {
   const { rows } = await sql`
     SELECT user_id FROM subscriptions WHERE paddle_customer_id = ${paddleCustomerId} LIMIT 1
@@ -557,23 +537,160 @@ export async function upsertSubscription(params: {
   `;
 }
 
-// --- Paddle webhook events (idempotency) ---
+// --- Paddle webhook events (idempotency + processing lease) ---
 
-export async function recordPaddleEventIfFresh(params: {
+export type PaddleEventProcessingClaim =
+  | { kind: "acquired"; attempt: number }
+  | { kind: "processed" }
+  | { kind: "in_progress" };
+
+const PADDLE_EVENT_PROCESSING_LEASE_MINUTES = 5;
+
+export async function claimPaddleEventProcessing(params: {
   eventId: string;
   eventType: string;
-}): Promise<boolean> {
-  const { rowCount } = await sql`
-    INSERT INTO paddle_webhook_events (event_id, event_type)
-    VALUES (${params.eventId}, ${params.eventType})
-    ON CONFLICT (event_id) DO NOTHING
+}): Promise<PaddleEventProcessingClaim> {
+  const claimed = await sql`
+    INSERT INTO paddle_webhook_events (
+      event_id, event_type, processing_started_at, attempt_count
+    ) VALUES (
+      ${params.eventId}, ${params.eventType}, now(), 1
+    )
+    ON CONFLICT (event_id) DO UPDATE SET
+      event_type = EXCLUDED.event_type,
+      processing_started_at = now(),
+      attempt_count = paddle_webhook_events.attempt_count + 1
+    WHERE paddle_webhook_events.processed_at IS NULL
+      AND (
+        paddle_webhook_events.processing_started_at IS NULL
+        OR paddle_webhook_events.processing_started_at
+          < now() - (${PADDLE_EVENT_PROCESSING_LEASE_MINUTES} || ' minutes')::interval
+      )
+    RETURNING attempt_count
   `;
-  return (rowCount ?? 0) > 0;
+  const acquired = claimed.rows[0] as { attempt_count: number } | undefined;
+  if (acquired) return { kind: "acquired", attempt: acquired.attempt_count };
+
+  const existing = await sql`
+    SELECT processed_at
+    FROM paddle_webhook_events
+    WHERE event_id = ${params.eventId}
+    LIMIT 1
+  `;
+  const row = existing.rows[0] as { processed_at: string | null } | undefined;
+  if (row?.processed_at) return { kind: "processed" };
+  return { kind: "in_progress" };
 }
 
-export async function markPaddleEventProcessed(eventId: string): Promise<void> {
+export async function releasePaddleEventForRetry(
+  eventId: string,
+  attempt: number,
+  errorCode: string
+): Promise<void> {
   await sql`
-    UPDATE paddle_webhook_events SET processed_at = now() WHERE event_id = ${eventId}
+    UPDATE paddle_webhook_events
+    SET processing_started_at = NULL,
+        last_error_code = ${errorCode},
+        last_error_at = now()
+    WHERE event_id = ${eventId}
+      AND attempt_count = ${attempt}
+      AND processed_at IS NULL
+  `;
+}
+
+export async function markPaddleEventProcessed(eventId: string, attempt: number): Promise<void> {
+  const result = await sql`
+    UPDATE paddle_webhook_events
+    SET processed_at = now(),
+        processing_started_at = NULL,
+        last_error_code = NULL,
+        last_error_at = NULL
+    WHERE event_id = ${eventId}
+      AND attempt_count = ${attempt}
+      AND processed_at IS NULL
+  `;
+  if ((result.rowCount ?? 0) !== 1) {
+    throw new Error("PADDLE_EVENT_LEASE_LOST");
+  }
+}
+
+export type SubscriptionOnboardingClaim =
+  | { kind: "acquired" }
+  | { kind: "already_sent" }
+  | { kind: "in_progress" };
+
+export async function claimSubscriptionOnboardingDelivery(params: {
+  paddleSubscriptionId: string;
+  eventId: string;
+  emailKind: "claim" | "fyi";
+}): Promise<SubscriptionOnboardingClaim> {
+  const claimed = await sql`
+    UPDATE subscriptions
+    SET onboarding_source_event_id = ${params.eventId},
+        onboarding_email_kind = ${params.emailKind},
+        onboarding_processing_started_at = now(),
+        onboarding_email_attempts = onboarding_email_attempts + 1,
+        onboarding_last_error_code = NULL
+    WHERE paddle_subscription_id = ${params.paddleSubscriptionId}
+      AND onboarding_email_sent_at IS NULL
+      AND (
+        onboarding_source_event_id IS NULL
+        OR onboarding_source_event_id = ${params.eventId}
+        OR (
+          onboarding_processing_started_at IS NULL
+          OR onboarding_processing_started_at
+            < now() - (${PADDLE_EVENT_PROCESSING_LEASE_MINUTES} || ' minutes')::interval
+        )
+      )
+    RETURNING onboarding_email_sent_at
+  `;
+  const row = claimed.rows[0] as { onboarding_email_sent_at: string | null } | undefined;
+  if (row?.onboarding_email_sent_at) return { kind: "already_sent" };
+  if (row) return { kind: "acquired" };
+
+  const existing = await sql`
+    SELECT onboarding_email_sent_at
+    FROM subscriptions
+    WHERE paddle_subscription_id = ${params.paddleSubscriptionId}
+    LIMIT 1
+  `;
+  const delivery = existing.rows[0] as { onboarding_email_sent_at: string | null } | undefined;
+  if (delivery?.onboarding_email_sent_at) return { kind: "already_sent" };
+  return { kind: "in_progress" };
+}
+
+export async function markSubscriptionOnboardingSent(params: {
+  paddleSubscriptionId: string;
+  eventId: string;
+  messageId?: string;
+}): Promise<void> {
+  const result = await sql`
+    UPDATE subscriptions
+    SET onboarding_email_sent_at = now(),
+        onboarding_processing_started_at = NULL,
+        onboarding_email_message_id = ${params.messageId ?? null},
+        onboarding_last_error_code = NULL
+    WHERE paddle_subscription_id = ${params.paddleSubscriptionId}
+      AND onboarding_source_event_id = ${params.eventId}
+      AND onboarding_email_sent_at IS NULL
+  `;
+  if ((result.rowCount ?? 0) !== 1) {
+    throw new Error("ONBOARDING_DELIVERY_LEASE_LOST");
+  }
+}
+
+export async function releaseSubscriptionOnboardingForRetry(params: {
+  paddleSubscriptionId: string;
+  eventId: string;
+  errorCode: string;
+}): Promise<void> {
+  await sql`
+    UPDATE subscriptions
+    SET onboarding_processing_started_at = NULL,
+        onboarding_last_error_code = ${params.errorCode}
+    WHERE paddle_subscription_id = ${params.paddleSubscriptionId}
+      AND onboarding_source_event_id = ${params.eventId}
+      AND onboarding_email_sent_at IS NULL
   `;
 }
 
@@ -613,10 +730,7 @@ export type BackupSummaryRow = BackupRow & {
   total_size: number;
 };
 
-export async function insertBackup(params: {
-  userId: string;
-  name: string;
-}): Promise<BackupRow> {
+export async function insertBackup(params: { userId: string; name: string }): Promise<BackupRow> {
   const { rows } = await sql`
     INSERT INTO backups (user_id, name)
     VALUES (${params.userId}, ${params.name})
@@ -625,9 +739,7 @@ export async function insertBackup(params: {
   return rows[0] as BackupRow;
 }
 
-export async function listBackupsForUser(
-  userId: string,
-): Promise<BackupSummaryRow[]> {
+export async function listBackupsForUser(userId: string): Promise<BackupSummaryRow[]> {
   const { rows } = await sql`
     SELECT b.id, b.user_id, b.name, b.created_at, b.updated_at, b.deleted_at,
       (SELECT id FROM backup_versions
@@ -644,10 +756,7 @@ export async function listBackupsForUser(
   return rows as BackupSummaryRow[];
 }
 
-export async function getBackupOwned(
-  userId: string,
-  backupId: string,
-): Promise<BackupRow | null> {
+export async function getBackupOwned(userId: string, backupId: string): Promise<BackupRow | null> {
   const { rows } = await sql`
     SELECT id, user_id, name, created_at, updated_at, deleted_at
     FROM backups
@@ -657,10 +766,7 @@ export async function getBackupOwned(
   return (rows[0] as BackupRow | undefined) ?? null;
 }
 
-export async function deleteBackupOwned(
-  userId: string,
-  backupId: string,
-): Promise<number> {
+export async function deleteBackupOwned(userId: string, backupId: string): Promise<number> {
   // Hard delete; FKs cascade to versions and chunks — which is exactly why
   // the R2 prefix must be enqueued in the SAME statement: the cascaded rows
   // carried the only object-key knowledge. The CTE enqueues if-and-only-if a
@@ -692,7 +798,7 @@ export async function deleteBackupOwned(
 export async function updateBackupOwned(
   userId: string,
   backupId: string,
-  fields: { name?: string | null },
+  fields: { name?: string | null }
 ): Promise<BackupRow | null> {
   const { rows } = await sql`
     UPDATE backups
@@ -704,9 +810,7 @@ export async function updateBackupOwned(
   return (rows[0] as BackupRow | undefined) ?? null;
 }
 
-export async function listVersions(
-  backupId: string,
-): Promise<BackupVersionRow[]> {
+export async function listVersions(backupId: string): Promise<BackupVersionRow[]> {
   const { rows } = await sql`
     SELECT id, backup_id, created_at, size_bytes, manifest_object_key,
            manifest_sha256, chunk_count, deleted_at
@@ -737,9 +841,7 @@ export async function getVersionOwned(params: {
   return (rows[0] as BackupVersionRow | undefined) ?? null;
 }
 
-export async function listChunksForVersion(
-  versionId: string,
-): Promise<BackupChunkRow[]> {
+export async function listChunksForVersion(versionId: string): Promise<BackupChunkRow[]> {
   const { rows } = await sql`
     SELECT version_id, chunk_index, object_key, size_bytes, sha256
     FROM backup_chunks
@@ -785,7 +887,7 @@ export async function sumActiveStorageForUser(userId: string): Promise<number> {
  * no active versions.
  */
 export async function getUserBackupStats(
-  userId: string,
+  userId: string
 ): Promise<{ usedBytes: number; versionCount: number; lastBackupAt: string | null }> {
   const { rows } = await sql`
     SELECT
@@ -827,7 +929,7 @@ export async function insertVersionWithChunks(params: {
   const indices = params.chunks.map((c) => c.index);
   const objectKeys = params.chunks.map((c) => c.objectKey);
   const sizes = params.chunks.map((c) => c.sizeBytes);
-  const sha256s = params.chunks.map((c) => Buffer.from(c.sha256).toString('hex'));
+  const sha256s = params.chunks.map((c) => Buffer.from(c.sha256).toString("hex"));
 
   // Single statement with CTEs: the version insert, the chunks insert, and
   // the parent-backup updated_at touch all run atomically.
@@ -943,16 +1045,14 @@ export async function insertAccountSession(params: {
 }
 
 export async function findAccountSession(
-  sessionId: string,
+  sessionId: string
 ): Promise<{ userId: string; expiresAt: string } | null> {
   const { rows } = await sql`
     SELECT user_id, expires_at FROM account_sessions
     WHERE session_id = ${sessionId} AND expires_at > now()
     LIMIT 1
   `;
-  const row = rows[0] as
-    | { user_id: string; expires_at: string }
-    | undefined;
+  const row = rows[0] as { user_id: string; expires_at: string } | undefined;
   if (!row) return null;
   return { userId: row.user_id, expiresAt: row.expires_at };
 }
@@ -982,9 +1082,7 @@ export type ExpiredVersionRow = {
   manifest_object_key: string;
 };
 
-export async function findExpiredDeletedVersions(
-  limit: number,
-): Promise<ExpiredVersionRow[]> {
+export async function findExpiredDeletedVersions(limit: number): Promise<ExpiredVersionRow[]> {
   const { rows } = await sql`
     SELECT id, manifest_object_key
     FROM backup_versions
@@ -1038,10 +1136,7 @@ export async function markPurgeDone(id: string): Promise<void> {
   `;
 }
 
-export async function markPurgeAttemptFailed(params: {
-  id: string;
-  error: string;
-}): Promise<void> {
+export async function markPurgeAttemptFailed(params: { id: string; error: string }): Promise<void> {
   await sql`
     UPDATE r2_purge_queue
     SET attempts = attempts + 1,
@@ -1105,10 +1200,7 @@ export async function countRateLimitEvents(params: {
   return (rows[0] as { n: number }).n;
 }
 
-export async function insertRateLimitEvent(params: {
-  scope: string;
-  key: string;
-}): Promise<void> {
+export async function insertRateLimitEvent(params: { scope: string; key: string }): Promise<void> {
   await sql`
     INSERT INTO rate_limit_events (scope, key)
     VALUES (${params.scope}, ${params.key})

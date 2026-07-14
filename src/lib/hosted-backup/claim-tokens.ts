@@ -10,8 +10,8 @@
  * the hash-not-plaintext invariant is local and auditable.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import { createHash, randomBytes } from "node:crypto";
+import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
 let _sql: NeonQueryFunction<false, true> | null = null;
 
@@ -21,7 +21,7 @@ function sql(
 ): ReturnType<NeonQueryFunction<false, true>> {
   if (!_sql) {
     const url = process.env.DATABASE_URL;
-    if (!url) throw new Error('DATABASE_URL is not set');
+    if (!url) throw new Error("DATABASE_URL is not set");
     _sql = neon(url, { fullResults: true });
   }
   return _sql(strings, ...values);
@@ -49,6 +49,11 @@ export type ClaimTokenRow = {
   resend_count: number;
   last_sent_at: string;
   founder_alerted_at: string | null;
+  source_event_id?: string | null;
+  initial_email_sent_at?: string | null;
+  initial_email_attempts?: number;
+  initial_email_message_id?: string | null;
+  last_email_error_code?: string | null;
 };
 
 export type ResendableClaim = {
@@ -67,7 +72,7 @@ export type FounderAlertableClaim = {
 };
 
 function sha256(input: Uint8Array): Uint8Array {
-  return new Uint8Array(createHash('sha256').update(input).digest());
+  return new Uint8Array(createHash("sha256").update(input).digest());
 }
 
 /**
@@ -83,14 +88,12 @@ export async function mintClaimToken(params: {
   // URL-safe base64 (no padding) — fits in an email link without escaping
   // and copies cleanly when the user pastes it into the GUI.
   const token = tokenBytes
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
   const tokenHash = sha256(new Uint8Array(tokenBytes));
-  const expiresAt = new Date(
-    Date.now() + CLAIM_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
-  );
+  const expiresAt = new Date(Date.now() + CLAIM_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
   await sql`
     INSERT INTO claim_tokens (token_hash, user_id, email, expires_at)
     VALUES (
@@ -103,11 +106,110 @@ export async function mintClaimToken(params: {
   return { token, tokenHash };
 }
 
+export type PrepareInitialClaimTokenResult =
+  | { kind: "ready"; token: string; tokenHash: Uint8Array }
+  | { kind: "already_sent" };
+
+/**
+ * Prepare the one claim token associated with an anonymous Paddle event.
+ *
+ * A failed attempt leaves only a hash, so its plaintext cannot be resent.
+ * On retry we delete that unsent row and replace it with a fresh token. A row
+ * whose initial email was accepted is left untouched and reported as already
+ * sent. The event processing lease serializes callers; the unique index is the
+ * final race guard.
+ */
+export async function prepareInitialClaimToken(params: {
+  userId: string;
+  email: string;
+  sourceEventId: string;
+}): Promise<PrepareInitialClaimTokenResult> {
+  const existing = await sql`
+    SELECT source_event_id, initial_email_sent_at
+    FROM claim_tokens
+    WHERE user_id = ${params.userId}
+      AND source_event_id IS NOT NULL
+      AND consumed_at IS NULL
+    LIMIT 1
+  `;
+  const row = existing.rows[0] as
+    | { source_event_id: string; initial_email_sent_at: string | null }
+    | undefined;
+  if (row?.initial_email_sent_at) return { kind: "already_sent" };
+
+  await sql`
+    DELETE FROM claim_tokens
+    WHERE user_id = ${params.userId}
+      AND source_event_id IS NOT NULL
+      AND initial_email_sent_at IS NULL
+      AND consumed_at IS NULL
+  `;
+
+  const tokenBytes = randomBytes(32);
+  const token = tokenBytes
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  const tokenHash = sha256(new Uint8Array(tokenBytes));
+  const expiresAt = new Date(Date.now() + CLAIM_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const result = await sql`
+    INSERT INTO claim_tokens (
+      token_hash, user_id, email, expires_at, source_event_id
+    ) VALUES (
+      ${Buffer.from(tokenHash)},
+      ${params.userId},
+      ${params.email},
+      ${expiresAt.toISOString()},
+      ${params.sourceEventId}
+    )
+  `;
+  if ((result.rowCount ?? 0) !== 1) {
+    throw new Error("INITIAL_CLAIM_DELIVERY_STATE_MISSING");
+  }
+  return { kind: "ready", token, tokenHash };
+}
+
+export async function markInitialClaimEmailSent(
+  tokenHash: Uint8Array,
+  messageId?: string
+): Promise<void> {
+  const result = await sql`
+    UPDATE claim_tokens
+    SET initial_email_sent_at = now(),
+        initial_email_attempts = initial_email_attempts + 1,
+        initial_email_message_id = ${messageId ?? null},
+        last_email_error_code = NULL,
+        last_sent_at = now()
+    WHERE token_hash = ${Buffer.from(tokenHash)}
+      AND consumed_at IS NULL
+  `;
+  if ((result.rowCount ?? 0) !== 1) {
+    throw new Error("INITIAL_CLAIM_DELIVERY_STATE_MISSING");
+  }
+}
+
+export async function markInitialClaimEmailFailed(
+  tokenHash: Uint8Array,
+  errorCode: string
+): Promise<void> {
+  const result = await sql`
+    UPDATE claim_tokens
+    SET initial_email_attempts = initial_email_attempts + 1,
+        last_email_error_code = ${errorCode}
+    WHERE token_hash = ${Buffer.from(tokenHash)}
+      AND consumed_at IS NULL
+  `;
+  if ((result.rowCount ?? 0) !== 1) {
+    throw new Error("INITIAL_CLAIM_DELIVERY_STATE_MISSING");
+  }
+}
+
 export type VerifyResult =
-  | { kind: 'valid'; row: ClaimTokenRow }
-  | { kind: 'invalid' }
-  | { kind: 'expired'; row: ClaimTokenRow }
-  | { kind: 'consumed'; row: ClaimTokenRow };
+  | { kind: "valid"; row: ClaimTokenRow }
+  | { kind: "invalid" }
+  | { kind: "expired"; row: ClaimTokenRow }
+  | { kind: "consumed"; row: ClaimTokenRow };
 
 /**
  * Resolve a plaintext token to its row, classifying validity.
@@ -117,7 +219,7 @@ export type VerifyResult =
  */
 export async function verifyClaimToken(token: string): Promise<VerifyResult> {
   const tokenBytes = decodeBase64UrlToken(token);
-  if (!tokenBytes) return { kind: 'invalid' };
+  if (!tokenBytes) return { kind: "invalid" };
   const tokenHash = sha256(tokenBytes);
   const { rows } = await sql`
     SELECT token_hash, user_id, email, created_at, expires_at, consumed_at,
@@ -127,29 +229,27 @@ export async function verifyClaimToken(token: string): Promise<VerifyResult> {
     LIMIT 1
   `;
   const row = rows[0] as ClaimTokenRow | undefined;
-  if (!row) return { kind: 'invalid' };
-  if (row.consumed_at) return { kind: 'consumed', row };
+  if (!row) return { kind: "invalid" };
+  if (row.consumed_at) return { kind: "consumed", row };
   if (new Date(row.expires_at) <= new Date()) {
-    return { kind: 'expired', row };
+    return { kind: "expired", row };
   }
-  return { kind: 'valid', row };
+  return { kind: "valid", row };
 }
 
 export type ConsumeResult =
-  | { kind: 'consumed'; userId: string; email: string }
-  | { kind: 'race' } // another caller consumed it between our SELECT and UPDATE
-  | { kind: 'invalid' }
-  | { kind: 'expired' };
+  | { kind: "consumed"; userId: string; email: string }
+  | { kind: "race" } // another caller consumed it between our SELECT and UPDATE
+  | { kind: "invalid" }
+  | { kind: "expired" };
 
 /**
  * Atomically mark a claim token consumed. Returns the user_id/email for the
  * caller's downstream `insertAuthCredentials` + JWT issuance.
  */
-export async function consumeClaimToken(
-  token: string,
-): Promise<ConsumeResult> {
+export async function consumeClaimToken(token: string): Promise<ConsumeResult> {
   const tokenBytes = decodeBase64UrlToken(token);
-  if (!tokenBytes) return { kind: 'invalid' };
+  if (!tokenBytes) return { kind: "invalid" };
   const tokenHash = sha256(tokenBytes);
   const { rows } = await sql`
     UPDATE claim_tokens
@@ -160,15 +260,15 @@ export async function consumeClaimToken(
     RETURNING user_id, email
   `;
   const row = rows[0] as { user_id: string; email: string } | undefined;
-  if (row) return { kind: 'consumed', userId: row.user_id, email: row.email };
+  if (row) return { kind: "consumed", userId: row.user_id, email: row.email };
   // Distinguish why the UPDATE matched nothing.
   const verify = await verifyClaimToken(token);
-  if (verify.kind === 'invalid') return { kind: 'invalid' };
-  if (verify.kind === 'expired') return { kind: 'expired' };
-  if (verify.kind === 'consumed') return { kind: 'race' };
+  if (verify.kind === "invalid") return { kind: "invalid" };
+  if (verify.kind === "expired") return { kind: "expired" };
+  if (verify.kind === "consumed") return { kind: "race" };
   // Should be unreachable — verify said 'valid' but the UPDATE matched
   // nothing, which means the row was deleted between our two queries.
-  return { kind: 'invalid' };
+  return { kind: "invalid" };
 }
 
 /**
@@ -176,9 +276,7 @@ export async function consumeClaimToken(
  * the 60-second rate limit baked into the WHERE clause. Returns true on
  * success, false on rate-limit hit.
  */
-export async function bumpClaimResend(
-  tokenHash: Uint8Array,
-): Promise<boolean> {
+export async function bumpClaimResend(tokenHash: Uint8Array): Promise<boolean> {
   const { rowCount } = await sql`
     UPDATE claim_tokens
     SET resend_count = resend_count + 1,
@@ -203,12 +301,14 @@ export async function findResendableClaims(): Promise<ResendableClaim[]> {
       AND resend_count < ${CLAIM_RESEND_CAP}
       AND last_sent_at < now() - (${CLAIM_CRON_RESEND_COOLDOWN_HOURS} || ' hours')::interval
   `;
-  return (rows as Array<{
-    token_hash: Uint8Array;
-    user_id: string;
-    email: string;
-    resend_count: number;
-  }>).map((r) => ({
+  return (
+    rows as Array<{
+      token_hash: Uint8Array;
+      user_id: string;
+      email: string;
+      resend_count: number;
+    }>
+  ).map((r) => ({
     tokenHash: r.token_hash,
     userId: r.user_id,
     email: r.email,
@@ -231,9 +331,7 @@ export async function markCronResent(tokenHash: Uint8Array): Promise<void> {
  * in a founder digest. The 14-day threshold is read from
  * CLAIM_FOUNDER_ALERT_DAYS. Joins through subscriptions for paddle_customer_id.
  */
-export async function findFounderAlertableClaims(): Promise<
-  FounderAlertableClaim[]
-> {
+export async function findFounderAlertableClaims(): Promise<FounderAlertableClaim[]> {
   const { rows } = await sql`
     SELECT
       ct.token_hash,
@@ -247,13 +345,15 @@ export async function findFounderAlertableClaims(): Promise<
       AND ct.founder_alerted_at IS NULL
       AND ct.created_at < now() - (${CLAIM_FOUNDER_ALERT_DAYS} || ' days')::interval
   `;
-  return (rows as Array<{
-    token_hash: Uint8Array;
-    user_id: string;
-    email: string;
-    created_at: string;
-    paddle_customer_id: string | null;
-  }>).map((r) => ({
+  return (
+    rows as Array<{
+      token_hash: Uint8Array;
+      user_id: string;
+      email: string;
+      created_at: string;
+      paddle_customer_id: string | null;
+    }>
+  ).map((r) => ({
     tokenHash: r.token_hash,
     userId: r.user_id,
     email: r.email,
@@ -262,9 +362,7 @@ export async function findFounderAlertableClaims(): Promise<
   }));
 }
 
-export async function markFounderAlerted(
-  tokenHashes: Uint8Array[],
-): Promise<void> {
+export async function markFounderAlerted(tokenHashes: Uint8Array[]): Promise<void> {
   if (tokenHashes.length === 0) return;
   // Neon serverless doesn't expand IN $1 with arrays — issue one update per
   // row. N is small (digest list capped by the 14d window).
@@ -279,13 +377,13 @@ export async function markFounderAlerted(
 }
 
 function decodeBase64UrlToken(token: string): Uint8Array | null {
-  if (typeof token !== 'string' || token.length === 0) return null;
+  if (typeof token !== "string" || token.length === 0) return null;
   // Reverse the URL-safe transform from mintClaimToken.
-  const normalized = token.replace(/-/g, '+').replace(/_/g, '/');
+  const normalized = token.replace(/-/g, "+").replace(/_/g, "/");
   const padLen = (4 - (normalized.length % 4)) % 4;
-  const padded = normalized + '='.repeat(padLen);
+  const padded = normalized + "=".repeat(padLen);
   try {
-    const buf = Buffer.from(padded, 'base64');
+    const buf = Buffer.from(padded, "base64");
     if (buf.length !== 32) return null;
     return new Uint8Array(buf);
   } catch {

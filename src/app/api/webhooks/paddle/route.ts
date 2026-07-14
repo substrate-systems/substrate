@@ -6,10 +6,14 @@ import {
 } from "@/lib/license/paddle";
 import { withApiVersion } from "@/lib/hosted-backup/api-version";
 import {
+  claimPaddleEventProcessing,
+  claimSubscriptionOnboardingDelivery,
   ensurePreAccount,
   getSubscriptionByUserId,
   markPaddleEventProcessed,
-  recordPaddleEventIfFresh,
+  markSubscriptionOnboardingSent,
+  releasePaddleEventForRetry,
+  releaseSubscriptionOnboardingForRetry,
   userHasAuthCredentials,
 } from "@/lib/hosted-backup/db";
 import {
@@ -18,7 +22,11 @@ import {
   type EmailResolver,
   type PaddleSubscriptionEvent,
 } from "@/lib/hosted-backup/subscriptions";
-import { mintClaimToken } from "@/lib/hosted-backup/claim-tokens";
+import {
+  markInitialClaimEmailFailed,
+  markInitialClaimEmailSent,
+  prepareInitialClaimToken,
+} from "@/lib/hosted-backup/claim-tokens";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { renderClaimEmail, renderFyiEmail } from "@/lib/email-templates/claim";
 import { dispatchVerifiedExomemPaddleEvent } from "@/lib/exomem-hosted/paddle-webhook";
@@ -30,36 +38,91 @@ function ok(body: Record<string, unknown>, status = 200): NextResponse {
   return withApiVersion(NextResponse.json(body, { status }));
 }
 
-// Closure for the email-fallback path. Called by applyPaddleEvent ONLY when
-// the standard resolution paths (custom_data → paddle_customer_id) miss on a
-// subscription.created event. Returns null on any failure so the webhook
-// falls through to the existing unknown_user response (Paddle stops retrying;
-// we'd lose visibility but the event is at least audited in
-// paddle_webhook_events).
+class WebhookProcessingError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+    this.name = "WebhookProcessingError";
+  }
+}
+
+function processingErrorCode(err: unknown, fallback: string): string {
+  return err instanceof WebhookProcessingError ? err.code : fallback;
+}
+
+// Closure for the email-fallback path. Customer lookup is required for an
+// anonymous first-subscription event, so transient failures must escape and
+// make Paddle retry rather than being converted into a successful no-op.
 function makeEmailResolver(): EmailResolver {
   return async (customerId) => {
     let email: string | null;
     try {
       email = await fetchPaddleCustomerEmail(customerId);
-    } catch (err) {
+    } catch {
       console.warn("[hosted-backup paddle webhook] fetchPaddleCustomerEmail failed", {
         customerId,
-        err: err instanceof Error ? err.message : String(err),
+        code: "PADDLE_CUSTOMER_LOOKUP_FAILED",
       });
-      return null;
+      throw new WebhookProcessingError("PADDLE_CUSTOMER_LOOKUP_FAILED");
     }
     if (!email) {
-      console.warn("[hosted-backup paddle webhook] Paddle customer has no email", { customerId });
-      return null;
+      console.warn("[hosted-backup paddle webhook] Paddle customer has no email", {
+        customerId,
+        code: "PADDLE_CUSTOMER_EMAIL_MISSING",
+      });
+      throw new WebhookProcessingError("PADDLE_CUSTOMER_EMAIL_MISSING");
     }
     return ensurePreAccount(email);
   };
 }
 
+async function retryableFailure(
+  event: PaddleSubscriptionEvent,
+  attempt: number,
+  code: string
+): Promise<NextResponse> {
+  console.error("[hosted-backup paddle webhook] retryable failure", {
+    event_id: event.event_id,
+    event_type: event.event_type,
+    code,
+  });
+  try {
+    await releasePaddleEventForRetry(event.event_id, attempt, code);
+  } catch {
+    console.error("[hosted-backup paddle webhook] failed to release event lease", {
+      event_id: event.event_id,
+      code: "PADDLE_EVENT_RELEASE_FAILED",
+    });
+  }
+  return ok({ success: false, error: { code } }, 503);
+}
+
+function hostedBackupPriceClassification(event: PaddleSubscriptionEvent): {
+  configured: boolean;
+  matches: boolean;
+} {
+  const configuredPriceIds = new Set(
+    [
+      process.env.PADDLE_PRICE_ID_HOSTED_BACKUP,
+      process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_MONTHLY,
+      process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_YEARLY,
+    ].filter((value): value is string => Boolean(value))
+  );
+  const eventPriceIds = (event.data?.items ?? [])
+    .map((item) => item.price?.id)
+    .filter((value): value is string => Boolean(value));
+  return {
+    configured: configuredPriceIds.size > 0,
+    matches: eventPriceIds.some((priceId) => configuredPriceIds.has(priceId)),
+  };
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const secret = process.env.PADDLE_WEBHOOK_SECRET;
+  const secret =
+    process.env.PADDLE_HOSTED_BACKUP_WEBHOOK_SECRET ?? process.env.PADDLE_WEBHOOK_SECRET;
   if (!secret) {
-    console.error("[hosted-backup paddle webhook] PADDLE_WEBHOOK_SECRET is not set");
+    console.error("[hosted-backup paddle webhook] webhook secret is not set", {
+      code: "PADDLE_HOSTED_BACKUP_WEBHOOK_SECRET_MISSING",
+    });
     return ok({ success: false, error: { code: "SERVER_MISCONFIGURED" } }, 500);
   }
 
@@ -145,32 +208,53 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Idempotency: same event_id must not be processed twice.
-  let isFresh = false;
+  if (isHandledEvent(event.event_type)) {
+    const classification = hostedBackupPriceClassification(event);
+    if (!classification.configured) {
+      console.error("[hosted-backup paddle webhook] price configuration missing", {
+        event_id: event.event_id,
+        code: "HOSTED_BACKUP_PRICE_CONFIG_MISSING",
+      });
+      return ok({ success: false, error: { code: "SERVER_MISCONFIGURED" } }, 500);
+    }
+    if (!classification.matches) {
+      return ok({ ok: true, ignored: true, reason: "not_hosted_backup_price" }, 200);
+    }
+  }
+
+  // Idempotency is a processing lease. Only a completed event dedupes to 200;
+  // failed or abandoned attempts can be reacquired safely.
+  let eventClaim;
   try {
-    isFresh = await recordPaddleEventIfFresh({
+    eventClaim = await claimPaddleEventProcessing({
       eventId: event.event_id,
       eventType: event.event_type,
     });
-  } catch (err) {
-    // If the idempotency insert blows up (e.g. DB hiccup), let Paddle retry.
-    console.error("[hosted-backup paddle webhook] idempotency insert failed:", err);
+  } catch {
+    console.error("[hosted-backup paddle webhook] event claim failed", {
+      event_id: event.event_id,
+      code: "PADDLE_EVENT_CLAIM_FAILED",
+    });
     return ok(
       {
         success: false,
-        error: { code: "INTERNAL_ERROR", message: "transient failure" },
+        error: { code: "PADDLE_EVENT_CLAIM_FAILED" },
       },
-      500
+      503
     );
   }
 
-  if (!isFresh) {
+  if (eventClaim.kind === "processed") {
     return ok({ ok: true, deduped: true }, 200);
   }
+  if (eventClaim.kind === "in_progress") {
+    return ok({ success: false, error: { code: "PADDLE_EVENT_IN_PROGRESS" } }, 503);
+  }
+  const eventAttempt = eventClaim.attempt;
 
   if (!isHandledEvent(event.event_type)) {
     console.warn("[hosted-backup paddle webhook] ignoring unhandled event_type:", event.event_type);
-    await markPaddleEventProcessed(event.event_id);
+    await markPaddleEventProcessed(event.event_id, eventAttempt);
     return ok({ ok: true, ignored: true, event_type: event.event_type }, 200);
   }
 
@@ -180,43 +264,40 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       resolveByEmail: makeEmailResolver(),
     });
   } catch (err) {
-    console.error("[hosted-backup paddle webhook] apply threw:", err);
-    return ok(
-      {
-        success: false,
-        error: { code: "INTERNAL_ERROR", message: "transient failure" },
-      },
-      500
+    return retryableFailure(
+      event,
+      eventAttempt,
+      processingErrorCode(err, "PADDLE_EVENT_APPLY_FAILED")
     );
   }
-
-  await markPaddleEventProcessed(event.event_id);
 
   if (result.kind === "unknown_user") {
-    // Subscription event for a user we don't have on file yet. Return 200 so
-    // Paddle stops retrying immediately; if our row appears later we'll get
-    // a subsequent event we can act on. (Paddle's retry policy means we'd
-    // get this event again on transient errors anyway.)
-    console.warn(
-      "[hosted-backup paddle webhook] unknown user for customer_id; recording as processed",
-      { event_id: event.event_id, event_type: event.event_type }
-    );
-    return ok({ ok: true, unknown_user: true }, 200);
+    return retryableFailure(event, eventAttempt, "PADDLE_USER_UNRESOLVED");
   }
   if (result.kind === "ignored") {
+    await markPaddleEventProcessed(event.event_id, eventAttempt);
     return ok({ ok: true, ignored: true, reason: result.reason }, 200);
   }
 
   // If we resolved via the email-fallback path, fire the right follow-up
-  // email. Failures here log + continue — we don't want Brevo hiccups to
-  // make Paddle retry the webhook (which would mint duplicate claim
-  // tokens).
+  // email. The claim primitive is keyed by event_id, so Brevo failures can
+  // safely make Paddle retry without duplicating token rows.
   if (result.preAccountFlow) {
     try {
-      await dispatchPostResolveEmail(result.userId);
+      await dispatchPostResolveEmail(result.userId, event);
     } catch (err) {
-      console.error("[hosted-backup paddle webhook] follow-up email dispatch threw", err);
+      return retryableFailure(
+        event,
+        eventAttempt,
+        processingErrorCode(err, "ONBOARDING_EMAIL_DISPATCH_FAILED")
+      );
     }
+  }
+
+  try {
+    await markPaddleEventProcessed(event.event_id, eventAttempt);
+  } catch {
+    return retryableFailure(event, eventAttempt, "PADDLE_EVENT_COMPLETE_FAILED");
   }
 
   return ok({ ok: true, userId: result.userId, status: result.status }, 200);
@@ -226,7 +307,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 // pre-account — mint a claim token + send the claim email. Otherwise they're
 // a real existing user who happened to buy via the marketing CTA — send the
 // FYI email.
-async function dispatchPostResolveEmail(userId: string): Promise<void> {
+async function dispatchPostResolveEmail(
+  userId: string,
+  event: PaddleSubscriptionEvent
+): Promise<void> {
+  const paddleSubscriptionId = event.data?.id;
+  if (!paddleSubscriptionId) {
+    throw new WebhookProcessingError("ONBOARDING_SUBSCRIPTION_ID_MISSING");
+  }
   const hasCreds = await userHasAuthCredentials(userId);
   // We need the email + (for FYI) the subscription detail. Both live on
   // the rows we just touched.
@@ -234,22 +322,64 @@ async function dispatchPostResolveEmail(userId: string): Promise<void> {
   if (!sub) {
     // Should not happen — applyPaddleEvent just upserted the row. Log and
     // bail.
-    console.warn("[hosted-backup paddle webhook] post-resolve email: subscription missing", {
-      userId,
-    });
-    return;
+    throw new WebhookProcessingError("ONBOARDING_SUBSCRIPTION_MISSING");
   }
   // userHasAuthCredentials told us whether the user is a pre-account; we
   // still need their email. Fetch the users row directly (avoids adding
   // another helper).
   const userRow = await fetchUserEmail(userId);
   if (!userRow) {
-    console.warn("[hosted-backup paddle webhook] post-resolve email: user row missing", { userId });
-    return;
+    throw new WebhookProcessingError("ONBOARDING_USER_MISSING");
   }
-  if (!hasCreds) {
-    const { token } = await mintClaimToken({ userId, email: userRow.email });
-    const rendered = renderClaimEmail({ email: userRow.email, token });
+  const emailKind = hasCreds ? "fyi" : "claim";
+  const delivery = await claimSubscriptionOnboardingDelivery({
+    paddleSubscriptionId,
+    eventId: event.event_id,
+    emailKind,
+  });
+  if (delivery.kind === "already_sent") return;
+  if (delivery.kind === "in_progress") {
+    throw new WebhookProcessingError("ONBOARDING_DELIVERY_IN_PROGRESS");
+  }
+
+  try {
+    if (!hasCreds) {
+      const prepared = await prepareInitialClaimToken({
+        userId,
+        email: userRow.email,
+        sourceEventId: event.event_id,
+      });
+      if (prepared.kind === "already_sent") {
+        await markSubscriptionOnboardingSent({
+          paddleSubscriptionId,
+          eventId: event.event_id,
+        });
+        return;
+      }
+      const rendered = renderClaimEmail({ email: userRow.email, token: prepared.token });
+      const sendResult = await sendTransactionalEmail({
+        to: userRow.email,
+        subject: rendered.subject,
+        htmlContent: rendered.htmlContent,
+        textContent: rendered.textContent,
+      });
+      if (!sendResult.success) {
+        await markInitialClaimEmailFailed(prepared.tokenHash, "BREVO_CLAIM_EMAIL_FAILED");
+        throw new WebhookProcessingError("BREVO_CLAIM_EMAIL_FAILED");
+      }
+      await markInitialClaimEmailSent(prepared.tokenHash, sendResult.messageId);
+      await markSubscriptionOnboardingSent({
+        paddleSubscriptionId,
+        eventId: event.event_id,
+        messageId: sendResult.messageId,
+      });
+      return;
+    }
+    const rendered = renderFyiEmail({
+      email: userRow.email,
+      plan: sub.plan,
+      currentPeriodEnd: sub.current_period_end,
+    });
     const sendResult = await sendTransactionalEmail({
       to: userRow.email,
       subject: rendered.subject,
@@ -257,29 +387,28 @@ async function dispatchPostResolveEmail(userId: string): Promise<void> {
       textContent: rendered.textContent,
     });
     if (!sendResult.success) {
-      console.warn("[hosted-backup paddle webhook] claim email send failed", {
-        userId,
-        error: sendResult.error,
+      throw new WebhookProcessingError("BREVO_FYI_EMAIL_FAILED");
+    }
+    await markSubscriptionOnboardingSent({
+      paddleSubscriptionId,
+      eventId: event.event_id,
+      messageId: sendResult.messageId,
+    });
+  } catch (err) {
+    const code = processingErrorCode(err, "ONBOARDING_EMAIL_DISPATCH_FAILED");
+    try {
+      await releaseSubscriptionOnboardingForRetry({
+        paddleSubscriptionId,
+        eventId: event.event_id,
+        errorCode: code,
+      });
+    } catch {
+      console.error("[hosted-backup paddle webhook] failed to release onboarding lease", {
+        event_id: event.event_id,
+        code: "ONBOARDING_DELIVERY_RELEASE_FAILED",
       });
     }
-    return;
-  }
-  const rendered = renderFyiEmail({
-    email: userRow.email,
-    plan: sub.plan,
-    currentPeriodEnd: sub.current_period_end,
-  });
-  const sendResult = await sendTransactionalEmail({
-    to: userRow.email,
-    subject: rendered.subject,
-    htmlContent: rendered.htmlContent,
-    textContent: rendered.textContent,
-  });
-  if (!sendResult.success) {
-    console.warn("[hosted-backup paddle webhook] fyi email send failed", {
-      userId,
-      error: sendResult.error,
-    });
+    throw err instanceof WebhookProcessingError ? err : new WebhookProcessingError(code);
   }
 }
 

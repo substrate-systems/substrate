@@ -1,11 +1,13 @@
 /**
  * Webhook pre-account path tests — covers the email-fallback resolution
- * introduced in wire-anonymous-buyer-account-linking. When subscription.created
- * arrives without custom_data.user_id AND without a paddle_customer_id match,
+ * introduced in wire-anonymous-buyer-account-linking. When the first usable
+ * subscription event arrives without custom_data.user_id AND without a
+ * paddle_customer_id match,
  * the webhook falls back to:
  *   1. fetchPaddleCustomerEmail(customer_id) via the Paddle API
  *   2. ensurePreAccount(email) — creates or fetches the users row
- *   3. either mintClaimToken + claim email (pre-account) or FYI (real user)
+ *   3. either prepareInitialClaimToken + claim email (pre-account) or FYI
+ *      (real user)
  */
 
 import { afterEach, before, describe, it, mock } from "node:test";
@@ -16,6 +18,9 @@ const SECRET = "test-paddle-secret";
 
 before(() => {
   process.env.PADDLE_WEBHOOK_SECRET = SECRET;
+  process.env.PADDLE_PRICE_ID_HOSTED_BACKUP = "pri_01ks03yq9ggsj4mdfdv3egwz67";
+  process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_MONTHLY = "pri_monthly";
+  process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_YEARLY = "pri_yearly";
   Object.assign(process.env, { NODE_ENV: "test" });
 });
 
@@ -32,7 +37,17 @@ function signedHeader(rawBody: string, ts: number = Math.floor(Date.now() / 1000
 }
 
 function makeReq(body: object): Request {
-  const rawBody = JSON.stringify(body);
+  const input = body as { event_type?: string; data?: Record<string, unknown> };
+  const wireBody = input.event_type?.startsWith("subscription.")
+    ? {
+        ...input,
+        data: {
+          ...input.data,
+          items: input.data?.items ?? [{ price: { id: "pri_01ks03yq9ggsj4mdfdv3egwz67" } }],
+        },
+      }
+    : input;
+  const rawBody = JSON.stringify(wireBody);
   return new Request("https://test.local/api/webhooks/paddle", {
     method: "POST",
     headers: {
@@ -44,7 +59,10 @@ function makeReq(body: object): Request {
 }
 
 type State = {
-  events: Map<string, { eventType: string; processedAt: string | null }>;
+  events: Map<
+    string,
+    { eventType: string; processedAt: string | null; leased: boolean; lastErrorCode: string | null }
+  >;
   customerIdToUserId: Map<string, string>;
   customerIdToEmail: Map<string, string | null>;
   upserts: Array<{
@@ -55,7 +73,14 @@ type State = {
     plan: string | null;
   }>;
   users: Map<string, { id: string; hasCreds: boolean }>;
-  claimMints: Array<{ userId: string; email: string }>;
+  deliveries: Map<string, { eventId: string; sent: boolean; leased: boolean }>;
+  claims: Map<
+    string,
+    { userId: string; email: string; tokenHash: Uint8Array; initialEmailSent: boolean }
+  >;
+  claimPreparations: number;
+  emailAttempts: number;
+  emailFailuresRemaining: number;
   paddleFetchErrors: Set<string>;
 };
 
@@ -66,6 +91,7 @@ function setupMocks(
     customerIdToEmail?: Record<string, string | null>;
     existingUsers?: Array<{ email: string; id: string; hasCreds: boolean }>;
     paddleFetchErrorsFor?: string[];
+    emailFailures?: number;
   } = {}
 ) {
   state = {
@@ -76,7 +102,11 @@ function setupMocks(
     users: new Map(
       (opts.existingUsers ?? []).map((u) => [u.email, { id: u.id, hasCreds: u.hasCreds }])
     ),
-    claimMints: [],
+    deliveries: new Map(),
+    claims: new Map(),
+    claimPreparations: 0,
+    emailAttempts: 0,
+    emailFailuresRemaining: opts.emailFailures ?? 0,
     paddleFetchErrors: new Set(opts.paddleFetchErrorsFor ?? []),
   };
 
@@ -84,12 +114,42 @@ function setupMocks(
     namedExports: {
       recordPaddleEventIfFresh: async (p: { eventId: string; eventType: string }) => {
         if (state.events.has(p.eventId)) return false;
-        state.events.set(p.eventId, { eventType: p.eventType, processedAt: null });
+        state.events.set(p.eventId, {
+          eventType: p.eventType,
+          processedAt: null,
+          leased: true,
+          lastErrorCode: null,
+        });
         return true;
       },
-      markPaddleEventProcessed: async (eventId: string) => {
+      claimPaddleEventProcessing: async (p: { eventId: string; eventType: string }) => {
+        const existing = state.events.get(p.eventId);
+        if (existing?.processedAt) return { kind: "processed" as const };
+        if (existing?.leased) return { kind: "in_progress" as const };
+        state.events.set(p.eventId, {
+          eventType: p.eventType,
+          processedAt: null,
+          leased: true,
+          lastErrorCode: existing?.lastErrorCode ?? null,
+        });
+        return { kind: "acquired" as const, attempt: 1 };
+      },
+      releasePaddleEventForRetry: async (eventId: string, attempt: number, errorCode: string) => {
+        assert.equal(attempt, 1);
         const ev = state.events.get(eventId);
-        if (ev) ev.processedAt = new Date().toISOString();
+        if (ev) {
+          ev.leased = false;
+          ev.lastErrorCode = errorCode;
+        }
+      },
+      markPaddleEventProcessed: async (eventId: string, attempt: number) => {
+        assert.equal(attempt, 1);
+        const ev = state.events.get(eventId);
+        if (ev) {
+          ev.processedAt = new Date().toISOString();
+          ev.leased = false;
+          ev.lastErrorCode = null;
+        }
       },
       findUserIdByPaddleCustomerId: async (cid: string) =>
         state.customerIdToUserId.get(cid) ?? null,
@@ -107,6 +167,7 @@ function setupMocks(
           status: p.status,
           plan: p.plan ?? null,
         });
+        state.customerIdToUserId.set(p.paddleCustomerId, p.userId);
       },
       ensurePreAccount: async (email: string) => {
         const existing = state.users.get(email);
@@ -150,6 +211,40 @@ function setupMocks(
           updated_at: new Date().toISOString(),
         };
       },
+      claimSubscriptionOnboardingDelivery: async (p: {
+        paddleSubscriptionId: string;
+        eventId: string;
+      }) => {
+        const existing = state.deliveries.get(p.paddleSubscriptionId);
+        if (existing?.sent) return { kind: "already_sent" as const };
+        if (existing?.leased && existing.eventId !== p.eventId) {
+          return { kind: "in_progress" as const };
+        }
+        state.deliveries.set(p.paddleSubscriptionId, {
+          eventId: p.eventId,
+          sent: false,
+          leased: true,
+        });
+        return { kind: "acquired" as const };
+      },
+      markSubscriptionOnboardingSent: async (p: {
+        paddleSubscriptionId: string;
+        eventId: string;
+      }) => {
+        const delivery = state.deliveries.get(p.paddleSubscriptionId);
+        assert.equal(delivery?.eventId, p.eventId);
+        if (delivery) {
+          delivery.sent = true;
+          delivery.leased = false;
+        }
+      },
+      releaseSubscriptionOnboardingForRetry: async (p: {
+        paddleSubscriptionId: string;
+        eventId: string;
+      }) => {
+        const delivery = state.deliveries.get(p.paddleSubscriptionId);
+        if (delivery?.eventId === p.eventId) delivery.leased = false;
+      },
     },
   });
 
@@ -185,8 +280,54 @@ function setupMocks(
   mock.module("../claim-tokens", {
     namedExports: {
       mintClaimToken: async (params: { userId: string; email: string }) => {
-        state.claimMints.push(params);
-        return { token: "test-token-plaintext", tokenHash: new Uint8Array(32) };
+        state.claimPreparations += 1;
+        const tokenHash = new Uint8Array(32).fill(state.claimPreparations);
+        state.claims.set(`legacy-${state.claimPreparations}`, {
+          ...params,
+          tokenHash,
+          initialEmailSent: false,
+        });
+        return { token: `test-token-${state.claimPreparations}`, tokenHash };
+      },
+      prepareInitialClaimToken: async (params: {
+        userId: string;
+        email: string;
+        sourceEventId: string;
+      }) => {
+        const existing = state.claims.get(params.sourceEventId);
+        if (existing?.initialEmailSent) return { kind: "already_sent" as const };
+        state.claimPreparations += 1;
+        const tokenHash = new Uint8Array(32).fill(state.claimPreparations);
+        state.claims.set(params.sourceEventId, {
+          userId: params.userId,
+          email: params.email,
+          tokenHash,
+          initialEmailSent: false,
+        });
+        return {
+          kind: "ready" as const,
+          token: `test-token-${state.claimPreparations}`,
+          tokenHash,
+        };
+      },
+      markInitialClaimEmailSent: async (tokenHash: Uint8Array) => {
+        for (const claim of state.claims.values()) {
+          if (claim.tokenHash === tokenHash) claim.initialEmailSent = true;
+        }
+      },
+      markInitialClaimEmailFailed: async () => undefined,
+    },
+  });
+
+  mock.module("../../brevo", {
+    namedExports: {
+      sendTransactionalEmail: async () => {
+        state.emailAttempts += 1;
+        if (state.emailFailuresRemaining > 0) {
+          state.emailFailuresRemaining -= 1;
+          return { success: false, error: "simulated Brevo outage" };
+        }
+        return { success: true, messageId: `msg-${state.emailAttempts}` };
       },
     },
   });
@@ -195,7 +336,7 @@ function setupMocks(
 afterEach(() => mock.reset());
 
 describe("Paddle webhook — email-fallback pre-account path", () => {
-  it("creates a pre-account + mints claim token when subscription.created lacks user_id", async () => {
+  it("creates a pre-account and attempts claim email for real-shaped anonymous subscription.activated", async () => {
     setupMocks({
       customerIdToEmail: { cus_anon: "new@example.com" },
     });
@@ -203,11 +344,13 @@ describe("Paddle webhook — email-fallback pre-account path", () => {
     const res = await POST(
       makeReq({
         event_id: "evt_anon_1",
-        event_type: "subscription.created",
+        event_type: "subscription.activated",
         data: {
           id: "sub_anon_1",
           customer_id: "cus_anon",
-          items: [{ price: { id: "pri_monthly" } }],
+          custom_data: null,
+          next_billed_at: "2026-08-14T11:57:34.753123Z",
+          items: [{ price: { id: "pri_01ks03yq9ggsj4mdfdv3egwz67" } }],
         },
       }) as unknown as import("next/server").NextRequest
     );
@@ -217,8 +360,51 @@ describe("Paddle webhook — email-fallback pre-account path", () => {
     assert.equal(j.status, "active");
     assert.equal(state.upserts.length, 1, "subscription should be upserted");
     assert.equal(state.users.size, 1, "pre-account user should be created");
-    assert.equal(state.claimMints.length, 1, "claim token should be minted");
-    assert.equal(state.claimMints[0].email, "new@example.com");
+    assert.equal(state.claims.size, 1, "one claim token row should exist");
+    assert.equal([...state.claims.values()][0].email, "new@example.com");
+    assert.equal(state.emailAttempts, 1, "claim email should be attempted");
+  });
+
+  it("keeps subscription.created anonymous onboarding supported", async () => {
+    setupMocks({ customerIdToEmail: { cus_created: "created@example.com" } });
+    const { POST } = await import("../../../app/api/webhooks/paddle/route");
+    const res = await POST(
+      makeReq({
+        event_id: "evt_created",
+        event_type: "subscription.created",
+        data: { id: "sub_created", customer_id: "cus_created", custom_data: null },
+      }) as unknown as import("next/server").NextRequest
+    );
+    assert.equal(res.status, 200);
+    assert.equal(state.users.size, 1);
+    assert.equal(state.claims.size, 1);
+    assert.equal(state.emailAttempts, 1);
+  });
+
+  it("sends onboarding once across created, activated, and later reactivation events", async () => {
+    setupMocks({ customerIdToEmail: { cus_sequence: "sequence@example.com" } });
+    const { POST } = await import("../../../app/api/webhooks/paddle/route");
+    const data = {
+      id: "sub_sequence",
+      customer_id: "cus_sequence",
+      custom_data: null,
+      items: [{ price: { id: "pri_01ks03yq9ggsj4mdfdv3egwz67" } }],
+    };
+
+    for (const [event_id, event_type] of [
+      ["evt_sequence_created", "subscription.created"],
+      ["evt_sequence_activated", "subscription.activated"],
+      ["evt_sequence_reactivated", "subscription.activated"],
+    ] as const) {
+      const response = await POST(
+        makeReq({ event_id, event_type, data }) as unknown as import("next/server").NextRequest
+      );
+      assert.equal(response.status, 200);
+    }
+
+    assert.equal(state.users.size, 1);
+    assert.equal(state.claims.size, 1, "one subscription must retain one onboarding claim");
+    assert.equal(state.emailAttempts, 1, "later lifecycle events must not resend onboarding");
   });
 
   it("links to existing credentialed user (no claim token, no pre-account)", async () => {
@@ -240,7 +426,59 @@ describe("Paddle webhook — email-fallback pre-account path", () => {
     );
     assert.equal(res.status, 200);
     assert.equal(state.upserts[0].userId, "u-alice");
-    assert.equal(state.claimMints.length, 0, "no claim token for existing real user");
+    assert.equal(state.claims.size, 0, "no claim token for existing real user");
+    assert.equal(state.emailAttempts, 1, "existing user receives the FYI email");
+  });
+
+  it("sends a credentialed buyer FYI once across created and activated", async () => {
+    setupMocks({
+      customerIdToEmail: { cus_fyi_sequence: "fyi@example.com" },
+      existingUsers: [{ email: "fyi@example.com", id: "u-fyi", hasCreds: true }],
+    });
+    const { POST } = await import("../../../app/api/webhooks/paddle/route");
+    const data = {
+      id: "sub_fyi_sequence",
+      customer_id: "cus_fyi_sequence",
+      custom_data: null,
+    };
+
+    for (const [event_id, event_type] of [
+      ["evt_fyi_created", "subscription.created"],
+      ["evt_fyi_activated", "subscription.activated"],
+    ] as const) {
+      const response = await POST(
+        makeReq({ event_id, event_type, data }) as unknown as import("next/server").NextRequest
+      );
+      assert.equal(response.status, 200);
+    }
+
+    assert.equal(state.claims.size, 0);
+    assert.equal(state.emailAttempts, 1);
+  });
+
+  it("retries a failed credentialed-buyer FYI without creating a claim", async () => {
+    setupMocks({
+      customerIdToEmail: { cus_fyi_retry: "fyi-retry@example.com" },
+      existingUsers: [{ email: "fyi-retry@example.com", id: "u-fyi-retry", hasCreds: true }],
+      emailFailures: 1,
+    });
+    const { POST } = await import("../../../app/api/webhooks/paddle/route");
+    const body = {
+      event_id: "evt_fyi_retry",
+      event_type: "subscription.activated",
+      data: { id: "sub_fyi_retry", customer_id: "cus_fyi_retry", custom_data: null },
+    };
+
+    assert.equal(
+      (await POST(makeReq(body) as unknown as import("next/server").NextRequest)).status,
+      503
+    );
+    assert.equal(
+      (await POST(makeReq(body) as unknown as import("next/server").NextRequest)).status,
+      200
+    );
+    assert.equal(state.claims.size, 0);
+    assert.equal(state.emailAttempts, 2);
   });
 
   it("reuses existing pre-account but mints a fresh claim token", async () => {
@@ -262,11 +500,11 @@ describe("Paddle webhook — email-fallback pre-account path", () => {
     );
     assert.equal(res.status, 200);
     assert.equal(state.upserts[0].userId, "u-bob");
-    assert.equal(state.claimMints.length, 1, "pre-account still needs a fresh claim token");
-    assert.equal(state.claimMints[0].userId, "u-bob");
+    assert.equal(state.claims.size, 1, "pre-account still needs a claim token");
+    assert.equal([...state.claims.values()][0].userId, "u-bob");
   });
 
-  it("falls through to unknown_user when Paddle email-fetch throws", async () => {
+  it("returns an actionable retryable failure when Paddle email-fetch throws", async () => {
     setupMocks({
       customerIdToEmail: { cus_oops: "whatever@example.com" },
       paddleFetchErrorsFor: ["cus_oops"],
@@ -279,14 +517,47 @@ describe("Paddle webhook — email-fallback pre-account path", () => {
         data: { id: "sub_oops", customer_id: "cus_oops" },
       }) as unknown as import("next/server").NextRequest
     );
-    assert.equal(res.status, 200);
-    const j = (await res.json()) as { ok: true; unknown_user?: boolean };
-    assert.equal(j.unknown_user, true);
+    assert.equal(res.status, 503);
+    const j = (await res.json()) as { error: { code: string } };
+    assert.equal(j.error.code, "PADDLE_CUSTOMER_LOOKUP_FAILED");
     assert.equal(state.upserts.length, 0);
-    assert.equal(state.claimMints.length, 0);
+    assert.equal(state.claims.size, 0);
+    assert.equal(state.events.get("evt_oops")?.processedAt, null);
+    assert.equal(state.events.get("evt_oops")?.leased, false);
   });
 
-  it("does NOT use the email fallback for non-subscription.created events", async () => {
+  it("retries a failed first email without duplicate accounts or claim rows", async () => {
+    setupMocks({
+      customerIdToEmail: { cus_retry: "retry@example.com" },
+      emailFailures: 1,
+    });
+    const { POST } = await import("../../../app/api/webhooks/paddle/route");
+    const body = {
+      event_id: "evt_retry",
+      event_type: "subscription.activated",
+      data: { id: "sub_retry", customer_id: "cus_retry", custom_data: null },
+    };
+
+    const first = await POST(makeReq(body) as unknown as import("next/server").NextRequest);
+    assert.equal(first.status, 503);
+    assert.equal(state.users.size, 1);
+    assert.equal(state.claims.size, 1);
+    assert.equal(state.events.get("evt_retry")?.processedAt, null);
+
+    const second = await POST(makeReq(body) as unknown as import("next/server").NextRequest);
+    assert.equal(second.status, 200);
+    assert.equal(state.users.size, 1, "retry must reuse pre-account");
+    assert.equal(state.claims.size, 1, "retry must replace, not duplicate, unsent claim");
+    assert.equal(state.emailAttempts, 2);
+    assert.ok(state.events.get("evt_retry")?.processedAt);
+
+    const duplicate = await POST(makeReq(body) as unknown as import("next/server").NextRequest);
+    assert.equal(duplicate.status, 200);
+    assert.equal(((await duplicate.json()) as { deduped?: boolean }).deduped, true);
+    assert.equal(state.emailAttempts, 2, "processed duplicate must not resend");
+  });
+
+  it("does not bootstrap unrelated lifecycle events without a known customer", async () => {
     setupMocks({
       customerIdToEmail: { cus_xx: "who@example.com" },
     });
@@ -298,9 +569,10 @@ describe("Paddle webhook — email-fallback pre-account path", () => {
         data: { id: "sub_xx", customer_id: "cus_xx" },
       }) as unknown as import("next/server").NextRequest
     );
-    assert.equal(res.status, 200);
-    const j = (await res.json()) as { ok: true; unknown_user?: boolean };
-    assert.equal(j.unknown_user, true, "past_due without prior row stays unknown_user");
+    assert.equal(res.status, 503);
+    const j = (await res.json()) as { error: { code: string } };
+    assert.equal(j.error.code, "PADDLE_USER_UNRESOLVED");
     assert.equal(state.users.size, 0, "no pre-account created for non-created events");
+    assert.equal(state.emailAttempts, 0);
   });
 });
