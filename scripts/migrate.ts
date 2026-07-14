@@ -17,70 +17,77 @@
  *   tsx scripts/migrate.ts --dry  # list pending migrations without applying
  */
 
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Client, type ClientBase } from "pg";
 
-const MIGRATIONS_DIR = resolve(process.cwd(), 'migrations');
+const DEFAULT_MIGRATIONS_DIR = resolve(process.cwd(), "migrations");
+const MIGRATION_LOCK_NAMESPACE = 0x45584f4d; // "EXOM"
+const MIGRATION_LOCK_ID = 0x454d; // "EM"
 
-type Sql = NeonQueryFunction<false, true>;
+type Sql = Pick<ClientBase, "query">;
 
-function getSql(): Sql {
-  const url = process.env.DATABASE_URL;
+function getClient(databaseUrl?: string): Client {
+  const url = databaseUrl ?? process.env.DATABASE_URL;
   if (!url) {
-    throw new Error('DATABASE_URL is not set');
+    throw new Error("DATABASE_URL is not set");
   }
-  return neon(url, { fullResults: true });
+  return new Client({ connectionString: url });
 }
 
 async function ensureTrackingTable(sql: Sql): Promise<void> {
-  await sql`
+  await sql.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     )
-  `;
+  `);
 }
 
 async function getAppliedVersions(sql: Sql): Promise<Set<string>> {
-  const { rows } = await sql`SELECT version FROM schema_migrations`;
+  const { rows } = await sql.query<{ version: string }>("SELECT version FROM schema_migrations");
   return new Set((rows as Array<{ version: string }>).map((r) => r.version));
 }
 
-function listMigrationFiles(): string[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((name) => name.endsWith('.sql'))
+function listMigrationFiles(migrationsDir: string): string[] {
+  return readdirSync(migrationsDir)
+    .filter((name) => name.endsWith(".sql"))
     .sort((a, b) => a.localeCompare(b));
 }
 
 function splitStatements(sqlText: string): string[] {
   // Strip line comments. Multi-line comments not used in our migrations.
   const stripped = sqlText
-    .split('\n')
+    .split("\n")
     .map((line) => {
-      const idx = line.indexOf('--');
+      const idx = line.indexOf("--");
       return idx >= 0 ? line.slice(0, idx) : line;
     })
-    .join('\n');
+    .join("\n");
   // Split on semicolons. Our migrations contain no semicolons inside strings
   // or identifiers; if that ever changes, swap this for a real parser.
   return stripped
-    .split(';')
+    .split(";")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
 
-async function applyFile(sql: Sql, filename: string): Promise<void> {
-  const filePath = join(MIGRATIONS_DIR, filename);
-  const content = readFileSync(filePath, 'utf8');
+async function applyFile(sql: Sql, migrationsDir: string, filename: string): Promise<void> {
+  const filePath = join(migrationsDir, filename);
+  const content = readFileSync(filePath, "utf8");
   const statements = splitStatements(content);
-  for (const stmt of statements) {
-    await sql.query(stmt, []);
+  await sql.query("BEGIN");
+  try {
+    for (const statement of statements) {
+      await sql.query(statement, []);
+    }
+    await sql.query("INSERT INTO schema_migrations (version) VALUES ($1)", [filename]);
+    await sql.query("COMMIT");
+  } catch (error) {
+    await sql.query("ROLLBACK");
+    throw error;
   }
-  await sql`
-    INSERT INTO schema_migrations (version) VALUES (${filename})
-  `;
 }
 
 /**
@@ -92,50 +99,68 @@ async function applyFile(sql: Sql, filename: string): Promise<void> {
  * non-zero exit / etc.
  */
 export async function applyMigrations(
-  opts: { dry?: boolean } = {},
+  opts: { dry?: boolean; databaseUrl?: string; migrationsDir?: string } = {}
 ): Promise<void> {
-  const { dry = false } = opts;
-  const sql = getSql();
+  const { dry = false, migrationsDir = DEFAULT_MIGRATIONS_DIR } = opts;
+  const client = getClient(opts.databaseUrl);
+  await client.connect();
+  let locked = false;
+  try {
+    // A session lock is held on this dedicated connection across the applied
+    // version recheck and every per-file transaction. A crashed runner drops
+    // the connection and releases it automatically.
+    await client.query("SELECT pg_advisory_lock($1, $2)", [
+      MIGRATION_LOCK_NAMESPACE,
+      MIGRATION_LOCK_ID,
+    ]);
+    locked = true;
+    await ensureTrackingTable(client);
+    const applied = await getAppliedVersions(client);
+    const all = listMigrationFiles(migrationsDir);
+    const pending = all.filter((name) => !applied.has(name));
 
-  await ensureTrackingTable(sql);
-  const applied = await getAppliedVersions(sql);
-  const all = listMigrationFiles();
-  const pending = all.filter((name) => !applied.has(name));
-
-  if (pending.length === 0) {
-    console.log(`[migrate] up to date — ${all.length} migrations applied`);
-    return;
-  }
-
-  console.log(
-    `[migrate] ${pending.length} pending migration${pending.length === 1 ? '' : 's'}:`,
-  );
-  for (const name of pending) console.log(`  - ${name}`);
-
-  if (dry) {
-    console.log('[migrate] --dry: not applying');
-    return;
-  }
-
-  for (const name of pending) {
-    process.stdout.write(`[migrate] applying ${name} ... `);
-    try {
-      await applyFile(sql, name);
-      console.log('ok');
-    } catch (err) {
-      console.log('FAIL');
-      throw new Error(`migration ${name} failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (pending.length === 0) {
+      console.log(`[migrate] up to date — ${all.length} migrations applied`);
+      return;
     }
+
+    console.log(`[migrate] ${pending.length} pending migration${pending.length === 1 ? "" : "s"}:`);
+    for (const name of pending) console.log(`  - ${name}`);
+
+    if (dry) {
+      console.log("[migrate] --dry: not applying");
+      return;
+    }
+
+    for (const name of pending) {
+      process.stdout.write(`[migrate] applying ${name} ... `);
+      try {
+        await applyFile(client, migrationsDir, name);
+        console.log("ok");
+      } catch (err) {
+        console.log("FAIL");
+        throw new Error(
+          `migration ${name} failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+    console.log("[migrate] done");
+  } finally {
+    if (locked) {
+      await client
+        .query("SELECT pg_advisory_unlock($1, $2)", [MIGRATION_LOCK_NAMESPACE, MIGRATION_LOCK_ID])
+        .catch(() => undefined);
+    }
+    await client.end().catch(() => undefined);
   }
-  console.log('[migrate] done');
 }
 
 // CLI entry point. Only runs when invoked directly (`tsx scripts/migrate.ts`)
 // — not when imported as a module by `vercel-maybe-migrate.ts`. Standard ESM
 // idiom: compare process.argv[1] against the file path of this module.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  applyMigrations({ dry: process.argv.includes('--dry') }).catch((err) => {
-    console.error('[migrate] runner error:', err);
+  applyMigrations({ dry: process.argv.includes("--dry") }).catch((err) => {
+    console.error("[migrate] runner error:", err);
     process.exit(1);
   });
 }

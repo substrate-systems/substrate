@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import {
   CheckoutEventNames,
   initializePaddle,
   type Environments,
   type Paddle,
-} from '@paddle/paddle-js';
+} from "@paddle/paddle-js";
 
 type CompletionListener = () => void;
 
@@ -15,8 +15,8 @@ const completionListeners = new Set<CompletionListener>();
 
 function resolveEnvironment(): Environments {
   const raw = process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT;
-  if (raw === 'sandbox' || raw === 'production') return raw;
-  return 'production';
+  if (raw === "sandbox" || raw === "production") return raw;
+  return "production";
 }
 
 function loadPaddle(): Promise<Paddle | null> {
@@ -25,7 +25,7 @@ function loadPaddle(): Promise<Paddle | null> {
   const token = process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN;
   if (!token) {
     paddlePromise = Promise.resolve(null);
-    console.error('[paddle] NEXT_PUBLIC_PADDLE_CLIENT_TOKEN is not set');
+    console.error("[paddle] NEXT_PUBLIC_PADDLE_CLIENT_TOKEN is not set");
     return paddlePromise;
   }
 
@@ -38,7 +38,7 @@ function loadPaddle(): Promise<Paddle | null> {
           try {
             fn();
           } catch (err) {
-            console.error('[paddle] completion listener threw', err);
+            console.error("[paddle] completion listener threw", err);
           }
         });
       }
@@ -46,14 +46,14 @@ function loadPaddle(): Promise<Paddle | null> {
   })
     .then((instance) => instance ?? null)
     .catch((err) => {
-      console.error('[paddle] failed to initialize', err);
+      console.error("[paddle] failed to initialize", err);
       return null;
     });
 
   return paddlePromise;
 }
 
-export type HostedBackupCadence = 'monthly' | 'yearly';
+export type HostedBackupCadence = "monthly" | "yearly";
 
 export type UsePaddleResult = {
   ready: boolean;
@@ -62,25 +62,24 @@ export type UsePaddleResult = {
   openEndstateCheckout: () => Promise<void>;
   openSupporterCheckout: () => Promise<void>;
   openHostedBackupCheckout: (cadence: HostedBackupCadence) => Promise<void>;
-  openTransactionCheckout: (transactionId: string) => Promise<void>;
+  openTransactionCheckout: (transactionId: string) => Promise<boolean>;
 };
 
-const UNAVAILABLE_MESSAGE =
-  'Checkout is unavailable right now. Please try again later.';
+const UNAVAILABLE_MESSAGE = "Checkout is unavailable right now. Please try again later.";
 
-async function openCheckoutWith(
-  open: (paddle: Paddle) => void,
-): Promise<void> {
+async function openCheckoutWith(open: (paddle: Paddle) => void): Promise<boolean> {
   const paddle = await loadPaddle();
   if (!paddle) {
     alert(UNAVAILABLE_MESSAGE);
-    return;
+    return false;
   }
   try {
     open(paddle);
+    return true;
   } catch (err) {
-    console.error('[paddle] failed to open checkout', err);
+    console.error("[paddle] failed to open checkout", err);
     alert(UNAVAILABLE_MESSAGE);
+    return false;
   }
 }
 
@@ -96,7 +95,7 @@ export function usePaddle(): UsePaddleResult {
       if (instance) {
         setReady(true);
       } else {
-        setError('Checkout is unavailable right now.');
+        setError("Checkout is unavailable right now.");
       }
     });
 
@@ -111,9 +110,7 @@ export function usePaddle(): UsePaddleResult {
   async function openEndstateCheckout(): Promise<void> {
     const priceId = process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME;
     if (!priceId) {
-      console.error(
-        '[paddle] NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME is not set',
-      );
+      console.error("[paddle] NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME is not set");
       alert(UNAVAILABLE_MESSAGE);
       return;
     }
@@ -125,9 +122,7 @@ export function usePaddle(): UsePaddleResult {
   async function openSupporterCheckout(): Promise<void> {
     const priceId = process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
     if (!priceId) {
-      console.error(
-        '[paddle] NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER is not set',
-      );
+      console.error("[paddle] NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER is not set");
       alert(UNAVAILABLE_MESSAGE);
       return;
     }
@@ -136,15 +131,13 @@ export function usePaddle(): UsePaddleResult {
     });
   }
 
-  async function openHostedBackupCheckout(
-    cadence: HostedBackupCadence,
-  ): Promise<void> {
+  async function openHostedBackupCheckout(cadence: HostedBackupCadence): Promise<void> {
     const envName =
-      cadence === 'yearly'
-        ? 'NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_YEARLY'
-        : 'NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_MONTHLY';
+      cadence === "yearly"
+        ? "NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_YEARLY"
+        : "NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_MONTHLY";
     const priceId =
-      cadence === 'yearly'
+      cadence === "yearly"
         ? process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_YEARLY
         : process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_MONTHLY;
     if (!priceId) {
@@ -157,10 +150,8 @@ export function usePaddle(): UsePaddleResult {
     });
   }
 
-  async function openTransactionCheckout(
-    transactionId: string,
-  ): Promise<void> {
-    await openCheckoutWith((paddle) => {
+  async function openTransactionCheckout(transactionId: string): Promise<boolean> {
+    return openCheckoutWith((paddle) => {
       paddle.Checkout.open({ transactionId });
     });
   }

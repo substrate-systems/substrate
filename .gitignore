@@ -59,3 +59,6 @@ next-env.d.ts
 .vis-*
 .claim-page-*.png
 .endstate-pricing-*.png
+
+# Local implementation/drill briefs and disposable provider fixtures
+.task/

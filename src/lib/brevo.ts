@@ -28,47 +28,45 @@ type BrevoErrorResponse = {
   message?: string;
 };
 
-const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
-const DEFAULT_SENDER_EMAIL = 'licenses@substratesystems.io';
+const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
+const DEFAULT_SENDER_EMAIL = "licenses@substratesystems.io";
 // Friendlier display name in the inbox. Trust signals come from the
 // from-address + DKIM/SPF/DMARC — the name is just for the human reading.
 // Override via BREVO_SENDER_NAME if needed (e.g. for the founder digest).
-const DEFAULT_SENDER_NAME = 'Hugo at Endstate';
+const DEFAULT_SENDER_NAME = "Hugo at Endstate";
 
 export async function sendTransactionalEmail(
-  input: SendTransactionalEmailInput,
+  input: SendTransactionalEmailInput
 ): Promise<SendTransactionalEmailResult> {
   const { to, subject, htmlContent, textContent } = input;
 
   if (!to || !subject || !htmlContent || !textContent) {
     throw new Error(
-      'sendTransactionalEmail: to, subject, htmlContent, and textContent are required',
+      "sendTransactionalEmail: to, subject, htmlContent, and textContent are required"
     );
   }
 
-  if (process.env.NODE_ENV === 'test') {
-    return { success: true, messageId: 'test-noop' };
+  if (process.env.NODE_ENV === "test") {
+    return { success: true, messageId: "test-noop" };
   }
 
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
-    throw new Error('BREVO_API_KEY is not set');
+    throw new Error("BREVO_API_KEY is not set");
   }
 
-  const senderEmail =
-    input.senderEmail ?? process.env.BREVO_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
-  const senderName =
-    input.senderName ?? process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
+  const senderEmail = input.senderEmail ?? process.env.BREVO_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
+  const senderName = input.senderName ?? process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
   const sender = { email: senderEmail, name: senderName };
 
   let res: Response;
   try {
     res = await fetch(BREVO_API_URL, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'api-key': apiKey,
-        'content-type': 'application/json',
-        accept: 'application/json',
+        "api-key": apiKey,
+        "content-type": "application/json",
+        accept: "application/json",
       },
       body: JSON.stringify({
         sender,
@@ -78,6 +76,7 @@ export async function sendTransactionalEmail(
         htmlContent,
         textContent,
       }),
+      signal: AbortSignal.timeout(8_000),
     });
   } catch (err) {
     return {
@@ -87,12 +86,12 @@ export async function sendTransactionalEmail(
   }
 
   if (!res.ok) {
-    let detail = '';
+    let detail = "";
     try {
       const body = (await res.json()) as BrevoErrorResponse;
-      detail = body.message ?? body.code ?? '';
+      detail = body.message ?? body.code ?? "";
     } catch {
-      detail = await res.text().catch(() => '');
+      detail = await res.text().catch(() => "");
     }
     return {
       success: false,
