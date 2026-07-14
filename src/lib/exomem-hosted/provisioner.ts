@@ -300,6 +300,71 @@ function parseWorkerPolicy(value: unknown): CellWorkerPolicy | null {
   };
 }
 
+async function readBoundedJsonRecord(response: Response): Promise<Record<string, unknown> | null> {
+  const declaredRaw = response.headers.get("content-length");
+  if (declaredRaw !== null) {
+    if (!/^\d+$/.test(declaredRaw) || Number(declaredRaw) > MAX_PROVISIONER_RESPONSE_BYTES) {
+      await response.body?.cancel();
+      return null;
+    }
+  }
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const item = await reader.read();
+    if (item.done) break;
+    received += item.value.byteLength;
+    if (received > MAX_PROVISIONER_RESPONSE_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(item.value);
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseExactServerFailure(
+  response: Response,
+  value: Record<string, unknown> | null
+): ProvisionerFailure | null {
+  if (!value || Object.keys(value).sort().join(",") !== "code,retryable") return null;
+  const code = value.code;
+  const retryable = value.retryable;
+  const allowed: Partial<
+    Record<ProvisionerFailureCode, { retryable: boolean; statuses: number[] }>
+  > = {
+    CONTROL_PLANE_STATE_CONFLICT: { retryable: false, statuses: [409] },
+    PROVISIONER_REJECTED: { retryable: false, statuses: [400, 401, 409, 413, 415, 422] },
+    PROVISIONER_RESPONSE_INVALID: { retryable: false, statuses: [500] },
+    PROVISIONER_UNAVAILABLE: { retryable: true, statuses: [500, 503] },
+  };
+  if (typeof code !== "string" || typeof retryable !== "boolean") return null;
+  const contract = allowed[code as ProvisionerFailureCode];
+  if (
+    !contract ||
+    contract.retryable !== retryable ||
+    !contract.statuses.includes(response.status)
+  ) {
+    return null;
+  }
+  return new ProvisionerFailure({ code: code as ProvisionerFailureCode, retryable });
+}
+
 function parsePendingResponse(
   response: Response,
   value: Record<string, unknown>,
@@ -366,6 +431,11 @@ export class HttpCellProvisioner implements CellProvisioner {
         redirect: "error",
       });
       if (!response.ok) {
+        const exactFailure = parseExactServerFailure(
+          response,
+          await readBoundedJsonRecord(response)
+        );
+        if (exactFailure) throw exactFailure;
         const retryable =
           response.status === 408 || response.status === 429 || response.status >= 500;
         throw new ProvisionerFailure({
@@ -374,16 +444,8 @@ export class HttpCellProvisioner implements CellProvisioner {
         });
       }
       if (response.status === 204) return {};
-      let parsed: Record<string, unknown>;
-      try {
-        const declared = Number(response.headers.get("content-length") ?? "0");
-        if (declared > MAX_PROVISIONER_RESPONSE_BYTES) throw new Error("oversized");
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (bytes.byteLength > MAX_PROVISIONER_RESPONSE_BYTES) throw new Error("oversized");
-        const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
-        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
-        parsed = value as Record<string, unknown>;
-      } catch {
+      const parsed = await readBoundedJsonRecord(response);
+      if (!parsed) {
         throw new ProvisionerFailure({
           code: "PROVISIONER_RESPONSE_INVALID",
           retryable: false,

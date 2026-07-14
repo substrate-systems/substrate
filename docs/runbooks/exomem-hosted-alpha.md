@@ -204,9 +204,16 @@ Every call is `POST {EXOMEM_PROVISIONER_ENDPOINT}/cells/{action}` with:
 
 Actions are `provision`, `health`, `rotate-credential`, `quiesce`, `resume`,
 `stop`, `export`, `export-release`, `export-download`, `export-delete`, `restore`,
-`seal`, and `destroy`. Calls with
+`seal`, `discard`, and `destroy`. Calls with
 the same idempotency key and input must converge to the same result; reusing a
 key with different input must fail.
+
+The checked Python/TypeScript interoperability corpus has SHA-256
+`c479933e0fb83197bd548e2333ac66fe8db5406a0a230f76ad867a1a4df920f5`.
+It exercises the real `HttpCellProvisioner` serializer/parser for all 14
+requests, exact pending responses, every final proof (including void results),
+and every content-free server error class. Regenerate it from the companion IaC
+repository; do not hand-edit either copy.
 
 `health` is binding proof, not a generic 200. It must return the expected cell
 ID, protocol, release, authenticated-service state, mutation authority, read and
