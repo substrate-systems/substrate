@@ -31,6 +31,7 @@ function provisionRequest(): ProvisionCellRequest {
     releaseVersion: "2026.07.12",
     serviceCredential: new SensitiveSecret("credential-sensitive-sentinel"),
     workerPolicy: { workerCount: 0, semantic: false, media: false },
+    provisionMode: "serve",
   };
 }
 
@@ -101,8 +102,54 @@ describe("CellProvisioner", () => {
     );
     const body = String(captured?.init.body);
     assert.equal(body.includes("credential-sensitive-sentinel"), true);
+    assert.equal(JSON.parse(body).provisionMode, "serve");
     assert.equal(body.includes("email"), false);
     assert.equal(body.toLowerCase().includes("paddle"), false);
+  });
+
+  it("rejects an invalid provision mode before calling the provider", async () => {
+    let called = false;
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("provider-secret"),
+        timeoutMs: 500,
+      },
+      async () => {
+        called = true;
+        return Response.json({
+          providerRef: "provider-opaque-1",
+          privateEndpoint: "https://cell.internal.example",
+        });
+      }
+    );
+    const request = {
+      ...provisionRequest(),
+      provisionMode: "invalid-mode",
+    } as unknown as ProvisionCellRequest;
+
+    await assert.rejects(
+      adapter.provision(request),
+      (error) =>
+        error instanceof ProvisionerFailure &&
+        error.code === "PROVISIONER_CONFIGURATION_INVALID" &&
+        error.retryable === false
+    );
+    assert.equal(called, false);
+  });
+
+  it("binds the fake provision idempotency key to the exact provision mode", async () => {
+    const fake = new FakeCellProvisioner();
+    const request = provisionRequest();
+    await fake.provision(request);
+
+    await assert.rejects(
+      fake.provision({ ...request, provisionMode: "restore-candidate" }),
+      (error) =>
+        error instanceof ProvisionerFailure &&
+        error.code === "PROVISIONER_REJECTED" &&
+        error.retryable === false
+    );
   });
 
   it("binds export creation to one exact product expiry and forwards durable replays", async () => {

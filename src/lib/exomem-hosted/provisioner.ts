@@ -22,7 +22,7 @@ export type ProvisionerCallContext = {
   fenceGeneration: number;
 };
 
-export type ProvisionCellRequest = {
+type CellRequest = {
   context: ProvisionerCallContext;
   tenantId: string;
   cellId: string;
@@ -32,7 +32,13 @@ export type ProvisionCellRequest = {
   workerPolicy: CellWorkerPolicy;
 };
 
-export type CellTargetRequest = ProvisionCellRequest & {
+export type ProvisionMode = "serve" | "restore-candidate";
+
+export type ProvisionCellRequest = CellRequest & {
+  provisionMode: ProvisionMode;
+};
+
+export type CellTargetRequest = CellRequest & {
   providerRef: string;
 };
 
@@ -258,7 +264,7 @@ function contextBody(context: ProvisionerCallContext): Record<string, unknown> {
   };
 }
 
-function baseCellBody(request: ProvisionCellRequest): Record<string, unknown> {
+function baseCellBody(request: CellRequest): Record<string, unknown> {
   return {
     ...contextBody(request.context),
     tenantId: request.tenantId,
@@ -267,6 +273,13 @@ function baseCellBody(request: ProvisionCellRequest): Record<string, unknown> {
     releaseVersion: request.releaseVersion,
     serviceCredential: request.serviceCredential.reveal(),
     workerPolicy: request.workerPolicy,
+  };
+}
+
+function provisionBody(request: ProvisionCellRequest): Record<string, unknown> {
+  return {
+    ...baseCellBody(request),
+    provisionMode: request.provisionMode,
   };
 }
 
@@ -285,6 +298,10 @@ function boundedLabel(value: unknown, max = 256): string | null {
 
 function boundedOpaqueReference(value: unknown): string | null {
   return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(value) ? value : null;
+}
+
+function validProvisionMode(value: unknown): value is ProvisionMode {
+  return value === "serve" || value === "restore-candidate";
 }
 
 function parseWorkerPolicy(value: unknown): CellWorkerPolicy | null {
@@ -477,7 +494,8 @@ export class HttpCellProvisioner implements CellProvisioner {
   }
 
   async provision(request: ProvisionCellRequest): Promise<ProvisionedCell> {
-    const response = await this.#call("provision", request, baseCellBody(request));
+    if (!validProvisionMode(request.provisionMode)) throw configurationFailure();
+    const response = await this.#call("provision", request, provisionBody(request));
     const providerRef = boundedOpaqueReference(response.providerRef);
     const privateEndpoint = boundedLabel(response.privateEndpoint, 2_048);
     if (!providerRef || !privateEndpoint) {
@@ -799,7 +817,7 @@ export class FakeCellProvisioner implements CellProvisioner {
 
   #before(
     action: ProvisionerAction,
-    request: ProvisionCellRequest,
+    request: CellRequest,
     additional: Record<string, unknown> = {}
   ): string {
     this.calls.push({
@@ -867,7 +885,8 @@ export class FakeCellProvisioner implements CellProvisioner {
   }
 
   async provision(request: ProvisionCellRequest): Promise<ProvisionedCell> {
-    const key = this.#before("provision", request);
+    if (!validProvisionMode(request.provisionMode)) throw configurationFailure();
+    const key = this.#before("provision", request, { provisionMode: request.provisionMode });
     const prior = this.#results.get(key) as ProvisionedCell | undefined;
     if (prior) return prior;
     if (this.deletedTenants.has(request.tenantId)) {

@@ -1507,6 +1507,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       releaseVersion: "test",
       serviceCredential: new SensitiveSecret(credential),
       workerPolicy: { workerCount: 0, semantic: false, media: false },
+      provisionMode: "serve",
     });
     const reconciler = new LifecycleReconciler({
       store,

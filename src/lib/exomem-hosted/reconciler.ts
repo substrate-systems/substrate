@@ -657,6 +657,7 @@ export class LifecycleReconciler {
           releaseVersion: cell.releaseVersion,
           serviceCredential: this.#cellCredential(cell),
           workerPolicy: cell.workerPolicy,
+          provisionMode: operation.operationType === "restore" ? "restore-candidate" : "serve",
         });
         const recorded = await this.#store.recordProvisioned({
           operationId: operation.id,
@@ -783,6 +784,7 @@ export class LifecycleReconciler {
         releaseVersion: cell.releaseVersion,
         serviceCredential: this.#cellCredential(cell),
         workerPolicy: cell.workerPolicy,
+        provisionMode: "serve",
       };
       const result = await this.#provisioner.provision(request);
       this.#requireStored(
@@ -843,6 +845,7 @@ export class LifecycleReconciler {
         releaseVersion: cell.releaseVersion,
         serviceCredential: this.#cellCredential(cell),
         workerPolicy: cell.workerPolicy,
+        provisionMode: "restore-candidate",
       });
       this.#requireStored(
         await this.#store.recordProvisioned({

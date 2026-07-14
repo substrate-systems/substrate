@@ -5,10 +5,24 @@ import {
   LifecycleReconciler,
   expectedCellConfiguration,
 } from "../reconciler";
-import { FakeCellProvisioner, ProvisionerFailure, ProvisionerPending } from "../provisioner";
+import {
+  FakeCellProvisioner,
+  ProvisionerFailure,
+  ProvisionerPending,
+  type ProvisionMode,
+} from "../provisioner";
 import { digestSecret, encryptSecret } from "../security";
 
 const TENANT = "018f2d91-7c42-7000-8000-000000000051";
+
+class ProvisionModeRecordingProvisioner extends FakeCellProvisioner {
+  readonly provisionModes: ProvisionMode[] = [];
+
+  override async provision(request: Parameters<FakeCellProvisioner["provision"]>[0]) {
+    this.provisionModes.push(request.provisionMode);
+    return super.provision(request);
+  }
+}
 
 function billingProof(tenantId: string) {
   return {
@@ -72,6 +86,36 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal([...store.cells.values()].filter((cell) => cell.tenantId === TENANT).length, 1);
     assert.equal(provisioner.resources.size, 1);
     assert.equal(store.operations.get(first.id)?.state, "succeeded");
+  });
+
+  it("distinguishes serving cells from restore candidates when provisioning", async () => {
+    const provisioner = new ProvisionModeRecordingProvisioner();
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    assert.equal(provisioner.provisionModes[0], "serve");
+
+    const prior = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(prior);
+    const restoreRef = "stored-export-mode-contract";
+    await store.enqueue(TENANT, "restore", "restore-mode-contract", null, {
+      inputReferenceEnvelope: encryptSecret(restoreRef, {
+        key: Buffer.alloc(32, 0x61),
+        randomBytes: (size) => Buffer.alloc(size, 0x41),
+      }),
+      inputReferenceDigest: digestSecret(restoreRef),
+      restoreBinding: {
+        exportId: "018f2d91-7c42-7000-8000-000000000052",
+        sourceCellId: prior,
+        archiveSha256: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        archiveSize: 1024,
+      },
+    });
+    await reconciler.reconcileOne({ owner: "restore-mode", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "restore-mode", tenantId: TENANT });
+
+    assert.equal(provisioner.provisionModes.at(-1), "restore-candidate");
   });
 
   it("allows only one concurrent reconciler to advance a leased checkpoint", async () => {

@@ -6,6 +6,7 @@ import {
   HttpCellProvisioner,
   ProvisionerFailure,
   ProvisionerPending,
+  type CellTargetRequest,
   type ProvisionCellRequest,
 } from "../provisioner";
 import { SensitiveSecret } from "../security";
@@ -30,7 +31,7 @@ type ContractFixture = {
 };
 
 const fixture = rawFixture as ContractFixture;
-const FIXTURE_SHA256 = "ffab7d04c03b261523738087bd22a1a2a24bccc6b0492b8d3973863015dea315";
+const FIXTURE_SHA256 = "ced714a5aa204a837e22cab831262cc0ae4766e44720b2896e61b8c157ddd3b5";
 
 function credential(seed: string): string {
   return createHash("sha256").update(seed).digest("base64url");
@@ -66,11 +67,11 @@ function response(status: number, body: JsonRecord | null, headers = {}): Respon
 
 function clientRequest(testCase: ActionCase): {
   provision: ProvisionCellRequest;
-  target: ProvisionCellRequest & { providerRef: string };
+  target: CellTargetRequest;
   body: JsonRecord;
 } {
   const body = materialize(testCase.request);
-  const provision: ProvisionCellRequest = {
+  const cell = {
     context: {
       operationId: String(body.operationId),
       checkpoint: String(body.checkpoint),
@@ -84,9 +85,13 @@ function clientRequest(testCase: ActionCase): {
     serviceCredential: new SensitiveSecret(String(body.serviceCredential)),
     workerPolicy: body.workerPolicy as ProvisionCellRequest["workerPolicy"],
   };
+  const provision: ProvisionCellRequest = {
+    ...cell,
+    provisionMode: body.provisionMode === "restore-candidate" ? "restore-candidate" : "serve",
+  };
   return {
     provision,
-    target: { ...provision, providerRef: String(body.providerRef) },
+    target: { ...cell, providerRef: String(body.providerRef) },
     body,
   };
 }

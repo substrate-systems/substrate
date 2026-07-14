@@ -284,6 +284,7 @@
         "fenceGeneration": 7,
         "operationId": "operation-cross-language-alpha",
         "protocolVersion": "1",
+        "provisionMode": "serve",
         "releaseVersion": "0.22.0",
         "serviceCredential": "$ACTIVE_SERVICE_CREDENTIAL",
         "tenantId": "tenant-cross-language-alpha",
