@@ -1076,6 +1076,9 @@ export class LifecycleReconciler {
           decryptSecret(operation.exportReleaseEnvelope, { key: this.#envelopeKey })
         );
       }
+      if (expiresAt <= this.#now()) {
+        return this.#terminal(operation, owner, "EXPORT_EXPIRED");
+      }
       this.#requireStored(await this.#store.beginExport(operation.id, owner));
       operation.checkpoint = "export-requested";
     }

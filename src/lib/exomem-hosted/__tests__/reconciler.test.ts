@@ -627,8 +627,8 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.statusForTenant(TENANT).state, "ready");
   });
 
-  it("resumes instead of retrying forever when a new export is definitively rejected after expiry", async () => {
-    const { store, reconciler, nowState } = harness();
+  it("resumes without a provider call when a new export has already expired", async () => {
+    const { store, reconciler, provisioner, nowState } = harness();
     await store.enqueue(TENANT, "provision", "initial-provision");
     await convergeProvision(reconciler);
     const cellId = store.tenants.get(TENANT)?.boundCellId;
@@ -646,10 +646,42 @@ describe("Exomem lifecycle reconciler", () => {
       checkpoint: "export-failure-resume",
     });
     assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+    assert.equal(provisioner.calls.filter((call) => call.action === "export").length, 0);
 
     await convergeProvision(reconciler, TENANT, 4);
     assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
     assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+  });
+
+  it("resumes after a definitive side-effect-free export rejection at the provider boundary", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "export", "provider-rejected", cellId);
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
+    provisioner.failure = new ProvisionerFailure({
+      code: "PROVISIONER_REJECTED",
+      retryable: false,
+    });
+
+    const rejected = await reconciler.reconcileOne({ owner: "provider-reject", tenantId: TENANT });
+    assert.deepEqual(rejected, {
+      kind: "advanced",
+      operationId: operation.id,
+      checkpoint: "export-failure-resume",
+    });
+    assert.equal(store.operations.get(operation.id)?.errorCode, "PROVISIONER_REJECTED");
+    assert.equal(provisioner.exportArtifacts.size, 0);
+
+    provisioner.failure = null;
+    await convergeProvision(reconciler, TENANT, 4);
+    assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
+    assert.equal(store.operations.get(operation.id)?.errorCode, "PROVISIONER_REJECTED");
     assert.equal(store.statusForTenant(TENANT).state, "ready");
   });
 
