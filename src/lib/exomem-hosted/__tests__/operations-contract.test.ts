@@ -23,6 +23,13 @@ describe("Exomem hosted operations contract", () => {
         false
       );
     }
+    for (const entry of vercel.crons ?? []) {
+      const [minute, hour, ...rest] = String(entry.schedule ?? "").split(" ");
+      assert.match(minute, /^\d{1,2}$/, `${entry.path} must run at most once per day`);
+      assert.match(hour, /^\d{1,2}$/, `${entry.path} must run at most once per day`);
+      assert.ok(Number(minute) <= 59 && Number(hour) <= 23);
+      assert.equal(rest.length, 3);
+    }
 
     const external = JSON.parse(source("ops/exomem-hosted-schedules.json")) as {
       version?: number;
