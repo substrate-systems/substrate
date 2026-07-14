@@ -280,6 +280,7 @@ export class SqlLifecycleStore implements LifecycleStore {
             operation.attempts <= ${input.maxAttempts}
             OR operation.checkpoint IN (
               'candidate-cleanup', 'export-failure-resume',
+              'export-requested',
               'export-stored', 'export-expired-release',
               'export-expired-released', 'export-expired-resumed',
               'export-expired-readiness-proved',
@@ -385,6 +386,28 @@ export class SqlLifecycleStore implements LifecycleStore {
         AND operation.lease_owner = ${owner}
         AND operation.lease_expires_at > now()
         AND operation.checkpoint = ${expectedCheckpoint}
+        AND EXISTS (
+          SELECT 1 FROM exomem_tenants AS tenant
+          WHERE tenant.id = operation.tenant_id
+            AND tenant.fence_generation = operation.fence_generation
+        )
+      RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async beginExport(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-begin-export */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET checkpoint = 'export-requested', updated_at = now()
+      WHERE operation.id = ${operationId}
+        AND operation.operation_type = 'export'
+        AND operation.checkpoint = 'quiesced'
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.export_release_reference_ciphertext IS NULL
         AND EXISTS (
           SELECT 1 FROM exomem_tenants AS tenant
           WHERE tenant.id = operation.tenant_id
@@ -766,7 +789,7 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND operation.tenant_id = ${input.tenantId}
           AND operation.cell_id = ${input.cellId}
           AND operation.operation_type = 'export'
-          AND operation.checkpoint = 'quiesced'
+          AND operation.checkpoint = 'export-requested'
           AND operation.state = 'running'
           AND operation.lease_owner = ${input.owner}
           AND operation.lease_expires_at > now()

@@ -32,12 +32,7 @@ export type LifecycleOperationType =
   | "delete";
 
 export type LifecycleOperationState =
-  | "pending"
-  | "running"
-  | "waiting"
-  | "succeeded"
-  | "failed_retryable"
-  | "failed_terminal";
+  "pending" | "running" | "waiting" | "succeeded" | "failed_retryable" | "failed_terminal";
 
 export type LifecycleOperation = {
   id: string;
@@ -160,6 +155,7 @@ export interface LifecycleStore {
     expectedCheckpoint: string,
     nextCheckpoint: string
   ): Promise<boolean>;
+  beginExport(operationId: string, owner: string): Promise<boolean>;
   advanceBillingTerminated(input: {
     operationId: string;
     owner: string;
@@ -367,6 +363,7 @@ function pendingCheckpointMatches(operation: LifecycleOperation, checkpoint: str
 
 function mandatoryRecoveryCode(operation: LifecycleOperation): string | null {
   if (operation.checkpoint === "candidate-cleanup") return "CANDIDATE_CLEANUP_PENDING";
+  if (operation.checkpoint === "export-requested") return "EXPORT_RESULT_RECOVERY_PENDING";
   if (operation.checkpoint === "export-stored") return "EXPORT_RELEASE_PENDING";
   if (operation.checkpoint === "export-expired-release") {
     return "EXPIRED_EXPORT_RELEASE_PENDING";
@@ -1079,6 +1076,12 @@ export class LifecycleReconciler {
           decryptSecret(operation.exportReleaseEnvelope, { key: this.#envelopeKey })
         );
       }
+      this.#requireStored(await this.#store.beginExport(operation.id, owner));
+      operation.checkpoint = "export-requested";
+    }
+    if (operation.checkpoint === "export-requested") {
+      const cell = await this.#cell(operation);
+      const expiresAt = new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
       const result = await this.#provisioner.export({
         ...this.#target(operation, cell),
         expiresAt,
@@ -1326,6 +1329,18 @@ export class LifecycleReconciler {
               retryable: true,
               cause: error,
             });
+      if (
+        operation.checkpoint === "export-requested" &&
+        !failure.retryable &&
+        ["PROVISIONER_REJECTED", "PROVISIONER_CONFIGURATION_INVALID"].includes(failure.code)
+      ) {
+        const expiresAt = new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
+        return this.#terminal(
+          operation,
+          input.owner,
+          expiresAt <= this.#now() ? "EXPORT_EXPIRED" : failure.code
+        );
+      }
       const recoveryCode = mandatoryRecoveryCode(operation);
       if (recoveryCode) {
         const retried = await this.#store.retry(
@@ -1556,6 +1571,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
             [
               "candidate-cleanup",
               "export-failure-resume",
+              "export-requested",
               "export-stored",
               "export-expired-release",
               "export-expired-released",
@@ -1631,6 +1647,22 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     operation.leaseExpiresAt = null;
     operation.updatedAt = this.#now();
     this.checkpointHistory.push({ operationId, checkpoint: nextCheckpoint });
+    return true;
+  }
+
+  async beginExport(operationId: string, owner: string): Promise<boolean> {
+    const operation = this.#owned(operationId, owner);
+    if (
+      !operation ||
+      operation.operationType !== "export" ||
+      operation.checkpoint !== "quiesced" ||
+      operation.exportReleaseEnvelope
+    ) {
+      return false;
+    }
+    operation.checkpoint = "export-requested";
+    operation.updatedAt = this.#now();
+    this.checkpointHistory.push({ operationId, checkpoint: "export-requested" });
     return true;
   }
 

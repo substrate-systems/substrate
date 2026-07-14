@@ -105,7 +105,7 @@ describe("CellProvisioner", () => {
     assert.equal(body.toLowerCase().includes("paddle"), false);
   });
 
-  it("binds export creation to one exact product expiry and rejects unsafe TTLs", async () => {
+  it("binds export creation to one exact product expiry and forwards durable replays", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const adapter = new HttpCellProvisioner(
       {
@@ -134,18 +134,79 @@ describe("CellProvisioner", () => {
     assert.equal(bodies.length, 1);
     assert.equal(bodies[0]?.expiresAt, expiresAt.toISOString());
 
-    for (const invalid of [
-      new Date("invalid"),
-      new Date(Date.now() - 1),
-      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000 + 60_000),
-    ]) {
-      await assert.rejects(
-        adapter.export({ ...target, expiresAt: invalid }),
-        (error) =>
-          error instanceof ProvisionerFailure && error.code === "PROVISIONER_CONFIGURATION_INVALID"
-      );
-    }
-    assert.equal(bodies.length, 1);
+    await assert.rejects(
+      adapter.export({ ...target, expiresAt: new Date("invalid") }),
+      (error) =>
+        error instanceof ProvisionerFailure && error.code === "PROVISIONER_CONFIGURATION_INVALID"
+    );
+
+    await assert.rejects(
+      adapter.export({
+        ...target,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000 + 60_000),
+      }),
+      (error) =>
+        error instanceof ProvisionerFailure && error.code === "PROVISIONER_CONFIGURATION_INVALID"
+    );
+
+    const expiredAt = new Date(Date.now() - 60_000);
+    await assert.rejects(
+      adapter.export({ ...target, expiresAt: expiredAt }),
+      (error) =>
+        error instanceof ProvisionerFailure && error.code === "PROVISIONER_CONFIGURATION_INVALID"
+    );
+    await adapter.export({
+      ...target,
+      context: {
+        ...target.context,
+        checkpoint: "export-requested",
+        idempotencyKey: `${target.context.operationId}:export-requested`,
+      },
+      expiresAt: expiredAt,
+    });
+    assert.equal(bodies.length, 2);
+    assert.equal(bodies[1]?.expiresAt, expiredAt.toISOString());
+  });
+
+  it("returns an exact completed export replay after expiry but rejects a new expired export", async () => {
+    let now = new Date("2026-07-14T10:00:00.000Z");
+    const fake = new FakeCellProvisioner({ now: () => now });
+    const provisioned = await fake.provision(provisionRequest());
+    const target = {
+      ...provisionRequest(),
+      providerRef: provisioned.providerRef,
+      context: {
+        ...provisionRequest().context,
+        checkpoint: "export-requested",
+        idempotencyKey: "018f2d91-7c42-7000-8000-000000000041:export-requested",
+      },
+    };
+    const expiresAt = new Date("2026-07-14T10:01:00.000Z");
+
+    fake.loseNextAcknowledgement("export");
+    await assert.rejects(
+      fake.export({ ...target, expiresAt }),
+      (error) => error instanceof ProvisionerFailure && error.code === "PROVISIONER_TIMEOUT"
+    );
+
+    now = new Date("2026-07-14T10:02:00.000Z");
+    const replayed = await fake.export({ ...target, expiresAt });
+    assert.equal(replayed.exportRef, `export-${target.context.operationId}`);
+    assert.equal(fake.exportArtifacts.size, 1);
+
+    await assert.rejects(
+      fake.export({
+        ...target,
+        context: {
+          ...target.context,
+          operationId: "018f2d91-7c42-7000-8000-000000000051",
+          idempotencyKey: "018f2d91-7c42-7000-8000-000000000051:export-requested",
+        },
+        expiresAt,
+      }),
+      (error) => error instanceof ProvisionerFailure && error.code === "PROVISIONER_REJECTED"
+    );
+    assert.equal(fake.exportArtifacts.size, 1);
   });
 
   it("reduces provider response bodies to stable retryable failures", async () => {

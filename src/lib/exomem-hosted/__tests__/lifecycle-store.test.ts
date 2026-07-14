@@ -24,6 +24,7 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /state = 'running'/i);
     assert.match(statement, /lease_expires_at <= now\(\)/i);
     assert.match(statement, /attempts <=/i);
+    assert.match(statement, /'export-requested'/i);
     assert.match(statement, /'export-expired-release'/i);
     assert.match(statement, /export_release_reference_ciphertext IS NOT NULL/i);
     assert.match(statement, /attempts = attempts \+ 1/i);
@@ -70,6 +71,23 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /lease_owner = NULL/i);
   });
 
+  it("persists export intent under the active lease before the provider call", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "operation-1" }], rowCount: 1 };
+    });
+    const store = new SqlLifecycleStore();
+
+    assert.equal(await store.beginExport("operation-1", "worker-a"), true);
+    assert.match(statement, /operation_type = 'export'/i);
+    assert.match(statement, /operation\.checkpoint = 'quiesced'/i);
+    assert.match(statement, /SET checkpoint = 'export-requested'/i);
+    assert.match(statement, /lease_owner =/i);
+    assert.match(statement, /lease_expires_at > now\(\)/i);
+    assert.match(statement, /export_release_reference_ciphertext IS NULL/i);
+  });
+
   it("atomically marks an in-flight expired export for deletion instead of publishing it", async () => {
     let statement = "";
     const values: unknown[] = [];
@@ -114,6 +132,7 @@ describe("SQL lifecycle operation store", () => {
     );
 
     assert.match(statement, /operation\.lease_expires_at > now\(\)/i);
+    assert.match(statement, /operation\.checkpoint = 'export-requested'/i);
     assert.equal(values.includes(expiresAt.toISOString()), true);
     assert.match(statement, /CASE[\s\S]*WHEN \?::timestamptz > now\(\)[\s\S]*'available'/i);
     assert.match(statement, /ELSE 'deleting'/i);

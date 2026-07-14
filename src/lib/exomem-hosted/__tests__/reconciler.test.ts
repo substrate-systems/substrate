@@ -579,6 +579,80 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.operations.get(operation.id)?.state, "succeeded");
   });
 
+  it("replays an accepted pending export after expiry and releases the recovered artifact", async () => {
+    const { store, reconciler, provisioner, nowState } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "export", "pending-across-expiry", cellId);
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
+    const createExport = provisioner.export.bind(provisioner);
+    let pending = true;
+    provisioner.export = async (request) => {
+      const result = await createExport(request);
+      if (pending) {
+        pending = false;
+        throw new ProvisionerPending({
+          operationId: request.context.operationId,
+          checkpoint: request.context.checkpoint,
+          retryAfterSeconds: 2,
+        });
+      }
+      return result;
+    };
+
+    const accepted = await reconciler.reconcileOne({ owner: "accepted", tenantId: TENANT });
+    assert.equal(accepted.kind, "retry_scheduled");
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "export-requested");
+    nowState.value = new Date(operation.createdAt.getTime() + 24 * 60 * 60 * 1000 + 1);
+    await store.makeRunnable(TENANT);
+
+    const recovered = await reconciler.reconcileOne({ owner: "expired-replay", tenantId: TENANT });
+    assert.deepEqual(recovered, {
+      kind: "advanced",
+      operationId: operation.id,
+      checkpoint: "export-expired-released",
+    });
+    assert.equal(provisioner.exportArtifacts.size, 0);
+    const exportCalls = provisioner.calls.filter((call) => call.action === "export");
+    assert.equal(exportCalls.length, 2);
+    assert.equal(exportCalls[0]?.idempotencyKey, `${operation.id}:export-requested`);
+    assert.equal(exportCalls[1]?.idempotencyKey, exportCalls[0]?.idempotencyKey);
+
+    await convergeProvision(reconciler, TENANT, 6);
+    assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+  });
+
+  it("resumes instead of retrying forever when a new export is definitively rejected after expiry", async () => {
+    const { store, reconciler, nowState } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "export", "expired-before-request", cellId);
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
+    nowState.value = new Date(operation.createdAt.getTime() + 24 * 60 * 60 * 1000 + 1);
+
+    const rejected = await reconciler.reconcileOne({ owner: "expired-new", tenantId: TENANT });
+    assert.deepEqual(rejected, {
+      kind: "advanced",
+      operationId: operation.id,
+      checkpoint: "export-failure-resume",
+    });
+    assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+
+    await convergeProvision(reconciler, TENANT, 4);
+    assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
+    assert.equal(store.operations.get(operation.id)?.errorCode, "EXPORT_EXPIRED");
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+  });
+
   it("quarantines and cleans an export that expires in flight across a lost release acknowledgement", async () => {
     const { store, reconciler, provisioner, nowState } = harness();
     await store.enqueue(TENANT, "provision", "initial-provision");

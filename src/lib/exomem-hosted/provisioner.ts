@@ -573,8 +573,8 @@ export class HttpCellProvisioner implements CellProvisioner {
     const expiresAt = request.expiresAt.getTime();
     if (
       !Number.isFinite(expiresAt) ||
-      expiresAt <= now ||
-      expiresAt - now > 30 * 24 * 60 * 60 * 1000
+      expiresAt - now > 30 * 24 * 60 * 60 * 1000 ||
+      (expiresAt <= now && request.context.checkpoint !== "export-requested")
     ) {
       throw configurationFailure();
     }
@@ -961,21 +961,22 @@ export class FakeCellProvisioner implements CellProvisioner {
   }
 
   async export(request: CreateExportRequest): Promise<ExportRequestResult> {
-    const now = this.#now().getTime();
     const expiresAt = request.expiresAt.getTime();
-    if (
-      !Number.isFinite(expiresAt) ||
-      expiresAt <= now ||
-      expiresAt - now > 30 * 24 * 60 * 60 * 1000
-    ) {
-      throw configurationFailure();
-    }
-    const key = this.#before("export", request, {
+    if (!Number.isFinite(expiresAt)) throw configurationFailure();
+    const additional = {
       providerRef: request.providerRef,
       expiresAt: request.expiresAt.toISOString(),
-    });
-    const prior = this.#results.get(key) as ExportRequestResult | undefined;
-    if (prior) return prior;
+    };
+    const existingKey = `export\0${request.context.idempotencyKey}`;
+    if (this.#results.has(existingKey)) {
+      const key = this.#before("export", request, additional);
+      return this.#results.get(key) as ExportRequestResult;
+    }
+    const now = this.#now().getTime();
+    if (expiresAt <= now || expiresAt - now > 30 * 24 * 60 * 60 * 1000) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+    }
+    const key = this.#before("export", request, additional);
     this.#resource(request);
     const archiveSha256 = createHash("sha256")
       .update(`archive\0${request.cellId}\0${request.context.operationId}`)
