@@ -30,7 +30,7 @@ type ContractFixture = {
 };
 
 const fixture = rawFixture as ContractFixture;
-const FIXTURE_SHA256 = "c479933e0fb83197bd548e2333ac66fe8db5406a0a230f76ad867a1a4df920f5";
+const FIXTURE_SHA256 = "32ea0c1995035407d18a97af93ad1ae8acef07fb8882638eb1a3fde2d26e2dce";
 
 function credential(seed: string): string {
   return createHash("sha256").update(seed).digest("base64url");
@@ -45,6 +45,9 @@ function materialize<T>(value: T): T {
   }
   if (value === "$NOW_PLUS_600_SECONDS") {
     return new Date(Date.now() + 10 * 60 * 1000).toISOString() as T;
+  }
+  if (value === "$NOW_PLUS_86400_SECONDS") {
+    return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() as T;
   }
   if (Array.isArray(value)) return value.map((item) => materialize(item)) as T;
   if (value && typeof value === "object") {
@@ -132,7 +135,10 @@ async function invoke(
       result = await adapter.stop(target);
       break;
     case "export":
-      result = await adapter.export(target);
+      result = await adapter.export({
+        ...target,
+        expiresAt: new Date(String(body.expiresAt)),
+      });
       break;
     case "export-release":
       result = await adapter.releaseExport({

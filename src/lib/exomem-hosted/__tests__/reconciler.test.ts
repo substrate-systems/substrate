@@ -31,7 +31,7 @@ function harness(
 ) {
   const nowState = { value: new Date("2026-07-12T12:00:00.000Z") };
   const store = storeOverride ?? new InMemoryLifecycleStore({ now: () => nowState.value });
-  const provisioner = provisionerOverride ?? new FakeCellProvisioner();
+  const provisioner = provisionerOverride ?? new FakeCellProvisioner({ now: () => nowState.value });
   const reconciler = new LifecycleReconciler({
     store,
     provisioner,
@@ -555,6 +555,30 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.operations.get(operation.id)?.state, "succeeded");
   });
 
+  it("replays a lost export response with the same durable expiry and no second object", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "export", "export-ack-loss", cellId);
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
+    provisioner.loseNextAcknowledgement("export");
+    const lost = await reconciler.reconcileOne({ owner: "lost-export-ack", tenantId: TENANT });
+    assert.equal(lost.kind, "retry_scheduled");
+    assert.equal(provisioner.exportArtifacts.size, 1);
+
+    await store.makeRunnable(TENANT);
+    await convergeProvision(reconciler, TENANT, 12);
+
+    const calls = provisioner.calls.filter((call) => call.idempotencyKey.startsWith(operation.id));
+    assert.equal(calls.filter((call) => call.action === "export").length, 2);
+    assert.equal(store.exports.has(operation.id), true);
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+  });
+
   it("leaves an already suspended tenant quiesced after export", async () => {
     const { store, reconciler, provisioner } = harness();
     await store.enqueue(TENANT, "provision", "initial-provision");
@@ -705,7 +729,7 @@ describe("Exomem lifecycle reconciler", () => {
     const bravoTenant = "018f2d91-7c42-7000-8000-000000000062";
     const now = new Date("2026-07-12T16:00:00.000Z");
     const store = new InMemoryLifecycleStore({ now: () => now });
-    const provisioner = new FakeCellProvisioner();
+    const provisioner = new FakeCellProvisioner({ now: () => now });
     let entropy = 1;
     const reconciler = new LifecycleReconciler({
       store,

@@ -98,6 +98,7 @@
       "request": {
         "cellId": "cell-cross-language-alpha",
         "checkpoint": "requested",
+        "expiresAt": "$NOW_PLUS_86400_SECONDS",
         "fenceGeneration": 7,
         "operationId": "operation-cross-language-alpha",
         "protocolVersion": "1",

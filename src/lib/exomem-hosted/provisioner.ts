@@ -83,6 +83,10 @@ export type ExportRequestResult = {
   integrityVerified: true;
 };
 
+export type CreateExportRequest = CellTargetRequest & {
+  expiresAt: Date;
+};
+
 export type ReleaseExportRequest = CellTargetRequest & {
   releaseRef: SensitiveSecret;
 };
@@ -130,7 +134,7 @@ export interface CellProvisioner {
   quiesce(request: CellTargetRequest): Promise<void>;
   resume(request: CellTargetRequest): Promise<void>;
   stop(request: CellTargetRequest): Promise<void>;
-  export(request: CellTargetRequest): Promise<ExportRequestResult>;
+  export(request: CreateExportRequest): Promise<ExportRequestResult>;
   releaseExport(request: ReleaseExportRequest): Promise<void>;
   deleteExport(request: DeleteExportRequest): Promise<ExportDeletionProof>;
   createExportDownload(request: ExportDownloadRequest): Promise<ExportDownloadResult>;
@@ -563,8 +567,20 @@ export class HttpCellProvisioner implements CellProvisioner {
     await this.#call("stop", request, targetBody(request));
   }
 
-  async export(request: CellTargetRequest): Promise<ExportRequestResult> {
-    const response = await this.#call("export", request, targetBody(request));
+  async export(request: CreateExportRequest): Promise<ExportRequestResult> {
+    const now = Date.now();
+    const expiresAt = request.expiresAt.getTime();
+    if (
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= now ||
+      expiresAt - now > 30 * 24 * 60 * 60 * 1000
+    ) {
+      throw configurationFailure();
+    }
+    const response = await this.#call("export", request, {
+      ...targetBody(request),
+      expiresAt: request.expiresAt.toISOString(),
+    });
     const exportRef = boundedOpaqueReference(response.exportRef);
     const releaseRef = boundedOpaqueReference(response.releaseRef);
     const archiveSha256 = boundedLabel(response.archiveSha256, 64);
@@ -770,8 +786,13 @@ export class FakeCellProvisioner implements CellProvisioner {
   readonly #results = new Map<string, unknown>();
   readonly #requestDigests = new Map<string, string>();
   readonly #lostAcknowledgements = new Set<ProvisionerAction>();
+  readonly #now: () => Date;
   failure: ProvisionerFailure | null = null;
   readinessOverride: Partial<CellReadiness> = {};
+
+  constructor(input: { now?: () => Date } = {}) {
+    this.#now = input.now ?? (() => new Date());
+  }
 
   loseNextAcknowledgement(action: ProvisionerAction): void {
     this.#lostAcknowledgements.add(action);
@@ -938,8 +959,20 @@ export class FakeCellProvisioner implements CellProvisioner {
     this.#after("stop", key, true);
   }
 
-  async export(request: CellTargetRequest): Promise<ExportRequestResult> {
-    const key = this.#before("export", request, { providerRef: request.providerRef });
+  async export(request: CreateExportRequest): Promise<ExportRequestResult> {
+    const now = this.#now().getTime();
+    const expiresAt = request.expiresAt.getTime();
+    if (
+      !Number.isFinite(expiresAt) ||
+      expiresAt <= now ||
+      expiresAt - now > 30 * 24 * 60 * 60 * 1000
+    ) {
+      throw configurationFailure();
+    }
+    const key = this.#before("export", request, {
+      providerRef: request.providerRef,
+      expiresAt: request.expiresAt.toISOString(),
+    });
     const prior = this.#results.get(key) as ExportRequestResult | undefined;
     if (prior) return prior;
     this.#resource(request);

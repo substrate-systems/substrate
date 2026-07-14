@@ -6,6 +6,7 @@ import {
   ProvisionerFailure,
   ProvisionerPending,
   provisionerConfigFromEnv,
+  type CreateExportRequest,
   type ProvisionCellRequest,
 } from "../provisioner";
 import { SensitiveSecret } from "../security";
@@ -104,6 +105,49 @@ describe("CellProvisioner", () => {
     assert.equal(body.toLowerCase().includes("paddle"), false);
   });
 
+  it("binds export creation to one exact product expiry and rejects unsafe TTLs", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("provider-secret"),
+        timeoutMs: 500,
+      },
+      async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return Response.json({
+          exportRef: "export-ref-1",
+          releaseRef: "release-ref-1",
+          archiveSha256: "a".repeat(64),
+          manifestSha256: "b".repeat(64),
+          archiveSize: 1024,
+          encryptionScheme: "envelope-aes-256-gcm",
+          integrityVerified: true,
+        });
+      }
+    );
+    const target = { ...provisionRequest(), providerRef: "provider-ref-1" };
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const request: CreateExportRequest = { ...target, expiresAt };
+
+    await adapter.export(request);
+    assert.equal(bodies.length, 1);
+    assert.equal(bodies[0]?.expiresAt, expiresAt.toISOString());
+
+    for (const invalid of [
+      new Date("invalid"),
+      new Date(Date.now() - 1),
+      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000 + 60_000),
+    ]) {
+      await assert.rejects(
+        adapter.export({ ...target, expiresAt: invalid }),
+        (error) =>
+          error instanceof ProvisionerFailure && error.code === "PROVISIONER_CONFIGURATION_INVALID"
+      );
+    }
+    assert.equal(bodies.length, 1);
+  });
+
   it("reduces provider response bodies to stable retryable failures", async () => {
     const sentinel = "provider-content-secret-path-query-sentinel";
     const adapter = new HttpCellProvisioner(
@@ -180,6 +224,7 @@ describe("CellProvisioner", () => {
       }
     );
     const target = { ...request, providerRef: "provider-ref-1" };
+    const exportRequest = { ...target, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) };
     const calls: Array<() => Promise<unknown>> = [
       () => adapter.provision(request),
       () => adapter.health(target),
@@ -193,7 +238,7 @@ describe("CellProvisioner", () => {
       () => adapter.quiesce(target),
       () => adapter.resume(target),
       () => adapter.stop(target),
-      () => adapter.export(target),
+      () => adapter.export(exportRequest),
       () =>
         adapter.releaseExport({
           ...target,

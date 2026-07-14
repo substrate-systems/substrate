@@ -1002,7 +1002,11 @@ export class LifecycleReconciler {
     }
     if (operation.checkpoint === "quiesced") {
       const cell = await this.#cell(operation);
-      const result = await this.#provisioner.export(this.#target(operation, cell));
+      const expiresAt = new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
+      const result = await this.#provisioner.export({
+        ...this.#target(operation, cell),
+        expiresAt,
+      });
       const recorded = await this.#store.recordExportResult({
         operationId: operation.id,
         owner,
@@ -1023,7 +1027,7 @@ export class LifecycleReconciler {
         archiveSize: result.archiveSize,
         encryptionScheme: result.encryptionScheme,
         integrityVerified: result.integrityVerified,
-        expiresAt: new Date(this.#now().getTime() + this.#config.exportTtlMs),
+        expiresAt,
       });
       if (!recorded) return this.#terminal(operation, owner, "EXPORT_RECORD_CONFLICT");
       return this.#advance(operation, owner, "export-stored");
