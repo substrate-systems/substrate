@@ -25,7 +25,9 @@ import {
   claimPaddleReconciliationTargets,
   releasePaddleReconciliationLease,
 } from "../paddle-reconciliation-runtime";
-import { digestSecret, encryptSecret } from "../security";
+import { FakeCellProvisioner } from "../provisioner";
+import { LifecycleReconciler, expectedCellConfiguration } from "../reconciler";
+import { SensitiveSecret, digestSecret, encryptSecret } from "../security";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -1322,11 +1324,13 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
   it("persists expired export release as mandatory recovery and completes it atomically", async () => {
     const operationId = "44444444-4444-4444-8444-444444444480";
+    const envelopeKey = Buffer.alloc(32, 0x32);
+    const credential = "postgres-expired-export-credential";
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants
          (id, owner_user_id, status, desired_state, fence_generation)
-       VALUES ($1, $2, 'active', 'running', 4)`,
+       VALUES ($1, $2, 'suspended', 'suspended', 4)`,
       [TENANT, USER]
     );
     await pool.query(
@@ -1334,9 +1338,20 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          id, tenant_id, lifecycle_state, routing_state, desired_state,
          protocol_version, release_version, provider_ref,
          service_credential_ciphertext, service_credential_digest
-       ) VALUES ($1, $2, 'quiesced', 'bound', 'quiesced', '1', 'test',
-                 'provider-ref', $3, $4)`,
-      [CELL, TENANT, JSON.stringify({ encrypted: true }), Buffer.alloc(32, 0x31)]
+       ) VALUES ($1, $2, 'draining', 'bound', 'quiesced', '1', 'test',
+                 $3, $4, $5)`,
+      [
+        CELL,
+        TENANT,
+        `provider-${CELL}`,
+        JSON.stringify(
+          encryptSecret(credential, {
+            key: envelopeKey,
+            randomBytes: (size) => Buffer.alloc(size, 0x31),
+          })
+        ),
+        digestSecret(credential),
+      ]
     );
     await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
     await pool.query(
@@ -1357,12 +1372,12 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         tenantId: TENANT,
         cellId: CELL,
         storageReferenceEnvelope: encryptSecret("provider-export-ref", {
-          key: Buffer.alloc(32, 0x32),
+          key: envelopeKey,
           randomBytes: (size) => Buffer.alloc(size, 0x33),
         }),
         storageReferenceDigest: digestSecret("provider-export-ref"),
         releaseReferenceEnvelope: encryptSecret("cell-release-ref", {
-          key: Buffer.alloc(32, 0x32),
+          key: envelopeKey,
           randomBytes: (size) => Buffer.alloc(size, 0x34),
         }),
         releaseReferenceDigest: digestSecret("cell-release-ref"),
@@ -1405,7 +1420,41 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     });
     assert.equal(recovery?.id, operationId);
     assert.equal(recovery?.checkpoint, "export-expired-release");
-    assert.equal(await store.completeExpiredExportRelease(operationId, "recovery-worker"), true);
+    await store.retry(
+      operationId,
+      "recovery-worker",
+      "EXPIRED_EXPORT_RELEASE_PENDING",
+      new Date(Date.now() - 1)
+    );
+    const provisioner = new FakeCellProvisioner();
+    await provisioner.provision({
+      context: {
+        operationId: "postgres-resource-seed",
+        checkpoint: "seed",
+        idempotencyKey: "postgres-resource-seed",
+        fenceGeneration: 4,
+      },
+      tenantId: TENANT,
+      cellId: CELL,
+      protocolVersion: "1",
+      releaseVersion: "test",
+      serviceCredential: new SensitiveSecret(credential),
+      workerPolicy: { workerCount: 0, semantic: false, media: false },
+    });
+    const reconciler = new LifecycleReconciler({
+      store,
+      provisioner,
+      config: expectedCellConfiguration({
+        protocolVersion: "1",
+        releaseVersion: "test",
+        workerPolicy: { workerCount: 0, semantic: false, media: false },
+      }),
+      envelopeKey,
+    });
+    assert.deepEqual(
+      await reconciler.reconcileOne({ owner: "restoration-worker", tenantId: TENANT }),
+      { kind: "terminal", operationId, code: "EXPORT_EXPIRED" }
+    );
     assert.deepEqual(
       (
         await pool.query(
@@ -1421,6 +1470,26 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         error_code: "EXPORT_EXPIRED",
         release_cleared: true,
         lease_cleared: true,
+      }
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT tenant.status, tenant.desired_state,
+                  cell.lifecycle_state, cell.desired_state AS cell_desired_state,
+                  cell.readiness_code
+             FROM exomem_tenants AS tenant
+             JOIN exomem_cells AS cell ON cell.id = tenant.bound_cell_id
+            WHERE tenant.id = $1`,
+          [TENANT]
+        )
+      ).rows[0],
+      {
+        status: "active",
+        desired_state: "running",
+        lifecycle_state: "active",
+        cell_desired_state: "running",
+        readiness_code: "CELL_READY",
       }
     );
   });
