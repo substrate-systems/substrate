@@ -19,7 +19,8 @@ The complimentary alpha does **not** require Paddle or a price. It does require:
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
-5. the minute reconciliation cron reaching `/api/cron/exomem-reconcile`; and
+5. the external K3s scheduler reaching `/api/cron/exomem-reconcile` every minute;
+   and
 6. a two-cell isolation/export/deletion drill before a real invite is sent.
 
 The friends-tier sandbox lifecycle is approved and drilled. Live paid launch
@@ -46,7 +47,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CELL_SEMANTIC_WORKERS`            | `false` for alpha.                                                                                                                                                                       |
 | `EXOMEM_CELL_MEDIA_WORKERS`               | `false` for alpha.                                                                                                                                                                       |
 | `EXOMEM_EXPORT_TTL_HOURS`                 | Positive integer; default `24`. Provider download URLs are separately capped at 15 minutes.                                                                                              |
-| `CRON_SECRET`                             | Shared Vercel cron bearer secret; the reconcile route fails closed if absent.                                                                                                            |
+| `CRON_SECRET`                             | Shared only by the Vercel cron routes and external K3s scheduler; the routes fail closed if absent or wrong.                                                                             |
 | `BREVO_API_KEY`                           | Delivers invite, magic-link, and deletion-confirmation email.                                                                                                                            |
 | `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Optional verified sender overrides.                                                                                                                                                      |
 
@@ -54,6 +55,25 @@ Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. Buckets older than the longest
 configured window plus a one-hour margin are pruned in bounded batches by the
 access-delivery cron.
+
+### External hosted scheduler
+
+Vercel Hobby rejects cron expressions that run more than once per day, so the
+three frequent Exomem jobs are deliberately absent from `vercel.json`. Their
+versioned source of truth is `ops/exomem-hosted-schedules.json`. The hosted K3s
+platform release renders that contract as CronJobs which call the production
+Substrate origin with `Authorization: Bearer <CRON_SECRET>`:
+
+- access delivery every minute;
+- lifecycle and Paddle reconciliation every minute; and
+- export garbage collection hourly at minute 17.
+
+The scheduler receives only `CRON_SECRET` and the canonical Substrate origin;
+it does not receive database, Paddle, cell, or browser credentials. Its jobs
+use bounded timeouts, forbid redirects to another origin, expose content-free
+success/failure metrics, and alert when a scheduled invocation is missed. The
+private alpha remains closed until the deployed schedules match the versioned
+contract and each route rejects a bad bearer and accepts the live scheduler.
 
 Generate the control-plane key without printing raw bytes in shell history:
 
@@ -169,15 +189,16 @@ burns the invite atomically, creates only an Exomem product session, creates a
 complimentary entitlement, and queues provisioning. Replays and email override
 attempts fail.
 
-After acceptance, the owner sees `preparing` while status polling and the cron
-advance the durable operation. `ready` is shown only after full private readiness
-proof. Do not manually mark a tenant active.
+After acceptance, the owner sees `preparing` while status polling and the
+external scheduler advance the durable operation. `ready` is shown only after
+full private readiness proof. Do not manually mark a tenant active.
 
 ## Recovery and routine operations
 
 Lifecycle operations are durable and idempotent. Enqueue one operation with a
-stable operator-selected key; then let `/api/cron/exomem-reconcile` advance it.
-Never call a private cell directly to work around a stuck checkpoint.
+stable operator-selected key; then let the K3s-scheduled
+`/api/cron/exomem-reconcile` call advance it. Never call a private cell directly
+to work around a stuck checkpoint.
 
 The same cron also reconciles due Paddle-backed entitlements independently of
 lifecycle work. Each eligible subscription is durably scheduled, claimed with a

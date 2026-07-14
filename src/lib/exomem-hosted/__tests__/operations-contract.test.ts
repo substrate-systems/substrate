@@ -8,18 +8,58 @@ function source(path: string): string {
 }
 
 describe("Exomem hosted operations contract", () => {
-  it("schedules the durable lifecycle reconciler every minute", () => {
-    const config = JSON.parse(source("vercel.json")) as {
+  it("keeps frequent hosted schedules external to Vercel Hobby", () => {
+    const vercel = JSON.parse(source("vercel.json")) as {
       crons?: Array<{ path?: string; schedule?: string }>;
     };
-    assert.deepEqual(
-      config.crons?.find((entry) => entry.path === "/api/cron/exomem-reconcile"),
-      { path: "/api/cron/exomem-reconcile", schedule: "* * * * *" }
-    );
-    assert.deepEqual(
-      config.crons?.find((entry) => entry.path === "/api/cron/exomem-access-delivery"),
-      { path: "/api/cron/exomem-access-delivery", schedule: "* * * * *" }
-    );
+    const frequentPaths = [
+      "/api/cron/exomem-access-delivery",
+      "/api/cron/exomem-reconcile",
+      "/api/cron/exomem-export-gc",
+    ];
+    for (const path of frequentPaths) {
+      assert.equal(
+        vercel.crons?.some((entry) => entry.path === path),
+        false
+      );
+    }
+
+    const external = JSON.parse(source("ops/exomem-hosted-schedules.json")) as {
+      version?: number;
+      scheduler?: string;
+      jobs?: Array<{
+        name?: string;
+        path?: string;
+        schedule?: string;
+        method?: string;
+        bearerEnvironmentVariable?: string;
+      }>;
+    };
+    assert.equal(external.version, 1);
+    assert.equal(external.scheduler, "kubernetes-cronjob");
+    assert.deepEqual(external.jobs, [
+      {
+        name: "exomem-access-delivery",
+        path: "/api/cron/exomem-access-delivery",
+        schedule: "* * * * *",
+        method: "GET",
+        bearerEnvironmentVariable: "CRON_SECRET",
+      },
+      {
+        name: "exomem-reconcile",
+        path: "/api/cron/exomem-reconcile",
+        schedule: "* * * * *",
+        method: "GET",
+        bearerEnvironmentVariable: "CRON_SECRET",
+      },
+      {
+        name: "exomem-export-gc",
+        path: "/api/cron/exomem-export-gc",
+        schedule: "17 * * * *",
+        method: "GET",
+        bearerEnvironmentVariable: "CRON_SECRET",
+      },
+    ]);
   });
 
   it("documents every alpha secret, provider proof, drill, and rollback boundary", () => {

@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "scheduler": "kubernetes-cronjob",
+  "jobs": [
+    {
+      "name": "exomem-access-delivery",
+      "path": "/api/cron/exomem-access-delivery",
+      "schedule": "* * * * *",
+      "method": "GET",
+      "bearerEnvironmentVariable": "CRON_SECRET"
+    },
+    {
+      "name": "exomem-reconcile",
+      "path": "/api/cron/exomem-reconcile",
+      "schedule": "* * * * *",
+      "method": "GET",
+      "bearerEnvironmentVariable": "CRON_SECRET"
+    },
+    {
+      "name": "exomem-export-gc",
+      "path": "/api/cron/exomem-export-gc",
+      "schedule": "17 * * * *",
+      "method": "GET",
+      "bearerEnvironmentVariable": "CRON_SECRET"
+    }
+  ]
+}
