@@ -240,6 +240,29 @@ describe("Python provisioner v1 interoperability corpus", () => {
     }
   });
 
+  it("rejects a noncanonical success code before it reaches a lifecycle store", async () => {
+    const health = fixture.actions.health;
+    assert.ok(health?.final.body);
+    await assert.rejects(
+      invoke(
+        "health",
+        health,
+        response(health.final.status, {
+          ...materialize(health.final.body),
+          code: "READY",
+        })
+      ),
+      (error) => {
+        assert.ok(error instanceof ProvisionerFailure);
+        assert.deepEqual(error.toJSON(), {
+          code: "PROVISIONER_RESPONSE_INVALID",
+          retryable: false,
+        });
+        return true;
+      }
+    );
+  });
+
   it("preserves every exact content-free Python error class", async () => {
     const provision = fixture.actions.provision;
     assert.ok(provision);

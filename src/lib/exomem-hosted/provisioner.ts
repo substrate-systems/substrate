@@ -520,7 +520,8 @@ export class HttpCellProvisioner implements CellProvisioner {
       typeof response.serviceAuthenticated !== "boolean" ||
       typeof response.mutationAuthority !== "boolean" ||
       typeof response.readAdmission !== "boolean" ||
-      typeof response.writeAdmission !== "boolean"
+      typeof response.writeAdmission !== "boolean" ||
+      (response.live && response.ready) !== (code === "CELL_READY")
     ) {
       throw new ProvisionerFailure({
         code: "PROVISIONER_RESPONSE_INVALID",

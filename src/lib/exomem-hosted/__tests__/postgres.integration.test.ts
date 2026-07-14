@@ -1451,8 +1451,39 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       }),
       envelopeKey,
     });
+    assert.deepEqual(await reconciler.reconcileOne({ owner: "release-worker", tenantId: TENANT }), {
+      kind: "advanced",
+      operationId,
+      checkpoint: "export-expired-released",
+    });
     assert.deepEqual(
-      await reconciler.reconcileOne({ owner: "restoration-worker", tenantId: TENANT }),
+      (
+        await pool.query(
+          `SELECT state, checkpoint,
+                  export_release_reference_ciphertext IS NULL AS release_cleared,
+                  lease_owner IS NULL AS lease_cleared
+             FROM exomem_lifecycle_operations WHERE id = $1`,
+          [operationId]
+        )
+      ).rows[0],
+      {
+        state: "waiting",
+        checkpoint: "export-expired-released",
+        release_cleared: true,
+        lease_cleared: true,
+      }
+    );
+    assert.deepEqual(await reconciler.reconcileOne({ owner: "resume-worker", tenantId: TENANT }), {
+      kind: "advanced",
+      operationId,
+      checkpoint: "export-expired-resumed",
+    });
+    assert.deepEqual(
+      await reconciler.reconcileOne({ owner: "readiness-worker", tenantId: TENANT }),
+      { kind: "advanced", operationId, checkpoint: "export-expired-readiness-proved" }
+    );
+    assert.deepEqual(
+      await reconciler.reconcileOne({ owner: "restoration-complete", tenantId: TENANT }),
       { kind: "terminal", operationId, code: "EXPORT_EXPIRED" }
     );
     assert.deepEqual(

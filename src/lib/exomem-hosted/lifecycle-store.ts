@@ -281,6 +281,8 @@ export class SqlLifecycleStore implements LifecycleStore {
             OR operation.checkpoint IN (
               'candidate-cleanup', 'export-failure-resume',
               'export-stored', 'export-expired-release',
+              'export-expired-released', 'export-expired-resumed',
+              'export-expired-readiness-proved',
               'prior-retirement', 'prior-retired'
             )
             OR (
@@ -882,15 +884,17 @@ export class SqlLifecycleStore implements LifecycleStore {
     return rows.length === 1;
   }
 
-  async completeExpiredExportRelease(operationId: string, owner: string): Promise<boolean> {
+  async acknowledgeExpiredExportRelease(operationId: string, owner: string): Promise<boolean> {
     const { rows } = await executeExomemSql`
-      /* exomem:lifecycle-complete-expired-export-release */
+      /* exomem:lifecycle-acknowledge-expired-export-release */
       UPDATE exomem_lifecycle_operations AS operation
       SET export_release_reference_ciphertext = NULL,
           export_release_reference_digest = NULL,
-          state = 'failed_terminal',
-          error_code = 'EXPORT_EXPIRED',
-          completed_at = now(),
+          checkpoint = 'export-expired-released',
+          state = 'waiting',
+          attempts = 0,
+          error_code = NULL,
+          next_attempt_at = now(),
           lease_owner = NULL,
           lease_expires_at = NULL,
           updated_at = now()
@@ -905,6 +909,64 @@ export class SqlLifecycleStore implements LifecycleStore {
           SELECT 1 FROM exomem_tenants AS tenant
           WHERE tenant.id = operation.tenant_id
             AND tenant.fence_generation = operation.fence_generation
+        )
+      RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async completeExpiredExportRestoration(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-complete-expired-export-restoration */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET state = 'failed_terminal',
+          error_code = 'EXPORT_EXPIRED',
+          completed_at = now(),
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          updated_at = now()
+      WHERE operation.id = ${operationId}
+        AND operation.operation_type = 'export'
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.export_release_reference_ciphertext IS NULL
+        AND operation.export_release_reference_digest IS NULL
+        AND (
+          (
+            NOT operation.resume_after_operation
+            AND operation.checkpoint = 'export-expired-released'
+            AND EXISTS (
+              SELECT 1
+              FROM exomem_tenants AS tenant
+              JOIN exomem_cells AS cell
+                ON cell.id = operation.cell_id
+               AND cell.tenant_id = operation.tenant_id
+              WHERE tenant.id = operation.tenant_id
+                AND tenant.fence_generation = operation.fence_generation
+                AND tenant.status = 'suspended'
+                AND cell.lifecycle_state = 'quiesced'
+            )
+          )
+          OR
+          (
+            operation.resume_after_operation
+            AND operation.checkpoint = 'export-expired-readiness-proved'
+            AND EXISTS (
+              SELECT 1
+              FROM exomem_tenants AS tenant
+              JOIN exomem_cells AS cell
+                ON cell.id = operation.cell_id
+               AND cell.tenant_id = operation.tenant_id
+              WHERE tenant.id = operation.tenant_id
+                AND tenant.fence_generation = operation.fence_generation
+                AND tenant.status = 'active'
+                AND tenant.desired_state = 'running'
+                AND cell.lifecycle_state = 'active'
+                AND cell.desired_state = 'running'
+                AND cell.readiness_code = 'CELL_READY'
+            )
+          )
         )
       RETURNING operation.id
     `;

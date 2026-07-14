@@ -123,7 +123,7 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /FROM owned[\s\S]*ON CONFLICT \(operation_id\)/i);
   });
 
-  it("atomically terminates an expired export while clearing its release handle", async () => {
+  it("atomically clears an expired release handle before restoration", async () => {
     let statement = "";
     __setExomemSqlForTests(async (strings) => {
       statement = strings.join("?");
@@ -131,20 +131,45 @@ describe("SQL lifecycle operation store", () => {
     });
 
     assert.equal(
-      await new SqlLifecycleStore().completeExpiredExportRelease(
+      await new SqlLifecycleStore().acknowledgeExpiredExportRelease(
         "018f2d91-7c42-7000-8000-000000000070",
         "worker-a"
       ),
       true
     );
     assert.match(statement, /checkpoint = 'export-expired-release'/i);
+    assert.match(statement, /checkpoint = 'export-expired-released'/i);
     assert.match(statement, /lease_owner =/i);
     assert.match(statement, /lease_expires_at > now\(\)/i);
     assert.match(statement, /export_release_reference_ciphertext = NULL/i);
+    assert.match(statement, /state = 'waiting'/i);
+    assert.match(statement, /next_attempt_at = now\(\)/i);
+    assert.doesNotMatch(statement, /state = 'failed_terminal'/i);
+    assert.match(statement, /tenant\.fence_generation = operation\.fence_generation/i);
+  });
+
+  it("terminalizes only after the expired export's prior state is restored", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "operation-1" }], rowCount: 1 };
+    });
+
+    assert.equal(
+      await new SqlLifecycleStore().completeExpiredExportRestoration(
+        "018f2d91-7c42-7000-8000-000000000070",
+        "worker-a"
+      ),
+      true
+    );
+    assert.match(statement, /export_release_reference_ciphertext IS NULL/i);
     assert.match(statement, /state = 'failed_terminal'/i);
     assert.match(statement, /error_code = 'EXPORT_EXPIRED'/i);
     assert.match(statement, /completed_at = now\(\)/i);
     assert.match(statement, /lease_owner = NULL/i);
+    assert.match(statement, /checkpoint = 'export-expired-released'/i);
+    assert.match(statement, /checkpoint = 'export-expired-readiness-proved'/i);
+    assert.match(statement, /cell\.readiness_code = 'CELL_READY'/i);
     assert.match(statement, /tenant\.fence_generation = operation\.fence_generation/i);
   });
 
