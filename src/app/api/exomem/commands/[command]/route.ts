@@ -59,12 +59,11 @@ export async function POST(
     }
     const session = await resolveExomemSession(request);
     validateMutationRequest(request, session);
-    let args: Record<string, unknown>;
     const value = await readBoundedJson(request, gatewayLimits.commandBytes);
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw exomemErrors.invalidRequest();
     }
-    args = value as Record<string, unknown>;
+    const args = value as Record<string, unknown>;
     if (hasReservedSelector(args)) throw exomemErrors.selectorRejected();
     const { command } = await context.params;
     const result = await routeExomemCommand({
