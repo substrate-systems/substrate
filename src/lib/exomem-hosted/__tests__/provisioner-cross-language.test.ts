@@ -30,7 +30,7 @@ type ContractFixture = {
 };
 
 const fixture = rawFixture as ContractFixture;
-const FIXTURE_SHA256 = "32ea0c1995035407d18a97af93ad1ae8acef07fb8882638eb1a3fde2d26e2dce";
+const FIXTURE_SHA256 = "df709821624f2ac9910174b94e1a543ec289504f1baa84862be2075f7d642512";
 
 function credential(seed: string): string {
   return createHash("sha256").update(seed).digest("base64url");
@@ -211,6 +211,7 @@ describe("Python provisioner v1 interoperability corpus", () => {
     );
     assert.equal(fixture.schemaVersion, 1);
     assert.equal(fixture.protocol, "exomem-cell-provisioner.v1");
+    assert.equal(fixture.actions.health?.final.body?.code, "CELL_READY");
     for (const [action, testCase] of Object.entries(fixture.actions)) {
       const pending = testCase.pending;
       await assert.rejects(

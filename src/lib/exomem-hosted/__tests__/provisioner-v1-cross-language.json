@@ -210,7 +210,7 @@
       "final": {
         "body": {
           "cellId": "cell-cross-language-alpha",
-          "code": "READY",
+          "code": "CELL_READY",
           "live": true,
           "mutationAuthority": true,
           "protocolVersion": "1",
