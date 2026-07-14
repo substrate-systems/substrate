@@ -209,7 +209,7 @@ the same idempotency key and input must converge to the same result; reusing a
 key with different input must fail.
 
 The checked Python/TypeScript interoperability corpus has SHA-256
-`c479933e0fb83197bd548e2333ac66fe8db5406a0a230f76ad867a1a4df920f5`.
+`32ea0c1995035407d18a97af93ad1ae8acef07fb8882638eb1a3fde2d26e2dce`.
 It exercises the real `HttpCellProvisioner` serializer/parser for all 14
 requests, exact pending responses, every final proof (including void results),
 and every content-free server error class. Regenerate it from the companion IaC
@@ -220,12 +220,20 @@ ID, protocol, release, authenticated-service state, mutation authority, read and
 write admissions, and exact worker policy. Substrate does not bind or route a
 candidate that fails any field.
 
-`export` must return non-empty opaque `exportRef` and `releaseRef` values, 64-character lowercase
+`export` carries one exact product expiry in its idempotent request and must return non-empty opaque
+`exportRef` and `releaseRef` values, 64-character lowercase
 `archiveSha256` and `manifestSha256`, positive `archiveSize`,
 `encryptionScheme: "envelope-aes-256-gcm"`, and `integrityVerified: true`.
 Substrate records the verified provider object before calling `export-release`;
 the cell keeps its local artifact until that idempotent acknowledgement. Expired
-provider objects are removed by the bounded hourly `exomem-export-gc` pass.
+provider objects are removed by the bounded hourly `exomem-export-gc` pass. If
+the exact product expiry elapses while `export` is in flight, Substrate records
+the object directly as deleting and moves the operation into the mandatory
+`export-expired-release` checkpoint. Provider-pending responses and retryable
+failures at that checkpoint continue past the ordinary attempt cap. Substrate
+idempotently releases the cell-local artifact, then clears the encrypted release
+handle and records terminal `EXPORT_EXPIRED` in one fenced transaction; it never
+publishes the artifact or abandons either cleanup handle.
 `export-delete` must return `objectDestroyed: true` before the control plane
 scrubs the encrypted reference and integrity metadata into a tombstone.
 `export-download` returns an HTTPS URL expiring within 15 minutes. `destroy`

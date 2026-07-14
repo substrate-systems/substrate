@@ -95,7 +95,7 @@ async function invoke(
   action: string,
   testCase: ActionCase,
   providerResponse: Response
-): Promise<{ result: unknown; sent: JsonRecord }> {
+): Promise<{ result: unknown; sent: JsonRecord; expectedRequest: JsonRecord }> {
   let sent: JsonRecord | null = null;
   const adapter = new HttpCellProvisioner(
     {
@@ -183,7 +183,7 @@ async function invoke(
       throw new Error(`unknown fixture action: ${action}`);
   }
   assert.ok(sent);
-  return { result, sent };
+  return { result, sent, expectedRequest: body };
 }
 
 function normalizedResult(action: string, result: unknown): unknown {
@@ -229,8 +229,12 @@ describe("Python provisioner v1 interoperability corpus", () => {
   it("serializes every request and parses every exact final proof", async () => {
     for (const [action, testCase] of Object.entries(fixture.actions)) {
       const final = materialize(testCase.final);
-      const { result, sent } = await invoke(action, testCase, response(final.status, final.body));
-      assert.deepEqual(sent, materialize(testCase.request), action);
+      const { result, sent, expectedRequest } = await invoke(
+        action,
+        testCase,
+        response(final.status, final.body)
+      );
+      assert.deepEqual(sent, expectedRequest, action);
       assert.deepEqual(normalizedResult(action, result), final.body, action);
     }
   });

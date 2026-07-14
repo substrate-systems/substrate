@@ -24,6 +24,8 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /state = 'running'/i);
     assert.match(statement, /lease_expires_at <= now\(\)/i);
     assert.match(statement, /attempts <=/i);
+    assert.match(statement, /'export-expired-release'/i);
+    assert.match(statement, /export_release_reference_ciphertext IS NOT NULL/i);
     assert.match(statement, /attempts = attempts \+ 1/i);
   });
 
@@ -66,6 +68,105 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /checkpoint =/i);
     assert.match(statement, /error_code = NULL/i);
     assert.match(statement, /lease_owner = NULL/i);
+  });
+
+  it("atomically marks an in-flight expired export for deletion instead of publishing it", async () => {
+    let statement = "";
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
+      statement = strings.join("?");
+      values.push(...parameters);
+      return { rows: [{ disposition: "expired" }], rowCount: 1 };
+    });
+    const store = new SqlLifecycleStore();
+    const expiresAt = new Date("2026-07-15T12:00:00.000Z");
+
+    assert.equal(
+      await store.recordExportResult({
+        operationId: "018f2d91-7c42-7000-8000-000000000070",
+        owner: "worker-a",
+        tenantId: "018f2d91-7c42-7000-8000-000000000071",
+        cellId: "018f2d91-7c42-7000-8000-000000000072",
+        storageReferenceEnvelope: {
+          version: 1,
+          algorithm: "A256GCM",
+          iv: "storage-iv",
+          ciphertext: "storage-ciphertext",
+          tag: "storage-tag",
+        },
+        storageReferenceDigest: Buffer.alloc(32, 0x71),
+        releaseReferenceEnvelope: {
+          version: 1,
+          algorithm: "A256GCM",
+          iv: "release-iv",
+          ciphertext: "release-ciphertext",
+          tag: "release-tag",
+        },
+        releaseReferenceDigest: Buffer.alloc(32, 0x72),
+        archiveSha256: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        archiveSize: 1024,
+        encryptionScheme: "envelope-aes-256-gcm",
+        integrityVerified: true,
+        expiresAt,
+      }),
+      "expired"
+    );
+
+    assert.match(statement, /operation\.lease_expires_at > now\(\)/i);
+    assert.equal(values.includes(expiresAt.toISOString()), true);
+    assert.match(statement, /CASE[\s\S]*WHEN \?::timestamptz > now\(\)[\s\S]*'available'/i);
+    assert.match(statement, /ELSE 'deleting'/i);
+    assert.match(statement, /expires_at = EXCLUDED\.expires_at/i);
+    assert.match(statement, /checkpoint = CASE[\s\S]*'export-expired-release'/i);
+    assert.match(statement, /SELECT disposition FROM release_recorded/i);
+    assert.match(statement, /FROM owned[\s\S]*ON CONFLICT \(operation_id\)/i);
+  });
+
+  it("atomically terminates an expired export while clearing its release handle", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "operation-1" }], rowCount: 1 };
+    });
+
+    assert.equal(
+      await new SqlLifecycleStore().completeExpiredExportRelease(
+        "018f2d91-7c42-7000-8000-000000000070",
+        "worker-a"
+      ),
+      true
+    );
+    assert.match(statement, /checkpoint = 'export-expired-release'/i);
+    assert.match(statement, /lease_owner =/i);
+    assert.match(statement, /lease_expires_at > now\(\)/i);
+    assert.match(statement, /export_release_reference_ciphertext = NULL/i);
+    assert.match(statement, /state = 'failed_terminal'/i);
+    assert.match(statement, /error_code = 'EXPORT_EXPIRED'/i);
+    assert.match(statement, /completed_at = now\(\)/i);
+    assert.match(statement, /lease_owner = NULL/i);
+    assert.match(statement, /tenant\.fence_generation = operation\.fence_generation/i);
+  });
+
+  it("fences the transition into mandatory expired-export release recovery", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "operation-1" }], rowCount: 1 };
+    });
+
+    assert.equal(
+      await new SqlLifecycleStore().prepareExpiredExportRelease(
+        "018f2d91-7c42-7000-8000-000000000070",
+        "worker-a"
+      ),
+      true
+    );
+    assert.match(statement, /checkpoint = 'export-expired-release'/i);
+    assert.match(statement, /operation\.checkpoint = 'quiesced'/i);
+    assert.match(statement, /export_release_reference_ciphertext IS NOT NULL/i);
+    assert.match(statement, /operation\.lease_expires_at > now\(\)/i);
+    assert.match(statement, /tenant\.fence_generation = operation\.fence_generation/i);
   });
 
   it("atomically binds billing proof to the one deletion checkpoint transition", async () => {

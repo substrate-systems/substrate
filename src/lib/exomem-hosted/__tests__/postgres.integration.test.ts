@@ -1320,6 +1320,111 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
   });
 
+  it("persists expired export release as mandatory recovery and completes it atomically", async () => {
+    const operationId = "44444444-4444-4444-8444-444444444480";
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants
+         (id, owner_user_id, status, desired_state, fence_generation)
+       VALUES ($1, $2, 'active', 'running', 4)`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state,
+         protocol_version, release_version, provider_ref,
+         service_credential_ciphertext, service_credential_digest
+       ) VALUES ($1, $2, 'quiesced', 'bound', 'quiesced', '1', 'test',
+                 'provider-ref', $3, $4)`,
+      [CELL, TENANT, JSON.stringify({ encrypted: true }), Buffer.alloc(32, 0x31)]
+    );
+    await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, cell_id, operation_type, state, idempotency_key,
+         fence_generation, checkpoint, attempts, lease_owner, lease_expires_at
+       ) VALUES ($1, $2, $3, 'export', 'running', 'expired-export-recovery',
+                 4, 'quiesced', 9, 'export-worker', now() + interval '1 minute')`,
+      [operationId, TENANT, CELL]
+    );
+
+    const store = new SqlLifecycleStore();
+    const expiresAt = new Date(Date.now() - 1_000);
+    assert.equal(
+      await store.recordExportResult({
+        operationId,
+        owner: "export-worker",
+        tenantId: TENANT,
+        cellId: CELL,
+        storageReferenceEnvelope: encryptSecret("provider-export-ref", {
+          key: Buffer.alloc(32, 0x32),
+          randomBytes: (size) => Buffer.alloc(size, 0x33),
+        }),
+        storageReferenceDigest: digestSecret("provider-export-ref"),
+        releaseReferenceEnvelope: encryptSecret("cell-release-ref", {
+          key: Buffer.alloc(32, 0x32),
+          randomBytes: (size) => Buffer.alloc(size, 0x34),
+        }),
+        releaseReferenceDigest: digestSecret("cell-release-ref"),
+        archiveSha256: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        archiveSize: 1024,
+        encryptionScheme: "envelope-aes-256-gcm",
+        integrityVerified: true,
+        expiresAt,
+      }),
+      "expired"
+    );
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT operation.checkpoint, export_row.state AS export_state
+             FROM exomem_lifecycle_operations AS operation
+             JOIN exomem_exports AS export_row ON export_row.operation_id = operation.id
+            WHERE operation.id = $1`,
+          [operationId]
+        )
+      ).rows[0],
+      { checkpoint: "export-expired-release", export_state: "deleting" }
+    );
+
+    assert.equal(
+      await store.retry(
+        operationId,
+        "export-worker",
+        "EXPIRED_EXPORT_RELEASE_PENDING",
+        new Date(Date.now() - 1)
+      ),
+      true
+    );
+    const recovery = await store.claim({
+      owner: "recovery-worker",
+      leaseMs: 30_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(recovery?.id, operationId);
+    assert.equal(recovery?.checkpoint, "export-expired-release");
+    assert.equal(await store.completeExpiredExportRelease(operationId, "recovery-worker"), true);
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT state, error_code,
+                  export_release_reference_ciphertext IS NULL AS release_cleared,
+                  lease_owner IS NULL AS lease_cleared
+             FROM exomem_lifecycle_operations WHERE id = $1`,
+          [operationId]
+        )
+      ).rows[0],
+      {
+        state: "failed_terminal",
+        error_code: "EXPORT_EXPIRED",
+        release_cleared: true,
+        lease_cleared: true,
+      }
+    );
+  });
+
   it("filters expired owner artifacts and pins an unexpired restore against GC", async () => {
     const failed = "44444444-4444-4444-8444-444444444491";
     const availableOperation = "44444444-4444-4444-8444-444444444492";

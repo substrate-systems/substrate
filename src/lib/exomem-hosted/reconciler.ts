@@ -13,6 +13,7 @@ import {
   digestSecret,
   encryptSecret,
   generateExternalToken,
+  SensitiveSecret,
   type RandomBytesSource,
   type SecretEnvelope,
 } from "./security";
@@ -31,12 +32,7 @@ export type LifecycleOperationType =
   | "delete";
 
 export type LifecycleOperationState =
-  | "pending"
-  | "running"
-  | "waiting"
-  | "succeeded"
-  | "failed_retryable"
-  | "failed_terminal";
+  "pending" | "running" | "waiting" | "succeeded" | "failed_retryable" | "failed_terminal";
 
 export type LifecycleOperation = {
   id: string;
@@ -136,6 +132,8 @@ export type LifecycleEnqueueOptions = {
   restoreBinding?: RestoreBinding;
 };
 
+export type ExportRecordDisposition = "available" | "expired" | "conflict";
+
 export interface LifecycleStore {
   enqueue(
     tenantId: string,
@@ -213,8 +211,10 @@ export interface LifecycleStore {
     encryptionScheme: "envelope-aes-256-gcm";
     integrityVerified: true;
     expiresAt: Date;
-  }): Promise<boolean>;
+  }): Promise<ExportRecordDisposition>;
   acknowledgeExportRelease(operationId: string, owner: string): Promise<boolean>;
+  prepareExpiredExportRelease(operationId: string, owner: string): Promise<boolean>;
+  completeExpiredExportRelease(operationId: string, owner: string): Promise<boolean>;
   bindCandidate(operationId: string, owner: string): Promise<boolean>;
   prepareCandidateCleanup(operationId: string, owner: string, errorCode: string): Promise<boolean>;
   prepareExportRecovery(operationId: string, owner: string, errorCode: string): Promise<boolean>;
@@ -356,6 +356,24 @@ function pendingCheckpointMatches(operation: LifecycleOperation, checkpoint: str
     sealed: ["tenant-destroy"],
   };
   return actionCheckpoints[operation.checkpoint]?.includes(checkpoint) === true;
+}
+
+function mandatoryRecoveryCode(operation: LifecycleOperation): string | null {
+  if (operation.checkpoint === "candidate-cleanup") return "CANDIDATE_CLEANUP_PENDING";
+  if (operation.checkpoint === "export-stored") return "EXPORT_RELEASE_PENDING";
+  if (
+    operation.checkpoint === "export-expired-release" ||
+    (operation.operationType === "export" &&
+      operation.checkpoint === "quiesced" &&
+      operation.exportReleaseEnvelope)
+  ) {
+    return "EXPIRED_EXPORT_RELEASE_PENDING";
+  }
+  if (["prior-retirement", "prior-retired"].includes(operation.checkpoint)) {
+    return "PRIOR_CELL_RETIREMENT_PENDING";
+  }
+  if (operation.checkpoint === "export-failure-resume") return "EXPORT_RECOVERY_PENDING";
+  return null;
 }
 
 export class LifecycleReconciler {
@@ -991,6 +1009,18 @@ export class LifecycleReconciler {
     if (operation.checkpoint === "export-failure-resume") {
       return this.#recoverFailedExport(operation, owner);
     }
+    if (operation.checkpoint === "export-expired-release") {
+      const cell = await this.#cell(operation);
+      if (!operation.exportReleaseEnvelope) {
+        return this.#terminal(operation, owner, "EXPORT_RELEASE_REFERENCE_MISSING");
+      }
+      return this.#releaseExpiredExport(
+        operation,
+        owner,
+        cell,
+        decryptSecret(operation.exportReleaseEnvelope, { key: this.#envelopeKey })
+      );
+    }
     if (operation.checkpoint === "created") {
       this.#requireStored(await this.#store.applyLocalGate(operation.id, owner, "suspended"));
       return this.#advance(operation, owner, "local-gated");
@@ -1003,11 +1033,21 @@ export class LifecycleReconciler {
     if (operation.checkpoint === "quiesced") {
       const cell = await this.#cell(operation);
       const expiresAt = new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
+      if (operation.exportReleaseEnvelope && expiresAt <= this.#now()) {
+        this.#requireStored(await this.#store.prepareExpiredExportRelease(operation.id, owner));
+        operation.checkpoint = "export-expired-release";
+        return this.#releaseExpiredExport(
+          operation,
+          owner,
+          cell,
+          decryptSecret(operation.exportReleaseEnvelope, { key: this.#envelopeKey })
+        );
+      }
       const result = await this.#provisioner.export({
         ...this.#target(operation, cell),
         expiresAt,
       });
-      const recorded = await this.#store.recordExportResult({
+      const disposition = await this.#store.recordExportResult({
         operationId: operation.id,
         owner,
         tenantId: operation.tenantId,
@@ -1029,7 +1069,18 @@ export class LifecycleReconciler {
         integrityVerified: result.integrityVerified,
         expiresAt,
       });
-      if (!recorded) return this.#terminal(operation, owner, "EXPORT_RECORD_CONFLICT");
+      if (disposition === "conflict") {
+        return this.#terminal(operation, owner, "EXPORT_RECORD_CONFLICT");
+      }
+      if (disposition === "expired") {
+        operation.checkpoint = "export-expired-release";
+        return this.#releaseExpiredExport(
+          operation,
+          owner,
+          cell,
+          new SensitiveSecret(result.releaseRef)
+        );
+      }
       return this.#advance(operation, owner, "export-stored");
     }
     if (operation.checkpoint === "export-stored") {
@@ -1071,6 +1122,20 @@ export class LifecycleReconciler {
       return { kind: "succeeded", operationId: operation.id };
     }
     return this.#terminal(operation, owner, "LIFECYCLE_CHECKPOINT_INVALID");
+  }
+
+  async #releaseExpiredExport(
+    operation: LifecycleOperation,
+    owner: string,
+    cell: CellControlRecord,
+    releaseRef: SensitiveSecret
+  ): Promise<ReconcileResult> {
+    await this.#provisioner.releaseExport({
+      ...this.#targetForAction(operation, cell, "export-expired-release"),
+      releaseRef,
+    });
+    this.#requireStored(await this.#store.completeExpiredExportRelease(operation.id, owner));
+    return { kind: "terminal", operationId: operation.id, code: "EXPORT_EXPIRED" };
   }
 
   async #sealOrDelete(operation: LifecycleOperation, owner: string): Promise<ReconcileResult> {
@@ -1159,14 +1224,8 @@ export class LifecycleReconciler {
       ...(input.tenantId ? { tenantId: input.tenantId } : {}),
     });
     if (!operation) return { kind: "idle" };
-    const mandatoryRecovery = [
-      "candidate-cleanup",
-      "export-failure-resume",
-      "export-stored",
-      "prior-retirement",
-      "prior-retired",
-    ].includes(operation.checkpoint);
-    if (operation.attempts > this.#config.maxAttempts && !mandatoryRecovery) {
+    const initialRecoveryCode = mandatoryRecoveryCode(operation);
+    if (operation.attempts > this.#config.maxAttempts && !initialRecoveryCode) {
       return this.#terminal(operation, input.owner, "LIFECYCLE_MAX_ATTEMPTS");
     }
     try {
@@ -1225,23 +1284,16 @@ export class LifecycleReconciler {
               retryable: true,
               cause: error,
             });
-      if (mandatoryRecovery) {
-        const code =
-          operation.checkpoint === "candidate-cleanup"
-            ? "CANDIDATE_CLEANUP_PENDING"
-            : operation.checkpoint === "export-stored"
-              ? "EXPORT_RELEASE_PENDING"
-              : ["prior-retirement", "prior-retired"].includes(operation.checkpoint)
-                ? "PRIOR_CELL_RETIREMENT_PENDING"
-                : "EXPORT_RECOVERY_PENDING";
+      const recoveryCode = mandatoryRecoveryCode(operation);
+      if (recoveryCode) {
         const retried = await this.#store.retry(
           operation.id,
           input.owner,
-          code,
+          recoveryCode,
           this.#backoff(operation.attempts)
         );
         return retried
-          ? { kind: "retry_scheduled", operationId: operation.id, code }
+          ? { kind: "retry_scheduled", operationId: operation.id, code: recoveryCode }
           : { kind: "idle" };
       }
       if (!failure.retryable) return this.#terminal(operation, input.owner, failure.code);
@@ -1463,9 +1515,13 @@ export class InMemoryLifecycleStore implements LifecycleStore {
               "candidate-cleanup",
               "export-failure-resume",
               "export-stored",
+              "export-expired-release",
               "prior-retirement",
               "prior-retired",
-            ].includes(operation.checkpoint)) &&
+            ].includes(operation.checkpoint) ||
+            (operation.operationType === "export" &&
+              operation.checkpoint === "quiesced" &&
+              operation.exportReleaseEnvelope)) &&
           (operation.operationType === "delete" ||
             this.tenants.get(operation.tenantId)?.desiredState !== "deleted") &&
           ![...this.operations.values()].some(
@@ -1831,7 +1887,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     encryptionScheme: "envelope-aes-256-gcm";
     integrityVerified: true;
     expiresAt: Date;
-  }): Promise<boolean> {
+  }): Promise<ExportRecordDisposition> {
     const operation = this.#owned(input.operationId, input.owner);
     if (
       !operation ||
@@ -1839,16 +1895,22 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       operation.tenantId !== input.tenantId ||
       operation.cellId !== input.cellId
     ) {
-      return false;
+      return "conflict";
     }
     const existing = this.exports.get(input.operationId);
     if (existing) {
-      return (
+      const matches =
         existing.storageReferenceDigest.equals(input.storageReferenceDigest) &&
         existing.archiveSha256 === input.archiveSha256 &&
         existing.manifestSha256 === input.manifestSha256 &&
-        existing.archiveSize === input.archiveSize
-      );
+        existing.archiveSize === input.archiveSize &&
+        existing.expiresAt.getTime() === input.expiresAt.getTime();
+      if (!matches) return "conflict";
+      if (input.expiresAt <= this.#now()) {
+        operation.checkpoint = "export-expired-release";
+        return "expired";
+      }
+      return "available";
     }
     this.exports.set(input.operationId, {
       id: randomUUID(),
@@ -1863,7 +1925,15 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     });
     operation.exportReleaseEnvelope = structuredClone(input.releaseReferenceEnvelope);
     operation.exportReleaseDigest = Buffer.from(input.releaseReferenceDigest);
-    return true;
+    if (input.expiresAt <= this.#now()) {
+      operation.checkpoint = "export-expired-release";
+      this.checkpointHistory.push({
+        operationId: input.operationId,
+        checkpoint: "export-expired-release",
+      });
+      return "expired";
+    }
+    return "available";
   }
 
   async acknowledgeExportRelease(operationId: string, owner: string): Promise<boolean> {
@@ -1886,6 +1956,42 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     operation.leaseExpiresAt = null;
     operation.updatedAt = this.#now();
     this.checkpointHistory.push({ operationId, checkpoint: "cell-artifact-released" });
+    return true;
+  }
+
+  async prepareExpiredExportRelease(operationId: string, owner: string): Promise<boolean> {
+    const operation = this.#owned(operationId, owner);
+    if (
+      !operation ||
+      operation.operationType !== "export" ||
+      operation.checkpoint !== "quiesced" ||
+      !operation.exportReleaseEnvelope
+    ) {
+      return false;
+    }
+    operation.checkpoint = "export-expired-release";
+    operation.updatedAt = this.#now();
+    this.checkpointHistory.push({ operationId, checkpoint: "export-expired-release" });
+    return true;
+  }
+
+  async completeExpiredExportRelease(operationId: string, owner: string): Promise<boolean> {
+    const operation = this.#owned(operationId, owner);
+    if (
+      !operation ||
+      operation.operationType !== "export" ||
+      operation.checkpoint !== "export-expired-release" ||
+      !operation.exportReleaseEnvelope
+    ) {
+      return false;
+    }
+    operation.exportReleaseEnvelope = null;
+    operation.exportReleaseDigest = null;
+    operation.state = "failed_terminal";
+    operation.errorCode = "EXPORT_EXPIRED";
+    operation.leaseOwner = null;
+    operation.leaseExpiresAt = null;
+    operation.updatedAt = this.#now();
     return true;
   }
 

@@ -3,6 +3,7 @@ import { exomemErrors } from "./errors";
 import type {
   CandidateSecret,
   CellControlRecord,
+  ExportRecordDisposition,
   LifecycleOperation,
   LifecycleOperationType,
   LifecycleEnqueueOptions,
@@ -279,7 +280,13 @@ export class SqlLifecycleStore implements LifecycleStore {
             operation.attempts <= ${input.maxAttempts}
             OR operation.checkpoint IN (
               'candidate-cleanup', 'export-failure-resume',
-              'export-stored', 'prior-retirement', 'prior-retired'
+              'export-stored', 'export-expired-release',
+              'prior-retirement', 'prior-retired'
+            )
+            OR (
+              operation.operation_type = 'export'
+              AND operation.checkpoint = 'quiesced'
+              AND operation.export_release_reference_ciphertext IS NOT NULL
             )
           )
           AND (${input.tenantId ?? null}::uuid IS NULL OR operation.tenant_id = ${input.tenantId ?? null}::uuid)
@@ -746,7 +753,7 @@ export class SqlLifecycleStore implements LifecycleStore {
     encryptionScheme: "envelope-aes-256-gcm";
     integrityVerified: true;
     expiresAt: Date;
-  }): Promise<boolean> {
+  }): Promise<ExportRecordDisposition> {
     const { rows } = await executeExomemSql`
       /* exomem:lifecycle-record-export */
       WITH owned AS (
@@ -757,6 +764,7 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND operation.tenant_id = ${input.tenantId}
           AND operation.cell_id = ${input.cellId}
           AND operation.operation_type = 'export'
+          AND operation.checkpoint = 'quiesced'
           AND operation.state = 'running'
           AND operation.lease_owner = ${input.owner}
           AND operation.lease_expires_at > now()
@@ -764,7 +772,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       ),
       recorded AS (
         INSERT INTO exomem_exports (
-          tenant_id, cell_id, operation_id,
+          tenant_id, cell_id, operation_id, state,
           storage_reference_ciphertext, storage_reference_digest,
           archive_sha256, manifest_sha256, archive_size,
           encryption_scheme, integrity_verified, expires_at
@@ -772,6 +780,10 @@ export class SqlLifecycleStore implements LifecycleStore {
         SELECT owned.tenant_id,
                owned.cell_id,
                owned.id,
+               CASE
+                 WHEN ${input.expiresAt.toISOString()}::timestamptz > now() THEN 'available'
+                 ELSE 'deleting'
+               END,
                ${JSON.stringify(input.storageReferenceEnvelope)}::jsonb,
                ${input.storageReferenceDigest},
                ${input.archiveSha256},
@@ -789,12 +801,21 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND exomem_exports.archive_size = EXCLUDED.archive_size
           AND exomem_exports.encryption_scheme = EXCLUDED.encryption_scheme
           AND exomem_exports.integrity_verified
-        RETURNING id
+          AND exomem_exports.expires_at = EXCLUDED.expires_at
+        RETURNING id,
+                  CASE
+                    WHEN expires_at > now() THEN 'available'
+                    ELSE 'expired'
+                  END AS disposition
       ), release_recorded AS (
         UPDATE exomem_lifecycle_operations AS operation
         SET export_release_reference_ciphertext =
               ${JSON.stringify(input.releaseReferenceEnvelope)}::jsonb,
             export_release_reference_digest = ${input.releaseReferenceDigest},
+            checkpoint = CASE
+              WHEN recorded.disposition = 'expired' THEN 'export-expired-release'
+              ELSE operation.checkpoint
+            END,
             updated_at = now()
         FROM recorded
         WHERE operation.id = ${input.operationId}
@@ -805,11 +826,12 @@ export class SqlLifecycleStore implements LifecycleStore {
             operation.export_release_reference_digest IS NULL
             OR operation.export_release_reference_digest = ${input.releaseReferenceDigest}
           )
-        RETURNING operation.id
+        RETURNING recorded.disposition
       )
-      SELECT id FROM release_recorded
+      SELECT disposition FROM release_recorded
     `;
-    return rows.length === 1;
+    const disposition = rows[0]?.disposition;
+    return disposition === "available" || disposition === "expired" ? disposition : "conflict";
   }
 
   async acknowledgeExportRelease(operationId: string, owner: string): Promise<boolean> {
@@ -833,6 +855,57 @@ export class SqlLifecycleStore implements LifecycleStore {
         AND operation.lease_owner = ${owner}
         AND operation.lease_expires_at > now()
         AND operation.export_release_reference_ciphertext IS NOT NULL
+      RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async prepareExpiredExportRelease(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-prepare-expired-export-release */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET checkpoint = 'export-expired-release', updated_at = now()
+      WHERE operation.id = ${operationId}
+        AND operation.operation_type = 'export'
+        AND operation.checkpoint = 'quiesced'
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.export_release_reference_ciphertext IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM exomem_tenants AS tenant
+          WHERE tenant.id = operation.tenant_id
+            AND tenant.fence_generation = operation.fence_generation
+        )
+      RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async completeExpiredExportRelease(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-complete-expired-export-release */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET export_release_reference_ciphertext = NULL,
+          export_release_reference_digest = NULL,
+          state = 'failed_terminal',
+          error_code = 'EXPORT_EXPIRED',
+          completed_at = now(),
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          updated_at = now()
+      WHERE operation.id = ${operationId}
+        AND operation.operation_type = 'export'
+        AND operation.checkpoint = 'export-expired-release'
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.export_release_reference_ciphertext IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM exomem_tenants AS tenant
+          WHERE tenant.id = operation.tenant_id
+            AND tenant.fence_generation = operation.fence_generation
+        )
       RETURNING operation.id
     `;
     return rows.length === 1;
