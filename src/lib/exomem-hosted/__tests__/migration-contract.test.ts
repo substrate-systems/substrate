@@ -17,6 +17,7 @@ const paddleProvenancePath = resolve(
   process.cwd(),
   "migrations/0021_exomem_paddle_provider_provenance.sql"
 );
+const exportIntentPath = resolve(process.cwd(), "migrations/0022_exomem_export_request_intent.sql");
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -94,6 +95,14 @@ describe("Exomem hosted migration contract", () => {
 
   it("retains ignored Paddle receipts as a distinct terminal audit disposition", () => {
     assert.match(migration(), /disposition IN \([^)]*'ignored'[^)]*\)/i);
+  });
+
+  it("persists exact export request expiry and contact intent across retries", () => {
+    const sql = readFileSync(exportIntentPath, "utf8");
+    assert.match(sql, /ADD COLUMN export_expires_at timestamptz/i);
+    assert.match(sql, /ADD COLUMN export_request_started boolean NOT NULL DEFAULT false/i);
+    assert.match(sql, /export_request_started[\s\S]*export_expires_at IS NOT NULL/i);
+    assert.match(sql, /operation_type = 'export'/i);
   });
 
   it("stores only encrypted verified export references and product-scoped deletion state", () => {

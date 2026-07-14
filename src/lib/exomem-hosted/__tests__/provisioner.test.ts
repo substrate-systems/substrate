@@ -150,17 +150,12 @@ describe("CellProvisioner", () => {
     );
 
     const expiredAt = new Date(Date.now() - 60_000);
-    await assert.rejects(
-      adapter.export({ ...target, expiresAt: expiredAt }),
-      (error) =>
-        error instanceof ProvisionerFailure && error.code === "PROVISIONER_CONFIGURATION_INVALID"
-    );
     await adapter.export({
       ...target,
       context: {
         ...target.context,
-        checkpoint: "export-requested",
-        idempotencyKey: `${target.context.operationId}:export-requested`,
+        checkpoint: "quiesced",
+        idempotencyKey: `${target.context.operationId}:quiesced`,
       },
       expiresAt: expiredAt,
     });
@@ -204,7 +199,7 @@ describe("CellProvisioner", () => {
         },
         expiresAt,
       }),
-      (error) => error instanceof ProvisionerFailure && error.code === "PROVISIONER_REJECTED"
+      (error) => error instanceof ProvisionerFailure && error.code === "EXPORT_REQUEST_EXPIRED"
     );
     assert.equal(fake.exportArtifacts.size, 1);
   });

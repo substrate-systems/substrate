@@ -12,6 +12,7 @@ const MIGRATION_0021 = resolve(
   process.cwd(),
   "migrations/0021_exomem_paddle_provider_provenance.sql"
 );
+const MIGRATION_0022 = resolve(process.cwd(), "migrations/0022_exomem_export_request_intent.sql");
 
 const USER = "11111111-1111-4111-8111-111111111191";
 const TENANT = "22222222-2222-4222-8222-222222222291";
@@ -462,6 +463,54 @@ describe("migration 0021 Paddle provider provenance", { skip: !DATABASE_URL }, (
           [TENANT_THREE, `txn_${"e".repeat(26)}`]
         ),
         /exomem_entitlements_provider_reference_provenance_check/i
+      );
+    });
+  });
+});
+
+describe("migration 0022 export request intent", { skip: !DATABASE_URL }, () => {
+  it("preserves ambiguous legacy export rows and enforces scoped durable intent", async () => {
+    await with0017Schema("exomem_upgrade_0022_export_intent", async (client) => {
+      await client.query(
+        `INSERT INTO exomem_lifecycle_operations (
+           id, tenant_id, cell_id, operation_type, state, idempotency_key,
+           fence_generation, checkpoint
+         ) VALUES ($1, $2, $3, 'export', 'waiting', 'legacy-export', 1, 'quiesced')`,
+        [SOURCE_OPERATION, TENANT, CELL]
+      );
+
+      await applyMigration(client, MIGRATION_0022);
+
+      const legacy = await client.query<{
+        export_expires_at: Date | null;
+        export_request_started: boolean;
+      }>(
+        `SELECT export_expires_at, export_request_started
+           FROM exomem_lifecycle_operations
+          WHERE id = $1`,
+        [SOURCE_OPERATION]
+      );
+      assert.deepEqual(legacy.rows[0], {
+        export_expires_at: null,
+        export_request_started: false,
+      });
+
+      await client.query(
+        `UPDATE exomem_lifecycle_operations
+            SET export_expires_at = now() + interval '1 day',
+                export_request_started = true
+          WHERE id = $1`,
+        [SOURCE_OPERATION]
+      );
+      await assert.rejects(
+        client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, operation_type, idempotency_key, fence_generation,
+             export_expires_at, export_request_started
+           ) VALUES ($1, 'resume', 'invalid-export-intent', 1, now(), true)`,
+          [TENANT]
+        ),
+        /exomem_lifecycle_export_request_intent_check/i
       );
     });
   });

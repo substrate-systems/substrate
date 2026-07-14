@@ -79,13 +79,17 @@ describe("SQL lifecycle operation store", () => {
     });
     const store = new SqlLifecycleStore();
 
-    assert.equal(await store.beginExport("operation-1", "worker-a"), true);
+    const expiresAt = new Date("2026-07-15T12:00:00.000Z");
+    assert.equal(await store.beginExport("operation-1", "worker-a", expiresAt), true);
     assert.match(statement, /operation_type = 'export'/i);
-    assert.match(statement, /operation\.checkpoint = 'quiesced'/i);
-    assert.match(statement, /SET checkpoint = 'export-requested'/i);
+    assert.match(statement, /operation\.checkpoint IN\s*\('quiesced', 'export-requested'\)/i);
+    assert.match(statement, /export_expires_at = COALESCE\(\s*operation\.export_expires_at/i);
+    assert.match(statement, /export_request_started = true/i);
+    assert.doesNotMatch(statement, /SET checkpoint = 'export-requested'/i);
     assert.match(statement, /lease_owner =/i);
     assert.match(statement, /lease_expires_at > now\(\)/i);
     assert.match(statement, /export_release_reference_ciphertext IS NULL/i);
+    assert.equal(statement.includes("export_expires_at"), true);
   });
 
   it("atomically marks an in-flight expired export for deletion instead of publishing it", async () => {
@@ -132,7 +136,9 @@ describe("SQL lifecycle operation store", () => {
     );
 
     assert.match(statement, /operation\.lease_expires_at > now\(\)/i);
-    assert.match(statement, /operation\.checkpoint = 'export-requested'/i);
+    assert.match(statement, /operation\.checkpoint IN\s*\('quiesced', 'export-requested'\)/i);
+    assert.match(statement, /operation\.export_request_started/i);
+    assert.match(statement, /operation\.export_expires_at = \?::timestamptz/i);
     assert.equal(values.includes(expiresAt.toISOString()), true);
     assert.match(statement, /CASE[\s\S]*WHEN \?::timestamptz > now\(\)[\s\S]*'available'/i);
     assert.match(statement, /ELSE 'deleting'/i);

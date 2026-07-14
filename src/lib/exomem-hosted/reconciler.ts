@@ -55,6 +55,8 @@ export type LifecycleOperation = {
   inputExportId: string | null;
   exportReleaseEnvelope: SecretEnvelope | null;
   exportReleaseDigest: Buffer | null;
+  exportExpiresAt: Date | null;
+  exportRequestStarted: boolean;
   inputSourceCellId: string | null;
   inputArchiveSha256: string | null;
   inputManifestSha256: string | null;
@@ -130,6 +132,7 @@ export type LifecycleEnqueueOptions = {
   inputReferenceEnvelope?: SecretEnvelope;
   inputReferenceDigest?: Buffer;
   restoreBinding?: RestoreBinding;
+  exportTtlMs?: number;
 };
 
 export type ExportRecordDisposition = "available" | "expired" | "conflict";
@@ -155,7 +158,11 @@ export interface LifecycleStore {
     expectedCheckpoint: string,
     nextCheckpoint: string
   ): Promise<boolean>;
-  beginExport(operationId: string, owner: string): Promise<boolean>;
+  beginExport(operationId: string, owner: string, expiresAt: Date): Promise<boolean>;
+  recoverRecordedExport(
+    operationId: string,
+    owner: string
+  ): Promise<ExportRecordDisposition | "missing">;
   advanceBillingTerminated(input: {
     operationId: string;
     owner: string;
@@ -300,7 +307,7 @@ export function expectedCellConfigurationFromEnv(
     });
   }
   const workerCount = Number(env.EXOMEM_CELL_WORKER_COUNT ?? "0");
-  const exportTtlHours = Number(env.EXOMEM_EXPORT_TTL_HOURS ?? "24");
+  const exportTtlMs = exportTtlMsFromEnv(env);
   return expectedCellConfiguration({
     protocolVersion,
     releaseVersion,
@@ -309,8 +316,24 @@ export function expectedCellConfigurationFromEnv(
       semantic: env.EXOMEM_CELL_SEMANTIC_WORKERS === "true",
       media: env.EXOMEM_CELL_MEDIA_WORKERS === "true",
     },
-    exportTtlMs: exportTtlHours * 60 * 60 * 1000,
+    exportTtlMs,
   });
+}
+
+export function exportTtlMsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const exportTtlHours = Number(env.EXOMEM_EXPORT_TTL_HOURS ?? "24");
+  const exportTtlMs = exportTtlHours * 60 * 60 * 1000;
+  if (
+    !Number.isSafeInteger(exportTtlMs) ||
+    exportTtlMs < 60 * 60 * 1000 ||
+    exportTtlMs > 30 * 24 * 60 * 60 * 1000
+  ) {
+    throw new ProvisionerFailure({
+      code: "PROVISIONER_CONFIGURATION_INVALID",
+      retryable: false,
+    });
+  }
+  return exportTtlMs;
 }
 
 type ReconcileResult =
@@ -376,6 +399,14 @@ function mandatoryRecoveryCode(operation: LifecycleOperation): string | null {
     ].includes(operation.checkpoint)
   ) {
     return "EXPIRED_EXPORT_RESTORATION_PENDING";
+  }
+  if (
+    operation.operationType === "export" &&
+    operation.checkpoint === "quiesced" &&
+    operation.exportRequestStarted &&
+    !operation.exportReleaseEnvelope
+  ) {
+    return "EXPORT_RESULT_RECOVERY_PENDING";
   }
   if (
     operation.operationType === "export" &&
@@ -1065,8 +1096,14 @@ export class LifecycleReconciler {
     }
     if (operation.checkpoint === "quiesced") {
       const cell = await this.#cell(operation);
-      const expiresAt = new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
-      if (operation.exportReleaseEnvelope && expiresAt <= this.#now()) {
+      if (operation.exportReleaseEnvelope) {
+        const disposition = await this.#store.recoverRecordedExport(operation.id, owner);
+        if (disposition === "missing") {
+          return this.#terminal(operation, owner, "EXPORT_RECORD_CONFLICT");
+        }
+        if (disposition === "available") {
+          return this.#advance(operation, owner, "export-stored");
+        }
         this.#requireStored(await this.#store.prepareExpiredExportRelease(operation.id, owner));
         operation.checkpoint = "export-expired-release";
         return this.#releaseExpiredExport(
@@ -1076,15 +1113,39 @@ export class LifecycleReconciler {
           decryptSecret(operation.exportReleaseEnvelope, { key: this.#envelopeKey })
         );
       }
-      if (expiresAt <= this.#now()) {
+      const expiresAt =
+        operation.exportExpiresAt ??
+        new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
+      if (
+        expiresAt <= this.#now() &&
+        operation.exportExpiresAt &&
+        !operation.exportRequestStarted
+      ) {
+        if (!operation.resumeAfterOperation) {
+          this.#requireStored(await this.#store.markCellState(operation.id, owner, "quiesced"));
+        }
         return this.#terminal(operation, owner, "EXPORT_EXPIRED");
       }
-      this.#requireStored(await this.#store.beginExport(operation.id, owner));
-      operation.checkpoint = "export-requested";
+      if (!operation.exportRequestStarted) {
+        this.#requireStored(await this.#store.beginExport(operation.id, owner, expiresAt));
+        operation.exportExpiresAt = new Date(expiresAt);
+        operation.exportRequestStarted = true;
+      }
     }
-    if (operation.checkpoint === "export-requested") {
+    if (operation.checkpoint === "export-requested" && !operation.exportRequestStarted) {
+      const expiresAt =
+        operation.exportExpiresAt ??
+        new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
+      this.#requireStored(await this.#store.beginExport(operation.id, owner, expiresAt));
+      operation.exportExpiresAt = new Date(expiresAt);
+      operation.exportRequestStarted = true;
+    }
+    if (["quiesced", "export-requested"].includes(operation.checkpoint)) {
       const cell = await this.#cell(operation);
-      const expiresAt = new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
+      const expiresAt = operation.exportExpiresAt;
+      if (!operation.exportRequestStarted || !expiresAt) {
+        return this.#terminal(operation, owner, "EXPORT_REQUEST_INTENT_MISSING");
+      }
       const result = await this.#provisioner.export({
         ...this.#target(operation, cell),
         expiresAt,
@@ -1332,6 +1393,22 @@ export class LifecycleReconciler {
               retryable: true,
               cause: error,
             });
+      if (
+        operation.operationType === "export" &&
+        ["quiesced", "export-requested"].includes(operation.checkpoint) &&
+        operation.exportRequestStarted &&
+        operation.exportExpiresAt !== null &&
+        operation.exportExpiresAt <= this.#now() &&
+        failure.code === "EXPORT_REQUEST_EXPIRED" &&
+        !failure.retryable
+      ) {
+        if (!operation.resumeAfterOperation) {
+          this.#requireStored(
+            await this.#store.markCellState(operation.id, input.owner, "quiesced")
+          );
+        }
+        return this.#terminal(operation, input.owner, "EXPORT_EXPIRED");
+      }
       const recoveryCode = mandatoryRecoveryCode(operation);
       if (recoveryCode) {
         const retried = await this.#store.retry(
@@ -1380,6 +1457,7 @@ function copyOperation(operation: LifecycleOperation): LifecycleOperation {
     exportReleaseDigest: operation.exportReleaseDigest
       ? Buffer.from(operation.exportReleaseDigest)
       : null,
+    exportExpiresAt: operation.exportExpiresAt ? new Date(operation.exportExpiresAt) : null,
     nextAttemptAt: new Date(operation.nextAttemptAt),
     leaseExpiresAt: operation.leaseExpiresAt ? new Date(operation.leaseExpiresAt) : null,
     createdAt: new Date(operation.createdAt),
@@ -1518,6 +1596,11 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       inputExportId: options.restoreBinding?.exportId ?? null,
       exportReleaseEnvelope: null,
       exportReleaseDigest: null,
+      exportExpiresAt:
+        operationType === "export"
+          ? new Date(now.getTime() + (options.exportTtlMs ?? 24 * 60 * 60 * 1000))
+          : null,
+      exportRequestStarted: false,
       inputSourceCellId: options.restoreBinding?.sourceCellId ?? null,
       inputArchiveSha256: options.restoreBinding?.archiveSha256 ?? null,
       inputManifestSha256: options.restoreBinding?.manifestSha256 ?? null,
@@ -1573,7 +1656,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
             ].includes(operation.checkpoint) ||
             (operation.operationType === "export" &&
               operation.checkpoint === "quiesced" &&
-              operation.exportReleaseEnvelope)) &&
+              (operation.exportRequestStarted || operation.exportReleaseEnvelope))) &&
           (operation.operationType === "delete" ||
             this.tenants.get(operation.tenantId)?.desiredState !== "deleted") &&
           ![...this.operations.values()].some(
@@ -1641,20 +1724,47 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     return true;
   }
 
-  async beginExport(operationId: string, owner: string): Promise<boolean> {
+  async beginExport(operationId: string, owner: string, expiresAt: Date): Promise<boolean> {
     const operation = this.#owned(operationId, owner);
     if (
       !operation ||
       operation.operationType !== "export" ||
-      operation.checkpoint !== "quiesced" ||
-      operation.exportReleaseEnvelope
+      !["quiesced", "export-requested"].includes(operation.checkpoint) ||
+      operation.exportReleaseEnvelope ||
+      !Number.isFinite(expiresAt.getTime()) ||
+      (operation.exportExpiresAt !== null &&
+        operation.exportExpiresAt.getTime() !== expiresAt.getTime())
     ) {
       return false;
     }
-    operation.checkpoint = "export-requested";
+    operation.exportExpiresAt ??= new Date(expiresAt);
+    operation.exportRequestStarted = true;
     operation.updatedAt = this.#now();
-    this.checkpointHistory.push({ operationId, checkpoint: "export-requested" });
     return true;
+  }
+
+  async recoverRecordedExport(
+    operationId: string,
+    owner: string
+  ): Promise<ExportRecordDisposition | "missing"> {
+    const operation = this.#owned(operationId, owner);
+    const record = this.exports.get(operationId);
+    if (
+      !operation ||
+      operation.operationType !== "export" ||
+      operation.checkpoint !== "quiesced" ||
+      !operation.exportReleaseEnvelope ||
+      !record ||
+      record.tenantId !== operation.tenantId ||
+      record.cellId !== operation.cellId
+    ) {
+      return "missing";
+    }
+    operation.exportExpiresAt = new Date(record.expiresAt);
+    operation.exportRequestStarted = true;
+    const disposition = record.expiresAt > this.#now() ? "available" : "expired";
+    operation.updatedAt = this.#now();
+    return disposition;
   }
 
   async advanceBillingTerminated(input: {
@@ -1961,7 +2071,10 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       !operation ||
       operation.operationType !== "export" ||
       operation.tenantId !== input.tenantId ||
-      operation.cellId !== input.cellId
+      operation.cellId !== input.cellId ||
+      !["quiesced", "export-requested"].includes(operation.checkpoint) ||
+      !operation.exportRequestStarted ||
+      operation.exportExpiresAt?.getTime() !== input.expiresAt.getTime()
     ) {
       return "conflict";
     }
@@ -2255,7 +2368,11 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       };
     }
     const cell = tenant.boundCellId ? this.cells.get(tenant.boundCellId) : null;
-    if (tenant.status === "active" && cell?.lifecycleState === "active") {
+    if (
+      tenant.status === "active" &&
+      cell?.lifecycleState === "active" &&
+      cell.readinessCode === "CELL_READY"
+    ) {
       return { state: "ready", code: "CELL_READY", retryable: false };
     }
     if (latest?.state === "failed_retryable" || latest?.state === "failed_terminal") {

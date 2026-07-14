@@ -7,6 +7,7 @@ import {
   type ExportDownloadResult,
 } from "./provisioner";
 import { immediateBestEffortReconcile } from "./reconcile-runtime";
+import { exportTtlMsFromEnv } from "./reconciler";
 import { decryptSecret, type SecretEnvelope } from "./security";
 
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -40,6 +41,7 @@ export type DurabilityDependencies = {
   listExports: typeof listOwnerExports;
   getExport: typeof getOwnerExport;
   createDownload: (input: OwnerExportPrivate) => Promise<ExportDownloadResult>;
+  exportTtlMs: number;
 };
 
 function defaults(): DurabilityDependencies {
@@ -50,6 +52,7 @@ function defaults(): DurabilityDependencies {
     reconcile: immediateBestEffortReconcile,
     listExports: listOwnerExports,
     getExport: getOwnerExport,
+    exportTtlMs: exportTtlMsFromEnv(),
     createDownload: async (record) => {
       const provisioner = new HttpCellProvisioner(provisionerConfigFromEnv());
       return provisioner.createExportDownload({
@@ -124,7 +127,8 @@ export async function requestOwnerExport(
     input.tenantId,
     "export",
     validateRetryKey(input.idempotencyKey),
-    target?.cellId ?? null
+    target?.cellId ?? null,
+    { exportTtlMs: deps.exportTtlMs }
   );
   await deps.reconcile(input.tenantId);
   return { operationId: operation.id, requestId: operation.requestId, state: "processing" };

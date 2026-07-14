@@ -540,6 +540,17 @@
     },
     {
       "body": {
+        "code": "EXPORT_REQUEST_EXPIRED",
+        "retryable": false
+      },
+      "expectedTypeScript": {
+        "code": "EXPORT_REQUEST_EXPIRED",
+        "retryable": false
+      },
+      "status": 422
+    },
+    {
+      "body": {
         "code": "PROVISIONER_RESPONSE_INVALID",
         "retryable": false
       },

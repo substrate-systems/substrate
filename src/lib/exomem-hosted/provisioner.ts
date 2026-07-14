@@ -150,6 +150,7 @@ export type ProvisionerFailureCode =
   | "PROVISIONER_UNAVAILABLE"
   | "PROVISIONER_TIMEOUT"
   | "PROVISIONER_REJECTED"
+  | "EXPORT_REQUEST_EXPIRED"
   | "PROVISIONER_RESPONSE_INVALID"
   | "BILLING_TERMINATION_UNAVAILABLE";
 
@@ -354,6 +355,7 @@ function parseExactServerFailure(
   > = {
     CONTROL_PLANE_STATE_CONFLICT: { retryable: false, statuses: [409] },
     PROVISIONER_REJECTED: { retryable: false, statuses: [400, 401, 409, 413, 415, 422] },
+    EXPORT_REQUEST_EXPIRED: { retryable: false, statuses: [422] },
     PROVISIONER_RESPONSE_INVALID: { retryable: false, statuses: [500] },
     PROVISIONER_UNAVAILABLE: { retryable: true, statuses: [500, 503] },
   };
@@ -571,11 +573,7 @@ export class HttpCellProvisioner implements CellProvisioner {
   async export(request: CreateExportRequest): Promise<ExportRequestResult> {
     const now = Date.now();
     const expiresAt = request.expiresAt.getTime();
-    if (
-      !Number.isFinite(expiresAt) ||
-      expiresAt - now > 30 * 24 * 60 * 60 * 1000 ||
-      (expiresAt <= now && request.context.checkpoint !== "export-requested")
-    ) {
+    if (!Number.isFinite(expiresAt) || expiresAt - now > 30 * 24 * 60 * 60 * 1000) {
       throw configurationFailure();
     }
     const response = await this.#call("export", request, {
@@ -974,7 +972,10 @@ export class FakeCellProvisioner implements CellProvisioner {
     }
     const now = this.#now().getTime();
     if (expiresAt <= now || expiresAt - now > 30 * 24 * 60 * 60 * 1000) {
-      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+      throw new ProvisionerFailure({
+        code: "EXPORT_REQUEST_EXPIRED",
+        retryable: false,
+      });
     }
     const key = this.#before("export", request, additional);
     this.#resource(request);

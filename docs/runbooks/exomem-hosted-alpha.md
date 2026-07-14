@@ -209,7 +209,7 @@ the same idempotency key and input must converge to the same result; reusing a
 key with different input must fail.
 
 The checked Python/TypeScript interoperability corpus has SHA-256
-`df709821624f2ac9910174b94e1a543ec289504f1baa84862be2075f7d642512`.
+`ffab7d04c03b261523738087bd22a1a2a24bccc6b0492b8d3973863015dea315`.
 It exercises the real `HttpCellProvisioner` serializer/parser for all 14
 requests, exact pending responses, every final proof (including void results),
 and every content-free server error class. Regenerate it from the companion IaC
@@ -227,7 +227,9 @@ candidate that fails any field.
 The client always forwards an exact replay even after that expiry. The provider
 returns the stored result when the key and canonical input already completed,
 continues an already-accepted request, but rejects a brand-new expired request
-with side-effect-free `PROVISIONER_REJECTED` without creating an artifact.
+with side-effect-free `EXPORT_REQUEST_EXPIRED` without creating an artifact.
+Generic or malformed 422 responses remain `PROVISIONER_REJECTED`; Substrate
+never infers expiry from status alone.
 Substrate records the verified provider object before calling `export-release`;
 the cell keeps its local artifact until that idempotent acknowledgement. Expired
 provider objects are removed by the bounded hourly `exomem-export-gc` pass. If

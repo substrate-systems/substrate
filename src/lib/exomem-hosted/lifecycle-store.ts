@@ -57,6 +57,8 @@ function operationFromRow(row: Row): LifecycleOperation {
     exportReleaseDigest: row.export_release_reference_digest
       ? asBuffer(row.export_release_reference_digest)
       : null,
+    exportExpiresAt: row.export_expires_at ? asDate(row.export_expires_at) : null,
+    exportRequestStarted: row.export_request_started === true,
     inputSourceCellId: row.input_source_cell_id ? String(row.input_source_cell_id) : null,
     inputArchiveSha256: row.input_archive_sha256 ? String(row.input_archive_sha256) : null,
     inputManifestSha256: row.input_manifest_sha256 ? String(row.input_manifest_sha256) : null,
@@ -112,6 +114,15 @@ export class SqlLifecycleStore implements LifecycleStore {
     cellId: string | null = null,
     options: LifecycleEnqueueOptions = {}
   ): Promise<LifecycleOperation> {
+    const exportTtlMs = options.exportTtlMs ?? 24 * 60 * 60 * 1000;
+    if (
+      operationType === "export" &&
+      (!Number.isSafeInteger(exportTtlMs) ||
+        exportTtlMs < 60 * 60 * 1000 ||
+        exportTtlMs > 30 * 24 * 60 * 60 * 1000)
+    ) {
+      throw exomemErrors.invalidRequest();
+    }
     if (operationType === "delete") {
       // Deletion must atomically consume the owner confirmation, bump the
       // tenant fence, gate access, and enqueue via
@@ -197,7 +208,7 @@ export class SqlLifecycleStore implements LifecycleStore {
         fence_generation,
         input_reference_ciphertext, input_reference_digest,
         input_export_id, input_source_cell_id, input_archive_sha256, input_manifest_sha256,
-        input_archive_size, resume_after_operation
+        input_archive_size, resume_after_operation, export_expires_at
       )
       SELECT tenant.id,
              CASE
@@ -222,6 +233,10 @@ export class SqlLifecycleStore implements LifecycleStore {
              CASE WHEN ${operationType}::text = 'export'
                THEN tenant.desired_state = 'running'
                ELSE true
+             END,
+             CASE WHEN ${operationType}::text = 'export'
+               THEN now() + (${exportTtlMs} * interval '1 millisecond')
+               ELSE NULL
              END
       FROM tenant
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
@@ -289,7 +304,10 @@ export class SqlLifecycleStore implements LifecycleStore {
             OR (
               operation.operation_type = 'export'
               AND operation.checkpoint = 'quiesced'
-              AND operation.export_release_reference_ciphertext IS NOT NULL
+              AND (
+                operation.export_request_started
+                OR operation.export_release_reference_ciphertext IS NOT NULL
+              )
             )
           )
           AND (${input.tenantId ?? null}::uuid IS NULL OR operation.tenant_id = ${input.tenantId ?? null}::uuid)
@@ -396,18 +414,28 @@ export class SqlLifecycleStore implements LifecycleStore {
     return rows.length === 1;
   }
 
-  async beginExport(operationId: string, owner: string): Promise<boolean> {
+  async beginExport(operationId: string, owner: string, expiresAt: Date): Promise<boolean> {
+    if (!Number.isFinite(expiresAt.getTime())) return false;
     const { rows } = await executeExomemSql`
       /* exomem:lifecycle-begin-export */
       UPDATE exomem_lifecycle_operations AS operation
-      SET checkpoint = 'export-requested', updated_at = now()
+      SET export_expires_at = COALESCE(
+            operation.export_expires_at,
+            ${expiresAt.toISOString()}::timestamptz
+          ),
+          export_request_started = true,
+          updated_at = now()
       WHERE operation.id = ${operationId}
         AND operation.operation_type = 'export'
-        AND operation.checkpoint = 'quiesced'
+        AND operation.checkpoint IN ('quiesced', 'export-requested')
         AND operation.state = 'running'
         AND operation.lease_owner = ${owner}
         AND operation.lease_expires_at > now()
         AND operation.export_release_reference_ciphertext IS NULL
+        AND (
+          operation.export_expires_at IS NULL
+          OR operation.export_expires_at = ${expiresAt.toISOString()}::timestamptz
+        )
         AND EXISTS (
           SELECT 1 FROM exomem_tenants AS tenant
           WHERE tenant.id = operation.tenant_id
@@ -416,6 +444,41 @@ export class SqlLifecycleStore implements LifecycleStore {
       RETURNING operation.id
     `;
     return rows.length === 1;
+  }
+
+  async recoverRecordedExport(
+    operationId: string,
+    owner: string
+  ): Promise<ExportRecordDisposition | "missing"> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-recover-recorded-export */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET export_expires_at = export_row.expires_at,
+          export_request_started = true,
+          updated_at = now()
+      FROM exomem_exports AS export_row
+      WHERE operation.id = ${operationId}
+        AND operation.operation_type = 'export'
+        AND operation.checkpoint = 'quiesced'
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.export_release_reference_ciphertext IS NOT NULL
+        AND export_row.operation_id = operation.id
+        AND export_row.tenant_id = operation.tenant_id
+        AND export_row.cell_id = operation.cell_id
+        AND EXISTS (
+          SELECT 1 FROM exomem_tenants AS tenant
+          WHERE tenant.id = operation.tenant_id
+            AND tenant.fence_generation = operation.fence_generation
+        )
+      RETURNING CASE
+        WHEN export_row.expires_at > now() THEN 'available'
+        ELSE 'expired'
+      END AS disposition
+    `;
+    const disposition = rows[0]?.disposition;
+    return disposition === "available" || disposition === "expired" ? disposition : "missing";
   }
 
   async advanceBillingTerminated(input: {
@@ -789,7 +852,9 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND operation.tenant_id = ${input.tenantId}
           AND operation.cell_id = ${input.cellId}
           AND operation.operation_type = 'export'
-          AND operation.checkpoint = 'export-requested'
+          AND operation.checkpoint IN ('quiesced', 'export-requested')
+          AND operation.export_request_started
+          AND operation.export_expires_at = ${input.expiresAt.toISOString()}::timestamptz
           AND operation.state = 'running'
           AND operation.lease_owner = ${input.owner}
           AND operation.lease_expires_at > now()

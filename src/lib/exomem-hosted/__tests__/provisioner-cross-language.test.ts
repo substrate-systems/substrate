@@ -30,7 +30,7 @@ type ContractFixture = {
 };
 
 const fixture = rawFixture as ContractFixture;
-const FIXTURE_SHA256 = "df709821624f2ac9910174b94e1a543ec289504f1baa84862be2075f7d642512";
+const FIXTURE_SHA256 = "ffab7d04c03b261523738087bd22a1a2a24bccc6b0492b8d3973863015dea315";
 
 function credential(seed: string): string {
   return createHash("sha256").update(seed).digest("base64url");

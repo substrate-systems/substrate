@@ -1364,8 +1364,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
 
     const store = new SqlLifecycleStore();
-    assert.equal(await store.beginExport(operationId, "export-worker"), true);
     const expiresAt = new Date(Date.now() - 1_000);
+    assert.equal(await store.beginExport(operationId, "export-worker", expiresAt), true);
     assert.equal(
       await store.recordExportResult({
         operationId,
