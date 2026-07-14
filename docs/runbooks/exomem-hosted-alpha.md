@@ -231,8 +231,12 @@ the exact product expiry elapses while `export` is in flight, Substrate records
 the object directly as deleting and moves the operation into the mandatory
 `export-expired-release` checkpoint. Provider-pending responses and retryable
 failures at that checkpoint continue past the ordinary attempt cap. Substrate
-idempotently releases the cell-local artifact, then clears the encrypted release
-handle and records terminal `EXPORT_EXPIRED` in one fenced transaction; it never
+idempotently releases the cell-local artifact and restores the cell to its
+pre-export state: a previously running cell is resumed and must re-prove exact
+readiness, while an already-suspended cell is durably marked quiesced. Pending
+responses from release, resume, or readiness remain in the same mandatory
+checkpoint. Only after restoration does Substrate clear the encrypted release
+handle and record terminal `EXPORT_EXPIRED` in one fenced transaction; it never
 publishes the artifact or abandons either cleanup handle.
 `export-delete` must return `objectDestroyed: true` before the control plane
 scrubs the encrypted reference and integrity metadata into a tombstone.
