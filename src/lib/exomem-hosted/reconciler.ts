@@ -1332,18 +1332,6 @@ export class LifecycleReconciler {
               retryable: true,
               cause: error,
             });
-      if (
-        operation.checkpoint === "export-requested" &&
-        !failure.retryable &&
-        ["PROVISIONER_REJECTED", "PROVISIONER_CONFIGURATION_INVALID"].includes(failure.code)
-      ) {
-        const expiresAt = new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
-        return this.#terminal(
-          operation,
-          input.owner,
-          expiresAt <= this.#now() ? "EXPORT_EXPIRED" : failure.code
-        );
-      }
       const recoveryCode = mandatoryRecoveryCode(operation);
       if (recoveryCode) {
         const retried = await this.#store.retry(

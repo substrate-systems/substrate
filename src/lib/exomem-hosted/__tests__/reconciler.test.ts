@@ -654,14 +654,14 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.statusForTenant(TENANT).state, "ready");
   });
 
-  it("resumes after a definitive side-effect-free export rejection at the provider boundary", async () => {
+  it("does not abandon an ambiguous export request on a nonretryable transport response", async () => {
     const { store, reconciler, provisioner } = harness();
     await store.enqueue(TENANT, "provision", "initial-provision");
     await convergeProvision(reconciler);
     const cellId = store.tenants.get(TENANT)?.boundCellId;
     assert.ok(cellId);
 
-    const operation = await store.enqueue(TENANT, "export", "provider-rejected", cellId);
+    const operation = await store.enqueue(TENANT, "export", "ambiguous-provider-reject", cellId);
     await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
     await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
     provisioner.failure = new ProvisionerFailure({
@@ -671,17 +671,17 @@ describe("Exomem lifecycle reconciler", () => {
 
     const rejected = await reconciler.reconcileOne({ owner: "provider-reject", tenantId: TENANT });
     assert.deepEqual(rejected, {
-      kind: "advanced",
+      kind: "retry_scheduled",
       operationId: operation.id,
-      checkpoint: "export-failure-resume",
+      code: "EXPORT_RESULT_RECOVERY_PENDING",
     });
-    assert.equal(store.operations.get(operation.id)?.errorCode, "PROVISIONER_REJECTED");
-    assert.equal(provisioner.exportArtifacts.size, 0);
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "export-requested");
+    assert.equal(store.operations.get(operation.id)?.state, "failed_retryable");
 
     provisioner.failure = null;
-    await convergeProvision(reconciler, TENANT, 4);
-    assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
-    assert.equal(store.operations.get(operation.id)?.errorCode, "PROVISIONER_REJECTED");
+    await store.makeRunnable(TENANT);
+    await convergeProvision(reconciler, TENANT, 8);
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
     assert.equal(store.statusForTenant(TENANT).state, "ready");
   });
 
