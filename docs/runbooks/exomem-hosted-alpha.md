@@ -14,7 +14,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
-1. migrations `0017` through `0021` applied to the production Neon database;
+1. migrations `0017` through `0022` applied to the production Neon database;
 2. an Exomem `0.22.0` cell image from commit `54618b931dec8f0ad053dce48dd80cc36c95c549` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -383,10 +383,14 @@ ship incident: keep routing closed and preserve only content-free audit evidence
 
 ## Rollback
 
-Application rollback is safe because the Exomem migrations are additive. Stop
-new invites, keep affected tenant routing closed, deploy the prior Substrate
-release, and pin cells to its compatible protocol/release. Leave the additive
-schema in place; never roll back by copying or rewriting live vault content.
+Application rollback is safe because the Exomem migrations are additive, but
+export operations must first be fenced and drained. Stop new invites and export
+requests, then wait until no active export has `export_request_started = true`
+at checkpoint `quiesced`; the current release must finish those compatibility
+replays before an older release can safely run. Keep affected tenant routing
+closed, deploy the prior Substrate release, and pin cells to its compatible
+protocol/release. Leave the additive schema in place; never roll back by copying
+or rewriting live vault content.
 
 Before a cell release rollback, quiesce and verify an export. Start a replacement
 cell on the prior compatible image, restore into an empty volume, require full

@@ -235,7 +235,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                ELSE true
              END,
              CASE WHEN ${operationType}::text = 'export'
-               THEN now() + (${exportTtlMs} * interval '1 millisecond')
+               THEN date_trunc('milliseconds', now())
+                    + (${exportTtlMs} * interval '1 millisecond')
                ELSE NULL
              END
       FROM tenant
@@ -419,9 +420,10 @@ export class SqlLifecycleStore implements LifecycleStore {
     const { rows } = await executeExomemSql`
       /* exomem:lifecycle-begin-export */
       UPDATE exomem_lifecycle_operations AS operation
-      SET export_expires_at = COALESCE(
-            operation.export_expires_at,
-            ${expiresAt.toISOString()}::timestamptz
+      SET checkpoint = 'export-requested',
+          export_expires_at = date_trunc(
+            'milliseconds',
+            COALESCE(operation.export_expires_at, ${expiresAt.toISOString()}::timestamptz)
           ),
           export_request_started = true,
           updated_at = now()
@@ -434,7 +436,8 @@ export class SqlLifecycleStore implements LifecycleStore {
         AND operation.export_release_reference_ciphertext IS NULL
         AND (
           operation.export_expires_at IS NULL
-          OR operation.export_expires_at = ${expiresAt.toISOString()}::timestamptz
+          OR date_trunc('milliseconds', operation.export_expires_at)
+               = ${expiresAt.toISOString()}::timestamptz
         )
         AND EXISTS (
           SELECT 1 FROM exomem_tenants AS tenant
@@ -459,7 +462,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       FROM exomem_exports AS export_row
       WHERE operation.id = ${operationId}
         AND operation.operation_type = 'export'
-        AND operation.checkpoint = 'quiesced'
+        AND operation.checkpoint IN ('quiesced', 'export-requested')
         AND operation.state = 'running'
         AND operation.lease_owner = ${owner}
         AND operation.lease_expires_at > now()
@@ -957,7 +960,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       SET checkpoint = 'export-expired-release', updated_at = now()
       WHERE operation.id = ${operationId}
         AND operation.operation_type = 'export'
-        AND operation.checkpoint = 'quiesced'
+        AND operation.checkpoint IN ('quiesced', 'export-requested')
         AND operation.state = 'running'
         AND operation.lease_owner = ${owner}
         AND operation.lease_expires_at > now()

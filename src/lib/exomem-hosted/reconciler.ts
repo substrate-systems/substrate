@@ -1094,25 +1094,28 @@ export class LifecycleReconciler {
       await this.#provisioner.quiesce(this.#target(operation, cell));
       return this.#advance(operation, owner, "quiesced");
     }
-    if (operation.checkpoint === "quiesced") {
+    if (
+      ["quiesced", "export-requested"].includes(operation.checkpoint) &&
+      operation.exportReleaseEnvelope
+    ) {
       const cell = await this.#cell(operation);
-      if (operation.exportReleaseEnvelope) {
-        const disposition = await this.#store.recoverRecordedExport(operation.id, owner);
-        if (disposition === "missing") {
-          return this.#terminal(operation, owner, "EXPORT_RECORD_CONFLICT");
-        }
-        if (disposition === "available") {
-          return this.#advance(operation, owner, "export-stored");
-        }
-        this.#requireStored(await this.#store.prepareExpiredExportRelease(operation.id, owner));
-        operation.checkpoint = "export-expired-release";
-        return this.#releaseExpiredExport(
-          operation,
-          owner,
-          cell,
-          decryptSecret(operation.exportReleaseEnvelope, { key: this.#envelopeKey })
-        );
+      const disposition = await this.#store.recoverRecordedExport(operation.id, owner);
+      if (disposition === "missing") {
+        return this.#terminal(operation, owner, "EXPORT_RECORD_CONFLICT");
       }
+      if (disposition === "available") {
+        return this.#advance(operation, owner, "export-stored");
+      }
+      this.#requireStored(await this.#store.prepareExpiredExportRelease(operation.id, owner));
+      operation.checkpoint = "export-expired-release";
+      return this.#releaseExpiredExport(
+        operation,
+        owner,
+        cell,
+        decryptSecret(operation.exportReleaseEnvelope, { key: this.#envelopeKey })
+      );
+    }
+    if (operation.checkpoint === "quiesced") {
       const expiresAt =
         operation.exportExpiresAt ??
         new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
@@ -1128,6 +1131,7 @@ export class LifecycleReconciler {
       }
       if (!operation.exportRequestStarted) {
         this.#requireStored(await this.#store.beginExport(operation.id, owner, expiresAt));
+        operation.checkpoint = "export-requested";
         operation.exportExpiresAt = new Date(expiresAt);
         operation.exportRequestStarted = true;
       }
@@ -1137,6 +1141,7 @@ export class LifecycleReconciler {
         operation.exportExpiresAt ??
         new Date(operation.createdAt.getTime() + this.#config.exportTtlMs);
       this.#requireStored(await this.#store.beginExport(operation.id, owner, expiresAt));
+      operation.checkpoint = "export-requested";
       operation.exportExpiresAt = new Date(expiresAt);
       operation.exportRequestStarted = true;
     }
@@ -1739,6 +1744,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     }
     operation.exportExpiresAt ??= new Date(expiresAt);
     operation.exportRequestStarted = true;
+    operation.checkpoint = "export-requested";
     operation.updatedAt = this.#now();
     return true;
   }
@@ -1752,7 +1758,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     if (
       !operation ||
       operation.operationType !== "export" ||
-      operation.checkpoint !== "quiesced" ||
+      !["quiesced", "export-requested"].includes(operation.checkpoint) ||
       !operation.exportReleaseEnvelope ||
       !record ||
       record.tenantId !== operation.tenantId ||
@@ -2145,7 +2151,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     if (
       !operation ||
       operation.operationType !== "export" ||
-      operation.checkpoint !== "quiesced" ||
+      !["quiesced", "export-requested"].includes(operation.checkpoint) ||
       !operation.exportReleaseEnvelope
     ) {
       return false;

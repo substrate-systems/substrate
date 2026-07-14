@@ -1322,6 +1322,72 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
   });
 
+  it("round-trips database-created export expiry through begin and record", async () => {
+    const envelopeKey = Buffer.alloc(32, 0x22);
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants
+         (id, owner_user_id, status, desired_state, fence_generation)
+       VALUES ($1, $2, 'active', 'running', 4)`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state,
+         protocol_version, release_version
+       ) VALUES ($1, $2, 'draining', 'bound', 'quiesced', '1', 'test')`,
+      [CELL, TENANT]
+    );
+    await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
+
+    const store = new SqlLifecycleStore();
+    const queued = await store.enqueue(TENANT, "export", "database-expiry-round-trip", CELL, {
+      exportTtlMs: 86_400_000,
+    });
+    await pool.query(
+      `UPDATE exomem_lifecycle_operations
+          SET checkpoint = 'quiesced', state = 'waiting', next_attempt_at = now()
+        WHERE id = $1`,
+      [queued.id]
+    );
+    const claimed = await store.claim({
+      owner: "export-worker",
+      leaseMs: 30_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.ok(claimed?.exportExpiresAt);
+    assert.equal(
+      await store.beginExport(claimed.id, "export-worker", claimed.exportExpiresAt),
+      true
+    );
+    assert.equal(
+      await store.recordExportResult({
+        operationId: claimed.id,
+        owner: "export-worker",
+        tenantId: TENANT,
+        cellId: CELL,
+        storageReferenceEnvelope: encryptSecret("provider-export-ref", {
+          key: envelopeKey,
+          randomBytes: (size) => Buffer.alloc(size, 0x23),
+        }),
+        storageReferenceDigest: digestSecret("provider-export-ref"),
+        releaseReferenceEnvelope: encryptSecret("cell-release-ref", {
+          key: envelopeKey,
+          randomBytes: (size) => Buffer.alloc(size, 0x24),
+        }),
+        releaseReferenceDigest: digestSecret("cell-release-ref"),
+        archiveSha256: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        archiveSize: 1024,
+        encryptionScheme: "envelope-aes-256-gcm",
+        integrityVerified: true,
+        expiresAt: claimed.exportExpiresAt,
+      }),
+      "available"
+    );
+  });
+
   it("persists expired export release as mandatory recovery and completes it atomically", async () => {
     const operationId = "44444444-4444-4444-8444-444444444480";
     const envelopeKey = Buffer.alloc(32, 0x32);

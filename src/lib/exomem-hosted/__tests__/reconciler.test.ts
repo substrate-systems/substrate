@@ -612,7 +612,7 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(nowState.value.toISOString(), "2026-07-12T12:00:00.000Z");
   });
 
-  it("recovers a pre-upgrade quiesced export with its legacy idempotency identity", async () => {
+  it("recovers a pre-upgrade export with its legacy idempotency identity", async () => {
     const { store, reconciler, provisioner } = harness();
     await store.enqueue(TENANT, "provision", "initial-provision");
     await convergeProvision(reconciler);
@@ -624,6 +624,7 @@ describe("Exomem lifecycle reconciler", () => {
     await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
     const stored = store.operations.get(operation.id);
     assert.ok(stored);
+    stored.checkpoint = "export-requested";
     stored.exportExpiresAt = null;
     stored.exportRequestStarted = false;
     provisioner.loseNextAcknowledgement("export");
@@ -636,7 +637,7 @@ describe("Exomem lifecycle reconciler", () => {
       (call) => call.action === "export" && call.idempotencyKey.startsWith(operation.id)
     );
     assert.equal(calls.length, 2);
-    assert.equal(calls[0]?.idempotencyKey, `${operation.id}:quiesced`);
+    assert.equal(calls[0]?.idempotencyKey, `${operation.id}:export-requested`);
     assert.equal(calls[1]?.idempotencyKey, calls[0]?.idempotencyKey);
     assert.equal(store.operations.get(operation.id)?.state, "succeeded");
   });
@@ -654,7 +655,7 @@ describe("Exomem lifecycle reconciler", () => {
     await reconciler.reconcileOne({ owner: "recorded", tenantId: TENANT });
     const stored = store.operations.get(operation.id);
     assert.ok(stored?.exportReleaseEnvelope);
-    stored.checkpoint = "quiesced";
+    stored.checkpoint = "export-requested";
     stored.state = "waiting";
     stored.nextAttemptAt = new Date(0);
     stored.exportExpiresAt = null;
@@ -701,7 +702,7 @@ describe("Exomem lifecycle reconciler", () => {
 
     const accepted = await reconciler.reconcileOne({ owner: "accepted", tenantId: TENANT });
     assert.equal(accepted.kind, "retry_scheduled");
-    assert.equal(store.operations.get(operation.id)?.checkpoint, "quiesced");
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "export-requested");
     const requestedExpiry = store.operations.get(operation.id)?.exportExpiresAt;
     assert.ok(requestedExpiry);
     nowState.value = new Date(requestedExpiry.getTime() + 1);
@@ -716,7 +717,7 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(provisioner.exportArtifacts.size, 0);
     const exportCalls = provisioner.calls.filter((call) => call.action === "export");
     assert.equal(exportCalls.length, 2);
-    assert.equal(exportCalls[0]?.idempotencyKey, `${operation.id}:quiesced`);
+    assert.equal(exportCalls[0]?.idempotencyKey, `${operation.id}:export-requested`);
     assert.equal(exportCalls[1]?.idempotencyKey, exportCalls[0]?.idempotencyKey);
 
     await convergeProvision(reconciler, TENANT, 6);
@@ -836,7 +837,7 @@ describe("Exomem lifecycle reconciler", () => {
       operationId: operation.id,
       code: "EXPORT_RESULT_RECOVERY_PENDING",
     });
-    assert.equal(store.operations.get(operation.id)?.checkpoint, "quiesced");
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "export-requested");
     assert.equal(store.operations.get(operation.id)?.state, "failed_retryable");
 
     provisioner.failure = null;

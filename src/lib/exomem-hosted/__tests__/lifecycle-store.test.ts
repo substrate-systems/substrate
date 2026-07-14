@@ -83,9 +83,13 @@ describe("SQL lifecycle operation store", () => {
     assert.equal(await store.beginExport("operation-1", "worker-a", expiresAt), true);
     assert.match(statement, /operation_type = 'export'/i);
     assert.match(statement, /operation\.checkpoint IN\s*\('quiesced', 'export-requested'\)/i);
-    assert.match(statement, /export_expires_at = COALESCE\(\s*operation\.export_expires_at/i);
+    assert.match(
+      statement,
+      /export_expires_at = date_trunc\(\s*'milliseconds',\s*COALESCE\(operation\.export_expires_at/i
+    );
     assert.match(statement, /export_request_started = true/i);
-    assert.doesNotMatch(statement, /SET checkpoint = 'export-requested'/i);
+    assert.match(statement, /checkpoint = 'export-requested'/i);
+    assert.match(statement, /date_trunc\('milliseconds', operation\.export_expires_at\)/i);
     assert.match(statement, /lease_owner =/i);
     assert.match(statement, /lease_expires_at > now\(\)/i);
     assert.match(statement, /export_release_reference_ciphertext IS NULL/i);
@@ -213,7 +217,7 @@ describe("SQL lifecycle operation store", () => {
       true
     );
     assert.match(statement, /checkpoint = 'export-expired-release'/i);
-    assert.match(statement, /operation\.checkpoint = 'quiesced'/i);
+    assert.match(statement, /operation\.checkpoint IN\s*\('quiesced', 'export-requested'\)/i);
     assert.match(statement, /export_release_reference_ciphertext IS NOT NULL/i);
     assert.match(statement, /operation\.lease_expires_at > now\(\)/i);
     assert.match(statement, /tenant\.fence_generation = operation\.fence_generation/i);
