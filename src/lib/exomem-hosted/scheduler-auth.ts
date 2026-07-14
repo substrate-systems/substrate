@@ -21,8 +21,10 @@ export function verifyHostedSchedulerAuth(request: NextRequest): { ok: boolean }
   if (!header?.toLowerCase().startsWith("bearer ")) return { ok: false };
   const provided = header.slice("bearer ".length).trim();
   if (!provided) return { ok: false };
-  const accepted = [process.env[ACTIVE_SECRET], process.env[PREVIOUS_SECRET]].filter(
-    (secret): secret is string => Boolean(secret)
+  const active = process.env[ACTIVE_SECRET];
+  if (!active) return { ok: false };
+  const accepted = [active, process.env[PREVIOUS_SECRET]].filter((secret): secret is string =>
+    Boolean(secret)
   );
   return { ok: accepted.some((secret) => constantTimeEqual(provided, secret)) };
 }

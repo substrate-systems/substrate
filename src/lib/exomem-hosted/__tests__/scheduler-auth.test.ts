@@ -38,6 +38,12 @@ describe("verifyHostedSchedulerAuth", () => {
     assert.equal(verifyHostedSchedulerAuth(request("global-cron-secret")).ok, false);
   });
 
+  it("does not fall back to the previous version when active is absent", () => {
+    delete process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS = "previous-scheduler-secret";
+    assert.equal(verifyHostedSchedulerAuth(request("previous-scheduler-secret")).ok, false);
+  });
+
   it("accepts one explicit previous receiver version during rotation", () => {
     process.env.EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS = "previous-scheduler-secret";
     assert.equal(verifyHostedSchedulerAuth(request("previous-scheduler-secret")).ok, true);
