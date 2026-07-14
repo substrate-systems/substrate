@@ -403,7 +403,7 @@ export class SqlLifecycleStore implements LifecycleStore {
         WHERE operation.id = ${input.operationId}
           AND operation.operation_type = 'delete'
           AND operation.state = 'running'
-          AND operation.checkpoint = 'local-gated'
+          AND operation.checkpoint = 'quiesced'
           AND operation.lease_owner = ${input.owner}
           AND operation.lease_expires_at > now()
           AND operation.fence_generation = tenant.fence_generation
@@ -439,7 +439,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       ),
       operation_advanced AS (
         UPDATE exomem_lifecycle_operations AS operation
-        SET checkpoint = 'billing-terminated',
+        SET checkpoint = 'billing-quiesced',
             state = 'waiting',
             attempts = 0,
             error_code = NULL,
@@ -479,6 +479,37 @@ export class SqlLifecycleStore implements LifecycleStore {
         AND operation.state = 'running'
         AND operation.lease_owner = ${owner}
         AND operation.lease_expires_at > now()
+        AND EXISTS (
+          SELECT 1 FROM exomem_tenants AS tenant
+          WHERE tenant.id = operation.tenant_id
+            AND tenant.fence_generation = operation.fence_generation
+        )
+      RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async waitForProvider(
+    operationId: string,
+    owner: string,
+    expectedCheckpoint: string,
+    nextAttemptAt: Date
+  ): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-wait-for-provider */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET state = 'waiting',
+          attempts = GREATEST(attempts - 1, 0),
+          error_code = NULL,
+          next_attempt_at = ${nextAttemptAt.toISOString()},
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          updated_at = now()
+      WHERE operation.id = ${operationId}
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.checkpoint = ${expectedCheckpoint}
         AND EXISTS (
           SELECT 1 FROM exomem_tenants AS tenant
           WHERE tenant.id = operation.tenant_id

@@ -142,10 +142,12 @@ describe("private Exomem Home contract", () => {
     assert.match(vercel, /return null/);
   });
 
-  it("requires and privately forwards upload retry identity", () => {
+  it("keeps upload bodies out of the Vercel ticket route", () => {
     const route = source("src/app/api/exomem/upload/route.ts");
-    assert.match(route, /normalizeIdempotencyKey\(request\.headers\.get\("idempotency-key"\)\)/);
-    assert.match(route, /"idempotency-key": idempotencyKey/);
+    assert.match(route, /createDirectTransferTicket/);
+    assert.match(route, /MAX_TICKET_REQUEST_BYTES/);
+    assert.doesNotMatch(route, /multipart\/form-data/);
+    assert.doesNotMatch(route, /body: boundedBody/);
   });
 
   it("has keyboard focus, narrow-screen, and reduced-motion rules", () => {

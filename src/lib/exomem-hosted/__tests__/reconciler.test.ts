@@ -5,7 +5,7 @@ import {
   LifecycleReconciler,
   expectedCellConfiguration,
 } from "../reconciler";
-import { FakeCellProvisioner, ProvisionerFailure } from "../provisioner";
+import { FakeCellProvisioner, ProvisionerFailure, ProvisionerPending } from "../provisioner";
 import { digestSecret, encryptSecret } from "../security";
 
 const TENANT = "018f2d91-7c42-7000-8000-000000000051";
@@ -161,6 +161,170 @@ describe("Exomem lifecycle reconciler", () => {
 
     assert.equal(provisioner.resources.size, 1);
     assert.equal(store.statusForTenant(TENANT).state, "ready");
+  });
+
+  it("waits through more than six provider-pending polls without consuming attempts", async () => {
+    class PendingProvisioner extends FakeCellProvisioner {
+      remaining = 8;
+
+      override async provision(request: Parameters<FakeCellProvisioner["provision"]>[0]) {
+        if (this.remaining > 0) {
+          this.remaining -= 1;
+          throw new ProvisionerPending({
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 2,
+          });
+        }
+        return super.provision(request);
+      }
+    }
+
+    const provisioner = new PendingProvisioner();
+    const { store, reconciler, nowState } = harness(undefined, async () => true, provisioner);
+    const operation = await store.enqueue(TENANT, "provision", "long-provider-provision");
+    await reconciler.reconcileOne({ owner: "candidate", tenantId: TENANT });
+
+    for (let poll = 0; poll < 8; poll += 1) {
+      const result = await reconciler.reconcileOne({ owner: `poll-${poll}`, tenantId: TENANT });
+      assert.equal(result.kind, "retry_scheduled");
+      assert.equal(store.operations.get(operation.id)?.state, "waiting");
+      assert.equal(store.operations.get(operation.id)?.attempts, 0);
+      assert.equal(store.operations.get(operation.id)?.errorCode, null);
+      nowState.value = new Date(nowState.value.getTime() + 2_001);
+    }
+
+    await convergeProvision(reconciler, TENANT, 8);
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+  });
+
+  it("waits through more than six restore polls without consuming attempts", async () => {
+    class PendingRestoreProvisioner extends FakeCellProvisioner {
+      remaining = 8;
+
+      override async restore(request: Parameters<FakeCellProvisioner["restore"]>[0]) {
+        if (this.remaining > 0) {
+          this.remaining -= 1;
+          throw new ProvisionerPending({
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 2,
+          });
+        }
+        return super.restore(request);
+      }
+    }
+
+    const provisioner = new PendingRestoreProvisioner();
+    const { store, reconciler, nowState } = harness(undefined, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const priorCellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(priorCellId);
+    const restoreRef = "stored-export-long-restore";
+    const operation = await store.enqueue(TENANT, "restore", "long-provider-restore", null, {
+      inputReferenceEnvelope: encryptSecret(restoreRef, {
+        key: Buffer.alloc(32, 0x61),
+        randomBytes: (size) => Buffer.alloc(size, 0x41),
+      }),
+      inputReferenceDigest: digestSecret(restoreRef),
+      restoreBinding: {
+        exportId: "018f2d91-7c42-7000-8000-000000000052",
+        sourceCellId: priorCellId,
+        archiveSha256: "a".repeat(64),
+        manifestSha256: "b".repeat(64),
+        archiveSize: 1024,
+      },
+    });
+    await reconciler.reconcileOne({ owner: "candidate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "provider", tenantId: TENANT });
+
+    for (let poll = 0; poll < 8; poll += 1) {
+      const result = await reconciler.reconcileOne({ owner: `restore-${poll}`, tenantId: TENANT });
+      assert.equal(result.kind, "retry_scheduled");
+      assert.equal(store.operations.get(operation.id)?.checkpoint, "provider-converged");
+      assert.equal(store.operations.get(operation.id)?.state, "waiting");
+      assert.equal(store.operations.get(operation.id)?.attempts, 0);
+      nowState.value = new Date(nowState.value.getTime() + 2_001);
+    }
+
+    await convergeProvision(reconciler, TENANT, 12);
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.notEqual(store.tenants.get(TENANT)?.boundCellId, priorCellId);
+  });
+
+  it("keeps a seven-day deletion pending beyond six polls without consuming attempts", async () => {
+    class PendingDestroyProvisioner extends FakeCellProvisioner {
+      remaining = 8;
+
+      override async destroy(request: Parameters<FakeCellProvisioner["destroy"]>[0]) {
+        if (this.remaining > 0) {
+          this.remaining -= 1;
+          throw new ProvisionerPending({
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 300,
+          });
+        }
+        return super.destroy(request);
+      }
+    }
+
+    const provisioner = new PendingDestroyProvisioner();
+    const { store, reconciler, nowState } = harness(undefined, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    const operation = await store.enqueue(TENANT, "delete", "long-provider-delete", cellId);
+    for (let step = 0; step < 4; step += 1) {
+      await reconciler.reconcileOne({ owner: `delete-setup-${step}`, tenantId: TENANT });
+    }
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "sealed");
+
+    for (let poll = 0; poll < 8; poll += 1) {
+      const result = await reconciler.reconcileOne({ owner: `destroy-${poll}`, tenantId: TENANT });
+      assert.equal(result.kind, "retry_scheduled");
+      assert.equal(store.operations.get(operation.id)?.checkpoint, "sealed");
+      assert.equal(store.operations.get(operation.id)?.state, "waiting");
+      assert.equal(store.operations.get(operation.id)?.attempts, 0);
+      nowState.value = new Date(nowState.value.getTime() + 24 * 60 * 60 * 1_000 + 1);
+    }
+
+    await convergeProvision(reconciler, TENANT, 4);
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(store.statusForTenant(TENANT).state, "deleted");
+    assert.equal(provisioner.resources.has(cellId), false);
+  });
+
+  it("waits on a pending tenant destroy when deletion has no bound cell", async () => {
+    class PendingTenantDestroyProvisioner extends FakeCellProvisioner {
+      override destroy(
+        request: Parameters<FakeCellProvisioner["destroy"]>[0]
+      ): ReturnType<FakeCellProvisioner["destroy"]> {
+        return Promise.reject(
+          new ProvisionerPending({
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 300,
+          })
+        );
+      }
+    }
+
+    const provisioner = new PendingTenantDestroyProvisioner();
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    const operation = await store.enqueue(TENANT, "delete", "no-cell-delete");
+    await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "no-cell-quiesce", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "billing", tenantId: TENANT });
+
+    const result = await reconciler.reconcileOne({ owner: "destroy", tenantId: TENANT });
+    assert.equal(result.kind, "retry_scheduled");
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "billing-quiesced");
+    assert.equal(store.operations.get(operation.id)?.state, "waiting");
+    assert.equal(store.operations.get(operation.id)?.attempts, 0);
+    assert.equal(store.operations.get(operation.id)?.errorCode, null);
   });
 
   it("adopts an already-published binding when the checkpoint acknowledgement is lost", async () => {
@@ -436,7 +600,37 @@ describe("Exomem lifecycle reconciler", () => {
     );
   });
 
-  it("keeps deletion pending and routing closed until billing termination is proven", async () => {
+  it("quiesces a pre-deploy billing-terminated deletion before sealing it", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "delete", "pre-deploy-delete", cellId);
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.checkpoint = "billing-terminated";
+
+    const quiesced = await reconciler.reconcileOne({ owner: "upgrade-quiesce", tenantId: TENANT });
+    assert.deepEqual(quiesced, {
+      kind: "advanced",
+      operationId: operation.id,
+      checkpoint: "billing-quiesced",
+    });
+    assert.equal(provisioner.resources.get(cellId)?.state, "quiesced");
+    assert.equal(
+      provisioner.calls.some(
+        (call) => call.action === "seal" && call.idempotencyKey.startsWith(operation.id)
+      ),
+      false
+    );
+
+    await reconciler.reconcileOne({ owner: "upgrade-seal", tenantId: TENANT });
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "sealed");
+  });
+
+  it("quiesces direct-transfer admission before waiting for billing termination", async () => {
     const { store, reconciler, provisioner } = harness(undefined, async () => false);
     await store.enqueue(TENANT, "provision", "initial-provision");
     await convergeProvision(reconciler);
@@ -445,14 +639,23 @@ describe("Exomem lifecycle reconciler", () => {
     const operation = await store.enqueue(TENANT, "delete", "paid-delete", cellId);
 
     await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
     const result = await reconciler.reconcileOne({ owner: "billing", tenantId: TENANT });
 
     assert.equal(result.kind, "retry_scheduled");
     assert.equal(store.operations.get(operation.id)?.errorCode, "BILLING_TERMINATION_UNAVAILABLE");
     assert.equal(store.statusForTenant(TENANT).state, "deletion_pending");
+    assert.equal(provisioner.resources.get(cellId)?.state, "quiesced");
     assert.equal(
       provisioner.calls.some(
         (call) => call.action === "quiesce" && call.idempotencyKey.startsWith(operation.id)
+      ),
+      true
+    );
+    assert.equal(
+      provisioner.calls.some(
+        (call) =>
+          ["seal", "destroy"].includes(call.action) && call.idempotencyKey.startsWith(operation.id)
       ),
       false
     );
@@ -471,6 +674,7 @@ describe("Exomem lifecycle reconciler", () => {
     const operation = await store.enqueue(TENANT, "delete", "retrying-delete", cellId);
 
     await reconciler.reconcileOne({ owner: "gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "quiesce", tenantId: TENANT });
     await reconciler.reconcileOne({ owner: "billing-first", tenantId: TENANT });
     await store.makeRunnable(TENANT);
     await convergeProvision(reconciler, TENANT, 20);
@@ -508,7 +712,7 @@ describe("Exomem lifecycle reconciler", () => {
       provisioner,
       config: expectedCellConfiguration({
         protocolVersion: "1",
-        releaseVersion: "0.19.1",
+        releaseVersion: "0.22.0",
         workerPolicy: { workerCount: 0, semantic: false, media: false },
       }),
       now: () => now,

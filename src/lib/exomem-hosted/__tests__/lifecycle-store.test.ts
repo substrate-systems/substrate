@@ -45,6 +45,29 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /lease_owner = NULL/i);
   });
 
+  it("durably waits on an echoed provider checkpoint without consuming an attempt", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "operation-1" }], rowCount: 1 };
+    });
+    const store = new SqlLifecycleStore();
+    assert.equal(
+      await store.waitForProvider(
+        "operation-1",
+        "worker-a",
+        "candidate-created",
+        new Date("2026-07-14T12:00:02.000Z")
+      ),
+      true
+    );
+    assert.match(statement, /state = 'waiting'/i);
+    assert.match(statement, /attempts = GREATEST\(attempts - 1, 0\)/i);
+    assert.match(statement, /checkpoint =/i);
+    assert.match(statement, /error_code = NULL/i);
+    assert.match(statement, /lease_owner = NULL/i);
+  });
+
   it("atomically binds billing proof to the one deletion checkpoint transition", async () => {
     let statement = "";
     __setExomemSqlForTests(async (strings) => {
@@ -72,7 +95,7 @@ describe("SQL lifecycle operation store", () => {
     );
 
     assert.match(statement, /operation\.operation_type = 'delete'/i);
-    assert.match(statement, /operation\.checkpoint = 'local-gated'/i);
+    assert.match(statement, /operation\.checkpoint = 'quiesced'/i);
     assert.match(statement, /operation\.lease_owner =/i);
     assert.match(statement, /operation\.lease_expires_at > now\(\)/i);
     assert.match(statement, /operation\.fence_generation = tenant\.fence_generation/i);
@@ -82,7 +105,7 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /FOR UPDATE OF operation, tenant, entitlement/i);
     assert.match(statement, /provider_subscription_ref = NULL/i);
     assert.match(statement, /provider_transaction_ref = NULL/i);
-    assert.match(statement, /checkpoint = 'billing-terminated'/i);
+    assert.match(statement, /checkpoint = 'billing-quiesced'/i);
     assert.match(statement, /matching[\s\S]*entitlement_marked[\s\S]*operation_advanced/i);
   });
 

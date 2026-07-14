@@ -31,7 +31,7 @@ function target(overrides: Partial<GatewayTarget> = {}): GatewayTarget {
     cellLifecycleState: "active",
     cellRoutingState: "bound",
     protocolVersion: "1",
-    releaseVersion: "0.19.1",
+    releaseVersion: "0.22.0",
     credentialCiphertext: null,
     endpointCiphertext: null,
     entitlementSource: "complimentary",
@@ -41,6 +41,7 @@ function target(overrides: Partial<GatewayTarget> = {}): GatewayTarget {
     resourceLimits: { storageBytes: 1000, uploadBytes: 100, workerCount: 0 },
     manuallySuspended: false,
     ...overrides,
+    credentialVersion: overrides.credentialVersion ?? 1,
   };
 }
 

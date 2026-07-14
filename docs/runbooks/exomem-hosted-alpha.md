@@ -15,7 +15,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
 1. migrations `0017` through `0021` applied to the production Neon database;
-2. an Exomem `0.19.1` cell image exposing private protocol `1`;
+2. an Exomem `0.22.0` cell image from commit `c255ffb2dfcd7bc470372d4efa0e8a11b00f0640` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
@@ -27,36 +27,72 @@ The friends-tier sandbox lifecycle is approved and drilled. Live paid launch
 remains deliberately disabled until the public price, checkout domain,
 terms/tax review, and live webhook are approved and configured.
 
+The pinned gateway contract digest is
+`49ac4d346991f0f1de5f692a78ad043de6020f9a1692cafc951ec84490f02940`.
+Regenerate both checked-in fixtures only from a clean checkout at the selected
+commit:
+
+```bash
+node scripts/generate-exomem-hosted-contract.mjs \
+  --exomem-repo /path/to/exomem \
+  --output src/lib/exomem-hosted/gateway-contract-0-22-0.ts \
+  --json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-22-0.json \
+  --expected-commit c255ffb2dfcd7bc470372d4efa0e8a11b00f0640
+npx prettier --write \
+  src/lib/exomem-hosted/gateway-contract-0-22-0.ts \
+  src/lib/exomem-hosted/__tests__/gateway-contract-0-22-0.json
+```
+
 ## Substrate configuration
 
 Set secrets in every Vercel environment that can execute an Exomem route, then
 redeploy. Never reuse a cell credential as any control-plane secret.
 
-| Variable                                  | Requirement                                                                                                                                                                              |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                            | Neon/Postgres connection used by migrations and product-scoped rows.                                                                                                                     |
-| `EXOMEM_PUBLIC_BASE_URL`                  | Required production HTTPS origin used in invite, magic-link, and deletion email links. Credentials, query, fragment, and non-root paths are rejected. Development HTTP is loopback-only. |
-| `EXOMEM_ADMIN_TOKEN`                      | At least 32 random bytes, known only to operators; protects invite issuance.                                                                                                             |
-| `EXOMEM_CONTROL_PLANE_KEY`                | Exactly 32 random bytes encoded as unpadded base64url; encrypts private endpoints, cell credentials, and export references.                                                              |
-| `EXOMEM_PROVISIONER_ENDPOINT`             | Private HTTPS base URL implementing the provisioner contract. URLs containing credentials or using HTTP are rejected.                                                                    |
-| `EXOMEM_PROVISIONER_CREDENTIAL`           | At least 32 characters; authenticates Substrate to the provisioner.                                                                                                                      |
-| `EXOMEM_PROVISIONER_TIMEOUT_MS`           | Optional `100..30000`; default `5000`.                                                                                                                                                   |
-| `EXOMEM_CELL_PROTOCOL_VERSION`            | `1` for this alpha.                                                                                                                                                                      |
-| `EXOMEM_CELL_RELEASE_VERSION`             | Exact deployed Exomem release, initially `0.19.1`. Readiness must echo it.                                                                                                               |
-| `EXOMEM_CELL_WORKER_COUNT`                | `0` for alpha.                                                                                                                                                                           |
-| `EXOMEM_CELL_SEMANTIC_WORKERS`            | `false` for alpha.                                                                                                                                                                       |
-| `EXOMEM_CELL_MEDIA_WORKERS`               | `false` for alpha.                                                                                                                                                                       |
-| `EXOMEM_EXPORT_TTL_HOURS`                 | Positive integer; default `24`. Provider download URLs are separately capped at 15 minutes.                                                                                              |
-| `CRON_SECRET`                             | Existing Vercel-only bearer for unrelated daily/weekly jobs. Never install it in the hosted K3s scheduler.                                                                               |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET`          | Dedicated active bearer shared only by the three Exomem hosted cron routes and K3s scheduler.                                                                                            |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS` | Optional Vercel receiver-only overlap during rotation; absent in steady state and never installed in K3s.                                                                                |
-| `BREVO_API_KEY`                           | Delivers invite, magic-link, and deletion-confirmation email.                                                                                                                            |
-| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Optional verified sender overrides.                                                                                                                                                      |
+| Variable                                                                         | Requirement                                                                                                                                                                              |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                                   | Neon/Postgres connection used by migrations and product-scoped rows.                                                                                                                     |
+| `EXOMEM_PUBLIC_BASE_URL`                                                         | Required production HTTPS origin used in invite, magic-link, and deletion email links. Credentials, query, fragment, and non-root paths are rejected. Development HTTP is loopback-only. |
+| `EXOMEM_ADMIN_TOKEN`                                                             | At least 32 random bytes, known only to operators; protects invite issuance.                                                                                                             |
+| `EXOMEM_CONTROL_PLANE_KEY`                                                       | Exactly 32 random bytes encoded as unpadded base64url; encrypts private endpoints, cell credentials, and export references.                                                              |
+| `EXOMEM_PROVISIONER_ENDPOINT`                                                    | Private HTTPS base URL implementing the provisioner contract. URLs containing credentials or using HTTP are rejected.                                                                    |
+| `EXOMEM_PROVISIONER_CREDENTIAL`                                                  | At least 32 characters; authenticates Substrate to the provisioner.                                                                                                                      |
+| `EXOMEM_PROVISIONER_TIMEOUT_MS`                                                  | Optional `100..30000`; default `5000`.                                                                                                                                                   |
+| `EXOMEM_CF_ACCESS_CLIENT_ID`, `EXOMEM_CF_ACCESS_CLIENT_SECRET`                   | Active Cloudflare Access service-token pair used only by Vercel for the private provisioner and cell-control hostname. Production fails closed if either half is absent.                 |
+| `EXOMEM_CF_ACCESS_CLIENT_ID_PREVIOUS`, `EXOMEM_CF_ACCESS_CLIENT_SECRET_PREVIOUS` | Optional complete previous Access pair during a bounded receiver overlap. Never configure only one half.                                                                                 |
+| `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.             |
+| `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                  |
+| `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                      |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.22.0` for this release unit. Readiness must echo it.                                                                                         |
+| `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                           |
+| `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                       |
+| `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                       |
+| `EXOMEM_EXPORT_TTL_HOURS`                                                        | Positive integer; default `24`. Provider download URLs are separately capped at 15 minutes.                                                                                              |
+| `CRON_SECRET`                                                                    | Existing Vercel-only bearer for unrelated daily/weekly jobs. Never install it in the hosted K3s scheduler.                                                                               |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                                 | Dedicated active bearer shared only by the three Exomem hosted cron routes and K3s scheduler.                                                                                            |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                                        | Optional Vercel receiver-only overlap during rotation; absent in steady state and never installed in K3s.                                                                                |
+| `BREVO_API_KEY`                                                                  | Delivers invite, magic-link, and deletion-confirmation email.                                                                                                                            |
+| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                                        | Optional verified sender overrides.                                                                                                                                                      |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. Buckets older than the longest
 configured window plus a one-hour margin are pruned in bounded batches by the
 access-delivery cron.
+
+Uploads and downloads use two steps. The authenticated same-origin route receives
+only bounded metadata and returns a five-minute signed ticket. The browser then
+sends raw bytes directly to `EXOMEM_HOSTED_TRANSFER_HOST` with cookies omitted.
+The ticket binds the active credential version, canonical Substrate origin,
+operation, method, cell, principal, UUIDv4 JTI, byte limit, and exact upload
+metadata or download path. Uploads are capped at 90 MiB. The cell durably consumes
+the JTI before reading or opening bytes, so an interrupted transfer requires a
+fresh ticket and replay remains rejected after a pod restart.
+
+Deletion revokes browser sessions and stops new ticket issuance immediately,
+then quiesces the exact cell before waiting on Paddle. An already issued ticket
+is a five-minute capability: it can remain usable only until cell quiescence is
+observed or that TTL expires, whichever happens first. This bounded window is
+accepted for the private beta; suspected credential compromise still requires
+immediate cell quiescence and credential rotation.
 
 ### External hosted scheduler
 

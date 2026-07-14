@@ -8,6 +8,7 @@ import {
   consumeDeletionConfirmationAtomic,
   createDeletionConfirmationToken,
   createMagicAccessToken,
+  createTransferGrantRecord,
   markMagicLinkDeliverySent,
   pruneStaleRateLimitBuckets,
   recordExomemCheckoutTransaction,
@@ -93,6 +94,51 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       ["exomem:postgres-integration"]
     );
     assert.equal(count.rows[0]?.admitted_count, 5);
+  });
+
+  it("atomically prunes expired tenant transfer rows while issuing a new ticket", async () => {
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state,
+         protocol_version, release_version, provider_ref,
+         service_credential_ciphertext, service_credential_digest
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', 'test', 'provider-ref', $3, $4)`,
+      [CELL, TENANT, JSON.stringify({ encrypted: true }), Buffer.alloc(32, 0x21)]
+    );
+    await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
+    await pool.query(
+      `INSERT INTO exomem_transfer_grants (
+         grant_digest, tenant_id, cell_id, user_id, principal_scope_digest,
+         operation, audience, issued_at, expires_at, byte_limit
+       ) VALUES ($1, $2, $3, $4, $5, 'download', 'exomem-hosted-transfer',
+                 now() - interval '10 minutes', now() - interval '5 minutes', 1024)`,
+      [Buffer.alloc(32, 0x11), TENANT, CELL, USER, Buffer.alloc(32, 0x12)]
+    );
+
+    assert.ok(
+      await createTransferGrantRecord({
+        grantDigest: Buffer.alloc(32, 0x13),
+        tenantId: TENANT,
+        cellId: CELL,
+        userId: USER,
+        principalScopeDigest: Buffer.alloc(32, 0x14),
+        operation: "upload",
+        issuedAt: new Date(Date.now()),
+        expiresAt: new Date(Date.now() + 5 * 60_000),
+        byteLimit: 2048,
+      })
+    );
+    const rows = await pool.query<{ operation: string }>(
+      "SELECT operation FROM exomem_transfer_grants WHERE tenant_id = $1",
+      [TENANT]
+    );
+    assert.deepEqual(rows.rows, [{ operation: "upload" }]);
   });
 
   it("prunes only stale limiter buckets in bounded batches", async () => {
@@ -367,7 +413,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          checkpoint, attempts, lease_owner, lease_expires_at
        ) VALUES (
          $1, $2, 'delete', 'running', 'atomic-billing-proof', 3,
-         'local-gated', 2, 'billing-worker', now() + interval '1 minute'
+         'quiesced', 2, 'billing-worker', now() + interval '1 minute'
        )`,
       [operationId, TENANT]
     );
@@ -427,7 +473,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
           [operationId]
         )
       ).rows[0],
-      { state: "running", checkpoint: "local-gated" }
+      { state: "running", checkpoint: "quiesced" }
     );
 
     await pool.query(
@@ -471,7 +517,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       ).rows[0],
       {
         state: "waiting",
-        checkpoint: "billing-terminated",
+        checkpoint: "billing-quiesced",
         attempts: 0,
         lease_owner: null,
         lease_expires_at: null,
@@ -1214,7 +1260,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.equal(await store.applyLocalGate(operation!.id, "delete-worker", "deleted"), true);
   });
 
-  it("runs the normal SQL lifecycle enqueue, claim, and advance path", async () => {
+  it("runs lifecycle advance and persists a non-attempt-consuming provider wait", async () => {
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
@@ -1242,6 +1288,36 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       [queued.id]
     );
     assert.deepEqual(row.rows[0], { state: "waiting", checkpoint: "candidate-created" });
+
+    const providerClaim = await new SqlLifecycleStore().claim({
+      owner: "provider-worker",
+      leaseMs: 30_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(providerClaim?.attempts, 1);
+    const retryAt = new Date(Date.now() + 30_000);
+    assert.equal(
+      await store.waitForProvider(queued.id, "provider-worker", "candidate-created", retryAt),
+      true
+    );
+    const waiting = await pool.query<{
+      state: string;
+      attempts: number;
+      error_code: string | null;
+    }>("SELECT state, attempts, error_code FROM exomem_lifecycle_operations WHERE id = $1", [
+      queued.id,
+    ]);
+    assert.deepEqual(waiting.rows[0], { state: "waiting", attempts: 0, error_code: null });
+    assert.equal(
+      await new SqlLifecycleStore().claim({
+        owner: "restart-worker",
+        leaseMs: 30_000,
+        maxAttempts: 6,
+        tenantId: TENANT,
+      }),
+      null
+    );
   });
 
   it("filters expired owner artifacts and pins an unexpired restore against GC", async () => {

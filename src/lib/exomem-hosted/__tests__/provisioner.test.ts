@@ -4,6 +4,7 @@ import {
   FakeCellProvisioner,
   HttpCellProvisioner,
   ProvisionerFailure,
+  ProvisionerPending,
   provisionerConfigFromEnv,
   type ProvisionCellRequest,
 } from "../provisioner";
@@ -68,6 +69,14 @@ describe("CellProvisioner", () => {
         endpoint: new URL("https://provisioner.internal.example/v1"),
         credential: new SensitiveSecret("provisioner-secret-sentinel"),
         timeoutMs: 500,
+        access: {
+          selectedVersion: "active",
+          active: {
+            clientId: new SensitiveSecret("access-client-id.access"),
+            clientSecret: new SensitiveSecret("access-client-secret-sentinel"),
+          },
+          previous: null,
+        },
       },
       async (input, init) => {
         captured = { url: String(input), init: init ?? {} };
@@ -83,6 +92,8 @@ describe("CellProvisioner", () => {
     assert.equal(captured?.url, "https://provisioner.internal.example/v1/cells/provision");
     const headers = new Headers(captured?.init.headers);
     assert.equal(headers.get("authorization"), "Bearer provisioner-secret-sentinel");
+    assert.equal(headers.get("cf-access-client-id"), "access-client-id.access");
+    assert.equal(headers.get("cf-access-client-secret"), "access-client-secret-sentinel");
     assert.equal(
       headers.get("idempotency-key"),
       "018f2d91-7c42-7000-8000-000000000041:candidate-created"
@@ -115,6 +126,184 @@ describe("CellProvisioner", () => {
         return true;
       }
     );
+  });
+
+  it("accepts only an exact echoed 202 pending response", async () => {
+    const request = provisionRequest();
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("provider-secret"),
+        timeoutMs: 500,
+      },
+      async () =>
+        Response.json(
+          {
+            status: "pending",
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 2,
+          },
+          { status: 202, headers: { "retry-after": "2" } }
+        )
+    );
+
+    await assert.rejects(adapter.provision(request), (error) => {
+      assert.ok(error instanceof ProvisionerPending);
+      assert.equal(error.operationId, request.context.operationId);
+      assert.equal(error.checkpoint, request.context.checkpoint);
+      assert.equal(error.retryAfterSeconds, 2);
+      return true;
+    });
+  });
+
+  it("accepts the exact pending contract on every provisioner endpoint", async () => {
+    const request = provisionRequest();
+    const paths: string[] = [];
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("provider-secret"),
+        timeoutMs: 500,
+      },
+      async (input) => {
+        paths.push(new URL(String(input)).pathname);
+        return Response.json(
+          {
+            status: "pending",
+            operationId: request.context.operationId,
+            checkpoint: request.context.checkpoint,
+            retryAfterSeconds: 2,
+          },
+          { status: 202, headers: { "retry-after": "2" } }
+        );
+      }
+    );
+    const target = { ...request, providerRef: "provider-ref-1" };
+    const calls: Array<() => Promise<unknown>> = [
+      () => adapter.provision(request),
+      () => adapter.health(target),
+      () =>
+        adapter.rotateCredential({
+          ...target,
+          phase: "stage",
+          credentialVersion: 2,
+          nextCredential: new SensitiveSecret("next-credential-1"),
+        }),
+      () => adapter.quiesce(target),
+      () => adapter.resume(target),
+      () => adapter.stop(target),
+      () => adapter.export(target),
+      () =>
+        adapter.releaseExport({
+          ...target,
+          releaseRef: new SensitiveSecret("release-ref-1"),
+        }),
+      () =>
+        adapter.deleteExport({
+          context: request.context,
+          tenantId: request.tenantId,
+          exportRef: new SensitiveSecret("export-ref-1"),
+        }),
+      () =>
+        adapter.createExportDownload({
+          context: request.context,
+          tenantId: request.tenantId,
+          exportRef: new SensitiveSecret("export-ref-1"),
+        }),
+      () =>
+        adapter.restore({
+          ...target,
+          restoreRef: new SensitiveSecret("restore-ref-1"),
+          sourceCellId: "018f2d91-7c42-7000-8000-000000000044",
+          archiveSha256: "a".repeat(64),
+          manifestSha256: "b".repeat(64),
+          archiveSize: 1024,
+        }),
+      () => adapter.seal(target),
+      () => adapter.discard(target),
+      () => adapter.destroy({ context: request.context, tenantId: request.tenantId }),
+    ];
+
+    for (const call of calls) {
+      await assert.rejects(call(), (error) => {
+        assert.ok(error instanceof ProvisionerPending);
+        assert.equal(error.operationId, request.context.operationId);
+        assert.equal(error.checkpoint, request.context.checkpoint);
+        return true;
+      });
+    }
+
+    assert.deepEqual(paths, [
+      "/v1/cells/provision",
+      "/v1/cells/health",
+      "/v1/cells/rotate-credential",
+      "/v1/cells/quiesce",
+      "/v1/cells/resume",
+      "/v1/cells/stop",
+      "/v1/cells/export",
+      "/v1/cells/export-release",
+      "/v1/cells/export-delete",
+      "/v1/cells/export-download",
+      "/v1/cells/restore",
+      "/v1/cells/seal",
+      "/v1/cells/discard",
+      "/v1/cells/destroy",
+    ]);
+  });
+
+  it("rejects malformed, mismatched, or padded pending responses", async () => {
+    const request = provisionRequest();
+    const cases: Array<{ body: Record<string, unknown>; retryAfter: string }> = [
+      {
+        body: {
+          status: "pending",
+          operationId: "different-operation",
+          checkpoint: request.context.checkpoint,
+          retryAfterSeconds: 2,
+        },
+        retryAfter: "2",
+      },
+      {
+        body: {
+          status: "pending",
+          operationId: request.context.operationId,
+          checkpoint: request.context.checkpoint,
+          retryAfterSeconds: 2,
+          providerDetail: "must-not-be-accepted",
+        },
+        retryAfter: "2",
+      },
+      {
+        body: {
+          status: "pending",
+          operationId: request.context.operationId,
+          checkpoint: request.context.checkpoint,
+          retryAfterSeconds: 2,
+        },
+        retryAfter: "3",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const adapter = new HttpCellProvisioner(
+        {
+          endpoint: new URL("https://provisioner.internal.example/v1"),
+          credential: new SensitiveSecret("provider-secret"),
+          timeoutMs: 500,
+        },
+        async () =>
+          Response.json(testCase.body, {
+            status: 202,
+            headers: { "retry-after": testCase.retryAfter },
+          })
+      );
+      await assert.rejects(
+        adapter.provision(request),
+        (error) =>
+          error instanceof ProvisionerFailure && error.code === "PROVISIONER_RESPONSE_INVALID"
+      );
+    }
   });
 
   it("authenticates explicit cell release and provider export deletion proofs", async () => {

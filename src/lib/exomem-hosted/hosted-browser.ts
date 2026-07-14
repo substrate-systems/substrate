@@ -103,26 +103,181 @@ export async function getPrivateJson(path: string): Promise<Record<string, unkno
   return decodeResponse(response);
 }
 
-export async function postPrivateFile(
-  file: File,
-  options: { idempotencyKey: string }
+type DirectTransferTicket = {
+  url: string;
+  method: "PUT" | "GET";
+  headers: Record<string, string>;
+  maxBytes: number;
+};
+
+const HOSTED_UPLOAD_MAX_BYTES = 90 * 1024 * 1024;
+const DOWNLOAD_DISPOSITION =
+  /^attachment; filename="exomem-download"; filename\*=UTF-8''(?:[A-Za-z0-9!#$&+.^_`|~-]|%[0-9A-F]{2})+$/;
+
+function readDirectTransferTicket(
+  response: Record<string, unknown>,
+  expectedMethod: "PUT" | "GET"
+): DirectTransferTicket {
+  const data = response.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  const ticket = data as Record<string, unknown>;
+  const headers = ticket.headers;
+  let url: URL;
+  try {
+    url = new URL(String(ticket.url));
+  } catch {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  if (
+    ticket.method !== expectedMethod ||
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    !Number.isSafeInteger(ticket.maxBytes) ||
+    Number(ticket.maxBytes) <= 0 ||
+    !headers ||
+    typeof headers !== "object" ||
+    Array.isArray(headers)
+  ) {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  const normalizedHeaders = Object.fromEntries(
+    Object.entries(headers).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+  if (
+    Object.keys(normalizedHeaders).length !== Object.keys(headers).length ||
+    typeof normalizedHeaders["X-Exomem-Transfer-Grant"] !== "string"
+  ) {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  return {
+    url: url.toString(),
+    method: expectedMethod,
+    headers: normalizedHeaders,
+    maxBytes: Number(ticket.maxBytes),
+  };
+}
+
+async function sha256Hex(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function readUploadCommitProof(
+  response: Response,
+  expectedBytes: number,
+  expectedSha256: string
 ): Promise<Record<string, unknown>> {
-  const form = new FormData();
-  form.set("file", file);
-  form.set("scope", "inbox");
-  form.set("category", "uploads");
-  form.set("filename", file.name);
-  const response = await fetch("/api/exomem/upload", {
-    method: "POST",
-    headers: {
-      "x-exomem-csrf": csrfCookie(),
-      "idempotency-key": options.idempotencyKey,
+  const body = await decodeResponse(response);
+  const data = body.data;
+  if (
+    response.status !== 201 ||
+    response.headers.get("content-type")?.split(";", 1)[0] !== "application/json" ||
+    Object.keys(body).sort().join(",") !== "data,success" ||
+    body.success !== true ||
+    !data ||
+    typeof data !== "object" ||
+    Array.isArray(data) ||
+    Object.keys(data).sort().join(",") !== "bytes,committed,operation,sha256"
+  ) {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  const proof = data as Record<string, unknown>;
+  if (
+    proof.operation !== "upload" ||
+    proof.committed !== true ||
+    !Number.isSafeInteger(proof.bytes) ||
+    proof.bytes !== expectedBytes ||
+    proof.sha256 !== expectedSha256
+  ) {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  return body;
+}
+
+export async function postPrivateFile(file: File): Promise<Record<string, unknown>> {
+  if (!Number.isSafeInteger(file.size) || file.size > HOSTED_UPLOAD_MAX_BYTES) {
+    throw new HostedBrowserError(
+      {
+        code: "TRANSFER_TOO_LARGE",
+        message: "The selected file is larger than the 90 MiB hosted upload limit.",
+      },
+      413
+    );
+  }
+  const contentType = file.type || "application/octet-stream";
+  const filename = file.name.normalize("NFC");
+  const sha256 = await sha256Hex(file);
+  const ticketResponse = await postPrivateJson("/api/exomem/upload", {
+    metadata: {
+      category: "uploads",
+      content_type: contentType,
+      description: null,
+      filename,
+      scope: "inbox",
+      sha256,
+      size: file.size,
     },
-    body: form,
-    credentials: "same-origin",
-    cache: "no-store",
   });
-  return decodeResponse(response);
+  const ticket = readDirectTransferTicket(ticketResponse, "PUT");
+  if (
+    Object.keys(ticket.headers).sort().join(",") !== "Content-Type,X-Exomem-Transfer-Grant" ||
+    ticket.headers["Content-Type"] !== contentType ||
+    file.size > ticket.maxBytes
+  ) {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  const response = await fetch(ticket.url, {
+    method: ticket.method,
+    headers: ticket.headers,
+    body: file,
+    credentials: "omit",
+    cache: "no-store",
+    redirect: "error",
+    referrerPolicy: "no-referrer",
+  });
+  return readUploadCommitProof(response, file.size, sha256);
+}
+
+export async function getPrivateFile(path: string): Promise<Response> {
+  const ticket = readDirectTransferTicket(
+    await postPrivateJson("/api/exomem/download", { path }),
+    "GET"
+  );
+  if (Object.keys(ticket.headers).join(",") !== "X-Exomem-Transfer-Grant") {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  const response = await fetch(ticket.url, {
+    method: ticket.method,
+    headers: ticket.headers,
+    credentials: "omit",
+    cache: "no-store",
+    redirect: "error",
+    referrerPolicy: "no-referrer",
+  });
+  if (!response.ok) await decodeResponse(response);
+  const contentLength = response.headers.get("content-length");
+  const contentDisposition = response.headers.get("content-disposition");
+  const parsedLength =
+    contentLength && /^(?:0|[1-9][0-9]*)$/.test(contentLength) ? Number(contentLength) : Number.NaN;
+  if (
+    response.status !== 200 ||
+    response.headers.get("content-type") !== "application/octet-stream" ||
+    !Number.isSafeInteger(parsedLength) ||
+    parsedLength > ticket.maxBytes ||
+    !contentDisposition ||
+    !DOWNLOAD_DISPOSITION.test(contentDisposition)
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  return response;
 }
 
 export function takeFragmentToken(): string | null {

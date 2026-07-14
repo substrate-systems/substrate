@@ -1,7 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  cloudflareAccessConfigFromEnv,
+  cloudflareAccessHeaders,
+  type CloudflareAccessConfig,
+} from "./cloudflare-access";
 import { resolveGatewayTarget, type GatewayTarget } from "./db";
 import { exomemErrors } from "./errors";
-import { exomemContractFixture0191 } from "./gateway-contract-0-19-1";
+import { exomemContractFixture0220 } from "./gateway-contract-0-22-0";
 import {
   decryptSecret,
   opaquePrincipalScope,
@@ -100,6 +105,7 @@ export type GatewayDependencies = {
   now?: () => number;
   decrypt?: typeof decryptSecret;
   principalScope?: typeof opaquePrincipalScope;
+  access?: CloudflareAccessConfig | null;
 };
 
 type CachedContract = {
@@ -136,7 +142,9 @@ export function hasForbiddenGatewayHeaders(headers: Headers): boolean {
       normalized === "x-vault-root" ||
       normalized === "x-principal-scope" ||
       normalized === "x-protocol-version" ||
-      normalized === "x-internal-endpoint"
+      normalized === "x-internal-endpoint" ||
+      normalized === "cf-access-client-id" ||
+      normalized === "cf-access-client-secret"
     ) {
       return true;
     }
@@ -164,14 +172,14 @@ function safeJsonObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function contractFixture(target: GatewayTarget): typeof exomemContractFixture0191 {
+function contractFixture(target: GatewayTarget): typeof exomemContractFixture0220 {
   if (
-    target.releaseVersion !== exomemContractFixture0191.release ||
-    target.protocolVersion !== exomemContractFixture0191.protocol
+    target.releaseVersion !== exomemContractFixture0220.release ||
+    target.protocolVersion !== exomemContractFixture0220.protocol
   ) {
     throw exomemErrors.protocolMismatch();
   }
-  return exomemContractFixture0191;
+  return exomemContractFixture0220;
 }
 
 function semanticProjection(commands: HostedContractCommand[]): unknown {
@@ -283,9 +291,11 @@ function parseContract(value: unknown, target: GatewayTarget): HostedContract {
 
 export function privateGatewayHeaders(
   target: ResolvedPrivateTarget,
-  requestId: string
+  requestId: string,
+  access: CloudflareAccessConfig | null = cloudflareAccessConfigFromEnv()
 ): Record<string, string> {
   return {
+    ...cloudflareAccessHeaders(access),
     authorization: `Bearer ${target.credential.reveal()}`,
     "x-exomem-cell-id": target.row.cellId,
     "x-exomem-protocol-version": target.row.protocolVersion,
@@ -455,7 +465,7 @@ async function fetchContract(
   try {
     response = await fetchImpl(url, {
       method: "GET",
-      headers: privateGatewayHeaders(target, requestId),
+      headers: privateGatewayHeaders(target, requestId, dependencies.access),
       cache: "no-store",
       redirect: "error",
       signal,
@@ -534,7 +544,7 @@ async function forwardCommand(input: {
     `${input.target.endpoint.toString().replace(/\/$/, "")}/`
   );
   const headers: Record<string, string> = {
-    ...privateGatewayHeaders(input.target, input.requestId),
+    ...privateGatewayHeaders(input.target, input.requestId, input.dependencies.access),
     "content-type": "application/json",
   };
   if (!input.command.read_only && input.idempotencyKey) {

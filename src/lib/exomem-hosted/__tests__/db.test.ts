@@ -5,6 +5,7 @@ import { afterEach, describe, it } from "node:test";
 import {
   __setExomemSqlForTests,
   createMagicAccessToken,
+  createTransferGrantRecord,
   recordExomemCheckoutTransaction,
   consumeDeletionConfirmationAtomic,
   redeemInviteAtomic,
@@ -16,6 +17,33 @@ import {
 afterEach(() => __setExomemSqlForTests(null));
 
 describe("Exomem hosted database boundary", () => {
+  it("prunes expired tenant transfer audit rows while issuing a replacement", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "grant-1" }], rowCount: 1 };
+    });
+
+    assert.deepEqual(
+      await createTransferGrantRecord({
+        grantDigest: Buffer.alloc(32, 1),
+        tenantId: "018f2d91-7c42-7000-8000-000000000081",
+        cellId: "018f2d91-7c42-7000-8000-000000000082",
+        userId: "018f2d91-7c42-7000-8000-000000000083",
+        principalScopeDigest: Buffer.alloc(32, 2),
+        operation: "upload",
+        issuedAt: new Date("2026-07-14T12:00:00.000Z"),
+        expiresAt: new Date("2026-07-14T12:05:00.000Z"),
+        byteLimit: 1024,
+      }),
+      { grantId: "grant-1" }
+    );
+    assert.match(statement, /DELETE FROM exomem_transfer_grants/i);
+    assert.match(statement, /expires_at <= now\(\)/i);
+    assert.match(statement, /tenant_id =/i);
+    assert.match(statement, /INSERT INTO exomem_transfer_grants/i);
+  });
+
   it("redeems through one atomic statement and concurrent replay creates no second tenant", async () => {
     let consumed = false;
     let queryCount = 0;

@@ -998,6 +998,7 @@ export type ActiveCellBinding = {
   tenantId: string;
   protocolVersion: string;
   releaseVersion: string;
+  credentialVersion: number;
   credentialCiphertext: Record<string, unknown> | null;
   endpointCiphertext: Record<string, unknown> | null;
 };
@@ -1032,6 +1033,7 @@ export async function resolveGatewayTarget(input: {
            cell.routing_state,
            cell.protocol_version,
            cell.release_version,
+           cell.credential_version,
            cell.service_credential_ciphertext,
            cell.private_endpoint_ciphertext,
            entitlement.source AS entitlement_source,
@@ -1076,6 +1078,7 @@ export async function resolveGatewayTarget(input: {
     cellRoutingState: String(row.routing_state),
     protocolVersion: String(row.protocol_version),
     releaseVersion: String(row.release_version),
+    credentialVersion: Number(row.credential_version),
     credentialCiphertext:
       row.service_credential_ciphertext && typeof row.service_credential_ciphertext === "object"
         ? (row.service_credential_ciphertext as Record<string, unknown>)
@@ -1102,6 +1105,7 @@ export async function resolveActiveCellBinding(
            cell.tenant_id,
            cell.protocol_version,
            cell.release_version,
+           cell.credential_version,
            cell.service_credential_ciphertext,
            cell.private_endpoint_ciphertext
     FROM exomem_tenants AS tenant
@@ -1120,6 +1124,7 @@ export async function resolveActiveCellBinding(
         tenant_id: string;
         protocol_version?: string;
         release_version?: string;
+        credential_version?: number;
         service_credential_ciphertext?: Record<string, unknown> | null;
         private_endpoint_ciphertext?: Record<string, unknown> | null;
       }
@@ -1130,6 +1135,7 @@ export async function resolveActiveCellBinding(
         tenantId: row.tenant_id,
         protocolVersion: row.protocol_version ?? "",
         releaseVersion: row.release_version ?? "",
+        credentialVersion: Number(row.credential_version ?? 0),
         credentialCiphertext: row.service_credential_ciphertext ?? null,
         endpointCiphertext: row.private_endpoint_ciphertext ?? null,
       }
@@ -1397,6 +1403,20 @@ export async function createTransferGrantRecord(input: {
 }): Promise<{ grantId: string } | null> {
   const { rows } = await sql`
     /* exomem:create-transfer-grant */
+    WITH expired_ids AS MATERIALIZED (
+      SELECT grant_row.id
+      FROM exomem_transfer_grants AS grant_row
+      WHERE grant_row.tenant_id = ${input.tenantId}
+        AND grant_row.expires_at <= now()
+      ORDER BY grant_row.expires_at
+      LIMIT 1000
+    ),
+    expired AS MATERIALIZED (
+      DELETE FROM exomem_transfer_grants AS grant_row
+      USING expired_ids
+      WHERE grant_row.id = expired_ids.id
+      RETURNING grant_row.id
+    )
     INSERT INTO exomem_transfer_grants (
       grant_digest, tenant_id, cell_id, user_id,
       principal_scope_digest, operation, audience,
@@ -1413,6 +1433,7 @@ export async function createTransferGrantRecord(input: {
            ${input.expiresAt.toISOString()},
            ${input.byteLimit}
     FROM exomem_tenants AS tenant
+    CROSS JOIN (SELECT count(*) AS pruned FROM expired) AS expiry_cleanup
     JOIN exomem_cells AS cell
       ON cell.id = tenant.bound_cell_id
      AND cell.tenant_id = tenant.id

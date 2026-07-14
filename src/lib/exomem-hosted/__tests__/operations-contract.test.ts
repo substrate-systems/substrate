@@ -135,13 +135,17 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runner, /INSERT INTO schema_migrations/);
   });
 
-  it("uses idle transfer timeouts rather than aborting healthy long streams", () => {
+  it("keeps file streams out of Vercel and sends them only from the browser", () => {
     for (const route of [
       source("src/app/api/exomem/upload/route.ts"),
       source("src/app/api/exomem/download/route.ts"),
     ]) {
-      assert.match(route, /TRANSFER_IDLE_TIMEOUT_MS/);
-      assert.doesNotMatch(route, /AbortSignal\.timeout\(30_000\)/);
+      assert.match(route, /createDirectTransferTicket/);
+      assert.doesNotMatch(route, /fetch\(endpoint/);
     }
+    const browser = source("src/lib/exomem-hosted/hosted-browser.ts");
+    assert.match(browser, /credentials: "omit"/);
+    assert.match(browser, /body: file/);
+    assert.match(browser, /redirect: "error"/);
   });
 });

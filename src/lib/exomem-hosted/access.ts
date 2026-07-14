@@ -38,7 +38,7 @@ const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const ALPHA_CAPABILITIES = ["capture", "recall", "export"];
 const ALPHA_LIMITS = {
   storageBytes: 5 * 1024 * 1024 * 1024,
-  uploadBytes: 100 * 1024 * 1024,
+  uploadBytes: 90 * 1024 * 1024,
   workerCount: 0,
 };
 

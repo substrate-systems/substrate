@@ -6,6 +6,7 @@ import {
   type CellWorkerPolicy,
   type ProvisionCellRequest,
   ProvisionerFailure,
+  ProvisionerPending,
 } from "./provisioner";
 import {
   decryptSecret,
@@ -165,6 +166,12 @@ export interface LifecycleStore {
     operationId: string,
     owner: string,
     errorCode: string,
+    nextAttemptAt: Date
+  ): Promise<boolean>;
+  waitForProvider(
+    operationId: string,
+    owner: string,
+    expectedCheckpoint: string,
     nextAttemptAt: Date
   ): Promise<boolean>;
   terminal(operationId: string, owner: string, errorCode: string): Promise<boolean>;
@@ -334,6 +341,21 @@ function readinessMismatch(
     !readiness.writeAdmission ||
     !sameWorkerPolicy(readiness.workerPolicy, config.workerPolicy)
   );
+}
+
+function pendingCheckpointMatches(operation: LifecycleOperation, checkpoint: string): boolean {
+  if (checkpoint === operation.checkpoint) return true;
+  const actionCheckpoints: Partial<Record<LifecycleOperation["checkpoint"], readonly string[]>> = {
+    "candidate-cleanup": ["candidate-created", "candidate-discard"],
+    "export-failure-resume": ["export-failure-readiness"],
+    "rotation-staged": ["rotation-pending-readiness"],
+    "export-stored": ["export-release"],
+    "prior-retirement": ["restored-prior-discard"],
+    "billing-terminated": ["tenant-destroy"],
+    "billing-quiesced": ["tenant-destroy"],
+    sealed: ["tenant-destroy"],
+  };
+  return actionCheckpoints[operation.checkpoint]?.includes(checkpoint) === true;
 }
 
 export class LifecycleReconciler {
@@ -1056,6 +1078,14 @@ export class LifecycleReconciler {
       return this.#advance(operation, owner, "local-gated");
     }
     if (operation.checkpoint === "local-gated") {
+      if (deleting && !operation.cellId) {
+        return this.#advance(operation, owner, "quiesced");
+      }
+      const cell = await this.#cell(operation);
+      await this.#provisioner.quiesce(this.#target(operation, cell));
+      return this.#advance(operation, owner, "quiesced");
+    }
+    if (operation.checkpoint === "quiesced") {
       if (deleting) {
         const proof = await this.#terminateBilling(operation.tenantId);
         if (!proof) {
@@ -1078,12 +1108,12 @@ export class LifecycleReconciler {
         return {
           kind: "advanced",
           operationId: operation.id,
-          checkpoint: "billing-terminated",
+          checkpoint: "billing-quiesced",
         };
       }
       const cell = await this.#cell(operation);
-      await this.#provisioner.quiesce(this.#target(operation, cell));
-      return this.#advance(operation, owner, "quiesced");
+      await this.#provisioner.seal(this.#target(operation, cell));
+      return this.#advance(operation, owner, "sealed");
     }
     if (operation.checkpoint === "billing-terminated") {
       if (!operation.cellId) {
@@ -1092,9 +1122,13 @@ export class LifecycleReconciler {
       }
       const cell = await this.#cell(operation);
       await this.#provisioner.quiesce(this.#target(operation, cell));
-      return this.#advance(operation, owner, "quiesced");
+      return this.#advance(operation, owner, "billing-quiesced");
     }
-    if (operation.checkpoint === "quiesced") {
+    if (operation.checkpoint === "billing-quiesced") {
+      if (!operation.cellId) {
+        await this.#provisioner.destroy(this.#tenantDestroyTarget(operation));
+        return this.#advance(operation, owner, "destroyed");
+      }
       const cell = await this.#cell(operation);
       await this.#provisioner.seal(this.#target(operation, cell));
       return this.#advance(operation, owner, "sealed");
@@ -1155,6 +1189,30 @@ export class LifecycleReconciler {
           return await this.#sealOrDelete(operation, input.owner);
       }
     } catch (error) {
+      if (error instanceof ProvisionerPending) {
+        if (
+          error.operationId !== operation.id ||
+          !pendingCheckpointMatches(operation, error.checkpoint) ||
+          !Number.isInteger(error.retryAfterSeconds) ||
+          error.retryAfterSeconds < 1 ||
+          error.retryAfterSeconds > 300
+        ) {
+          return this.#terminal(operation, input.owner, "PROVISIONER_RESPONSE_INVALID");
+        }
+        const waiting = await this.#store.waitForProvider(
+          operation.id,
+          input.owner,
+          operation.checkpoint,
+          new Date(this.#now().getTime() + error.retryAfterSeconds * 1_000)
+        );
+        return waiting
+          ? {
+              kind: "retry_scheduled",
+              operationId: operation.id,
+              code: "PROVISIONER_PENDING",
+            }
+          : { kind: "idle" };
+      }
       const failure =
         error instanceof ProvisionerFailure
           ? error
@@ -1480,12 +1538,12 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     if (
       !operation ||
       operation.operationType !== "delete" ||
-      operation.checkpoint !== "local-gated" ||
+      operation.checkpoint !== "quiesced" ||
       operation.tenantId !== input.proof.tenantId
     ) {
       return false;
     }
-    return this.advance(input.operationId, input.owner, "local-gated", "billing-terminated");
+    return this.advance(input.operationId, input.owner, "quiesced", "billing-quiesced");
   }
 
   async retry(
@@ -1500,6 +1558,24 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     if (!["candidate-cleanup", "export-failure-resume"].includes(operation.checkpoint)) {
       operation.errorCode = errorCode;
     }
+    operation.nextAttemptAt = nextAttemptAt;
+    operation.leaseOwner = null;
+    operation.leaseExpiresAt = null;
+    operation.updatedAt = this.#now();
+    return true;
+  }
+
+  async waitForProvider(
+    operationId: string,
+    owner: string,
+    expectedCheckpoint: string,
+    nextAttemptAt: Date
+  ): Promise<boolean> {
+    const operation = this.#owned(operationId, owner);
+    if (!operation || operation.checkpoint !== expectedCheckpoint) return false;
+    operation.state = "waiting";
+    operation.attempts = Math.max(0, operation.attempts - 1);
+    operation.errorCode = null;
     operation.nextAttemptAt = nextAttemptAt;
     operation.leaseOwner = null;
     operation.leaseExpiresAt = null;
@@ -1984,7 +2060,10 @@ export class InMemoryLifecycleStore implements LifecycleStore {
 
   async makeRunnable(tenantId: string): Promise<void> {
     for (const operation of this.operations.values()) {
-      if (operation.tenantId === tenantId && operation.state === "failed_retryable") {
+      if (
+        operation.tenantId === tenantId &&
+        ["failed_retryable", "waiting"].includes(operation.state)
+      ) {
         operation.nextAttemptAt = this.#now();
       }
     }

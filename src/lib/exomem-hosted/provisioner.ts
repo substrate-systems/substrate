@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import {
+  cloudflareAccessConfigFromEnv,
+  cloudflareAccessHeaders,
+  type CloudflareAccessConfig,
+} from "./cloudflare-access";
 import { SensitiveSecret } from "./security";
 
 export const PROVISIONER_PROTOCOL = "exomem-cell-provisioner.v1";
@@ -160,10 +165,39 @@ export class ProvisionerFailure extends Error {
   }
 }
 
+export class ProvisionerPending extends Error {
+  readonly operationId: string;
+  readonly checkpoint: string;
+  readonly retryAfterSeconds: number;
+
+  constructor(input: { operationId: string; checkpoint: string; retryAfterSeconds: number }) {
+    super("PROVISIONER_PENDING");
+    this.name = "ProvisionerPending";
+    this.operationId = input.operationId;
+    this.checkpoint = input.checkpoint;
+    this.retryAfterSeconds = input.retryAfterSeconds;
+  }
+
+  toJSON(): {
+    code: "PROVISIONER_PENDING";
+    operationId: string;
+    checkpoint: string;
+    retryAfterSeconds: number;
+  } {
+    return {
+      code: "PROVISIONER_PENDING",
+      operationId: this.operationId,
+      checkpoint: this.checkpoint,
+      retryAfterSeconds: this.retryAfterSeconds,
+    };
+  }
+}
+
 export type HttpProvisionerConfig = {
   endpoint: URL;
   credential: SensitiveSecret;
   timeoutMs: number;
+  access?: CloudflareAccessConfig | null;
 };
 
 function configurationFailure(): ProvisionerFailure {
@@ -205,6 +239,7 @@ export function provisionerConfigFromEnv(
     endpoint,
     credential: new SensitiveSecret(credentialRaw),
     timeoutMs,
+    access: cloudflareAccessConfigFromEnv(env),
   };
 }
 
@@ -265,6 +300,39 @@ function parseWorkerPolicy(value: unknown): CellWorkerPolicy | null {
   };
 }
 
+function parsePendingResponse(
+  response: Response,
+  value: Record<string, unknown>,
+  context: ProvisionerCallContext
+): ProvisionerPending | null {
+  if (
+    Object.keys(value).sort().join(",") !== "checkpoint,operationId,retryAfterSeconds,status" ||
+    value.status !== "pending" ||
+    value.operationId !== context.operationId ||
+    value.checkpoint !== context.checkpoint ||
+    !boundedLabel(value.operationId) ||
+    !boundedLabel(value.checkpoint)
+  ) {
+    return null;
+  }
+  const retryAfterHeader = response.headers.get("retry-after");
+  if (!retryAfterHeader || !/^[1-9]\d{0,2}$/.test(retryAfterHeader)) return null;
+  const retryAfterSeconds = Number(value.retryAfterSeconds);
+  if (
+    !Number.isInteger(value.retryAfterSeconds) ||
+    retryAfterSeconds < 1 ||
+    retryAfterSeconds > 300 ||
+    retryAfterSeconds !== Number(retryAfterHeader)
+  ) {
+    return null;
+  }
+  return new ProvisionerPending({
+    operationId: context.operationId,
+    checkpoint: context.checkpoint,
+    retryAfterSeconds,
+  });
+}
+
 export class HttpCellProvisioner implements CellProvisioner {
   readonly #config: HttpProvisionerConfig;
   readonly #fetch: Fetch;
@@ -286,6 +354,7 @@ export class HttpCellProvisioner implements CellProvisioner {
       const response = await this.#fetch(`${base}/cells/${action}`, {
         method: "POST",
         headers: {
+          ...cloudflareAccessHeaders(this.#config.access ?? null),
           authorization: `Bearer ${this.#config.credential.reveal()}`,
           "content-type": "application/json",
           "idempotency-key": request.context.idempotencyKey,
@@ -305,22 +374,29 @@ export class HttpCellProvisioner implements CellProvisioner {
         });
       }
       if (response.status === 204) return {};
+      let parsed: Record<string, unknown>;
       try {
         const declared = Number(response.headers.get("content-length") ?? "0");
         if (declared > MAX_PROVISIONER_RESPONSE_BYTES) throw new Error("oversized");
         const bytes = new Uint8Array(await response.arrayBuffer());
         if (bytes.byteLength > MAX_PROVISIONER_RESPONSE_BYTES) throw new Error("oversized");
-        const parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
-        return parsed as Record<string, unknown>;
+        const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error();
+        parsed = value as Record<string, unknown>;
       } catch {
         throw new ProvisionerFailure({
           code: "PROVISIONER_RESPONSE_INVALID",
           retryable: false,
         });
       }
+      if (response.status === 202) {
+        const pending = parsePendingResponse(response, parsed, request.context);
+        if (pending) throw pending;
+        throw new ProvisionerFailure({ code: "PROVISIONER_RESPONSE_INVALID", retryable: false });
+      }
+      return parsed;
     } catch (error) {
-      if (error instanceof ProvisionerFailure) throw error;
+      if (error instanceof ProvisionerFailure || error instanceof ProvisionerPending) throw error;
       const aborted = error instanceof Error && error.name === "AbortError";
       throw new ProvisionerFailure({
         code: aborted ? "PROVISIONER_TIMEOUT" : "PROVISIONER_UNAVAILABLE",

@@ -140,7 +140,7 @@ export default function HomeClient() {
   } | null>(null);
   const retryKeyRef = useRef(newRetryKey());
   const retryContentRef = useRef("");
-  const uploadRetryRef = useRef<{ file: File; key: string } | null>(null);
+  const uploadRetryRef = useRef<{ file: File } | null>(null);
   const uploadInFlightRef = useRef(false);
   const mountedRef = useRef(true);
   const statusSingleFlightRef = useRef(createSingleFlight<Lifecycle>());
@@ -295,14 +295,13 @@ export default function HomeClient() {
     if (!file || uploadInFlightRef.current) return;
     uploadInFlightRef.current = true;
     if (attempt === "selection" || uploadRetryRef.current?.file !== file) {
-      uploadRetryRef.current = { file, key: newRetryKey() };
+      uploadRetryRef.current = { file };
     }
-    const idempotencyKey = uploadRetryRef.current.key;
     setUploading(true);
     setNotice(`Saving ${file.name}…`);
     setNoticeError(false);
     try {
-      await postPrivateFile(file, { idempotencyKey });
+      await postPrivateFile(file);
       uploadRetryRef.current = null;
       setFailedUpload(null);
       setNotice(`${file.name} is now part of your Exomem.`);
