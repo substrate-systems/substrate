@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyCronAuth } from "@/lib/hosted-backup/cron-auth";
+import { verifyHostedSchedulerAuth } from "@/lib/exomem-hosted/scheduler-auth";
 import { drainMagicLinkDeliveries } from "@/lib/exomem-hosted/access-delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (!verifyCronAuth(request).ok) {
+  if (!verifyHostedSchedulerAuth(request).ok) {
     return NextResponse.json(
       { success: false, error: { code: "UNAUTHENTICATED" } },
       { status: 401, headers: { "cache-control": "no-store" } }

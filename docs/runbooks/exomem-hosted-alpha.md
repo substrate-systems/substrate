@@ -47,7 +47,9 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CELL_SEMANTIC_WORKERS`            | `false` for alpha.                                                                                                                                                                       |
 | `EXOMEM_CELL_MEDIA_WORKERS`               | `false` for alpha.                                                                                                                                                                       |
 | `EXOMEM_EXPORT_TTL_HOURS`                 | Positive integer; default `24`. Provider download URLs are separately capped at 15 minutes.                                                                                              |
-| `CRON_SECRET`                             | Shared only by the Vercel cron routes and external K3s scheduler; the routes fail closed if absent or wrong.                                                                             |
+| `CRON_SECRET`                             | Existing Vercel-only bearer for unrelated daily/weekly jobs. Never install it in the hosted K3s scheduler.                                                                               |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET`          | Dedicated active bearer shared only by the three Exomem hosted cron routes and K3s scheduler.                                                                                            |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS` | Optional Vercel receiver-only overlap during rotation; absent in steady state and never installed in K3s.                                                                                |
 | `BREVO_API_KEY`                           | Delivers invite, magic-link, and deletion-confirmation email.                                                                                                                            |
 | `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Optional verified sender overrides.                                                                                                                                                      |
 
@@ -61,19 +63,36 @@ access-delivery cron.
 Vercel Hobby rejects cron expressions that run more than once per day, so the
 three frequent Exomem jobs are deliberately absent from `vercel.json`. Their
 versioned source of truth is `ops/exomem-hosted-schedules.json`. The hosted K3s
-platform release renders that contract as CronJobs which call the production
-Substrate origin with `Authorization: Bearer <CRON_SECRET>`:
+platform release renders that contract as CronJobs which call the canonical
+`https://substratesystems.io` origin with
+`Authorization: Bearer <EXOMEM_HOSTED_SCHEDULER_SECRET>`:
 
 - access delivery every minute;
 - lifecycle and Paddle reconciliation every minute; and
 - export garbage collection hourly at minute 17.
 
-The scheduler receives only `CRON_SECRET` and the canonical Substrate origin;
-it does not receive database, Paddle, cell, or browser credentials. Its jobs
-use bounded timeouts, forbid redirects to another origin, expose content-free
-success/failure metrics, and alert when a scheduled invocation is missed. The
-private alpha remains closed until the deployed schedules match the versioned
-contract and each route rejects a bad bearer and accepts the live scheduler.
+The scheduler receives only the active dedicated secret; it does not receive
+`CRON_SECRET`, the receiver's optional previous secret, database, Paddle, cell,
+or browser credentials. The versioned contract itself pins GET, redirect
+rejection, 5-second connect/20-second total timeouts, `Forbid` concurrency, a
+45-second starting deadline, a 30-second active deadline, two total attempts,
+bounded job history, content-free attempt/outcome/duration/last-success metrics,
+and alerts after 180 seconds without a due success or two consecutive failures.
+The private alpha remains closed until rendered CronJobs match every field and
+each route rejects both a bad bearer and the unrelated global `CRON_SECRET`.
+
+Rotate the dedicated bearer with explicit overlap:
+
+1. Generate a new active value without printing it. In Vercel, set the new value
+   as `EXOMEM_HOSTED_SCHEDULER_SECRET` and the old value as
+   `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`, then redeploy. Prove both values
+   reach only the three Exomem hosted routes.
+2. Update the SOPS-encrypted K3s scheduler Secret to the new active value, apply
+   the platform release, and prove every scheduled route succeeds with content-free
+   telemetry. Never copy the previous receiver value into K3s.
+3. Remove `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS` from Vercel and redeploy.
+   Prove the old value returns 401, the active value succeeds, and unrelated cron
+   routes still require `CRON_SECRET`.
 
 Generate the control-plane key without printing raw bytes in shell history:
 

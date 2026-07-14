@@ -27,37 +27,68 @@ describe("Exomem hosted operations contract", () => {
     const external = JSON.parse(source("ops/exomem-hosted-schedules.json")) as {
       version?: number;
       scheduler?: string;
+      origin?: string;
+      authentication?: Record<string, unknown>;
+      requestPolicy?: Record<string, unknown>;
+      kubernetesJobPolicy?: Record<string, unknown>;
+      observability?: Record<string, unknown>;
       jobs?: Array<{
         name?: string;
         path?: string;
         schedule?: string;
-        method?: string;
-        bearerEnvironmentVariable?: string;
       }>;
     };
     assert.equal(external.version, 1);
     assert.equal(external.scheduler, "kubernetes-cronjob");
+    assert.equal(external.origin, "https://substratesystems.io");
+    assert.deepEqual(external.authentication, {
+      scheme: "bearer",
+      schedulerEnvironmentVariable: "EXOMEM_HOSTED_SCHEDULER_SECRET",
+      receiverActiveEnvironmentVariable: "EXOMEM_HOSTED_SCHEDULER_SECRET",
+      receiverPreviousEnvironmentVariable: "EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS",
+      maxReceiverVersions: 2,
+    });
+    assert.deepEqual(external.requestPolicy, {
+      method: "GET",
+      redirect: "error",
+      connectTimeoutSeconds: 5,
+      totalTimeoutSeconds: 20,
+      successStatusCodes: [200],
+    });
+    assert.deepEqual(external.kubernetesJobPolicy, {
+      concurrencyPolicy: "Forbid",
+      startingDeadlineSeconds: 45,
+      activeDeadlineSeconds: 30,
+      backoffLimit: 1,
+      maxAttempts: 2,
+      successfulJobsHistoryLimit: 1,
+      failedJobsHistoryLimit: 3,
+      ttlSecondsAfterFinished: 300,
+    });
+    assert.deepEqual(external.observability, {
+      contentFree: true,
+      attemptCounterMetric: "exomem_hosted_scheduler_attempts_total",
+      durationHistogramMetric: "exomem_hosted_scheduler_duration_seconds",
+      lastSuccessMetric: "exomem_hosted_scheduler_last_success_unixtime",
+      failureCounterMetric: "exomem_hosted_scheduler_failures_total",
+      missedRunAlertAfterSeconds: 180,
+      consecutiveFailureAlertThreshold: 2,
+    });
     assert.deepEqual(external.jobs, [
       {
         name: "exomem-access-delivery",
         path: "/api/cron/exomem-access-delivery",
         schedule: "* * * * *",
-        method: "GET",
-        bearerEnvironmentVariable: "CRON_SECRET",
       },
       {
         name: "exomem-reconcile",
         path: "/api/cron/exomem-reconcile",
         schedule: "* * * * *",
-        method: "GET",
-        bearerEnvironmentVariable: "CRON_SECRET",
       },
       {
         name: "exomem-export-gc",
         path: "/api/cron/exomem-export-gc",
         schedule: "17 * * * *",
-        method: "GET",
-        bearerEnvironmentVariable: "CRON_SECRET",
       },
     ]);
   });
@@ -73,6 +104,7 @@ describe("Exomem hosted operations contract", () => {
       "EXOMEM_CELL_PROTOCOL_VERSION",
       "EXOMEM_CELL_RELEASE_VERSION",
       "CRON_SECRET",
+      "EXOMEM_HOSTED_SCHEDULER_SECRET",
       "BREVO_API_KEY",
       "EXOMEM_PADDLE_PRICE_ID",
     ]) {
