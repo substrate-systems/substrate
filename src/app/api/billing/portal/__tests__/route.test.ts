@@ -17,7 +17,10 @@ class MockPaddleApiError extends Error {
 }
 
 async function setupMocks() {
-  mock.method(console, 'error', () => {});
+  const consoleErrors: unknown[][] = [];
+  mock.method(console, 'error', (...args: unknown[]) => {
+    consoleErrors.push(args);
+  });
   class MockNextResponse extends Response {
     static json(body: unknown, init?: ResponseInit) {
       return new MockNextResponse(JSON.stringify(body), {
@@ -55,13 +58,14 @@ async function setupMocks() {
       PaddleApiError: MockPaddleApiError,
     },
   });
+  return { consoleErrors };
 }
 
 afterEach(() => mock.reset());
 
 describe('POST /api/billing/portal', () => {
   it('redacts Paddle response details when portal creation is forbidden', async () => {
-    await setupMocks();
+    const { consoleErrors } = await setupMocks();
     const { POST } = await import('../route');
 
     const res = await POST(
@@ -78,5 +82,12 @@ describe('POST /api/billing/portal', () => {
     assert.equal(body.error.message, 'paddle portal-session creation failed');
     assert.equal(body.error.detail, undefined);
     assert.equal(JSON.stringify(body).includes('not authorized'), false);
+
+    assert.equal(consoleErrors.length, 1);
+    const serializedLog = JSON.stringify(consoleErrors);
+    assert.equal(serializedLog.includes('paddleStatus'), true);
+    assert.equal(serializedLog.includes('403'), true);
+    assert.equal(serializedLog.includes('not authorized'), false);
+    assert.equal(serializedLog.includes('customer-portal-session'), false);
   });
 });
