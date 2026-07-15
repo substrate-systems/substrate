@@ -41,6 +41,7 @@ type AccountSnapshot = {
   subscriptionStatus: SubscriptionStatus;
   plan: string | null;
   currentPeriodEnd: string | null;
+  scheduledCancelAt: string | null;
   gracePeriodEndsAt: string | null;
   hasPaddleCustomer: boolean;
 };
@@ -59,6 +60,7 @@ async function loadSnapshot(): Promise<AccountSnapshot | null> {
     subscriptionStatus: ent.effectiveStatus,
     plan: ent.plan,
     currentPeriodEnd: ent.currentPeriodEnd,
+    scheduledCancelAt: ent.scheduledCancelAt,
     gracePeriodEndsAt: ent.gracePeriodEndsAt,
     hasPaddleCustomer: !!ent.paddleCustomerId,
   };

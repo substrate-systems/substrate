@@ -14,9 +14,13 @@ type PaddleSubscriptionEventData = {
   id?: string; // paddle_subscription_id
   customer_id?: string;
   status?: string;
-  next_billed_at?: string;
+  next_billed_at?: string | null;
+  current_billing_period?: {
+    starts_at?: string;
+    ends_at?: string;
+  } | null;
   canceled_at?: string;
-  scheduled_change?: { effective_at?: string; action?: string };
+  scheduled_change?: { effective_at?: string; action?: string } | null;
   custom_data?: { user_id?: string } | null;
   passthrough?: string | { user_id?: string } | null;
   items?: Array<{ price?: { id?: string } }>;
@@ -170,6 +174,7 @@ export async function applyPaddleEvent(
     graceStartedAt: transition.graceStartedAt,
     cancelStartedAt: transition.cancelStartedAt,
     currentPeriodEnd: transition.currentPeriodEnd,
+    scheduledCancelAt: transition.scheduledCancelAt,
   });
 
   const result: ApplyResult = preAccountFlow
@@ -183,11 +188,17 @@ type Transition = {
   graceStartedAt: Date | null;
   cancelStartedAt: Date | null;
   currentPeriodEnd: Date | null;
+  scheduledCancelAt: Date | null;
 };
 
 function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
   const now = new Date();
-  const periodEnd = event.data?.next_billed_at ? new Date(event.data.next_billed_at) : null;
+  const periodEndValue = event.data?.current_billing_period?.ends_at ?? event.data?.next_billed_at;
+  const periodEnd = periodEndValue ? new Date(periodEndValue) : null;
+  const scheduledCancelAt =
+    event.data?.scheduled_change?.action === "cancel" && event.data.scheduled_change.effective_at
+      ? new Date(event.data.scheduled_change.effective_at)
+      : null;
   switch (event.event_type) {
     case "subscription.created":
     case "subscription.activated":
@@ -197,6 +208,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
         graceStartedAt: null,
         cancelStartedAt: null,
         currentPeriodEnd: periodEnd,
+        scheduledCancelAt,
       };
     case "subscription.past_due":
       return {
@@ -204,6 +216,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
         graceStartedAt: now,
         cancelStartedAt: null,
         currentPeriodEnd: periodEnd,
+        scheduledCancelAt,
       };
     case "subscription.paused":
       return {
@@ -211,6 +224,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
         graceStartedAt: null,
         cancelStartedAt: null,
         currentPeriodEnd: periodEnd,
+        scheduledCancelAt,
       };
     case "subscription.canceled":
       // Paddle's spelling, one l. Internal: cancelled, two l's.
@@ -219,6 +233,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
         graceStartedAt: null,
         cancelStartedAt: event.data?.canceled_at ? new Date(event.data.canceled_at) : now,
         currentPeriodEnd: periodEnd,
+        scheduledCancelAt: null,
       };
     case "subscription.updated": {
       // Paddle's status field carries the canonical state; map it.
@@ -229,6 +244,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
           graceStartedAt: null,
           cancelStartedAt: null,
           currentPeriodEnd: periodEnd,
+          scheduledCancelAt,
         };
       }
       if (paddleStatus === "past_due") {
@@ -237,6 +253,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
           graceStartedAt: now,
           cancelStartedAt: null,
           currentPeriodEnd: periodEnd,
+          scheduledCancelAt,
         };
       }
       if (paddleStatus === "paused") {
@@ -245,6 +262,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
           graceStartedAt: null,
           cancelStartedAt: null,
           currentPeriodEnd: periodEnd,
+          scheduledCancelAt,
         };
       }
       if (paddleStatus === "canceled") {
@@ -253,6 +271,7 @@ function mapEventToStatus(event: PaddleSubscriptionEvent): Transition | null {
           graceStartedAt: null,
           cancelStartedAt: now,
           currentPeriodEnd: periodEnd,
+          scheduledCancelAt: null,
         };
       }
       return null;

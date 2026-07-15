@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
       subscriptionStatus: ent.effectiveStatus,
       plan: ent.plan,
       currentPeriodEnd: ent.currentPeriodEnd,
+      scheduledCancelAt: ent.scheduledCancelAt,
       gracePeriodEndsAt: ent.gracePeriodEndsAt,
       paddleSubscriptionId: ent.paddleSubscriptionId,
       paddleCustomerId: ent.paddleCustomerId,

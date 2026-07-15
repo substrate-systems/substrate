@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 const QUOTA = 1024 * 1024 * 1024;
 const state = {
   stats: { usedBytes: 0, versionCount: 0, lastBackupAt: null as string | null },
+  scheduledCancelAt: null as string | null,
 };
 
 before(() => {
@@ -31,6 +32,7 @@ before(() => {
         effectiveStatus: 'active',
         plan: 'comp',
         currentPeriodEnd: null,
+        scheduledCancelAt: state.scheduledCancelAt,
         gracePeriodEndsAt: null,
         paddleSubscriptionId: null,
         paddleCustomerId: null,
@@ -69,5 +71,12 @@ describe('GET /api/account/me — #59 freshness + quota', () => {
     assert.equal(body.lastBackupAt, null);
     assert.equal(body.quotaUsedBytes, 0);
     assert.equal(body.versionCount, 0);
+  });
+
+  it('passes through a scheduled cancellation date', async () => {
+    state.scheduledCancelAt = '2026-08-14T11:57:34.753Z';
+    const { body } = await callGet();
+    assert.equal(body.scheduledCancelAt, '2026-08-14T11:57:34.753Z');
+    state.scheduledCancelAt = null;
   });
 });

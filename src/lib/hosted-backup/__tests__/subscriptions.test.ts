@@ -70,6 +70,65 @@ describe('mapEventToStatus', () => {
     );
   });
 
+  it('prefers current_billing_period.ends_at over next_billed_at', () => {
+    const t = mapEventToStatus(
+      ev('subscription.updated', {
+        status: 'active',
+        next_billed_at: null,
+        current_billing_period: {
+          starts_at: '2026-07-14T00:00:00Z',
+          ends_at: '2026-08-14T00:00:00Z',
+        },
+      }),
+    );
+    assert.ok(t);
+    assert.equal(t.currentPeriodEnd?.toISOString(), '2026-08-14T00:00:00.000Z');
+  });
+
+  it('keeps active status and captures a scheduled cancellation', () => {
+    const t = mapEventToStatus(
+      ev('subscription.updated', {
+        status: 'active',
+        current_billing_period: {
+          starts_at: '2026-07-14T00:00:00Z',
+          ends_at: '2026-08-14T00:00:00Z',
+        },
+        scheduled_change: {
+          action: 'cancel',
+          effective_at: '2026-08-14T00:00:00Z',
+        },
+      }),
+    );
+    assert.ok(t);
+    assert.equal(t.status, 'active');
+    assert.equal(t.scheduledCancelAt?.toISOString(), '2026-08-14T00:00:00.000Z');
+  });
+
+  it('clears scheduled cancellation when Paddle has no cancel change', () => {
+    const t = mapEventToStatus(
+      ev('subscription.updated', {
+        status: 'active',
+        scheduled_change: null,
+      }),
+    );
+    assert.ok(t);
+    assert.equal(t.scheduledCancelAt, null);
+  });
+
+  it('ignores scheduled changes that are not cancellation', () => {
+    const t = mapEventToStatus(
+      ev('subscription.updated', {
+        status: 'active',
+        scheduled_change: {
+          action: 'pause',
+          effective_at: '2026-08-14T00:00:00Z',
+        },
+      }),
+    );
+    assert.ok(t);
+    assert.equal(t.scheduledCancelAt, null);
+  });
+
   it('subscription.paused → paused', () => {
     const t = mapEventToStatus(ev('subscription.paused'));
     assert.ok(t);
