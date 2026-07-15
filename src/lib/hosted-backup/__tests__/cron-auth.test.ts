@@ -15,14 +15,21 @@ function reqWithAuth(header?: string) {
 }
 
 const ORIGINAL = process.env.CRON_SECRET;
+const ORIGINAL_HOSTED_SCHEDULER = process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
 
 beforeEach(() => {
   process.env.CRON_SECRET = 's3cret';
+  process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = 'hosted-scheduler-secret';
 });
 
 afterEach(() => {
   if (ORIGINAL === undefined) delete process.env.CRON_SECRET;
   else process.env.CRON_SECRET = ORIGINAL;
+  if (ORIGINAL_HOSTED_SCHEDULER === undefined) {
+    delete process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
+  } else {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = ORIGINAL_HOSTED_SCHEDULER;
+  }
 });
 
 describe('verifyCronAuth', () => {
@@ -36,6 +43,13 @@ describe('verifyCronAuth', () => {
 
   it('rejects a wrong secret', () => {
     assert.equal(verifyCronAuth(reqWithAuth('Bearer nope')).ok, false);
+  });
+
+  it('rejects the dedicated hosted scheduler bearer on global cron routes', () => {
+    assert.equal(
+      verifyCronAuth(reqWithAuth(`Bearer ${process.env.EXOMEM_HOSTED_SCHEDULER_SECRET}`)).ok,
+      false
+    );
   });
 
   it('rejects a missing Authorization header', () => {
