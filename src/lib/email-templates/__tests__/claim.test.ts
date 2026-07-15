@@ -44,6 +44,28 @@ describe('renderClaimEmail (issue #13)', () => {
       'Plaintext body must not contain the lossy dashed projection',
     );
   });
+
+  it('keeps the CTA on HTTPS and gives the exact Hosted Backup fallback path', () => {
+    const { htmlContent, textContent } = renderClaimEmail({
+      email: 'buyer@example.com',
+      token: SAMPLE_TOKEN,
+    });
+
+    assert.match(htmlContent, /href="https:\/\/substratesystems\.io\/endstate\/claim\//);
+    assert.ok(!htmlContent.includes('href="endstate://'));
+    assert.ok(
+      htmlContent.includes(
+        'In Endstate, open Hosted Backup, choose &ldquo;Use purchase code&rdquo;, then paste the code.',
+      ),
+    );
+    assert.ok(
+      textContent.includes(
+        'In Endstate, open Hosted Backup, choose "Use purchase code", then paste the code.',
+      ),
+    );
+    assert.ok(!htmlContent.includes('sign-in screen'));
+    assert.ok(!textContent.includes('sign-in screen'));
+  });
 });
 
 describe('renderResendClaimEmail (issue #13)', () => {
@@ -54,5 +76,23 @@ describe('renderResendClaimEmail (issue #13)', () => {
     });
     assert.ok(htmlContent.includes(SAMPLE_TOKEN));
     assert.ok(textContent.includes(SAMPLE_TOKEN));
+  });
+
+  it('uses the same exact Hosted Backup fallback path', () => {
+    const { htmlContent, textContent } = renderResendClaimEmail({
+      email: 'buyer@example.com',
+      token: SAMPLE_TOKEN,
+    });
+
+    assert.ok(
+      htmlContent.includes(
+        'In Endstate, open Hosted Backup, choose &ldquo;Use purchase code&rdquo;, then paste the code.',
+      ),
+    );
+    assert.ok(
+      textContent.includes(
+        'In Endstate, open Hosted Backup, choose "Use purchase code", then paste the code.',
+      ),
+    );
   });
 });
