@@ -69,6 +69,11 @@ function formatDate(iso: string | null): string | null {
   }
 }
 
+export function displayPlanName(plan: string | null): string {
+  if (!plan || /^pri_[a-z0-9]{26}$/i.test(plan)) return 'Hosted Backup';
+  return plan;
+}
+
 export function AccountView({ snapshot }: { snapshot: AccountSnapshot }) {
   const { tone, label } = statusVisual(snapshot.subscriptionStatus);
   const accent = toneColor(tone);
@@ -116,7 +121,7 @@ export function AccountView({ snapshot }: { snapshot: AccountSnapshot }) {
           tone={tone}
           accent={accent}
           label={label}
-          plan={snapshot.plan ?? 'Hosted Backup'}
+          plan={displayPlanName(snapshot.plan)}
           status={snapshot.subscriptionStatus}
           periodEnd={periodEnd}
           graceEnd={graceEnd}

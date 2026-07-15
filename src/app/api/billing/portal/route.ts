@@ -64,11 +64,14 @@ export async function POST(_req: NextRequest) {
     return jsonWithApiVersion(response, 200);
   } catch (err) {
     if (err instanceof PaddleApiError) {
+      console.error(
+        '[hosted-backup billing/portal] Paddle rejected portal-session creation:',
+        { paddleStatus: err.status },
+      );
       const wrapped = new HostedBackupError({
         code: 'PADDLE_API_ERROR',
         status: 502,
         message: 'paddle portal-session creation failed',
-        detail: { paddleStatus: err.status, paddleBody: err.body },
       });
       return errorResponse(wrapped);
     }
