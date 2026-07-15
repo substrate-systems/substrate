@@ -112,7 +112,7 @@ function renderClaimEmailVariant(
                     <td align="center" style="padding: 18px 16px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; font-weight: 500; color: #ffffff; word-break: break-all;">${escapeHtml(token)}</td>
                   </tr>
                 </table>
-                <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 12px 0 32px;">On Endstate&rsquo;s sign-in screen, choose &ldquo;I have a claim code&rdquo; and paste it in.</p>
+                <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 12px 0 32px;">In Endstate, open Hosted Backup, choose &ldquo;Use purchase code&rdquo;, then paste the code.</p>
 
                 <!-- Download -->
                 <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 6px;">Don&rsquo;t have Endstate yet?</p>
@@ -146,7 +146,7 @@ Or paste this code into Endstate after installing:
 
   ${token}
 
-On Endstate's sign-in screen, choose "I have a claim code" and paste it in.
+In Endstate, open Hosted Backup, choose "Use purchase code", then paste the code.
 
 Don't have Endstate yet? Download it free: ${DOWNLOAD_URL}
 (The local product is free; your subscription unlocks Hosted Backup.)

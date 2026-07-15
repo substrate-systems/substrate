@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Download } from 'lucide-react';
 import { verifyClaimToken } from '@/lib/hosted-backup/claim-tokens';
 import { Nav, EndstateFooter } from '../../_shared';
 import { ClaimCopyButton, OpenInEndstateButton } from './ClaimClient';
@@ -157,11 +158,11 @@ function SuccessState({ token, email }: { token: string; email: string }) {
           >
             {email}
           </span>{' '}
-          is ready. Two short steps and you&rsquo;re backing up.
+          is ready. Open Endstate to finish setting up your account.
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <StepCard featured number="01 — YOUR CLAIM CODE" heading="Copy this, paste it into Endstate.">
+          <StepCard featured number="01 — OPEN ENDSTATE" heading="Finish setup in the app.">
             <p
               style={{
                 fontSize: '0.95rem',
@@ -171,14 +172,14 @@ function SuccessState({ token, email }: { token: string; email: string }) {
                 marginBottom: 20,
               }}
             >
-              Endstate uses this code once to attach your subscription to a
-              fresh local account. It expires in 30 days. You won&rsquo;t need
-              it again after setup.
+              This opens Endstate with your purchase code ready. Create your
+              password, save your recovery key, and your subscription is
+              attached to the new account.
             </p>
-            <ClaimCopyButton token={token} />
+            <OpenInEndstateButton token={token} />
           </StepCard>
 
-          <StepCard number="02 — OPEN ENDSTATE" heading="If you already have it installed.">
+          <StepCard number="02 — FALLBACK" heading="App didn’t open?">
             <p
               style={{
                 fontSize: '0.95rem',
@@ -188,30 +189,36 @@ function SuccessState({ token, email }: { token: string; email: string }) {
                 marginBottom: 20,
               }}
             >
-              One tap opens Endstate with your code pre-filled. On the
-              sign-in screen, finish the recovery key setup and you&rsquo;re
-              in.
+              Copy the code below. In Endstate, open Hosted Backup and choose
+              &ldquo;Use purchase code&rdquo;, then paste it. The code expires in 30
+              days and only works once.
             </p>
+            <ClaimCopyButton token={token} />
             <div
               style={{
                 display: 'flex',
                 gap: 12,
                 flexWrap: 'wrap',
                 alignItems: 'center',
+                marginTop: 20,
               }}
             >
-              <OpenInEndstateButton token={token} />
               <Link
                 href="/download"
                 style={{
-                  color: c.textSec,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  color: c.text,
                   fontSize: '0.9rem',
-                  borderBottom: '1px solid rgba(153,153,153,0.25)',
-                  paddingBottom: 1,
+                  border: `1px solid ${c.border}`,
+                  borderRadius: 8,
+                  padding: '12px 18px',
                   textDecoration: 'none',
                 }}
               >
-                or download Endstate first
+                <Download aria-hidden="true" size={15} />
+                Download Endstate
               </Link>
             </div>
           </StepCard>
@@ -225,7 +232,7 @@ function SuccessState({ token, email }: { token: string; email: string }) {
             color: c.textMuted,
           }}
         >
-          Trouble signing in?{' '}
+          Still stuck?{' '}
           <a
             href="mailto:founder@substratesystems.io?subject=Hosted%20Backup%20claim%20help"
             style={{

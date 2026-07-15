@@ -1,5 +1,6 @@
 'use client';
 
+import { Check, Copy, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 
 const c = {
@@ -12,6 +13,20 @@ const c = {
 
 const MONO_FAMILY =
   "var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
+export function openClaimInEndstate(
+  token: string,
+  copy: (value: string) => Promise<void>,
+  launch: (url: string) => void,
+) {
+  try {
+    void copy(token).catch(() => {});
+  } catch {
+    // Clipboard access is optional; the deep link remains the primary path.
+  }
+
+  launch(`endstate://claim?token=${encodeURIComponent(token)}`);
+}
 
 export function ClaimCopyButton({ token }: { token: string }) {
   const [copied, setCopied] = useState(false);
@@ -74,21 +89,7 @@ export function ClaimCopyButton({ token }: { token: string }) {
           gap: 8,
         }}
       >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          width={14}
-          height={14}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ opacity: 0.7 }}
-        >
-          <rect x="9" y="9" width="13" height="13" rx="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
+        {copied ? <Check aria-hidden="true" size={14} /> : <Copy aria-hidden="true" size={14} />}
         {copied ? 'Copied' : 'Copy code'}
       </button>
     </div>
@@ -96,10 +97,20 @@ export function ClaimCopyButton({ token }: { token: string }) {
 }
 
 export function OpenInEndstateButton({ token }: { token: string }) {
-  const href = `endstate://claim?token=${encodeURIComponent(token)}`;
+  function onOpen() {
+    openClaimInEndstate(
+      token,
+      (value) => navigator.clipboard.writeText(value),
+      (url) => {
+        window.location.href = url;
+      },
+    );
+  }
+
   return (
-    <a
-      href={href}
+    <button
+      type="button"
+      onClick={onOpen}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -110,13 +121,13 @@ export function OpenInEndstateButton({ token }: { token: string }) {
         borderRadius: 8,
         fontSize: '0.95rem',
         fontWeight: 600,
-        textDecoration: 'none',
+        fontFamily: 'inherit',
+        border: 0,
+        cursor: 'pointer',
       }}
     >
+      <ExternalLink aria-hidden="true" size={16} />
       Open in Endstate
-      <span aria-hidden="true" style={{ display: 'inline-block', transform: 'translateY(-1px)' }}>
-        →
-      </span>
-    </a>
+    </button>
   );
 }
