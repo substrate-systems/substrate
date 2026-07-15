@@ -369,6 +369,7 @@ export type SubscriptionRow = {
   grace_started_at: string | null;
   cancel_started_at: string | null;
   current_period_end: string | null;
+  scheduled_cancel_at: string | null;
   updated_at: string;
 };
 
@@ -399,6 +400,7 @@ export type SubscriptionEntitlement = {
   storedStatus: SubscriptionStatus;
   plan: string | null;
   currentPeriodEnd: string | null;
+  scheduledCancelAt: string | null;
   gracePeriodEndsAt: string | null;
   paddleSubscriptionId: string | null;
   paddleCustomerId: string | null;
@@ -416,6 +418,7 @@ export async function getSubscriptionEntitlement(userId: string): Promise<Subscr
       status,
       plan,
       current_period_end,
+      scheduled_cancel_at,
       grace_started_at,
       paddle_subscription_id,
       paddle_customer_id,
@@ -439,6 +442,7 @@ export async function getSubscriptionEntitlement(userId: string): Promise<Subscr
         status: SubscriptionStatus;
         plan: string | null;
         current_period_end: string | null;
+        scheduled_cancel_at: string | null;
         grace_started_at: string | null;
         paddle_subscription_id: string | null;
         paddle_customer_id: string | null;
@@ -453,6 +457,7 @@ export async function getSubscriptionEntitlement(userId: string): Promise<Subscr
       storedStatus: "none",
       plan: null,
       currentPeriodEnd: null,
+      scheduledCancelAt: null,
       gracePeriodEndsAt: null,
       paddleSubscriptionId: null,
       paddleCustomerId: null,
@@ -464,6 +469,7 @@ export async function getSubscriptionEntitlement(userId: string): Promise<Subscr
     storedStatus: row.status,
     plan: row.plan,
     currentPeriodEnd: row.current_period_end,
+    scheduledCancelAt: row.scheduled_cancel_at,
     gracePeriodEndsAt: row.grace_period_ends_at,
     paddleSubscriptionId: row.paddle_subscription_id,
     paddleCustomerId: row.paddle_customer_id,
@@ -474,7 +480,8 @@ export async function getSubscriptionEntitlement(userId: string): Promise<Subscr
 export async function getSubscriptionByUserId(userId: string): Promise<SubscriptionRow | null> {
   const { rows } = await sql`
     SELECT user_id, paddle_subscription_id, paddle_customer_id, status, plan,
-           grace_started_at, cancel_started_at, current_period_end, updated_at
+           grace_started_at, cancel_started_at, current_period_end,
+           scheduled_cancel_at, updated_at
     FROM subscriptions WHERE user_id = ${userId} LIMIT 1
   `;
   return (rows[0] as SubscriptionRow | undefined) ?? null;
@@ -485,7 +492,8 @@ export async function getSubscriptionByPaddleId(
 ): Promise<SubscriptionRow | null> {
   const { rows } = await sql`
     SELECT user_id, paddle_subscription_id, paddle_customer_id, status, plan,
-           grace_started_at, cancel_started_at, current_period_end, updated_at
+           grace_started_at, cancel_started_at, current_period_end,
+           scheduled_cancel_at, updated_at
     FROM subscriptions WHERE paddle_subscription_id = ${paddleSubscriptionId} LIMIT 1
   `;
   return (rows[0] as SubscriptionRow | undefined) ?? null;
@@ -509,11 +517,13 @@ export async function upsertSubscription(params: {
   graceStartedAt?: Date | null;
   cancelStartedAt?: Date | null;
   currentPeriodEnd?: Date | null;
+  scheduledCancelAt?: Date | null;
 }): Promise<void> {
   await sql`
     INSERT INTO subscriptions (
       user_id, paddle_subscription_id, paddle_customer_id, status, plan,
-      grace_started_at, cancel_started_at, current_period_end, updated_at
+      grace_started_at, cancel_started_at, current_period_end,
+      scheduled_cancel_at, updated_at
     ) VALUES (
       ${params.userId},
       ${params.paddleSubscriptionId},
@@ -523,6 +533,7 @@ export async function upsertSubscription(params: {
       ${params.graceStartedAt?.toISOString() ?? null},
       ${params.cancelStartedAt?.toISOString() ?? null},
       ${params.currentPeriodEnd?.toISOString() ?? null},
+      ${params.scheduledCancelAt?.toISOString() ?? null},
       now()
     )
     ON CONFLICT (user_id) DO UPDATE SET
@@ -533,6 +544,7 @@ export async function upsertSubscription(params: {
       grace_started_at = EXCLUDED.grace_started_at,
       cancel_started_at = EXCLUDED.cancel_started_at,
       current_period_end = EXCLUDED.current_period_end,
+      scheduled_cancel_at = EXCLUDED.scheduled_cancel_at,
       updated_at = now()
   `;
 }

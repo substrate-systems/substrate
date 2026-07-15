@@ -103,6 +103,7 @@ export type AccountMeResponse = {
   subscriptionStatus: SubscriptionStatus;
   plan: string | null;
   currentPeriodEnd: string | null;
+  scheduledCancelAt: string | null;
   gracePeriodEndsAt: string | null;
   paddleSubscriptionId: string | null;
   paddleCustomerId: string | null;

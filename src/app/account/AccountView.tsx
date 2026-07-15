@@ -23,10 +23,16 @@ const MONO_FAMILY =
 
 type Tone = 'positive' | 'warning' | 'danger' | 'neutral';
 
-function statusVisual(status: AccountSnapshot['subscriptionStatus']): {
+export function statusVisual(
+  status: AccountSnapshot['subscriptionStatus'],
+  scheduledCancelAt: string | null,
+): {
   tone: Tone;
   label: string;
 } {
+  if (status === 'active' && scheduledCancelAt) {
+    return { tone: 'warning', label: 'Cancelling' };
+  }
   switch (status) {
     case 'active':
       return { tone: 'positive', label: 'Active' };
@@ -75,9 +81,10 @@ export function displayPlanName(plan: string | null): string {
 }
 
 export function AccountView({ snapshot }: { snapshot: AccountSnapshot }) {
-  const { tone, label } = statusVisual(snapshot.subscriptionStatus);
+  const { tone, label } = statusVisual(snapshot.subscriptionStatus, snapshot.scheduledCancelAt);
   const accent = toneColor(tone);
   const periodEnd = formatDate(snapshot.currentPeriodEnd);
+  const scheduledCancelAt = formatDate(snapshot.scheduledCancelAt);
   const graceEnd = formatDate(snapshot.gracePeriodEndsAt);
 
   return (
@@ -124,6 +131,7 @@ export function AccountView({ snapshot }: { snapshot: AccountSnapshot }) {
           plan={displayPlanName(snapshot.plan)}
           status={snapshot.subscriptionStatus}
           periodEnd={periodEnd}
+          scheduledCancelAt={scheduledCancelAt}
           graceEnd={graceEnd}
           hasPaddleCustomer={snapshot.hasPaddleCustomer}
         />
@@ -143,6 +151,7 @@ function StatusCard(props: {
   plan: string;
   status: AccountSnapshot['subscriptionStatus'];
   periodEnd: string | null;
+  scheduledCancelAt: string | null;
   graceEnd: string | null;
   hasPaddleCustomer: boolean;
 }) {
@@ -215,7 +224,12 @@ function StatusCard(props: {
         {props.plan}
       </h3>
 
-      <DateLine status={props.status} periodEnd={props.periodEnd} graceEnd={props.graceEnd} />
+      <DateLine
+        status={props.status}
+        periodEnd={props.periodEnd}
+        scheduledCancelAt={props.scheduledCancelAt}
+        graceEnd={props.graceEnd}
+      />
 
       <PrimaryAction status={props.status} hasPaddleCustomer={props.hasPaddleCustomer} />
     </section>
@@ -233,24 +247,15 @@ function hexToRgbTriplet(hex: string): string | null {
 function DateLine({
   status,
   periodEnd,
+  scheduledCancelAt,
   graceEnd,
 }: {
   status: AccountSnapshot['subscriptionStatus'];
   periodEnd: string | null;
+  scheduledCancelAt: string | null;
   graceEnd: string | null;
 }) {
-  let text: string | null = null;
-  if (status === 'active' && periodEnd) {
-    text = `Renews ${periodEnd}.`;
-  } else if (status === 'grace' && graceEnd) {
-    text = `Backups remain readable through ${graceEnd}. Update your card to keep pushing new versions.`;
-  } else if (status === 'cancelled' && periodEnd) {
-    text = `Cancelled. Existing backups remain accessible through ${periodEnd}.`;
-  } else if (status === 'paused') {
-    text = 'Subscription paused. Resume in Paddle to push new versions.';
-  } else if (status === 'none') {
-    text = 'No active subscription. Start one to back up to the cloud.';
-  }
+  const text = dateLineText({ status, periodEnd, scheduledCancelAt, graceEnd });
   if (!text) return null;
   return (
     <p
@@ -264,6 +269,34 @@ function DateLine({
       {text}
     </p>
   );
+}
+
+export function dateLineText({
+  status,
+  periodEnd,
+  scheduledCancelAt,
+  graceEnd,
+}: {
+  status: AccountSnapshot['subscriptionStatus'];
+  periodEnd: string | null;
+  scheduledCancelAt: string | null;
+  graceEnd: string | null;
+}): string | null {
+  let text: string | null = null;
+  if (status === 'active' && scheduledCancelAt) {
+    text = `Access remains active through ${scheduledCancelAt}.`;
+  } else if (status === 'active' && periodEnd) {
+    text = `Renews ${periodEnd}.`;
+  } else if (status === 'grace' && graceEnd) {
+    text = `Backups remain readable through ${graceEnd}. Update your card to keep pushing new versions.`;
+  } else if (status === 'cancelled' && periodEnd) {
+    text = `Cancelled. Existing backups remain accessible through ${periodEnd}.`;
+  } else if (status === 'paused') {
+    text = 'Subscription paused. Resume in Paddle to push new versions.';
+  } else if (status === 'none') {
+    text = 'No active subscription. Start one to back up to the cloud.';
+  }
+  return text;
 }
 
 function PrimaryAction({
