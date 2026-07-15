@@ -14,7 +14,7 @@
     "hooks:install": "lefthook install",
     "migrate": "tsx scripts/migrate.ts",
     "migrate:dry": "tsx scripts/migrate.ts --dry",
-    "test": "node --import tsx --experimental-test-module-mocks --test 'src/**/*.test.ts'",
+    "test": "tsx --test --experimental-test-module-mocks \"src/**/*.test.ts\"",
     "openspec:list": "openspec list",
     "openspec:list:specs": "openspec list --specs",
     "openspec:validate": "openspec validate --all --strict --no-interactive",
