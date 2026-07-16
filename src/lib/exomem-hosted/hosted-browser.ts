@@ -245,6 +245,58 @@ export async function postPrivateFile(file: File): Promise<Record<string, unknow
   return readUploadCommitProof(response, file.size, sha256);
 }
 
+// Adoption staging intake mirrors postPrivateFile (ticket → direct PUT →
+// commit-proof check) but rides /api/exomem/adopt/upload, which binds the
+// signed grant to the run's `_Staging/adoption/<run_id>/` landing. `path` is
+// the optional relative subdirectory inside the staging area (for folder
+// picks); ZIP expansion and its caps stay cell-side.
+export async function postAdoptionFile(
+  file: File,
+  runId: string,
+  path?: string | null
+): Promise<Record<string, unknown>> {
+  if (!Number.isSafeInteger(file.size) || file.size > HOSTED_UPLOAD_MAX_BYTES) {
+    throw new HostedBrowserError(
+      {
+        code: "TRANSFER_TOO_LARGE",
+        message: "The selected file is larger than the 90 MiB hosted upload limit.",
+      },
+      413
+    );
+  }
+  const contentType = file.type || "application/octet-stream";
+  const filename = file.name.normalize("NFC");
+  const sha256 = await sha256Hex(file);
+  const ticketResponse = await postPrivateJson("/api/exomem/adopt/upload", {
+    metadata: {
+      content_type: contentType,
+      filename,
+      path: path ? path.normalize("NFC") : null,
+      run_id: runId,
+      sha256,
+      size: file.size,
+    },
+  });
+  const ticket = readDirectTransferTicket(ticketResponse, "PUT");
+  if (
+    Object.keys(ticket.headers).sort().join(",") !== "Content-Type,X-Exomem-Transfer-Grant" ||
+    ticket.headers["Content-Type"] !== contentType ||
+    file.size > ticket.maxBytes
+  ) {
+    throw new HostedBrowserError(errorFrom(null), 502);
+  }
+  const response = await fetch(ticket.url, {
+    method: ticket.method,
+    headers: ticket.headers,
+    body: file,
+    credentials: "omit",
+    cache: "no-store",
+    redirect: "error",
+    referrerPolicy: "no-referrer",
+  });
+  return readUploadCommitProof(response, file.size, sha256);
+}
+
 export async function getPrivateFile(path: string): Promise<Response> {
   const ticket = readDirectTransferTicket(
     await postPrivateJson("/api/exomem/download", { path }),
