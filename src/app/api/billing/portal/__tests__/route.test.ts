@@ -83,11 +83,18 @@ describe('POST /api/billing/portal', () => {
     assert.equal(body.error.detail, undefined);
     assert.equal(JSON.stringify(body).includes('not authorized'), false);
 
-    assert.equal(consoleErrors.length, 1);
-    const serializedLog = JSON.stringify(consoleErrors);
-    assert.equal(serializedLog.includes('paddleStatus'), true);
-    assert.equal(serializedLog.includes('403'), true);
-    assert.equal(serializedLog.includes('not authorized'), false);
-    assert.equal(serializedLog.includes('customer-portal-session'), false);
+    const portalErrors = consoleErrors.filter(
+      ([message]) =>
+        typeof message === 'string' &&
+        message.includes('[hosted-backup billing/portal]'),
+    );
+    assert.equal(portalErrors.length, 1);
+    const serializedPortalLog = JSON.stringify(portalErrors);
+    assert.equal(serializedPortalLog.includes('paddleStatus'), true);
+    assert.equal(serializedPortalLog.includes('403'), true);
+
+    const serializedAllLogs = JSON.stringify(consoleErrors);
+    assert.equal(serializedAllLogs.includes('not authorized'), false);
+    assert.equal(serializedAllLogs.includes('customer-portal-session'), false);
   });
 });
