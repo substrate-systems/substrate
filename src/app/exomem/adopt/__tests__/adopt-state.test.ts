@@ -55,6 +55,28 @@ describe("adoption selection model", () => {
     });
   });
 
+  it("never lists a root-level file in both include and exclude", () => {
+    // Files staged without a subdirectory are their own selection roots; an
+    // explicit file rule must replace the untouched-root include, not fight it.
+    const inventory = [
+      { path: "loose-a.md", eligible: true },
+      { path: "loose-b.md", eligible: true },
+      { path: "loose-c.md", eligible: true },
+    ];
+    const roots = selectionRoots(inventory);
+    assert.deepEqual(roots, ["loose-a.md", "loose-b.md", "loose-c.md"]);
+
+    let sel = initialSelection();
+    sel = overrideFile(sel, "loose-a.md", false);
+    sel = overrideFile(sel, "loose-b.md", true);
+    assert.deepEqual(selectionPayload(sel, roots), {
+      include: ["loose-c.md"],
+      exclude: ["loose-a.md"],
+      overrides: ["loose-b.md"],
+      includeJunk: false,
+    });
+  });
+
   it("resolves effective file state with deepest-rule-wins and override precedence", () => {
     let sel = initialSelection();
     sel = toggleFolder(sel, "Docs", true);

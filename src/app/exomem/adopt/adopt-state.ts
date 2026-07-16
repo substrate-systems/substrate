@@ -174,7 +174,9 @@ export function selectionPayload(sel: SelectionModel, roots: string[]): Adoption
   const exclude: string[] = [];
   for (const [key, value] of Object.entries(sel.folders)) (value ? include : exclude).push(key);
   for (const root of roots) {
-    if (!has(sel.folders, root)) include.push(root);
+    // A root-level FILE is its own root; an explicit file rule on it replaces
+    // the untouched-root include (otherwise include and exclude would fight).
+    if (!has(sel.folders, root) && !has(sel.files, root)) include.push(root);
   }
   const overrides: string[] = [];
   for (const [key, value] of Object.entries(sel.files)) (value ? overrides : exclude).push(key);

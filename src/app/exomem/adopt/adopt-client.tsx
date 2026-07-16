@@ -579,9 +579,11 @@ export default function AdoptClient() {
   function renderChoose() {
     if (!run) return null;
     // Rows show top-level folders, but tri-state must see the FULL depth-capped
-    // tree so a deeper folder rule marks its ancestors as mixed.
+    // tree so a deeper folder rule marks its ancestors as mixed. Files staged
+    // without a subdirectory have no folder row — list them directly.
     const roots = topFolders(rows);
     const tree = derivedTree(rows);
+    const rootFiles = rows.filter((row) => !row.path.includes("/"));
     const counts = selectionCounts(rows, selection);
     const junk = junkTotal(run);
     const openRows = openFolder
@@ -635,6 +637,25 @@ export default function AdoptClient() {
             );
           })}
         </ul>
+        {rootFiles.length > 0 && (
+          <ul role="group" aria-label="Files">
+            {rootFiles.slice(0, FILE_PAGE).map((row) => (
+              <li key={row.path}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={isFileSelected(selection, row.path)}
+                    disabled={!row.eligible}
+                    onChange={(event) =>
+                      setSelection(overrideFile(selection, row.path, event.target.checked))
+                    }
+                  />{" "}
+                  {row.eligible ? row.path : `${row.path} — can't be copied yet (not a text file)`}
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
         {openFolder && (
           <div>
             <p className={styles.secondaryCopy}>
