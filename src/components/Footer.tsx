@@ -16,12 +16,12 @@ export default function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="relative w-full py-16 border-t border-border-subtle">
-      <div className="mx-auto w-full max-w-3xl px-6 flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">
+    <footer className="relative mt-[clamp(80px,11vh,120px)] w-full border-t border-border-subtle">
+      <div className="mx-auto flex w-full max-w-[880px] flex-wrap items-center justify-between gap-x-10 gap-y-8 px-6 py-[60px]">
         <Link
           href="/"
           aria-label="Substrate home"
-          className="relative h-4 w-[160px] opacity-40 transition-opacity duration-default hover:opacity-70"
+          className="relative h-[14px] w-[140px] opacity-40 transition-opacity duration-default hover:opacity-70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a3a3a3]"
         >
           <Image
             src="/brand/logos/substrate-logo-white-transparent.png"
@@ -40,7 +40,7 @@ export default function Footer() {
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm font-light text-fg-tertiary transition-colors duration-default hover:text-fg-secondary"
+                className="text-sm font-light text-[#7a7a7a] transition-colors duration-default hover:text-[#a3a3a3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a3a3a3]"
               >
                 {link.label}
               </a>
@@ -48,7 +48,7 @@ export default function Footer() {
               <Link
                 key={link.href}
                 href={link.href}
-                className="text-sm font-light text-fg-tertiary transition-colors duration-default hover:text-fg-secondary"
+                className="text-sm font-light text-[#7a7a7a] transition-colors duration-default hover:text-[#a3a3a3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a3a3a3]"
               >
                 {link.label}
               </Link>
@@ -56,7 +56,7 @@ export default function Footer() {
           )}
         </nav>
 
-        <p className="text-sm font-light text-fg-tertiary">Substrate Systems · {currentYear}</p>
+        <p className="text-sm font-light text-[#7a7a7a]">Substrate Systems · {currentYear}</p>
       </div>
     </footer>
   );

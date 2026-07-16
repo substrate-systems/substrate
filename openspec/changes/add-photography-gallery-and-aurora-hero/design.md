@@ -83,13 +83,13 @@ The body changes from abstract company axioms to one coherent argument. Immediat
 
 The following large-format sequence replaces the existing four axioms:
 
+> Your AI should show its sources.
+>
 > Your setup should survive the machine.
 >
 > Your memory should outlive the session.
->
-> Your AI should show its sources.
 
-Each statement points to a real product without naming it prematurely. The product section then makes the mapping concrete and retains the flagship-first order Q, Endstate, Exomem:
+Each statement points to a real product without naming it prematurely. The approved Fable order deliberately matches the flagship-first product order Q, Endstate, Exomem one-for-one:
 
 - **Q:** `Source-grounded AI for content libraries. Turn original material into a branded knowledge system with answers that cite their sources.`
 - **Endstate:** `Local-first Windows setup and restore. Capture your apps and settings once, then rebuild a fresh machine in minutes.`
@@ -97,17 +97,48 @@ Each statement points to a real product without naming it prematurely. The produ
 
 B2B contracting remains discoverable through the existing Work/contact surfaces but does not shape the homepage narrative. Photography and writing remain quiet personal/editorial surfaces, not products.
 
-### Resolve energy into structure through motion
+### Port the approved Fable handoff faithfully
+
+The Fable/Claude Design handoff approved on 2026-07-16 supersedes the first-pass generic spine and statement-pulse treatment. The handoff README and its five reference captures define visual fidelity; this design records the production constraints. If the raw `.dc.html` conflicts with the README or this OpenSpec, the README/OpenSpec governs. In particular, the raw prototype's new-tab behavior for Endstate and Exomem is not authoritative.
 
 The page uses one motion concept: the aurora supplies organic energy, and the below-fold experience resolves it into structure.
 
-- The hero retains restrained pointer parallax. Its image, wordmark, primary line, secondary line, and `Explore ↓` cue settle in a clear entrance hierarchy.
-- The thesis enters through a clean vertical mask rather than decorative blur or spectacle.
-- A fine monochrome line draws downward from the thesis and becomes the structural spine for the three large statements.
-- Each statement activates when the spine reaches it: resting grey becomes crisp white, then settles back to the secondary foreground tone as the reader continues. The flow remains normal document scroll; there is no pinned-scroll trap.
-- The product list is calmer. Rows reveal in layers; hover/focus may extend a hairline, raise contrast, and move the directional arrow by only a few pixels.
+#### Hero and afterglow
 
-There are no particles, glowing orbs, fake infrastructure diagrams, continuous decorative loops, or WebGL dependency. Motion is implemented with the site's existing CSS/Framer Motion vocabulary, remains composited where practical, and never gates content. Under `prefers-reduced-motion`, every element renders immediately in its complete static state and the structural line remains understandable without drawing animation.
+- Preserve the production responsive `<picture>`, approved crops, wordmark, copy, fine-pointer parallax, and `Explore ↓` target.
+- Add `Iceland · March 2026` as a quiet `/photography` link at right `20px`, bottom `40px`, 11px uppercase with `0.14em` tracking; it may be hidden below 640px.
+- Put the dissolve inside the hero: `20vh`, transparent at 0%, `rgba(5,5,5,0.5)` at 58%, and `#050505` at 100%.
+- Add a decorative afterglow at the start of the below-fold section, flipping the aurora vertically, using object position `44% 46%`, opacity `0.06`, blur `1.5px`, height `min(88vh, 860px)`, and mask stops `black 0%`, `rgba(0,0,0,0.5) 36%`, `rgba(0,0,0,0.14) 62%`, `transparent 84%`. It is `aria-hidden`, non-interactive, lazy/async, and not a new eager/LCP image. Use a dedicated low-resolution derivative no larger than 180 KB transferred rather than requesting another full hero derivative.
+
+#### Editorial composition
+
+- The narrative column is centered at `max-width: 880px` with `24px` horizontal padding and CSS variables `--sx: clamp(6px, 3vw, 20px)` and `--pad: clamp(44px, 8vw, 92px)`.
+- The thesis is left aligned at `margin-left: var(--pad)` with top padding `clamp(110px,16vh,170px)`. Its headline is `clamp(30px,4.4vw,56px)`, weight 300, `-0.025em` tracking, 1.14 line-height; support is `clamp(16px,1.35vw,19px)`, weight 300, 1.7 line-height, 28px top margin, and 560px maximum width. `not less` does not break across lines.
+- Principles are a semantic ordered list with order AI, setup, memory so `01`, `02`, and `03` map directly into Q, Endstate, and Exomem. The list uses `clamp(100px,15vh,170px)` top and `clamp(90px,13vh,150px)` bottom padding with `clamp(84px,13vh,140px)` gaps. Statements are `clamp(26px,3.4vw,42px)`, weight 300, `-0.02em` tracking, 1.22 line-height. Each principle has an 11px spine node and a quiet connector hairline.
+- Products are full-width bordered index rows, not floating cards. Each row repeats the numbered principle, product name, approved description, and `Learn more` direction. Rows use `clamp(36px,5vh,52px)` vertical padding; names are `clamp(30px,3.8vw,46px)` and descriptions are `clamp(16px,1.3vw,19px)` with 1.65 line-height. The first product border begins where the spine terminates.
+- Q uses `https://useq.ai`, `_blank`, and `noopener noreferrer`; Endstate and Exomem use internal `/endstate` and `/exomem` routes with no new browsing context.
+- A centered closing axiom reads `Systems precede products.` before the global footer.
+- The footer retains all eight links: Work, Writing, Photography, Q, Endstate, Exomem, GitHub, and LinkedIn. Its inner container is 880px with `60px 24px` padding, the wordmark is 14px high, and the layout wraps without horizontal overflow.
+- The handoff's hierarchy is preserved, but small functional text cannot use `#525252` on `#050505`. Product eyebrows, Learn more links, footer navigation/copyright, and focus indicators use at least `#7a7a7a` (or an equivalent contrast of 4.5:1); the focus ring uses at least `#a3a3a3`. Large display text and decorative strokes retain the handoff values.
+
+#### Converge signature spine
+
+- The spine zone wraps the thesis, principles, and Products heading. Products rows, closing axiom, and footer remain outside it.
+- SSR renders a straight 1px static fallback line. JavaScript enhancement replaces it with one SVG containing three organic strands, a 150px tail, and a 15px light bead.
+- The bead represents the boundary between organic and resolved structure and sits at `viewportHeight * 0.55` while the zone crosses the viewport.
+- Sample each path every 18px. Organic amplitude is `30 * (1 - y/H)^1.35`, so all strands taper into a straight product-table landing. The convergence factor is `smoothstep(clamp01((y - beadY) / 340))`.
+- The center strand uses phase 0. Side strands use phases `2.1` and `4.4`, `0.8×` amplitude, and offsets of `±24 * a`. Wave terms are `0.7*sin(y*0.017 + t*0.000585 + phase)` plus `0.5*sin(y*0.006 - t*0.00045 + 0.6*phase)`. Behind the bead all three collapse to x=40. Every path begins `M 40 0` and ends `L 40 H`.
+- Primary/side spine strokes use white alpha `0.17`/`0.10` at 1px. The tail runs from `beadY - 150` to the bead with `rgba(250,250,250,0.4)`, 1.5px rounded stroke, and 0.5 opacity. The 15px bead uses the handoff radial core and `0 0 22px 6px rgba(250,250,250,0.16)` glow. Nodes use a 1px white-alpha 0.28 border on `#050505`, fill to `#fafafa`, and transition over 500ms with `cubic-bezier(0.33,1,0.68,1)` after the bead reaches their measured centers; they deactivate when scrolling back.
+- The client island measures zone height and node centers at mount and through ResizeObserver. During animation it reads the zone rectangle once per active frame, writes only SVG path data and transforms, skips work when the zone is more than 120px outside the viewport, and cleans up rAF, observer, media-query, and pointer listeners.
+
+#### Progressive reveal and fallbacks
+
+- Thesis lines, principles, Products heading/rows, and axiom use the handoff's 14px fade-up reveal with `0.9s cubic-bezier(0.16,1,0.3,1)` timing and declared delays. The footer is not a reveal target.
+- Content is visible in SSR and without JavaScript. After hydration, only elements still below `0.92 * viewportHeight` may be hidden and observed. The single IntersectionObserver uses threshold 0.2 and root margin `-32px`; each item reveals once.
+- Without JavaScript, content is visible, the animated SVG/bead are absent, the straight fallback line remains, and nodes remain unfilled. Under `prefers-reduced-motion`, reveals and parallax are disabled, the animated SVG/bead are hidden, the straight fallback line remains, and all nodes are filled without glow. Live preference changes switch between these states without a reload. No content or relationship depends on motion.
+- Hero parallax remains owned by the current Framer Motion implementation. The spine owns only its own rAF loop; these systems are not merged.
+
+There are no particles, glowing orbs, fake infrastructure diagrams, continuous decorative loops, pinned-scroll traps, or WebGL dependency.
 
 ### Replace decoration with an explicit scroll action
 

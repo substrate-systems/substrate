@@ -15,6 +15,7 @@ The homepage's current one-pixel scroll indicator is also not discoverable. Dire
 - Replace the homepage's stock `metal-structure-dark.jpg` hero with `20260323_012442_A7RV_02129-3.jpg`, using responsive art direction and an image-specific contrast overlay.
 - Keep the hero's primary positioning line, replace its generic secondary line with the product thesis `Owned machines. Durable memory. Source-grounded AI.`, and rewrite the below-fold homepage narrative around control, continuity, and source-grounded systems.
 - Replace the current abstract axiom sequence with a restrained scroll-led motion system in which the aurora's visual energy resolves into a monochrome structural spine connecting three concrete product principles.
+- Port the approved Fable/Claude Design handoff at high fidelity: dissolve the hero into a faint mirrored afterglow, resolve three organic spine strands into one straight system line at the reader's position, map the three principles directly into the Q/Endstate/Exomem product index, and close with `Systems precede products.`
 - Use the authored aurora treatment in the default Substrate OG image, remove stale third-party hero attribution metadata, and document the new authored-photography category in the design system.
 - Replace the ambiguous decorative scroll line with a clickable `Explore ↓` control that moves to the first content section.
 
@@ -43,6 +44,7 @@ The homepage's current one-pixel scroll indicator is also not discoverable. Dire
 - New gallery components and a small typed static series manifest.
 - Curated web exports under `public/photography/iceland-aurora/` and one hero asset under `public/brand/materials/`.
 - Updates to `src/components/Hero.tsx`, `src/components/Hook.tsx`, `src/components/Philosophy.tsx`, `src/components/Products.tsx`, `src/components/Footer.tsx`, and `src/app/work/page.tsx`.
+- New focused homepage composition components for the afterglow, scroll reveal manager, closing axiom, and converging signature spine.
 - Updates to root metadata, `ATTRIBUTIONS.md`, `DESIGN_SYSTEM.md`, and the default OG renderer so hero authorship remains accurate across public surfaces.
 - Updates to sitemap and route metadata.
 - No database, API, authentication, dependency, or environment-variable changes.

@@ -64,11 +64,11 @@ The first meaningful content below the hero SHALL state that software should lea
 
 The homepage SHALL replace the current abstract axiom list with the following ordered statements:
 
-1. `Your setup should survive the machine.`
-2. `Your memory should outlive the session.`
-3. `Your AI should show its sources.`
+1. `Your AI should show its sources.`
+2. `Your setup should survive the machine.`
+3. `Your memory should outlive the session.`
 
-The product section SHALL preserve the order Q, Endstate, Exomem and SHALL describe Q as source-grounded AI for content libraries, Endstate as local-first Windows setup and restore, and Exomem as durable agent memory built on owned Markdown.
+The product section SHALL preserve the order Q, Endstate, Exomem, SHALL repeat the corresponding numbered principle on each product row, and SHALL describe Q as source-grounded AI for content libraries, Endstate as local-first Windows setup and restore, and Exomem as durable agent memory built on owned Markdown. Q SHALL link externally to `https://useq.ai` in a new tab; Endstate and Exomem SHALL remain internal links to `/endstate` and `/exomem`.
 
 #### Scenario: Narrative connects worldview to products
 
@@ -84,9 +84,9 @@ The product section SHALL preserve the order Q, Endstate, Exomem and SHALL descr
 
 ### Requirement: Energy-resolving motion system
 
-The below-fold narrative SHALL use a restrained monochrome motion sequence in which a fine structural line connects the thesis to the three ordered statements. Statement activation SHALL use opacity, foreground contrast, and small positional changes rather than decorative effects.
+The below-fold narrative SHALL use the approved `converge` signature-spine sequence. Three subtly organic monochrome strands SHALL exist ahead of a light bead fixed at approximately 55% of the viewport and SHALL collapse into one perfectly straight system line behind that bead. The spine SHALL connect the thesis through the three ordered principles and SHALL terminate into the first border of the product index. Each principle SHALL have a numbered node that becomes filled and illuminated after the bead reaches it.
 
-The sequence SHALL remain in normal document flow and SHALL NOT pin the viewport or require the animation to finish before the visitor can continue. Product interactions MAY extend a hairline, increase contrast, and move a directional arrow by a few pixels.
+The sequence SHALL remain in normal document flow and SHALL NOT pin the viewport or require the animation to finish before the visitor can continue. The animated implementation SHALL pause when its zone is outside the viewport and SHALL clean up requestAnimationFrame, ResizeObserver, media-query, and pointer listeners on unmount. Product interactions MAY increase row/background contrast, strengthen borders, and move a directional arrow by only a few pixels.
 
 #### Scenario: Motion adds a memorable structural sequence
 
@@ -100,6 +100,47 @@ The sequence SHALL remain in normal document flow and SHALL NOT pin the viewport
 - **WHEN** the visitor prefers reduced motion
 - **THEN** the thesis, structural line, continuity statements, and products render in their complete static state
 - **AND** no content or relationship depends on an animation playing
+
+### Requirement: Authored hero-to-system transition
+
+The hero SHALL retain the approved aurora photograph and foreground hierarchy. Its lower edge SHALL dissolve into the site background, followed by a decorative vertically mirrored afterglow of the same authored photograph that fades out before the principle sequence. The hero SHALL include a quiet link to `/photography` labelled `Iceland · March 2026`.
+
+The afterglow SHALL remain decorative, non-interactive, faint enough not to compete with the thesis, and excluded from accessibility semantics. It SHALL reuse an optimized existing hero derivative rather than adding another heavy eager asset.
+
+#### Scenario: Hero energy continues into the narrative
+
+- **WHEN** a visitor scrolls from the hero into `#content`
+- **THEN** the hero ends in a near-black dissolve rather than a hard boundary
+- **AND** a faint mirrored afterglow visually carries the authored energy into the thesis
+- **AND** the actual hero photograph, wordmark, copy, and `Explore ↓` remain the dominant first-screen composition
+
+#### Scenario: Photography credit stays secondary
+
+- **WHEN** the hero credit is rendered on desktop
+- **THEN** `Iceland · March 2026` links to `/photography`
+- **AND** the credit is visually quieter than `Explore ↓` and the hero copy
+
+### Requirement: Product index and closing axiom
+
+The products SHALL render as three full-width bordered index rows whose numbered eyebrows repeat their matching principles. The signature spine SHALL visually terminate into the product index. The rows SHALL keep the exact order Q, Endstate, Exomem and the approved descriptions. A centered closing axiom SHALL read `Systems precede products.` before the global footer.
+
+#### Scenario: Product links preserve domain ownership
+
+- **WHEN** the product rows are inspected
+- **THEN** Q links to `https://useq.ai` with external-link semantics
+- **AND** Endstate links internally to `/endstate` without a new browsing context
+- **AND** Exomem links internally to `/exomem` without a new browsing context
+
+#### Scenario: Static narrative remains complete
+
+- **WHEN** JavaScript is unavailable
+- **THEN** the thesis, a straight static spine, unfilled numbered nodes, all principles, product rows, closing axiom, and footer remain visible and semantically ordered
+
+#### Scenario: Reduced-motion narrative is complete
+
+- **WHEN** reduced motion is preferred initially or enabled while the page is open
+- **THEN** the thesis, straight static spine, pre-filled nodes without glow, all principles, product rows, closing axiom, and footer remain visible and semantically ordered
+- **AND** the animated strands, bead, reveals, smooth scroll, and parallax are disabled
 
 ### Requirement: Authored hero metadata and social treatment
 

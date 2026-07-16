@@ -144,6 +144,18 @@ export default function Hero() {
         <span>Explore</span>
         <span aria-hidden="true">↓</span>
       </a>
+
+      <a
+        href="/photography"
+        className="animate-photo-credit absolute right-5 bottom-10 z-elevated hidden text-[11px] font-light uppercase tracking-[0.14em] text-[#a3a3a3] transition-colors duration-default hover:text-[#fafafa] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#a3a3a3] sm:block"
+      >
+        Iceland · March 2026
+      </a>
+
+      <div
+        aria-hidden="true"
+        className="landing-hero-dissolve pointer-events-none absolute right-0 bottom-0 left-0 z-[5] h-[20vh]"
+      />
     </section>
   );
 }

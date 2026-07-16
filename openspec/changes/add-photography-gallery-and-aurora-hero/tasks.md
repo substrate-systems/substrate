@@ -46,6 +46,12 @@
 - [x] 6.3 Implement the monochrome structural-spine progression and statement activation with a complete static reduced-motion state.
 - [x] 6.4 Update Q, Endstate, and Exomem descriptions with the approved product-first copy while retaining the flagship-first order.
 - [x] 6.5 Add focused tests for approved copy, ordered statements, normal-flow semantics, and reduced-motion-safe final state.
+- [ ] 6.6 Replace the superseded contracts red-first. Cover the approved Fable order (AI → setup → memory), semantic `<ol>`, nonbreaking `not less`, numbered principle-to-product mapping, exact copy/link target/rel ownership, hero credit/afterglow, closing axiom, normal SSR/no-JS versus reduced-motion node states, live motion-preference changes, offscreen rAF pause, bidirectional node activation, and observer/listener/rAF cleanup. Run the focused tests and record the expected failures before implementation.
+- [ ] 6.7 Add the quiet hero photo credit and replace the hard hero boundary with the approved bottom dissolve plus faint mirrored afterglow, reusing the existing responsive hero assets.
+- [ ] 6.8 Port the approved 880px editorial composition: left-aligned thesis, widely paced numbered principles, full-width bordered product index, `Systems precede products.` closing axiom, and restrained footer layout.
+- [ ] 6.9 Implement the dedicated `converge` signature spine: three sampled strands ahead of a 55vh bead, one straight resolved line behind it, node activation, tapered landing into Products, offscreen pause, ResizeObserver measurement, and complete cleanup.
+- [ ] 6.10 Implement progressive-enhancement reveals that leave SSR/no-JS content visible, hide only still-below-viewport elements after hydration, fire once, and resolve immediately under reduced motion.
+- [ ] 6.11 Refactor only after the red-first contracts pass; consolidate duplicate test harness code without weakening behavioral coverage.
 
 ## 7. Verification
 
@@ -55,6 +61,9 @@
 - [x] 7.4 Verify keyboard-only and reduced-motion behaviour.
 - [ ] 7.5 Inspect network requests at the named desktop/mobile viewports, record requested derivative dimensions/transferred bytes, confirm only the first in-flow series image is eager, and confirm the viewer preloads at most current plus adjacent images rather than the full series.
 - [x] 7.6 Run an independent reviewer/verifier pass against this proposal and the rendered surfaces.
+- [ ] 7.7 Re-run the independent reviewer/verifier pass specifically against the Fable handoff, current OpenSpec amendment, and production implementation diff.
+- [ ] 7.8 Capture side-by-side comparisons with all five Fable reference views at matching desktop viewport/scroll states plus 390×844 mobile and tablet. Explicitly check afterglow strength, spine landing, bead/node state, typography/spacing, product rows, axiom/footer composition, and horizontal overflow.
+- [ ] 7.9 Inspect homepage network requests and confirm the afterglow is lazy/non-LCP and transfers no more than 180 KB, without re-requesting a full hero derivative.
 
 ## 8. Hand-off
 
