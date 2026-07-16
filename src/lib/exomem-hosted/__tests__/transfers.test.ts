@@ -273,6 +273,128 @@ describe("tenant-bound Exomem transfers", () => {
     });
   }
 
+  it("binds adoption staging uploads into the locked upload-v1 metadata fields", async () => {
+    const dependencies = {
+      resolveTarget: async () => target(),
+      expectedProtocol: "1",
+      decrypt,
+      principalScope: () => "A".repeat(43),
+      publicOrigin: "https://substratesystems.io",
+      transferHost: "transfer.example.test",
+      createGrant: async () => ({ grantId: "grant-row-1" }),
+    };
+
+    const zipped = await createDirectTransferTicket({
+      session: { userId: USER_ID, tenantId: TENANT_ID },
+      request: {
+        operation: "adoption-upload",
+        metadata: {
+          content_type: "application/zip",
+          filename: "notes.zip",
+          path: "inbox/deep",
+          run_id: "run_2026-07-16",
+          sha256: "a".repeat(64),
+          size: 10,
+        },
+      },
+      dependencies,
+    });
+    assert.equal(
+      zipped.url,
+      "https://transfer.example.test/cells/cell-alpha/public/exomem/v2/transfers/upload"
+    );
+    assert.equal(zipped.method, "PUT");
+    assert.equal(zipped.headers["Content-Type"], "application/zip");
+    const claims = JSON.parse(
+      Buffer.from(zipped.headers["X-Exomem-Transfer-Grant"].split(".")[0], "base64url").toString(
+        "utf8"
+      )
+    ) as { op: string; target: { kind: string; metadata: Record<string, unknown> } };
+    assert.equal(claims.op, "upload");
+    assert.equal(claims.target.kind, "upload-v1");
+    assert.deepEqual(claims.target.metadata, {
+      category: "run_2026-07-16",
+      content_type: "application/zip",
+      description: "inbox/deep",
+      filename: "notes.zip",
+      scope: "adoption-staging",
+      sha256: "a".repeat(64),
+      size: 10,
+    });
+
+    const single = await createDirectTransferTicket({
+      session: { userId: USER_ID, tenantId: TENANT_ID },
+      request: {
+        operation: "adoption-upload",
+        metadata: {
+          content_type: "text/markdown",
+          filename: "note.md",
+          path: null,
+          run_id: "run-1",
+          sha256: "b".repeat(64),
+          size: 10,
+        },
+      },
+      dependencies,
+    });
+    const singleClaims = JSON.parse(
+      Buffer.from(single.headers["X-Exomem-Transfer-Grant"].split(".")[0], "base64url").toString(
+        "utf8"
+      )
+    ) as { target: { metadata: Record<string, unknown> } };
+    assert.equal(singleClaims.target.metadata.scope, "adoption-staging");
+    assert.equal(singleClaims.target.metadata.category, "run-1");
+    assert.equal(singleClaims.target.metadata.description, null);
+  });
+
+  it("rejects adoption staging metadata with a bad run id, path, size, or shape", async () => {
+    const dependencies = {
+      resolveTarget: async () => target(),
+      expectedProtocol: "1",
+      decrypt,
+      principalScope: () => "A".repeat(43),
+      publicOrigin: "https://substratesystems.io",
+      transferHost: "transfer.example.test",
+      createGrant: async () => ({ grantId: "must-not-be-created" }),
+    };
+    const metadata = {
+      content_type: "text/markdown",
+      filename: "note.md",
+      path: null as string | null,
+      run_id: "run-1",
+      sha256: "a".repeat(64),
+      size: 10,
+    };
+    const invalidRequests = [
+      ...["", ".", "..", "run 1", "run/1", "-run", `r${"u".repeat(64)}`].map((runId) => ({
+        ...metadata,
+        run_id: runId,
+      })),
+      ...["/abs", "a//b", "a/../b", "a\\b", ".", "..", "x/", "", "a/"].map((path) => ({
+        ...metadata,
+        path,
+      })),
+      // Over the tenant's 500-byte uploadBytes allowance.
+      { ...metadata, size: 501 },
+      // The staging fields are composed server-side, never caller-supplied.
+      { ...metadata, scope: "adoption-staging" } as unknown as typeof metadata,
+      { ...metadata, category: "run-1" } as unknown as typeof metadata,
+    ];
+
+    for (const invalid of invalidRequests) {
+      await assert.rejects(
+        createDirectTransferTicket({
+          session: { userId: USER_ID, tenantId: TENANT_ID },
+          request: { operation: "adoption-upload", metadata: invalid },
+          dependencies,
+        }),
+        (error: unknown) =>
+          error instanceof Error && "code" in error && error.code === "INVALID_REQUEST",
+        `expected rejection for ${JSON.stringify(invalid)}`
+      );
+    }
+  });
+
   it("rejects upload metadata containing an unpaired Unicode surrogate", async () => {
     await assert.rejects(
       createDirectTransferTicket({

@@ -50,7 +50,12 @@ test("adoption run commands post the engine's exact action payloads", async (con
   await startAdoptionRun({ path: "_Staging/adoption/run-1" }, "retry-start");
   await selectAdoptionScope(
     "run-1",
-    { include: ["Docs"], exclude: ["Docs/tmp"], overrides: ["Docs/tmp/keep.md"], includeJunk: false },
+    {
+      include: ["Docs"],
+      exclude: ["Docs/tmp"],
+      overrides: ["Docs/tmp/keep.md"],
+      includeJunk: false,
+    },
     "retry-select"
   );
   await planAdoptionRun("run-1", "retry-plan");
