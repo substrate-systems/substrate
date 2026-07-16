@@ -684,4 +684,46 @@ describe("registry-derived Exomem gateway", () => {
     assert.equal(contractCalls, 2);
     assert.equal(commandCalls, 1);
   });
+
+  it("keeps adoption_studio on generic dispatch while transfer verbs stay intercepted", async () => {
+    let resolutions = 0;
+    const dependencies = {
+      resolveTarget: async () => {
+        resolutions += 1;
+        return null;
+      },
+      fetch: async () => Response.json({}),
+      expectedProtocol: "1",
+      decrypt,
+      principalScope: () => "A".repeat(43),
+    };
+
+    for (const commandName of ["transfer_artifact", "adopt_vault"]) {
+      await assert.rejects(
+        routeExomemCommand({
+          session: { userId: USER_A, tenantId: TENANT_A },
+          commandName,
+          args: {},
+          idempotencyKey: "intercept-check",
+          dependencies,
+        }),
+        (error: unknown) =>
+          error instanceof ExomemHostedError && error.code === "HOSTED_INTERCEPT_REQUIRED"
+      );
+    }
+    assert.equal(resolutions, 0);
+
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "adoption_studio",
+        args: { action: "status", run_id: "run-1" },
+        idempotencyKey: "generic-dispatch-check",
+        dependencies,
+      }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_MAPPING_MISSING"
+    );
+    assert.equal(resolutions, 1);
+  });
 });

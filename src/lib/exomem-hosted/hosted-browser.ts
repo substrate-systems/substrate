@@ -280,6 +280,183 @@ export async function getPrivateFile(path: string): Promise<Response> {
   return response;
 }
 
+const ADOPTION_COMMAND_PATH = "/api/exomem/commands/adoption_studio";
+const REVIEW_MEMORY_PATH = "/api/exomem/commands/review_memory";
+const REVIEW_ITEM_CONTEXT_PATH = "/api/exomem/commands/review_item_context";
+const TRIAGE_MEMORY_PATH = "/api/exomem/commands/triage_memory";
+
+export type AdoptionSelection = {
+  include: string[];
+  exclude: string[];
+  overrides: string[];
+  includeJunk: boolean;
+};
+
+// The registry classifies adoption_studio as a write command, so the hosted
+// gateway requires an idempotency key on EVERY invocation — including the two
+// per-invocation reads (status, work-item), where the cell ignores the key.
+// Mutating actions take the caller's stable retry key so replays are safe.
+export function startAdoptionRun(
+  input: { path: string; initializeKb?: boolean },
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    { action: "start", path: input.path, initialize_kb: input.initializeKb ?? false },
+    { idempotencyKey: retryKey }
+  );
+}
+
+export function adoptionRunStatus(runId: string): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    { action: "status", run_id: runId },
+    { idempotencyKey: newRetryKey() }
+  );
+}
+
+export function selectAdoptionScope(
+  runId: string,
+  selection: AdoptionSelection,
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    {
+      action: "select",
+      run_id: runId,
+      include: selection.include,
+      exclude: selection.exclude,
+      overrides: selection.overrides,
+      include_junk: selection.includeJunk,
+    },
+    { idempotencyKey: retryKey }
+  );
+}
+
+export function planAdoptionRun(runId: string, retryKey: string): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    { action: "plan", run_id: runId },
+    { idempotencyKey: retryKey }
+  );
+}
+
+export function applyAdoptionPlan(
+  runId: string,
+  planId: string,
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    { action: "apply", run_id: runId, plan_id: planId },
+    { idempotencyKey: retryKey }
+  );
+}
+
+// apply always echoes plan_id (even on retry): the engine refuses a
+// mismatched/missing plan_id with PLAN_STALE regardless of retry_failed.
+export function retryAdoptionApply(
+  runId: string,
+  planId: string,
+  onlyPaths: string[],
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    {
+      action: "apply",
+      run_id: runId,
+      plan_id: planId,
+      retry_failed: true,
+      only_paths: onlyPaths.length ? onlyPaths : null,
+    },
+    { idempotencyKey: retryKey }
+  );
+}
+
+export function cancelAdoptionRun(
+  runId: string,
+  why: string,
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    { action: "cancel", run_id: runId, why: why || null },
+    { idempotencyKey: retryKey }
+  );
+}
+
+export function finishAdoptionRun(
+  runId: string,
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    { action: "finish", run_id: runId },
+    { idempotencyKey: retryKey }
+  );
+}
+
+export function adoptionWorkItem(runId: string): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    { action: "work-item", run_id: runId },
+    { idempotencyKey: newRetryKey() }
+  );
+}
+
+// Scoped by the run's ref so a run's review screen never shows (or acts on)
+// another run's proposals.
+export function listAdoptionProposals(runRef: string | null): Promise<Record<string, unknown>> {
+  return postPrivateJson(REVIEW_MEMORY_PATH, { mode: "adoption", ref: runRef || null, limit: 50 });
+}
+
+export function adoptionProposalContext(
+  ref: string,
+  expectedFingerprint: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(REVIEW_ITEM_CONTEXT_PATH, {
+    ref,
+    expected_fingerprint: expectedFingerprint,
+  });
+}
+
+export function approveAdoptionProposal(
+  input: { ref: string; expectedFingerprint: string; why: string; expectedHash?: string },
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    ADOPTION_COMMAND_PATH,
+    {
+      action: "apply-proposal",
+      ref: input.ref,
+      expected_fingerprint: input.expectedFingerprint,
+      why: input.why,
+      // Relation-kind approvals are CAS-guarded on the target page: echo the
+      // content_hash the reviewer just inspected.
+      expected_hash: input.expectedHash || null,
+    },
+    { idempotencyKey: retryKey }
+  );
+}
+
+export function rejectAdoptionProposal(
+  input: { ref: string; expectedFingerprint: string; why?: string },
+  retryKey: string
+): Promise<Record<string, unknown>> {
+  return postPrivateJson(
+    TRIAGE_MEMORY_PATH,
+    {
+      ref: input.ref,
+      action: "dismiss",
+      why: input.why || null,
+      expected_fingerprint: input.expectedFingerprint,
+    },
+    { idempotencyKey: retryKey }
+  );
+}
+
 export function takeFragmentToken(): string | null {
   const token = window.location.hash.slice(1).trim();
   window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
