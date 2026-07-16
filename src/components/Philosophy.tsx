@@ -1,70 +1,66 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
+
+const statements = [
+  "Your setup should survive the machine.",
+  "Your memory should outlive the session.",
+  "Your AI should show its sources.",
+];
 
 export default function Philosophy() {
-  const axioms = [
-    "Systems precede products.",
-    "Constraints enable clarity.",
-    "Foundations compound.",
-    "Simplicity is not reduction.",
-  ];
-
-  const sectionRef = useRef<HTMLElement>(null);
-  const [visibleIndices, setVisibleIndices] = useState<Set<number>>(new Set());
-
-  useEffect(() => {
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // If reduced motion, show all immediately
-    if (prefersReducedMotion) {
-      setVisibleIndices(new Set(axioms.map((_, i) => i)));
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const index = Number(entry.target.getAttribute("data-index"));
-            // Staggered reveal: 300ms between each axiom (matches duration-default)
-            setTimeout(() => {
-              setVisibleIndices((prev) => new Set([...prev, index]));
-            }, index * 300);
-          }
-        });
-      },
-      { threshold: 0.3, rootMargin: "-48px" }
-    );
-
-    const axiomElements = sectionRef.current?.querySelectorAll("[data-index]");
-    axiomElements?.forEach((el) => observer.observe(el));
-
-    return () => observer.disconnect();
-  }, [axioms.length]);
+  const shouldReduceMotion = useReducedMotion();
 
   return (
-    <section ref={sectionRef} className="relative w-full py-32 sm:py-40">
+    <section className="relative w-full pb-32 sm:pb-40">
       <div className="mx-auto w-full max-w-3xl px-6">
-        {/* Architectural spacing between axioms */}
-        <div className="space-y-12 sm:space-y-16">
-          {axioms.map((axiom, index) => (
-            <motion.p
-              key={index}
-              data-index={index}
-              className="text-xl sm:text-2xl md:text-3xl font-light tracking-tight text-fg-secondary"
-              initial={{ opacity: 0, y: 12 }}
-              animate={visibleIndices.has(index) ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
-              transition={{
-                duration: 0.9,
-                ease: "easeOut",
-                delay: 0,
-              }}
-            >
-              {axiom}
-            </motion.p>
-          ))}
+        <div className="relative">
+          <div
+            data-narrative-connector-base="philosophy"
+            aria-hidden="true"
+            className="absolute bottom-5 left-[5px] top-0 w-px bg-border-default sm:left-[7px]"
+          >
+            <motion.div
+              data-narrative-connector-signal="philosophy"
+              className="absolute inset-0 origin-top bg-gradient-to-b from-transparent via-fg-secondary to-transparent motion-reduce:hidden"
+              initial={false}
+              whileInView={{ opacity: [0, 1, 0], scaleY: [0.2, 1, 1] }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={
+                shouldReduceMotion
+                  ? { duration: 0 }
+                  : { duration: 1.2, times: [0, 0.55, 1], ease: [0.22, 1, 0.36, 1] }
+              }
+            />
+          </div>
+
+          <ol className="space-y-20 pt-32 sm:space-y-28 sm:pt-40">
+            {statements.map((statement) => (
+              <li key={statement} className="relative pl-9 sm:pl-12">
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-[0.72em] h-[11px] w-[11px] rounded-full border border-border-default bg-bg-base sm:h-[15px] sm:w-[15px]"
+                />
+                <motion.p
+                  className="text-2xl font-light tracking-tight text-fg-secondary sm:text-3xl md:text-4xl"
+                  initial={false}
+                  whileInView={{
+                    opacity: [1, 1, 1],
+                    y: [0, -6, 0],
+                    color: ["#a3a3a3", "#ffffff", "#a3a3a3"],
+                  }}
+                  viewport={{ once: true, amount: 0.65 }}
+                  transition={
+                    shouldReduceMotion
+                      ? { duration: 0 }
+                      : { duration: 1.15, times: [0, 0.52, 1], ease: "easeOut" }
+                  }
+                >
+                  {statement}
+                </motion.p>
+              </li>
+            ))}
+          </ol>
         </div>
       </div>
     </section>

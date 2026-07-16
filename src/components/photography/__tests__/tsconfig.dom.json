@@ -1,0 +1,21 @@
+{
+  "extends": "../../../../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "declaration": false,
+    "incremental": false,
+    "jsx": "react-jsx",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": "../../../../node_modules/.cache/substrate-gallery-dom-test",
+    "rootDir": "../../..",
+    "target": "ES2022"
+  },
+  "include": [
+    "../PhotographyGallery.tsx",
+    "../viewer-state.ts",
+    "../react-dom.d.ts",
+    "./PhotographyGallery.dom.test.tsx"
+  ]
+}

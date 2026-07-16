@@ -77,6 +77,11 @@ body {
    Respects user preference, disables all motion
 ----------------------------------------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
+  .animate-scroll-indicator {
+    opacity: 1;
+    animation: none !important;
+  }
+
   html {
     scroll-behavior: auto;
   }

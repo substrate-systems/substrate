@@ -4,6 +4,7 @@ import Link from "next/link";
 const navLinks = [
   { label: "Work", href: "/work" },
   { label: "Writing", href: "/blog" },
+  { label: "Photography", href: "/photography" },
   { label: "Q", href: "https://useq.ai", external: true },
   { label: "Endstate", href: "/endstate" },
   { label: "Exomem", href: "/exomem" },
@@ -17,7 +18,11 @@ export default function Footer() {
   return (
     <footer className="relative w-full py-16 border-t border-border-subtle">
       <div className="mx-auto w-full max-w-3xl px-6 flex flex-col gap-8 sm:flex-row sm:items-center sm:justify-between">
-        <Link href="/" aria-label="Substrate home" className="relative h-4 w-[160px] opacity-40 transition-opacity duration-default hover:opacity-70">
+        <Link
+          href="/"
+          aria-label="Substrate home"
+          className="relative h-4 w-[160px] opacity-40 transition-opacity duration-default hover:opacity-70"
+        >
           <Image
             src="/brand/logos/substrate-logo-white-transparent.png"
             alt="Substrate"
@@ -51,9 +56,7 @@ export default function Footer() {
           )}
         </nav>
 
-        <p className="text-sm font-light text-fg-tertiary">
-          Substrate Systems · {currentYear}
-        </p>
+        <p className="text-sm font-light text-fg-tertiary">Substrate Systems · {currentYear}</p>
       </div>
     </footer>
   );

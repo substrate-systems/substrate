@@ -55,9 +55,7 @@ const workItems = [
   },
 ];
 function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">{children}</span>
-  );
+  return <span className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">{children}</span>;
 }
 
 function formatDate(iso: string): string {
@@ -100,15 +98,15 @@ export default function WorkPage() {
             Hugo Ander Kivi
           </h1>
           <p className="mt-3 text-body-lg font-light text-fg-secondary">
-            Senior software engineer. I build the architecture that lets AI-augmented teams
-            move fast without breaking the rules that matter.
+            Senior software engineer. I build the architecture that lets AI-augmented teams move
+            fast without breaking the rules that matter.
           </p>
           <p className="mt-6 max-w-2xl text-body font-light leading-relaxed text-fg-secondary">
             My contract-based governance framework runs in production on a high-throughput
-            transaction platform that processes hundreds of millions of operations a day. It
-            encodes business invariants into versioned contracts and binds them to the agent
-            at the moment of the task, so AI-augmented work ships without a human re-reviewing
-            every step. I operate this work through Substrate Systems, my software company.
+            transaction platform that processes hundreds of millions of operations a day. It encodes
+            business invariants into versioned contracts and binds them to the agent at the moment
+            of the task, so AI-augmented work ships without a human re-reviewing every step. I
+            operate this work through Substrate Systems, my software company.
           </p>
         </section>
 
@@ -220,6 +218,12 @@ export default function WorkPage() {
                 LinkedIn ↗
               </a>
             ) : null}
+            <Link
+              href="/photography"
+              className="text-body font-light text-fg-secondary transition-colors duration-default hover:text-fg-primary"
+            >
+              Photography →
+            </Link>
             {cvAvailable ? (
               <a
                 href={`/downloads/${CV_FILENAME}`}
