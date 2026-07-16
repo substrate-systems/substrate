@@ -72,6 +72,7 @@ function installDom(serverHtml: string, reduced = false) {
   const intersectionObservers: TestIntersectionObserver[] = [];
   let intersectionDisconnects = 0;
   let resizeDisconnects = 0;
+  const resizeObservers: TestResizeObserver[] = [];
 
   Object.defineProperty(win, "innerHeight", { configurable: true, value: 1000 });
   Object.defineProperty(win.HTMLElement.prototype, "offsetHeight", {
@@ -161,16 +162,30 @@ function installDom(serverHtml: string, reduced = false) {
   }
 
   class TestResizeObserver implements ResizeObserver {
-    constructor(private callback: ResizeObserverCallback) {}
+    private target?: Element;
+    constructor(private callback: ResizeObserverCallback) {
+      resizeObservers.push(this);
+    }
     observe(target: Element) {
-      this.callback(
-        [{ target, contentRect: target.getBoundingClientRect() } as ResizeObserverEntry],
-        this
-      );
+      this.target = target;
+      this.trigger();
     }
     unobserve() {}
     disconnect() {
       resizeDisconnects += 1;
+      this.target = undefined;
+    }
+    trigger() {
+      if (!this.target) return;
+      this.callback(
+        [
+          {
+            target: this.target,
+            contentRect: this.target.getBoundingClientRect(),
+          } as ResizeObserverEntry,
+        ],
+        this
+      );
     }
   }
 
@@ -183,6 +198,7 @@ function installDom(serverHtml: string, reduced = false) {
     Element: win.Element,
     Node: win.Node,
     Event: win.Event,
+    getComputedStyle: win.getComputedStyle,
     requestAnimationFrame: win.requestAnimationFrame,
     cancelAnimationFrame: win.cancelAnimationFrame,
     IntersectionObserver: TestIntersectionObserver,
@@ -206,6 +222,9 @@ function installDom(serverHtml: string, reduced = false) {
     },
     triggerIntersections() {
       intersectionObservers.forEach((observer) => observer.trigger());
+    },
+    triggerResizes() {
+      resizeObservers.forEach((observer) => observer.trigger());
     },
     stats() {
       return {
@@ -308,12 +327,16 @@ describe("Fable landing progressive enhancement", () => {
       );
       assert.equal(document.querySelector("[data-spine-tail]")?.getAttribute("opacity"), "0.5");
       assert.equal(
-        (document.querySelector("[data-spine-bead]") as SVGElement | null)?.style.opacity,
+        getComputedStyle(document.querySelector("[data-spine-tail]") as SVGPathElement).opacity,
+        "0.5"
+      );
+      assert.equal(
+        (document.querySelector("[data-spine-bead]") as HTMLElement | null)?.style.opacity,
         "1"
       );
       assert.match(
-        document.querySelector("[data-spine-bead]")?.getAttribute("transform") ?? "",
-        /550/
+        (document.querySelector("[data-spine-bead]") as HTMLElement | null)?.style.transform ?? "",
+        /translateY\(550(?:\.0)?px\)/
       );
       assert.deepEqual(
         Array.from(document.querySelectorAll("[data-spine-node]"), (node) =>
@@ -342,7 +365,19 @@ describe("Fable landing progressive enhancement", () => {
       harness.setZoneTop(600);
       await act(async () => harness.flushFrame(1300));
       assert.equal(
-        (document.querySelector("[data-spine-bead]") as SVGElement | null)?.style.opacity,
+        (document.querySelector("[data-spine-bead]") as HTMLElement | null)?.style.opacity,
+        "0"
+      );
+
+      harness.setZoneTop(-1000);
+      await act(async () => harness.flushFrame(1400));
+      assert.equal(
+        getComputedStyle(document.querySelector("[data-spine-tail]") as SVGPathElement).opacity,
+        "0.5",
+        "the resolved bottom tail should remain at authored opacity"
+      );
+      assert.equal(
+        (document.querySelector("[data-spine-bead]") as HTMLElement | null)?.style.opacity,
         "0"
       );
 
@@ -351,6 +386,12 @@ describe("Fable landing progressive enhancement", () => {
       await act(async () => harness.flushFrame(5000));
       assert.equal(strands[0].getAttribute("d"), before, "offscreen frames must not write paths");
       assert.equal(harness.stats().frames, 0, "offscreen animation should pause its rAF loop");
+
+      harness.setZoneTop(0);
+      harness.triggerResizes();
+      assert.ok(harness.stats().frames > 0, "ResizeObserver should resume an onscreen spine");
+      await act(async () => harness.flushFrame(6000));
+      assert.notEqual(strands[0].getAttribute("d"), before);
     } finally {
       if (root) await act(async () => root?.unmount());
       harness.dom.window.close();

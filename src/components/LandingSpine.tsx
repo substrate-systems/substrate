@@ -17,7 +17,7 @@ export default function LandingSpine() {
   const leftRef = useRef<SVGPathElement>(null);
   const rightRef = useRef<SVGPathElement>(null);
   const tailRef = useRef<SVGPathElement>(null);
-  const beadRef = useRef<SVGGElement>(null);
+  const beadRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!mounted) return;
@@ -83,9 +83,9 @@ export default function LandingSpine() {
         "d",
         `M 40 ${Math.max(0, beadY - 150).toFixed(0)} L 40 ${beadY.toFixed(0)}`
       );
-      bead.setAttribute("transform", `translate(0 ${beadY.toFixed(1)})`);
+      bead.style.transform = `translateY(${beadY.toFixed(1)}px)`;
       const travelling = beadY > 4 && beadY < height - 2;
-      tail.style.opacity = travelling ? "1" : "0";
+      tail.style.opacity = beadY > 4 ? "0.5" : "0";
       bead.style.opacity = travelling ? "1" : "0";
       updateNodes(beadY);
       frame = requestAnimationFrame(step);
@@ -112,7 +112,10 @@ export default function LandingSpine() {
       resume();
     };
 
-    const resizeObserver = new ResizeObserver(measure);
+    const resizeObserver = new ResizeObserver(() => {
+      measure();
+      resume();
+    });
     resizeObserver.observe(zone);
     motionQuery.addEventListener("change", applyMotionPreference);
     window.addEventListener("scroll", resume, { passive: true });
@@ -131,63 +134,47 @@ export default function LandingSpine() {
   if (!mounted) return null;
 
   return (
-    <svg
-      ref={svgRef}
-      data-spine-svg
-      aria-hidden="true"
-      viewBox="0 0 80 1000"
-      preserveAspectRatio="none"
-      className="landing-spine-svg"
-    >
-      <defs>
-        <radialGradient id="landing-spine-bead-glow">
-          <stop offset="0%" stopColor="rgba(250,250,250,0.95)" />
-          <stop offset="70%" stopColor="rgba(250,250,250,0)" />
-        </radialGradient>
-        <filter id="landing-spine-bead-blur" x="-200%" y="-200%" width="500%" height="500%">
-          <feGaussianBlur stdDeviation="4" />
-        </filter>
-      </defs>
-      <path
-        ref={primaryRef}
-        data-spine-strand="primary"
-        fill="none"
-        stroke="rgba(255,255,255,0.17)"
-        strokeWidth="1"
-      />
-      <path
-        ref={leftRef}
-        data-spine-strand="left"
-        fill="none"
-        stroke="rgba(255,255,255,0.10)"
-        strokeWidth="1"
-      />
-      <path
-        ref={rightRef}
-        data-spine-strand="right"
-        fill="none"
-        stroke="rgba(255,255,255,0.10)"
-        strokeWidth="1"
-      />
-      <path
-        ref={tailRef}
-        data-spine-tail
-        fill="none"
-        stroke="rgba(250,250,250,0.4)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        opacity="0.5"
-      />
-      <g ref={beadRef} data-spine-bead>
-        <circle
-          cx="40"
-          cy="0"
-          r="11"
-          fill="rgba(250,250,250,0.16)"
-          filter="url(#landing-spine-bead-blur)"
+    <>
+      <svg
+        ref={svgRef}
+        data-spine-svg
+        aria-hidden="true"
+        viewBox="0 0 80 1000"
+        preserveAspectRatio="none"
+        className="landing-spine-svg"
+      >
+        <path
+          ref={primaryRef}
+          data-spine-strand="primary"
+          fill="none"
+          stroke="rgba(255,255,255,0.17)"
+          strokeWidth="1"
         />
-        <circle cx="40" cy="0" r="7.5" fill="url(#landing-spine-bead-glow)" />
-      </g>
-    </svg>
+        <path
+          ref={leftRef}
+          data-spine-strand="left"
+          fill="none"
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth="1"
+        />
+        <path
+          ref={rightRef}
+          data-spine-strand="right"
+          fill="none"
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth="1"
+        />
+        <path
+          ref={tailRef}
+          data-spine-tail
+          fill="none"
+          stroke="rgba(250,250,250,0.4)"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          opacity="0.5"
+        />
+      </svg>
+      <div ref={beadRef} data-spine-bead aria-hidden="true" className="landing-spine-bead" />
+    </>
   );
 }

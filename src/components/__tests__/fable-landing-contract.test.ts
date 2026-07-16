@@ -97,6 +97,11 @@ describe("approved Fable landing contract", () => {
     assert.match(css, /\[data-spine-static\]/);
     assert.match(css, /prefers-reduced-motion: reduce/);
     assert.match(css, /\[data-reveal\]/);
+    const beadRule = css.match(/\.landing-spine-bead\s*\{[\s\S]*?\}/)?.[0] ?? "";
+    assert.match(beadRule, /width: 15px/);
+    assert.match(beadRule, /height: 15px/);
+    assert.match(beadRule, /radial-gradient/);
+    assert.match(beadRule, /0 0 22px 6px rgba\(250, 250, 250, 0\.16\)/);
   });
 
   it("renders all eight restrained footer destinations without reveal targeting", () => {

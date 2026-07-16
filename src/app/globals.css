@@ -319,6 +319,20 @@ body {
   opacity: 0;
 }
 
+.landing-spine-bead {
+  position: absolute;
+  top: -7px;
+  left: calc(var(--sx) - 7px);
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(250, 250, 250, 0.95) 0%, rgba(250, 250, 250, 0) 70%);
+  box-shadow: 0 0 22px 6px rgba(250, 250, 250, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
 [data-spine-zone][data-motion-state="normal"] [data-spine-static] {
   opacity: 0;
 }
@@ -326,6 +340,10 @@ body {
 [data-spine-zone][data-motion-state="normal"] .landing-spine-svg {
   visibility: visible;
   opacity: 1;
+}
+
+[data-spine-zone][data-motion-state="reduced"] .landing-spine-bead {
+  opacity: 0 !important;
 }
 
 .landing-spine-node {
