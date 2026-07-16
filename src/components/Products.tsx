@@ -1,27 +1,27 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 
 const products = [
   {
     name: "Q",
     description:
-      "AI-powered knowledge infrastructure. Turn your content library into a branded, searchable knowledge base with citations back to your original content.",
+      "Source-grounded AI for content libraries. Turn original material into a branded knowledge system with answers that cite their sources.",
     href: "https://useq.ai",
     external: true,
   },
   {
     name: "Endstate",
     description:
-      "Set up your new Windows PC in minutes. Endstate captures your apps and settings, then restores them on a fresh install.",
+      "Local-first Windows setup and restore. Capture your apps and settings once, then rebuild a fresh machine in minutes.",
     href: "/endstate",
     external: false,
   },
   {
     name: "Exomem",
     description:
-      "External memory for MCP-capable agents over your own Markdown and Obsidian vault.",
+      "Durable memory for AI agents, built on Markdown you own. Carry context across sessions without surrendering the source.",
     href: "/exomem",
     external: false,
   },
@@ -30,11 +30,10 @@ const products = [
 export default function Products() {
   const sectionRef = useRef<HTMLElement>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const shouldReduceMotion = useReducedMotion();
 
   useEffect(() => {
-    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (prefersReducedMotion) {
+    if (shouldReduceMotion) {
       setIsVisible(true);
       return;
     }
@@ -55,7 +54,9 @@ export default function Products() {
     }
 
     return () => observer.disconnect();
-  }, []);
+  }, [shouldReduceMotion]);
+
+  const shouldAnimate = isVisible && !shouldReduceMotion;
   return (
     <section
       ref={sectionRef}
@@ -64,9 +65,13 @@ export default function Products() {
       <div className="mx-auto w-full max-w-3xl px-6">
         <motion.div
           className="mb-16"
-          initial={{ opacity: 0, y: 8 }}
-          animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
+          initial={false}
+          animate={shouldAnimate ? { opacity: [1, 0.78, 1], y: [0, 8, 0] } : { opacity: 1, y: 0 }}
+          transition={
+            shouldReduceMotion
+              ? { duration: 0 }
+              : { duration: 0.8, times: [0, 0.35, 1], ease: "easeOut" }
+          }
         >
           <h2 className="text-xs uppercase tracking-[0.2em] text-fg-tertiary">Products</h2>
         </motion.div>
@@ -90,31 +95,68 @@ export default function Products() {
               <a
                 key={product.name}
                 {...anchorProps}
-                className="group block space-y-4"
+                className="group relative block space-y-4 rounded-sm py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-border-strong"
               >
+                <span
+                  aria-hidden="true"
+                  className="absolute -top-4 left-0 h-px w-full origin-left scale-x-0 bg-border-default transition-transform duration-default group-hover:scale-x-100 group-focus-visible:scale-x-100 motion-reduce:transition-none"
+                />
                 <div className="flex items-baseline justify-between gap-4 flex-wrap">
                   <motion.h3
-                    className="text-2xl sm:text-3xl md:text-4xl font-light tracking-tight text-fg-primary group-hover:text-white transition-colors duration-300"
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 10 }}
-                    transition={{ duration: 0.9, ease: "easeOut", delay: headingDelay }}
+                    className="text-2xl sm:text-3xl md:text-4xl font-light tracking-tight text-fg-primary group-hover:text-white group-focus-visible:text-white transition-colors duration-300 motion-reduce:transition-none"
+                    initial={false}
+                    animate={
+                      shouldAnimate
+                        ? { opacity: [1, 0.78, 1], y: [0, 10, 0] }
+                        : { opacity: 1, y: 0 }
+                    }
+                    transition={
+                      shouldReduceMotion
+                        ? { duration: 0 }
+                        : {
+                            duration: 0.9,
+                            times: [0, 0.35, 1],
+                            ease: "easeOut",
+                            delay: headingDelay,
+                          }
+                    }
                   >
                     {product.name}
                   </motion.h3>
                   <motion.span
-                    className="text-sm font-light text-fg-tertiary group-hover:text-fg-secondary transition-colors duration-300"
-                    initial={{ opacity: 0 }}
-                    animate={isVisible ? { opacity: 1 } : { opacity: 0 }}
-                    transition={{ duration: 0.7, ease: "easeOut", delay: arrowDelay }}
+                    className="text-sm font-light text-fg-tertiary transition duration-300 group-hover:translate-x-1 group-hover:text-fg-secondary group-focus-visible:translate-x-1 group-focus-visible:text-fg-secondary motion-reduce:transform-none motion-reduce:transition-none"
+                    initial={false}
+                    animate={shouldAnimate ? { opacity: [1, 0.72, 1] } : { opacity: 1 }}
+                    transition={
+                      shouldReduceMotion
+                        ? { duration: 0 }
+                        : {
+                            duration: 0.7,
+                            times: [0, 0.35, 1],
+                            ease: "easeOut",
+                            delay: arrowDelay,
+                          }
+                    }
                   >
                     {linkLabel}
                   </motion.span>
                 </div>
                 <motion.p
                   className="text-lg sm:text-xl font-light text-fg-secondary max-w-xl"
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={isVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 8 }}
-                  transition={{ duration: 0.8, ease: "easeOut", delay: descDelay }}
+                  initial={false}
+                  animate={
+                    shouldAnimate ? { opacity: [1, 0.78, 1], y: [0, 8, 0] } : { opacity: 1, y: 0 }
+                  }
+                  transition={
+                    shouldReduceMotion
+                      ? { duration: 0 }
+                      : {
+                          duration: 0.8,
+                          times: [0, 0.35, 1],
+                          ease: "easeOut",
+                          delay: descDelay,
+                        }
+                  }
                 >
                   {product.description}
                 </motion.p>

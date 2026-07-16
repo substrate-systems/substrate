@@ -189,6 +189,24 @@ The `.material-overlay` class handles:
 - Vignette mask via `::after`
 - Pointer events disabled
 
+### Authored Photographic Atmosphere
+
+Original photography by Hugo Ander Kivi is a separate visual category from material
+textures. It may carry composition and emotion, including as a hero or an editorial
+sequence, when that atmosphere expresses where Substrate's visual point of view comes
+from.
+
+Authored photography must not be presented as product proof. Product claims still need
+real interface, system, or outcome evidence; a photograph establishes identity and
+feeling, not software capability.
+
+#### Usage Rules
+
+- Preserve the photograph's intentional composition; use breakpoint-specific crops when needed.
+- Tune gradients, vignette, noise, and restrained motion to the individual image rather than applying a fixed material opacity.
+- Keep text contrast at WCAG AA and verify the actual crop at desktop, tablet, and mobile sizes.
+- Credit and provenance belong with the collection; do not invent stock-style attribution for original work.
+
 ---
 
 ## Accessibility

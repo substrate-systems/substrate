@@ -46,7 +46,7 @@ export default function Hero() {
   useEffect(() => {
     if (shouldReduceMotion || !parallaxEnabled) return;
 
-    const MAX = 12;
+    const MAX = 8;
 
     const handlePointerMove = (e: PointerEvent) => {
       const { clientX, clientY } = e;
@@ -67,42 +67,44 @@ export default function Hero() {
 
   return (
     <section className="relative min-h-[100svh] sm:min-h-screen sm:min-h-[100dvh] flex items-center justify-center overflow-hidden bg-bg-base">
-      {/* Material background: explicitly mounted with Image component */}
-      {/* LCP optimization: initial={{ x: 0, y: 0 }} ensures immediate paint at final position */}
+      {/* Authored photographic atmosphere, tuned separately for mobile and desktop crops. */}
       <motion.div
-        className="absolute -inset-6 md:-inset-px will-change-transform"
+        className="absolute -inset-3 will-change-transform"
         style={{
           x: !mounted || shouldReduceMotion || !parallaxEnabled ? 0 : springX,
           y: !mounted || shouldReduceMotion || !parallaxEnabled ? 0 : springY,
         }}
         aria-hidden="true"
       >
-        {/* Material image: directly rendered for visibility */}
-        {/* LCP optimization: removed filter to eliminate composite layer delay */}
-        <Image
-          src="/brand/materials/metal-structure-dark.jpg"
-          alt=""
-          fill
-          sizes="100vw"
-          className="object-cover opacity-[0.35] sm:opacity-[0.22]"
-          priority
-          fetchPriority="high"
-        />
-        {/* Mobile vignette: taller ellipse prevents bottom cutoff */}
+        <picture>
+          <source media="(max-width: 639px)" srcSet="/brand/materials/aurora-hero-mobile.jpg" />
+          <source
+            media="(min-width: 640px) and (max-width: 1023px) and (orientation: portrait)"
+            srcSet="/brand/materials/aurora-hero-tablet.jpg"
+          />
+          {/* A picture element prevents the off-breakpoint crop from being fetched. */}
+          <img
+            src="/brand/materials/aurora-hero-desktop.jpg"
+            alt=""
+            fetchPriority="high"
+            decoding="sync"
+            className="absolute inset-0 h-full w-full object-cover object-[42%_48%] sm:object-[44%_50%] lg:object-[50%_50%]"
+          />
+        </picture>
+
+        {/* A dark center holds the identity; the brighter outer motion remains visible. */}
         <div
-          className="absolute inset-0 opacity-15 sm:hidden"
+          className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(ellipse 140% 130% at 50% 45%, rgba(5,5,5,0) 0%, rgba(5,5,5,0.65) 100%)",
+              "radial-gradient(ellipse 68% 52% at 50% 48%, rgba(5,5,5,0.58) 0%, rgba(5,5,5,0.36) 48%, rgba(5,5,5,0.18) 72%, rgba(5,5,5,0.48) 100%)",
           }}
         />
-
-        {/* Desktop vignette: tighter ellipse for premium edge darkening */}
         <div
-          className="absolute inset-0 hidden sm:block opacity-30"
+          className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(ellipse 85% 70% at 50% 45%, transparent 0%, rgba(5,5,5,0.5) 80%)",
+              "linear-gradient(180deg, rgba(5,5,5,0.34) 0%, rgba(5,5,5,0.06) 38%, rgba(5,5,5,0.16) 66%, rgba(5,5,5,0.74) 100%)",
           }}
         />
       </motion.div>
@@ -130,14 +132,18 @@ export default function Hero() {
 
         {/* Secondary tagline: smallest motion (16px), clearly subordinate */}
         <p className="animate-hero-secondary text-base sm:text-lg font-light text-fg-secondary mt-4 max-w-shell-sm mx-auto">
-          Software infrastructure for durable systems.
+          Owned machines. Durable memory. Source-grounded AI.
         </p>
       </div>
 
-      {/* Scroll indicator: appears last, after content has settled */}
-      <div className="absolute bottom-12 left-1/2 -translate-x-1/2 animate-scroll-indicator">
-        <div className="w-px h-16 bg-gradient-to-b from-transparent via-fg-tertiary to-transparent" />
-      </div>
+      {/* Explicit affordance: the homepage continues below the full-height image. */}
+      <a
+        href="#content"
+        className="absolute bottom-5 left-1/2 z-elevated inline-flex min-h-11 min-w-11 -translate-x-1/2 animate-scroll-indicator items-center justify-center gap-2 rounded-full px-4 text-xs font-light uppercase tracking-[0.18em] text-fg-secondary transition-colors duration-default hover:text-fg-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-border-emphasis sm:bottom-8"
+      >
+        <span>Explore</span>
+        <span aria-hidden="true">↓</span>
+      </a>
     </section>
   );
 }

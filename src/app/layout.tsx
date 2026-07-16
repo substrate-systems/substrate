@@ -61,9 +61,8 @@ export const metadata: Metadata = {
     follow: true,
   },
   other: {
-    "asset:hero-image": "Photo by Adrien Olichon",
-    "asset:hero-image-url": "https://www.pexels.com/@adrien-olichon-1257089/",
-    "asset:hero-image-license": "Pexels License (free for commercial use, no attribution required)",
+    "asset:homepage-and-photography-imagery": "Original photography © Hugo Ander Kivi",
+    "asset:photography-attribution": "No third-party attribution required",
   },
 };
 
