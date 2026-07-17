@@ -5,7 +5,8 @@
 // materializes the concrete file set from {include, exclude, overrides,
 // include_junk} with deeper rules overriding their ancestors.
 
-import type { AdoptionSelection } from "@/lib/exomem-hosted/hosted-browser";
+import { ADOPTION_RUN_ID } from "@/lib/exomem-hosted/adoption-staging";
+import { HostedBrowserError, type AdoptionSelection } from "@/lib/exomem-hosted/hosted-browser";
 import { nextStatusPollDelayMs } from "../home/home-state";
 
 export type SelectionModel = {
@@ -442,11 +443,13 @@ export function scanTotals(run: RunDoc): {
 }
 
 export function junkTotal(run: RunDoc): number {
-  const fromCounts = Object.values(run.scan_summary?.junk_counts ?? {}).reduce(
-    (sum: number, value) => sum + Number(value ?? 0),
-    0
-  );
-  return fromCounts || (run.inventory ?? []).filter((row) => row.junk).length;
+  // A PRESENT junk_counts map is authoritative even when it sums to zero;
+  // only its absence falls back to counting flagged inventory rows.
+  const counts = run.scan_summary?.junk_counts;
+  if (counts && typeof counts === "object") {
+    return Object.values(counts).reduce((sum: number, value) => sum + Number(value ?? 0), 0);
+  }
+  return (run.inventory ?? []).filter((row) => row.junk).length;
 }
 
 export function flattenProposals(value: unknown): ProposalItem[] {
@@ -493,10 +496,73 @@ export function answerHits(value: unknown): AnswerHit[] {
   return hits;
 }
 
+// --- Stale-plan error routing -----------------------------------------------------
+
+const STALE_CODES = new Set(["ADOPTION_SOURCE_CHANGED", "PLAN_STALE"]);
+
+// Preview, apply, AND retry can all hit plan/source staleness (the engine
+// refuses a mismatched plan_id with PLAN_STALE regardless of retry_failed).
+// Returns the actionable notice for those codes, null for everything else.
+// The 409 envelope carries no structured changed-file count, so the honest
+// text is the server's own reason — never a fabricated number.
+export function staleNoticeFor(error: unknown): string | null {
+  if (!(error instanceof HostedBrowserError) || !STALE_CODES.has(error.code)) return null;
+  return `Your files changed since we looked: ${error.message}`;
+}
+
+// --- Bounded-concurrency staging uploads -------------------------------------------
+
+export class BatchUploadError extends Error {
+  readonly index: number;
+  readonly reason: unknown;
+
+  constructor(index: number, reason: unknown) {
+    super(`Upload ${index + 1} failed`);
+    this.name = "BatchUploadError";
+    this.index = index;
+    this.reason = reason;
+  }
+}
+
+// Runs `worker` over `items` with at most `limit` in flight. On the first
+// failure no further items are started; in-flight workers settle, then the
+// batch rejects with a BatchUploadError naming the failing item's index and
+// carrying the underlying error for per-file attribution.
+export async function uploadBatch<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<unknown>,
+  onProgress?: (done: number, total: number) => void
+): Promise<void> {
+  const total = items.length;
+  let next = 0;
+  let done = 0;
+  let failure: BatchUploadError | null = null;
+
+  async function run(): Promise<void> {
+    while (failure === null && next < total) {
+      const index = next;
+      next += 1;
+      try {
+        await worker(items[index], index);
+      } catch (reason) {
+        failure ??= new BatchUploadError(index, reason);
+        return;
+      }
+      done += 1;
+      onProgress?.(done, total);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), total) }, run));
+  if (failure) throw failure;
+}
+
 // --- Staging run slug ------------------------------------------------------------
 
-// Must satisfy the upload route's run-id slug validation (transfers.ts).
-export const STAGING_RUN_SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+// The exact pattern the upload route's grant validation enforces (shared via
+// adoption-staging.ts so client slugs and server checks cannot drift).
+export const STAGING_RUN_SLUG = ADOPTION_RUN_ID;
 
 export function newStagingRunSlug(): string {
   return crypto.randomUUID();

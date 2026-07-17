@@ -27,6 +27,7 @@ import {
   type RunDoc,
   type SelectionModel,
   answerHits,
+  BatchUploadError,
   derivedTree,
   failureGroups,
   flattenProposals,
@@ -49,20 +50,18 @@ import {
   selectionPayload,
   selectionRoots,
   stagingPathForRun,
+  staleNoticeFor,
   toggleFolder,
   topFolders,
+  uploadBatch,
   verificationLine,
 } from "./adopt-state";
 
 const FILE_PAGE = 200;
-const STALE_CODES = new Set(["ADOPTION_SOURCE_CHANGED", "PLAN_STALE"]);
+const UPLOAD_POOL = 4;
 
 type ProposalContext = Record<string, unknown>;
 type ProposalDetail = { item: ProposalItem; context: ProposalContext | null };
-
-function isStale(error: unknown): error is HostedBrowserError {
-  return error instanceof HostedBrowserError && STALE_CODES.has(error.code);
-}
 
 function isDrift(error: unknown): error is HostedBrowserError {
   return error instanceof HostedBrowserError && error.code === "REVIEW_ITEM_CHANGED";
@@ -189,10 +188,15 @@ export default function AdoptClient() {
     const slug = uploadSlugRef.current ?? newStagingRunSlug();
     uploadSlugRef.current = slug;
     try {
-      for (let index = 0; index < intake.length; index += 1) {
-        setNotice(`Uploading ${index + 1} of ${intake.length}: ${intake[index].name}…`);
-        await postAdoptionFile(intake[index], slug, relativeDir(intake[index]));
-      }
+      setNotice(`Uploading 0 of ${intake.length}…`);
+      // Bounded concurrency; staging is content-addressed (sha256 + run slug),
+      // so a retry after a failure safely re-lands what already made it.
+      await uploadBatch(
+        intake,
+        UPLOAD_POOL,
+        (file) => postAdoptionFile(file, slug, relativeDir(file)),
+        (done, total) => setNotice(`Uploaded ${done} of ${total}…`)
+      );
       setNotice("Looking through your files…");
       const response = await startAdoptionRun(
         { path: stagingPathForRun(slug) },
@@ -214,7 +218,15 @@ export default function AdoptClient() {
       setStep("findings");
       setNotice("");
     } catch (error) {
-      fail(error);
+      if (error instanceof BatchUploadError) {
+        const file = intake[error.index];
+        setNotice(
+          `${file ? file.name : "A file"} could not be staged: ${friendlyHostedError(error.reason)}`
+        );
+        setNoticeError(true);
+      } else {
+        fail(error);
+      }
     } finally {
       setBusy(false);
     }
@@ -240,11 +252,10 @@ export default function AdoptClient() {
       setStep("preview");
       setNotice("");
     } catch (error) {
-      if (isStale(error)) {
+      const staleMessage = staleNoticeFor(error);
+      if (staleMessage) {
         setStep("preview");
-        setStale(
-          `Your folder changed since we looked: ${error.message} Nothing has been copied yet.`
-        );
+        setStale(`${staleMessage} Nothing has been copied yet.`);
         setNotice("");
       } else {
         fail(error);
@@ -290,11 +301,10 @@ export default function AdoptClient() {
       setNotice("");
     } catch (error) {
       setConfirmingApply(false);
-      if (isStale(error)) {
+      const staleMessage = staleNoticeFor(error);
+      if (staleMessage) {
         setStep("preview");
-        setStale(
-          `Your folder changed since we looked: ${error.message} Nothing has been copied yet.`
-        );
+        setStale(`${staleMessage} Nothing has been copied yet.`);
       } else {
         fail(error);
       }
@@ -318,7 +328,19 @@ export default function AdoptClient() {
       else await refreshRun(run.run_id);
       setNotice("");
     } catch (error) {
-      fail(error);
+      const staleMessage = staleNoticeFor(error);
+      if (staleMessage) {
+        // Post-apply staleness: the preview banner isn't on this screen and
+        // "nothing copied yet" would be untrue — refresh the run and say what
+        // actually holds.
+        setNotice(
+          `${staleMessage} Files already copied are safe; nothing more was copied. The result below has been refreshed — check it before retrying.`
+        );
+        setNoticeError(true);
+        await refreshRun(run.run_id).catch(() => undefined);
+      } else {
+        fail(error);
+      }
     } finally {
       setBusy(false);
     }

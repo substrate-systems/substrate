@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
+import { ADOPTION_RUN_ID } from "./adoption-staging";
 import { createTransferGrantRecord } from "./db";
 import { exomemErrors } from "./errors";
 import { resolveGatewayPrivateTarget, type GatewayDependencies } from "./gateway";
@@ -259,7 +260,6 @@ function validDownloadPath(value: string): boolean {
 }
 
 const ADOPTION_STAGING_SCOPE = "adoption-staging";
-const ADOPTION_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 function validStagingPath(value: string): boolean {
   const parts = value.split("/");

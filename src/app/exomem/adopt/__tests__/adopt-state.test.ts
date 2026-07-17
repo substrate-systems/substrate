@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { ADOPTION_RUN_ID } from "@/lib/exomem-hosted/adoption-staging";
+import { HostedBrowserError } from "@/lib/exomem-hosted/hosted-browser";
 import {
   answerHits,
+  BatchUploadError,
   derivedTree,
   failureGroups,
   flattenProposals,
@@ -9,6 +12,7 @@ import {
   initialSelection,
   isFileSelected,
   isTransientPhase,
+  junkTotal,
   legalStep,
   newStagingRunSlug,
   nextRunPollDelayMs,
@@ -23,7 +27,9 @@ import {
   selectionRoots,
   STAGING_RUN_SLUG,
   stagingPathForRun,
+  staleNoticeFor,
   toggleFolder,
+  uploadBatch,
   verificationLine,
 } from "../adopt-state";
 
@@ -335,5 +341,133 @@ describe("staging run slug", () => {
     assert.equal(stagingPathForRun(slug), `_Staging/adoption/${slug}`);
     assert.throws(() => stagingPathForRun("../escape"));
     assert.throws(() => stagingPathForRun(""));
+  });
+
+  it("shares the exact run-id pattern with the transfer grant validator", () => {
+    // Same object, not a lookalike copy — the client slug and the server-side
+    // upload-grant validation cannot drift apart.
+    assert.equal(STAGING_RUN_SLUG, ADOPTION_RUN_ID);
+  });
+});
+
+describe("stale-plan error routing", () => {
+  it("maps ADOPTION_SOURCE_CHANGED and PLAN_STALE to an actionable notice", () => {
+    const source = new HostedBrowserError(
+      { code: "ADOPTION_SOURCE_CHANGED", message: "3 files changed after the scan." },
+      409
+    );
+    assert.equal(
+      staleNoticeFor(source),
+      "Your files changed since we looked: 3 files changed after the scan."
+    );
+    const plan = new HostedBrowserError(
+      { code: "PLAN_STALE", message: "The plan no longer matches the selection." },
+      409
+    );
+    assert.equal(
+      staleNoticeFor(plan),
+      "Your files changed since we looked: The plan no longer matches the selection."
+    );
+  });
+
+  it("returns null for every other failure so generic handling stays intact", () => {
+    assert.equal(
+      staleNoticeFor(new HostedBrowserError({ code: "REQUEST_FAILED", message: "nope" }, 500)),
+      null
+    );
+    assert.equal(
+      staleNoticeFor(new HostedBrowserError({ code: "REVIEW_ITEM_CHANGED", message: "drift" }, 409)),
+      null
+    );
+    assert.equal(staleNoticeFor(new Error("plain")), null);
+    assert.equal(staleNoticeFor(null), null);
+  });
+});
+
+describe("junk totals", () => {
+  it("trusts a present junk_counts map even when it legitimately sums to zero", () => {
+    const base = {
+      run_id: "run-1",
+      phase: "selecting",
+      inventory: [{ path: "conflict copy.md", eligible: false, junk: true }],
+    };
+    assert.equal(junkTotal({ ...base, scan_summary: { junk_counts: {} } }), 0);
+    assert.equal(junkTotal({ ...base, scan_summary: { junk_counts: { empty: 0 } } }), 0);
+    assert.equal(
+      junkTotal({ ...base, scan_summary: { junk_counts: { empty: 0, conflict: 2 } } }),
+      2
+    );
+    // Only a MISSING junk_counts map falls back to counting inventory rows.
+    assert.equal(junkTotal(base), 1);
+    assert.equal(junkTotal({ ...base, scan_summary: {} }), 1);
+  });
+});
+
+describe("bounded-concurrency staging uploads", () => {
+  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+  it("caps in-flight uploads at the pool limit while reporting progress", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const completed: number[] = [];
+    const progress: [number, number][] = [];
+    const resolvers: (() => void)[] = [];
+
+    const batch = uploadBatch(
+      [0, 1, 2, 3, 4, 5, 6],
+      3,
+      (item: number) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        return new Promise<void>((resolve) => {
+          resolvers.push(() => {
+            active -= 1;
+            completed.push(item);
+            resolve();
+          });
+        });
+      },
+      (done, total) => progress.push([done, total])
+    );
+
+    await tick();
+    assert.equal(resolvers.length, 3);
+    resolvers[0]();
+    await tick();
+    assert.equal(resolvers.length, 4);
+    while (resolvers.length > completed.length) {
+      resolvers[completed.length]();
+      await tick();
+    }
+    await batch;
+    assert.equal(maxActive, 3);
+    assert.deepEqual(completed.sort(), [0, 1, 2, 3, 4, 5, 6]);
+    assert.equal(progress.length, 7);
+    assert.deepEqual(progress.at(-1), [7, 7]);
+  });
+
+  it("attributes the failing item and starts nothing new after a failure", async () => {
+    const started: number[] = [];
+    const gates: { resolve: () => void; reject: (reason: Error) => void }[] = [];
+
+    const batch = uploadBatch([0, 1, 2, 3, 4], 2, (item: number) => {
+      started.push(item);
+      return new Promise<void>((resolve, reject) => gates.push({ resolve, reject }));
+    });
+
+    await tick();
+    assert.deepEqual(started, [0, 1]);
+    gates[1].reject(new Error("boom"));
+    await tick();
+    gates[0].resolve();
+    await assert.rejects(batch, (error: unknown) => {
+      assert.equal(error instanceof BatchUploadError, true);
+      const failure = error as BatchUploadError;
+      assert.equal(failure.index, 1);
+      assert.equal((failure.reason as Error).message, "boom");
+      return true;
+    });
+    // The in-flight item settled, but no new upload started after the failure.
+    assert.deepEqual(started, [0, 1]);
   });
 });
