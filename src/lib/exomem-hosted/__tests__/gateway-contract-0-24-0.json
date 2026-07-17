@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "protocol_version": "1",
-  "exomem_release": "0.22.0",
+  "exomem_release": "0.24.0",
   "compatibility": {
     "policy": "additive",
     "optional_response_fields_may_be_added": true,
@@ -133,6 +133,30 @@
           "description": "Optional artifact kinds to exclude."
         },
         {
+          "name": "categories",
+          "type": "list[str]",
+          "required": false,
+          "description": "Semantic-unit category shortcuts, such as config or rule."
+        },
+        {
+          "name": "kinds",
+          "type": "list[str]",
+          "required": false,
+          "description": "Semantic-unit kind shortcuts, such as decision or claim."
+        },
+        {
+          "name": "filters",
+          "type": "dict",
+          "required": false,
+          "description": "Structured page/unit metadata filters."
+        },
+        {
+          "name": "result_level",
+          "type": "str",
+          "required": false,
+          "description": "auto, page, unit, or mixed."
+        },
+        {
           "name": "limit",
           "type": "int",
           "required": false,
@@ -203,6 +227,12 @@
           "type": "bool",
           "required": false,
           "description": "Include retrieval timings for diagnostics."
+        },
+        {
+          "name": "explain",
+          "type": "bool",
+          "required": false,
+          "description": "Add bounded retrieval-plan and per-hit ranking evidence."
         }
       ],
       "read_only": true,
@@ -247,6 +277,12 @@
           "type": "bool",
           "required": false,
           "description": "Include the raw markdown file text."
+        },
+        {
+          "name": "unit_ref",
+          "type": "str",
+          "required": false,
+          "description": "Exact unit reference returned by unit-level recall. Page-only expansion flags are not accepted together with an exact unit read."
         }
       ],
       "read_only": true,
@@ -455,6 +491,48 @@
           "type": "str",
           "required": false,
           "description": "Category for a new project key."
+        },
+        {
+          "name": "validate_only",
+          "type": "bool",
+          "required": false,
+          "description": "Validate and return an immutable creation draft without writing."
+        },
+        {
+          "name": "draft_id",
+          "type": "str",
+          "required": false,
+          "description": "Draft identity returned by validate_only."
+        },
+        {
+          "name": "draft_hash",
+          "type": "str",
+          "required": false,
+          "description": "Exact reviewed draft hash returned by validate_only."
+        },
+        {
+          "name": "draft_token",
+          "type": "str",
+          "required": false,
+          "description": "Opaque destination/date token returned by validate_only."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Reviewed relation outcome for commit."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Draft hash covered by the relation review."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for a reviewed-none disposition."
         }
       ],
       "read_only": false,
@@ -588,6 +666,110 @@
       "first_run_safe": false,
       "routes": ["edit"],
       "guarded_fields": ["new_body", "new_string"]
+    },
+    {
+      "name": "observe_memory",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": true,
+          "description": "Parent page path or canonical memory reference."
+        },
+        {
+          "name": "operation",
+          "type": "str",
+          "required": false,
+          "description": "add, update, remove, or validate."
+        },
+        {
+          "name": "category",
+          "type": "str",
+          "required": false,
+          "description": "Open semantic category for add/update/validate."
+        },
+        {
+          "name": "content",
+          "type": "str",
+          "required": false,
+          "description": "Unit content for add/update/validate."
+        },
+        {
+          "name": "kind",
+          "type": "str",
+          "required": false,
+          "description": "Optional governed rich kind; omitted means compact observation."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional compact suffix tags or rich metadata tags."
+        },
+        {
+          "name": "context",
+          "type": "str",
+          "required": false,
+          "description": "Optional compact suffix context or rich metadata context."
+        },
+        {
+          "name": "relations",
+          "type": "json",
+          "required": false,
+          "description": "Rich typed relations as {kind, target} objects."
+        },
+        {
+          "name": "unit_ref",
+          "type": "str",
+          "required": false,
+          "description": "Current exact unit reference for update/remove or update validation."
+        },
+        {
+          "name": "expected_fingerprint",
+          "type": "str",
+          "required": false,
+          "description": "Current exact unit fingerprint; required for update/remove."
+        },
+        {
+          "name": "expected_hash",
+          "type": "str",
+          "required": false,
+          "description": "Current exact parent-page content hash; required for update/remove."
+        },
+        {
+          "name": "transition_token",
+          "type": "str",
+          "required": false,
+          "description": "Exact transition token returned by validate."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Existing-page semantic review disposition."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Transition hash covered by reviewed-none."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for reviewed-none."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["update", "save"],
+      "first_run_safe": false,
+      "routes": ["observe_memory"],
+      "guarded_fields": ["content"]
     },
     {
       "name": "replace_memory",
@@ -741,6 +923,48 @@
           "type": "str",
           "required": false,
           "description": "Category for a new project key."
+        },
+        {
+          "name": "validate_only",
+          "type": "bool",
+          "required": false,
+          "description": "Validate the replacement draft without writing either page."
+        },
+        {
+          "name": "draft_id",
+          "type": "str",
+          "required": false,
+          "description": "Draft identity returned by validate_only."
+        },
+        {
+          "name": "draft_hash",
+          "type": "str",
+          "required": false,
+          "description": "Exact reviewed draft hash returned by validate_only."
+        },
+        {
+          "name": "draft_token",
+          "type": "str",
+          "required": false,
+          "description": "Opaque destination/date token returned by validate_only."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Reviewed relation outcome for commit."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Draft hash covered by the relation review."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for a reviewed-none disposition."
         }
       ],
       "read_only": false,
@@ -912,13 +1136,39 @@
       "guarded_fields": []
     },
     {
+      "name": "process_media",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "Optional governed Knowledge Base media path. Omit for bounded all-media work."
+        },
+        {
+          "name": "operation",
+          "type": "str",
+          "required": false,
+          "description": "process, status, or retry."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "advanced",
+      "actions": ["prove", "review", "update"],
+      "first_run_safe": false,
+      "routes": [],
+      "guarded_fields": []
+    },
+    {
       "name": "review_memory",
       "params": [
         {
           "name": "mode",
           "type": "str",
           "required": false,
-          "description": "attention, activation, item, audit, provenance, evolution, compilation, stale, contradiction, unprocessed-sources, relation-debt, or relation-queue. `relation-queue` returns the read-only, batched relation-acceptance queue (deterministic suggestion candidates grouped by source page, with signal fingerprints and coverage counters); accept a candidate via `connect_memory(operation=\"accept-relation\")` or reject via `triage_memory`."
+          "description": "attention, activation, item, audit, provenance, evolution, compilation, stale, contradiction, unprocessed-sources, relation-debt, relation-queue, or adoption. `relation-queue` returns the read-only, batched relation-acceptance queue (deterministic suggestion candidates grouped by source page, with signal fingerprints and coverage counters); accept a candidate via `connect_memory(operation=\"accept-relation\")` or reject via `triage_memory`. `adoption` returns the read-only Adoption Studio proposal queue grouped per run (structured agent proposals with signal fingerprints); approve a proposal via `adoption_studio(action=\"apply-proposal\")` or dismiss via `triage_memory`."
         },
         {
           "name": "categories",
@@ -1004,7 +1254,7 @@
           "name": "ref",
           "type": "str",
           "required": true,
-          "description": "Stable `exomem://review/<id>` reference."
+          "description": "Stable `exomem://review/<id>` reference. An `exomem://review/adoption/<id>` ref returns the bounded Adoption Studio proposal context (proposal record, live binding check, and target-page summary) instead."
         },
         {
           "name": "expected_fingerprint",
@@ -1066,7 +1316,7 @@
           "name": "ref",
           "type": "str",
           "required": true,
-          "description": "Stable `exomem://review/<id>` reference from review_memory."
+          "description": "Stable `exomem://review/<id>` reference from review_memory. An `exomem://review/adoption/<id>` ref triages an Adoption Studio proposal instead, keyed the same way (`review_id:fingerprint`)."
         },
         {
           "name": "action",
@@ -1129,6 +1379,24 @@
           "type": "str",
           "required": false,
           "description": "Query seed for graph-context."
+        },
+        {
+          "name": "unit_ref",
+          "type": "str",
+          "required": false,
+          "description": "Exact current semantic-unit seed for graph-context."
+        },
+        {
+          "name": "categories",
+          "type": "list[str]",
+          "required": false,
+          "description": "Registry-resolved semantic-unit category allowlist."
+        },
+        {
+          "name": "kinds",
+          "type": "list[str]",
+          "required": false,
+          "description": "Governed semantic-unit kind allowlist."
         },
         {
           "name": "draft_title",
@@ -1395,6 +1663,24 @@
           "type": "list[str]",
           "required": false,
           "description": "Explicit legacy files for copy/compile modes."
+        },
+        {
+          "name": "semantic_max_files",
+          "type": "int",
+          "required": false,
+          "description": "Maximum Markdown files read by the semantic census."
+        },
+        {
+          "name": "semantic_max_bytes",
+          "type": "int",
+          "required": false,
+          "description": "Maximum total Markdown bytes read by the semantic census."
+        },
+        {
+          "name": "semantic_example_limit",
+          "type": "int",
+          "required": false,
+          "description": "Maximum bounded semantic examples per grouping."
         }
       ],
       "read_only": false,
@@ -1403,6 +1689,146 @@
       "capability": "core",
       "product_surface": "primary",
       "actions": ["adopt"],
+      "first_run_safe": true,
+      "routes": ["adopt"],
+      "guarded_fields": []
+    },
+    {
+      "name": "adoption_studio",
+      "params": [
+        {
+          "name": "action",
+          "type": "str",
+          "required": true,
+          "description": "Required. One of start, status, select, plan, apply, cancel, finish, work-item, propose, or apply-proposal."
+        },
+        {
+          "name": "run_id",
+          "type": "str",
+          "required": false,
+          "description": "Stable adoption run id from `start`; required by every action except `start` and the run-listing form of `status`."
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "For `start`, the vault subtree to scan. Defaults to the vault root."
+        },
+        {
+          "name": "include_hidden",
+          "type": "bool",
+          "required": false,
+          "description": "For `start`, include hidden files/directories in the scan."
+        },
+        {
+          "name": "initialize_kb",
+          "type": "bool",
+          "required": false,
+          "description": "For `start`, bootstrap the Knowledge Base scaffold first when it does not exist yet (otherwise `start` refuses with KB_NOT_INITIALIZED)."
+        },
+        {
+          "name": "include",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `select`, folder or file paths whose eligible files are selected (server materializes the concrete set)."
+        },
+        {
+          "name": "exclude",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `select`, folder or file paths to remove from the selection."
+        },
+        {
+          "name": "overrides",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `select`, explicit per-file paths to force-select."
+        },
+        {
+          "name": "include_junk",
+          "type": "bool",
+          "required": false,
+          "description": "For `select`, include junk (e.g. zero-byte) files that are otherwise demoted. Default false."
+        },
+        {
+          "name": "plan_id",
+          "type": "str",
+          "required": false,
+          "description": "For `apply`, the plan id echoed from `plan`/`status`; a mismatch or a changed selection is refused with PLAN_STALE."
+        },
+        {
+          "name": "retry_failed",
+          "type": "bool",
+          "required": false,
+          "description": "For `apply`, re-plan and re-apply only the failed subset."
+        },
+        {
+          "name": "only_paths",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `apply`, restrict the (retry) apply to these originals."
+        },
+        {
+          "name": "why",
+          "type": "str",
+          "required": false,
+          "description": "Required approver rationale for `apply-proposal`; also records the reason on `cancel`."
+        },
+        {
+          "name": "write_manifest",
+          "type": "bool",
+          "required": false,
+          "description": "For `finish`, write an optional run manifest under `Knowledge Base/_Adoption/`. Default true."
+        },
+        {
+          "name": "sources",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `work-item`, explicit source paths to include instead of the first `max_sources` applied imports."
+        },
+        {
+          "name": "max_sources",
+          "type": "int",
+          "required": false,
+          "description": "For `work-item`, the maximum sources returned. Default 5."
+        },
+        {
+          "name": "max_chars_per_source",
+          "type": "int",
+          "required": false,
+          "description": "For `work-item`, the per-source excerpt cap. Default 2000."
+        },
+        {
+          "name": "proposals",
+          "type": "json",
+          "required": false,
+          "description": "For `propose`, the list of structured proposal objects to submit."
+        },
+        {
+          "name": "ref",
+          "type": "str",
+          "required": false,
+          "description": "For `apply-proposal`, the `exomem://review/adoption/<id>` proposal ref."
+        },
+        {
+          "name": "expected_fingerprint",
+          "type": "str",
+          "required": false,
+          "description": "For `apply-proposal`, the reviewed fingerprint that must still match, or the write is refused."
+        },
+        {
+          "name": "expected_hash",
+          "type": "str",
+          "required": false,
+          "description": "For `apply-proposal`, the target page hash for relation and reconciliation-relate approvals."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["adopt", "review", "save"],
       "first_run_safe": true,
       "routes": ["adopt"],
       "guarded_fields": []
@@ -1464,7 +1890,7 @@
           "name": "subject",
           "type": "str",
           "required": false,
-          "description": "`contract`, `relations`, or `traversal-profiles`."
+          "description": "`contract`, `categories`, `relations`, or `traversal-profiles`."
         },
         {
           "name": "project",
@@ -1506,7 +1932,7 @@
           "name": "proposal",
           "type": "dict",
           "required": false,
-          "description": "Reviewed relation registry or traversal-profile proposal."
+          "description": "Reviewed semantic-language, relation, or traversal-profile proposal."
         },
         {
           "name": "include_model_suggestions",
@@ -1647,6 +2073,48 @@
           "type": "str",
           "required": false,
           "description": "YYYY-MM-DD filter for trash-list."
+        },
+        {
+          "name": "validate_only",
+          "type": "bool",
+          "required": false,
+          "description": "Validate a Markdown create-file operation without writing."
+        },
+        {
+          "name": "draft_id",
+          "type": "str",
+          "required": false,
+          "description": "Draft identity returned by validate_only."
+        },
+        {
+          "name": "draft_hash",
+          "type": "str",
+          "required": false,
+          "description": "Exact reviewed draft hash returned by validate_only."
+        },
+        {
+          "name": "draft_token",
+          "type": "str",
+          "required": false,
+          "description": "Opaque destination/date token returned by validate_only."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Reviewed relation outcome for semantic file creation."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Draft hash covered by the relation review."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for a reviewed-none disposition."
         }
       ],
       "read_only": false,
@@ -1756,6 +2224,6 @@
   ],
   "digest": {
     "algorithm": "sha256",
-    "value": "49ac4d346991f0f1de5f692a78ad043de6020f9a1692cafc951ec84490f02940"
+    "value": "b760214e79b4f9819757609ec7c6a6be74762e7b675680aa91e8386dd71ee32d"
   }
 }

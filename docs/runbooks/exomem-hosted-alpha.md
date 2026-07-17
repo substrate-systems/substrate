@@ -15,7 +15,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
 1. migrations `0017` through `0022` applied to the production Neon database;
-2. an Exomem `0.22.0` cell image from commit `54618b931dec8f0ad053dce48dd80cc36c95c549` exposing private protocol `1`;
+2. an Exomem `0.24.0` cell image from commit `049d83c13e94102482a0f939c3baf065ee630fd1` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
@@ -28,19 +28,19 @@ remains deliberately disabled until the public price, checkout domain,
 terms/tax review, and live webhook are approved and configured.
 
 The pinned gateway contract digest is
-`49ac4d346991f0f1de5f692a78ad043de6020f9a1692cafc951ec84490f02940`.
+`b760214e79b4f9819757609ec7c6a6be74762e7b675680aa91e8386dd71ee32d`.
 Regenerate both checked-in fixtures only from a clean checkout at the selected
 commit:
 
 ```bash
 node scripts/generate-exomem-hosted-contract.mjs \
   --exomem-repo /path/to/exomem \
-  --output src/lib/exomem-hosted/gateway-contract-0-22-0.ts \
-  --json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-22-0.json \
-  --expected-commit 54618b931dec8f0ad053dce48dd80cc36c95c549
+  --output src/lib/exomem-hosted/gateway-contract-0-24-0.ts \
+  --json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-24-0.json \
+  --expected-commit 049d83c13e94102482a0f939c3baf065ee630fd1
 npx prettier --write \
-  src/lib/exomem-hosted/gateway-contract-0-22-0.ts \
-  src/lib/exomem-hosted/__tests__/gateway-contract-0-22-0.json
+  src/lib/exomem-hosted/gateway-contract-0-24-0.ts \
+  src/lib/exomem-hosted/__tests__/gateway-contract-0-24-0.json
 ```
 
 ## Substrate configuration
@@ -62,7 +62,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.             |
 | `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                  |
 | `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                      |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.22.0` for this release unit. Readiness must echo it.                                                                                         |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.24.0` for this release unit. Readiness must echo it.                                                                                         |
 | `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                           |
 | `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                       |
 | `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                       |

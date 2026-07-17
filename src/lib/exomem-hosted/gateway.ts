@@ -6,7 +6,7 @@ import {
 } from "./cloudflare-access";
 import { resolveGatewayTarget, type GatewayTarget } from "./db";
 import { exomemErrors } from "./errors";
-import { exomemContractFixture0220 } from "./gateway-contract-0-22-0";
+import { exomemContractFixture0240 } from "./gateway-contract-0-24-0";
 import {
   decryptSecret,
   opaquePrincipalScope,
@@ -172,14 +172,14 @@ function safeJsonObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function contractFixture(target: GatewayTarget): typeof exomemContractFixture0220 {
+function contractFixture(target: GatewayTarget): typeof exomemContractFixture0240 {
   if (
-    target.releaseVersion !== exomemContractFixture0220.release ||
-    target.protocolVersion !== exomemContractFixture0220.protocol
+    target.releaseVersion !== exomemContractFixture0240.release ||
+    target.protocolVersion !== exomemContractFixture0240.protocol
   ) {
     throw exomemErrors.protocolMismatch();
   }
-  return exomemContractFixture0220;
+  return exomemContractFixture0240;
 }
 
 function semanticProjection(commands: HostedContractCommand[]): unknown {

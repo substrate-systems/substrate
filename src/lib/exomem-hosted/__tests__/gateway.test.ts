@@ -9,14 +9,14 @@ import {
   routeExomemCommand,
 } from "../gateway";
 import { SensitiveSecret, type SecretEnvelope } from "../security";
-import canonicalContractFixture from "./gateway-contract-0-22-0.json";
+import canonicalContractFixture from "./gateway-contract-0-24-0.json";
 
 const USER_A = "018f2d91-7c42-7000-8000-000000000071";
 const TENANT_A = "018f2d91-7c42-7000-8000-000000000072";
 const USER_B = "018f2d91-7c42-7000-8000-000000000073";
 const TENANT_B = "018f2d91-7c42-7000-8000-000000000074";
 
-// Generated from Exomem 0.22.0 commit 54618b931dec8f0ad053dce48dd80cc36c95c549.
+// Generated from Exomem 0.24.0 commit 049d83c13e94102482a0f939c3baf065ee630fd1.
 const CANONICAL_CONTRACT = canonicalContractFixture as TestContract;
 
 type TestContract = {
@@ -78,7 +78,7 @@ function target(input: {
     cellLifecycleState: "active",
     cellRoutingState: "bound",
     protocolVersion: "1",
-    releaseVersion: "0.22.0",
+    releaseVersion: "0.24.0",
     credentialVersion: 1,
     credentialCiphertext: { value: `credential-${input.cellId}` },
     endpointCiphertext: { value: input.endpoint },
@@ -596,7 +596,7 @@ describe("registry-derived Exomem gateway", () => {
     );
   });
 
-  it("rejects self-consistent semantic drift from the pinned 0.22.0 registry", async () => {
+  it("rejects self-consistent semantic drift from the pinned 0.24.0 registry", async () => {
     const row = target({
       userId: USER_A,
       tenantId: TENANT_A,
@@ -610,7 +610,7 @@ describe("registry-derived Exomem gateway", () => {
     });
     assert.notEqual(
       drifted.digest.value,
-      "49ac4d346991f0f1de5f692a78ad043de6020f9a1692cafc951ec84490f02940"
+      "b760214e79b4f9819757609ec7c6a6be74762e7b675680aa91e8386dd71ee32d"
     );
 
     await assert.rejects(
