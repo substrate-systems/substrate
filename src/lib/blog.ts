@@ -60,7 +60,10 @@ export function getPostSlugs(): string[] {
 export function getAllPostsMeta(): BlogFrontmatter[] {
   return getPostSlugs().map((slug) => {
     const raw = readFileSync(path.join(BLOG_DIR, `${slug}.md`), "utf8");
-    return normalizeFrontmatter(matter(raw).data);
+    // Filename wins over a frontmatter `slug`. Routing is filename-based
+    // (getPostSlugs feeds generateStaticParams), so letting the two disagree
+    // would emit listing/sitemap URLs that 404 under dynamicParams = false.
+    return { ...normalizeFrontmatter(matter(raw).data), slug };
   });
 }
 
