@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
+import { ADOPTION_RUN_ID } from "./adoption-staging";
 import { createTransferGrantRecord } from "./db";
 import { exomemErrors } from "./errors";
 import { resolveGatewayPrivateTarget, type GatewayDependencies } from "./gateway";
@@ -40,8 +41,24 @@ export type UploadMetadataV2 = {
   size: number;
 };
 
+// Adoption staging intake rides the SAME locked upload-v1 grant target as a
+// normal upload; the cell routes on the signed metadata fields (scope ==
+// "adoption-staging", category == run id, description == optional relative
+// subdirectory) because the upload-v1 schema has no room for new fields. The
+// caller supplies only the adoption shape below — the staging binding is
+// composed here, never caller-supplied.
+export type AdoptionUploadMetadataV1 = {
+  content_type: string;
+  filename: string;
+  path: string | null;
+  run_id: string;
+  sha256: string;
+  size: number;
+};
+
 export type DirectTransferRequest =
   | { operation: "upload"; metadata: UploadMetadataV2 }
+  | { operation: "adoption-upload"; metadata: AdoptionUploadMetadataV1 }
   | { operation: "download"; path: string };
 
 export type DirectTransferTicket = {
@@ -242,6 +259,51 @@ function validDownloadPath(value: string): boolean {
   );
 }
 
+const ADOPTION_STAGING_SCOPE = "adoption-staging";
+
+function validStagingPath(value: string): boolean {
+  const parts = value.split("/");
+  return (
+    value.isWellFormed() &&
+    value.normalize("NFC") === value &&
+    utf8Length(value) >= 1 &&
+    utf8Length(value) <= 2048 &&
+    !value.includes("\\") &&
+    !/[\u0000-\u001f\u007f-\u009f]/u.test(value) &&
+    parts.every((part) => part.length > 0 && part !== "." && part !== "..")
+  );
+}
+
+function adoptionUploadTarget(
+  metadata: AdoptionUploadMetadataV1,
+  maxBytes: number
+): UploadGrantTarget {
+  if (
+    !metadata ||
+    typeof metadata !== "object" ||
+    Array.isArray(metadata) ||
+    Object.keys(metadata).sort().join(",") !== "content_type,filename,path,run_id,sha256,size" ||
+    typeof metadata.run_id !== "string" ||
+    !ADOPTION_RUN_ID.test(metadata.run_id) ||
+    (metadata.path !== null &&
+      (typeof metadata.path !== "string" || !validStagingPath(metadata.path)))
+  ) {
+    throw exomemErrors.invalidRequest();
+  }
+  return uploadTarget(
+    {
+      category: metadata.run_id,
+      content_type: metadata.content_type,
+      description: metadata.path,
+      filename: metadata.filename,
+      scope: ADOPTION_STAGING_SCOPE,
+      sha256: metadata.sha256,
+      size: metadata.size,
+    },
+    maxBytes
+  );
+}
+
 function uploadTarget(metadata: UploadMetadataV2, maxBytes: number): UploadGrantTarget {
   if (
     !metadata ||
@@ -323,9 +385,11 @@ export async function createDirectTransferTicket(input: {
   dependencies?: TransferDependencies;
 }): Promise<DirectTransferTicket> {
   const dependencies = input.dependencies ?? {};
+  const operation: TransferOperation =
+    input.request.operation === "download" ? "download" : "upload";
   const target = await resolveGatewayPrivateTarget(input.session, dependencies);
-  assertTransferEntitlement(target, input.request.operation);
-  const maxBytes = transferLimit(target, input.request.operation);
+  assertTransferEntitlement(target, operation);
+  const maxBytes = transferLimit(target, operation);
   const requestId = (dependencies.randomUUID ?? randomUUID)();
   const jti = (dependencies.randomUUID ?? randomUUID)();
   const issuedAt = Math.floor((dependencies.now ?? Date.now)() / 1000);
@@ -333,14 +397,15 @@ export async function createDirectTransferTicket(input: {
     dependencies.publicOrigin ?? exomemPublicBaseUrlFromEnv()
   );
   const transferHost = transferHostFromEnv(dependencies.transferHost);
-  const operation = input.request.operation;
   const grantTarget: TransferGrantTarget =
     input.request.operation === "upload"
       ? uploadTarget(input.request.metadata, maxBytes)
-      : (() => {
-          if (!validDownloadPath(input.request.path)) throw exomemErrors.invalidRequest();
-          return { kind: "download-v1", path: input.request.path };
-        })();
+      : input.request.operation === "adoption-upload"
+        ? adoptionUploadTarget(input.request.metadata, maxBytes)
+        : (() => {
+            if (!validDownloadPath(input.request.path)) throw exomemErrors.invalidRequest();
+            return { kind: "download-v1", path: input.request.path };
+          })();
   const credentialVersion = String(target.row.credentialVersion);
   if (
     !CELL_ID.test(target.row.cellId) ||
