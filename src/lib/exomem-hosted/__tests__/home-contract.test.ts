@@ -130,8 +130,14 @@ describe("private Exomem Home contract", () => {
     assert.match(postHog, /usePathname/);
     assert.match(postHog, /shouldMountAnalytics/);
     assert.match(postHog, /if \(!analyticsEnabled\)/);
+    // Automatic pageviews stay off so an SDK initialised on a public page cannot
+    // observe a later private navigation; ours are emitted explicitly instead.
     assert.match(postHog, /capture_pageview: false/);
-    assert.match(postHog, /capture_pageleave: false/);
+    // The load-bearing guarantee is the send-time filter, not any single capture
+    // flag: filterPostHogCapture drops an event when either the current URL or
+    // the event's own $current_url is a private Exomem path, so enabling further
+    // automatic captures (pageleave, autocapture) cannot leak one.
+    assert.match(postHog, /before_send:.*filterPostHogCapture\(capture, window\.location\.href\)/);
 
     const vercel = source("src/app/privacy-safe-analytics.tsx");
     assert.match(vercel, /usePathname/);
