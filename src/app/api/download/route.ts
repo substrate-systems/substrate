@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { captureServer, distinctIdFromRequest } from '@/lib/analytics-server';
 
 export const runtime = 'nodejs';
 
@@ -69,11 +70,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const format = ALLOWED_FORMATS.has(formatParam) ? formatParam : 'exe';
   const suffix = `.${format}`;
 
+  // Captured server-side because this route 302s away: a client-side event
+  // races the page teardown, while every request that lands here is real.
+  // captureServer bounds its own flush so this cannot stall the redirect.
+  const distinctId = distinctIdFromRequest(req);
+  const track = (event: string, properties: Record<string, unknown>) =>
+    captureServer({ event, distinctId, properties: { format, ...properties } });
+
   // Primary path: honor GitHub's "Latest" release. The endstate-gui release
   // pipeline only promotes a release to Latest after its installers are verified
   // (release-please.yml), so this is normally the correct artifact.
   const latest = await fetchGitHubJson<Release>(LATEST_URL);
   let asset = pickAsset(latest, suffix);
+  let resolvedVia: 'latest' | 'fallback_scan' = 'latest';
 
   // Resilience: if Latest somehow has no matching installer, redirect to the
   // newest published (non-draft, non-prerelease) release that does, instead of
@@ -84,13 +93,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     for (const release of releases ?? []) {
       if (release.draft || release.prerelease) continue;
       asset = pickAsset(release, suffix);
-      if (asset) break;
+      if (asset) {
+        resolvedVia = 'fallback_scan';
+        break;
+      }
     }
   }
 
   if (!asset) {
+    // A failed install attempt is the most urgent signal this route produces —
+    // during a traffic spike it is the difference between "nobody wanted it"
+    // and "nobody could get it".
+    await track('download_failed', { reason: 'no_matching_asset', repo: REPO });
     return fail('no_matching_asset', { repo: REPO, format });
   }
 
+  await track('download_served', { asset: asset.name, resolved_via: resolvedVia });
   return NextResponse.redirect(asset.browser_download_url, 302);
 }
