@@ -7,4 +7,3 @@
 - [x] Replace the obsolete activation change with this retirement contract.
 - [x] Add a regression test for the retired surface and retained Supporter path.
 - [x] Run the full test, lint, build, and strict OpenSpec validation suite.
-- [ ] Merge the updated pull request after independent review and green checks.
