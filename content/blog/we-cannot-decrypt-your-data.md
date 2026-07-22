@@ -4,6 +4,7 @@ slug: we-cannot-decrypt-your-data
 subtitle: "How a conversation with Arpan turned into a cryptographic discipline"
 description: "Building Endstate's Hosted Backup as a structural commitment, not a policy promise — the Argon2id split-key construction and what follows from it."
 published: 2026-05-24
+updated: 2026-07-20
 date: 2026-05-24
 tags:
   - cryptography

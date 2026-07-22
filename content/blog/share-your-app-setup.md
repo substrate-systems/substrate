@@ -14,6 +14,8 @@ status: published
 
 I built Endstate to move my own setup to a new machine. Somewhere along the way I realized it does something I hadn't set out to build: because a setup is just a file, you can hand it to someone *else*.
 
+If you are setting up your own fresh PC rather than sharing with someone else, [the complete Windows setup guide](/blog/new-windows-pc-setup-guide) covers the apps, settings, data, and offline-copy workflow.
+
 That sounds small. It isn't. There's no clean way today to give a friend your exact OBS scene and encoder setup, or your MSI Afterburner fan curve, or the VS Code and terminal config you spent months tuning. You screenshot your settings, or you write a doc, or you tell them "just copy mine" and then walk them through it click by click. Endstate turns that into: send a file.
 
 ## How it works

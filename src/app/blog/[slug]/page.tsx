@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import Footer from "@/components/Footer";
-import { getPostBySlug, getPostSlugs, isDraft } from "@/lib/blog";
+import { getBlogRedirect, getPostBySlug, getPostSlugs, isDraft } from "@/lib/blog";
 import { breadcrumbJsonLd, buildMetadata } from "@/lib/seo";
 import { articleJsonLd, howToJsonLd } from "@/lib/structured-data";
 import styles from "./article.module.css";
@@ -20,10 +20,12 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
+  const redirectTo = getBlogRedirect(slug);
+  if (redirectTo) permanentRedirect(redirectTo);
   const post = await getPostBySlug(slug);
   if (!post) return {};
 
-  const { title, description, published, author } = post.frontmatter;
+  const { title, description, published, updated, author } = post.frontmatter;
   return buildMetadata({
     title,
     description,
@@ -31,6 +33,7 @@ export async function generateMetadata({
     ogImage: `/api/og?title=${encodeURIComponent(title)}`,
     ogType: "article",
     publishedTime: published,
+    modifiedTime: updated,
     authors: author ? [author] : undefined,
     noIndex: isDraft(post.frontmatter),
   });
@@ -52,10 +55,12 @@ export default async function BlogPostPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+  const redirectTo = getBlogRedirect(slug);
+  if (redirectTo) permanentRedirect(redirectTo);
   const post = await getPostBySlug(slug);
   if (!post) notFound();
 
-  const { title, published, author } = post.frontmatter;
+  const { title, published, updated, author } = post.frontmatter;
   const breadcrumb = breadcrumbJsonLd([
     { name: "Home", path: "/" },
     { name: "Writing", path: "/blog" },
@@ -66,6 +71,7 @@ export default async function BlogPostPage({
     description: post.frontmatter.description,
     slug,
     published,
+    updated,
   });
   const howto = howToJsonLd(slug);
 

@@ -14,6 +14,8 @@ status: published
 
 I built [Endstate](https://substratesystems.io/endstate), so take the framing here for what it is: I have a horse in this race. But I've spent enough time reading how the incumbent PC-migration tools work, and how much they cost, that I think the comparison is worth writing down plainly — including the parts where they're better than what I built.
 
+For the practical setup sequence behind the comparison, see [the complete Windows setup guide](/blog/new-windows-pc-setup-guide).
+
 If you've bought a new Windows PC recently, you've hit the same wall I did: reinstalling twenty-plus apps, re-signing into things, digging up license keys, re-configuring the settings you forgot you'd customized. The tools that exist to solve this — EaseUS Todo PCTrans, Zinstall, Laplink PCmover — are all closed source and all charge $50-130 for what should, in most cases, be a solved problem. Endstate is the free, open-source alternative I wanted and couldn't find.
 
 ## What the paid tools actually do

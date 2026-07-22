@@ -19,11 +19,20 @@ export type BlogFrontmatter = {
   slug: string;
   description: string;
   published: string;
+  updated?: string;
   tags: string[];
   author: string;
   /** "draft" posts stay reachable by URL but are noindex + excluded from listings/sitemap. */
   status: string;
 };
+
+const BLOG_REDIRECTS = {
+  "set-up-new-windows-pc-fast": "/blog/new-windows-pc-setup-guide",
+} as const;
+
+export function getBlogRedirect(slug: string): string | undefined {
+  return BLOG_REDIRECTS[slug as keyof typeof BLOG_REDIRECTS];
+}
 
 export type BlogPost = {
   frontmatter: BlogFrontmatter;
@@ -31,16 +40,15 @@ export type BlogPost = {
 };
 
 function normalizeFrontmatter(data: Record<string, unknown>): BlogFrontmatter {
-  const published =
-    data.published instanceof Date
-      ? data.published.toISOString().slice(0, 10)
-      : String(data.published ?? "");
+  const normalizeDate = (value: unknown) =>
+    value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? "");
 
   return {
     title: String(data.title ?? ""),
     slug: String(data.slug ?? ""),
     description: String(data.description ?? ""),
-    published,
+    published: normalizeDate(data.published),
+    ...(data.updated ? { updated: normalizeDate(data.updated) } : {}),
     tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
     author: String(data.author ?? ""),
     status: String(data.status ?? ""),
@@ -69,7 +77,7 @@ export function getAllPostsMeta(): BlogFrontmatter[] {
 
 /** Non-draft posts only — for public listings (blog index) and the sitemap. */
 export function getPublishedPostsMeta(): BlogFrontmatter[] {
-  return getAllPostsMeta().filter((post) => !isDraft(post));
+  return getAllPostsMeta().filter((post) => !isDraft(post) && !getBlogRedirect(post.slug));
 }
 
 export async function getPostBySlug(slug: string): Promise<BlogPost | null> {

@@ -4,6 +4,7 @@ slug: coolify-to-k3s
 subtitle: "How Q's production infrastructure became declarative"
 description: "Migrating Q from Coolify to K3s + Terraform + Ansible — the conversation that started it, what got built, and the operational calm that followed."
 published: 2026-05-24
+updated: 2026-07-20
 date: 2026-05-24
 tags:
   - iac

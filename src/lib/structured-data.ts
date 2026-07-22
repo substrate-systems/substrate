@@ -20,6 +20,7 @@ export function articleJsonLd(input: {
   description: string;
   slug: string;
   published?: string;
+  updated?: string;
   image?: string;
 }) {
   return {
@@ -28,6 +29,7 @@ export function articleJsonLd(input: {
     headline: input.title,
     description: input.description,
     ...(input.published ? { datePublished: input.published } : {}),
+    ...(input.updated ? { dateModified: input.updated } : {}),
     author: PERSON,
     publisher: {
       "@type": "Organization",
@@ -60,25 +62,6 @@ const HOWTO_BY_SLUG: Record<
       {
         name: "Reinstall on the new machine",
         text: "Run `winget import -i apps.json --accept-package-agreements --accept-source-agreements` to reinstall every app without clicking through installers.",
-      },
-    ],
-  },
-  "set-up-new-windows-pc-fast": {
-    name: "How to set up a new Windows PC in minutes",
-    description:
-      "Capture your apps and settings once, then restore them on any fresh Windows install.",
-    steps: [
-      {
-        name: "Capture your current machine",
-        text: "List your installed apps with `winget export -o apps.json` and gather the settings for the tools you rely on.",
-      },
-      {
-        name: "Save it somewhere you own",
-        text: "Keep the file on a USB stick or your own sync folder so it works offline, with no account required.",
-      },
-      {
-        name: "Restore on the fresh install",
-        text: "Run `winget import` to reinstall the apps, then restore your settings and any Microsoft Store apps winget left out.",
       },
     ],
   },

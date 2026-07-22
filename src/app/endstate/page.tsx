@@ -18,7 +18,52 @@ import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
 import { BuyButton } from "./BuyButton";
 import { PaddleTransactionOpener } from "./PaddleTransactionOpener";
 import { usePaddle, type HostedBackupCadence } from "@/lib/paddle";
+import { siteConfig } from "@/lib/seo";
 import { faqs } from "./faq-data";
+
+const softwareJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Endstate",
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "Windows",
+  description:
+    "Reinstall your apps and restore your settings on a new Windows PC. Scan your current machine, save a portable setup file, then restore everything on a fresh install in minutes.",
+  url: `${siteConfig.url}/endstate`,
+  downloadUrl: `${siteConfig.url}/download`,
+  installUrl: `${siteConfig.url}/download`,
+  screenshot: [
+    `${siteConfig.url}/endstate/01-landing.png`,
+    `${siteConfig.url}/endstate/02-save-results.png`,
+    `${siteConfig.url}/endstate/03-setup-results.png`,
+  ],
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "EUR",
+    availability: "https://schema.org/InStock",
+  },
+  author: {
+    "@type": "Organization",
+    name: siteConfig.name,
+    url: siteConfig.url,
+  },
+  license: `${siteConfig.url}/terms`,
+  codeRepository: "https://github.com/Artexis10/endstate",
+};
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: typeof faq.a === "string" ? faq.a : (faq.aText ?? ""),
+    },
+  })),
+};
 
 const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
@@ -1524,8 +1569,8 @@ function Guides() {
       label: "A free, open-source alternative to EaseUS, Zinstall & Laplink",
     },
     {
-      href: "/blog/set-up-new-windows-pc-fast",
-      label: "Set up a new Windows PC in minutes, not a weekend",
+      href: "/blog/reinstall-all-apps-with-winget",
+      label: "How to reinstall all your apps with winget (and what it misses)",
     },
     {
       href: "/blog/winget-export-microsoft-store-apps",
@@ -1634,6 +1679,14 @@ function Closing() {
 export default function EndstatePage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
       <ElevationStyles />
       <main style={{ fontFamily: "var(--font-dm-sans), -apple-system, sans-serif", background: c.bg, minHeight: "100vh", WebkitFontSmoothing: "antialiased" }}>
         <PaddleTransactionOpener />
