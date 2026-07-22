@@ -62,10 +62,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const supporterPriceId =
     process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
+  if (!supporterPriceId) {
+    return NextResponse.json(
+      {
+        error: 'server_misconfigured',
+        message: 'NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER is not set',
+      },
+      { status: 500 },
+    );
+  }
+
   // Supporter tier: recognition only — NO license key. Thank the buyer (and
   // invite opt-in public listing) + notify founder@ so the name can be added to
   // SUPPORTERS.md. Reuses the existing Brevo infra; no license key is issued.
-  if (supporterPriceId && eventPriceIds.includes(supporterPriceId)) {
+  if (eventPriceIds.includes(supporterPriceId)) {
     return handleSupporterPurchase(event);
   }
 

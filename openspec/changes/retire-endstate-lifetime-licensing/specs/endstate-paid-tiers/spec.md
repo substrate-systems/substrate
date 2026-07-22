@@ -24,6 +24,14 @@ subscription.
 - **THEN** the endpoint returns a successful ignored response
 - **AND** no license key is created
 
+#### Scenario: Supporter price configuration is missing
+
+- **GIVEN** a valid signed `transaction.completed` event
+- **AND** the Supporter price is not configured
+- **WHEN** it reaches `/api/license/webhook`
+- **THEN** the endpoint returns a retryable server error
+- **AND** it does not acknowledge and permanently discard the purchase
+
 ### Requirement: Lifetime activation surface is absent
 
 The application MUST NOT expose lifetime-license checkout, minting, activation,
