@@ -26,7 +26,7 @@
 - [ ] 4.3 Capture purchase events in `src/app/api/license/webhook/route.ts`
 - [ ] 4.4 Capture cron outcomes for the routes listed in `vercel.json`
 - [ ] 4.5 Contract-test that a webhook still acknowledges normally when the analytics capture throws
-- [ ] 4.6 Leave `src/app/updates/latest.json/route.ts` uninstrumented, and contract-test that it stays so — it is the one endpoint the installed GUI polls, and counting those requests would be install telemetry in substance no matter that the capture runs server-side
+- [ ] 4.6 Decide with the founder whether `src/app/updates/latest.json/route.ts` gets an aggregate update-check count — the server already receives and logs these requests, so the question is visibility, not collection. If instrumented, record counts only: no persistent per-install identifier may be introduced or recorded
 
 ## 5. Identity resolution
 

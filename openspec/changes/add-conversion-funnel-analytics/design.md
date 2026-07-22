@@ -22,7 +22,7 @@ Two structural facts shape the design:
 
 **Non-Goals:**
 - Enabling session replay in this change — the masking pass is specified but gating it is the deliverable, not switching it on
-- **Any observation of the local product, or any identifier passed into it.** Endstate's CLI and GUI transmit nothing, and no analytics work may erode that
+- **Any observation of the local product, or any identifier passed into it.** Endstate's CLI and GUI transmit nothing about the user, and no analytics work may erode that. This constrains the installed application; it does not constrain the website, whose own traffic is exactly what this change measures
 - Dashboards, funnels, or alerting inside PostHog — this produces the event stream, not the analysis
 - Retroactive reconstruction of launch traffic already spent. It is gone.
 

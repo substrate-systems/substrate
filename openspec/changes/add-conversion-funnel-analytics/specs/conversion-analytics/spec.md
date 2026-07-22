@@ -76,9 +76,11 @@ The system SHALL call `identify` when an anonymous visitor becomes an identifiab
 
 ### Requirement: The local product carries no telemetry and receives no identifiers
 
-Endstate's CLI and GUI collect and transmit nothing. This is a published commitment — "No analytics, telemetry, or tracking in the local product" — and it is inviolable. Analytics work SHALL NOT weaken it, including by passing identifiers *into* the local product for a downstream system to correlate later.
+Endstate's CLI and GUI collect and transmit nothing about the user. This is a published commitment — "No analytics, telemetry, or tracking in the local product" — and it is inviolable. Analytics work SHALL NOT weaken it, including by passing identifiers *into* the local product for a downstream system to correlate later.
 
-The observable journey therefore ends at the web boundary, by design.
+**Scope.** This constrains the local product, not the website. `substratesystems.io` is a website and measuring its own traffic — pageviews, download clicks, downloads served, campaign attribution, checkout — is ordinary web analytics and is explicitly in scope for this change. The boundary is the installed application, not the marketing site.
+
+The observable *user journey* therefore ends where the installed application begins, by design.
 
 #### Scenario: Handoff to the desktop application
 - **WHEN** a claim is handed off to the desktop app via the `endstate://` deep link
@@ -95,8 +97,8 @@ The observable journey therefore ends at the web boundary, by design.
 
 #### Scenario: Endpoints the installed application calls
 - **WHEN** an endpoint exists that the installed CLI or GUI requests — the updater manifest at `/updates/latest.json` being the current one
-- **THEN** it SHALL NOT be instrumented with analytics
-- **AND** this holds even though such a capture would be server-side, because counting requests from installed applications is install telemetry in substance regardless of where the capture runs
+- **THEN** aggregate request counts MAY be observed, since the server necessarily receives and already logs these requests
+- **AND** no persistent per-install identifier is introduced, assigned, or recorded, because that would turn a functional request into a means of tracking an individual machine over time
 
 ### Requirement: Identity survives the crossing into the payment provider
 
