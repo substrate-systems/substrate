@@ -8,7 +8,7 @@ Two structural facts shape the design:
 
 1. **`person_profiles: "identified_only"` means no person exists until `identify` is called.** Anonymous events still carry a `distinct_id` and still work in funnels — the earlier claim that this "blocks every funnel" was wrong — but person properties, cohorts, and retention need a real identify call. There is currently not a single one in the codebase.
 
-2. **Three identity islands.** A browser has an anonymous `distinct_id`. Paddle knows a customer id. The desktop app knows a licence or account. Nothing connects them, so the journey terminates unobserved exactly where it becomes valuable.
+2. **Two joinable identity islands, and one that must stay separate.** A browser has an anonymous `distinct_id`; Paddle knows a customer id. Joining those two is the work. The desktop app is deliberately *not* a third: Endstate's CLI and GUI carry no telemetry, which is a published commitment, so there is nothing on that side to join to and nothing may be pushed into it to enable a join later.
 
 ## Goals / Non-Goals
 
@@ -22,7 +22,7 @@ Two structural facts shape the design:
 
 **Non-Goals:**
 - Enabling session replay in this change — the masking pass is specified but gating it is the deliverable, not switching it on
-- Desktop-app-side instrumentation; this change only ensures the identifier arrives
+- **Any observation of the local product, or any identifier passed into it.** Endstate's CLI and GUI transmit nothing, and no analytics work may erode that
 - Dashboards, funnels, or alerting inside PostHog — this produces the event stream, not the analysis
 - Retroactive reconstruction of launch traffic already spent. It is gone.
 
@@ -36,11 +36,13 @@ Two structural facts shape the design:
 
 *Alternative considered:* `alias()` instead of `identify()`. Rejected — aliasing is the legacy path, is not reversible, and PostHog's own guidance is to prefer `identify` with `$anon_distinct_id` handled by the SDK.
 
-### The anonymous id is threaded, not regenerated
+### The anonymous id is threaded into Paddle, and nowhere else
 
-Where a boundary is crossed before identity exists — checkout opened by a visitor who has not signed up, or a claim handed to the desktop app — the **anonymous** `distinct_id` is threaded through (Paddle `customData`, and a query parameter on the `endstate://claim` link). Server events then attribute to that same id.
+Where the payment boundary is crossed before identity exists — a checkout opened by a visitor who has not signed up — the **anonymous** `distinct_id` is threaded through Paddle `customData`. Server events then attribute to that same id.
 
 This means a purchase by a never-identified visitor still lands on the same person as their landing-page view. Absent the thread, it would create a second, unjoinable person and the channel-to-revenue link would be permanently lost.
+
+**The `endstate://` deep link is explicitly excluded from this.** An earlier draft of this design proposed threading the identifier there too. That was wrong on three counts: it pushes tracking into a product that publicly commits to carrying none; it buys nothing, because the app transmits nothing that could ever report the identifier back; and the link is user-visible, so a reader inspecting it would find a tracking id inside a "no telemetry" handoff. The third is the disqualifying one — a published constraint holds its value only while it is never quietly bent. See the credible-commitment-via-published-constraints pattern, the same structure as the hosted-backup "we cannot decrypt your data" commitment.
 
 When no identifier is available (SDK blocked, first touch), the event is captured as unresolved rather than dropped, and carries a flag so it can be excluded from funnels instead of skewing them. Wave 1 already established this convention with `identity_resolved`.
 
@@ -74,7 +76,7 @@ Production was confirmed EU on 2026-07-21 by reading `ui_host` from the deployed
 
 **Identity stitching lands wrong and merges two real users** → Identify only at claim redemption and licence activation, where the user id is authoritative. Never identify from a value derived from a URL parameter alone, since deep-link parameters are user-supplied.
 
-**Threading `distinct_id` through a deep link leaks an identifier** → The anonymous PostHog id is not PII and is already client-visible in a cookie. It is not an auth token and must never be treated as one on the receiving side.
+**A future change quietly appends an identifier to the deep link** → A contract test pins the `endstate://claim` link's parameters, so re-introducing one fails CI rather than shipping. The commitment is easier to erode by increments than by decision.
 
 **Event volume cost** → Autocapture is already on from Wave 1 and scales with launch traffic; Wave 2 adds comparatively few events, but replay would compound it. Volume is checked against the plan before replay is considered.
 
@@ -96,4 +98,5 @@ Verification before merge mirrors Wave 1: a local production build with a real k
 
 - Which application identifier is the right `distinct_id` for identify — the hosted-backup user id, or a licence-scoped identifier? They may not be the same person across products, and picking wrong merges two identities that should stay separate.
 - Should Exomem surfaces be instrumented in this change, or does the privacy posture argue for keeping Exomem observation deliberately minimal even on its public pages?
-- Does the desktop app have any analytics of its own today? If so, the threaded identifier should match its convention rather than establishing a second one.
+
+*Resolved 2026-07-22:* whether the desktop app has analytics of its own — it does not, and will not. The CLI and GUI carry no telemetry as a published, inviolable commitment.

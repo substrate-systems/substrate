@@ -74,22 +74,37 @@ The system SHALL call `identify` when an anonymous visitor becomes an identifiab
 - **WHEN** a user signs out
 - **THEN** the analytics identity is reset so a subsequent visitor on the same device is not attributed to the previous user
 
-### Requirement: Identity survives crossing a system boundary
+### Requirement: The local product carries no telemetry and receives no identifiers
 
-A visitor's analytics identity SHALL be carried across the boundaries between web, payment provider, and desktop application, so the journey is observable end to end.
+Endstate's CLI and GUI collect and transmit nothing. This is a published commitment — "No analytics, telemetry, or tracking in the local product" — and it is inviolable. Analytics work SHALL NOT weaken it, including by passing identifiers *into* the local product for a downstream system to correlate later.
+
+The observable journey therefore ends at the web boundary, by design.
+
+#### Scenario: Handoff to the desktop application
+- **WHEN** a claim is handed off to the desktop app via the `endstate://` deep link
+- **THEN** the link SHALL contain only what the claim functionally requires
+- **AND** no analytics identifier, session id, device id, or campaign parameter is appended to it
+
+#### Scenario: Attempt to correlate a desktop action back to a web visitor
+- **WHEN** any future work proposes joining desktop-app activity to a web session
+- **THEN** it is rejected at design time, because the local product transmits nothing that could complete such a join
+
+#### Scenario: Publicly inspectable surfaces
+- **WHEN** a user inspects a deep link, an installer request, or any artifact the local product touches
+- **THEN** nothing they find contradicts the published no-telemetry claim
+
+### Requirement: Identity survives the crossing into the payment provider
+
+A visitor's analytics identity SHALL be carried into the payment provider, so a purchase can be attributed to the acquisition channel that produced it. This boundary is between the website and a payment processor, and does not involve the local product.
 
 #### Scenario: Web to payment provider
 - **WHEN** a checkout is opened for a visitor with an established analytics identity
 - **THEN** that identifier is passed to Paddle as custom data
 - **AND** the resulting webhook event can be attributed to the same person as the visitor's browser events
 
-#### Scenario: Web to desktop application
-- **WHEN** a claim is handed off to the desktop app via the `endstate://` deep link
-- **THEN** the visitor's analytics identifier is included in the link
-
 #### Scenario: Identity unavailable
 - **WHEN** no analytics identifier exists for the visitor, because the SDK was blocked or the visit is first-touch
-- **THEN** the handoff still succeeds
+- **THEN** the checkout still opens and completes
 - **AND** the resulting server event is recorded as unresolved rather than being dropped or attributed to a fabricated person
 
 ### Requirement: The checkout funnel is observable including its failures

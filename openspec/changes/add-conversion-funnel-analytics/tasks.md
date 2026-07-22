@@ -1,8 +1,7 @@
 ## 1. Resolve blocking decisions
 
 - [ ] 1.1 Decide which application identifier is the canonical `distinct_id` for `identify` — hosted-backup user id vs licence-scoped id — and record the decision in design.md Open Questions
-- [ ] 1.2 Confirm whether the Endstate desktop app already emits analytics; if so, match its identifier convention rather than introducing a second
-- [ ] 1.3 Verify `NEXT_PUBLIC_POSTHOG_HOST` is set to the EU host in **every** Vercel environment (production, preview, development) — production was confirmed EU on 2026-07-21, the others are unverified and the code default is US
+- [ ] 1.2 Verify `NEXT_PUBLIC_POSTHOG_HOST` is set to the EU host in **every** Vercel environment (production, preview, development) — production was confirmed EU on 2026-07-21, the others are unverified and the code default is US
 
 ## 2. Extend the analytics substrate
 
@@ -35,12 +34,14 @@
 - [ ] 5.3 Reset the analytics identity on sign-out so a later visitor on the same device is not attributed to the previous user
 - [ ] 5.4 Confirm that a visitor's pre-signup anonymous events attribute to the resulting person after identify
 
-## 6. Web-to-desktop handoff
+## 6. Desktop handoff — observed on the web side only
 
-- [ ] 6.1 Append the anonymous `distinct_id` to the `endstate://claim` deep link in `ClaimClient.tsx`
-- [ ] 6.2 Capture the handoff itself, which is currently the point where the journey goes dark
-- [ ] 6.3 Verify the handoff still succeeds when no identifier is available
-- [ ] 6.4 Confirm the receiving side treats the identifier as non-authoritative — it is not an auth token and must never be used as one
+The local product carries no telemetry. Nothing is threaded into it, and the observable journey ends here by design.
+
+- [ ] 6.1 Capture the handoff **on the web side** in `ClaimClient.tsx` — that the user activated "open in Endstate" is a website event about its own control
+- [ ] 6.2 Assert the `endstate://claim` link carries only what the claim functionally requires — no analytics identifier, session id, device id, or campaign parameter
+- [ ] 6.3 Add a contract test pinning that assertion, so no future change can quietly append one
+- [ ] 6.4 Confirm the copy-claim-code path is likewise captured web-side without altering what is copied
 
 ## 7. Product signal on the supported-apps page
 
