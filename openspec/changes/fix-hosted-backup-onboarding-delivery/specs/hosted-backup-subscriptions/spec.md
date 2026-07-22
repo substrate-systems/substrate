@@ -118,7 +118,8 @@ state machine, including `subscription.created`, `subscription.activated`,
 `subscription.resumed`, and `subscription.canceled`.
 
 The existing `/api/license/webhook` destination MUST remain responsible for
-`transaction.completed` Supporter/lifetime-license handling.
+`transaction.completed` Supporter handling. The retired lifetime-license SKU
+MUST NOT be handled there.
 
 #### Scenario: Subscription activation reaches Hosted Backup webhook
 

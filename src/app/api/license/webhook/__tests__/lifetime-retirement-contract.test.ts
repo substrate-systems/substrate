@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -25,5 +25,24 @@ describe('retired Endstate lifetime checkout contract', () => {
     assert.doesNotMatch(webhook, /createLicenseKey|insertLicense/);
     assert.match(webhook, /handleSupporterPurchase/);
     assert.match(webhook, /NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER/);
+  });
+
+  it('removes the unused lifetime activation surface', async () => {
+    const retiredPaths = [
+      'src/app/api/license/activate/route.ts',
+      'src/app/api/license/deactivate/route.ts',
+      'src/app/api/license/internal-debug/send-test-email/route.ts',
+      'src/lib/email-templates/license-key.ts',
+      'src/lib/license/crypto.ts',
+      'src/lib/license/db.ts',
+      'scripts/generate-keypair.ts',
+      'scripts/init-db.sql',
+      'scripts/test-license-api.sh',
+      'scripts/test-license-crypto.mjs',
+    ];
+
+    for (const relativePath of retiredPaths) {
+      await assert.rejects(stat(path.join(root, relativePath)), { code: 'ENOENT' });
+    }
   });
 });

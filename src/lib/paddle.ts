@@ -59,7 +59,6 @@ export type UsePaddleResult = {
   ready: boolean;
   error: string | null;
   completed: boolean;
-  openEndstateCheckout: () => Promise<void>;
   openSupporterCheckout: () => Promise<void>;
   openHostedBackupCheckout: (cadence: HostedBackupCadence) => Promise<void>;
   openTransactionCheckout: (transactionId: string) => Promise<boolean>;
@@ -107,18 +106,6 @@ export function usePaddle(): UsePaddleResult {
     };
   }, []);
 
-  async function openEndstateCheckout(): Promise<void> {
-    const priceId = process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME;
-    if (!priceId) {
-      console.error("[paddle] NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_LIFETIME is not set");
-      alert(UNAVAILABLE_MESSAGE);
-      return;
-    }
-    await openCheckoutWith((paddle) => {
-      paddle.Checkout.open({ items: [{ priceId, quantity: 1 }] });
-    });
-  }
-
   async function openSupporterCheckout(): Promise<void> {
     const priceId = process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
     if (!priceId) {
@@ -160,7 +147,6 @@ export function usePaddle(): UsePaddleResult {
     ready,
     error,
     completed,
-    openEndstateCheckout,
     openSupporterCheckout,
     openHostedBackupCheckout,
     openTransactionCheckout,

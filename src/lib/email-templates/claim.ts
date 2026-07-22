@@ -3,9 +3,8 @@
  *
  * Plaintext-first: every template's `textContent` reads cleanly on its own
  * (no "see HTML version"). The HTML mirrors the text with inline styles to
- * match the existing license-key email convention (no external assets, no
- * stylesheets). Tone matches license-key.ts: direct, founder-voiced, no
- * marketing fluff.
+ * use no external assets or stylesheets. Tone is direct, founder-voiced, and
+ * avoids marketing fluff.
  */
 
 const SITE_BASE_URL =
