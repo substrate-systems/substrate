@@ -26,7 +26,8 @@
 - [ ] 4.3 Capture purchase events in `src/app/api/license/webhook/route.ts`
 - [ ] 4.4 Capture cron outcomes for the routes listed in `vercel.json`
 - [ ] 4.5 Contract-test that a webhook still acknowledges normally when the analytics capture throws
-- [ ] 4.6 Decide with the founder whether `src/app/updates/latest.json/route.ts` gets an aggregate update-check count — the server already receives and logs these requests, so the question is visibility, not collection. If instrumented, record counts only: no persistent per-install identifier may be introduced or recorded
+- [ ] 4.6 Capture an aggregate update-check count in `src/app/updates/latest.json/route.ts` — decided 2026-07-22. Counts only: no persistent per-install identifier may be introduced, assigned, or recorded, so nothing tracks an individual machine over time. The server already receives and logs these requests; this makes an existing signal visible rather than collecting anything new
+- [ ] 4.7 Contract-test that the updater capture carries no identifier — this is the seam where an aggregate count would quietly become install telemetry
 
 ## 5. Identity resolution
 
