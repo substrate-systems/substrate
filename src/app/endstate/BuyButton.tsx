@@ -9,18 +9,17 @@ type Props = {
   className?: string;
   style?: CSSProperties;
   completionLabel?: string;
-  action?: (() => Promise<void> | void) | null;
+  action: () => Promise<void> | void;
 };
 
 export function BuyButton({
   children,
   className,
   style,
-  completionLabel = 'Thanks — check your email for your license key.',
+  completionLabel = 'Thanks — your purchase is complete.',
   action,
 }: Props) {
-  const { ready, completed, openEndstateCheckout } = usePaddle();
-  const runAction = action ?? openEndstateCheckout;
+  const { ready, completed } = usePaddle();
 
   if (completed) {
     return (
@@ -45,7 +44,7 @@ export function BuyButton({
     <button
       type="button"
       onClick={() => {
-        void runAction();
+        void action();
       }}
       disabled={!ready}
       className={className}
