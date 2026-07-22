@@ -93,6 +93,11 @@ The observable journey therefore ends at the web boundary, by design.
 - **WHEN** a user inspects a deep link, an installer request, or any artifact the local product touches
 - **THEN** nothing they find contradicts the published no-telemetry claim
 
+#### Scenario: Endpoints the installed application calls
+- **WHEN** an endpoint exists that the installed CLI or GUI requests — the updater manifest at `/updates/latest.json` being the current one
+- **THEN** it SHALL NOT be instrumented with analytics
+- **AND** this holds even though such a capture would be server-side, because counting requests from installed applications is install telemetry in substance regardless of where the capture runs
+
 ### Requirement: Identity survives the crossing into the payment provider
 
 A visitor's analytics identity SHALL be carried into the payment provider, so a purchase can be attributed to the acquisition channel that produced it. This boundary is between the website and a payment processor, and does not involve the local product.
