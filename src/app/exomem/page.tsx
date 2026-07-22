@@ -1,7 +1,6 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
-import { faqs } from "./faq-data";
 import RevealManager from "./reveal-manager";
 import MemoryGraph from "./memory-graph";
 import CopyButton from "./copy-button";
@@ -52,21 +51,6 @@ const breadcrumb = breadcrumbJsonLd([
   { name: "Home", path: "/" },
   { name: "Exomem", path: "/exomem" },
 ]);
-
-// All eight FAQs stay in the FAQPage JSON-LD for SEO; the page renders the five
-// approved for the redesign (below).
-const faqJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: faqs.map((faq) => ({
-    "@type": "Question",
-    name: faq.q,
-    acceptedAnswer: {
-      "@type": "Answer",
-      text: typeof faq.a === "string" ? faq.a : (faq.aText ?? ""),
-    },
-  })),
-};
 
 const capabilities = [
   {
@@ -142,6 +126,19 @@ const displayFaqs: ExoFaq[] = [
     a: "No. The lean install runs keyword and BM25 search out of the box — SQLite's FTS5 engine ships inside Python's standard library. Optional extras add local embeddings, CLIP image search, OCR, and speech-to-text; a GPU accelerates those, but is never required.",
   },
 ];
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: displayFaqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.a,
+    },
+  })),
+};
 
 // ---- shared style tokens ----------------------------------------------------
 const MONO = "var(--font-mono-exo)";

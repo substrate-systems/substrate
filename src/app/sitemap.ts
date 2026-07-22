@@ -30,12 +30,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // post.slug is the filename (see getAllPostsMeta), the same source
   // generateStaticParams uses — so a sitemap URL can never point at a slug
   // the [slug] route won't build, which would 404 under dynamicParams = false.
-  const blogEntries: MetadataRoute.Sitemap = getPublishedPostsMeta().map((post) => ({
-    url: `${baseUrl}/blog/${post.slug}`,
-    lastModified: post.published ? new Date(post.published) : undefined,
-    changeFrequency: "yearly",
-    priority: 0.6,
-  }));
+  const blogEntries: MetadataRoute.Sitemap = getPublishedPostsMeta().map((post) => {
+    const lastModified = post.updated ?? post.published;
+    return {
+      url: `${baseUrl}/blog/${post.slug}`,
+      lastModified: lastModified ? new Date(lastModified) : undefined,
+      changeFrequency: "yearly",
+      priority: 0.6,
+    };
+  });
 
   const staticEntries: MetadataRoute.Sitemap = staticRoutes.map((route) => ({
     url: `${baseUrl}${route.path}`,
