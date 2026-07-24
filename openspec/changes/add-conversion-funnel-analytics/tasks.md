@@ -6,7 +6,7 @@
 > unsafe — the only identifier available in `ClaimClient.tsx` is the claim token, which is
 > a credential and must never become a `distinct_id`. Rewrite 5.1 before implementing it.
 >
-> Still open: 2.4, 3.4, 4.3–4.7, 5.x, 8.x, 9.3–9.6.
+> Still open: 4.4 (cron outcomes), 5.x (deferred by decision), 8.1–8.2 (masking enumeration, only needed before enabling replay), 9.4–9.6 (manual sandbox and volume checks).
 >
 > One deviation worth knowing: the event taxonomy lives in `src/lib/analytics-events.ts`
 > rather than `src/lib/analytics.ts`. The latter imports `posthog-js`, so server routes
@@ -23,14 +23,14 @@
 - [x] 2.1 Add Wave 2 event names to the `AnalyticsEvent` registry in `src/lib/analytics.ts`, including server-only names, so the taxonomy stays in one greppable place
 - [x] 2.2 Add an `identify` helper to `src/lib/analytics.ts` that no-ops when analytics is not ready, mirroring the existing `capture` guard
 - [x] 2.3 Add a helper exposing the current anonymous `distinct_id` for threading across boundaries, returning null when the SDK is blocked or uninitialised
-- [ ] 2.4 Unit-test the threading helper's null path, since every boundary case depends on it degrading cleanly
+- [x] 2.4 Unit-test the threading helper's null path, since every boundary case depends on it degrading cleanly
 
 ## 3. Checkout funnel
 
 - [x] 3.1 Capture checkout intent — implemented in `src/lib/paddle.ts` rather than `BuyButton.tsx`. BuyButton is a generic wrapper that receives an opaque `action`, so it cannot name the product; every checkout path already funnels through `usePaddle`, which can. One seam, all three products.
 - [x] 3.2 Capture completion in the existing `CHECKOUT_COMPLETED` callback in `src/lib/paddle.ts`
 - [x] 3.3 Capture SDK init failure and checkout open failure in `src/lib/paddle.ts`, each naming its failure stage
-- [ ] 3.4 Capture the failure and retry paths in `src/components/PaddleTransactionOpener.tsx`
+- [x] 3.4 Capture the failure and retry paths in `src/components/PaddleTransactionOpener.tsx`
 - [x] 3.5 Thread the anonymous `distinct_id` into Paddle `customData` when opening a checkout
 - [x] 3.6 Verify a forced PostHog failure does not prevent a checkout from opening or completing
 
@@ -38,11 +38,11 @@
 
 - [x] 4.1 Capture subscription lifecycle transitions in `src/app/api/webhooks/paddle/route.ts`, placed after state persistence and before acknowledgement
 - [x] 4.2 Attribute those events to the threaded `distinct_id` from Paddle `customData` when present, falling back to unresolved with the existing `identity_resolved` flag
-- [ ] 4.3 Capture purchase events in `src/app/api/license/webhook/route.ts`
+- [x] 4.3 Capture purchase events in `src/app/api/license/webhook/route.ts`
 - [ ] 4.4 Capture cron outcomes for the routes listed in `vercel.json`
-- [ ] 4.5 Contract-test that a webhook still acknowledges normally when the analytics capture throws
-- [ ] 4.6 Capture an aggregate update-check count in `src/app/updates/latest.json/route.ts` — decided 2026-07-22. Counts only: no persistent per-install identifier may be introduced, assigned, or recorded, so nothing tracks an individual machine over time. The server already receives and logs these requests; this makes an existing signal visible rather than collecting anything new
-- [ ] 4.7 Contract-test that the updater capture carries no identifier — this is the seam where an aggregate count would quietly become install telemetry
+- [x] 4.5 Contract-test that a webhook still acknowledges normally when the analytics capture throws
+- [x] 4.6 Capture an aggregate update-check count in `src/app/updates/latest.json/route.ts` — decided 2026-07-22. Counts only: no persistent per-install identifier may be introduced, assigned, or recorded, so nothing tracks an individual machine over time. The server already receives and logs these requests; this makes an existing signal visible rather than collecting anything new
+- [x] 4.7 Contract-test that the updater capture carries no identifier — this is the seam where an aggregate count would quietly become install telemetry
 
 ## 5. Identity resolution
 
@@ -70,8 +70,8 @@ The local product carries no telemetry. Nothing is threaded into it, and the obs
 
 - [ ] 8.1 Enumerate every surface rendering a recovery key, claim token, or account identifier
 - [ ] 8.2 Define masking rules covering those surfaces
-- [ ] 8.3 Add a contract test asserting replay stays disabled while masking is unverified
-- [ ] 8.4 Leave `disable_session_recording: true`; enabling it is a follow-up change
+- [x] 8.3 Add a contract test asserting replay stays disabled while masking is unverified
+- [x] 8.4 Leave `disable_session_recording: true`; enabling it is a follow-up change
 
 ## 9. Verification
 
