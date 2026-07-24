@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import { usePaddle } from "@/lib/paddle";
+import { AnalyticsEvent, capture } from "@/lib/analytics";
 
 const PADDLE_TRANSACTION_ID = /^txn_[a-z0-9]{26}$/;
 const PENDING_TRANSACTION_KEY = "exomem:paddle-return-transaction";
@@ -140,10 +141,27 @@ export function PaddleTransactionOpener({
           setTransactionId(candidate);
           return;
         }
-        if (active) setValidationFailed(true);
+        if (active) {
+          // Returning from Paddle but failing to reconnect is its own stage:
+          // the money may already have moved, so this is more serious than a
+          // checkout that never opened.
+          capture(AnalyticsEvent.CheckoutFailed, {
+            product: "transaction",
+            stage: "return_validation",
+            reason: "rejected",
+          });
+          setValidationFailed(true);
+        }
       })
       .catch(() => {
-        if (active) setValidationFailed(true);
+        if (active) {
+          capture(AnalyticsEvent.CheckoutFailed, {
+            product: "transaction",
+            stage: "return_validation",
+            reason: "threw",
+          });
+          setValidationFailed(true);
+        }
       });
     return () => {
       active = false;
@@ -156,12 +174,21 @@ export function PaddleTransactionOpener({
   }, []);
 
   const handleCheckoutFailure = useCallback(() => {
+    // No capture here on purpose: usePaddle already fired checkout_failed with
+    // an sdk_init or open stage for this same failure, and capturing again
+    // would double-count every one of them.
     if (!validationEndpoint) return;
     setTransactionId(null);
     setPaddleFailed(true);
   }, [validationEndpoint]);
 
   function retryValidation(): void {
+    // A retry is a fresh attempt at the same transaction. Recorded so the
+    // recovery UI's effectiveness is visible rather than assumed.
+    capture(AnalyticsEvent.CheckoutStarted, {
+      product: "transaction",
+      trigger: paddleFailed ? "retry_after_open_failure" : "retry_after_validation_failure",
+    });
     if (paddleFailed) {
       window.location.reload();
       return;
