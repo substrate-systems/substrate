@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCronAuth } from "@/lib/hosted-backup/cron-auth";
+import { captureCronOutcome } from "@/lib/analytics-server";
 import sitemap from "@/app/sitemap";
 import { siteConfig } from "@/lib/seo";
 
@@ -30,6 +31,12 @@ export async function GET(req: NextRequest) {
       keyLocation: `${siteConfig.url}/${INDEXNOW_KEY}.txt`,
       urlList,
     }),
+  });
+
+  await captureCronOutcome({
+    job: "indexnow",
+    outcome: res.ok ? "completed" : "failed",
+    properties: { status: res.status, submitted: urlList.length },
   });
 
   // IndexNow returns 200/202 on success. Report status back for cron logs.

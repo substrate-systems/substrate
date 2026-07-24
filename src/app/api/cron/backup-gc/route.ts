@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiVersion } from '@/lib/hosted-backup/api-version';
 import { verifyCronAuth } from '@/lib/hosted-backup/cron-auth';
+import { captureCronOutcome } from '@/lib/analytics-server';
 import {
   findExpiredDeletedVersions,
   listChunksForVersion,
@@ -157,6 +158,23 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     fail('pass D', err);
   }
+
+  // errorCount is the signal that matters: a pass can complete having failed
+  // several sub-passes, and a silently degrading GC is worse than a loud one.
+  await captureCronOutcome({
+    job: 'backup-gc',
+    outcome: errorCount > 0 ? 'failed' : 'completed',
+    properties: {
+      expiredVersionsPurged,
+      expiredObjectsDeleted,
+      purgeQueueMarkedDone,
+      purgeQueueObjectsDeleted,
+      manifestsStamped,
+      abandonedSoftDeleted,
+      rateLimitEventsPruned,
+      errorCount,
+    },
+  });
 
   return ok({
     ok: true,

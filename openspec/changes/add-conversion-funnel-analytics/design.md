@@ -8,11 +8,12 @@ Two structural facts shape the design:
 
 1. **`person_profiles: "identified_only"` means no person exists until `identify` is called.** Anonymous events still carry a `distinct_id` and still work in funnels — the earlier claim that this "blocks every funnel" was wrong — but person properties, cohorts, and retention need a real identify call. There is currently not a single one in the codebase.
 
-2. **Two joinable identity islands, and one that must stay separate.** A browser has an anonymous `distinct_id`; Paddle knows a customer id. Joining those two is the work. The desktop app is deliberately *not* a third: Endstate's CLI and GUI carry no telemetry, which is a published commitment, so there is nothing on that side to join to and nothing may be pushed into it to enable a join later.
+2. **Two joinable identity islands, and one that must stay separate.** A browser has an anonymous `distinct_id`; Paddle knows a customer id. Joining those two is the work. The desktop app is deliberately _not_ a third: Endstate's CLI and GUI carry no telemetry, which is a published commitment, so there is nothing on that side to join to and nothing may be pushed into it to enable a join later.
 
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Every checkout outcome observable, failures included
 - Person profiles exist for users who claim or activate
 - A visitor's identity survives the hops into Paddle and into the desktop app
@@ -21,6 +22,7 @@ Two structural facts shape the design:
 - No regression in billing, auth, or webhook acknowledgement
 
 **Non-Goals:**
+
 - Enabling session replay in this change — the masking pass is specified but gating it is the deliverable, not switching it on
 - **Any observation of the local product, or any identifier passed into it.** Endstate's CLI and GUI transmit nothing about the user, and no analytics work may erode that. This constrains the installed application; it does not constrain the website, whose own traffic is exactly what this change measures
 - Dashboards, funnels, or alerting inside PostHog — this produces the event stream, not the analysis
@@ -32,9 +34,9 @@ Two structural facts shape the design:
 
 `identify()` is called client-side at claim redemption, because only the browser holds the anonymous `distinct_id` that must be stitched to the new identity. Server-side captures then use the same application user id as `distinctId`, so both halves converge on one person.
 
-*Alternative considered:* server-only identity, capturing everything with the user id. Rejected — it silently orphans the visitor's entire pre-signup anonymous history, which is exactly the acquisition data Wave 1 was built to collect. The join between "arrived from r/opensource" and "paid" depends on that stitch.
+_Alternative considered:_ server-only identity, capturing everything with the user id. Rejected — it silently orphans the visitor's entire pre-signup anonymous history, which is exactly the acquisition data Wave 1 was built to collect. The join between "arrived from r/opensource" and "paid" depends on that stitch.
 
-*Alternative considered:* `alias()` instead of `identify()`. Rejected — aliasing is the legacy path, is not reversible, and PostHog's own guidance is to prefer `identify` with `$anon_distinct_id` handled by the SDK.
+_Alternative considered:_ `alias()` instead of `identify()`. Rejected — aliasing is the legacy path, is not reversible, and PostHog's own guidance is to prefer `identify` with `$anon_distinct_id` handled by the SDK.
 
 ### The anonymous id is threaded into Paddle, and nowhere else
 
@@ -50,9 +52,9 @@ When no identifier is available (SDK blocked, first touch), the event is capture
 
 Order inside a webhook handler is: verify signature → persist state → capture → acknowledge. The capture sits after persistence so a capture failure can never prevent the business effect, and `captureServer` already swallows its own errors and bounds its flush.
 
-*Alternative considered:* capture before persisting, to record attempts as well as successes. Rejected — it inverts the risk, letting an analytics path sit upstream of a payment state transition.
+_Alternative considered:_ capture before persisting, to record attempts as well as successes. Rejected — it inverts the risk, letting an analytics path sit upstream of a payment state transition.
 
-*Alternative considered:* `after()` for post-response capture. Rejected on evidence from Wave 1: `after()` throws outside a request scope, which makes route handlers untestable when invoked directly, and a deferred promise can be stranded by a serverless freeze. Both fail silently, which is the worst property for the events this change exists to record.
+_Alternative considered:_ `after()` for post-response capture. Rejected on evidence from Wave 1: `after()` throws outside a request scope, which makes route handlers untestable when invoked directly, and a deferred promise can be stranded by a serverless freeze. Both fail silently, which is the worst property for the events this change exists to record.
 
 ### Event names extend the existing registry
 
@@ -99,4 +101,55 @@ Verification before merge mirrors Wave 1: a local production build with a real k
 - Which application identifier is the right `distinct_id` for identify — the hosted-backup user id, or a licence-scoped identifier? They may not be the same person across products, and picking wrong merges two identities that should stay separate.
 - Should Exomem surfaces be instrumented in this change, or does the privacy posture argue for keeping Exomem observation deliberately minimal even on its public pages?
 
-*Resolved 2026-07-22:* whether the desktop app has analytics of its own — it does not, and will not. The CLI and GUI carry no telemetry as a published, inviolable commitment.
+_Resolved 2026-07-22:_ whether the desktop app has analytics of its own — it does not, and will not. The CLI and GUI carry no telemetry as a published, inviolable commitment.
+
+## Session replay masking surfaces (tasks 8.1, 8.2)
+
+Replay stays disabled (`disable_session_recording: true`, pinned by
+`src/app/__tests__/analytics-privacy-contract.test.ts`). This is the enumeration that would
+have to be satisfied before anyone flips it, plus one live finding that does not depend on
+replay at all.
+
+### Surfaces that render a secret or an identifier
+
+| Surface                                                    | What renders                                                                                                                                                    | Currently excluded from analytics?                       |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `/endstate/claim/[token]`                                  | The claim token verbatim in a `<code>` with `userSelect: "all"` (`ClaimClient.tsx:79`), plus the same token in the copy control and the `endstate://` deep link | **No** — it is an Endstate route, not an `/exomem/*` one |
+| `/account`                                                 | The account holder's email (`AccountView.tsx:122`)                                                                                                              | **No** — `PRIVATE_EXOMEM_PATHS` covers only `/exomem/*`  |
+| `/exomem/home`, `/adopt`, `/invite`, `/delete`, `/sign-in` | Authenticated Exomem state                                                                                                                                      | Yes, via `PRIVATE_EXOMEM_PATHS`                          |
+
+`/account` does **not** render the 24-word recovery key — only explanatory copy about it
+(`AccountView.tsx:476`). No surface renders the recovery key itself.
+
+### The finding that is not about replay
+
+`/account` is authenticated (`resolveAccountSession`, `robots: noindex`, `force-dynamic`) and
+renders a user's email, yet receives pageviews and `autocapture`. Being accurate about the
+severity: the URL carries no PII, so this is not the `/exomem/adopt` pageview leak. The
+exposure is narrower — PostHog autocapture records `$el_text` for clicked elements, so an
+email could be captured if a visitor clicks that element. Real, but click-gated.
+
+The same is true of `/endstate/claim/[token]`, where the rendered value is a live credential
+rather than an email, which makes it the more serious of the two.
+
+Three options, needing a decision rather than a default:
+
+1. **Generalise the exclusion.** Rename the concept from "private Exomem paths" to
+   "authenticated surfaces" and add `/account` and `/endstate/claim`. Safest; costs the
+   conversion signal on the account page and the claim-handoff events just added.
+2. **Keep pageviews, disable autocapture on those routes.** Retains funnel data, removes the
+   `$el_text` path. More moving parts.
+3. **Leave as-is while replay stays off.** Defensible only for `/account`; weak for the claim
+   page, where the rendered value is a credential.
+
+### Masking rules, if replay is ever enabled
+
+- Mask all text by default (`maskAllInputs` is not sufficient — these are rendered values,
+  not inputs).
+- Block-list `/endstate/claim`, `/account` and every `PRIVATE_EXOMEM_PATHS` entry from
+  recording entirely, rather than relying on selector masking.
+- **Verify separately that `before_send` filters `$snapshot` events.** The existing Exomem
+  protection is an event filter; if snapshots do not pass through it, enabling replay would
+  bypass the private-route exclusion completely. Do not assume it inherits.
+- Re-run the enumeration above at enable time; it is a point-in-time list, and this change
+  exists because such a list drifted from the routes once already.
