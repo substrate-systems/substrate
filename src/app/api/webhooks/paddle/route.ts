@@ -5,6 +5,7 @@ import {
   verifyPaddleSignature,
 } from "@/lib/license/paddle";
 import { withApiVersion } from "@/lib/hosted-backup/api-version";
+import { captureServer, ServerEvent } from "@/lib/analytics-server";
 import {
   claimPaddleEventProcessing,
   claimSubscriptionOnboardingDelivery,
@@ -299,6 +300,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch {
     return retryableFailure(event, eventAttempt, "PADDLE_EVENT_COMPLETE_FAILED");
   }
+
+  // Placed after the state is persisted and before Paddle is acknowledged, so a
+  // revenue event exists only if the subscription change actually landed.
+  // captureServer swallows its own failures and bounds its own flush, so this
+  // can neither throw away the acknowledgement nor stall it into a redelivery.
+  await captureServer({
+    event: ServerEvent.SubscriptionChanged,
+    distinctId: event.data?.custom_data?.ph_distinct_id ?? null,
+    properties: {
+      event_type: event.event_type,
+      status: result.status,
+    },
+  });
 
   return ok({ ok: true, userId: result.userId, status: result.status }, 200);
 }

@@ -21,7 +21,14 @@ type PaddleSubscriptionEventData = {
   } | null;
   canceled_at?: string;
   scheduled_change?: { effective_at?: string; action?: string } | null;
-  custom_data?: { user_id?: string } | null;
+  /**
+   * `user_id` is set server-side by /api/billing/checkout and is what resolves
+   * the subscriber. `ph_distinct_id` is threaded from the browser so a purchase
+   * can be attributed back to the session that produced it — it is analytics
+   * only, is absent whenever the SDK is blocked, and must never be used to
+   * resolve a user.
+   */
+  custom_data?: { user_id?: string; ph_distinct_id?: string } | null;
   passthrough?: string | { user_id?: string } | null;
   items?: Array<{ price?: { id?: string } }>;
 };

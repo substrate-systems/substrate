@@ -1,4 +1,8 @@
 import { PostHog } from "posthog-node";
+import { ServerEvent, type ServerEventName } from "./analytics-events";
+
+export { ServerEvent };
+export type { ServerEventName };
 
 const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
@@ -77,7 +81,7 @@ export function distinctIdFromRequest(req: Request): string | null {
  * PostHog can never hold up the user's download.
  */
 export async function captureServer(params: {
-  event: string;
+  event: ServerEventName;
   distinctId: string | null;
   properties?: Record<string, unknown>;
 }): Promise<void> {
