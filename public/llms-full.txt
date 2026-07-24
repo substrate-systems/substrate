@@ -166,6 +166,7 @@ Full article: https://substratesystems.io/endstate/why
 
 ## Guides
 
+- [How to transfer programs from one computer to another](https://substratesystems.io/blog/transfer-programs-to-another-computer): Why installed programs cannot be copied between Windows PCs, why the paid migration tools are structurally fragile, and what to do instead — capture what is installed plus its settings, then reinstall clean.
 - [The complete guide to setting up a new Windows PC](https://substratesystems.io/blog/new-windows-pc-setup-guide): Reinstall your apps, bring your settings, handle the Store gap, and skip the paid migration tools.
 - [A free, open-source alternative to EaseUS Todo PCTrans, Zinstall, and Laplink PCmover](https://substratesystems.io/blog/free-open-source-pc-migration-alternative): Endstate compared to paid PC migration tools on price, method, and trust.
 - [How to reinstall all your apps with winget (and what it misses)](https://substratesystems.io/blog/reinstall-all-apps-with-winget): Exactly how winget export/import works, plus the apps and settings it quietly leaves behind.
