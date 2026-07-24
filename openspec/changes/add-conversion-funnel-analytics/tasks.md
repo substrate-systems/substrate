@@ -6,7 +6,7 @@
 > unsafe — the only identifier available in `ClaimClient.tsx` is the claim token, which is
 > a credential and must never become a `distinct_id`. Rewrite 5.1 before implementing it.
 >
-> Still open: 4.4 (cron outcomes), 5.x (deferred by decision), 8.1–8.2 (masking enumeration, only needed before enabling replay), 9.4–9.6 (manual sandbox and volume checks).
+> Still open: 5.x (deferred by decision) and 9.4–9.6 (manual Paddle sandbox exercise, webhook replay and PostHog volume check — all need credentials or a browser). Task 8.1 also surfaced a live finding independent of replay: `/account` and `/endstate/claim/[token]` render an email and a credential respectively and are not excluded from analytics, because `PRIVATE_EXOMEM_PATHS` covers only `/exomem/*`. See design.md for the three options; it needs a decision, not a default.
 >
 > One deviation worth knowing: the event taxonomy lives in `src/lib/analytics-events.ts`
 > rather than `src/lib/analytics.ts`. The latter imports `posthog-js`, so server routes
@@ -39,7 +39,7 @@
 - [x] 4.1 Capture subscription lifecycle transitions in `src/app/api/webhooks/paddle/route.ts`, placed after state persistence and before acknowledgement
 - [x] 4.2 Attribute those events to the threaded `distinct_id` from Paddle `customData` when present, falling back to unresolved with the existing `identity_resolved` flag
 - [x] 4.3 Capture purchase events in `src/app/api/license/webhook/route.ts`
-- [ ] 4.4 Capture cron outcomes for the routes listed in `vercel.json`
+- [x] 4.4 Capture cron outcomes for the routes listed in `vercel.json`
 - [x] 4.5 Contract-test that a webhook still acknowledges normally when the analytics capture throws
 - [x] 4.6 Capture an aggregate update-check count in `src/app/updates/latest.json/route.ts` — decided 2026-07-22. Counts only: no persistent per-install identifier may be introduced, assigned, or recorded, so nothing tracks an individual machine over time. The server already receives and logs these requests; this makes an existing signal visible rather than collecting anything new
 - [x] 4.7 Contract-test that the updater capture carries no identifier — this is the seam where an aggregate count would quietly become install telemetry
@@ -68,8 +68,8 @@ The local product carries no telemetry. Nothing is threaded into it, and the obs
 
 ## 8. Session replay groundwork (gated — do not enable)
 
-- [ ] 8.1 Enumerate every surface rendering a recovery key, claim token, or account identifier
-- [ ] 8.2 Define masking rules covering those surfaces
+- [x] 8.1 Enumerate every surface rendering a recovery key, claim token, or account identifier
+- [x] 8.2 Define masking rules covering those surfaces
 - [x] 8.3 Add a contract test asserting replay stays disabled while masking is unverified
 - [x] 8.4 Leave `disable_session_recording: true`; enabling it is a follow-up change
 

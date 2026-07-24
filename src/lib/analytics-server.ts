@@ -11,6 +11,30 @@ const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posth
 const FLUSH_TIMEOUT_MS = 800;
 
 /**
+ * Record the outcome of a scheduled job.
+ *
+ * Crons run with no browser session, so there is never a person to attach —
+ * `distinctId` is always null and these are pure counters. Every scheduled route
+ * reports through here so `job` and `outcome` stay a single queryable shape
+ * rather than three ad-hoc property sets.
+ *
+ * Call this only *after* cron authentication has passed. Capturing before the
+ * auth check would let any unauthenticated caller mint analytics events by
+ * hitting the endpoint, which is both a data-quality and a mild abuse problem.
+ */
+export async function captureCronOutcome(params: {
+  job: string;
+  outcome: "completed" | "failed";
+  properties?: Record<string, unknown>;
+}): Promise<void> {
+  await captureServer({
+    event: ServerEvent.CronCompleted,
+    distinctId: null,
+    properties: { job: params.job, outcome: params.outcome, ...params.properties },
+  });
+}
+
+/**
  * Server-side capture for events the browser cannot be trusted to report.
  *
  * The installer download is the motivating case: /download 302s to GitHub, so a
