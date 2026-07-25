@@ -18,6 +18,7 @@ Founded by Hugo Ander Kivi. Registered in Estonia as Substrate Systems OÜ.
 
 - [Why Endstate was built](https://substratesystems.io/endstate/why): The origin story — the problem of recreating a Windows environment from scratch, why existing tools (Ninite, winget alone, Chocolatey) don't solve the full capture-and-restore problem, and how Endstate addresses it.
 - [Proof of work — Hugo Ander Kivi](https://substratesystems.io/work): Contract-based LLM governance for AI-augmented teams; selected work and writing.
+- [How to transfer programs from one computer to another](https://substratesystems.io/blog/transfer-programs-to-another-computer): Installed Windows programs cannot be copied between machines, and the paid tools that promise it work by transplanting registry state. Capture what is installed plus its settings, then reinstall cleanly.
 - [Writing](https://substratesystems.io/blog): Field notes on durable infrastructure, LLM governance, and building foundational systems solo.
 - [Terms, Privacy & Refunds](https://substratesystems.io/terms): No telemetry or analytics, offline-first design. Contact: founder@substratesystems.io.
 
