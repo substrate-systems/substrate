@@ -33,33 +33,6 @@ export function capture(event: AnalyticsEventName, properties?: Record<string, u
 }
 
 /**
- * Attach subsequent events to a known account.
- *
- * Called only where an authenticated session already established the identity —
- * currently the hosted-backup account surface. Deliberately NOT called on the
- * claim page: the only identifier available there is the claim token, which is a
- * credential, and a distinct_id is permanent and unredactable once sent.
- *
- * Supporter-licence holders without a hosted-backup account stay anonymous.
- * That is correct: their funnels still work on the anonymous distinct_id, and
- * inventing a second identity space would merge two different people the first
- * time someone holds both.
- */
-export function identify(userId: string, properties?: Record<string, unknown>): void {
-  if (!initialised || !userId) return;
-  posthog.identify(userId, properties);
-}
-
-/**
- * Drop the identified person on sign-out so the next visitor on a shared device
- * is not attributed to the previous user.
- */
-export function resetIdentity(): void {
-  if (!initialised) return;
-  posthog.reset();
-}
-
-/**
  * The anonymous distinct_id, for threading an identity across a boundary the
  * SDK cannot follow — a Paddle checkout, or a redirect off-site.
  *

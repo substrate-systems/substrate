@@ -56,10 +56,8 @@ export const ServerEvent = {
 
   /** A Paddle subscription transition, captured after state is persisted. */
   SubscriptionChanged: "subscription_changed",
-  /** A supporter licence purchase completed. */
-  LicensePurchased: "license_purchased",
-  /** A licence key was activated against a machine. */
-  LicenseActivated: "license_activated",
+  /** A recognition-only supporter purchase completed. */
+  SupporterPurchased: "supporter_purchased",
 
   /** A scheduled job finished. Carries `job` and `outcome`. */
   CronCompleted: "cron_completed",

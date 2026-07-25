@@ -96,6 +96,26 @@ export function distinctIdFromRequest(req: Request): string | null {
 }
 
 /**
+ * Apply the privacy invariants shared by every server-side event.
+ *
+ * An explicit distinctId makes posthog-node process a person profile by
+ * default, even without identify(). This funnel intentionally has no person
+ * model, so the opt-out is forced after caller properties and cannot be
+ * overridden at an individual capture site.
+ */
+export function buildServerEventProperties(
+  distinctId: string | null,
+  properties: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    ...properties,
+    server_side: true,
+    identity_resolved: distinctId !== null,
+    $process_person_profile: false,
+  };
+}
+
+/**
  * Capture and flush before returning.
  *
  * Awaited rather than deferred: `after()` needs a request scope, and a
@@ -118,13 +138,9 @@ export async function captureServer(params: {
       // keeps these events countable without inventing a fake visitor identity.
       distinctId: params.distinctId ?? "anonymous_server_event",
       event: params.event,
-      properties: {
-        ...params.properties,
-        // Marks events that could not be joined to a browser session, so they
-        // can be excluded from funnels rather than skewing them.
-        server_side: true,
-        identity_resolved: params.distinctId !== null,
-      },
+      // Marks unresolved events so they can be excluded from funnels, and
+      // explicitly prevents PostHog from creating a person for either kind.
+      properties: buildServerEventProperties(params.distinctId, params.properties),
     });
 
     let timer: ReturnType<typeof setTimeout> | undefined;
