@@ -6,12 +6,17 @@ import MemoryGraph from "./memory-graph";
 import CopyButton from "./copy-button";
 import HostedInterestForm from "./hosted-interest-form";
 import FaqAccordion, { type ExoFaq } from "./faq-accordion";
+import { GithubMark } from "@/components/GithubMark";
 
 export const metadata = {
   ...buildMetadata({
-    title: "Exomem — long-term memory for AI agents over Markdown",
+    // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
+    // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
+    // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
+    // flagged over-long titles elsewhere.
+    title: "Exomem — MCP memory server over your Markdown knowledge base",
     description:
-      "Give Claude, Codex, and Cursor persistent memory via MCP — over a Markdown and Obsidian vault you own. Hybrid search, local indexing, human review queues.",
+      "Exomem is an open-source MCP memory server that turns the Markdown knowledge base you already own into durable memory for Claude Code, Codex and Cursor. Hybrid local search, no cloud, no lock-in.",
     path: "/exomem",
     ogImage: "/exomem/og",
     standaloneTitle: true,
@@ -27,7 +32,7 @@ const softwareJsonLd = {
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Windows, macOS, Linux",
   description:
-    "Open-source, MCP-native long-term memory for AI agents over a Markdown and Obsidian vault you own. Hybrid keyword and vector retrieval — sub-second at 50,000 notes, measured — with local OCR, ASR, and image indexing.",
+    "Open-source MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at 50,000 notes, measured, with local OCR, ASR, and image indexing.",
   url: `${siteConfig.url}/exomem`,
   downloadUrl: "https://pypi.org/project/exomem/",
   installUrl: "https://pypi.org/project/exomem/",
@@ -245,9 +250,17 @@ export default function ExomemPage() {
             fontSize: "12px",
           }}
         >
-          <a href="https://github.com/Artexis10/exomem" {...externalLink} className="exo-link-sp">
+          <a
+            href="https://github.com/Artexis10/exomem"
+            {...externalLink}
+            className="exo-link-sp"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <GithubMark size={13} />
             GitHub
           </a>
+          {/* PyPI stays text: its mark is the Python blocks logo, which reads as
+              "Python" beside the Octocat, and is a registered PSF trademark. */}
           <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-sp">
             PyPI
           </a>
@@ -273,7 +286,7 @@ export default function ExomemPage() {
           >
             <div style={{ containerType: "inline-size" }}>
               <p data-reveal data-reveal-delay="0" style={label}>
-                External memory for agents
+                MCP memory server
               </p>
               <h1
                 data-reveal
@@ -305,9 +318,10 @@ export default function ExomemPage() {
                   color: "var(--fg-secondary)",
                 }}
               >
-                Exomem is an open-source, MCP-native memory layer over the Markdown or Obsidian
-                vault you already own. Claude Code, Codex, and Cursor get durable context — you keep
-                the files, the provenance, and the review loop.
+                Exomem is an open-source MCP memory server that runs over the Markdown knowledge
+                base you already own — a plain folder, or your Obsidian vault. Claude Code, Codex,
+                and Cursor get durable context; you keep the files, the provenance, and the review
+                loop.
               </p>
               <div
                 data-reveal
