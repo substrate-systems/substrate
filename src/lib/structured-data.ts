@@ -50,6 +50,25 @@ const HOWTO_BY_SLUG: Record<
   string,
   { name: string; description: string; steps: { name: string; text: string }[] }
 > = {
+  "transfer-programs-to-another-computer": {
+    name: "How to transfer programs from one computer to another",
+    description:
+      "Installed Windows programs cannot be copied between machines. Capture what is installed and how it is configured, then reinstall cleanly on the new PC.",
+    steps: [
+      {
+        name: "Capture what is installed",
+        text: "Scan the old machine for its installed applications and their settings. `winget export -o apps.json` covers apps winget can identify; Endstate additionally detects Microsoft Store apps and backs up settings for 300+ applications.",
+      },
+      {
+        name: "Save it to a file you control",
+        text: "Write the result to a portable file on a USB stick or your own sync folder. No cloud account is required, and the file is plain and inspectable.",
+      },
+      {
+        name: "Reinstall on the new machine",
+        text: "Open the saved file on the new PC. Each application installs through its own installer, so it registers correctly rather than inheriting the old machine's state. Restore settings on top; Endstate takes a backup first, so a bad restore is one click to undo.",
+      },
+    ],
+  },
   "reinstall-all-apps-with-winget": {
     name: "How to reinstall all your apps with winget",
     description:
@@ -67,8 +86,7 @@ const HOWTO_BY_SLUG: Record<
   },
   "share-your-app-setup": {
     name: "How to share your app setup with someone else",
-    description:
-      "Hand someone your exact app configuration as one portable file with Endstate.",
+    description: "Hand someone your exact app configuration as one portable file with Endstate.",
     steps: [
       {
         name: "Capture your setup",

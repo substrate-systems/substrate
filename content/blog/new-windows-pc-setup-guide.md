@@ -66,6 +66,8 @@ EaseUS Todo PCTrans, Zinstall, and Laplink PCmover all promise a one-click move 
 
 For most setups, a clean reinstall plus a settings restore is safer, produces a cleaner machine, and costs nothing. I compared them honestly here: [a free, open-source alternative to EaseUS, Zinstall, and Laplink](/blog/free-open-source-pc-migration-alternative).
 
+If your question is narrower — you just want the programs themselves moved across and are wondering why nothing does it cleanly — [how to transfer programs from one computer to another](/blog/transfer-programs-to-another-computer) covers why that copy isn't possible and what to do instead.
+
 ## The short version
 
 If you want to do this by hand: use winget for the apps, reinstall your Store apps manually, and rebuild your settings. It works, and it's free.
