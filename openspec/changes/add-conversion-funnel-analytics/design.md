@@ -132,7 +132,23 @@ email could be captured if a visitor clicks that element. Real, but click-gated.
 The same is true of `/endstate/claim/[token]`, where the rendered value is a live credential
 rather than an email, which makes it the more serious of the two.
 
-Three options, needing a decision rather than a default:
+**Decided 2026-07-25: option 2.** Autocapture is scoped with
+`autocapture: { url_ignorelist: autocaptureUrlIgnorelist }` in `providers.tsx`, built from
+`SENSITIVE_TEXT_PATHS` in `privacy.ts`. Pageviews and the deliberate events these pages fire
+still report — they are audited to carry no secret, and the claim handoff events are the only
+measurement of whether that flow works, so option 1 would have deleted instrumentation
+shipped days earlier to fix a mechanism nobody chose to enable.
+
+Two facts checked rather than assumed while deciding:
+
+- `autocapture.capture_copied_text` is **opt-in and unset**, so the claim token was never
+  captured on copy. That matters, because copying it is the page's entire purpose — had it
+  defaulted on, this would have been a live credential leak rather than a click-gated one.
+- `css_selector_ignorelist` is deliberately left alone. Supplying one replaces posthog-js's
+  defaults (`.ph-no-autocapture`, `[data-ph-no-autocapture]`) wholesale, which would quietly
+  remove protection everywhere else.
+
+The original three options, for the record:
 
 1. **Generalise the exclusion.** Rename the concept from "private Exomem paths" to
    "authenticated surfaces" and add `/account` and `/endstate/claim`. Safest; costs the

@@ -44,4 +44,30 @@ describe("PostHog privacy configuration", () => {
     // Windows power users, which is precisely the Endstate audience.
     assert.match(providers, /api_host:\s*["'`]\/ingest/, "ingestion must stay same-origin");
   });
+
+  it("scopes autocapture away from surfaces rendering a token or an email", () => {
+    // A bare `autocapture: true` would record $el_text on the claim page and the
+    // account page. The config object carries the url_ignorelist that excludes them.
+    assert.match(
+      providers,
+      /autocapture:\s*\{\s*url_ignorelist:\s*autocaptureUrlIgnorelist\s*\}/,
+      "autocapture must be scoped by url_ignorelist, not enabled wholesale"
+    );
+    assert.doesNotMatch(
+      providers,
+      /autocapture:\s*true/,
+      "a bare `autocapture: true` re-enables capture on the claim and account pages"
+    );
+  });
+
+  it("never opts into capturing copied text", () => {
+    // posthog-js only captures cut/copied text when this is explicitly true. The
+    // claim page exists to be copied from, so enabling it would send a live
+    // credential to PostHog.
+    assert.doesNotMatch(
+      providers,
+      /capture_copied_text/,
+      "capture_copied_text must stay unset — the claim page's whole purpose is copying a token"
+    );
+  });
 });

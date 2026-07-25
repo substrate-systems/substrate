@@ -6,7 +6,7 @@
 > unsafe — the only identifier available in `ClaimClient.tsx` is the claim token, which is
 > a credential and must never become a `distinct_id`. Rewrite 5.1 before implementing it.
 >
-> Still open: 5.x (deferred by decision) and 9.4–9.6 (manual Paddle sandbox exercise, webhook replay and PostHog volume check — all need credentials or a browser). Task 8.1 also surfaced a live finding independent of replay: `/account` and `/endstate/claim/[token]` render an email and a credential respectively and are not excluded from analytics, because `PRIVATE_EXOMEM_PATHS` covers only `/exomem/*`. See design.md for the three options; it needs a decision, not a default.
+> Still open: 5.x (deferred by decision) and 9.4–9.6 (manual Paddle sandbox exercise, webhook replay and PostHog volume check — all need credentials or a browser). The analytics-exclusion finding from task 8.1 was **resolved 2026-07-25 as option 2**: autocapture is scoped away from `/account` and `/endstate/claim` via `url_ignorelist`, while pageviews and deliberate events continue. See design.md.
 >
 > One deviation worth knowing: the event taxonomy lives in `src/lib/analytics-events.ts`
 > rather than `src/lib/analytics.ts`. The latter imports `posthog-js`, so server routes
