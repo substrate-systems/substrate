@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
+import { GithubMark } from "@/components/GithubMark";
 import { BuyButton } from "./BuyButton";
 import { PaddleTransactionOpener } from "./PaddleTransactionOpener";
 import { usePaddle, type HostedBackupCadence } from "@/lib/paddle";
@@ -502,6 +503,7 @@ function Hero() {
             onMouseEnter={(e) => (e.currentTarget.style.borderColor = c.borderAccent)}
             onMouseLeave={(e) => (e.currentTarget.style.borderColor = c.border)}
           >
+            <GithubMark size={17} />
             View on GitHub
           </a>
         </motion.div>
