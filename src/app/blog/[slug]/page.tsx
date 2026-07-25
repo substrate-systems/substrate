@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import Footer from "@/components/Footer";
 import { getBlogRedirect, getPostBySlug, getPostSlugs, isDraft } from "@/lib/blog";
-import { breadcrumbJsonLd, buildMetadata } from "@/lib/seo";
+import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
 import { articleJsonLd, howToJsonLd } from "@/lib/structured-data";
 import styles from "./article.module.css";
 
@@ -49,11 +49,7 @@ function formatDate(iso: string): string {
   });
 }
 
-export default async function BlogPostPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const redirectTo = getBlogRedirect(slug);
   if (redirectTo) permanentRedirect(redirectTo);
@@ -72,6 +68,10 @@ export default async function BlogPostPage({
     slug,
     published,
     updated,
+    // schema.org Article requires an image, and a validator counts its absence as an
+    // invalid item rather than a missing nicety. Same generated card the OG tags use,
+    // absolute because JSON-LD is consumed away from the page it was served on.
+    image: `${siteConfig.url}/api/og?title=${encodeURIComponent(title)}`,
   });
   const howto = howToJsonLd(slug);
 
