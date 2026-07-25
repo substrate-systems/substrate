@@ -4,7 +4,11 @@ import posthog from "posthog-js";
 import { PostHogProvider as PHProvider } from "posthog-js/react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
-import { filterPostHogCapture, shouldMountAnalytics } from "@/lib/exomem-hosted/privacy";
+import {
+  autocaptureUrlIgnorelist,
+  filterPostHogCapture,
+  shouldMountAnalytics,
+} from "@/lib/exomem-hosted/privacy";
 import {
   AnalyticsEvent,
   capture,
@@ -63,7 +67,12 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       ui_host: POSTHOG_HOST,
       capture_pageview: false,
       capture_pageleave: true,
-      autocapture: true,
+      // Autocapture records `$el_text` for clicked elements, so it is switched
+      // off on the surfaces that render a claim token or an account email.
+      // Pageviews and the deliberate events those pages fire still report —
+      // they are audited to carry no secret, and the claim handoff events are
+      // the only measurement of whether that flow works.
+      autocapture: { url_ignorelist: autocaptureUrlIgnorelist },
       // Session replay stays off pending a privacy pass — it records DOM
       // content, so it needs masking rules before it can touch account pages.
       disable_session_recording: true,
