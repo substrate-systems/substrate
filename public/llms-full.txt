@@ -166,6 +166,7 @@ Full article: https://substratesystems.io/endstate/why
 
 ## Guides
 
+- [Exomem vs claude-mem](https://substratesystems.io/blog/exomem-vs-claude-mem): claude-mem captures and replays session activity from a local SQLite/Chroma store; Exomem stores curated conclusions as Markdown in a vault you own. Both are open source and agent-agnostic — the difference is where the data lives and who curates it.
 - [How to transfer programs from one computer to another](https://substratesystems.io/blog/transfer-programs-to-another-computer): Why installed programs cannot be copied between Windows PCs, why the paid migration tools are structurally fragile, and what to do instead — capture what is installed plus its settings, then reinstall clean.
 - [The complete guide to setting up a new Windows PC](https://substratesystems.io/blog/new-windows-pc-setup-guide): Reinstall your apps, bring your settings, handle the Store gap, and skip the paid migration tools.
 - [A free, open-source alternative to EaseUS Todo PCTrans, Zinstall, and Laplink PCmover](https://substratesystems.io/blog/free-open-source-pc-migration-alternative): Endstate compared to paid PC migration tools on price, method, and trust.
