@@ -156,4 +156,48 @@ describe("capacity store", () => {
       true
     );
   });
+
+  it("allows a tenant-fenced resume claim after runtime is reacquired", async () => {
+    const queries: string[] = [];
+    setTestSql(async (strings) => {
+      const query = strings.join("?");
+      queries.push(query);
+      if (query.includes("SELECT allocation.id AS allocation_id")) {
+        return {
+          rows: [
+            {
+              allocation_id: "allocation-1",
+              pool_id: "pool-1",
+              tenant_id: "tenant-1",
+              provision_claim_capacity: 1,
+            },
+          ],
+        };
+      }
+      if (query.includes("SELECT id, operation_id")) return { rows: [] };
+      if (query.includes("active_claims")) return { rows: [{ active_claims: 0 }] };
+      return { rows: [{ id: "row-1" }] };
+    });
+
+    assert.equal(
+      await acquireCapacityProvisionClaim({
+        allocationId: "allocation-1",
+        operationId: "resume-operation-1",
+        kind: "resume",
+        leaseOwner: "worker-a",
+        leaseSeconds: 60,
+      }),
+      true
+    );
+    assert.equal(
+      queries.some((query) => /allocation\.state = 'uncertain'/i.test(query)),
+      true
+    );
+    assert.equal(
+      queries.some(
+        (query) => /exomem_lifecycle_operations/i.test(query) && /tenant_id = \?::uuid/i.test(query)
+      ),
+      true
+    );
+  });
 });

@@ -89,7 +89,7 @@ export async function transitionCapacityAllocationAtomic(input: {
         (["occupied", "uncertain"].includes(locked.previous_state) &&
           ["occupied", "uncertain", "retained_storage", "released"].includes(input.state)) ||
         (locked.previous_state === "retained_storage" &&
-          ["retained_storage", "released"].includes(input.state));
+          ["uncertain", "retained_storage", "released"].includes(input.state));
       if (!allowed) return false;
       const oldUsage = capacityUsage(locked.previous_state, locked);
       const nextUsage = capacityUsage(input.state, locked);
@@ -291,20 +291,36 @@ export async function acquireCapacityProvisionClaim(input: {
   try {
     return await withExomemTransaction(async (tx) => {
       const lockedResult = await tx`
-        SELECT allocation.id AS allocation_id, allocation.pool_id, pool.provision_claim_capacity
+        SELECT allocation.id AS allocation_id, allocation.pool_id, allocation.tenant_id,
+               pool.provision_claim_capacity
         FROM exomem_capacity_allocations AS allocation
         JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+        JOIN exomem_tenants AS tenant ON tenant.id = allocation.tenant_id
         WHERE allocation.id = ${input.allocationId}::uuid
           AND (
             (${input.kind} = 'initial_provision' AND allocation.state = 'reserved')
             OR (${input.kind} = 'resume' AND allocation.state = 'uncertain')
           )
-        FOR UPDATE OF allocation, pool
+          AND tenant.deleted_at IS NULL AND tenant.status <> 'deleted'
+        FOR UPDATE OF allocation, pool, tenant
       `;
       const locked = lockedResult.rows[0] as
-        | { allocation_id: string; pool_id: string; provision_claim_capacity: number }
+        | {
+            allocation_id: string;
+            pool_id: string;
+            tenant_id: string;
+            provision_claim_capacity: number;
+          }
         | undefined;
       if (!locked) return false;
+
+      const operationResult = await tx`
+        SELECT id
+        FROM exomem_lifecycle_operations
+        WHERE id = ${input.operationId}::uuid AND tenant_id = ${locked.tenant_id}::uuid
+        FOR UPDATE
+      `;
+      if (!operationResult.rows[0]) return false;
 
       const existingResult = await tx`
         SELECT id, operation_id, lease_owner, lease_expires_at
