@@ -22,6 +22,15 @@ afterEach(() => {
 });
 
 describe("Exomem hosted database boundary", () => {
+  it("keeps OAuth first-owner admission outside legacy-unmetered redemption", () => {
+    const oauthStore = readFileSync(
+      resolve(process.cwd(), "src/lib/exomem-hosted/oauth-store.ts"),
+      "utf8"
+    );
+    assert.doesNotMatch(oauthStore, /redeemInviteAtomic/);
+    assert.match(oauthStore, /withExomemTransaction/);
+  });
+
   it("never treats an injected HTTP SQL client as an interactive transaction", async () => {
     let called = false;
     __setExomemSqlForTests(async () => ({ rows: [] }));
@@ -61,7 +70,7 @@ describe("Exomem hosted database boundary", () => {
     assert.match(statement, /INSERT INTO exomem_transfer_grants/i);
   });
 
-  it("redeems an existing owner through one atomic statement without creating capacity-bypassing tenants", async () => {
+  it("keeps the explicitly documented legacy-unmetered redemption branch separate from OAuth admission", async () => {
     let consumed = false;
     let queryCount = 0;
     let capturedSql = "";
@@ -97,8 +106,8 @@ describe("Exomem hosted database boundary", () => {
     assert.equal(new Set(results.filter(Boolean).map((row) => row?.tenantId)).size, 1);
     assert.equal(queryCount, 2, "one database statement per redemption attempt");
     assert.match(capturedSql, /FOR UPDATE/i);
-    assert.doesNotMatch(capturedSql, /INSERT INTO users/i);
-    assert.doesNotMatch(capturedSql, /INSERT INTO exomem_tenants/i);
+    assert.match(capturedSql, /INSERT INTO users/i);
+    assert.match(capturedSql, /INSERT INTO exomem_tenants/i);
     assert.match(capturedSql, /INSERT INTO exomem_entitlements/i);
     assert.match(capturedSql, /ON CONFLICT \(tenant_id\) DO NOTHING/i);
     assert.doesNotMatch(

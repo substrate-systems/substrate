@@ -15,6 +15,7 @@ export type ExomemSql = (
 ) => Promise<ExomemSqlResult>;
 
 let sqlClient: ExomemSql | null = null;
+let injectedSqlClient: ExomemSql | null = null;
 let transactionPool: Pool | null = null;
 
 export type ExomemTransactionRunner = <T>(callback: (tx: ExomemSql) => Promise<T>) => Promise<T>;
@@ -33,6 +34,7 @@ function taggedPgSql(client: PoolClient): ExomemSql {
 }
 
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<ExomemSqlResult> {
+  if (injectedSqlClient) return injectedSqlClient(strings, ...values);
   if (!sqlClient) {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) throw new Error("DATABASE_URL is not set");
@@ -46,7 +48,7 @@ function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Exome
 }
 
 export function __setExomemSqlForTests(next: ExomemSql | null): void {
-  sqlClient = next;
+  injectedSqlClient = next;
 }
 
 /** Test seam for one-connection interactive transactions. */
@@ -71,7 +73,7 @@ export async function withExomemTransaction<T>(
   callback: (tx: ExomemSql) => Promise<T>
 ): Promise<T> {
   if (transactionRunner) return transactionRunner(callback);
-  if (sqlClient) {
+  if (injectedSqlClient) {
     throw new Error("interactive Exomem transaction runner is not configured");
   }
 
@@ -194,8 +196,9 @@ export type RedeemedAccess = {
 };
 
 /**
- * Consume an invite for an already-provisioned owner. First-owner Hosted
- * admission must go through the capacity-aware OAuth transaction instead.
+ * Pre-MCP compatibility only: consume an invite through the legacy unmetered
+ * path. OAuth/MCP first-owner admission never calls this function; it uses the
+ * capacity-aware transaction in oauth-store instead.
  */
 export async function redeemInviteAtomic(
   input: RedeemInviteAtomicInput
@@ -213,16 +216,23 @@ export async function redeemInviteAtomic(
       FOR UPDATE
     ),
     owner AS (
-      SELECT users.id
-      FROM users
-      JOIN locked_invite ON locked_invite.email_normalized = users.email
+      INSERT INTO users (email, email_verified_at)
+      SELECT email_normalized, now()
+      FROM locked_invite
+      ON CONFLICT (email) DO UPDATE
+      SET email = EXCLUDED.email,
+          email_verified_at = COALESCE(users.email_verified_at, now())
       WHERE users.deleted_at IS NULL
+      RETURNING id
     ),
     tenant AS (
-      SELECT tenant.id, tenant.owner_user_id
-      FROM exomem_tenants AS tenant
-      JOIN owner ON owner.id = tenant.owner_user_id
-      WHERE tenant.status <> 'deleted' AND tenant.deleted_at IS NULL
+      INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
+      SELECT id, 'provisioning', 'running'
+      FROM owner
+      ON CONFLICT (owner_user_id) DO UPDATE
+      SET updated_at = exomem_tenants.updated_at
+      WHERE exomem_tenants.status <> 'deleted'
+      RETURNING id, owner_user_id
     ),
     existing_entitlement AS (
       SELECT entitlement.tenant_id
