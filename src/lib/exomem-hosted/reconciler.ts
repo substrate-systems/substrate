@@ -818,12 +818,7 @@ export class LifecycleReconciler {
         workerPolicy: cell.workerPolicy,
         provisionMode: "serve",
       };
-      let result;
-      try {
-        result = await this.#provisioner.provision(request);
-      } finally {
-        await this.#store.releaseCapacityProviderWork(operation.id, owner);
-      }
+      const result = await this.#provisioner.provision(request);
       this.#requireStored(
         await this.#store.recordProvisioned({
           operationId: operation.id,
@@ -835,6 +830,7 @@ export class LifecycleReconciler {
           }),
         })
       );
+      this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
       return this.#advance(operation, owner, "provider-converged");
     }
     if (operation.checkpoint === "provider-converged") {
@@ -1007,11 +1003,8 @@ export class LifecycleReconciler {
       if (capacity !== "acquired") {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
-      try {
-        await this.#provisioner.resume(this.#target(operation, cell));
-      } finally {
-        await this.#store.releaseCapacityProviderWork(operation.id, owner);
-      }
+      await this.#provisioner.resume(this.#target(operation, cell));
+      this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
       return this.#advance(operation, owner, "resumed");
     }
     if (operation.checkpoint === "resumed") {

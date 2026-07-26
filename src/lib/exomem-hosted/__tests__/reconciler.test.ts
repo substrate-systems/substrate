@@ -203,7 +203,7 @@ describe("Exomem lifecycle reconciler", () => {
     await reconciler.reconcileOne({ owner: "worker-a", tenantId: TENANT });
 
     assert.equal(store.capacityAllocations.get(operation.id)?.state, "uncertain");
-    assert.equal(store.capacityClaims.size, 0);
+    assert.equal(store.capacityClaims.size, 1);
 
     await store.makeRunnable(TENANT);
     await convergeProvision(reconciler);

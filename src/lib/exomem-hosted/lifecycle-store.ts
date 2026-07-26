@@ -1,6 +1,6 @@
 import { executeExomemSql } from "./db";
 import {
-  acquireCapacityProvisionClaim,
+  acquireCapacityProviderWorkAtomic,
   releaseCapacityProvisionClaim,
   transitionCapacityAllocationAtomic,
 } from "./capacity-store";
@@ -1692,42 +1692,12 @@ export class SqlLifecycleStore implements LifecycleStore {
     kind: "initial_provision" | "resume",
     leaseSeconds: number
   ): Promise<"acquired" | "exhausted" | "conflict"> {
-    const { rows } = await executeExomemSql`
-      /* exomem:lifecycle-capacity-provider-work */
-      SELECT allocation.id AS allocation_id, allocation.state
-      FROM exomem_lifecycle_operations AS operation
-      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
-      JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
-      WHERE operation.id = ${operationId}::uuid
-        AND operation.state = 'running'
-        AND operation.lease_owner = ${owner}
-        AND operation.lease_expires_at > now()
-        AND operation.fence_generation = tenant.fence_generation
-        AND tenant.deleted_at IS NULL
-        AND tenant.status <> 'deleted'
-        AND (
-          (${kind} = 'initial_provision' AND allocation.state IN ('reserved', 'uncertain'))
-          OR (${kind} = 'resume' AND allocation.state IN ('retained_storage', 'uncertain'))
-        )
-      FOR UPDATE OF operation, tenant, allocation
-    `;
-    const allocation = rows[0] as { allocation_id?: string; state?: string } | undefined;
-    if (!allocation?.allocation_id) return "conflict";
-    if (allocation.state !== "uncertain") {
-      const transitioned = await transitionCapacityAllocationAtomic({
-        allocationId: allocation.allocation_id,
-        state: "uncertain",
-      });
-      if (!transitioned) return "exhausted";
-    }
-    const acquired = await acquireCapacityProvisionClaim({
-      allocationId: allocation.allocation_id,
+    return acquireCapacityProviderWorkAtomic({
       operationId,
-      kind,
       leaseOwner: owner,
+      kind,
       leaseSeconds,
     });
-    return acquired ? "acquired" : "exhausted";
   }
 
   async releaseCapacityProviderWork(operationId: string, owner: string): Promise<boolean> {

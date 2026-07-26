@@ -379,6 +379,86 @@ export async function acquireCapacityProvisionClaim(input: {
   }
 }
 
+/** One authority transaction: claim admission precedes any capacity transition. */
+export async function acquireCapacityProviderWorkAtomic(input: {
+  operationId: string;
+  leaseOwner: string;
+  kind: "initial_provision" | "resume";
+  leaseSeconds: number;
+}): Promise<"acquired" | "exhausted" | "conflict"> {
+  const leaseSeconds = boundedLeaseSeconds(input.leaseSeconds);
+  return withExomemTransaction(async (tx) => {
+    const { rows } = await tx`
+      SELECT operation.id AS operation_id, allocation.id AS allocation_id, allocation.pool_id,
+             allocation.state, allocation.storage_bytes, allocation.runtime_slots,
+             allocation.provision_slots, pool.reserved_storage_bytes, pool.reserved_runtime_slots,
+             pool.reserved_provision_slots, pool.storage_capacity_bytes, pool.runtime_capacity_slots,
+             pool.provision_reservation_capacity, pool.provision_claim_capacity
+      FROM exomem_lifecycle_operations AS operation
+      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+      JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
+      JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+      WHERE operation.id = ${input.operationId}::uuid
+        AND operation.state = 'running' AND operation.lease_owner = ${input.leaseOwner}
+        AND operation.lease_expires_at > now() AND operation.fence_generation = tenant.fence_generation
+        AND tenant.deleted_at IS NULL AND tenant.status <> 'deleted'
+      FOR UPDATE OF operation, tenant, allocation, pool
+    `;
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (!row) return "conflict";
+    const state = String(row.state) as CapacityAllocationState;
+    const expected = input.kind === "initial_provision" ? "reserved" : "retained_storage";
+    if (state !== expected && state !== "uncertain") return "conflict";
+    const claim = await tx`
+      SELECT id, operation_id FROM exomem_capacity_claims
+      WHERE allocation_id = ${String(row.allocation_id)}::uuid FOR UPDATE
+    `;
+    const existing = claim.rows[0] as { id: string; operation_id: string } | undefined;
+    if (existing && existing.operation_id !== input.operationId) return "exhausted";
+    if (!existing) {
+      const count = await tx`
+        SELECT count(*)::integer AS active FROM exomem_capacity_claims
+        WHERE pool_id = ${String(row.pool_id)}::uuid AND lease_expires_at > now()
+      `;
+      if (
+        Number((count.rows[0] as { active?: number })?.active ?? 0) >=
+        Number(row.provision_claim_capacity)
+      )
+        return "exhausted";
+    }
+    const allocation = {
+      storage_bytes: Number(row.storage_bytes),
+      runtime_slots: Number(row.runtime_slots),
+      provision_slots: Number(row.provision_slots),
+    };
+    const oldUsage = capacityUsage(state, allocation);
+    const nextUsage = capacityUsage("uncertain", allocation);
+    const next = {
+      storage: Number(row.reserved_storage_bytes) - oldUsage.storage + nextUsage.storage,
+      runtime: Number(row.reserved_runtime_slots) - oldUsage.runtime + nextUsage.runtime,
+      provision: Number(row.reserved_provision_slots) - oldUsage.provision + nextUsage.provision,
+    };
+    if (
+      (next.storage > Number(row.reserved_storage_bytes) &&
+        next.storage > Number(row.storage_capacity_bytes)) ||
+      (next.runtime > Number(row.reserved_runtime_slots) &&
+        next.runtime > Number(row.runtime_capacity_slots)) ||
+      (next.provision > Number(row.reserved_provision_slots) &&
+        next.provision > Number(row.provision_reservation_capacity))
+    )
+      return "exhausted";
+    if (state !== "uncertain") {
+      await tx`UPDATE exomem_capacity_pools SET reserved_storage_bytes = ${next.storage}, reserved_runtime_slots = ${next.runtime}, reserved_provision_slots = ${next.provision}, updated_at = now() WHERE id = ${String(row.pool_id)}::uuid`;
+      await tx`UPDATE exomem_capacity_allocations SET state = 'uncertain', updated_at = now() WHERE id = ${String(row.allocation_id)}::uuid`;
+    }
+    if (existing)
+      await tx`UPDATE exomem_capacity_claims SET lease_owner = ${input.leaseOwner}, lease_expires_at = now() + (${leaseSeconds} * interval '1 second') WHERE id = ${existing.id}::uuid`;
+    else
+      await tx`INSERT INTO exomem_capacity_claims (pool_id, allocation_id, operation_id, claim_kind, lease_owner, lease_expires_at) VALUES (${String(row.pool_id)}::uuid, ${String(row.allocation_id)}::uuid, ${input.operationId}::uuid, ${input.kind}, ${input.leaseOwner}, now() + (${leaseSeconds} * interval '1 second'))`;
+    return "acquired";
+  });
+}
+
 /** Legacy CTE implementation retained temporarily for migration review. */
 // Kept solely to make this high-risk SQL rewrite easy to compare during review.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
