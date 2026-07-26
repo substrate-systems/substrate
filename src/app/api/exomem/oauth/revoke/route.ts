@@ -7,6 +7,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REVOCATION_FIELDS = ["token", "token_type_hint", "client_id"] as const;
+let revokeForClient = revokeOAuthTokenForClient;
+
+export function __setRevokeOAuthTokenForClientForTests(
+  value: typeof revokeOAuthTokenForClient | null
+): void {
+  revokeForClient = value ?? revokeOAuthTokenForClient;
+}
 
 function invalidRequest(): NextResponse {
   return NextResponse.json(
@@ -19,7 +26,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const form = await readOAuthForm(request, REVOCATION_FIELDS);
     if (!form.token || !form.client_id) return invalidRequest();
-    await revokeOAuthTokenForClient({
+    await revokeForClient({
       tokenDigest: digestSecret(form.token),
       clientId: form.client_id,
     });

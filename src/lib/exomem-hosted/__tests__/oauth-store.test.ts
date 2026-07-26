@@ -35,7 +35,6 @@ describe("Exomem OAuth token store", () => {
       clientId: "client-1",
       redirectUri: "https://client.example/callback",
       resource: "resource",
-      scopes: ["exomem.read"],
       pkceChallenge: "challenge",
       refreshDigest: Buffer.alloc(32, 2),
       refreshExpiresAt: new Date("2026-08-01T00:00:00.000Z"),
@@ -47,6 +46,7 @@ describe("Exomem OAuth token store", () => {
       familyId: "family-1",
       clientId: "client-1",
       resource: "resource",
+      scopes: ["exomem.read"],
       refreshAllowed: true,
       refreshInserted: true,
     });

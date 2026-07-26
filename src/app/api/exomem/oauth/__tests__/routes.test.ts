@@ -19,7 +19,11 @@ describe("Exomem OAuth routes", () => {
   });
 
   it("accepts revocation requests for unknown form tokens without disclosure", async () => {
-    const { POST } = await import("../revoke/route");
+    const { __setRevokeOAuthTokenForClientForTests, POST } = await import("../revoke/route");
+    let called = false;
+    __setRevokeOAuthTokenForClientForTests(async () => {
+      called = true;
+    });
     const response = await POST(
       new Request("https://hosted.example.test/api/exomem/oauth/revoke", {
         method: "POST",
@@ -30,6 +34,8 @@ describe("Exomem OAuth routes", () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(await response.text(), "");
+    assert.equal(called, true);
+    __setRevokeOAuthTokenForClientForTests(null);
   });
 
   it("rejects unexpected and duplicate token form fields before token handling", async () => {
