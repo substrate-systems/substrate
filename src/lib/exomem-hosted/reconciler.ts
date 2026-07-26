@@ -792,7 +792,7 @@ export class LifecycleReconciler {
         operation.id,
         owner,
         "initial_provision",
-        Math.ceil(this.#config.leaseMs / 1_000)
+        Math.ceil((this.#config.leaseMs + 30_000) / 1_000)
       );
       if (capacity === "exhausted") {
         const retried = await this.#store.retry(
@@ -987,7 +987,7 @@ export class LifecycleReconciler {
         operation.id,
         owner,
         "resume",
-        Math.ceil(this.#config.leaseMs / 1_000)
+        Math.ceil((this.#config.leaseMs + 30_000) / 1_000)
       );
       if (capacity === "exhausted") {
         const retried = await this.#store.retry(
@@ -1892,6 +1892,9 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     const operation = this.#owned(operationId, owner);
     if (!operation) return false;
     operation.state = "failed_retryable";
+    if (errorCode === "CAPACITY_UNAVAILABLE") {
+      operation.attempts = Math.max(0, operation.attempts - 1);
+    }
     if (!["candidate-cleanup", "export-failure-resume"].includes(operation.checkpoint)) {
       operation.errorCode = errorCode;
     }

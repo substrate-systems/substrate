@@ -600,6 +600,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       /* exomem:lifecycle-retry */
       UPDATE exomem_lifecycle_operations AS operation
       SET state = 'failed_retryable',
+          attempts = CASE WHEN ${errorCode} = 'CAPACITY_UNAVAILABLE' THEN GREATEST(attempts - 1, 0) ELSE attempts END,
           error_code = CASE
             WHEN operation.checkpoint IN ('candidate-cleanup', 'export-failure-resume')
               THEN operation.error_code
