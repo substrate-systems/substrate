@@ -1,5 +1,5 @@
 {
-  "sourceCommit": "529760e1cd955ea999c6a7f836d7a1504327eae7",
+  "sourceCommit": "5cad1c9ff5fcfb66248d7ec4c35bae4ef4a99226",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -269,6 +269,18 @@
                   ],
                   "default": null,
                   "description": "Optional project-key filters."
+                },
+                "purpose": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Optional declared purpose for this request, e.g. \"audit\" or \"due-diligence\". Governance rules may widen or narrow what a given audience may see for a stated purpose; leaving it unset is deterministic, not a wildcard. Never affects ranking, and never enters the recall cache key."
                 },
                 "query": {
                   "default": "",
@@ -1285,6 +1297,12 @@
               "name": "explain",
               "required": false,
               "type": "bool"
+            },
+            {
+              "description": "Optional declared purpose for this request, e.g. \"audit\" or \"due-diligence\". Governance rules may widen or narrow what a given audience may see for a stated purpose; leaving it unset is deterministic, not a wildcard. Never affects ranking, and never enters the recall cache key.",
+              "name": "purpose",
+              "required": false,
+              "type": "str"
             }
           ],
           "product_surface": "primary",
@@ -1344,6 +1362,18 @@
                 "path": {
                   "description": "Vault-relative path or Knowledge Base-relative shorthand.",
                   "type": "string"
+                },
+                "purpose": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Optional declared purpose for this request, e.g. \"audit\" or \"due-diligence\". Governance rules may widen or narrow what a given audience may see for a stated purpose; leaving it unset is deterministic, not a wildcard. Never affects ranking, and never enters the recall cache key."
                 },
                 "unit_ref": {
                   "anyOf": [
@@ -1406,6 +1436,12 @@
             {
               "description": "Exact unit reference returned by unit-level recall. Page-only expansion flags are not accepted together with an exact unit read.",
               "name": "unit_ref",
+              "required": false,
+              "type": "str"
+            },
+            {
+              "description": "Optional declared purpose for this request, e.g. \"audit\" or \"due-diligence\". Governance rules may widen or narrow what a given audience may see for a stated purpose; leaving it unset is deterministic, not a wildcard. Never affects ranking, and never enters the recall cache key.",
+              "name": "purpose",
               "required": false,
               "type": "str"
             }
@@ -4238,7 +4274,7 @@
       },
       "digest": {
         "algorithm": "sha256",
-        "value": "9a76ef0a74bbdbdbda19b076e64051588cef03bb366d8111a931a2e52d7c1c7a"
+        "value": "2c10eb03d81ff889b4b994c27c4c78f8dc9b104f1adc026557700be6c9a17efa"
       },
       "envelopes": {
         "error": {
@@ -4271,7 +4307,7 @@
           }
         }
       },
-      "exomem_release": "0.32.0",
+      "exomem_release": "0.33.0",
       "protocol_version": "1",
       "schema_version": 1,
       "trusted_headers": {
@@ -4298,8 +4334,8 @@
       "triage_memory",
       "connect_memory"
     ],
-    "compatibility_sha256": "1418377bf9870d1ef0817dae7db9a3f6fe386f645b31f9d9912e754e4ce86578",
-    "definition_sha256": "c6fd89c7907fae59e870b0779a44519817ea34e6256e8b4abb340ae44feb501f",
+    "compatibility_sha256": "edf1d9aecb384148fb6df1a3ddc40b09f857757ed257989924ff4378d0b3c70a",
+    "definition_sha256": "a1528d037060587db425c2bbca0f1231a9247dccf30c1467514e02a30e740fe9",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery": {
       "authorization_server_metadata": "https://substratesystems.io/.well-known/oauth-authorization-server/api/exomem/oauth",
@@ -4458,7 +4494,7 @@
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "9a76ef0a74bbdbdbda19b076e64051588cef03bb366d8111a931a2e52d7c1c7a",
+    "schema_contract_sha256": "2c10eb03d81ff889b4b994c27c4c78f8dc9b104f1adc026557700be6c9a17efa",
     "schema_version": 1,
     "skills": {
       "exomem": [
@@ -4496,13 +4532,13 @@
       ]
     },
     "skills_sha256": "c897d335438f686b1c323a1fe080372df34092d9b009292a470a3f9bd1da69e7",
-    "source_release": "0.32.0"
+    "source_release": "0.33.0"
   },
   "packageLock": {
     "artifact_sha256": "b468f0425e7a021f3d7806991abdf6ae5724298fdd3cb6540cb68e1a4edb4c89",
     "command_surface_sha256": "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
-    "compatibility_sha256": "1418377bf9870d1ef0817dae7db9a3f6fe386f645b31f9d9912e754e4ce86578",
-    "definition_sha256": "c6fd89c7907fae59e870b0779a44519817ea34e6256e8b4abb340ae44feb501f",
+    "compatibility_sha256": "edf1d9aecb384148fb6df1a3ddc40b09f857757ed257989924ff4378d0b3c70a",
+    "definition_sha256": "a1528d037060587db425c2bbca0f1231a9247dccf30c1467514e02a30e740fe9",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery_sha256": "103fefcef3f994cf09aa067f65ad8beb369907b382ea41bb9a49af2a2c446e7b",
     "platform": "claude",
@@ -4510,7 +4546,7 @@
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "9a76ef0a74bbdbdbda19b076e64051588cef03bb366d8111a931a2e52d7c1c7a",
+    "schema_contract_sha256": "2c10eb03d81ff889b4b994c27c4c78f8dc9b104f1adc026557700be6c9a17efa",
     "schema_version": 1,
     "skills_sha256": "c897d335438f686b1c323a1fe080372df34092d9b009292a470a3f9bd1da69e7"
   },

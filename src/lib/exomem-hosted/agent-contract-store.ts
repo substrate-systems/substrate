@@ -54,7 +54,7 @@ export function parseExomemAgentContractCandidate(input: unknown = exomemHostedC
     throw new Error("agent contract imports must use the checked Exomem fixture");
   }
   const source = record(exomemHostedContractFixture, "fixture");
-  if (source.sourceCommit !== "529760e1cd955ea999c6a7f836d7a1504327eae7") {
+  if (source.sourceCommit !== "5cad1c9ff5fcfb66248d7ec4c35bae4ef4a99226") {
     throw new Error("agent contract fixture has an untrusted source commit");
   }
   const compatibility = record(source.compatibility, "compatibility");

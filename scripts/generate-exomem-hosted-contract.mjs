@@ -8,7 +8,7 @@ import { inflateRawSync } from "node:zlib";
 
 const PROFILE = "hosted-alpha-agent-v1";
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
-const RELEASE_COMMIT = "529760e1cd955ea999c6a7f836d7a1504327eae7";
+const RELEASE_COMMIT = "5cad1c9ff5fcfb66248d7ec4c35bae4ef4a99226";
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
