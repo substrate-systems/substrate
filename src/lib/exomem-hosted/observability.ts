@@ -32,6 +32,16 @@ const ERROR_CODES = new Set([
 ]);
 
 const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
+const CAPACITY_BUCKETS = new Set(["storage", "runtime", "provision"]);
+const CAPACITY_TRANSITIONS = new Set([
+  "reserved_to_uncertain",
+  "uncertain_to_occupied",
+  "occupied_to_retained_storage",
+  "uncertain_to_retained_storage",
+  "retained_storage_to_uncertain",
+  "any_to_released",
+]);
+const CLAIM_KINDS = new Set(["initial_provision", "resume"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type OperationalEvent = {
@@ -59,6 +69,10 @@ function optionalUuid(value: unknown): string | undefined {
 
 function optionalBoundedLabel(value: unknown): string | undefined {
   return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(value) ? value : undefined;
+}
+
+function optionalEnum(value: unknown, allowed: Set<string>): string | undefined {
+  return typeof value === "string" && allowed.has(value) ? value : undefined;
 }
 
 export function buildOperationalEvent(
@@ -102,14 +116,14 @@ export function buildOperationalEvent(
     ...(optionalBoundedLabel(input.countBucket)
       ? { countBucket: optionalBoundedLabel(input.countBucket) }
       : {}),
-    ...(optionalBoundedLabel(input.capacityBucket)
-      ? { capacityBucket: optionalBoundedLabel(input.capacityBucket) }
+    ...(optionalEnum(input.capacityBucket, CAPACITY_BUCKETS)
+      ? { capacityBucket: optionalEnum(input.capacityBucket, CAPACITY_BUCKETS) }
       : {}),
-    ...(optionalBoundedLabel(input.transition)
-      ? { transition: optionalBoundedLabel(input.transition) }
+    ...(optionalEnum(input.transition, CAPACITY_TRANSITIONS)
+      ? { transition: optionalEnum(input.transition, CAPACITY_TRANSITIONS) }
       : {}),
-    ...(optionalBoundedLabel(input.claimKind)
-      ? { claimKind: optionalBoundedLabel(input.claimKind) }
+    ...(optionalEnum(input.claimKind, CLAIM_KINDS)
+      ? { claimKind: optionalEnum(input.claimKind, CLAIM_KINDS) }
       : {}),
   };
 }
