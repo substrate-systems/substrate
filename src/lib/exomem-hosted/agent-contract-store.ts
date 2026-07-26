@@ -1,4 +1,6 @@
-import { executeExomemSql } from "./db";
+import { createHash } from "node:crypto";
+import { executeExomemSql, executeExomemTransaction } from "./db";
+import { exomemHostedContractFixture } from "./agent-contract-fixture";
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
@@ -37,9 +39,24 @@ function sha256(value: unknown, label: string): string {
   return candidate;
 }
 
-/** Parse only the Exomem-authored compatibility artifact; no local command list is maintained. */
-export function parseExomemAgentContractCandidate(input: unknown): ExomemAgentContractCandidate {
-  const source = record(input, "candidate");
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const source = value as JsonRecord;
+    return `{${Object.keys(source).sort().map((key) => `${JSON.stringify(key)}:${canonical(source[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
+export function parseExomemAgentContractCandidate(input: unknown = exomemHostedContractFixture): ExomemAgentContractCandidate {
+  if (canonical(input) !== canonical(exomemHostedContractFixture)) {
+    throw new Error("agent contract imports must use the checked Exomem fixture");
+  }
+  const source = record(exomemHostedContractFixture, "fixture");
+  if (source.sourceCommit !== "529760e1cd955ea999c6a7f836d7a1504327eae7") {
+    throw new Error("agent contract fixture has an untrusted source commit");
+  }
   const compatibility = record(source.compatibility, "compatibility");
   const packageLock = record(source.packageLock, "package lock");
   const archiveLock = record(source.archiveLock, "archive lock");
@@ -62,7 +79,9 @@ export function parseExomemAgentContractCandidate(input: unknown): ExomemAgentCo
     record(mcpTool.annotations, "raw MCP annotations");
     return mcpTool;
   });
-  if (!tools?.length || profile.profile !== EXOMEM_HOSTED_PROFILE) throw new Error("agent profile is incomplete");
+  if (!tools?.length || profile.profile !== EXOMEM_HOSTED_PROFILE || agentContract.protocol_version !== "1") {
+    throw new Error("agent profile has an unsupported protocol");
+  }
   const commandSurfaceSha256 = sha256(compatibility.command_surface_sha256, "command surface digest");
   const schemaDigest = sha256(compatibility.schema_contract_sha256, "schema digest");
   if (sha256(profile.active_capability_sha256, "agent profile digest") !== commandSurfaceSha256 ||
@@ -83,6 +102,13 @@ export function parseExomemAgentContractCandidate(input: unknown): ExomemAgentCo
   }
   sha256(packageLock.artifact_sha256, "package artifact digest");
   sha256(archiveLock.archive_sha256, "archive digest");
+  const fixtureCommands = (record(record(exomemHostedContractFixture.compatibility, "fixture compatibility").agent_contract, "fixture agent contract").commands as unknown[])
+    .map((command) => string(record(command, "fixture command").name, "fixture command name"));
+  if (canonical((agentContract.commands as unknown[]).map((command) => record(command, "command").mcp_tool)) !==
+      canonical((record(record(exomemHostedContractFixture.compatibility, "fixture compatibility").agent_contract, "fixture agent contract").commands as unknown[]).map((command) => record(command, "fixture command").mcp_tool)) ||
+      canonical((agentContract.commands as unknown[]).map((command) => record(command, "command").name)) !== canonical(fixtureCommands)) {
+    throw new Error("agent command order or raw schemas differ from the checked fixture");
+  }
   return {
     state: "pending", profile: EXOMEM_HOSTED_PROFILE, endpoint: EXOMEM_HOSTED_RESOURCE,
     sourceRelease: string(compatibility.source_release, "source release"), commandSurfaceSha256,
@@ -112,7 +138,7 @@ export async function storeExomemAgentContractCandidate(
   return id;
 }
 
-/** The sole authority writer: it fences cell observations and derives the exact routable set while locked. */
+/** The sole authority writer: one connection serializes the profile, cells, and exact digest. */
 export async function recordRoutableCellObservation(input: {
   cellId: string;
   sourceRelease: string;
@@ -125,45 +151,30 @@ export async function recordRoutableCellObservation(input: {
   const fingerprint = sha256(input.commandSurfaceSha256, "command surface digest");
   const contract = sha256(input.schemaDigest, "schema digest");
   const compatibility = sha256(input.compatibilitySha256, "compatibility digest");
-  await executeExomemSql`
-    /* exomem:record-routable-cell-contract */
-    WITH authority_seed AS (
-      INSERT INTO exomem_agent_contract_profile_authority (
-        profile_id, routable_set_digest, routable_cell_count, source_release, protocol_version,
-        command_fingerprint, contract_digest, compatibility_digest, observed_at
-      ) VALUES (
-        ${EXOMEM_HOSTED_PROFILE}, repeat('0', 64), 0, ${input.sourceRelease}, ${input.protocolVersion},
-        ${fingerprint}, ${contract}, ${compatibility}, now()
-      ) ON CONFLICT (profile_id) DO NOTHING
-    ), authority AS (
-      SELECT * FROM exomem_agent_contract_profile_authority
-      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} FOR UPDATE
-    ), observed AS (
-      INSERT INTO exomem_routable_cell_contracts (
-        cell_id, profile_id, source_release, protocol_version, command_fingerprint,
-        contract_digest, compatibility_digest, routable, observed_at
-      ) VALUES (
-        ${input.cellId}::uuid, ${EXOMEM_HOSTED_PROFILE}, ${input.sourceRelease}, ${input.protocolVersion},
-        ${fingerprint}, ${contract}, ${compatibility}, ${input.routable}, now()
-      ) ON CONFLICT (cell_id, profile_id) DO UPDATE
-      SET source_release = EXCLUDED.source_release, protocol_version = EXCLUDED.protocol_version,
-          command_fingerprint = EXCLUDED.command_fingerprint, contract_digest = EXCLUDED.contract_digest,
-          compatibility_digest = EXCLUDED.compatibility_digest, routable = EXCLUDED.routable, observed_at = now()
-    ), set_digest AS (
-      SELECT count(*)::integer AS cell_count,
-        encode(digest(string_agg(cell_id::text || ':' || contract_digest, ',' ORDER BY cell_id), 'sha256'), 'hex') AS value
-      FROM exomem_routable_cell_contracts
-      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
-    )
-    UPDATE exomem_agent_contract_profile_authority AS target
-    SET routable_set_digest = COALESCE(set_digest.value, repeat('0', 64)),
-        routable_cell_count = set_digest.cell_count, source_release = ${input.sourceRelease},
-        protocol_version = ${input.protocolVersion}, command_fingerprint = ${fingerprint},
-        contract_digest = ${contract}, compatibility_digest = ${compatibility},
-        observed_at = now(), updated_at = now()
-    FROM authority CROSS JOIN observed CROSS JOIN set_digest
-    WHERE target.profile_id = ${EXOMEM_HOSTED_PROFILE}
-  `;
+  await executeExomemTransaction(async (transaction) => {
+    await transaction.query(
+      `INSERT INTO exomem_agent_contract_profile_authority (profile_id, routable_set_digest, routable_cell_count, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest, observed_at)
+       VALUES ($1, repeat('0', 64), 0, $2, $3, $4, $5, $6, now()) ON CONFLICT (profile_id) DO NOTHING`,
+      [EXOMEM_HOSTED_PROFILE, input.sourceRelease, input.protocolVersion, fingerprint, contract, compatibility]
+    );
+    await transaction.query(`SELECT profile_id FROM exomem_agent_contract_profile_authority WHERE profile_id = $1 FOR UPDATE`, [EXOMEM_HOSTED_PROFILE]);
+    await transaction.query(
+      `INSERT INTO exomem_routable_cell_contracts (cell_id, profile_id, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest, routable, observed_at)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, now())
+       ON CONFLICT (cell_id, profile_id) DO UPDATE SET source_release = EXCLUDED.source_release, protocol_version = EXCLUDED.protocol_version, command_fingerprint = EXCLUDED.command_fingerprint, contract_digest = EXCLUDED.contract_digest, compatibility_digest = EXCLUDED.compatibility_digest, routable = EXCLUDED.routable, observed_at = now()`,
+      [input.cellId, EXOMEM_HOSTED_PROFILE, input.sourceRelease, input.protocolVersion, fingerprint, contract, compatibility, input.routable]
+    );
+    const cells = await transaction.query(
+      `SELECT cell_id::text AS cell_id, contract_digest FROM exomem_routable_cell_contracts WHERE profile_id = $1 AND routable = true ORDER BY cell_id FOR UPDATE`,
+      [EXOMEM_HOSTED_PROFILE]
+    );
+    const entries = cells.rows.map((row) => `${String(row.cell_id)}:${String(row.contract_digest)}`);
+    const digest = entries.length ? createHash("sha256").update(entries.join(",")).digest("hex") : "0".repeat(64);
+    await transaction.query(
+      `UPDATE exomem_agent_contract_profile_authority SET routable_set_digest = $2, routable_cell_count = $3, source_release = $4, protocol_version = $5, command_fingerprint = $6, contract_digest = $7, compatibility_digest = $8, observed_at = now(), updated_at = now() WHERE profile_id = $1`,
+      [EXOMEM_HOSTED_PROFILE, digest, entries.length, input.sourceRelease, input.protocolVersion, fingerprint, contract, compatibility]
+    );
+  });
 }
 
 /** One statement locks the candidate, rechecks all authoritative routable cells, then swaps live state. */
@@ -219,6 +230,11 @@ export async function promoteExomemAgentContractCandidate(input: {
         WHERE openai.platform = 'openai' AND openai.state = 'live'
           AND openai.compatibility_sha256 = candidate.compatibility_digest
           AND openai.contract_sha256 = candidate.schema_digest
+          -- The checked release currently has no registered OpenAI package/archive lock.
+          -- Until one is imported into the candidate, promotion must fail closed.
+          AND candidate.package_lock->>'platform' = 'openai'
+          AND openai.package_sha256 = candidate.package_lock->>'artifact_sha256'
+          AND openai.archive_sha256 = candidate.archive_lock->>'archive_sha256'
           AND openai.plugin_version = candidate.package_lock->>'plugin_version'
           AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
       )

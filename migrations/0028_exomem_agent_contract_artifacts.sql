@@ -60,7 +60,7 @@ CREATE TABLE exomem_client_artifacts (
   compatibility_sha256 text NOT NULL CHECK (char_length(compatibility_sha256) = 64),
   contract_sha256 text NOT NULL CHECK (char_length(contract_sha256) = 64),
   plugin_version text NOT NULL,
-  client_identity text NOT NULL,
+  client_identity_sha256 text NOT NULL CHECK (char_length(client_identity_sha256) = 64),
   install_url text NOT NULL,
   evidence_sha256 text NOT NULL CHECK (char_length(evidence_sha256) = 64),
   result_sha256 text NOT NULL CHECK (char_length(result_sha256) = 64),
@@ -69,9 +69,12 @@ CREATE TABLE exomem_client_artifacts (
   promoted_at timestamptz,
   retired_at timestamptz,
   failed_at timestamptz,
-  CHECK ((state IN ('live', 'retired')) = (promoted_at IS NOT NULL)),
-  CHECK ((state = 'retired') = (retired_at IS NOT NULL)),
-  CHECK ((state = 'failed') = (failed_at IS NOT NULL)),
+  CHECK (
+    (state = 'pending' AND promoted_at IS NULL AND retired_at IS NULL AND failed_at IS NULL)
+    OR (state = 'live' AND promoted_at IS NOT NULL AND retired_at IS NULL AND failed_at IS NULL)
+    OR (state = 'retired' AND promoted_at IS NOT NULL AND retired_at IS NOT NULL AND failed_at IS NULL)
+    OR (state = 'failed' AND promoted_at IS NOT NULL AND retired_at IS NULL AND failed_at IS NOT NULL)
+  ),
   CHECK (install_url ~ '^https://')
 );
 

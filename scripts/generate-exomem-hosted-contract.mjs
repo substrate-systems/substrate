@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { inflateRawSync } from "node:zlib";
 
 const PROFILE = "hosted-alpha-agent-v1";
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
@@ -81,6 +82,32 @@ function tarEntries(archive) {
     offset += 512 + Math.ceil(size / 512) * 512;
   }
   return { files, commit };
+}
+
+function zipEntries(bytes) {
+  const end = bytes.lastIndexOf(Buffer.from("PK\x05\x06"));
+  if (end < 0) fail("generated archive has no ZIP directory");
+  const count = bytes.readUInt16LE(end + 10);
+  let offset = bytes.readUInt32LE(end + 16);
+  const files = new Map();
+  for (let index = 0; index < count; index += 1) {
+    if (bytes.subarray(offset, offset + 4).toString("binary") !== "PK\x01\x02") fail("generated archive has an invalid ZIP entry");
+    const method = bytes.readUInt16LE(offset + 10);
+    const compressedSize = bytes.readUInt32LE(offset + 20);
+    const nameSize = bytes.readUInt16LE(offset + 28);
+    const extraSize = bytes.readUInt16LE(offset + 30);
+    const commentSize = bytes.readUInt16LE(offset + 32);
+    const localOffset = bytes.readUInt32LE(offset + 42);
+    const name = bytes.subarray(offset + 46, offset + 46 + nameSize).toString("utf8");
+    if (!name || name.startsWith("/") || name.includes("..") || files.has(name)) fail("generated archive has an unsafe ZIP path");
+    if (bytes.subarray(localOffset, localOffset + 4).toString("binary") !== "PK\x03\x04") fail("generated archive has an invalid local ZIP entry");
+    const localNameSize = bytes.readUInt16LE(localOffset + 26);
+    const localExtraSize = bytes.readUInt16LE(localOffset + 28);
+    const body = bytes.subarray(localOffset + 30 + localNameSize + localExtraSize, localOffset + 30 + localNameSize + localExtraSize + compressedSize);
+    files.set(name, method === 0 ? Buffer.from(body) : method === 8 ? inflateRawSync(body) : fail("generated archive uses an unsupported ZIP compression"));
+    offset += 46 + nameSize + extraSize + commentSize;
+  }
+  return files;
 }
 
 function packageDigest(repo, commit, packagePath) {
@@ -172,6 +199,11 @@ for (const [key, expected] of Object.entries({
   command_surface_sha256: compatibility.command_surface_sha256,
   schema_contract_sha256: compatibility.schema_contract_sha256,
   compatibility_sha256: compatibility.compatibility_sha256,
+  definition_sha256: compatibility.definition_sha256,
+  skills_sha256: compatibility.skills_sha256,
+  oauth_discovery_sha256: compatibility.oauth_discovery_sha256,
+  plugin_id: compatibility.plugin_id,
+  plugin_version: compatibility.plugin_version,
 })) if (packageLock[key] !== expected) fail(`Claude package lock differs for ${key}`);
 if (packageLock.platform !== "claude" || archiveLock.platform !== "claude") fail("Claude lock platform is invalid");
 sha256(packageLock.artifact_sha256, "Claude package artifact digest");
@@ -179,6 +211,17 @@ sha256(archiveLock.archive_sha256, "Claude archive digest");
 if (packageDigest(repo, expectedCommit, `${generated}/claude`) !== packageLock.artifact_sha256 ||
     createHash("sha256").update(sourceBlob(`${generated}/claude.zip`)).digest("hex") !== archiveLock.archive_sha256) {
   fail("committed package or archive bytes do not match their lock");
+}
+const packageEntries = archive
+  ? [...archive.files.entries()].filter(([path]) => path.startsWith(`${generated}/claude/`)).map(([path, body]) => [path.slice(`${generated}/claude/`.length), body])
+  : execFileSync("git", ["ls-tree", "-r", "-z", expectedCommit, "--", `${generated}/claude`], { cwd: repo }).toString("utf8").split("\0").filter(Boolean).map((entry) => {
+      const [, , path] = /^(?:\d+) blob ([0-9a-f]{40})\t(.+)$/.exec(entry) ?? [];
+      if (!path) fail("invalid committed package tree entry");
+      return [path.slice(`${generated}/claude/`.length), gitBlob(repo, expectedCommit, path)];
+    });
+const zipped = zipEntries(sourceBlob(`${generated}/claude.zip`));
+if (zipped.size !== packageEntries.length || packageEntries.some(([path, body]) => !zipped.get(path)?.equals(body))) {
+  fail("generated ZIP entries differ from the committed package tree");
 }
 
 const fixture = { sourceCommit: expectedCommit, compatibility, packageLock, archiveLock };

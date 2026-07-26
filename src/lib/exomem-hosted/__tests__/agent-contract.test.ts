@@ -1,152 +1,81 @@
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { afterEach, describe, it } from "node:test";
-import { __setExomemSqlForTests } from "../db";
-import {
-  parseExomemAgentContractCandidate,
-  promoteExomemAgentContractCandidate,
-  recordRoutableCellObservation,
-  storeExomemAgentContractCandidate,
-} from "../agent-contract-store";
+import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
+import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { parseExomemAgentContractCandidate, recordRoutableCellObservation, storeExomemAgentContractCandidate } from "../agent-contract-store";
 import { parseClientArtifact, promoteClientArtifact, storeClientArtifact } from "../client-artifacts";
-
-afterEach(() => __setExomemSqlForTests(null));
 
 const sha = (character: string) => character.repeat(64);
 
-const compatibility = {
-  schema_version: 1,
-  endpoint: "https://substratesystems.io/api/exomem/mcp/v1",
-  profile: "hosted-alpha-agent-v1",
-  source_release: "0.32.0",
-  command_surface_sha256: sha("a"),
-  schema_contract_sha256: sha("b"),
-  compatibility_sha256: sha("c"),
-  agent_contract: {
-    protocol_version: "1",
-    digest: { algorithm: "sha256", value: sha("b") },
-    agent_profile: {
-      profile: "hosted-alpha-agent-v1",
-      active_capability_sha256: sha("a"),
-    },
-    commands: [
-      {
-        name: "ask_memory",
-        mcp_tool: {
-          name: "ask_memory",
-          description: "Exact imported description",
-          inputSchema: { type: "object", properties: {} },
-          annotations: { readOnlyHint: true },
-        },
-      },
-    ],
-  },
-};
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value as Record<string, unknown>).sort().map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
 
-const packageLock = {
-  platform: "claude",
-  plugin_id: "exomem-hosted",
-  plugin_version: "0.1.0",
-  endpoint: compatibility.endpoint,
-  profile: compatibility.profile,
-  command_surface_sha256: compatibility.command_surface_sha256,
-  schema_contract_sha256: compatibility.schema_contract_sha256,
-  compatibility_sha256: compatibility.compatibility_sha256,
-  artifact_sha256: sha("d"),
-};
-
-const archiveLock = { platform: "claude", archive_sha256: sha("e") };
+afterEach(() => {
+  __setExomemSqlForTests(null);
+  __setExomemTransactionForTests(null);
+  delete process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL;
+  delete process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID;
+  delete process.env.EXOMEM_HOSTED_PROMOTION_SECRET;
+});
 
 describe("Exomem Hosted agent contracts", () => {
-  it("preserves the imported raw MCP schemas without a local allowlist", () => {
-    const candidate = parseExomemAgentContractCandidate({ compatibility, packageLock, archiveLock });
-
+  it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
+    const candidate = parseExomemAgentContractCandidate();
     assert.equal(candidate.state, "pending");
-    assert.deepEqual(candidate.tools, compatibility.agent_contract.commands.map((command) => command.mcp_tool));
-    assert.equal(candidate.schemaDigest, compatibility.schema_contract_sha256);
+    assert.deepEqual(candidate.tools, exomemHostedContractFixture.compatibility.agent_contract.commands.map((command) => command.mcp_tool));
+    assert.throws(() => parseExomemAgentContractCandidate({ ...exomemHostedContractFixture, sourceCommit: sha("0") }), /checked Exomem fixture/i);
   });
 
-  it("rejects a package lock whose profile identity differs from the compatibility artifact", () => {
-    assert.throws(
-      () => parseExomemAgentContractCandidate({
-        compatibility,
-        packageLock: { ...packageLock, profile: "wrong-profile" },
-        archiveLock,
-      }),
-      /package lock/i
-    );
-  });
-
-  it("stores imports as pending and promotes only with an exact routable-cell agreement", async () => {
-    const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
-      queries.push(strings.join("?"));
-      return { rows: [{ id: "contract-1" }] };
-    });
-    const candidate = parseExomemAgentContractCandidate({ compatibility, packageLock, archiveLock });
-
-    await storeExomemAgentContractCandidate(candidate);
-    await promoteExomemAgentContractCandidate({
-      candidateId: "contract-1",
-      expectedRoutableCellDigest: sha("f"),
-    });
-
-    assert.match(queries[0], /INSERT INTO exomem_agent_contract_candidates/i);
-    assert.match(queries[0], /'pending'/i);
-    assert.match(queries[1], /FOR UPDATE/i);
-    assert.match(queries[1], /exomem_agent_contract_profile_authority/i);
-    assert.match(queries[1], /exomem_routable_cell_contracts/i);
-    assert.match(queries[1], /platform = 'claude'/i);
-    assert.match(queries[1], /platform = 'openai'/i);
-    assert.match(queries[1], /artifact_rows[\s\S]*FOR UPDATE/i);
-    assert.match(queries[1], /observed_at <= now\(\)/i);
-    assert.match(queries[1], /retired_at = now\(\)/i);
-    assert.match(queries[1], /UPDATE exomem_agent_contract_candidates/i);
-    assert.doesNotMatch(queries[1], /digest\(/i);
-  });
-
-  it("stores only tenant-neutral client artifact evidence", async () => {
-    const target = { origin: "https://claude.ai", path: "/plugins/exomem-hosted" };
+  it("uses server-owned install and signing configuration for canonical private evidence", async () => {
+    process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL = "https://claude.ai/plugins/exomem-hosted";
+    process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID = "operator-key";
+    process.env.EXOMEM_HOSTED_PROMOTION_SECRET = "operator-secret";
+    const baseEvidence: Record<string, unknown> = {
+      schema_version: 1, platform: "claude", client_version: "1.0.0", clean_client_identity_hmac_sha256: sha("1"),
+      timestamp: new Date().toISOString(), paired_run_hmac_sha256: sha("2"), test_identity: "hosted-client-plugins-v1",
+      exomem_identity_hmac_sha256: sha("3"), tenant_hmac_sha256: sha("4"), entitlement_hmac_sha256: sha("5"), provisioning_operation_hmac_sha256: sha("6"), cell_hmac_sha256: sha("7"),
+      identity_count: 1, tenant_count: 1, entitlement_count: 1, operation_count: 1, cell_count: 1, volume_count: 1,
+      result_sha256: sha("8"), package_artifact_sha256: exomemHostedContractFixture.packageLock.artifact_sha256, archive_sha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibility_sha256: exomemHostedContractFixture.compatibility.compatibility_sha256, schema_contract_sha256: exomemHostedContractFixture.compatibility.schema_contract_sha256, command_surface_sha256: exomemHostedContractFixture.compatibility.command_surface_sha256,
+      endpoint: exomemHostedContractFixture.compatibility.endpoint, plugin_version: exomemHostedContractFixture.packageLock.plugin_version, profile: exomemHostedContractFixture.compatibility.profile, operator_key_id: "operator-key",
+      native_install: true, authorization: true, tool_discovery: true, content_recall: true, citation: true, durable_capture: true, fresh_chat_recall: true,
+    };
+    const evidence = { ...baseEvidence, operator_signature: createHmac("sha256", "operator-secret").update(canonical(baseEvidence)).digest("hex") };
     const artifact = parseClientArtifact({
-      platform: "claude", state: "pending", packageSha256: sha("a"), archiveSha256: sha("b"),
-      compatibilitySha256: sha("c"), contractSha256: sha("d"), pluginVersion: "0.1.0",
-      clientIdentity: "claude-desktop", installUrl: "https://claude.ai/plugins/exomem-hosted",
-      evidenceSha256: sha("e"), resultSha256: sha("f"), observedAt: "2026-07-26T00:00:00.000Z",
-    }, target);
-    let query = "";
-    __setExomemSqlForTests(async (strings) => {
-      query = strings.join("?");
-      return { rows: [{ id: "artifact-1" }] };
+      platform: "claude", state: "pending", packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256, archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256, contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256, pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
+      clientIdentitySha256: sha("f"), installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL, evidenceSha256: createHash("sha256").update(canonical(evidence)).digest("hex"), resultSha256: sha("8"), observedAt: new Date().toISOString(),
     });
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => { queries.push(strings.join("?")); return { rows: [{ id: "artifact-1" }] }; });
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
-    assert.match(query, /INSERT INTO exomem_client_artifacts/i);
-    assert.throws(
-      () => parseClientArtifact({ ...artifact, installUrl: "https://claude.ai/plugins/exomem-hosted?tenant=private" }, target),
-      /tenant-neutral/i
-    );
-    assert.throws(
-      () => parseClientArtifact({ ...artifact, installUrl: "https://user:pass@claude.ai/plugins/exomem-hosted" }, target),
-      /tenant-neutral/i
-    );
-    const promotion = { artifactId: "artifact-1", platform: "claude" as const, evidenceSha256: sha("e"), resultSha256: sha("f"), operatorKeyId: "operator-1", trustedKeyId: "operator-1", trustedSecret: "test-secret" };
-    const signaturePayload = JSON.stringify({ artifactId: promotion.artifactId, evidenceSha256: promotion.evidenceSha256, operatorKeyId: promotion.operatorKeyId, platform: promotion.platform, resultSha256: promotion.resultSha256 });
-    await promoteClientArtifact({ ...promotion, signature: createHmac("sha256", promotion.trustedSecret).update(signaturePayload).digest("hex") });
-    assert.match(query, /UPDATE exomem_client_artifacts/i);
-    await assert.rejects(
-      () => promoteClientArtifact({ ...promotion, signature: sha("a") }),
-      /signature is invalid/i
-    );
+    await promoteClientArtifact({ artifactId: "00000000-0000-0000-0000-000000000001", platform: "claude", evidence });
+    assert.match(queries[0], /INSERT INTO exomem_client_artifacts/i);
+    assert.match(queries[1], /package_sha256/i);
+    await assert.rejects(() => promoteClientArtifact({ artifactId: "00000000-0000-0000-0000-000000000001", platform: "claude", evidence: { ...evidence, operator_signature: sha("0") } }), /signature is invalid/i);
+    assert.throws(() => parseClientArtifact({ ...artifact, clientIdentity: "private", installUrl: "https://claude.ai/plugins/exomem-hosted" }), /privacy-safe hash/i);
   });
 
-  it("fences cell observations before contract promotion", async () => {
-    let query = "";
-    __setExomemSqlForTests(async (strings) => {
-      query = strings.join("?");
+  it("writes routable authority with ordered sequential locks on one transaction", async () => {
+    const queries: string[] = [];
+    __setExomemTransactionForTests(async (work) => work({ query: async (text) => {
+      queries.push(text);
+      if (/SELECT cell_id::text/i.test(text)) return { rows: [{ cell_id: "00000000-0000-0000-0000-000000000001", contract_digest: sha("b") }] };
       return { rows: [] };
-    });
+    } }));
     await recordRoutableCellObservation({ cellId: "00000000-0000-0000-0000-000000000001", sourceRelease: "0.32.0", protocolVersion: "1", commandSurfaceSha256: sha("a"), schemaDigest: sha("b"), compatibilitySha256: sha("c"), routable: true });
-    assert.match(query, /exomem_agent_contract_profile_authority/i);
-    assert.match(query, /string_agg\(cell_id::text/i);
-    assert.match(query, /FOR UPDATE/i);
+    assert.equal(queries.length, 5);
+    assert.match(queries[1], /FOR UPDATE/i);
+    assert.match(queries[3], /ORDER BY cell_id FOR UPDATE/i);
+    assert.doesNotMatch(queries.join("\n"), /WITH\s+authority_seed|digest\s*\(/i);
+  });
+
+  it("stores fixture imports as pending", async () => {
+    __setExomemSqlForTests(async () => ({ rows: [{ id: "contract-1" }] }));
+    assert.equal(await storeExomemAgentContractCandidate(parseExomemAgentContractCandidate()), "contract-1");
   });
 });

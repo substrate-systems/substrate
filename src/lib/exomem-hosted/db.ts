@@ -33,6 +33,12 @@ function taggedPgSql(client: PoolClient): ExomemSql {
   };
 }
 
+export type ExomemTransaction = {
+  query: (text: string, values?: unknown[]) => Promise<ExomemSqlResult>;
+};
+
+let transactionClient: ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>) | null = null;
+
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<ExomemSqlResult> {
   if (injectedSqlClient) return injectedSqlClient(strings, ...values);
   if (!sqlClient) {
@@ -54,6 +60,38 @@ export function __setExomemSqlForTests(next: ExomemSql | null): void {
 /** Test seam for one-connection interactive transactions. */
 export function __setExomemTransactionForTests(next: ExomemTransactionRunner | null): void {
   transactionRunner = next;
+}
+
+export function __setExomemTransactionForTests(
+  next: ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>) | null
+): void {
+  transactionClient = next;
+}
+
+/** Run sequential authority writes over one PostgreSQL connection. */
+export async function executeExomemTransaction(work: (transaction: ExomemTransaction) => Promise<void>): Promise<void> {
+  if (transactionClient) return transactionClient(work);
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  let client: PoolClient | undefined;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await work({
+      query: async (text, values = []) => {
+        const result = await client!.query(text, values);
+        return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+      },
+    });
+    await client.query("COMMIT");
+  } catch (error) {
+    if (client) await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client?.release();
+    await pool.end();
+  }
 }
 
 /** Shared product-scoped SQL executor for narrowly typed store modules. */
