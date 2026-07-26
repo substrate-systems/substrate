@@ -10,6 +10,7 @@ import {
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import {
   attachOpenAiContractLocks,
+  demoteExomemAgentContractCandidate,
   promoteExomemAgentContractCandidate,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
@@ -477,6 +478,18 @@ describe("Exomem Hosted agent contracts", () => {
     assert.match(
       transactionQueries[1],
       /UPDATE exomem_agent_contract_candidates SET state = 'live'/i
+    );
+    assert.equal(
+      await demoteExomemAgentContractCandidate("00000000-0000-0000-0000-000000000004"),
+      true
+    );
+    assert.match(
+      transactionQueries[2],
+      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
+    );
+    assert.match(
+      transactionQueries[3],
+      /UPDATE exomem_agent_contract_candidates[\s\S]*state = 'retired'/i
     );
   });
 });

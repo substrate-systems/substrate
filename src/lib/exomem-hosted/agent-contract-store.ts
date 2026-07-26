@@ -328,16 +328,19 @@ export async function listExomemAgentContractStatus(): Promise<
 
 /** A rollback retires the live candidate atomically; it never marks it as a failed import. */
 export async function demoteExomemAgentContractCandidate(candidateId: string): Promise<boolean> {
-  const { rows } = await executeExomemSql`
-    /* exomem:demote-agent-contract-candidate */
-    UPDATE exomem_agent_contract_candidates
-    SET state = 'retired', retired_at = now()
-    WHERE id = ${candidateId}::uuid
-      AND profile_id = ${EXOMEM_HOSTED_PROFILE}
-      AND state = 'live'
-    RETURNING id
-  `;
-  return rows.length === 1;
+  return withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await transaction`
+      /* exomem:demote-agent-contract-candidate */
+      UPDATE exomem_agent_contract_candidates
+      SET state = 'retired', retired_at = now()
+      WHERE id = ${candidateId}::uuid
+        AND profile_id = ${EXOMEM_HOSTED_PROFILE}
+        AND state = 'live'
+      RETURNING id
+    `;
+    return rows.length === 1;
+  });
 }
 
 /** Attach operator-signed, exact OpenAI locks after a registered app is rendered from this pinned release. */
