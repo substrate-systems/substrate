@@ -108,12 +108,25 @@ export async function admitFirstOAuthInviteAtomic(input: {
         AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
       FOR UPDATE OF transaction
     ),
+    existing_owner AS (
+      SELECT tenant.id
+      FROM invite
+      JOIN users AS owner ON owner.email = invite.email_normalized AND owner.deleted_at IS NULL
+      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = owner.id AND tenant.status <> 'deleted'
+      LIMIT 1
+    ),
+    new_owner AS (
+      SELECT 1 AS eligible
+      FROM invite CROSS JOIN transaction
+      WHERE NOT EXISTS (SELECT 1 FROM existing_owner)
+    ),
     pool_reservation AS (
       UPDATE exomem_capacity_pools AS pool
       SET reserved_storage_bytes = reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes},
           reserved_runtime_slots = reserved_runtime_slots + ${EXOMEM_ALPHA_CAPACITY.runtimeSlots},
           reserved_provision_slots = reserved_provision_slots + ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots},
           updated_at = now()
+      FROM new_owner
       WHERE pool.pool_key = 'exomem-hosted-alpha'
         AND pool.configured_at IS NOT NULL
         AND pool.storage_capacity_bytes >= pool.reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes}
@@ -123,7 +136,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
     ),
     owner AS (
       INSERT INTO users (email, email_verified_at)
-      SELECT email_normalized, now() FROM invite CROSS JOIN transaction CROSS JOIN pool_reservation
+      SELECT email_normalized, now() FROM invite CROSS JOIN transaction CROSS JOIN new_owner CROSS JOIN pool_reservation
       ON CONFLICT (email) DO UPDATE SET email_verified_at = COALESCE(users.email_verified_at, now())
       WHERE users.deleted_at IS NULL
       RETURNING id
@@ -299,9 +312,13 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       UPDATE exomem_oauth_authorization_codes AS code
       SET consumed_at = now()
       FROM exomem_oauth_grants AS grant
+      JOIN exomem_oauth_clients AS client
+        ON client.id = code.client_id
+       AND client.client_id = ${input.clientId}
+       AND client.enabled = true
       WHERE code.code_digest = ${input.codeDigest}
         AND code.grant_id = grant.id
-        AND code.client_id = ${input.clientId}::uuid
+        AND code.client_id = client.id
         AND code.redirect_uri = ${input.redirectUri}
         AND code.resource = ${input.resource}
         AND code.pkce_challenge = ${input.pkceChallenge}
@@ -373,8 +390,10 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       SELECT token.id, token.family_id, family.grant_id, family.client_id
       FROM exomem_oauth_refresh_tokens AS token
       JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
+      JOIN exomem_oauth_clients AS client ON client.id = family.client_id
       WHERE token.refresh_digest = ${input.refreshDigest}
-        AND family.client_id = ${input.clientId}::uuid
+        AND client.client_id = ${input.clientId}
+        AND client.enabled = true
         AND EXISTS (
           SELECT 1 FROM exomem_oauth_grants AS grant
           WHERE grant.id = family.grant_id AND grant.resource = ${input.resource}

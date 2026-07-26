@@ -65,4 +65,25 @@ SELECT pool.id, tenant.id, 5368709120, 1, 1, 'occupied', now()
 FROM exomem_tenants AS tenant
 CROSS JOIN exomem_capacity_pools AS pool
 WHERE pool.pool_key = 'exomem-hosted-alpha'
+  AND tenant.status <> 'deleted'
+  AND tenant.deleted_at IS NULL
 ON CONFLICT (tenant_id) DO NOTHING;
+
+UPDATE exomem_capacity_pools AS pool
+SET reserved_storage_bytes = COALESCE((
+      SELECT SUM(allocation.storage_bytes)
+      FROM exomem_capacity_allocations AS allocation
+      WHERE allocation.pool_id = pool.id AND allocation.state <> 'released'
+    ), 0),
+    reserved_runtime_slots = COALESCE((
+      SELECT SUM(allocation.runtime_slots)
+      FROM exomem_capacity_allocations AS allocation
+      WHERE allocation.pool_id = pool.id AND allocation.state <> 'released'
+    ), 0),
+    reserved_provision_slots = COALESCE((
+      SELECT SUM(allocation.provision_slots)
+      FROM exomem_capacity_allocations AS allocation
+      WHERE allocation.pool_id = pool.id
+        AND allocation.state = 'reserved'
+    ), 0),
+    updated_at = now();

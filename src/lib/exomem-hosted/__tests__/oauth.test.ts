@@ -42,7 +42,7 @@ describe("Exomem Hosted OAuth protocol", () => {
     });
     assert.equal(
       bearerChallenge(baseUrl),
-      `Bearer resource_metadata="${resource}/.well-known/oauth-protected-resource"`
+      `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`
     );
   });
 

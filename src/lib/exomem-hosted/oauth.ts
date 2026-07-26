@@ -88,7 +88,7 @@ export function buildAuthorizationServerMetadata(baseUrl: string): Record<string
 }
 
 export function protectedResourceMetadataUrl(baseUrl: string): string {
-  return `${paths(baseUrl).resource}/.well-known/oauth-protected-resource`;
+  return `${parseExomemPublicBaseUrl(baseUrl)}/.well-known/oauth-protected-resource/api/exomem/mcp/v1`;
 }
 
 export function bearerChallenge(baseUrl: string): string {
