@@ -335,6 +335,7 @@ describe("Exomem Hosted agent contracts", () => {
     );
     assert.equal(queries.filter((query) => /load-openai-contract-locks/i.test(query)).length, 1);
     assert.match(queries[0], /openai_package_lock/i);
+    assert.match(queries[0], /created_at DESC, id DESC/i);
     assert.match(
       transactionQueries[0],
       /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i

@@ -169,7 +169,7 @@ async function platformLocks(
     FROM exomem_agent_contract_candidates
     WHERE profile_id = 'hosted-alpha-agent-v1' AND state IN ('pending', 'live')
       AND openai_package_lock IS NOT NULL AND openai_archive_lock IS NOT NULL
-    ORDER BY CASE state WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC
+    ORDER BY CASE state WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC, id DESC
     LIMIT 1
     FOR UPDATE
   `;
