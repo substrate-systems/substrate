@@ -1,5 +1,11 @@
 export type LifecycleState =
-  "loading" | "preparing" | "ready" | "degraded" | "suspended" | "deletion_pending" | "deleted";
+  | "loading"
+  | "preparing"
+  | "ready"
+  | "degraded"
+  | "suspended"
+  | "deletion_pending"
+  | "deleted";
 
 export type Lifecycle = {
   state: LifecycleState;

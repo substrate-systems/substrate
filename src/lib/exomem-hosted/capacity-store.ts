@@ -2,7 +2,11 @@ import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 
 export type CapacityAllocationState =
-  "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
+  | "reserved"
+  | "occupied"
+  | "uncertain"
+  | "retained_storage"
+  | "released";
 
 export type CapacityTransitionReceipt = {
   previous: CapacityAllocationState;
