@@ -1,6 +1,7 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import {
   acquireCapacityProviderWorkAtomic,
+  emitCapacityTransitionAfterCommit,
   markUnboundCellDestroyedAtomic,
   releaseCapacityProvisionClaim,
   transitionCapacityAllocationAtomic,
@@ -21,6 +22,11 @@ import type { SecretEnvelope } from "./security";
 import type { BillingDeletionTarget } from "./billing-deletion";
 
 type Row = Record<string, unknown>;
+
+type LifecycleCapacityTransition = {
+  succeeded: boolean;
+  previous?: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
+};
 
 function asDate(value: unknown): Date {
   return value instanceof Date ? value : new Date(String(value));
@@ -118,7 +124,7 @@ export class SqlLifecycleStore implements LifecycleStore {
     owner: string,
     state: "occupied" | "retained_storage" | "released",
     transaction?: ExomemSql
-  ): Promise<boolean> {
+  ): Promise<LifecycleCapacityTransition> {
     const sql = transaction ?? executeExomemSql;
     const legacy = await sql`
       SELECT tenant.legacy_unmetered
@@ -131,8 +137,10 @@ export class SqlLifecycleStore implements LifecycleStore {
         AND operation.fence_generation = tenant.fence_generation
       FOR UPDATE OF operation, tenant
     `;
-    if (!legacy.rows[0]) return false;
-    if ((legacy.rows[0] as { legacy_unmetered?: boolean }).legacy_unmetered === true) return true;
+    if (!legacy.rows[0]) return { succeeded: false };
+    if ((legacy.rows[0] as { legacy_unmetered?: boolean }).legacy_unmetered === true) {
+      return { succeeded: true };
+    }
     const { rows } = await sql`
       /* exomem:lifecycle-capacity-transition */
       SELECT allocation.id AS allocation_id
@@ -149,14 +157,19 @@ export class SqlLifecycleStore implements LifecycleStore {
       FOR UPDATE OF operation, tenant, allocation, pool
     `;
     const allocation = rows[0] as { allocation_id?: string } | undefined;
-    return Boolean(
-      allocation?.allocation_id &&
-      (await transitionCapacityAllocationAtomic({
-        allocationId: allocation.allocation_id,
-        state,
-        transaction,
-      }))
-    );
+    if (!allocation?.allocation_id) return { succeeded: false };
+    const receipt: {
+      value?: {
+        previous: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
+      };
+    } = {};
+    const succeeded = await transitionCapacityAllocationAtomic({
+      allocationId: allocation.allocation_id,
+      state,
+      transaction,
+      receipt,
+    });
+    return { succeeded, previous: receipt.value?.previous };
   }
 
   async enqueue(
@@ -1119,7 +1132,8 @@ export class SqlLifecycleStore implements LifecycleStore {
   }
 
   async bindCandidate(operationId: string, owner: string): Promise<boolean> {
-    return withExomemTransaction(async (tx) => {
+    let transition: LifecycleCapacityTransition | undefined;
+    const succeeded = await withExomemTransaction(async (tx) => {
       const { rows } = await tx`
       /* exomem:lifecycle-bind-candidate */
       WITH owned AS (
@@ -1197,11 +1211,25 @@ export class SqlLifecycleStore implements LifecycleStore {
       LIMIT 1
     `;
       if (rows.length !== 1) return false;
-      if (!(await this.#transitionCapacityForOwnedOperation(operationId, owner, "occupied", tx))) {
+      transition = await this.#transitionCapacityForOwnedOperation(
+        operationId,
+        owner,
+        "occupied",
+        tx
+      );
+      if (!transition.succeeded) {
         throw new Error("capacity transition rejected");
       }
       return true;
     });
+    if (transition?.previous) {
+      emitCapacityTransitionAfterCommit({
+        operationId,
+        previous: transition.previous,
+        next: "occupied",
+      });
+    }
+    return succeeded;
   }
 
   async prepareCandidateCleanup(
@@ -1400,7 +1428,8 @@ export class SqlLifecycleStore implements LifecycleStore {
     state: CellControlRecord["lifecycleState"]
   ): Promise<boolean> {
     const deleting = state === "deleted";
-    return withExomemTransaction(async (tx) => {
+    let transition: LifecycleCapacityTransition | undefined;
+    const succeeded = await withExomemTransaction(async (tx) => {
       const { rows } = await tx`
       /* exomem:lifecycle-mark-cell-state */
       WITH owned AS (
@@ -1546,32 +1575,44 @@ export class SqlLifecycleStore implements LifecycleStore {
     `;
       if (rows.length !== 1) return false;
       if (state === "quiesced" || state === "stopped") {
-        if (
-          !(await this.#transitionCapacityForOwnedOperation(
-            operationId,
-            owner,
-            "retained_storage",
-            tx
-          ))
-        ) {
+        transition = await this.#transitionCapacityForOwnedOperation(
+          operationId,
+          owner,
+          "retained_storage",
+          tx
+        );
+        if (!transition.succeeded) {
           throw new Error("capacity transition rejected");
         }
         return true;
       }
       if (state === "deleted") {
-        if (
-          !(await this.#transitionCapacityForOwnedOperation(operationId, owner, "released", tx))
-        ) {
+        transition = await this.#transitionCapacityForOwnedOperation(
+          operationId,
+          owner,
+          "released",
+          tx
+        );
+        if (!transition.succeeded) {
           throw new Error("capacity transition rejected");
         }
         return true;
       }
       return true;
     });
+    const next = state === "deleted" ? "released" : "retained_storage";
+    if (
+      transition?.previous &&
+      (state === "quiesced" || state === "stopped" || state === "deleted")
+    ) {
+      emitCapacityTransitionAfterCommit({ operationId, previous: transition.previous, next });
+    }
+    return succeeded;
   }
 
   async activateAfterReadiness(operationId: string, owner: string): Promise<boolean> {
-    return withExomemTransaction(async (tx) => {
+    let transition: LifecycleCapacityTransition | undefined;
+    const succeeded = await withExomemTransaction(async (tx) => {
       const { rows } = await tx`
       /* exomem:lifecycle-activate-after-readiness */
       WITH owned AS (
@@ -1609,11 +1650,25 @@ export class SqlLifecycleStore implements LifecycleStore {
       SELECT id FROM tenant_active
     `;
       if (rows.length !== 1) return false;
-      if (!(await this.#transitionCapacityForOwnedOperation(operationId, owner, "occupied", tx))) {
+      transition = await this.#transitionCapacityForOwnedOperation(
+        operationId,
+        owner,
+        "occupied",
+        tx
+      );
+      if (!transition.succeeded) {
         throw new Error("capacity transition rejected");
       }
       return true;
     });
+    if (transition?.previous) {
+      emitCapacityTransitionAfterCommit({
+        operationId,
+        previous: transition.previous,
+        next: "occupied",
+      });
+    }
+    return succeeded;
   }
 
   async prepareCredentialRotation(

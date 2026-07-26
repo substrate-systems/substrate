@@ -792,7 +792,7 @@ export class LifecycleReconciler {
         operation.id,
         owner,
         "initial_provision",
-        Math.max(330, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
+        Math.max(660, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
       );
       if (capacity === "exhausted") {
         const retried = await this.#store.retry(
@@ -808,9 +808,6 @@ export class LifecycleReconciler {
       if (capacity !== "acquired" && capacity !== "legacy") {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
-      this.#requireStored(
-        await this.#store.renewLease(operation.id, owner, Math.max(330_000, this.#config.leaseMs))
-      );
       const request: ProvisionCellRequest = {
         context: this.#context(operation),
         tenantId: operation.tenantId,
@@ -992,7 +989,7 @@ export class LifecycleReconciler {
         operation.id,
         owner,
         "resume",
-        Math.max(330, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
+        Math.max(660, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
       );
       if (capacity === "exhausted") {
         const retried = await this.#store.retry(
@@ -1008,9 +1005,6 @@ export class LifecycleReconciler {
       if (capacity !== "acquired" && capacity !== "legacy") {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
-      this.#requireStored(
-        await this.#store.renewLease(operation.id, owner, Math.max(330_000, this.#config.leaseMs))
-      );
       await this.#provisioner.resume(this.#target(operation, cell));
       if (capacity === "acquired") {
         this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
@@ -2139,7 +2133,13 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       !cell ||
       cell.tenantId !== operation.tenantId ||
       cell.routingState === "bound" ||
-      tenant.boundCellId === cell.id
+      tenant.boundCellId === cell.id ||
+      !(
+        (operation.checkpoint === "candidate-cleanup" && operation.cellId === cell.id) ||
+        (operation.operationType === "restore" &&
+          operation.checkpoint === "prior-retirement" &&
+          operation.expectedPreviousCellId === cell.id)
+      )
     ) {
       return false;
     }

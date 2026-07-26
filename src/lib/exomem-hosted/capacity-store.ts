@@ -8,6 +8,10 @@ export type CapacityAllocationState =
   | "retained_storage"
   | "released";
 
+export type CapacityTransitionReceipt = {
+  previous: CapacityAllocationState;
+};
+
 const allocationStates = new Set<CapacityAllocationState>([
   "reserved",
   "occupied",
@@ -39,7 +43,7 @@ function transitionLabel(
     : undefined;
 }
 
-function emitCapacityTransition(input: {
+export function emitCapacityTransitionAfterCommit(input: {
   operationId?: string;
   previous: CapacityAllocationState;
   next: CapacityAllocationState;
@@ -99,6 +103,7 @@ export async function transitionCapacityAllocationAtomic(input: {
   tenantId?: string;
   operationId?: string;
   transaction?: ExomemSql;
+  receipt?: { value?: CapacityTransitionReceipt };
 }): Promise<boolean> {
   if (!allocationStates.has(input.state)) throw new Error("invalid capacity allocation state");
   try {
@@ -191,8 +196,11 @@ export async function transitionCapacityAllocationAtomic(input: {
     const result = input.transaction
       ? await apply(input.transaction)
       : await withExomemTransaction(apply);
+    if (result.succeeded && input.receipt) {
+      input.receipt.value = { previous: result.previous as CapacityAllocationState };
+    }
     if (result.succeeded && !input.transaction) {
-      emitCapacityTransition({
+      emitCapacityTransitionAfterCommit({
         operationId: input.operationId,
         previous: result.previous as CapacityAllocationState,
         next: input.state,
@@ -557,7 +565,7 @@ export async function acquireCapacityProviderWorkAtomic(input: {
   });
   if (result.outcome === "acquired") {
     if (result.previous !== "uncertain") {
-      emitCapacityTransition({
+      emitCapacityTransitionAfterCommit({
         operationId: input.operationId,
         previous: result.previous,
         next: "uncertain",
@@ -583,6 +591,14 @@ export async function markUnboundCellDestroyedAtomic(input: {
         AND operation.lease_owner = ${input.leaseOwner} AND operation.lease_expires_at > now()
         AND operation.fence_generation = tenant.fence_generation AND cell.routing_state <> 'bound'
         AND tenant.bound_cell_id IS DISTINCT FROM cell.id
+        AND (
+          (operation.checkpoint = 'candidate-cleanup' AND operation.cell_id = cell.id)
+          OR (
+            operation.operation_type = 'restore'
+            AND operation.checkpoint = 'prior-retirement'
+            AND operation.expected_previous_cell_id = cell.id
+          )
+        )
       FOR UPDATE OF operation, tenant, cell
     `;
     const row = locked.rows[0] as Record<string, unknown> | undefined;
@@ -645,7 +661,7 @@ export async function markUnboundCellDestroyedAtomic(input: {
     };
   });
   if (result.released) {
-    emitCapacityTransition({
+    emitCapacityTransitionAfterCommit({
       operationId: input.operationId,
       previous: result.previous as CapacityAllocationState,
       next: "released",

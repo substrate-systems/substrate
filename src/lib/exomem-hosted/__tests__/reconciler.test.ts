@@ -260,6 +260,41 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.capacityClaims.size, 0);
   });
 
+  it("releases a candidate allocation only at its exact cleanup checkpoint and target", async () => {
+    const { store, reconciler } = harness();
+    const operation = await store.enqueue(TENANT, "provision", "cleanup-target-fence");
+    await reconciler.reconcileOne({ owner: "candidate", tenantId: TENANT });
+    const running = await store.claim({
+      owner: "cleanup",
+      leaseMs: 15_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(running?.id, operation.id);
+    assert.ok(running?.cellId);
+    assert.equal(
+      await store.markUnboundCellDestroyed(operation.id, "cleanup", running.cellId!),
+      false
+    );
+    assert.notEqual(store.capacityAllocations.get(operation.id)?.state, "released");
+    assert.equal(
+      await store.prepareCandidateCleanup(operation.id, "cleanup", "TEST_CLEANUP"),
+      true
+    );
+    const claimedCleanup = await store.claim({
+      owner: "cleanup",
+      leaseMs: 15_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(claimedCleanup?.checkpoint, "candidate-cleanup");
+    assert.equal(
+      await store.markUnboundCellDestroyed(operation.id, "cleanup", claimedCleanup?.cellId ?? ""),
+      true
+    );
+    assert.equal(store.capacityAllocations.get(operation.id)?.state, "released");
+  });
+
   it("waits through more than six provider-pending polls without consuming attempts", async () => {
     class PendingProvisioner extends FakeCellProvisioner {
       remaining = 8;
