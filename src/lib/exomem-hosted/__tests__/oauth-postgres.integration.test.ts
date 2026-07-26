@@ -8,8 +8,12 @@ import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql 
 import {
   admitFirstOAuthInviteAtomic,
   attachExistingOwnerAuthorizationAtomic,
+  findActiveOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
+  resolveApprovedOAuthClient,
+  revokeOAuthAccountForOwnerTenantAtomic,
+  revokeOAuthTokenForClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
 
@@ -63,6 +67,64 @@ async function seedClient(): Promise<string> {
     [clientId]
   );
   return result.rows[0].id;
+}
+
+async function seedLiveCohort(): Promise<void> {
+  const lock = (platform: "claude" | "openai", packageSha256: string, archiveSha256: string) => ({
+    platform,
+    artifact_sha256: packageSha256,
+    archive_sha256: archiveSha256,
+    compatibility_sha256: "c".repeat(64),
+    schema_contract_sha256: "d".repeat(64),
+    plugin_version: "1.0.0",
+  });
+  const claude = lock("claude", "a".repeat(64), "b".repeat(64));
+  const openai = lock("openai", "e".repeat(64), "f".repeat(64));
+  await pool!.query(
+    `INSERT INTO exomem_agent_contract_candidates (
+       state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+       compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+       openai_package_lock, openai_archive_lock, promoted_at
+     ) VALUES (
+       'live', 'hosted-alpha-agent-v1', $1, 'test', $2, $3, $4, '1', '{}'::jsonb,
+       $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, now()
+     )`,
+    [
+      resource,
+      "1".repeat(64),
+      "d".repeat(64),
+      "c".repeat(64),
+      JSON.stringify(claude),
+      JSON.stringify(claude),
+      JSON.stringify(openai),
+      JSON.stringify(openai),
+    ]
+  );
+  for (const candidate of [claude, openai]) {
+    await pool!.query(
+      `INSERT INTO exomem_client_artifacts (
+         platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
+         plugin_version, client_identity_sha256, paired_run_hmac_sha256,
+         exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256,
+         result_sha256, observed_at, promoted_at
+       ) VALUES ($1, 'live', $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                 'https://example.test/install', $11, $12, now(), now())`,
+      [
+        candidate.platform,
+        candidate.artifact_sha256,
+        candidate.archive_sha256,
+        candidate.compatibility_sha256,
+        candidate.schema_contract_sha256,
+        candidate.plugin_version,
+        "1".repeat(64),
+        "2".repeat(64),
+        "3".repeat(64),
+        "4".repeat(64),
+        "5".repeat(64),
+        "6".repeat(64),
+      ]
+    );
+  }
 }
 
 async function seedPool(storage = 10_737_418_240): Promise<void> {
@@ -156,7 +218,12 @@ async function seedAuthorizationCode(
      ) VALUES ($1, $2, $3, 'https://client.example.test/callback', $4, 'challenge', $5, now() + interval '1 hour')`,
     [codeDigest, grant.rows[0].id, clientInternalId, resource, offlineAccess]
   );
-  return { codeDigest, grantId: grant.rows[0].id };
+  return {
+    codeDigest,
+    grantId: grant.rows[0].id,
+    userId: user.rows[0].id,
+    tenantId: tenant.rows[0].id,
+  };
 }
 
 describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () => {
@@ -171,6 +238,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     pool = new Pool({ connectionString: scoped.toString() });
     __setExomemSqlForTests(taggedSql(pool));
     __setExomemTransactionForTests(interactiveTransaction);
+    await seedLiveCohort();
   });
 
   after(async () => {
@@ -308,6 +376,89 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       await scalar(
         "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NULL",
         [fixture.codeDigest]
+      ),
+      1
+    );
+  });
+
+  it("fails authorization client resolution closed when either live artifact no longer matches", async () => {
+    await seedClient();
+    assert.ok(await resolveApprovedOAuthClient(clientId));
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'openai'"
+    );
+    assert.equal(await resolveApprovedOAuthClient(clientId), null);
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
+    );
+  });
+
+  it("blocks an authoritative account and revokes every usable OAuth credential atomically", async () => {
+    const internal = await seedClient();
+    const fixture = await seedAuthorizationCode(internal, 140, true);
+    const issued = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: fixture.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(141),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(142),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(issued);
+    assert.equal(
+      await revokeOAuthAccountForOwnerTenantAtomic({
+        ownerUserId: fixture.userId,
+        tenantId: fixture.tenantId,
+      }),
+      1
+    );
+    assert.equal(
+      await scalar("SELECT count(*) FROM exomem_oauth_account_blocks WHERE tenant_id = $1", [
+        fixture.tenantId,
+      ]),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND revoked_at IS NOT NULL",
+        [fixture.grantId]
+      ),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_access_tokens WHERE family_id = $1 AND revoked_at IS NOT NULL",
+        [issued!.familyId]
+      ),
+      1
+    );
+    assert.equal(await findActiveOAuthAccessToken(digest(142)), null);
+  });
+
+  it("honors RFC 7009 revocation for the owning disabled client", async () => {
+    const internal = await seedClient();
+    const fixture = await seedAuthorizationCode(internal, 150, true);
+    const issued = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: fixture.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(151),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(152),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(issued);
+    await pool!.query("UPDATE exomem_oauth_clients SET enabled = false WHERE id = $1", [internal]);
+    await revokeOAuthTokenForClient({ tokenDigest: digest(151), clientId });
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
+        [issued!.familyId]
       ),
       1
     );

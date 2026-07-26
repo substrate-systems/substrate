@@ -20,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    await requireRateLimitedExomemOperator(request);
+    await requireRateLimitedExomemOperator(request, "read");
     const clients = await listOperatorOAuthClients();
     operatorSuccessEvent(requestId);
     return NextResponse.json({ success: true, clients, requestId });

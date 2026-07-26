@@ -34,10 +34,12 @@ export async function resolveApprovedOAuthClient(
     /* exomem:resolve-approved-oauth-client */
     SELECT id, client_id, redirect_uris, admission_mode
     FROM exomem_oauth_clients
+    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     WHERE client_id = ${clientId}
       AND enabled = true
       AND admission_mode IN ('pinned', 'cimd')
       AND (metadata_expires_at IS NULL OR metadata_expires_at > now())
+      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
     LIMIT 1
   `;
   const row = rows[0] as
@@ -88,8 +90,10 @@ export async function createAuthorizationTransaction(input: {
            ${input.pkceChallenge},
            ${input.expiresAt.toISOString()}
     FROM exomem_oauth_clients AS client
+    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     WHERE client.client_id = ${input.clientId}
       AND client.enabled = true
+      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
       AND (
         SELECT count(*) FROM exomem_oauth_authorization_transactions
         WHERE consumed_at IS NULL AND expires_at > now()
@@ -121,11 +125,13 @@ export async function findPendingOAuthAuthorization(
            transaction.requested_scopes, transaction.state_envelope, transaction.state_digest,
            transaction.form_nonce_digest, transaction.continuation_binding, transaction.pkce_challenge
     FROM exomem_oauth_authorization_transactions AS transaction
+    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
     WHERE transaction.transaction_digest = ${transactionDigest}
       AND transaction.consumed_at IS NULL
       AND transaction.expires_at > now()
       AND client.enabled = true
+      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
     LIMIT 1
   `;
   const row = rows[0] as
@@ -165,23 +171,33 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
 }): Promise<{ grantId: string; tenantId: string } | null> {
   const { rows } = await executeExomemSql`
     /* exomem:attach-existing-owner-oauth */
-    WITH session AS (
+    WITH cohort_lock AS (
+      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+    ), session AS (
       SELECT session.id, session.user_id, session.tenant_id
       FROM exomem_sessions AS session
+      CROSS JOIN cohort_lock
+      JOIN exomem_tenants AS tenant ON tenant.id = session.tenant_id AND tenant.owner_user_id = session.user_id
       JOIN exomem_entitlements AS entitlement
         ON entitlement.tenant_id = session.tenant_id
        AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE session.id = ${input.sessionId}::uuid
         AND session.revoked_at IS NULL AND session.expires_at > now()
-      FOR UPDATE OF session
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_account_blocks AS block
+          WHERE block.tenant_id = session.tenant_id AND block.owner_user_id = session.user_id
+        )
+      FOR UPDATE OF session, tenant
     ),
     transaction AS (
       SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
              transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
       FROM exomem_oauth_authorization_transactions AS transaction
       JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
+      CROSS JOIN cohort_lock
       WHERE transaction.transaction_digest = ${input.transactionDigest}
         AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+        AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
       FOR UPDATE OF transaction
     ),
     grant AS (
@@ -322,12 +338,17 @@ export async function admitFirstOAuthInviteAtomic(input: {
       if (!invite) throw new OAuthAdmissionRejected();
 
       const authorizationResult = await tx`
+        WITH cohort_lock AS (
+          SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+        )
         SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
                transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
         FROM exomem_oauth_authorization_transactions AS transaction
         JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
+        CROSS JOIN cohort_lock
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+          AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
         FOR UPDATE OF transaction
       `;
       const authorization = authorizationResult.rows[0] as
@@ -353,6 +374,16 @@ export async function admitFirstOAuthInviteAtomic(input: {
       `;
       const owner = ownerResult.rows[0] as { id: string } | undefined;
       if (!owner) throw new OAuthAdmissionRejected();
+
+      const blockedResult = await tx`
+        SELECT tenant.id
+        FROM exomem_tenants AS tenant
+        JOIN exomem_oauth_account_blocks AS block
+          ON block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
+        WHERE tenant.owner_user_id = ${owner.id}::uuid
+        FOR UPDATE OF tenant
+      `;
+      if (blockedResult.rows[0]) throw new OAuthAdmissionRejected();
 
       const existingResult = await tx`
         SELECT tenant.id, tenant.owner_user_id
@@ -510,6 +541,7 @@ export async function findActiveOAuthAccessToken(
            token.resource,
            token.scopes
     FROM exomem_oauth_access_tokens AS token
+    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
      AND family.revoked_at IS NULL
@@ -531,6 +563,11 @@ export async function findActiveOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
+      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      AND NOT EXISTS (
+        SELECT 1 FROM exomem_oauth_account_blocks AS block
+        WHERE block.tenant_id = grant.tenant_id AND block.owner_user_id = grant.user_id
+      )
     LIMIT 1
   `;
   const row = rows[0] as
@@ -651,21 +688,66 @@ export async function revokeOAuthTokenFamiliesForOwnerTenant(input: {
   return rows.length;
 }
 
-/** Lifecycle may revoke a tenant only after deletion has started; this is safe to call idempotently. */
-export async function revokeOAuthTokenFamiliesForDeletingTenant(tenantId: string): Promise<number> {
-  const { rows } = await executeExomemSql`
-    /* exomem:revoke-oauth-token-families-for-deleting-tenant */
-    UPDATE exomem_oauth_token_families AS family
-    SET revoked_at = COALESCE(family.revoked_at, now()),
-        revoked_reason = COALESCE(family.revoked_reason, 'lifecycle_deleted')
-    FROM exomem_oauth_grants AS grant
-    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
-    WHERE grant.id = family.grant_id
-      AND grant.tenant_id = ${tenantId}::uuid
-      AND (tenant.deleted_at IS NOT NULL OR tenant.status = 'deleted' OR tenant.desired_state = 'deleted')
-    RETURNING family.id
-  `;
-  return rows.length;
+/** Lock the authoritative tenant, persist the denial, and revoke all OAuth credentials together. */
+export async function revokeOAuthAccountForOwnerTenantAtomic(input: {
+  ownerUserId: string;
+  tenantId: string;
+  reason?: "operator_revoked" | "lifecycle_deleted";
+}): Promise<number> {
+  const reason = input.reason ?? "operator_revoked";
+  return withExomemTransaction(async (tx) => {
+    const { rows } = await tx`
+      /* exomem:revoke-oauth-account-for-owner-tenant */
+      WITH owner AS (
+        SELECT tenant.id, tenant.owner_user_id
+        FROM exomem_tenants AS tenant
+        WHERE tenant.id = ${input.tenantId}::uuid
+          AND tenant.owner_user_id = ${input.ownerUserId}::uuid
+        FOR UPDATE
+      ), blocked AS (
+        INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason)
+        SELECT id, owner_user_id, ${reason} FROM owner
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET owner_user_id = EXCLUDED.owner_user_id
+        RETURNING tenant_id
+      ), grants AS (
+        UPDATE exomem_oauth_grants AS grant
+        SET revoked_at = COALESCE(grant.revoked_at, now()), updated_at = now()
+        FROM owner
+        WHERE grant.tenant_id = owner.id AND grant.user_id = owner.owner_user_id
+        RETURNING grant.id, grant.authorization_transaction_id
+      ), codes AS (
+        UPDATE exomem_oauth_authorization_codes AS code
+        SET consumed_at = COALESCE(code.consumed_at, now())
+        WHERE code.grant_id IN (SELECT id FROM grants)
+        RETURNING code.id
+      ), transactions AS (
+        UPDATE exomem_oauth_authorization_transactions AS transaction
+        SET consumed_at = COALESCE(transaction.consumed_at, now())
+        WHERE transaction.id IN (SELECT authorization_transaction_id FROM grants WHERE authorization_transaction_id IS NOT NULL)
+           OR EXISTS (
+             SELECT 1 FROM exomem_sessions AS session
+             JOIN owner ON owner.id = session.tenant_id AND owner.owner_user_id = session.user_id
+             WHERE session.id = transaction.redeemed_session_id
+           )
+        RETURNING transaction.id
+      ), families AS (
+        UPDATE exomem_oauth_token_families AS family
+        SET revoked_at = COALESCE(family.revoked_at, now()),
+            revoked_reason = COALESCE(family.revoked_reason, ${reason})
+        WHERE family.grant_id IN (SELECT id FROM grants)
+        RETURNING family.id
+      ), access AS (
+        UPDATE exomem_oauth_access_tokens AS token
+        SET revoked_at = COALESCE(token.revoked_at, now())
+        WHERE token.grant_id IN (SELECT id FROM grants) OR token.family_id IN (SELECT id FROM families)
+        RETURNING token.id
+      )
+      SELECT (SELECT count(*)::integer FROM families) AS revoked_families
+      FROM blocked
+    `;
+    return Number(rows[0]?.revoked_families ?? 0);
+  });
 }
 
 /** RFC 7009 requires unknown or another client's credential to be indistinguishable. */
@@ -681,7 +763,6 @@ export async function revokeOAuthTokenForClient(input: {
     FROM exomem_oauth_clients AS client
     WHERE family.client_id = client.id
       AND client.client_id = ${input.clientId}
-      AND client.enabled = true
       AND (
         EXISTS (
           SELECT 1 FROM exomem_oauth_refresh_tokens AS refresh
@@ -708,7 +789,22 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
 }): Promise<OAuthTokenContext | null> {
   const { rows } = await executeExomemSql`
     /* exomem:oauth-code-exchange */
-    WITH consumed_code AS (
+    WITH cohort_lock AS (
+      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+    ), tenant_lock AS (
+      SELECT tenant.id
+      FROM exomem_tenants AS tenant
+      CROSS JOIN cohort_lock
+      JOIN exomem_oauth_grants AS grant ON grant.tenant_id = tenant.id
+      JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant.id
+      WHERE code.code_digest = ${input.codeDigest}
+        AND tenant.owner_user_id = grant.user_id
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_account_blocks AS block
+          WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
+        )
+      FOR UPDATE OF tenant
+    ), consumed_code AS (
       UPDATE exomem_oauth_authorization_codes AS code
       SET consumed_at = now()
       FROM exomem_oauth_grants AS grant
@@ -716,11 +812,10 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         ON client.id = code.client_id
        AND client.client_id = ${input.clientId}
        AND client.enabled = true
+      JOIN tenant_lock ON true
       JOIN exomem_tenants AS tenant
-        ON tenant.id = grant.tenant_id
-       AND tenant.owner_user_id = grant.user_id
-       AND tenant.status IN ('provisioning', 'active')
-       AND tenant.desired_state = 'running'
+        ON tenant.id = tenant_lock.id
+       AND tenant.status IN ('provisioning', 'active') AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement
         ON entitlement.tenant_id = tenant.id
        AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
@@ -735,6 +830,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND code.consumed_at IS NULL
         AND code.expires_at > now()
         AND grant.revoked_at IS NULL
+        AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
       RETURNING code.grant_id, code.client_id, code.resource, code.refresh_allowed
     ),
     family AS (
@@ -824,15 +920,31 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         AND client.enabled = true
       FOR UPDATE OF token, family
     ),
+    cohort_lock AS (
+      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+    ), tenant_lock AS (
+      SELECT tenant.id
+      FROM credential
+      CROSS JOIN cohort_lock
+      JOIN exomem_oauth_grants AS grant ON grant.id = credential.grant_id
+      JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id AND tenant.owner_user_id = grant.user_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM exomem_oauth_account_blocks AS block
+        WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
+      )
+      FOR UPDATE OF tenant
+    ),
     current_policy AS (
       SELECT credential.id
       FROM credential
       JOIN exomem_oauth_grants AS grant ON grant.id = credential.grant_id AND grant.revoked_at IS NULL
-      JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
+      JOIN tenant_lock ON true
+      JOIN exomem_tenants AS tenant ON tenant.id = tenant_lock.id
         AND tenant.owner_user_id = grant.user_id AND tenant.status IN ('provisioning', 'active')
         AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
+      WHERE EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
     ),
     consumed AS (
       UPDATE exomem_oauth_refresh_tokens AS token

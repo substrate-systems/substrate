@@ -5,7 +5,8 @@ import {
   findActiveOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
-  revokeOAuthTokenFamiliesForDeletingTenant,
+  resolveApprovedOAuthClient,
+  revokeOAuthTokenForClient,
   revokeOAuthTokenFamilyForOwner,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
@@ -153,19 +154,27 @@ describe("Exomem OAuth token store", () => {
     assert.match(queries[1], /grant\.tenant_id = \?::uuid/i);
   });
 
-  it("durably revokes every family once a tenant enters deletion", async () => {
+  it("revokes a disabled client's exact token without making it eligible for authorization", async () => {
     let query = "";
     __setExomemSqlForTests(async (strings) => {
       query = strings.join("?");
-      return { rows: [{ id: "family-1" }] };
+      return { rows: [] };
     });
 
-    assert.equal(
-      await revokeOAuthTokenFamiliesForDeletingTenant("018f2d91-7c42-7000-8000-000000000001"),
-      1
-    );
-    assert.match(query, /tenant\.deleted_at IS NOT NULL/i);
-    assert.match(query, /tenant\.desired_state = 'deleted'/i);
-    assert.match(query, /lifecycle_deleted/i);
+    await revokeOAuthTokenForClient({ tokenDigest: Buffer.alloc(32, 9), clientId: "client-1" });
+
+    assert.match(query, /client\.client_id = \?/i);
+    assert.doesNotMatch(query, /client\.enabled = true/i);
+  });
+
+  it("requires the live hosted cohort before resolving an authorization client", async () => {
+    let query = "";
+    __setExomemSqlForTests(async (strings) => {
+      query = strings.join("?");
+      return { rows: [] };
+    });
+
+    assert.equal(await resolveApprovedOAuthClient("client-1"), null);
+    assert.match(query, /exomem_hosted_alpha_cohort/i);
   });
 });

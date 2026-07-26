@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { __setExomemSqlForTests } from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 import {
   demoteOperatorClientArtifact,
   listOperatorClientArtifacts,
@@ -12,23 +10,12 @@ import {
   setOperatorOAuthClientEnabled,
 } from "../operator-controls";
 
-afterEach(() => __setExomemSqlForTests(null));
+afterEach(() => {
+  __setExomemSqlForTests(null);
+  __setExomemTransactionForTests(null);
+});
 
 describe("hosted operator controls", () => {
-  it("keeps alpha rollout composed from invite eligibility, enabled clients, and live artifacts", () => {
-    const oauthStore = readFileSync(
-      resolve(process.cwd(), "src/lib/exomem-hosted/oauth-store.ts"),
-      "utf8"
-    );
-    const artifacts = readFileSync(
-      resolve(process.cwd(), "src/lib/exomem-hosted/client-artifacts.ts"),
-      "utf8"
-    );
-    assert.match(oauthStore, /client\.enabled = true/);
-    assert.match(oauthStore, /exomem_invites/);
-    assert.match(artifacts, /state = 'live'/);
-  });
-
   it("lists approved clients without returning their raw client identity or redirects", async () => {
     __setExomemSqlForTests(async () => ({
       rows: [
@@ -71,10 +58,12 @@ describe("hosted operator controls", () => {
 
   it("fences family and account revocation to the named owner and tenant", async () => {
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const sql = async (strings: TemplateStringsArray) => {
       queries.push(strings.join("?"));
       return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000002" }] };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (callback) => callback(sql));
     const ownerUserId = "018f2d91-7c42-7000-8000-000000000010";
     const tenantId = "018f2d91-7c42-7000-8000-000000000011";
 
@@ -89,8 +78,8 @@ describe("hosted operator controls", () => {
     assert.equal(await revokeOperatorOAuthAccount({ ownerUserId, tenantId }), 1);
     assert.match(queries[0], /grant\.user_id = \?/i);
     assert.match(queries[0], /grant\.tenant_id = \?/i);
-    assert.match(queries[1], /grant\.user_id = \?/i);
-    assert.match(queries[1], /grant\.tenant_id = \?/i);
+    assert.match(queries[1], /exomem_oauth_account_blocks/i);
+    assert.match(queries[1], /FOR UPDATE/i);
   });
 
   it("reports artifact digests only and demotes live artifacts to retired", async () => {

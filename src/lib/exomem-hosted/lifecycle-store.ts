@@ -1346,6 +1346,65 @@ export class SqlLifecycleStore implements LifecycleStore {
         WHERE tenant.id = owned.tenant_id
         RETURNING tenant.id
       ),
+      oauth_blocked AS (
+        INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason)
+        SELECT tenant.id, tenant.owner_user_id, 'lifecycle_deleted'
+        FROM exomem_tenants AS tenant
+        JOIN tenant_gated ON tenant_gated.id = tenant.id
+        WHERE ${desired}::text = 'deleted'
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET owner_user_id = EXCLUDED.owner_user_id
+        RETURNING tenant_id
+      ),
+      oauth_grants_revoked AS (
+        UPDATE exomem_oauth_grants AS grant
+        SET revoked_at = COALESCE(grant.revoked_at, now()), updated_at = now()
+        FROM tenant_gated
+        WHERE ${desired}::text = 'deleted' AND grant.tenant_id = tenant_gated.id
+        RETURNING grant.id, grant.authorization_transaction_id
+      ),
+      oauth_codes_revoked AS (
+        UPDATE exomem_oauth_authorization_codes AS code
+        SET consumed_at = COALESCE(code.consumed_at, now())
+        WHERE ${desired}::text = 'deleted'
+          AND code.grant_id IN (SELECT id FROM oauth_grants_revoked)
+        RETURNING code.id
+      ),
+      oauth_transactions_revoked AS (
+        UPDATE exomem_oauth_authorization_transactions AS transaction
+        SET consumed_at = COALESCE(transaction.consumed_at, now())
+        WHERE ${desired}::text = 'deleted'
+          AND (
+            transaction.id IN (
+              SELECT authorization_transaction_id FROM oauth_grants_revoked
+              WHERE authorization_transaction_id IS NOT NULL
+            )
+            OR EXISTS (
+              SELECT 1 FROM exomem_sessions AS session
+              JOIN tenant_gated ON tenant_gated.id = session.tenant_id
+              WHERE session.id = transaction.redeemed_session_id
+            )
+          )
+        RETURNING transaction.id
+      ),
+      oauth_families_revoked AS (
+        UPDATE exomem_oauth_token_families AS family
+        SET revoked_at = COALESCE(family.revoked_at, now()),
+            revoked_reason = COALESCE(family.revoked_reason, 'lifecycle_deleted')
+        WHERE ${desired}::text = 'deleted'
+          AND family.grant_id IN (SELECT id FROM oauth_grants_revoked)
+        RETURNING family.id
+      ),
+      oauth_access_revoked AS (
+        UPDATE exomem_oauth_access_tokens AS token
+        SET revoked_at = COALESCE(token.revoked_at, now())
+        WHERE ${desired}::text = 'deleted'
+          AND (
+            token.grant_id IN (SELECT id FROM oauth_grants_revoked)
+            OR token.family_id IN (SELECT id FROM oauth_families_revoked)
+          )
+        RETURNING token.id
+      ),
       cell_gated AS (
         UPDATE exomem_cells AS cell
         SET lifecycle_state = 'draining',

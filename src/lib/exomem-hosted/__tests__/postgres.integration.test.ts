@@ -1289,6 +1289,11 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.equal(operation?.cellId, null);
     assert.equal(operation?.fenceGeneration, 2);
     assert.equal(await store.applyLocalGate(operation!.id, "delete-worker", "deleted"), true);
+    const oauthBlock = await pool.query<{ blocked_reason: string }>(
+      "SELECT blocked_reason FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+      [TENANT]
+    );
+    assert.deepEqual(oauthBlock.rows, [{ blocked_reason: "lifecycle_deleted" }]);
   });
 
   it("runs lifecycle advance and persists a non-attempt-consuming provider wait", async () => {

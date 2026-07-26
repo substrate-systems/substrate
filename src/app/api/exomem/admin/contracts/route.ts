@@ -35,7 +35,7 @@ const platform = (value: unknown): "claude" | "openai" | null =>
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    await requireRateLimitedExomemOperator(request);
+    await requireRateLimitedExomemOperator(request, "read");
     const [agentContracts, clientArtifacts] = await Promise.all([
       listExomemAgentContractStatus(),
       listOperatorClientArtifacts(),

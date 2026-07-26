@@ -1,6 +1,6 @@
 import { executeExomemSql } from "./db";
 import {
-  revokeOAuthTokenFamiliesForOwnerTenant,
+  revokeOAuthAccountForOwnerTenantAtomic,
   revokeOAuthTokenFamilyForOwner,
 } from "./oauth-store";
 
@@ -50,8 +50,12 @@ export async function setOperatorOAuthClientEnabled(input: {
   // approved client, and a live client artifact form the existing cohort gate.
   const { rows } = await executeExomemSql`
     /* exomem:set-operator-oauth-client-enabled */
+    WITH cohort_lock AS (
+      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+    )
     UPDATE exomem_oauth_clients
     SET enabled = ${input.enabled}, updated_at = now()
+    FROM cohort_lock
     WHERE id = ${input.clientRecordId}::uuid
     RETURNING id
   `;
@@ -59,7 +63,7 @@ export async function setOperatorOAuthClientEnabled(input: {
 }
 
 export const revokeOperatorOAuthFamily = revokeOAuthTokenFamilyForOwner;
-export const revokeOperatorOAuthAccount = revokeOAuthTokenFamiliesForOwnerTenant;
+export const revokeOperatorOAuthAccount = revokeOAuthAccountForOwnerTenantAtomic;
 
 export type OperatorClientArtifact = {
   id: string;
@@ -116,8 +120,12 @@ export async function listOperatorClientArtifacts(): Promise<OperatorClientArtif
 export async function demoteOperatorClientArtifact(artifactId: string): Promise<boolean> {
   const { rows } = await executeExomemSql`
     /* exomem:demote-operator-client-artifact */
+    WITH cohort_lock AS (
+      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+    )
     UPDATE exomem_client_artifacts
     SET state = 'retired', retired_at = now()
+    FROM cohort_lock
     WHERE id = ${artifactId}::uuid AND state = 'live'
     RETURNING id
   `;

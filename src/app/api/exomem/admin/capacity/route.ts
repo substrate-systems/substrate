@@ -30,7 +30,7 @@ function capacityValue(value: unknown): number | null {
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    await requireRateLimitedExomemOperator(request);
+    await requireRateLimitedExomemOperator(request, "read");
     const capacity = await getCapacityPoolStatus();
     if (!capacity) throw exomemErrors.invalidRequest();
     operatorSuccessEvent(requestId);

@@ -3,7 +3,11 @@ import { issueOperatorInvite } from "@/lib/exomem-hosted/access";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
 import { requireExomemOperator } from "@/lib/exomem-hosted/operator-auth";
-import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "@/lib/exomem-hosted/rate-limit";
+import {
+  clientAddressKey,
+  EXOMEM_RATE_LIMITS,
+  takeExomemRateLimit,
+} from "@/lib/exomem-hosted/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,9 +21,14 @@ type InviteBody = {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
+    const preAuthAllowed = await takeExomemRateLimit(
+      EXOMEM_RATE_LIMITS.adminPreAuthIp,
+      clientAddressKey(request) ?? "unknown"
+    );
+    if (!preAuthAllowed) throw exomemErrors.rateLimited();
     const operator = requireExomemOperator(request);
     const allowed = await takeExomemRateLimit(
-      EXOMEM_RATE_LIMITS.adminInvites,
+      EXOMEM_RATE_LIMITS.adminAuthenticatedMutation,
       operator.principalDigest.toString("hex")
     );
     if (!allowed) throw exomemErrors.rateLimited();

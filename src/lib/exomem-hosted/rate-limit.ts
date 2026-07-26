@@ -9,10 +9,20 @@ export type ExomemRateLimitRule = {
 };
 
 export const EXOMEM_RATE_LIMITS = {
-  adminInvites: {
-    scope: "exomem:admin-invite",
-    limit: 30,
-    windowSeconds: 60 * 60,
+  adminPreAuthIp: {
+    scope: "exomem:admin-pre-auth-ip",
+    limit: 120,
+    windowSeconds: 10 * 60,
+  },
+  adminAuthenticatedRead: {
+    scope: "exomem:admin-authenticated-read",
+    limit: 600,
+    windowSeconds: 60,
+  },
+  adminAuthenticatedMutation: {
+    scope: "exomem:admin-authenticated-mutation",
+    limit: 60,
+    windowSeconds: 60,
   },
   magicLinkAccount: {
     scope: "exomem:magic-link:account",

@@ -2,14 +2,24 @@ import { exomemErrors } from "./errors";
 import { newRequestId, readBoundedJsonRequest } from "./http";
 import { requireExomemOperator } from "./operator-auth";
 import { emitOperatorControlSuccess, operatorControlErrorResponse } from "./operator-observability";
-import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
+import { clientAddressKey, EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
 
 export const OPERATOR_BODY_MAX_BYTES = 16 * 1024;
 
-export async function requireRateLimitedExomemOperator(request: Request) {
+export async function requireRateLimitedExomemOperator(
+  request: Request,
+  operation: "read" | "mutation" = "mutation"
+) {
+  const preAuthAllowed = await takeExomemRateLimit(
+    EXOMEM_RATE_LIMITS.adminPreAuthIp,
+    clientAddressKey(request) ?? "unknown"
+  );
+  if (!preAuthAllowed) throw exomemErrors.rateLimited();
   const operator = requireExomemOperator(request);
   const allowed = await takeExomemRateLimit(
-    EXOMEM_RATE_LIMITS.adminInvites,
+    operation === "read"
+      ? EXOMEM_RATE_LIMITS.adminAuthenticatedRead
+      : EXOMEM_RATE_LIMITS.adminAuthenticatedMutation,
     operator.principalDigest.toString("hex")
   );
   if (!allowed) throw exomemErrors.rateLimited();
