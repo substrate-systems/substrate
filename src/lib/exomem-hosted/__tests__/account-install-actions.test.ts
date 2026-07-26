@@ -22,6 +22,14 @@ describe("owner install actions", () => {
             tenant_id: tenantId,
             evidence_sha256: "a".repeat(64),
           },
+          {
+            platform: "openai",
+            state: "live",
+            plugin_version: "0.34.0",
+            install_url: "https://chatgpt.com/plugins/exomem-hosted",
+            tenant_id: tenantId,
+            evidence_sha256: "b".repeat(64),
+          },
         ],
       };
     });
@@ -32,13 +40,15 @@ describe("owner install actions", () => {
         version: "0.34.0",
         installUrl: "https://claude.ai/plugins/exomem-hosted",
       },
+      {
+        platform: "openai",
+        version: "0.34.0",
+        installUrl: "https://chatgpt.com/plugins/exomem-hosted",
+      },
     ]);
     assert.match(queries[0], /state = 'live'/i);
     assert.match(queries[0], /artifact\.state = 'live'/i);
-    assert.match(
-      queries[0],
-      /candidate\.profile_id = 'hosted-alpha-agent-v1' AND candidate\.state = 'live'/i
-    );
+    assert.match(queries[0], /FROM exomem_hosted_alpha_cohort AS cohort/i);
     assert.match(queries[0], /artifact\.contract_sha256 = candidate\.schema_digest/i);
     assert.match(queries[0], /artifact\.compatibility_sha256 = candidate\.compatibility_digest/i);
     assert.match(queries[0], /artifact\.package_sha256 =/i);
@@ -77,13 +87,7 @@ describe("owner install actions", () => {
         "018f2d91-7c42-7000-8000-000000000091",
         "018f2d91-7c42-7000-8000-000000000092"
       ),
-      [
-        {
-          platform: "openai",
-          version: "0.34.0",
-          installUrl: "https://chatgpt.com/plugins/exomem-hosted",
-        },
-      ]
+      []
     );
   });
 
@@ -128,10 +132,7 @@ describe("owner install actions", () => {
       ),
       []
     );
-    assert.match(
-      queries[0],
-      /JOIN exomem_agent_contract_candidates AS candidate ON candidate\.profile_id = 'hosted-alpha-agent-v1' AND candidate\.state = 'live'/i
-    );
+    assert.match(queries[0], /FROM exomem_hosted_alpha_cohort AS cohort/i);
   });
 
   it("requires exact contract, compatibility, package, archive, version, and endpoint identity", async () => {

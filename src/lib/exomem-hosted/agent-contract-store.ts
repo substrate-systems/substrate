@@ -612,11 +612,11 @@ export async function promoteExomemHostedCohort(input: {
         AND claude.paired_run_hmac_sha256 = ${sha256(claudeEvidence.paired_run_hmac_sha256, "Claude paired-run digest")}
         AND claude.exomem_identity_hmac_sha256 = ${sha256(claudeEvidence.exomem_identity_hmac_sha256, "Claude Exomem identity digest")}
         AND claude.tenant_hmac_sha256 = ${sha256(claudeEvidence.tenant_hmac_sha256, "Claude tenant digest")}
-        AND claude.oauth_client_config_hmac_sha256 = ${sha256(
-          claudeEvidence.oauth_client_config_hmac_sha256,
+        AND claude.oauth_client_config_sha256 = ${sha256(
+          claudeEvidence.oauth_client_config_sha256,
           "Claude OAuth client configuration digest"
         )}
-        AND claude.oauth_client_config_hmac_sha256 IS NOT NULL
+        AND claude.oauth_client_config_sha256 IS NOT NULL
         AND claude.observed_at <= now() AND claude.observed_at > now() - interval '24 hours'
         AND openai.evidence_sha256 = ${promotionEvidenceDigest(openaiEvidence)}
         AND openai.result_sha256 = ${sha256(openaiEvidence.result_sha256, "OpenAI result digest")}
@@ -631,23 +631,39 @@ export async function promoteExomemHostedCohort(input: {
         AND openai.paired_run_hmac_sha256 = ${sha256(openaiEvidence.paired_run_hmac_sha256, "OpenAI paired-run digest")}
         AND openai.exomem_identity_hmac_sha256 = ${sha256(openaiEvidence.exomem_identity_hmac_sha256, "OpenAI Exomem identity digest")}
         AND openai.tenant_hmac_sha256 = ${sha256(openaiEvidence.tenant_hmac_sha256, "OpenAI tenant digest")}
-        AND openai.oauth_client_config_hmac_sha256 = ${sha256(
-          openaiEvidence.oauth_client_config_hmac_sha256,
+        AND openai.oauth_client_config_sha256 = ${sha256(
+          openaiEvidence.oauth_client_config_sha256,
           "OpenAI OAuth client configuration digest"
         )}
-        AND openai.oauth_client_config_hmac_sha256 IS NOT NULL
+        AND openai.oauth_client_config_sha256 IS NOT NULL
         AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
         AND EXISTS (
           SELECT 1 FROM exomem_oauth_clients AS claude_client
           WHERE claude_client.enabled
             AND claude_client.client_platform = 'claude'
-            AND claude_client.oauth_client_config_hmac_sha256 = claude.oauth_client_config_hmac_sha256
+            AND claude_client.oauth_client_config_sha256 = claude.oauth_client_config_sha256
+            AND claude_client.redirect_uris_digest = digest(convert_to(claude_client.redirect_uris::text, 'utf8'), 'sha256')
+            AND (claude_client.admission_mode = 'pinned' OR (
+              claude_client.metadata_document_digest IS NOT NULL
+              AND claude_client.metadata_fetched_at IS NOT NULL
+              AND claude_client.metadata_ttl_seconds BETWEEN 300 AND 604800
+              AND claude_client.metadata_expires_at > now()
+              AND claude_client.cimd_host IS NOT NULL
+            ))
         )
         AND EXISTS (
           SELECT 1 FROM exomem_oauth_clients AS openai_client
           WHERE openai_client.enabled
             AND openai_client.client_platform = 'openai'
-            AND openai_client.oauth_client_config_hmac_sha256 = openai.oauth_client_config_hmac_sha256
+            AND openai_client.oauth_client_config_sha256 = openai.oauth_client_config_sha256
+            AND openai_client.redirect_uris_digest = digest(convert_to(openai_client.redirect_uris::text, 'utf8'), 'sha256')
+            AND (openai_client.admission_mode = 'pinned' OR (
+              openai_client.metadata_document_digest IS NOT NULL
+              AND openai_client.metadata_fetched_at IS NOT NULL
+              AND openai_client.metadata_ttl_seconds BETWEEN 300 AND 604800
+              AND openai_client.metadata_expires_at > now()
+              AND openai_client.cimd_host IS NOT NULL
+            ))
         )
       ) SELECT candidate_state, claude_state, openai_state FROM exact_cells
     `;

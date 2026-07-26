@@ -10,6 +10,8 @@ import {
   type ExomemTransaction,
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { loadOwnerInstallActions } from "../account-install-actions";
+import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
   attachOpenAiContractLocks,
   getLiveExomemAgentContract,
@@ -134,7 +136,7 @@ function evidence(
     entitlement_hmac_sha256: sha("5"),
     provisioning_operation_hmac_sha256: sha("6"),
     cell_hmac_sha256: sha("7"),
-    oauth_client_config_hmac_sha256: sha("a"),
+    oauth_client_config_sha256: sha("a"),
     identity_count: 1,
     tenant_count: 1,
     entitlement_count: 1,
@@ -257,7 +259,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           : process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL,
       evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
       resultSha256: signed.result_sha256,
-      oauthClientConfigHmacSha256: signed.oauth_client_config_hmac_sha256,
+      oauthClientConfigSha256: signed.oauth_client_config_sha256,
       observedAt: new Date().toISOString(),
       candidateId: artifactCandidateId,
       evidence: signed,
@@ -266,16 +268,18 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     const openAiEvidence = evidence("openai", "integration-secret", randomUUID());
     const claudeId = await storeClientArtifact(makeArtifact("claude", claudeEvidence, candidateId));
     const openAiId = await storeClientArtifact(makeArtifact("openai", openAiEvidence, candidateId));
+    const claudeClientId = `claude-${randomUUID()}`;
+    const openAiClientId = `openai-${randomUUID()}`;
     await pool!.query(
       `INSERT INTO exomem_oauth_clients (
          client_id, admission_mode, enabled, metadata_provenance, redirect_uris,
-         redirect_uris_digest, client_platform, oauth_client_config_hmac_sha256
+         redirect_uris_digest, client_platform, oauth_client_config_sha256
        ) VALUES
          ($1, 'pinned', true, '{}'::jsonb, '["https://example.test/callback"]'::jsonb,
           digest(convert_to('["https://example.test/callback"]', 'utf8'), 'sha256'), 'claude', $2),
          ($3, 'pinned', true, '{}'::jsonb, '["https://example.test/callback"]'::jsonb,
           digest(convert_to('["https://example.test/callback"]', 'utf8'), 'sha256'), 'openai', $2)`,
-      [randomUUID(), sha("a"), randomUUID()]
+      [claudeClientId, sha("a"), openAiClientId]
     );
     const authority = await pool!.query<{ routable_set_digest: string }>(
       "SELECT routable_set_digest FROM exomem_agent_contract_profile_authority WHERE profile_id = $1",
@@ -368,6 +372,14 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       ),
       [candidateId]
     );
+    await pool!.query(
+      `UPDATE exomem_oauth_clients
+       SET admission_mode = 'cimd', metadata_document_digest = digest('expired', 'sha256'),
+           metadata_fetched_at = now() - interval '10 minutes', metadata_ttl_seconds = 300,
+           metadata_expires_at = now() - interval '1 second', cimd_host = 'example.test'
+       WHERE client_platform = 'openai' AND oauth_client_config_sha256 = $1`,
+      [sha("a")]
+    );
     assert.equal(
       await promoteExomemHostedCohort({
         candidateId: replacementCandidateId,
@@ -378,14 +390,100 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         claudeEvidence: replacementClaudeEvidence,
         openaiEvidence: replacementOpenAiEvidence,
       }),
-      "promoted"
+      "precondition_failed"
     );
+    assert.deepEqual(
+      (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
+        (row) => row.id
+      ),
+      [candidateId]
+    );
+    await pool!.query(
+      `UPDATE exomem_oauth_clients
+       SET admission_mode = 'pinned', metadata_document_digest = NULL, metadata_fetched_at = NULL,
+           metadata_ttl_seconds = NULL, metadata_expires_at = NULL, cimd_host = NULL
+       WHERE client_platform = 'openai' AND oauth_client_config_sha256 = $1`,
+      [sha("a")]
+    );
+    const owner = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ($1) RETURNING id",
+      [`cohort-reader-${randomUUID()}@example.test`]
+    );
+    const ownerTenant = await pool!.query<{ id: string }>(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+      [owner.rows[0]!.id]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+      [ownerTenant.rows[0]!.id]
+    );
+    await pool!.query(`
+      CREATE FUNCTION pause_hosted_cohort_promotion() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        PERFORM pg_advisory_xact_lock(0, 714229);
+        PERFORM pg_sleep(0.75);
+        RETURN NEW;
+      END;
+      $$
+    `);
+    await pool!.query(`
+      CREATE TRIGGER pause_hosted_cohort_promotion
+      BEFORE UPDATE OF state ON exomem_agent_contract_candidates
+      FOR EACH ROW WHEN (NEW.id = '${replacementCandidateId}'::uuid AND NEW.state = 'live')
+      EXECUTE FUNCTION pause_hosted_cohort_promotion()
+    `);
+    const replacement = promoteExomemHostedCohort({
+      candidateId: replacementCandidateId,
+      claudeArtifactId: replacementClaudeId,
+      openaiArtifactId: replacementOpenAiId,
+      expectedLiveCandidateId: candidateId,
+      expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+      claudeEvidence: replacementClaudeEvidence,
+      openaiEvidence: replacementOpenAiEvidence,
+    });
+    let barrierReached = false;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const barrier = await pool!.query<{ reached: boolean }>(
+        "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = 714229 AND granted) AS reached"
+      );
+      if (barrier.rows[0]?.reached) {
+        barrierReached = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(barrierReached, true, "replacement must pause before commit");
+    assert.deepEqual(
+      (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
+        (row) => row.id
+      ),
+      [candidateId]
+    );
+    assert.deepEqual(await loadOwnerInstallActions(owner.rows[0]!.id, ownerTenant.rows[0]!.id), [
+      {
+        platform: "claude",
+        version: exomemHostedContractFixture.packageLock.plugin_version,
+        installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL!,
+      },
+      {
+        platform: "openai",
+        version: testOnlyOpenAiLocks.packageLock.plugin_version,
+        installUrl: process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL!,
+      },
+    ]);
+    assert.equal(await replacement, "promoted");
     assert.deepEqual(
       (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
         (row) => row.id
       ),
       [replacementCandidateId]
     );
+    assert.equal(
+      (await loadOwnerInstallActions(owner.rows[0]!.id, ownerTenant.rows[0]!.id)).length,
+      2
+    );
+    assert.equal((await resolveApprovedOAuthClient(claudeClientId))?.clientId, claudeClientId);
+    assert.equal((await resolveApprovedOAuthClient(openAiClientId))?.clientId, openAiClientId);
     assert.deepEqual(
       (
         await pool!.query<{ id: string; state: string }>(
@@ -413,11 +511,11 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       (
         await pool!.query<{ id: string; state: string }>(
           "SELECT id, state FROM exomem_agent_contract_candidates WHERE id = ANY($1::uuid[]) ORDER BY id",
-          [[candidateId, invalidCandidateId]]
+          [[replacementCandidateId, invalidCandidateId]]
         )
       ).rows,
       [
-        { id: candidateId, state: "live" },
+        { id: replacementCandidateId, state: "live" },
         { id: invalidCandidateId, state: "pending" },
       ].sort((left, right) => left.id.localeCompare(right.id))
     );

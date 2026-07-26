@@ -20,7 +20,7 @@ type ClientArtifact = {
   installUrl: string;
   evidenceSha256: string;
   resultSha256: string;
-  oauthClientConfigHmacSha256: string;
+  oauthClientConfigSha256: string;
   observedAt: string;
   candidateId: string;
 };
@@ -113,8 +113,8 @@ function parseClientArtifact(input: unknown): ClientArtifact {
     installUrl: target.href,
     evidenceSha256: sha256(raw.evidenceSha256, "evidence digest"),
     resultSha256: sha256(raw.resultSha256, "result digest"),
-    oauthClientConfigHmacSha256: sha256(
-      raw.oauthClientConfigHmacSha256,
+    oauthClientConfigSha256: sha256(
+      raw.oauthClientConfigSha256,
       "OAuth client configuration digest"
     ),
     observedAt: observedAt.toISOString(),
@@ -144,7 +144,7 @@ const evidenceStrings = [
   "profile",
   "operator_key_id",
   "operator_signature",
-  "oauth_client_config_hmac_sha256",
+  "oauth_client_config_sha256",
 ] as const;
 const evidenceCounts = [
   "identity_count",
@@ -357,7 +357,7 @@ export function validatePromotionEvidence(
     "entitlement_hmac_sha256",
     "provisioning_operation_hmac_sha256",
     "cell_hmac_sha256",
-    "oauth_client_config_hmac_sha256",
+    "oauth_client_config_sha256",
   ] as const)
     sha256(evidence[key], key);
   const keyId = process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID;
@@ -411,14 +411,14 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
     artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 ||
     artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
     artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256 ||
-    artifact.oauthClientConfigHmacSha256 !== evidence.oauth_client_config_hmac_sha256
+    artifact.oauthClientConfigSha256 !== evidence.oauth_client_config_sha256
   ) {
     throw new Error("artifact fields do not match signed evidence");
   }
   const { rows } = await executeExomemSql`
     /* exomem:store-client-artifact */
-    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id, registered_app_id_sha256, oauth_client_config_hmac_sha256, observed_at)
-    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${artifact.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.oauthClientConfigHmacSha256}, ${artifact.observedAt}) RETURNING id
+    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id, registered_app_id_sha256, oauth_client_config_sha256, observed_at)
+    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${artifact.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.oauthClientConfigSha256}, ${artifact.observedAt}) RETURNING id
   `;
   const id = rows[0]?.id;
   if (typeof id !== "string") throw new Error("client artifact insert returned no id");
