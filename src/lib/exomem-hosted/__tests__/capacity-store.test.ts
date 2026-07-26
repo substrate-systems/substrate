@@ -200,4 +200,39 @@ describe("capacity store", () => {
       true
     );
   });
+
+  it("allows a capacity-reducing suspension while the pool is conservatively over capacity", async () => {
+    setTestSql(async (strings) => {
+      const query = strings.join("?");
+      if (query.includes("previous_state")) {
+        return {
+          rows: [
+            {
+              id: "allocation-1",
+              pool_id: "pool-1",
+              storage_bytes: 5,
+              runtime_slots: 1,
+              provision_slots: 0,
+              previous_state: "occupied",
+              reserved_storage_bytes: 5,
+              reserved_runtime_slots: 2,
+              reserved_provision_slots: 0,
+              storage_capacity_bytes: 1,
+              runtime_capacity_slots: 1,
+              provision_reservation_capacity: 0,
+            },
+          ],
+        };
+      }
+      return { rows: [{ id: "allocation-1" }] };
+    });
+
+    assert.equal(
+      await transitionCapacityAllocationAtomic({
+        allocationId: "allocation-1",
+        state: "retained_storage",
+      }),
+      true
+    );
+  });
 });

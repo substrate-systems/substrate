@@ -103,13 +103,18 @@ export async function transitionCapacityAllocationAtomic(input: {
         provision:
           Number(locked.reserved_provision_slots) - oldUsage.provision + nextUsage.provision,
       };
+      const delta = {
+        storage: next.storage - Number(locked.reserved_storage_bytes),
+        runtime: next.runtime - Number(locked.reserved_runtime_slots),
+        provision: next.provision - Number(locked.reserved_provision_slots),
+      };
       if (
         next.storage < 0 ||
         next.runtime < 0 ||
         next.provision < 0 ||
-        next.storage > Number(locked.storage_capacity_bytes) ||
-        next.runtime > Number(locked.runtime_capacity_slots) ||
-        next.provision > Number(locked.provision_reservation_capacity)
+        (delta.storage > 0 && next.storage > Number(locked.storage_capacity_bytes)) ||
+        (delta.runtime > 0 && next.runtime > Number(locked.runtime_capacity_slots)) ||
+        (delta.provision > 0 && next.provision > Number(locked.provision_reservation_capacity))
       )
         return false;
       const poolResult = await tx`
