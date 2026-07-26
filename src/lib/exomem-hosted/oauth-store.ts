@@ -59,6 +59,7 @@ export async function createAuthorizationTransaction(input: {
   stateEnvelope: SecretEnvelope;
   formNonceDigest: Buffer;
   continuationBinding: Buffer;
+  pkceChallenge: string;
   clientId: string;
   redirectUri: string;
   resource: string;
@@ -118,7 +119,7 @@ export async function findPendingOAuthAuthorization(
     /* exomem:find-pending-oauth-authorization */
     SELECT client.client_id, transaction.redirect_uri, transaction.resource,
            transaction.requested_scopes, transaction.state_envelope, transaction.state_digest,
-           transaction.form_nonce_digest, transaction.continuation_binding
+           transaction.form_nonce_digest, transaction.continuation_binding, transaction.pkce_challenge
     FROM exomem_oauth_authorization_transactions AS transaction
     JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
     WHERE transaction.transaction_digest = ${transactionDigest}
@@ -137,6 +138,7 @@ export async function findPendingOAuthAuthorization(
         state_digest: Uint8Array;
         form_nonce_digest: Uint8Array;
         continuation_binding: Uint8Array;
+        pkce_challenge: string;
       }
     | undefined;
   return row
@@ -149,6 +151,7 @@ export async function findPendingOAuthAuthorization(
         stateDigest: Buffer.from(row.state_digest),
         formNonceDigest: Buffer.from(row.form_nonce_digest),
         continuationBinding: Buffer.from(row.continuation_binding),
+        pkceChallenge: row.pkce_challenge,
       }
     : null;
 }
@@ -706,49 +709,49 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
 }): Promise<OAuthTokenContext | null> {
   const { rows } = await executeExomemSql`
     /* exomem:oauth-refresh-rotate */
-    WITH known_token AS (
-      SELECT token.id, token.family_id, family.grant_id, family.client_id
+    WITH credential AS (
+      SELECT token.id, token.consumed_at, token.expires_at, token.family_id, family.grant_id, family.client_id,
+             family.revoked_at, family.expires_at AS family_expires_at
       FROM exomem_oauth_refresh_tokens AS token
       JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
       JOIN exomem_oauth_clients AS client ON client.id = family.client_id
       JOIN exomem_oauth_grants AS grant
         ON grant.id = family.grant_id
-       AND grant.revoked_at IS NULL
        AND grant.resource = ${input.resource}
-      JOIN exomem_tenants AS tenant
-        ON tenant.id = grant.tenant_id
-       AND tenant.owner_user_id = grant.user_id
-       AND tenant.status IN ('provisioning', 'active')
-       AND tenant.desired_state = 'running'
-      JOIN exomem_entitlements AS entitlement
-        ON entitlement.tenant_id = tenant.id
-       AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE token.refresh_digest = ${input.refreshDigest}
         AND client.client_id = ${input.clientId}
         AND client.enabled = true
       FOR UPDATE OF token, family
     ),
+    current_policy AS (
+      SELECT credential.id
+      FROM credential
+      JOIN exomem_oauth_grants AS grant ON grant.id = credential.grant_id AND grant.revoked_at IS NULL
+      JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
+        AND tenant.owner_user_id = grant.user_id AND tenant.status IN ('provisioning', 'active')
+        AND tenant.desired_state = 'running'
+      JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
+        AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
+    ),
     consumed AS (
       UPDATE exomem_oauth_refresh_tokens AS token
       SET consumed_at = now()
-      FROM known_token
-      JOIN exomem_oauth_token_families AS family ON family.id = known_token.family_id
-      JOIN exomem_oauth_grants AS grant ON grant.id = family.grant_id
-      WHERE token.id = known_token.id
+      FROM credential
+      JOIN current_policy ON current_policy.id = credential.id
+      WHERE token.id = credential.id
         AND token.consumed_at IS NULL
         AND token.expires_at > now()
-        AND family.revoked_at IS NULL
-        AND family.expires_at > now()
-        AND grant.revoked_at IS NULL
-      RETURNING known_token.family_id, known_token.grant_id, known_token.client_id
+        AND credential.revoked_at IS NULL
+        AND credential.family_expires_at > now()
+      RETURNING credential.family_id, credential.grant_id, credential.client_id
     ),
     replay_revocation AS (
       UPDATE exomem_oauth_token_families AS family
       SET revoked_at = now(),
           revoked_reason = 'refresh_replayed'
-      FROM known_token
-      WHERE family.id = known_token.family_id
-        AND NOT EXISTS (SELECT 1 FROM consumed)
+      FROM credential
+      WHERE family.id = credential.family_id
+        AND credential.consumed_at IS NOT NULL
         AND family.revoked_at IS NULL
       RETURNING family.id
     ),
@@ -756,10 +759,10 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       INSERT INTO exomem_oauth_refresh_tokens (
         refresh_digest, family_id, parent_refresh_token_id, expires_at
       )
-      SELECT ${input.replacementRefreshDigest}, consumed.family_id, known_token.id,
+      SELECT ${input.replacementRefreshDigest}, consumed.family_id, credential.id,
              family.expires_at
       FROM consumed
-      JOIN known_token ON known_token.family_id = consumed.family_id
+      JOIN credential ON credential.family_id = consumed.family_id
       JOIN exomem_oauth_token_families AS family ON family.id = consumed.family_id
       RETURNING family_id
     ),

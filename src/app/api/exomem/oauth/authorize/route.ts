@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { parseAuthorizeParameters, validateAuthorizationRequest } from "@/lib/exomem-hosted/oauth";
 import {
   createOAuthContinuation,
+  resolveOAuthContinuation,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { resolveApprovedOAuthClient } from "@/lib/exomem-hosted/oauth-store";
@@ -43,16 +44,16 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (parameters.response_type !== "code") return error();
     const clientId = parameters.client_id;
     if (!clientId || clientId.length > 2048) return error();
-    const [ipAllowed, clientAllowed] = await Promise.all([
-      takeExomemRateLimit(
-        EXOMEM_RATE_LIMITS.oauthAuthorizeIp,
-        clientAddressKey(request) ?? "unavailable"
-      ),
-      takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthAuthorizeClient, clientId),
-    ]);
-    if (!ipAllowed || !clientAllowed) return rateLimited();
+    const ipAllowed = await takeExomemRateLimit(
+      EXOMEM_RATE_LIMITS.oauthAuthorizeIp,
+      clientAddressKey(request) ?? "unavailable"
+    );
+    if (!ipAllowed) return rateLimited();
+    if (await resolveOAuthContinuation(request)) return error();
     const client = await resolveApprovedOAuthClient(clientId);
     if (!client) return error();
+    if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthAuthorizeClient, client.clientId)))
+      return rateLimited();
     const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
     const authorization = validateAuthorizationRequest({
       client: { clientId: client.clientId, redirectUris: client.redirectUris },

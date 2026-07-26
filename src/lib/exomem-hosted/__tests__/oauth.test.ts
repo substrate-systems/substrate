@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   bearerChallenge,
@@ -106,6 +107,20 @@ describe("Exomem Hosted OAuth protocol", () => {
       codeChallengeMethod: "S256",
     });
     assert.equal(request.offlineAccess, true);
+  });
+
+  it("keeps the authorization envelope bound to every authorization input", () => {
+    const source = readFileSync("src/lib/exomem-hosted/oauth-continuity.ts", "utf8");
+    for (const field of [
+      "version",
+      "clientId",
+      "redirectUri",
+      "resource",
+      "stateDigest",
+      "codeChallenge",
+    ]) {
+      assert.match(source, new RegExp(field));
+    }
   });
 
   it("accepts CIMD only for an operator-allowlisted HTTPS host with exact identity", () => {

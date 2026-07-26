@@ -3,7 +3,9 @@ import { cookies } from "next/headers";
 import { PrivateShell } from "../private-shell";
 import {
   EXOMEM_OAUTH_FORM_NONCE_COOKIE,
+  EXOMEM_OAUTH_CONTINUITY_COOKIE,
   oauthFormNonceFromCookie,
+  resolveOAuthContinuationToken,
 } from "@/lib/exomem-hosted/oauth-continuity";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +21,9 @@ export default async function ExomemAuthorizePage() {
   const cookieStore = await cookies();
   const nonce =
     oauthFormNonceFromCookie(cookieStore.get(EXOMEM_OAUTH_FORM_NONCE_COOKIE)?.value) ?? "";
+  const continuation = await resolveOAuthContinuationToken(
+    cookieStore.get(EXOMEM_OAUTH_CONTINUITY_COOKIE)?.value
+  );
   return (
     <PrivateShell>
       <main className="mx-auto max-w-xl px-6 py-16">
@@ -27,6 +32,18 @@ export default async function ExomemAuthorizePage() {
           Confirm to connect this client to your Exomem account. If you are not signed in, use your
           existing Exomem access link first, then return here.
         </p>
+        {continuation ? (
+          <dl className="mt-6 space-y-2 text-sm text-neutral-700">
+            <div>
+              <dt className="font-medium">Client</dt>
+              <dd>{continuation.clientId}</dd>
+            </div>
+            <div>
+              <dt className="font-medium">Requested access</dt>
+              <dd>{continuation.scopes.join(", ")}</dd>
+            </div>
+          </dl>
+        ) : null}
         <form action="/api/exomem/oauth/authorize/complete" className="mt-8" method="post">
           <input name="nonce" type="hidden" value={nonce} />
           <button className="rounded bg-black px-4 py-2 text-white" type="submit">

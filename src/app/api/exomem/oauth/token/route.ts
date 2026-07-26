@@ -81,11 +81,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         !form.client_id ||
         !form.redirect_uri ||
         !form.code_verifier ||
-        form.resource !== resource ||
-        !tokenDigest(form.code) ||
-        !isPkceVerifier(form.code_verifier)
+        form.resource !== resource
       )
         return invalidRequest();
+      if (!tokenDigest(form.code) || !isPkceVerifier(form.code_verifier)) return invalidGrant();
       const material = mintOpaqueTokenMaterial({ refreshAllowed: true });
       const issued = await issueOAuthTokensFromCodeAtomic({
         codeDigest: tokenDigest(form.code)!,
