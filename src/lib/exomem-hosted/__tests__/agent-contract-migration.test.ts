@@ -20,6 +20,11 @@ describe("Exomem agent-contract artifact migration", () => {
     assert.doesNotMatch(sql, /\bdigest\s*\(/i);
     assert.match(sql, /CHECK \(install_url ~ '\^https:\/\/'\)/i);
     assert.match(sql, /client_identity_sha256 text NOT NULL/i);
+    assert.match(sql, /paired_run_hmac_sha256 text NOT NULL/i);
+    assert.match(sql, /exomem_identity_hmac_sha256 text NOT NULL/i);
+    assert.match(sql, /tenant_hmac_sha256 text NOT NULL/i);
+    assert.match(sql, /claude_package_lock jsonb NOT NULL/i);
+    assert.match(sql, /openai_package_lock jsonb/i);
     assert.doesNotMatch(sql, /client_identity text/i);
     assert.match(sql, /state = 'failed' AND promoted_at IS NOT NULL AND retired_at IS NULL AND failed_at IS NOT NULL/i);
     assert.doesNotMatch(sql, /(?:token|tenant_selector|cell_endpoint|prompt|result_text)\s+(?:text|jsonb)/i);

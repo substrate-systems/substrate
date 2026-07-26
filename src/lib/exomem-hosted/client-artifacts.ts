@@ -4,7 +4,7 @@ import { executeExomemSql } from "./db";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
 type Platform = "claude" | "openai";
-export type ClientArtifact = {
+type ClientArtifact = {
   platform: Platform;
   state: ClientArtifactState;
   packageSha256: string;
@@ -13,6 +13,9 @@ export type ClientArtifact = {
   contractSha256: string;
   pluginVersion: string;
   clientIdentitySha256: string;
+  pairedRunHmacSha256: string;
+  exomemIdentityHmacSha256: string;
+  tenantHmacSha256: string;
   installUrl: string;
   evidenceSha256: string;
   resultSha256: string;
@@ -44,7 +47,7 @@ function trustedInstallTarget(platform: Platform): URL {
 }
 
 /** Candidate URLs are checked against operator configuration, never a caller-supplied target. */
-export function parseClientArtifact(input: unknown): ClientArtifact {
+function parseClientArtifact(input: unknown): ClientArtifact {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("client artifact must be an object");
   const raw = input as Record<string, unknown>;
   if (raw.platform !== "claude" && raw.platform !== "openai") throw new Error("unsupported artifact platform");
@@ -63,6 +66,9 @@ export function parseClientArtifact(input: unknown): ClientArtifact {
     packageSha256: sha256(raw.packageSha256, "package digest"), archiveSha256: sha256(raw.archiveSha256, "archive digest"),
     compatibilitySha256: sha256(raw.compatibilitySha256, "compatibility digest"), contractSha256: sha256(raw.contractSha256, "contract digest"),
     pluginVersion: raw.pluginVersion, clientIdentitySha256: sha256(raw.clientIdentitySha256, "client identity digest"),
+    pairedRunHmacSha256: sha256(raw.pairedRunHmacSha256, "paired run digest"),
+    exomemIdentityHmacSha256: sha256(raw.exomemIdentityHmacSha256, "Exomem identity digest"),
+    tenantHmacSha256: sha256(raw.tenantHmacSha256, "tenant digest"),
     installUrl: target.href, evidenceSha256: sha256(raw.evidenceSha256, "evidence digest"),
     resultSha256: sha256(raw.resultSha256, "result digest"), observedAt: observedAt.toISOString(),
   };
@@ -123,6 +129,7 @@ function validatePromotionEvidence(input: unknown, platform: Platform): Record<s
 export async function promoteClientArtifact(input: { artifactId: string; platform: Platform; evidence: unknown }): Promise<boolean> {
   const evidence = validatePromotionEvidence(input.evidence, input.platform);
   const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
+  const installUrl = trustedInstallTarget(input.platform).href;
   const { rows } = await executeExomemSql`
     /* exomem:promote-client-artifact */
     WITH candidate AS (
@@ -134,11 +141,21 @@ export async function promoteClientArtifact(input: { artifactId: string; platfor
         AND archive_sha256 = ${sha256(evidence.archive_sha256, "archive digest")}
         AND compatibility_sha256 = ${sha256(evidence.compatibility_sha256, "compatibility digest")}
         AND contract_sha256 = ${sha256(evidence.schema_contract_sha256, "contract digest")}
-        AND plugin_version = ${String(evidence.plugin_version)} AND observed_at <= now() AND observed_at > now() - interval '24 hours'
+        AND plugin_version = ${String(evidence.plugin_version)}
+        AND install_url = ${installUrl}
+        AND client_identity_sha256 = ${sha256(evidence.clean_client_identity_hmac_sha256, "clean client identity digest")}
+        AND paired_run_hmac_sha256 = ${sha256(evidence.paired_run_hmac_sha256, "paired run digest")}
+        AND exomem_identity_hmac_sha256 = ${sha256(evidence.exomem_identity_hmac_sha256, "Exomem identity digest")}
+        AND tenant_hmac_sha256 = ${sha256(evidence.tenant_hmac_sha256, "tenant digest")}
+        AND observed_at <= now() AND observed_at > now() - interval '24 hours'
     ), retired AS (
       UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = ${input.platform} AND state = 'live' AND EXISTS (SELECT 1 FROM evidence_match) RETURNING id
+    ), retirement_complete AS (
+      SELECT count(*) AS retired_count FROM retired
     ), promoted AS (
-      UPDATE exomem_client_artifacts SET state = 'live', promoted_at = now() WHERE id = ${input.artifactId}::uuid AND EXISTS (SELECT 1 FROM evidence_match) RETURNING id
+      UPDATE exomem_client_artifacts SET state = 'live', promoted_at = now()
+      FROM retirement_complete
+      WHERE id = ${input.artifactId}::uuid AND EXISTS (SELECT 1 FROM evidence_match) RETURNING id
     ) SELECT id FROM promoted
   `;
   return rows.length === 1;
@@ -153,11 +170,24 @@ export async function demoteClientArtifact(artifactId: string, reasonSha256: str
   return rows.length === 1;
 }
 
-export async function storeClientArtifact(artifact: ClientArtifact): Promise<string> {
+/** Persist only a server-validated pending artifact; no parsed-record bypass is exported. */
+export async function storeClientArtifact(input: unknown): Promise<string> {
+  const artifact = parseClientArtifact(input);
+  const source = input as Record<string, unknown>;
+  const evidence = validatePromotionEvidence(source.evidence, artifact.platform);
+  const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
+  if (artifact.evidenceSha256 !== evidenceSha256 || artifact.resultSha256 !== evidence.result_sha256 ||
+      artifact.packageSha256 !== evidence.package_artifact_sha256 || artifact.archiveSha256 !== evidence.archive_sha256 ||
+      artifact.compatibilitySha256 !== evidence.compatibility_sha256 || artifact.contractSha256 !== evidence.schema_contract_sha256 ||
+      artifact.pluginVersion !== evidence.plugin_version || artifact.clientIdentitySha256 !== evidence.clean_client_identity_hmac_sha256 ||
+      artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 || artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
+      artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256) {
+    throw new Error("artifact fields do not match signed evidence");
+  }
   const { rows } = await executeExomemSql`
     /* exomem:store-client-artifact */
-    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, install_url, evidence_sha256, result_sha256, observed_at)
-    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${artifact.observedAt}) RETURNING id
+    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, observed_at)
+    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${artifact.observedAt}) RETURNING id
   `;
   const id = rows[0]?.id;
   if (typeof id !== "string") throw new Error("client artifact insert returned no id");

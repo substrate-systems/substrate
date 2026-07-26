@@ -8,7 +8,7 @@ export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mc
 type JsonRecord = Record<string, unknown>;
 type ContractState = "pending" | "live" | "failed" | "retired";
 
-export type ExomemAgentContractCandidate = {
+type ExomemAgentContractCandidate = {
   state: ContractState;
   profile: typeof EXOMEM_HOSTED_PROFILE;
   endpoint: typeof EXOMEM_HOSTED_RESOURCE;
@@ -19,8 +19,10 @@ export type ExomemAgentContractCandidate = {
   protocolVersion: string;
   tools: unknown[];
   compatibility: JsonRecord;
-  packageLock: JsonRecord;
-  archiveLock: JsonRecord;
+  claudePackageLock: JsonRecord;
+  claudeArchiveLock: JsonRecord;
+  openaiPackageLock: JsonRecord | null;
+  openaiArchiveLock: JsonRecord | null;
 };
 
 function record(value: unknown, label: string): JsonRecord {
@@ -39,27 +41,15 @@ function sha256(value: unknown, label: string): string {
   return candidate;
 }
 
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object") {
-    const source = value as JsonRecord;
-    return `{${Object.keys(source).sort().map((key) => `${JSON.stringify(key)}:${canonical(source[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
-export function parseExomemAgentContractCandidate(input: unknown = exomemHostedContractFixture): ExomemAgentContractCandidate {
-  if (canonical(input) !== canonical(exomemHostedContractFixture)) {
-    throw new Error("agent contract imports must use the checked Exomem fixture");
-  }
+function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
   const source = record(exomemHostedContractFixture, "fixture");
-  if (source.sourceCommit !== "5cad1c9ff5fcfb66248d7ec4c35bae4ef4a99226") {
+  if (source.sourceCommit !== "23d4a5db2eabd318b0a1f2bf5e9b352bc9852660") {
     throw new Error("agent contract fixture has an untrusted source commit");
   }
   const compatibility = record(source.compatibility, "compatibility");
-  const packageLock = record(source.packageLock, "package lock");
-  const archiveLock = record(source.archiveLock, "archive lock");
+  const packageLock = record(source.packageLock, "Claude package lock");
+  const archiveLock = record(source.archiveLock, "Claude archive lock");
   if (compatibility.schema_version !== 1) throw new Error("unsupported compatibility schema");
   if (compatibility.profile !== EXOMEM_HOSTED_PROFILE || compatibility.endpoint !== EXOMEM_HOSTED_RESOURCE) {
     throw new Error("compatibility identity is not the Hosted agent contract");
@@ -102,35 +92,33 @@ export function parseExomemAgentContractCandidate(input: unknown = exomemHostedC
   }
   sha256(packageLock.artifact_sha256, "package artifact digest");
   sha256(archiveLock.archive_sha256, "archive digest");
-  const fixtureCommands = (record(record(exomemHostedContractFixture.compatibility, "fixture compatibility").agent_contract, "fixture agent contract").commands as unknown[])
-    .map((command) => string(record(command, "fixture command").name, "fixture command name"));
-  if (canonical((agentContract.commands as unknown[]).map((command) => record(command, "command").mcp_tool)) !==
-      canonical((record(record(exomemHostedContractFixture.compatibility, "fixture compatibility").agent_contract, "fixture agent contract").commands as unknown[]).map((command) => record(command, "fixture command").mcp_tool)) ||
-      canonical((agentContract.commands as unknown[]).map((command) => record(command, "command").name)) !== canonical(fixtureCommands)) {
-    throw new Error("agent command order or raw schemas differ from the checked fixture");
-  }
   return {
     state: "pending", profile: EXOMEM_HOSTED_PROFILE, endpoint: EXOMEM_HOSTED_RESOURCE,
     sourceRelease: string(compatibility.source_release, "source release"), commandSurfaceSha256,
     schemaDigest, compatibilitySha256: sha256(compatibility.compatibility_sha256, "compatibility digest"),
     protocolVersion: string(agentContract.protocol_version, "protocol version"), tools,
-    compatibility, packageLock, archiveLock,
+    compatibility, claudePackageLock: packageLock, claudeArchiveLock: archiveLock,
+    // The checked release deliberately has no registered OpenAI package/archive lock.
+    openaiPackageLock: null, openaiArchiveLock: null,
   };
 }
 
-export async function storeExomemAgentContractCandidate(
-  candidate: ExomemAgentContractCandidate
-): Promise<string> {
+/** Store the sole checked Exomem fixture; no caller-supplied contract is accepted. */
+export async function storeExomemAgentContractCandidate(): Promise<string> {
+  const candidate = checkedExomemAgentContractCandidate();
   const { rows } = await executeExomemSql`
     /* exomem:store-agent-contract-candidate */
     INSERT INTO exomem_agent_contract_candidates (
       state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-      compatibility_digest, protocol_version, contract, package_lock, archive_lock
+      compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+      openai_package_lock, openai_archive_lock
     ) VALUES (
       'pending', ${candidate.profile}, ${candidate.endpoint}, ${candidate.sourceRelease},
       ${candidate.commandSurfaceSha256}, ${candidate.schemaDigest}, ${candidate.compatibilitySha256},
       ${candidate.protocolVersion}, ${JSON.stringify(candidate.compatibility)}::jsonb,
-      ${JSON.stringify(candidate.packageLock)}::jsonb, ${JSON.stringify(candidate.archiveLock)}::jsonb
+      ${JSON.stringify(candidate.claudePackageLock)}::jsonb, ${JSON.stringify(candidate.claudeArchiveLock)}::jsonb,
+      ${candidate.openaiPackageLock === null ? null : JSON.stringify(candidate.openaiPackageLock)}::jsonb,
+      ${candidate.openaiArchiveLock === null ? null : JSON.stringify(candidate.openaiArchiveLock)}::jsonb
     ) RETURNING id
   `;
   const id = rows[0]?.id;
@@ -222,8 +210,8 @@ export async function promoteExomemAgentContractCandidate(input: {
         WHERE claude.platform = 'claude' AND claude.state = 'live'
           AND claude.compatibility_sha256 = candidate.compatibility_digest
           AND claude.contract_sha256 = candidate.schema_digest
-          AND claude.package_sha256 = candidate.package_lock->>'artifact_sha256'
-          AND claude.archive_sha256 = candidate.archive_lock->>'archive_sha256'
+          AND claude.package_sha256 = candidate.claude_package_lock->>'artifact_sha256'
+          AND claude.archive_sha256 = candidate.claude_archive_lock->>'archive_sha256'
           AND claude.observed_at <= now() AND claude.observed_at > now() - interval '24 hours'
       ) AND EXISTS (
         SELECT 1 FROM artifact_rows AS openai
@@ -232,10 +220,17 @@ export async function promoteExomemAgentContractCandidate(input: {
           AND openai.contract_sha256 = candidate.schema_digest
           -- The checked release currently has no registered OpenAI package/archive lock.
           -- Until one is imported into the candidate, promotion must fail closed.
-          AND candidate.package_lock->>'platform' = 'openai'
-          AND openai.package_sha256 = candidate.package_lock->>'artifact_sha256'
-          AND openai.archive_sha256 = candidate.archive_lock->>'archive_sha256'
-          AND openai.plugin_version = candidate.package_lock->>'plugin_version'
+          AND candidate.openai_package_lock->>'platform' = 'openai'
+          AND openai.package_sha256 = candidate.openai_package_lock->>'artifact_sha256'
+          AND openai.archive_sha256 = candidate.openai_archive_lock->>'archive_sha256'
+          AND openai.plugin_version = candidate.openai_package_lock->>'plugin_version'
+          AND EXISTS (
+            SELECT 1 FROM artifact_rows AS claude_pair
+            WHERE claude_pair.platform = 'claude'
+              AND claude_pair.paired_run_hmac_sha256 = openai.paired_run_hmac_sha256
+              AND claude_pair.exomem_identity_hmac_sha256 = openai.exomem_identity_hmac_sha256
+              AND claude_pair.tenant_hmac_sha256 = openai.tenant_hmac_sha256
+          )
           AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
       )
     ), retired AS (

@@ -4,8 +4,8 @@ import { after, before, describe, it } from "node:test";
 import { Pool } from "pg";
 import { __setExomemSqlForTests, type ExomemSql } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
-import { parseExomemAgentContractCandidate, promoteExomemAgentContractCandidate, storeExomemAgentContractCandidate } from "../agent-contract-store";
-import { demoteClientArtifact, parseClientArtifact, promoteClientArtifact, storeClientArtifact } from "../client-artifacts";
+import { promoteExomemAgentContractCandidate, recordRoutableCellObservation, storeExomemAgentContractCandidate } from "../agent-contract-store";
+import { demoteClientArtifact, promoteClientArtifact, storeClientArtifact } from "../client-artifacts";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
@@ -45,6 +45,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     pool = new Pool({ connectionString: databaseUrl, max: 3 });
     await pool.query("SELECT 1");
     __setExomemSqlForTests(sql(pool));
+    process.env.DATABASE_URL = databaseUrl;
     process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL = "https://claude.ai/plugins/exomem-hosted";
     process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID = "integration-operator";
     process.env.EXOMEM_HOSTED_PROMOTION_SECRET = "integration-secret";
@@ -55,27 +56,56 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     delete process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL;
     delete process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID;
     delete process.env.EXOMEM_HOSTED_PROMOTION_SECRET;
+    delete process.env.DATABASE_URL;
     await pool?.end();
   });
 
-  it("demotes a publicly promoted live artifact without violating historical timestamp invariants", async () => {
-    const signed = evidence("claude", "integration-secret", randomUUID());
-    const artifact = parseClientArtifact({
+  it("serializes public replacement of a live artifact before promoting its successor", async () => {
+    const makeArtifact = (signed: Record<string, unknown>) => ({
       platform: "claude", state: "pending", packageSha256: signed.package_artifact_sha256, archiveSha256: signed.archive_sha256,
       compatibilitySha256: signed.compatibility_sha256, contractSha256: signed.schema_contract_sha256, pluginVersion: signed.plugin_version,
-      clientIdentitySha256: sha("f"), installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL, evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"), resultSha256: signed.result_sha256, observedAt: new Date().toISOString(),
+      clientIdentitySha256: signed.clean_client_identity_hmac_sha256, pairedRunHmacSha256: signed.paired_run_hmac_sha256,
+      exomemIdentityHmacSha256: signed.exomem_identity_hmac_sha256, tenantHmacSha256: signed.tenant_hmac_sha256,
+      installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL, evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"), resultSha256: signed.result_sha256, observedAt: new Date().toISOString(), evidence: signed,
     });
-    const id = await storeClientArtifact(artifact);
-    assert.equal(await promoteClientArtifact({ artifactId: id, platform: "claude", evidence: signed }), true);
-    assert.equal(await demoteClientArtifact(id, sha("9")), true);
-    const row = await pool!.query<{ state: string; promoted_at: Date; failed_at: Date }>("SELECT state, promoted_at, failed_at FROM exomem_client_artifacts WHERE id = $1", [id]);
+    const firstEvidence = evidence("claude", "integration-secret", randomUUID());
+    const firstId = await storeClientArtifact(makeArtifact(firstEvidence));
+    assert.equal(await promoteClientArtifact({ artifactId: firstId, platform: "claude", evidence: firstEvidence }), true);
+    const secondEvidence = evidence("claude", "integration-secret", randomUUID());
+    const secondId = await storeClientArtifact(makeArtifact(secondEvidence));
+    assert.equal(await promoteClientArtifact({ artifactId: secondId, platform: "claude", evidence: secondEvidence }), true);
+    const replaced = await pool!.query<{ id: string; state: string }>("SELECT id, state FROM exomem_client_artifacts WHERE id = ANY($1::uuid[])", [[firstId, secondId]]);
+    assert.deepEqual(replaced.rows.sort((left, right) => left.id.localeCompare(right.id)).map((row) => row.state).sort(), ["live", "retired"]);
+    assert.equal(await demoteClientArtifact(secondId, sha("9")), true);
+    const row = await pool!.query<{ state: string; promoted_at: Date; failed_at: Date }>("SELECT state, promoted_at, failed_at FROM exomem_client_artifacts WHERE id = $1", [secondId]);
     assert.equal(row.rows[0]?.state, "failed");
     assert.ok(row.rows[0]?.promoted_at);
     assert.ok(row.rows[0]?.failed_at);
   });
 
   it("fails contract promotion closed while the exact OpenAI package lock is absent", async () => {
-    const candidateId = await storeExomemAgentContractCandidate(parseExomemAgentContractCandidate());
+    const candidateId = await storeExomemAgentContractCandidate();
     assert.equal(await promoteExomemAgentContractCandidate({ candidateId, expectedRoutableCellDigest: sha("0") }), false);
+  });
+
+  it("serializes concurrent public routable observations through the transaction path", async () => {
+    const cells = await pool!.query<{ id: string }>("SELECT id FROM exomem_cells ORDER BY id LIMIT 1");
+    assert.ok(cells.rows[0]?.id, "guarded PostgreSQL database requires an isolated test cell");
+    const fixture = exomemHostedContractFixture.compatibility;
+    const observation = {
+      cellId: cells.rows[0]!.id,
+      sourceRelease: fixture.source_release,
+      protocolVersion: fixture.agent_contract.protocol_version,
+      commandSurfaceSha256: fixture.command_surface_sha256,
+      schemaDigest: fixture.schema_contract_sha256,
+      compatibilitySha256: fixture.compatibility_sha256,
+      routable: true,
+    };
+    await Promise.all([recordRoutableCellObservation(observation), recordRoutableCellObservation(observation)]);
+    const authority = await pool!.query<{ routable_cell_count: number }>(
+      "SELECT routable_cell_count FROM exomem_agent_contract_profile_authority WHERE profile_id = $1",
+      [fixture.profile]
+    );
+    assert.ok((authority.rows[0]?.routable_cell_count ?? 0) >= 1);
   });
 });

@@ -8,7 +8,8 @@ import { inflateRawSync } from "node:zlib";
 
 const PROFILE = "hosted-alpha-agent-v1";
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
-const RELEASE_COMMIT = "5cad1c9ff5fcfb66248d7ec4c35bae4ef4a99226";
+const RELEASE_COMMIT = "23d4a5db2eabd318b0a1f2bf5e9b352bc9852660";
+const RELEASE_ARCHIVE_SHA256 = "1321d9ca381b67430500ef74ff0e26f8f313d0597bd87f6d7513a64da04c20db";
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -143,7 +144,11 @@ if (expectedCommit !== RELEASE_COMMIT) fail("generator only accepts the pinned E
 const repo = resolve(repoArg);
 const output = resolve(outputArg);
 const jsonOutput = resolve(jsonOutputArg);
-const archive = archiveArg ? tarEntries(readFileSync(resolve(archiveArg))) : null;
+const archiveBytes = archiveArg ? readFileSync(resolve(archiveArg)) : null;
+if (archiveBytes && createHash("sha256").update(archiveBytes).digest("hex") !== RELEASE_ARCHIVE_SHA256) {
+  fail("archive does not match the reviewed pinned SHA-256");
+}
+const archive = archiveBytes ? tarEntries(archiveBytes) : null;
 if (!archive) {
   const actualCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
   if (actualCommit !== expectedCommit) fail("Exomem checkout is not at the selected commit");
