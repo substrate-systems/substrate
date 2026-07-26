@@ -31,6 +31,7 @@ const attached: Array<{ sessionId: string; transactionDigest: Buffer; codeDigest
 let admitCalls: Array<Record<string, unknown>> = [];
 let admissionError: Error | null = null;
 let rateLimitAllowed = true;
+let oauthClientResolutions = 0;
 let tokenStoreCalls = 0;
 const codes = new Map<
   string,
@@ -106,15 +107,17 @@ before(() => {
   process.env.EXOMEM_PUBLIC_BASE_URL = BASE_URL;
   mock.module("@/lib/exomem-hosted/oauth-store", {
     namedExports: {
-      resolveApprovedOAuthClient: async (clientId: string) =>
-        clientId === CLIENT_ID
+      resolveApprovedOAuthClient: async (clientId: string) => {
+        oauthClientResolutions += 1;
+        return clientId === CLIENT_ID
           ? {
               id: "018f2d91-7c42-7000-8000-000000000041",
               clientId: CLIENT_ID,
               redirectUris: [REDIRECT_URI],
               admissionMode: "pinned",
             }
-          : null,
+          : null;
+      },
       createAuthorizationTransaction: async (input: StoredContinuation) => {
         continuations.set(digestKey(input.transactionDigest), input);
         return { id: `transaction-${continuations.size}` };
@@ -288,6 +291,7 @@ beforeEach(() => {
   admitCalls = [];
   admissionError = null;
   rateLimitAllowed = true;
+  oauthClientResolutions = 0;
   tokenStoreCalls = 0;
   codes.clear();
   refreshCredentials.clear();
@@ -295,7 +299,7 @@ beforeEach(() => {
   revocableCredentialFamilies.clear();
 });
 
-function authorizeRequest(state = "client-state"): Request {
+function authorizeRequest(state = "client-state", overrides: Record<string, string> = {}): Request {
   const query = new URLSearchParams({
     response_type: "code",
     client_id: CLIENT_ID,
@@ -305,6 +309,7 @@ function authorizeRequest(state = "client-state"): Request {
     state,
     code_challenge: pkceS256(VERIFIER),
     code_challenge_method: "S256",
+    ...overrides,
   });
   return new Request(`${BASE_URL}/api/exomem/oauth/authorize?${query}`, {
     headers: { "x-forwarded-for": "203.0.113.10" },
@@ -350,6 +355,65 @@ function confirmation(response: Response): string {
 }
 
 describe("Exomem OAuth routes", () => {
+  it("rate limits before resolving a client or opening an authorization continuation", async () => {
+    const { GET } = await import("../authorize/route");
+    rateLimitAllowed = false;
+
+    const response = await GET(authorizeRequest());
+
+    assert.equal(response.status, 429);
+    assert.deepEqual(await response.json(), { error: "temporarily_unavailable" });
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("retry-after"), "600");
+    assert.equal(oauthClientResolutions, 0);
+    assert.equal(continuations.size, 0);
+  });
+
+  it("returns approved authorization failures to the bound client with the original state", async () => {
+    const { GET } = await import("../authorize/route");
+    const response = await GET(
+      authorizeRequest("opaque client state", { scope: "exomem.read unsupported.scope" })
+    );
+
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    const callback = new URL(response.headers.get("location")!);
+    assert.equal(callback.origin + callback.pathname, REDIRECT_URI);
+    assert.equal(callback.searchParams.get("error"), "invalid_request");
+    assert.equal(callback.searchParams.get("state"), "opaque client state");
+  });
+
+  it("keeps an unapproved redirect authorization failure local", async () => {
+    const { GET } = await import("../authorize/route");
+    const response = await GET(
+      authorizeRequest("attacker state", {
+        redirect_uri: "https://attacker.example.test/oauth/callback",
+        scope: "exomem.read unsupported.scope",
+      })
+    );
+
+    assert.equal(response.status, 400);
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), { error: "invalid_request" });
+  });
+
+  it("omits an oversized state from an approved authorization error callback", async () => {
+    const { GET } = await import("../authorize/route");
+    const response = await GET(
+      authorizeRequest("s".repeat(2049), { scope: "exomem.read unsupported.scope" })
+    );
+
+    assert.equal(response.status, 303);
+    const location = response.headers.get("location");
+    assert.ok(location);
+    assert.ok(location.length < 300);
+    const callback = new URL(location);
+    assert.equal(callback.searchParams.get("error"), "invalid_request");
+    assert.equal(callback.searchParams.has("state"), false);
+  });
+
   it("redirects a valid authorization into an opaque, sealed continuation", async () => {
     const { GET } = await import("../authorize/route");
     const response = await GET(authorizeRequest());
