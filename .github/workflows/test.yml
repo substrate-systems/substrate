@@ -41,5 +41,6 @@ jobs:
           node --import tsx --experimental-test-module-mocks --test
           src/lib/exomem-hosted/__tests__/oauth-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/agent-contract-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/capacity-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/migration-upgrade.integration.test.ts
           src/lib/exomem-hosted/__tests__/hosted-paired-acceptance.test.ts
