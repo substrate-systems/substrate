@@ -14,7 +14,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
-1. migrations `0017` through `0032_exomem_client_artifact_identity.sql` applied to the production Neon database;
+1. migrations `0017` through `0033_exomem_mcp_protocol_compatibility.sql` applied to the production Neon database;
 2. an Exomem `0.33.0` cell image from commit `08f1cee281bd0dbcaf82094421c11d6be04dc5c2` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -176,10 +176,11 @@ Archive the signed import, locks, digests, opaque run reference, and
 content-free result digest; never archive client content, OAuth secrets, raw
 tokens, or a tenant identifier.
 
-The repository's paired fixture and fake-provider/MCP acceptance test are local
-seam proof only. They are never sufficient to promote a client artifact. A real
-registered OpenAI `asdk_app_*` artifact and a clean-client, content-bearing
-cross-client run remain external release gates. Promotion requires separately
+The repository's paired fixture composes schema-isolated PostgreSQL admission,
+OAuth issuance, lifecycle, deletion, and the fake provider/MCP seams. It is
+local seam proof only and is never sufficient to promote a client artifact. A
+real registered OpenAI `asdk_app_*` artifact and a clean-client,
+content-bearing cross-client run remain external release gates. Promotion requires separately
 recorded, signed evidence from a clean real Claude client and a clean real
 OpenAI client: native install, one OAuth
 authorization, static discovery without infrastructure creation, seeded recall,
