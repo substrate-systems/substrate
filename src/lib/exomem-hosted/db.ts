@@ -71,7 +71,9 @@ export async function withExomemTransaction<T>(
   callback: (tx: ExomemSql) => Promise<T>
 ): Promise<T> {
   if (transactionRunner) return transactionRunner(callback);
-  if (sqlClient) return callback(sqlClient);
+  if (sqlClient) {
+    throw new Error("interactive Exomem transaction runner is not configured");
+  }
 
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
@@ -192,9 +194,8 @@ export type RedeemedAccess = {
 };
 
 /**
- * Consume an invite and create every product-scoped row in one SQL statement.
- * The locked invite is the dependency root for all data-modifying CTEs, so a
- * replay or concurrent caller returns no row and cannot create a second tenant.
+ * Consume an invite for an already-provisioned owner. First-owner Hosted
+ * admission must go through the capacity-aware OAuth transaction instead.
  */
 export async function redeemInviteAtomic(
   input: RedeemInviteAtomicInput
@@ -212,23 +213,16 @@ export async function redeemInviteAtomic(
       FOR UPDATE
     ),
     owner AS (
-      INSERT INTO users (email, email_verified_at)
-      SELECT email_normalized, now()
-      FROM locked_invite
-      ON CONFLICT (email) DO UPDATE
-      SET email = EXCLUDED.email,
-          email_verified_at = COALESCE(users.email_verified_at, now())
+      SELECT users.id
+      FROM users
+      JOIN locked_invite ON locked_invite.email_normalized = users.email
       WHERE users.deleted_at IS NULL
-      RETURNING id
     ),
     tenant AS (
-      INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
-      SELECT id, 'provisioning', 'running'
-      FROM owner
-      ON CONFLICT (owner_user_id) DO UPDATE
-      SET updated_at = exomem_tenants.updated_at
-      WHERE exomem_tenants.status <> 'deleted'
-      RETURNING id, owner_user_id
+      SELECT tenant.id, tenant.owner_user_id
+      FROM exomem_tenants AS tenant
+      JOIN owner ON owner.id = tenant.owner_user_id
+      WHERE tenant.status <> 'deleted' AND tenant.deleted_at IS NULL
     ),
     existing_entitlement AS (
       SELECT entitlement.tenant_id

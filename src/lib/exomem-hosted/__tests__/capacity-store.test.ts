@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { __setExomemSqlForTests } from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
   acquireCapacityProvisionClaim,
   configureCapacityPoolAtomic,
@@ -10,12 +10,20 @@ import {
   transitionCapacityAllocationAtomic,
 } from "../capacity-store";
 
-afterEach(() => __setExomemSqlForTests(null));
+afterEach(() => {
+  __setExomemSqlForTests(null);
+  __setExomemTransactionForTests(null);
+});
+
+function setTestSql(sql: ExomemSql): void {
+  __setExomemSqlForTests(sql);
+  __setExomemTransactionForTests(async (callback) => callback(sql));
+}
 
 describe("capacity store", () => {
   it("transitions a locked allocation and its pool counters together", async () => {
     let query = "";
-    __setExomemSqlForTests(async (strings) => {
+    setTestSql(async (strings) => {
       query = strings.join("?");
       if (query.includes("previous_state")) {
         return {
@@ -50,7 +58,7 @@ describe("capacity store", () => {
 
   it("acquires and renews claims under a pool lock, then releases and expires them in bounded batches", async () => {
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    setTestSql(async (strings) => {
       const query = strings.join("?");
       queries.push(query);
       if (query.includes("SELECT allocation.id AS allocation_id")) {
@@ -114,7 +122,7 @@ describe("capacity store", () => {
 
   it("recomputes durable occupancy before configuring a pool", async () => {
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    setTestSql(async (strings) => {
       const query = strings.join("?");
       queries.push(query);
       if (query.includes("SELECT id\n      FROM exomem_capacity_pools"))

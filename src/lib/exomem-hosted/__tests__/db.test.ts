@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import {
   __setExomemSqlForTests,
+  __setExomemTransactionForTests,
   createMagicAccessToken,
   createTransferGrantRecord,
   recordExomemCheckoutTransaction,
@@ -11,12 +12,28 @@ import {
   redeemInviteAtomic,
   resolveActiveCellBinding,
   takeRateLimit,
+  withExomemTransaction,
   type ExomemSql,
 } from "../db";
 
-afterEach(() => __setExomemSqlForTests(null));
+afterEach(() => {
+  __setExomemSqlForTests(null);
+  __setExomemTransactionForTests(null);
+});
 
 describe("Exomem hosted database boundary", () => {
+  it("never treats an injected HTTP SQL client as an interactive transaction", async () => {
+    let called = false;
+    __setExomemSqlForTests(async () => ({ rows: [] }));
+    await assert.rejects(
+      withExomemTransaction(async () => {
+        called = true;
+      }),
+      /interactive Exomem transaction runner is not configured/
+    );
+    assert.equal(called, false);
+  });
+
   it("prunes expired tenant transfer audit rows while issuing a replacement", async () => {
     let statement = "";
     __setExomemSqlForTests(async (strings) => {
@@ -44,7 +61,7 @@ describe("Exomem hosted database boundary", () => {
     assert.match(statement, /INSERT INTO exomem_transfer_grants/i);
   });
 
-  it("redeems through one atomic statement and concurrent replay creates no second tenant", async () => {
+  it("redeems an existing owner through one atomic statement without creating capacity-bypassing tenants", async () => {
     let consumed = false;
     let queryCount = 0;
     let capturedSql = "";
@@ -80,8 +97,8 @@ describe("Exomem hosted database boundary", () => {
     assert.equal(new Set(results.filter(Boolean).map((row) => row?.tenantId)).size, 1);
     assert.equal(queryCount, 2, "one database statement per redemption attempt");
     assert.match(capturedSql, /FOR UPDATE/i);
-    assert.match(capturedSql, /INSERT INTO users/i);
-    assert.match(capturedSql, /INSERT INTO exomem_tenants/i);
+    assert.doesNotMatch(capturedSql, /INSERT INTO users/i);
+    assert.doesNotMatch(capturedSql, /INSERT INTO exomem_tenants/i);
     assert.match(capturedSql, /INSERT INTO exomem_entitlements/i);
     assert.match(capturedSql, /ON CONFLICT \(tenant_id\) DO NOTHING/i);
     assert.doesNotMatch(
