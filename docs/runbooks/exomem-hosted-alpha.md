@@ -94,6 +94,99 @@ observed or that TTL expires, whichever happens first. This bounded window is
 accepted for the private beta; suspected credential compromise still requires
 immediate cell quiescence and credential rotation.
 
+## MCP OAuth, capacity, and client promotion
+
+The canonical protected resource is
+`https://substratesystems.io/api/exomem/mcp/v1`. Its only supported discovery
+paths are:
+
+- `/.well-known/oauth-protected-resource/api/exomem/mcp/v1`;
+- `/.well-known/oauth-authorization-server/api/exomem/oauth`; and
+- `/api/exomem/oauth/authorize`, `/token`, and `/revoke`.
+
+Do not publish a tenant-specific connector URL, alternate resource origin, or
+manual package configuration. MCP bearer credentials belong only in the
+`Authorization` header; never put them in a URL, cookie, tool argument, log,
+or cell header. Discovery, failed authentication, and `initialize`/`tools/list`
+must not create or wake a tenant cell.
+
+`EXOMEM_CONTROL_PLANE_KEY` protects the OAuth continuation and control-plane
+secrets. Rotate it as a planned maintenance operation: pause new OAuth
+authorization and invite admission, retain a complete receiver overlap where
+the deployment supports it, deploy the new key material, prove a new
+authorization, refresh rotation, and revocation, then remove the old key.
+Never rotate by deleting token, grant, or family rows. Revoke a compromised
+client family first; use account-wide revocation only when every client must
+re-authorize.
+
+The operator-held contract and promotion keys are separate from OAuth and cell
+credentials:
+
+| Variable                                                                       | Purpose                                                                                         |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID`, `EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET` | Verify the signed import of the exact Exomem compatibility contract and supported client locks. |
+| `EXOMEM_HOSTED_PROMOTION_KEY_ID`, `EXOMEM_HOSTED_PROMOTION_SECRET`             | Verify clean-client promotion evidence.                                                         |
+| `EXOMEM_HOSTED_CLAUDE_INSTALL_URL`, `EXOMEM_HOSTED_OPENAI_INSTALL_URL`         | Server-owned promoted install locations only.                                                   |
+
+Rotate each signing/import secret with a new key ID and overlapping verifier
+deployment. Import or promote only artifacts signed by a currently configured
+key ID; after evidence has been re-signed and checked, remove the old verifier.
+Do not reuse any of these values as an OAuth, scheduler, provisioner, or cell
+credential.
+
+Capacity is an authoritative database ledger, not a provider inventory. One
+first authorization reserves exactly 5 GiB storage, one runtime slot, and one
+initial-provision reservation before it creates the tenant, entitlement, grant,
+or operation. `reserved`, `occupied`, and `uncertain` retain storage/runtime;
+only verified destruction moves an allocation to `released`. `retained_storage`
+keeps storage without runtime. The globally bounded provision claim limits
+in-flight provider work independently of queued reservations. Inspect the pool,
+allocation, claim lease, operation checkpoint, and stable error code together;
+never free capacity because a provider response timed out or an operator cannot
+find a cell by hand.
+
+For `TENANT_PREPARING`, `CELL_PREPARING`, capacity, or terminal provisioning
+failures, return only the stable MCP error and opaque request/support reference.
+Inspect the tenant/operation/claim IDs, expected release and protocol, and
+readiness proof privately. A failed or stale candidate is discarded; it is never
+bound or used as fallback. A same-owner second Claude/OpenAI authorization adds
+its own grant/token family to the existing tenant and must not reserve capacity
+or create a second cell or volume.
+
+Suspend closes the routing gate before the provider call and retains the same
+tenant/cell mapping. Resume reacquires runtime capacity as needed and reopens
+routing only after exact readiness. Deletion closes routing and durably revokes
+all OAuth grants, access tokens, refresh families, browser sessions, invites,
+and transfers before destruction; keep it pending until compute, storage, and
+keys are all proven destroyed.
+
+### Contract and artifact control
+
+Import the exact `hosted-alpha-agent-v1` compatibility artifact as `pending`.
+Compare profile, endpoint, source release, command-surface digest,
+schema-contract digest, compatibility digest, protocol range, and both client
+package/archive locks. Before promotion, prove every routable cell exposes that
+same private profile. Promotion is atomic: live discovery stays on the current
+contract until the candidate and real clean-client evidence both verify.
+
+Demotion stops new installs/authorizations for the affected artifact, restores
+the last known compatible live contract, and leaves existing token families
+subject to their normal entitlement and lifecycle checks. If no compatible live
+contract exists, keep the resource unavailable rather than widening discovery.
+Archive the signed import, locks, digests, opaque run reference, and
+content-free result digest; never archive client content, OAuth secrets, raw
+tokens, or a tenant identifier.
+
+The repository's paired fixture and fake-provider/MCP acceptance test are local
+validation only. They prove seam behavior and exact local counts, but are
+explicitly non-promotable and never create an OpenAI production lock or promoted
+state. Promotion requires separately recorded, signed evidence from a clean
+real Claude client and a clean real OpenAI client: native install, one OAuth
+authorization, static discovery without infrastructure creation, seeded recall,
+citation, governed capture, fresh-chat recall, lifecycle/revocation handling,
+and same-owner attachment to one tenant/cell/volume. Do not represent a mocked
+route or a test fixture as a client run.
+
 ### External hosted scheduler
 
 Vercel Hobby rejects cron expressions that run more than once per day, so the
