@@ -28,6 +28,7 @@ describe("Exomem hosted database boundary", () => {
       "utf8"
     );
     assert.doesNotMatch(oauthStore, /redeemInviteAtomic/);
+    assert.doesNotMatch(oauthStore, /admitFirstOAuthInviteAtomicLegacy/);
     assert.match(oauthStore, /withExomemTransaction/);
   });
 
