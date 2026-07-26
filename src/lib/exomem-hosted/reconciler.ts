@@ -792,7 +792,7 @@ export class LifecycleReconciler {
         operation.id,
         owner,
         "initial_provision",
-        Math.ceil((this.#config.leaseMs + 30_000) / 1_000)
+        Math.max(330, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
       );
       if (capacity === "exhausted") {
         const retried = await this.#store.retry(
@@ -808,6 +808,9 @@ export class LifecycleReconciler {
       if (capacity !== "acquired" && capacity !== "legacy") {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
+      this.#requireStored(
+        await this.#store.renewLease(operation.id, owner, Math.max(330_000, this.#config.leaseMs))
+      );
       const request: ProvisionCellRequest = {
         context: this.#context(operation),
         tenantId: operation.tenantId,
@@ -989,7 +992,7 @@ export class LifecycleReconciler {
         operation.id,
         owner,
         "resume",
-        Math.ceil((this.#config.leaseMs + 30_000) / 1_000)
+        Math.max(330, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
       );
       if (capacity === "exhausted") {
         const retried = await this.#store.retry(
@@ -1005,6 +1008,9 @@ export class LifecycleReconciler {
       if (capacity !== "acquired" && capacity !== "legacy") {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
+      this.#requireStored(
+        await this.#store.renewLease(operation.id, owner, Math.max(330_000, this.#config.leaseMs))
+      );
       await this.#provisioner.resume(this.#target(operation, cell));
       if (capacity === "acquired") {
         this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));

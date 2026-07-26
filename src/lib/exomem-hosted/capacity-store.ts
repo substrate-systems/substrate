@@ -1,4 +1,4 @@
-import { executeExomemSql, withExomemTransaction } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 
 export type CapacityAllocationState =
@@ -98,10 +98,11 @@ export async function transitionCapacityAllocationAtomic(input: {
   state: CapacityAllocationState;
   tenantId?: string;
   operationId?: string;
+  transaction?: ExomemSql;
 }): Promise<boolean> {
   if (!allocationStates.has(input.state)) throw new Error("invalid capacity allocation state");
   try {
-    const result = await withExomemTransaction(async (tx) => {
+    const apply = async (tx: ExomemSql) => {
       const lockedResult = await tx`
         SELECT allocation.id, allocation.pool_id, allocation.storage_bytes, allocation.runtime_slots,
                allocation.provision_slots, allocation.state AS previous_state,
@@ -186,8 +187,11 @@ export async function transitionCapacityAllocationAtomic(input: {
       `;
       if (!allocationResult.rows[0]) throw new CapacityTransitionRejected();
       return { succeeded: true, previous: locked.previous_state };
-    });
-    if (result.succeeded) {
+    };
+    const result = input.transaction
+      ? await apply(input.transaction)
+      : await withExomemTransaction(apply);
+    if (result.succeeded && !input.transaction) {
       emitCapacityTransition({
         operationId: input.operationId,
         previous: result.previous as CapacityAllocationState,
@@ -387,6 +391,8 @@ export async function acquireCapacityProvisionClaim(input: {
         SELECT id
         FROM exomem_lifecycle_operations
         WHERE id = ${input.operationId}::uuid AND tenant_id = ${locked.tenant_id}::uuid
+          AND operation_type = ${input.kind === "initial_provision" ? "provision" : "resume"}
+          AND checkpoint = ${input.kind === "initial_provision" ? "candidate-created" : "local-gated"}
         FOR UPDATE
       `;
       if (!operationResult.rows[0]) return false;
@@ -458,11 +464,17 @@ export async function acquireCapacityProviderWorkAtomic(input: {
       WHERE operation.id = ${input.operationId}::uuid AND operation.state = 'running'
         AND operation.lease_owner = ${input.leaseOwner} AND operation.lease_expires_at > now()
         AND operation.fence_generation = tenant.fence_generation
+        AND operation.operation_type = ${
+          input.kind === "initial_provision" ? "provision" : "resume"
+        }
+        AND operation.checkpoint = ${
+          input.kind === "initial_provision" ? "candidate-created" : "local-gated"
+        }
       FOR UPDATE OF operation, tenant
     `;
-    if (!legacy.rows[0]) return "conflict";
+    if (!legacy.rows[0]) return { outcome: "conflict" as const };
     if ((legacy.rows[0] as { legacy_unmetered?: boolean }).legacy_unmetered === true)
-      return "legacy";
+      return { outcome: "legacy" as const };
     const { rows } = await tx`
       SELECT operation.id AS operation_id, allocation.id AS allocation_id, allocation.pool_id,
              allocation.state, allocation.storage_bytes, allocation.runtime_slots,
@@ -477,19 +489,30 @@ export async function acquireCapacityProviderWorkAtomic(input: {
         AND operation.state = 'running' AND operation.lease_owner = ${input.leaseOwner}
         AND operation.lease_expires_at > now() AND operation.fence_generation = tenant.fence_generation
         AND tenant.deleted_at IS NULL AND tenant.status <> 'deleted'
+        AND operation.operation_type = ${
+          input.kind === "initial_provision" ? "provision" : "resume"
+        }
+        AND operation.checkpoint = ${
+          input.kind === "initial_provision" ? "candidate-created" : "local-gated"
+        }
       FOR UPDATE OF operation, tenant, allocation, pool
     `;
     const row = rows[0] as Record<string, unknown> | undefined;
-    if (!row) return "conflict";
+    if (!row) return { outcome: "conflict" as const };
     const state = String(row.state) as CapacityAllocationState;
     const expected = input.kind === "initial_provision" ? "reserved" : "retained_storage";
-    if (state !== expected && state !== "uncertain") return "conflict";
+    if (state !== expected && state !== "uncertain") return { outcome: "conflict" as const };
+    await tx`
+      DELETE FROM exomem_capacity_claims
+      WHERE pool_id = ${String(row.pool_id)}::uuid AND lease_expires_at <= now()
+    `;
     const claim = await tx`
       SELECT id, operation_id FROM exomem_capacity_claims
       WHERE allocation_id = ${String(row.allocation_id)}::uuid FOR UPDATE
     `;
     const existing = claim.rows[0] as { id: string; operation_id: string } | undefined;
-    if (existing && existing.operation_id !== input.operationId) return "exhausted";
+    if (existing && existing.operation_id !== input.operationId)
+      return { outcome: "exhausted" as const };
     if (!existing) {
       const count = await tx`
         SELECT count(*)::integer AS active FROM exomem_capacity_claims
@@ -499,7 +522,7 @@ export async function acquireCapacityProviderWorkAtomic(input: {
         Number((count.rows[0] as { active?: number })?.active ?? 0) >=
         Number(row.provision_claim_capacity)
       )
-        return "exhausted";
+        return { outcome: "exhausted" as const };
     }
     const allocation = {
       storage_bytes: Number(row.storage_bytes),
@@ -521,7 +544,7 @@ export async function acquireCapacityProviderWorkAtomic(input: {
       (next.provision > Number(row.reserved_provision_slots) &&
         next.provision > Number(row.provision_reservation_capacity))
     )
-      return "exhausted";
+      return { outcome: "exhausted" as const };
     if (state !== "uncertain") {
       await tx`UPDATE exomem_capacity_pools SET reserved_storage_bytes = ${next.storage}, reserved_runtime_slots = ${next.runtime}, reserved_provision_slots = ${next.provision}, updated_at = now() WHERE id = ${String(row.pool_id)}::uuid`;
       await tx`UPDATE exomem_capacity_allocations SET state = 'uncertain', updated_at = now() WHERE id = ${String(row.allocation_id)}::uuid`;
@@ -530,10 +553,19 @@ export async function acquireCapacityProviderWorkAtomic(input: {
       await tx`UPDATE exomem_capacity_claims SET lease_owner = ${input.leaseOwner}, lease_expires_at = now() + (${leaseSeconds} * interval '1 second') WHERE id = ${existing.id}::uuid`;
     else
       await tx`INSERT INTO exomem_capacity_claims (pool_id, allocation_id, operation_id, claim_kind, lease_owner, lease_expires_at) VALUES (${String(row.pool_id)}::uuid, ${String(row.allocation_id)}::uuid, ${input.operationId}::uuid, ${input.kind}, ${input.leaseOwner}, now() + (${leaseSeconds} * interval '1 second'))`;
-    return "acquired";
+    return { outcome: "acquired" as const, previous: state };
   });
-  if (result === "acquired") emitCapacityClaim(input);
-  return result;
+  if (result.outcome === "acquired") {
+    if (result.previous !== "uncertain") {
+      emitCapacityTransition({
+        operationId: input.operationId,
+        previous: result.previous,
+        next: "uncertain",
+      });
+    }
+    emitCapacityClaim(input);
+  }
+  return result.outcome;
 }
 
 export async function markUnboundCellDestroyedAtomic(input: {
@@ -543,29 +575,44 @@ export async function markUnboundCellDestroyedAtomic(input: {
 }): Promise<boolean> {
   const result = await withExomemTransaction(async (tx) => {
     const locked = await tx`
-      SELECT operation.operation_type, operation.tenant_id, allocation.id AS allocation_id,
-             allocation.operation_id AS allocation_operation_id, allocation.pool_id,
-             allocation.state, allocation.storage_bytes, allocation.runtime_slots, allocation.provision_slots,
-             pool.reserved_storage_bytes, pool.reserved_runtime_slots, pool.reserved_provision_slots
+      SELECT operation.operation_type, operation.tenant_id, tenant.legacy_unmetered, cell.lifecycle_state
       FROM exomem_lifecycle_operations AS operation
       JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
       JOIN exomem_cells AS cell ON cell.id = ${input.cellId}::uuid AND cell.tenant_id = tenant.id
-      LEFT JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
-      LEFT JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
       WHERE operation.id = ${input.operationId}::uuid AND operation.state = 'running'
         AND operation.lease_owner = ${input.leaseOwner} AND operation.lease_expires_at > now()
         AND operation.fence_generation = tenant.fence_generation AND cell.routing_state <> 'bound'
         AND tenant.bound_cell_id IS DISTINCT FROM cell.id
-      FOR UPDATE OF operation, tenant, cell, allocation, pool
+      FOR UPDATE OF operation, tenant, cell
     `;
     const row = locked.rows[0] as Record<string, unknown> | undefined;
     if (!row) return { completed: false, released: false };
+    const allocationResult = await tx`
+      SELECT allocation.id AS allocation_id, allocation.operation_id AS allocation_operation_id,
+             allocation.pool_id, allocation.state, allocation.storage_bytes, allocation.runtime_slots,
+             allocation.provision_slots, pool.reserved_storage_bytes, pool.reserved_runtime_slots,
+             pool.reserved_provision_slots
+      FROM exomem_capacity_allocations AS allocation
+      JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+      WHERE allocation.tenant_id = ${String(row.tenant_id)}::uuid
+      FOR UPDATE OF allocation, pool
+    `;
+    const allocation = allocationResult.rows[0] as Record<string, unknown> | undefined;
     if (
       row.operation_type === "provision" &&
-      (!row.allocation_id ||
-        row.allocation_operation_id !== input.operationId ||
-        row.state === "released")
+      (!allocation?.allocation_id || allocation.allocation_operation_id !== input.operationId) &&
+      row.legacy_unmetered !== true
     ) {
+      return { completed: false, released: false };
+    }
+    if (
+      row.operation_type === "provision" &&
+      allocation?.state === "released" &&
+      row.lifecycle_state === "deleted"
+    ) {
+      return { completed: true, released: false };
+    }
+    if (row.operation_type === "provision" && allocation?.state === "released") {
       return { completed: false, released: false };
     }
     await tx`
@@ -576,25 +623,25 @@ export async function markUnboundCellDestroyedAtomic(input: {
         retired_at = COALESCE(retired_at, now()), updated_at = now()
       WHERE id = ${input.cellId}::uuid
     `;
-    if (row.operation_type !== "provision" || !row.allocation_id)
+    if (row.operation_type !== "provision" || !allocation?.allocation_id)
       return { completed: true, released: false };
-    const old = capacityUsage(row.state as CapacityAllocationState, {
-      storage_bytes: Number(row.storage_bytes),
-      runtime_slots: Number(row.runtime_slots),
-      provision_slots: Number(row.provision_slots),
+    const old = capacityUsage(allocation.state as CapacityAllocationState, {
+      storage_bytes: Number(allocation.storage_bytes),
+      runtime_slots: Number(allocation.runtime_slots),
+      provision_slots: Number(allocation.provision_slots),
     });
     await tx`
       UPDATE exomem_capacity_pools SET reserved_storage_bytes = reserved_storage_bytes - ${old.storage},
         reserved_runtime_slots = reserved_runtime_slots - ${old.runtime},
         reserved_provision_slots = reserved_provision_slots - ${old.provision}, updated_at = now()
-      WHERE id = ${String(row.pool_id)}::uuid
+      WHERE id = ${String(allocation.pool_id)}::uuid
     `;
-    await tx`UPDATE exomem_capacity_allocations SET state = 'released', released_at = now(), updated_at = now() WHERE id = ${String(row.allocation_id)}::uuid`;
-    await tx`DELETE FROM exomem_capacity_claims WHERE allocation_id = ${String(row.allocation_id)}::uuid`;
+    await tx`UPDATE exomem_capacity_allocations SET state = 'released', released_at = now(), updated_at = now() WHERE id = ${String(allocation.allocation_id)}::uuid`;
+    await tx`DELETE FROM exomem_capacity_claims WHERE allocation_id = ${String(allocation.allocation_id)}::uuid`;
     return {
       completed: true,
       released: true,
-      previous: row.state as CapacityAllocationState,
+      previous: allocation.state as CapacityAllocationState,
     };
   });
   if (result.released) {

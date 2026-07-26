@@ -54,6 +54,37 @@ async function runningProvision(legacyUnmetered = false): Promise<string> {
   return operation.rows[0].id;
 }
 
+async function meteredRunningProvision(checkpoint = "candidate-created"): Promise<string> {
+  const operationId = await runningProvision();
+  const operation = await pool!.query<{ tenant_id: string }>(
+    "SELECT tenant_id FROM exomem_lifecycle_operations WHERE id = $1",
+    [operationId]
+  );
+  const poolRow = await pool!.query<{ id: string }>(
+    "SELECT id FROM exomem_capacity_pools WHERE pool_key = 'exomem-hosted-alpha'"
+  );
+  await pool!.query(
+    `UPDATE exomem_capacity_pools
+     SET storage_capacity_bytes = 100, runtime_capacity_slots = 1,
+         provision_reservation_capacity = 1, provision_claim_capacity = 1,
+         reserved_storage_bytes = 1, reserved_runtime_slots = 1, reserved_provision_slots = 1,
+         configured_at = now(), updated_at = now()
+     WHERE id = $1`,
+    [poolRow.rows[0]!.id]
+  );
+  await pool!.query(
+    `INSERT INTO exomem_capacity_allocations (
+       pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state, operation_id
+     ) VALUES ($1, $2, 1, 1, 1, 'reserved', $3)`,
+    [poolRow.rows[0]!.id, operation.rows[0]!.tenant_id, operationId]
+  );
+  await pool!.query("UPDATE exomem_lifecycle_operations SET checkpoint = $2 WHERE id = $1", [
+    operationId,
+    checkpoint,
+  ]);
+  return operationId;
+}
+
 describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `capacity_it_${randomUUID().replaceAll("-", "")}`;
@@ -100,6 +131,37 @@ describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, ()
         leaseSeconds: 60,
       }),
       "legacy"
+    );
+  });
+
+  it("serializes the final provider claim and fences a stale checkpoint", async () => {
+    const first = await meteredRunningProvision();
+    const second = await meteredRunningProvision();
+    const [firstResult, secondResult] = await Promise.all([
+      acquireCapacityProviderWorkAtomic({
+        operationId: first,
+        leaseOwner: "worker-a",
+        kind: "initial_provision",
+        leaseSeconds: 300,
+      }),
+      acquireCapacityProviderWorkAtomic({
+        operationId: second,
+        leaseOwner: "worker-a",
+        kind: "initial_provision",
+        leaseSeconds: 300,
+      }),
+    ]);
+    assert.deepEqual(new Set([firstResult, secondResult]), new Set(["acquired", "exhausted"]));
+
+    const stale = await meteredRunningProvision("provider-converged");
+    assert.equal(
+      await acquireCapacityProviderWorkAtomic({
+        operationId: stale,
+        leaseOwner: "worker-a",
+        kind: "initial_provision",
+        leaseSeconds: 300,
+      }),
+      "conflict"
     );
   });
 });

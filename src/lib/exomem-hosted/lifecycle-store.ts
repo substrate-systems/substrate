@@ -1,4 +1,4 @@
-import { executeExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import {
   acquireCapacityProviderWorkAtomic,
   markUnboundCellDestroyedAtomic,
@@ -116,9 +116,24 @@ export class SqlLifecycleStore implements LifecycleStore {
   async #transitionCapacityForOwnedOperation(
     operationId: string,
     owner: string,
-    state: "occupied" | "retained_storage" | "released"
+    state: "occupied" | "retained_storage" | "released",
+    transaction?: ExomemSql
   ): Promise<boolean> {
-    const { rows } = await executeExomemSql`
+    const sql = transaction ?? executeExomemSql;
+    const legacy = await sql`
+      SELECT tenant.legacy_unmetered
+      FROM exomem_lifecycle_operations AS operation
+      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+      WHERE operation.id = ${operationId}::uuid
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.fence_generation = tenant.fence_generation
+      FOR UPDATE OF operation, tenant
+    `;
+    if (!legacy.rows[0]) return false;
+    if ((legacy.rows[0] as { legacy_unmetered?: boolean }).legacy_unmetered === true) return true;
+    const { rows } = await sql`
       /* exomem:lifecycle-capacity-transition */
       SELECT allocation.id AS allocation_id
       FROM exomem_lifecycle_operations AS operation
@@ -139,6 +154,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       (await transitionCapacityAllocationAtomic({
         allocationId: allocation.allocation_id,
         state,
+        transaction,
       }))
     );
   }
@@ -1103,7 +1119,8 @@ export class SqlLifecycleStore implements LifecycleStore {
   }
 
   async bindCandidate(operationId: string, owner: string): Promise<boolean> {
-    const { rows } = await executeExomemSql`
+    return withExomemTransaction(async (tx) => {
+      const { rows } = await tx`
       /* exomem:lifecycle-bind-candidate */
       WITH owned AS (
         SELECT operation.id,
@@ -1179,10 +1196,12 @@ export class SqlLifecycleStore implements LifecycleStore {
       FROM already_bound
       LIMIT 1
     `;
-    return (
-      rows.length === 1 &&
-      (await this.#transitionCapacityForOwnedOperation(operationId, owner, "occupied"))
-    );
+      if (rows.length !== 1) return false;
+      if (!(await this.#transitionCapacityForOwnedOperation(operationId, owner, "occupied", tx))) {
+        throw new Error("capacity transition rejected");
+      }
+      return true;
+    });
   }
 
   async prepareCandidateCleanup(
@@ -1261,55 +1280,6 @@ export class SqlLifecycleStore implements LifecycleStore {
       leaseOwner: owner,
       cellId,
     });
-    if (false) {
-      const { rows } = await executeExomemSql`
-      /* exomem:lifecycle-mark-unbound-cell-destroyed */
-      UPDATE exomem_cells AS cell
-      SET lifecycle_state = 'deleted',
-          routing_state = 'retiring',
-          desired_state = 'deleted',
-          provider_ref = NULL,
-          private_endpoint_ciphertext = NULL,
-          service_credential_ciphertext = NULL,
-          service_credential_digest = NULL,
-          pending_service_credential_ciphertext = NULL,
-          pending_service_credential_digest = NULL,
-          pending_credential_version = NULL,
-          retired_at = COALESCE(retired_at, now()),
-          updated_at = now()
-      FROM exomem_lifecycle_operations AS operation
-      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
-      WHERE operation.id = ${operationId}
-        AND operation.state = 'running'
-        AND operation.lease_owner = ${owner}
-        AND operation.lease_expires_at > now()
-        AND operation.fence_generation = tenant.fence_generation
-        AND cell.id = ${cellId}
-        AND cell.tenant_id = operation.tenant_id
-        AND cell.routing_state <> 'bound'
-        AND tenant.bound_cell_id IS DISTINCT FROM cell.id
-      RETURNING cell.id
-    `;
-      if (rows.length !== 1) return false;
-      const operation = await this.#ownedOperationType(operationId, owner);
-      return (
-        operation !== "provision" ||
-        (await this.#transitionCapacityForOwnedOperation(operationId, owner, "released"))
-      );
-    }
-  }
-
-  async #ownedOperationType(operationId: string, owner: string): Promise<string | null> {
-    const { rows } = await executeExomemSql`
-      SELECT operation_type
-      FROM exomem_lifecycle_operations
-      WHERE id = ${operationId}::uuid
-        AND state = 'running'
-        AND lease_owner = ${owner}
-        AND lease_expires_at > now()
-      LIMIT 1
-    `;
-    return rows[0]?.operation_type ? String(rows[0].operation_type) : null;
   }
 
   async applyLocalGate(
@@ -1430,7 +1400,8 @@ export class SqlLifecycleStore implements LifecycleStore {
     state: CellControlRecord["lifecycleState"]
   ): Promise<boolean> {
     const deleting = state === "deleted";
-    const { rows } = await executeExomemSql`
+    return withExomemTransaction(async (tx) => {
+      const { rows } = await tx`
       /* exomem:lifecycle-mark-cell-state */
       WITH owned AS (
         SELECT operation.tenant_id, operation.cell_id
@@ -1573,18 +1544,35 @@ export class SqlLifecycleStore implements LifecycleStore {
       )
       SELECT id FROM tenant_updated
     `;
-    if (rows.length !== 1) return false;
-    if (state === "quiesced" || state === "stopped") {
-      return this.#transitionCapacityForOwnedOperation(operationId, owner, "retained_storage");
-    }
-    if (state === "deleted") {
-      return this.#transitionCapacityForOwnedOperation(operationId, owner, "released");
-    }
-    return true;
+      if (rows.length !== 1) return false;
+      if (state === "quiesced" || state === "stopped") {
+        if (
+          !(await this.#transitionCapacityForOwnedOperation(
+            operationId,
+            owner,
+            "retained_storage",
+            tx
+          ))
+        ) {
+          throw new Error("capacity transition rejected");
+        }
+        return true;
+      }
+      if (state === "deleted") {
+        if (
+          !(await this.#transitionCapacityForOwnedOperation(operationId, owner, "released", tx))
+        ) {
+          throw new Error("capacity transition rejected");
+        }
+        return true;
+      }
+      return true;
+    });
   }
 
   async activateAfterReadiness(operationId: string, owner: string): Promise<boolean> {
-    const { rows } = await executeExomemSql`
+    return withExomemTransaction(async (tx) => {
+      const { rows } = await tx`
       /* exomem:lifecycle-activate-after-readiness */
       WITH owned AS (
         SELECT operation.tenant_id, operation.cell_id
@@ -1620,10 +1608,12 @@ export class SqlLifecycleStore implements LifecycleStore {
       )
       SELECT id FROM tenant_active
     `;
-    return (
-      rows.length === 1 &&
-      (await this.#transitionCapacityForOwnedOperation(operationId, owner, "occupied"))
-    );
+      if (rows.length !== 1) return false;
+      if (!(await this.#transitionCapacityForOwnedOperation(operationId, owner, "occupied", tx))) {
+        throw new Error("capacity transition rejected");
+      }
+      return true;
+    });
   }
 
   async prepareCredentialRotation(

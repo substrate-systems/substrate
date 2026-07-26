@@ -369,11 +369,13 @@ describe("capacity store", () => {
     } finally {
       console.info = originalInfo;
     }
-    const event = JSON.parse(lines[0] ?? "{}");
-    assert.equal(event.event, "lifecycle.capacity.claim");
-    assert.equal(event.operationId, operationId);
-    assert.equal(event.capacityBucket, "provision");
-    assert.equal(event.claimKind, "initial_provision");
+    const events = lines.map((line) => JSON.parse(line));
+    assert.equal(events[0]?.event, "lifecycle.capacity.transition");
+    assert.equal(events[0]?.transition, "reserved_to_uncertain");
+    assert.equal(events[1]?.event, "lifecycle.capacity.claim");
+    assert.equal(events[1]?.operationId, operationId);
+    assert.equal(events[1]?.capacityBucket, "provision");
+    assert.equal(events[1]?.claimKind, "initial_provision");
   });
 
   it("does not delete a provision candidate when its allocation is missing", async () => {
@@ -402,5 +404,57 @@ describe("capacity store", () => {
       queries.some((query) => /UPDATE exomem_cells/i.test(query)),
       false
     );
+  });
+
+  it("validates the provider operation checkpoint and clears expired pool claims before admission", async () => {
+    const queries: string[] = [];
+    setTestSql(async (strings) => {
+      const query = strings.join("?");
+      queries.push(query);
+      if (query.includes("tenant.legacy_unmetered")) return { rows: [{ legacy_unmetered: false }] };
+      if (query.includes("allocation.id AS allocation_id")) {
+        return {
+          rows: [
+            {
+              allocation_id: "allocation-1",
+              pool_id: "pool-1",
+              state: "reserved",
+              storage_bytes: 5,
+              runtime_slots: 1,
+              provision_slots: 1,
+              reserved_storage_bytes: 5,
+              reserved_runtime_slots: 1,
+              reserved_provision_slots: 1,
+              storage_capacity_bytes: 5,
+              runtime_capacity_slots: 1,
+              provision_reservation_capacity: 1,
+              provision_claim_capacity: 1,
+            },
+          ],
+        };
+      }
+      if (query.includes("SELECT id, operation_id FROM exomem_capacity_claims"))
+        return { rows: [] };
+      if (query.includes("count(*)::integer AS active")) return { rows: [{ active: 0 }] };
+      return { rows: [{ id: "row-1" }] };
+    });
+
+    assert.equal(
+      await acquireCapacityProviderWorkAtomic({
+        operationId: "018f2d91-7c42-7000-8000-000000000066",
+        leaseOwner: "worker-a",
+        kind: "initial_provision",
+        leaseSeconds: 60,
+      }),
+      "acquired"
+    );
+    const operationQuery = queries.find((query) => query.includes("tenant.legacy_unmetered")) ?? "";
+    assert.match(operationQuery, /operation\.operation_type = \?/i);
+    assert.match(operationQuery, /operation\.checkpoint = \?/i);
+    const expiredIndex = queries.findIndex((query) =>
+      /DELETE FROM exomem_capacity_claims/i.test(query)
+    );
+    const countIndex = queries.findIndex((query) => /count\(\*\)::integer AS active/i.test(query));
+    assert.ok(expiredIndex >= 0 && expiredIndex < countIndex);
   });
 });
