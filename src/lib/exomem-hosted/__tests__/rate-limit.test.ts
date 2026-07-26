@@ -23,3 +23,10 @@ test("operator pre-auth reads, mutations, and authenticated actions have indepen
   assert.notEqual(rules.adminPreAuthMutationIp?.scope, rules.adminAuthenticatedMutation?.scope);
   assert.notEqual(rules.adminAuthenticatedRead?.scope, rules.adminAuthenticatedMutation?.scope);
 });
+
+test("OAuth token exchanges use a dedicated bounded IP rule", () => {
+  const rule = EXOMEM_RATE_LIMITS.oauthTokenIp;
+  assert.equal(rule.scope, "exomem:oauth-token:ip");
+  assert.ok(rule.limit > 0);
+  assert.ok(rule.windowSeconds > 0);
+});

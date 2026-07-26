@@ -11,6 +11,11 @@ import {
   issueOAuthTokensFromCodeAtomic,
   rotateOAuthRefreshTokenAtomic,
 } from "@/lib/exomem-hosted/oauth-store";
+import {
+  clientAddressKey,
+  EXOMEM_RATE_LIMITS,
+  takeExomemRateLimit,
+} from "@/lib/exomem-hosted/rate-limit";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 
 export const runtime = "nodejs";
@@ -46,6 +51,19 @@ function invalidRequest(): NextResponse {
   );
 }
 
+function rateLimited(): NextResponse {
+  return NextResponse.json(
+    { error: "temporarily_unavailable" },
+    {
+      status: 429,
+      headers: {
+        ...oauthNoStoreHeaders(),
+        "retry-after": String(EXOMEM_RATE_LIMITS.oauthTokenIp.windowSeconds),
+      },
+    }
+  );
+}
+
 function tokenResponse(input: {
   accessToken: string;
   refreshToken?: string;
@@ -65,6 +83,11 @@ function tokenResponse(input: {
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
+    const allowed = await takeExomemRateLimit(
+      EXOMEM_RATE_LIMITS.oauthTokenIp,
+      clientAddressKey(request) ?? "unavailable"
+    );
+    if (!allowed) return rateLimited();
     const form = await readOAuthForm(request, TOKEN_FIELDS);
     const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
     if (form.grant_type === "authorization_code") {

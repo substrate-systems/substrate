@@ -29,6 +29,8 @@ type StoredContinuation = {
 const continuations = new Map<string, StoredContinuation>();
 const attached: Array<{ sessionId: string; transactionDigest: Buffer; codeDigest: Buffer }> = [];
 let admitCalls: Array<Record<string, unknown>> = [];
+let rateLimitAllowed = true;
+let tokenStoreCalls = 0;
 const codes = new Map<
   string,
   {
@@ -137,6 +139,7 @@ before(() => {
         refreshDigest: Buffer;
         accessDigest: Buffer;
       }) => {
+        tokenStoreCalls++;
         const code = codes.get(digestKey(input.codeDigest));
         if (
           !code ||
@@ -177,6 +180,7 @@ before(() => {
         clientId: string;
         resource: string;
       }) => {
+        tokenStoreCalls++;
         const credential = refreshCredentials.get(digestKey(input.refreshDigest));
         const family = credential ? families.get(credential.familyId) : null;
         if (
@@ -228,9 +232,13 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {
     namedExports: {
-      EXOMEM_RATE_LIMITS: { oauthAuthorizeIp: {}, oauthAuthorizeClient: {} },
+      EXOMEM_RATE_LIMITS: {
+        oauthAuthorizeIp: {},
+        oauthAuthorizeClient: {},
+        oauthTokenIp: { windowSeconds: 60 },
+      },
       clientAddressKey: () => "203.0.113.10",
-      takeExomemRateLimit: async () => true,
+      takeExomemRateLimit: async () => rateLimitAllowed,
     },
   });
   mock.module("@/lib/exomem-hosted/public-origin", {
@@ -274,6 +282,8 @@ beforeEach(() => {
   continuations.clear();
   attached.length = 0;
   admitCalls = [];
+  rateLimitAllowed = true;
+  tokenStoreCalls = 0;
   codes.clear();
   refreshCredentials.clear();
   families.clear();
@@ -636,6 +646,36 @@ describe("Exomem OAuth routes", () => {
     assert.equal(response.status, 400);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal((await response.text()).includes(FORM_SECRET), false);
+  });
+
+  it("rate limits token requests before reading form data or invoking the token store", async () => {
+    const { POST } = await import("../token/route");
+    rateLimitAllowed = false;
+    let bodyReads = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        bodyReads++;
+        controller.enqueue(new TextEncoder().encode(`code=${FORM_SECRET}`));
+        controller.close();
+      },
+    });
+    const request = new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    const response = await POST(request);
+    const responseBody = await response.text();
+    assert.equal(response.status, 429);
+    assert.deepEqual(JSON.parse(responseBody), { error: "temporarily_unavailable" });
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(response.headers.get("retry-after"), "60");
+    assert.equal(bodyReads, 0);
+    assert.equal(request.bodyUsed, false);
+    assert.equal(tokenStoreCalls, 0);
+    assert.equal(responseBody.includes(FORM_SECRET), false);
   });
 
   it("rejects unexpected and duplicate token form fields before token handling", async () => {
