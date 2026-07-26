@@ -494,10 +494,12 @@ function toolFailure(
   };
 }
 
-async function boundedBody(request: Request): Promise<{ value: unknown; bytes: number }> {
+async function boundedBody(
+  request: Request
+): Promise<{ value: unknown; bytes: number } | { error: ExomemHostedError; bytes?: number }> {
   const length = request.headers.get("content-length");
   if (length && (!/^\d+$/.test(length) || Number(length) > MAX_MCP_REQUEST_BYTES))
-    throw exomemErrors.requestTooLarge();
+    return { error: exomemErrors.requestTooLarge() };
   const reader = request.body?.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -509,7 +511,7 @@ async function boundedBody(request: Request): Promise<{ value: unknown; bytes: n
         total += value.byteLength;
         if (total > MAX_MCP_REQUEST_BYTES) {
           await reader.cancel();
-          throw exomemErrors.requestTooLarge();
+          return { error: exomemErrors.requestTooLarge(), bytes: total };
         }
         chunks.push(value);
       }
@@ -526,16 +528,11 @@ async function boundedBody(request: Request): Promise<{ value: unknown; bytes: n
   try {
     return { value: JSON.parse(new TextDecoder().decode(bytes)), bytes: total };
   } catch {
-    throw exomemErrors.invalidRequest();
+    return { error: exomemErrors.invalidRequest(), bytes: total };
   }
 }
 
-function idempotencyKey(
-  access: ActiveOAuthAccessToken,
-  id: unknown,
-  tool: string,
-  args: JsonRecord
-): string {
+function idempotencyKey(access: ActiveOAuthAccessToken, tool: string, args: JsonRecord): string {
   return createHash("sha256")
     .update("exomem-mcp-mutation:v1\0")
     .update(access.familyId)
@@ -543,8 +540,6 @@ function idempotencyKey(
     .update(access.userId)
     .update("\0")
     .update(access.tenantId)
-    .update("\0")
-    .update(String(id ?? ""))
     .update("\0")
     .update(tool)
     .update("\0")
@@ -627,33 +622,45 @@ export async function handleHostedMcpRequest(
       access,
       requestId,
     });
-  if (!(await take(EXOMEM_RATE_LIMITS.mcpIdentity, `${access.tenantId}:${access.clientId}`))) {
+  const authenticatedDenial = async (
+    errorCode: string,
+    response: Response,
+    requestBytes?: number
+  ): Promise<Response> => {
     emitAuthenticatedTelemetry({
       outcome: "denied",
-      errorCode: "RATE_LIMITED",
+      errorCode,
+      ...(requestBytes === undefined ? {} : { requestBytes }),
+      responseBytes: await responseByteLength(response),
     });
-    return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
+    return response;
+  };
+  if (!(await take(EXOMEM_RATE_LIMITS.mcpIdentity, `${access.tenantId}:${access.clientId}`))) {
+    return authenticatedDenial(
+      "RATE_LIMITED",
+      Response.json({ error: "RATE_LIMITED" }, { status: 429 })
+    );
   }
   try {
     return await withConcurrency(`${access.tenantId}:${access.clientId}`, async () => {
       if (request.method === "GET" || request.method === "DELETE") {
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode: "INVALID_REQUEST",
-        });
-        return new Response(null, { status: 405, headers: { allow: "POST" } });
+        return authenticatedDenial(
+          "INVALID_REQUEST",
+          new Response(null, { status: 405, headers: { allow: "POST" } })
+        );
       }
       if (request.method !== "POST") {
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode: "INVALID_REQUEST",
-        });
-        return new Response(null, { status: 405, headers: { allow: "POST" } });
+        return authenticatedDenial(
+          "INVALID_REQUEST",
+          new Response(null, { status: 405, headers: { allow: "POST" } })
+        );
       }
       const mediaStatus = mcpPostMediaStatus(request);
       if (mediaStatus) {
-        emitAuthenticatedTelemetry({ outcome: "denied", errorCode: "INVALID_REQUEST" });
-        return Response.json({ error: "INVALID_REQUEST" }, { status: mediaStatus });
+        return authenticatedDenial(
+          "INVALID_REQUEST",
+          Response.json({ error: "INVALID_REQUEST" }, { status: mediaStatus })
+        );
       }
       const live = await (dependencies.getLiveContract ?? getLiveExomemAgentContract)();
       if (
@@ -661,42 +668,46 @@ export async function handleHostedMcpRequest(
         live.profile !== EXOMEM_HOSTED_PROFILE ||
         live.endpoint !== EXOMEM_HOSTED_RESOURCE
       ) {
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode: "HOSTED_CONTRACT_UNAVAILABLE",
-        });
-        return Response.json({ error: "HOSTED_CONTRACT_UNAVAILABLE" }, { status: 503 });
+        return authenticatedDenial(
+          "HOSTED_CONTRACT_UNAVAILABLE",
+          Response.json({ error: "HOSTED_CONTRACT_UNAVAILABLE" }, { status: 503 })
+        );
       }
       let body: unknown;
       let requestBytes: number;
       try {
         const parsed = await boundedBody(request);
+        if ("error" in parsed)
+          return authenticatedDenial(
+            parsed.error.code,
+            Response.json({ error: parsed.error.code }, { status: parsed.error.status }),
+            parsed.bytes
+          );
         body = parsed.value;
         requestBytes = parsed.bytes;
       } catch (error) {
         const safe = error instanceof ExomemHostedError ? error : exomemErrors.invalidRequest();
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode: safe.code,
-        });
-        return Response.json({ error: safe.code }, { status: safe.status });
+        return authenticatedDenial(
+          safe.code,
+          Response.json({ error: safe.code }, { status: safe.status })
+        );
       }
       try {
         boundedJson(body);
       } catch (error) {
         const safe = error instanceof ExomemHostedError ? error : exomemErrors.invalidRequest();
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode: safe.code,
-        });
-        return Response.json({ error: safe.code }, { status: safe.status });
+        return authenticatedDenial(
+          safe.code,
+          Response.json({ error: safe.code }, { status: safe.status }),
+          requestBytes
+        );
       }
       if (Array.isArray(body)) {
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode: "INVALID_REQUEST",
-        });
-        return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
+        return authenticatedDenial(
+          "INVALID_REQUEST",
+          Response.json({ error: "INVALID_REQUEST" }, { status: 400 }),
+          requestBytes
+        );
       }
       const envelope = object(body);
       const rpcMethod = typeof envelope?.method === "string" ? envelope.method : null;
@@ -708,36 +719,35 @@ export async function handleHostedMcpRequest(
             live.mcpProtocolVersions
           )
         ) {
-          emitAuthenticatedTelemetry({
-            outcome: "denied",
-            errorCode: "MCP_PROTOCOL_UNSUPPORTED",
-          });
-          return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
+          return authenticatedDenial(
+            "MCP_PROTOCOL_UNSUPPORTED",
+            Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 }),
+            requestBytes
+          );
         }
       } else if (
         !mcpProtocolSupported(request.headers.get("mcp-protocol-version"), live.mcpProtocolVersions)
       ) {
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode: "MCP_PROTOCOL_UNSUPPORTED",
-        });
-        return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
+        return authenticatedDenial(
+          "MCP_PROTOCOL_UNSUPPORTED",
+          Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 }),
+          requestBytes
+        );
       }
 
       let tools: Map<string, LiveTool>;
       try {
         tools = importedTools(live);
       } catch (error) {
-        emitAuthenticatedTelemetry({
-          outcome: "denied",
-          errorCode:
-            error instanceof ExomemHostedError ? error.code : "HOSTED_CONTRACT_UNAVAILABLE",
-        });
-        return Response.json(
-          {
-            error: error instanceof ExomemHostedError ? error.code : "HOSTED_CONTRACT_INCOMPATIBLE",
-          },
-          { status: 503 }
+        const code =
+          error instanceof ExomemHostedError ? error.code : "HOSTED_CONTRACT_UNAVAILABLE";
+        return authenticatedDenial(
+          code,
+          Response.json(
+            { error: error instanceof ExomemHostedError ? code : "HOSTED_CONTRACT_INCOMPATIBLE" },
+            { status: 503 }
+          ),
+          requestBytes
         );
       }
 
@@ -844,7 +854,7 @@ export async function handleHostedMcpRequest(
                 },
                 idempotencyKey: tool.readOnly
                   ? null
-                  : idempotencyKey(access, extra.requestId, rpc.params.name, args),
+                  : idempotencyKey(access, rpc.params.name, args),
                 requestId,
                 dependencies: { signal },
               }),
@@ -918,7 +928,7 @@ export async function handleHostedMcpRequest(
           ...toolTelemetry.value,
           responseBytes: await responseByteLength(response),
         });
-      } else if (rpcMethod !== "tools/call") {
+      } else {
         const knownMethod =
           rpcMethod === "initialize" ||
           rpcMethod === "tools/list" ||
@@ -935,8 +945,10 @@ export async function handleHostedMcpRequest(
     });
   } catch (error) {
     if (error instanceof ExomemHostedError && error.code === "RATE_LIMITED") {
-      emitAuthenticatedTelemetry({ outcome: "denied", errorCode: error.code });
-      return Response.json({ error: error.code }, { status: error.status });
+      return authenticatedDenial(
+        error.code,
+        Response.json({ error: error.code }, { status: error.status })
+      );
     }
     throw error;
   }

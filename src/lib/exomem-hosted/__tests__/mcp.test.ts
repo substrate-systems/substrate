@@ -138,6 +138,43 @@ describe("Hosted MCP boundary", () => {
     );
   });
 
+  it("binds mutation retries across JSON-RPC IDs while separating authority, command, and payload", async () => {
+    const keys: string[] = [];
+    const invoke = async (
+      id: number,
+      access: ActiveOAuthAccessToken = ACCESS,
+      name = "capture_source",
+      args: Record<string, unknown> = { content: "source", title: "Source" }
+    ) => {
+      const response = await handleHostedMcpRequest(
+        request({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }),
+        {
+          baseUrl: "https://substratesystems.io",
+          findAccessToken: async () => access,
+          getLiveContract: async () => LIVE,
+          statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+          routeCommand: async (input) => {
+            assert.ok(input.idempotencyKey);
+            keys.push(input.idempotencyKey);
+            return { status: 200, requestId: "request", body: { success: true, data: {} } };
+          },
+          takeRateLimit: async () => true,
+        }
+      );
+      assert.equal(response.status, 200);
+    };
+
+    await invoke(1);
+    await invoke(2);
+    await invoke(3, { ...ACCESS, familyId: "other-family" });
+    await invoke(4, { ...ACCESS, tenantId: "other-tenant" });
+    await invoke(5, ACCESS, "observe_memory", { path: "notes/test.md" });
+    await invoke(6, ACCESS, "capture_source", { content: "other source", title: "Source" });
+
+    assert.equal(keys[0], keys[1]);
+    for (const key of keys.slice(2)) assert.notEqual(key, keys[0]);
+  });
+
   it("accepts only the application-supported MCP protocol versions", () => {
     assert.equal(mcpProtocolSupported("2025-06-18", LIVE.mcpProtocolVersions), true);
     assert.equal(mcpProtocolSupported("2099-01-01", LIVE.mcpProtocolVersions), false);
@@ -610,6 +647,68 @@ describe("Hosted MCP boundary", () => {
     assert.match(events[0].tenantHash as string, /^[0-9a-f]{64}$/);
     assert.match(events[0].tokenFamilyHash as string, /^[0-9a-f]{64}$/);
     assert.match(events[0].requestId as string, /^[0-9a-f-]{36}$/);
+    assert.equal(events[0].byteBucket, "le_1k");
+    assert.equal(events[0].responseByteBucket, "le_1k");
+  });
+
+  it("measures authenticated media and parse denials without reading rejected media bodies", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => LIVE,
+      takeRateLimit: async () => true,
+      telemetry: (event: Record<string, unknown>) => events.push(event),
+      telemetryKey: Buffer.alloc(32, 8),
+    };
+    const media = await handleHostedMcpRequest(
+      request({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { "content-type": "text/plain" }),
+      dependencies
+    );
+    const malformed = await handleHostedMcpRequest(
+      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+        method: "POST",
+        body: "{",
+        headers: {
+          authorization: `Bearer ${"a".repeat(43)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+        },
+      }),
+      dependencies
+    );
+
+    assert.equal(media.status, 415);
+    assert.equal(malformed.status, 400);
+    assert.equal(events.length, 2);
+    assert.equal(Object.hasOwn(events[0], "byteBucket"), false);
+    assert.equal(events[0].responseByteBucket, "le_1k");
+    assert.equal(events[1].byteBucket, "le_1k");
+    assert.equal(events[1].responseByteBucket, "le_1k");
+  });
+
+  it("emits one measured denial event when the SDK rejects a malformed tools call", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const response = await handleHostedMcpRequest(
+      request({ jsonrpc: "2.0", id: 1, method: "tools/call" }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        takeRateLimit: async () => true,
+        telemetry: (event: Record<string, unknown>) => events.push(event),
+        telemetryKey: Buffer.alloc(32, 8),
+      }
+    );
+    assert.equal(response.status, 400);
+    assert.equal(events.length, 1);
+    assert.deepEqual(
+      { outcome: events[0].outcome, errorCode: events[0].errorCode },
+      { outcome: "denied", errorCode: "INVALID_REQUEST" }
+    );
+    assert.equal(events[0].byteBucket, "le_1k");
+    assert.equal(events[0].responseByteBucket, "le_1k");
   });
 
   it("buckets the actual public MCP response, including content and structured content", async () => {
