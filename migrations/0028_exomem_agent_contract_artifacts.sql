@@ -1,5 +1,7 @@
 -- Imported Exomem Hosted contracts and client distribution evidence. Additive only.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE exomem_agent_contract_candidates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   state text NOT NULL CHECK (state IN ('pending', 'live', 'failed', 'retired')),
@@ -26,7 +28,11 @@ CREATE UNIQUE INDEX exomem_agent_contract_candidates_one_live_idx
 CREATE TABLE exomem_routable_cell_contracts (
   cell_id uuid NOT NULL REFERENCES exomem_cells(id) ON DELETE RESTRICT,
   profile_id text NOT NULL,
+  source_release text NOT NULL,
+  protocol_version text NOT NULL,
+  command_fingerprint text NOT NULL CHECK (char_length(command_fingerprint) = 64),
   contract_digest text NOT NULL CHECK (char_length(contract_digest) = 64),
+  compatibility_digest text NOT NULL CHECK (char_length(compatibility_digest) = 64),
   routable boolean NOT NULL DEFAULT false,
   observed_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (cell_id, profile_id)
@@ -35,6 +41,12 @@ CREATE TABLE exomem_routable_cell_contracts (
 CREATE TABLE exomem_agent_contract_profile_authority (
   profile_id text PRIMARY KEY,
   routable_set_digest text NOT NULL CHECK (char_length(routable_set_digest) = 64),
+  routable_cell_count integer NOT NULL CHECK (routable_cell_count >= 0),
+  source_release text NOT NULL,
+  protocol_version text NOT NULL,
+  command_fingerprint text NOT NULL CHECK (char_length(command_fingerprint) = 64),
+  contract_digest text NOT NULL CHECK (char_length(contract_digest) = 64),
+  compatibility_digest text NOT NULL CHECK (char_length(compatibility_digest) = 64),
   observed_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );

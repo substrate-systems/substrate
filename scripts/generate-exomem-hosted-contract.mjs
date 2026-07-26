@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 
 const PROFILE = "hosted-alpha-agent-v1";
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
+const RELEASE_COMMIT = "529760e1cd955ea999c6a7f836d7a1504327eae7";
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -80,6 +81,7 @@ const expectedCommit = args.get("expected-commit") ?? "";
 if (!repoArg || !outputArg || !jsonOutputArg || !/^[0-9a-f]{40}$/.test(expectedCommit)) {
   fail("required: --exomem-repo PATH --output PATH --json-output PATH --expected-commit FULL_SHA");
 }
+if (expectedCommit !== RELEASE_COMMIT) fail("generator only accepts the pinned Exomem release commit");
 const repo = resolve(repoArg);
 const output = resolve(outputArg);
 const jsonOutput = resolve(jsonOutputArg);

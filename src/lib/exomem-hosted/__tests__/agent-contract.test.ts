@@ -4,9 +4,10 @@ import { __setExomemSqlForTests } from "../db";
 import {
   parseExomemAgentContractCandidate,
   promoteExomemAgentContractCandidate,
+  recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
-import { parseClientArtifact, storeClientArtifact } from "../client-artifacts";
+import { parseClientArtifact, promoteClientArtifact, storeClientArtifact } from "../client-artifacts";
 
 afterEach(() => __setExomemSqlForTests(null));
 
@@ -102,12 +103,13 @@ describe("Exomem Hosted agent contracts", () => {
   });
 
   it("stores only tenant-neutral client artifact evidence", async () => {
+    const target = { origin: "https://claude.ai", path: "/plugins/exomem-hosted" };
     const artifact = parseClientArtifact({
       platform: "claude", state: "pending", packageSha256: sha("a"), archiveSha256: sha("b"),
       compatibilitySha256: sha("c"), contractSha256: sha("d"), pluginVersion: "0.1.0",
       clientIdentity: "claude-desktop", installUrl: "https://claude.ai/plugins/exomem-hosted",
       evidenceSha256: sha("e"), resultSha256: sha("f"), observedAt: "2026-07-26T00:00:00.000Z",
-    });
+    }, target);
     let query = "";
     __setExomemSqlForTests(async (strings) => {
       query = strings.join("?");
@@ -116,12 +118,26 @@ describe("Exomem Hosted agent contracts", () => {
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
     assert.match(query, /INSERT INTO exomem_client_artifacts/i);
     assert.throws(
-      () => parseClientArtifact({ ...artifact, installUrl: "https://claude.ai/plugins/exomem-hosted?tenant=private" }),
+      () => parseClientArtifact({ ...artifact, installUrl: "https://claude.ai/plugins/exomem-hosted?tenant=private" }, target),
       /tenant-neutral/i
     );
     assert.throws(
-      () => parseClientArtifact({ ...artifact, installUrl: "https://user:pass@claude.ai/plugins/exomem-hosted" }),
+      () => parseClientArtifact({ ...artifact, installUrl: "https://user:pass@claude.ai/plugins/exomem-hosted" }, target),
       /tenant-neutral/i
     );
+    await promoteClientArtifact({ artifactId: "artifact-1", platform: "claude", evidenceSha256: sha("e"), resultSha256: sha("f"), trustedSignature: sha("a") });
+    assert.match(query, /UPDATE exomem_client_artifacts/i);
+  });
+
+  it("fences cell observations before contract promotion", async () => {
+    let query = "";
+    __setExomemSqlForTests(async (strings) => {
+      query = strings.join("?");
+      return { rows: [] };
+    });
+    await recordRoutableCellObservation({ cellId: "00000000-0000-0000-0000-000000000001", sourceRelease: "0.32.0", protocolVersion: "1", commandSurfaceSha256: sha("a"), schemaDigest: sha("b"), compatibilitySha256: sha("c"), routable: true });
+    assert.match(query, /exomem_agent_contract_profile_authority/i);
+    assert.match(query, /string_agg\(cell_id::text/i);
+    assert.match(query, /FOR UPDATE/i);
   });
 });

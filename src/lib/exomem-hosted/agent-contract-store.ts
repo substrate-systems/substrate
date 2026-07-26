@@ -112,6 +112,60 @@ export async function storeExomemAgentContractCandidate(
   return id;
 }
 
+/** The sole authority writer: it fences cell observations and derives the exact routable set while locked. */
+export async function recordRoutableCellObservation(input: {
+  cellId: string;
+  sourceRelease: string;
+  protocolVersion: string;
+  commandSurfaceSha256: string;
+  schemaDigest: string;
+  compatibilitySha256: string;
+  routable: boolean;
+}): Promise<void> {
+  const fingerprint = sha256(input.commandSurfaceSha256, "command surface digest");
+  const contract = sha256(input.schemaDigest, "schema digest");
+  const compatibility = sha256(input.compatibilitySha256, "compatibility digest");
+  await executeExomemSql`
+    /* exomem:record-routable-cell-contract */
+    WITH authority_seed AS (
+      INSERT INTO exomem_agent_contract_profile_authority (
+        profile_id, routable_set_digest, routable_cell_count, source_release, protocol_version,
+        command_fingerprint, contract_digest, compatibility_digest, observed_at
+      ) VALUES (
+        ${EXOMEM_HOSTED_PROFILE}, repeat('0', 64), 0, ${input.sourceRelease}, ${input.protocolVersion},
+        ${fingerprint}, ${contract}, ${compatibility}, now()
+      ) ON CONFLICT (profile_id) DO NOTHING
+    ), authority AS (
+      SELECT * FROM exomem_agent_contract_profile_authority
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} FOR UPDATE
+    ), observed AS (
+      INSERT INTO exomem_routable_cell_contracts (
+        cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+        contract_digest, compatibility_digest, routable, observed_at
+      ) VALUES (
+        ${input.cellId}::uuid, ${EXOMEM_HOSTED_PROFILE}, ${input.sourceRelease}, ${input.protocolVersion},
+        ${fingerprint}, ${contract}, ${compatibility}, ${input.routable}, now()
+      ) ON CONFLICT (cell_id, profile_id) DO UPDATE
+      SET source_release = EXCLUDED.source_release, protocol_version = EXCLUDED.protocol_version,
+          command_fingerprint = EXCLUDED.command_fingerprint, contract_digest = EXCLUDED.contract_digest,
+          compatibility_digest = EXCLUDED.compatibility_digest, routable = EXCLUDED.routable, observed_at = now()
+    ), set_digest AS (
+      SELECT count(*)::integer AS cell_count,
+        encode(digest(string_agg(cell_id::text || ':' || contract_digest, ',' ORDER BY cell_id), 'sha256'), 'hex') AS value
+      FROM exomem_routable_cell_contracts
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
+    )
+    UPDATE exomem_agent_contract_profile_authority AS target
+    SET routable_set_digest = COALESCE(set_digest.value, repeat('0', 64)),
+        routable_cell_count = set_digest.cell_count, source_release = ${input.sourceRelease},
+        protocol_version = ${input.protocolVersion}, command_fingerprint = ${fingerprint},
+        contract_digest = ${contract}, compatibility_digest = ${compatibility},
+        observed_at = now(), updated_at = now()
+    FROM authority CROSS JOIN observed CROSS JOIN set_digest
+    WHERE target.profile_id = ${EXOMEM_HOSTED_PROFILE}
+  `;
+}
+
 /** One statement locks the candidate, rechecks all authoritative routable cells, then swaps live state. */
 export async function promoteExomemAgentContractCandidate(input: {
   candidateId: string;
@@ -140,6 +194,11 @@ export async function promoteExomemAgentContractCandidate(input: {
       WHERE EXISTS (SELECT 1 FROM cells)
         AND authority.routable_set_digest = ${expected}
         AND authority.observed_at > now() - interval '5 minutes'
+        AND authority.source_release = candidate.source_release
+        AND authority.protocol_version = candidate.protocol_version
+        AND authority.command_fingerprint = candidate.command_fingerprint
+        AND authority.contract_digest = candidate.schema_digest
+        AND authority.compatibility_digest = candidate.compatibility_digest
         AND NOT EXISTS (SELECT 1 FROM cells WHERE contract_digest <> candidate.schema_digest)
     ), evidence AS (
       SELECT 1 FROM candidate

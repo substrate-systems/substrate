@@ -21,24 +21,20 @@ const sha256 = (value: unknown, label: string): string => {
   return value;
 };
 
-const ALLOWED_INSTALL_TARGETS = {
-  claude: { origin: "https://claude.ai", path: "/plugins/exomem-hosted" },
-  openai: { origin: "https://chatgpt.com", path: "/apps/exomem-hosted" },
-} as const;
+export type TrustedInstallTarget = { origin: string; path: string };
 
-export function parseClientArtifact(input: unknown): ClientArtifact {
+export function parseClientArtifact(input: unknown, trustedTarget: TrustedInstallTarget): ClientArtifact {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("client artifact must be an object");
   const raw = input as Record<string, unknown>;
   if (raw.platform !== "claude" && raw.platform !== "openai") throw new Error("unsupported artifact platform");
-  if (!(["pending", "live", "failed", "retired"] as string[]).includes(String(raw.state))) throw new Error("unsupported artifact state");
+  if (raw.state !== "pending") throw new Error("candidate artifacts must import as pending");
   const installUrl = new URL(String(raw.installUrl));
-  const allowed = ALLOWED_INSTALL_TARGETS[raw.platform];
-  if (installUrl.username || installUrl.password || installUrl.origin !== allowed.origin || installUrl.pathname !== allowed.path ||
+  if (installUrl.username || installUrl.password || installUrl.origin !== trustedTarget.origin || installUrl.pathname !== trustedTarget.path ||
       installUrl.protocol !== "https:" || installUrl.search || installUrl.hash || /(?:token|tenant|cell|secret|localhost)/i.test(installUrl.toString())) {
     throw new Error("install URL must be tenant-neutral HTTPS without credentials");
   }
   const observedAt = new Date(String(raw.observedAt));
-  if (Number.isNaN(observedAt.valueOf())) throw new Error("observedAt must be a timestamp");
+  if (Number.isNaN(observedAt.valueOf()) || observedAt.valueOf() > Date.now() + 5 * 60_000 || observedAt.valueOf() < Date.now() - 24 * 60 * 60_000) throw new Error("observedAt is outside the evidence window");
   for (const key of ["pluginVersion", "clientIdentity"]) if (typeof raw[key] !== "string" || !raw[key]) throw new Error(`${key} must be non-empty`);
   return {
     platform: raw.platform, state: raw.state as ClientArtifactState,
@@ -48,6 +44,48 @@ export function parseClientArtifact(input: unknown): ClientArtifact {
     installUrl: installUrl.toString(), evidenceSha256: sha256(raw.evidenceSha256, "evidence digest"),
     resultSha256: sha256(raw.resultSha256, "result digest"), observedAt: observedAt.toISOString(),
   };
+}
+
+export async function promoteClientArtifact(input: {
+  artifactId: string;
+  platform: "claude" | "openai";
+  evidenceSha256: string;
+  resultSha256: string;
+  trustedSignature: string;
+}): Promise<boolean> {
+  if (!/^[a-f0-9]{64}$/.test(input.trustedSignature)) throw new Error("artifact promotion requires signed evidence");
+  const { rows } = await executeExomemSql`
+    /* exomem:promote-client-artifact */
+    WITH candidate AS (
+      SELECT * FROM exomem_client_artifacts
+      WHERE id = ${input.artifactId}::uuid AND platform = ${input.platform} AND state = 'pending'
+      FOR UPDATE
+    ), evidence AS (
+      SELECT 1 FROM candidate
+      WHERE evidence_sha256 = ${sha256(input.evidenceSha256, "evidence digest")}
+        AND result_sha256 = ${sha256(input.resultSha256, "result digest")}
+        AND observed_at <= now() AND observed_at > now() - interval '24 hours'
+    ), retired AS (
+      UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now()
+      WHERE platform = ${input.platform} AND state = 'live' AND EXISTS (SELECT 1 FROM evidence)
+      RETURNING id
+    ), serial AS (SELECT count(*) FROM retired), promoted AS (
+      UPDATE exomem_client_artifacts SET state = 'live', promoted_at = now()
+      FROM serial WHERE id = ${input.artifactId}::uuid AND EXISTS (SELECT 1 FROM evidence)
+      RETURNING id
+    ) SELECT id FROM promoted
+  `;
+  return rows.length === 1;
+}
+
+export async function demoteClientArtifact(artifactId: string, reasonSha256: string): Promise<boolean> {
+  const { rows } = await executeExomemSql`
+    /* exomem:demote-client-artifact */
+    UPDATE exomem_client_artifacts SET state = 'failed', retired_at = now()
+    WHERE id = ${artifactId}::uuid AND state = 'live' AND ${sha256(reasonSha256, "demotion reason")} IS NOT NULL
+    RETURNING id
+  `;
+  return rows.length === 1;
 }
 
 export async function storeClientArtifact(artifact: ClientArtifact): Promise<string> {
