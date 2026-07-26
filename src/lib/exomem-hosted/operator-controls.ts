@@ -91,7 +91,7 @@ export async function registerOperatorOAuthClient(
   input: OperatorOAuthClientRegistration,
   dependencies: { fetchCimd?: (clientId: string) => Promise<CimdFetchedMetadata> } = {}
 ): Promise<OperatorClientWriteResult> {
-  let registration = normalizeOperatorOAuthClientRegistration(input);
+  const registration = normalizeOperatorOAuthClientRegistration(input);
   if (!registration.artifactId) throw exomemErrors.invalidRequest();
   const configSha256 = oauthClientConfigSha256({
     platform: registration.platform,
