@@ -14,8 +14,10 @@ import styles from "../private-shell.module.css";
 import {
   type Lifecycle,
   type LifecycleState,
+  type InstallAction,
   createSingleFlight,
   nextStatusPollDelayMs,
+  parseInstallActions,
   parseLifecycleResponse,
 } from "./home-state";
 
@@ -138,6 +140,7 @@ export default function HomeClient() {
     checkoutAvailable: boolean;
     portalAvailable: boolean;
   } | null>(null);
+  const [installActions, setInstallActions] = useState<InstallAction[]>([]);
   const retryKeyRef = useRef(newRetryKey());
   const retryContentRef = useRef("");
   const uploadRetryRef = useRef<{ file: File } | null>(null);
@@ -201,6 +204,7 @@ export default function HomeClient() {
     if (lifecycle.state !== "ready") return;
     void getPrivateJson("/api/exomem/account")
       .then((response) => {
+        setInstallActions(parseInstallActions(response));
         const value = response.billing;
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
         const candidate = value as Record<string, unknown>;
@@ -687,6 +691,17 @@ export default function HomeClient() {
               </button>
             ) : null}
           </div>
+          {installActions.map((action) => (
+            <div className={styles.secondaryRow} key={action.platform}>
+              <div>
+                <strong>Connect with {action.platform === "claude" ? "Claude" : "ChatGPT"}</strong>
+                <p className={styles.secondaryCopy}>Native install · version {action.version}</p>
+              </div>
+              <a className={styles.quietButton} href={action.installUrl}>
+                Install in {action.platform === "claude" ? "Claude" : "ChatGPT"}
+              </a>
+            </div>
+          ))}
           <div className={styles.secondaryRow}>
             <div>
               <strong>Verified export</strong>
