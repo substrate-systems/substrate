@@ -8,6 +8,7 @@ import {
   admitFirstOAuthInviteAtomic,
   attachExistingOwnerAuthorizationAtomic,
   issueOAuthTokensFromCodeAtomic,
+  pruneExpiredOAuthState,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
 
@@ -77,6 +78,37 @@ async function seedInviteAndTransaction(clientInternalId: string, suffix: string
   );
 }
 
+async function seedAuthorizationCode(
+  clientInternalId: string,
+  sequence: number,
+  offlineAccess: boolean
+) {
+  const codeDigest = digest(sequence);
+  const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+    `oauth-${sequence}-${randomUUID()}@example.test`,
+  ]);
+  const tenant = await pool!.query(
+    "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
+    [user.rows[0].id]
+  );
+  await pool!.query(
+    "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+    [tenant.rows[0].id]
+  );
+  const grant = await pool!.query(
+    `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
+     VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5) RETURNING id`,
+    [user.rows[0].id, tenant.rows[0].id, clientInternalId, resource, offlineAccess]
+  );
+  await pool!.query(
+    `INSERT INTO exomem_oauth_authorization_codes (
+       code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
+     ) VALUES ($1, $2, $3, 'https://client.example.test/callback', $4, 'challenge', $5, now() + interval '1 hour')`,
+    [codeDigest, grant.rows[0].id, clientInternalId, resource, offlineAccess]
+  );
+  return { codeDigest, grantId: grant.rows[0].id };
+}
+
 describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `oauth_it_${randomUUID().replaceAll("-", "")}`;
@@ -108,8 +140,13 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
     );
     const result = await admitFirstOAuthInviteAtomic({
-      inviteDigest: digest(2), transactionDigest: digest(21), sessionDigest: digest(3), csrfDigest: digest(4),
-      sessionExpiresAt: new Date(Date.now() + 60_000), codeDigest: digest(5), codeExpiresAt: new Date(Date.now() + 60_000),
+      inviteDigest: digest(2),
+      transactionDigest: digest(21),
+      sessionDigest: digest(3),
+      csrfDigest: digest(4),
+      sessionExpiresAt: new Date(Date.now() + 60_000),
+      codeDigest: digest(5),
+      codeExpiresAt: new Date(Date.now() + 60_000),
     });
     assert.equal(result, null);
     const afterCounters = await pool!.query(
@@ -122,9 +159,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
 
   it("attaches an existing owner without capacity or lifecycle mutation", async () => {
     const internal = await seedClient();
-    const user = await pool!.query("INSERT INTO users (email) VALUES ('owner@example.test') RETURNING id");
+    const user = await pool!.query(
+      "INSERT INTO users (email) VALUES ('owner@example.test') RETURNING id"
+    );
     const tenant = await pool!.query(
-      "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id", [user.rows[0].id]
+      "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
+      [user.rows[0].id]
     );
     await pool!.query(
       "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
@@ -140,10 +180,132 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       [digest(32), internal, resource, digest(33)]
     );
     const attached = await attachExistingOwnerAuthorizationAtomic({
-      sessionId: session.rows[0].id, transactionDigest: digest(32), codeDigest: digest(34), codeExpiresAt: new Date(Date.now() + 60_000),
+      sessionId: session.rows[0].id,
+      transactionDigest: digest(32),
+      codeDigest: digest(34),
+      codeExpiresAt: new Date(Date.now() + 60_000),
     });
     assert.equal(attached?.tenantId, tenant.rows[0].id);
     assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
     assert.equal(await scalar("SELECT count(*) FROM exomem_lifecycle_operations"), 0);
+  });
+
+  it("does not consume a code when its resource binding is wrong", async () => {
+    const internal = await seedClient();
+    const fixture = await seedAuthorizationCode(internal, 110, true);
+    const result = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: fixture.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource: `${resource}/wrong`,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(111),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(112),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.equal(result, null);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NULL",
+        [fixture.codeDigest]
+      ),
+      1
+    );
+  });
+
+  it("persists refresh material only for offline access and retains rotation lineage during GC", async () => {
+    const internal = await seedClient();
+    const online = await seedAuthorizationCode(internal, 120, false);
+    const offline = await seedAuthorizationCode(internal, 130, true);
+    const onlineResult = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: online.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(121),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(122),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    const offlineResult = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: offline.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(131),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(132),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.equal(onlineResult?.refreshAllowed, false);
+    assert.equal(onlineResult?.refreshInserted, false);
+    assert.equal(offlineResult?.refreshAllowed, true);
+    assert.equal(offlineResult?.refreshInserted, true);
+    assert.equal(
+      await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
+        onlineResult!.familyId,
+      ]),
+      0
+    );
+    assert.equal(
+      await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
+        offlineResult!.familyId,
+      ]),
+      1
+    );
+
+    const wrongBinding = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: digest(131),
+      replacementRefreshDigest: digest(133),
+      accessDigest: digest(134),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+      clientId,
+      resource: `${resource}/wrong`,
+    });
+    assert.equal(wrongBinding, null);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE refresh_digest = $1 AND consumed_at IS NULL",
+        [digest(131)]
+      ),
+      1
+    );
+
+    const rotated = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: digest(131),
+      replacementRefreshDigest: digest(133),
+      accessDigest: digest(134),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+      clientId,
+      resource,
+    });
+    assert.equal(rotated?.familyId, offlineResult!.familyId);
+    await pruneExpiredOAuthState();
+    assert.equal(
+      await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
+        offlineResult!.familyId,
+      ]),
+      2
+    );
+
+    const replay = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: digest(131),
+      replacementRefreshDigest: digest(135),
+      accessDigest: digest(136),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+      clientId,
+      resource,
+    });
+    assert.equal(replay, null);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
+        [offlineResult!.familyId]
+      ),
+      1
+    );
   });
 });

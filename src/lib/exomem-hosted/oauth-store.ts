@@ -171,16 +171,21 @@ export async function pruneExpiredOAuthState(): Promise<void> {
     ), expired_refresh AS (
       DELETE FROM exomem_oauth_refresh_tokens
       WHERE id IN (
-        SELECT id FROM exomem_oauth_refresh_tokens
-        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
-        ORDER BY expires_at LIMIT 500
+        SELECT token.id FROM exomem_oauth_refresh_tokens AS token
+        JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
+        WHERE family.expires_at <= now()
+          AND NOT EXISTS (
+            SELECT 1 FROM exomem_oauth_refresh_tokens AS child
+            WHERE child.parent_refresh_token_id = token.id
+          )
+        ORDER BY token.expires_at LIMIT 500
       )
       RETURNING family_id
     ), expired_families AS (
       DELETE FROM exomem_oauth_token_families
       WHERE id IN (
         SELECT family.id FROM exomem_oauth_token_families AS family
-        WHERE (family.expires_at <= now() OR family.revoked_at < now() - interval '1 day')
+        WHERE family.expires_at <= now()
           AND NOT EXISTS (
             SELECT 1 FROM exomem_oauth_refresh_tokens AS token WHERE token.family_id = family.id
           )

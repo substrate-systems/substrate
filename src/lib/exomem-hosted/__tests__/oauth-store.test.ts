@@ -4,6 +4,7 @@ import { __setExomemSqlForTests } from "../db";
 import {
   findActiveOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
+  pruneExpiredOAuthState,
   revokeOAuthTokenFamily,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
@@ -71,6 +72,20 @@ describe("Exomem OAuth token store", () => {
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
     assert.match(query, /refresh_replayed/i);
     assert.match(query, /UPDATE exomem_oauth_token_families/i);
+  });
+
+  it("retains refresh lineage and replay evidence until its family expires", async () => {
+    let query = "";
+    __setExomemSqlForTests(async (strings) => {
+      query = strings.join("?");
+      return { rows: [] };
+    });
+
+    await pruneExpiredOAuthState();
+
+    assert.match(query, /NOT EXISTS\s*\(\s*SELECT 1 FROM exomem_oauth_refresh_tokens AS child/i);
+    assert.match(query, /family\.expires_at <= now\(\)/i);
+    assert.doesNotMatch(query, /family\.revoked_at < now\(\) - interval '1 day'/i);
   });
 
   it("resolves only current entitled access and revokes one family without touching another", async () => {
