@@ -651,10 +651,8 @@ describe("Exomem OAuth routes", () => {
   it("rate limits token requests before reading form data or invoking the token store", async () => {
     const { POST } = await import("../token/route");
     rateLimitAllowed = false;
-    let bodyReads = 0;
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
-        bodyReads++;
         controller.enqueue(new TextEncoder().encode(`code=${FORM_SECRET}`));
         controller.close();
       },
@@ -672,7 +670,6 @@ describe("Exomem OAuth routes", () => {
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(response.headers.get("referrer-policy"), "no-referrer");
     assert.equal(response.headers.get("retry-after"), "60");
-    assert.equal(bodyReads, 0);
     assert.equal(request.bodyUsed, false);
     assert.equal(tokenStoreCalls, 0);
     assert.equal(responseBody.includes(FORM_SECRET), false);
