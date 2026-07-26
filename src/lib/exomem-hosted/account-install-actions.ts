@@ -46,6 +46,25 @@ export async function loadOwnerInstallActions(
     /* exomem:owner-install-actions */
     SELECT artifact.platform, artifact.state, artifact.plugin_version, artifact.install_url
     FROM exomem_client_artifacts AS artifact
+    JOIN exomem_agent_contract_candidates AS candidate ON candidate.profile_id = 'hosted-alpha-agent-v1' AND candidate.state = 'live'
+      AND artifact.contract_sha256 = candidate.schema_digest
+      AND artifact.compatibility_sha256 = candidate.compatibility_digest
+      AND artifact.package_sha256 = CASE artifact.platform
+        WHEN 'claude' THEN candidate.claude_package_lock->>'artifact_sha256'
+        WHEN 'openai' THEN candidate.openai_package_lock->>'artifact_sha256'
+      END
+      AND artifact.archive_sha256 = CASE artifact.platform
+        WHEN 'claude' THEN candidate.claude_archive_lock->>'archive_sha256'
+        WHEN 'openai' THEN candidate.openai_archive_lock->>'archive_sha256'
+      END
+      AND artifact.plugin_version = CASE artifact.platform
+        WHEN 'claude' THEN candidate.claude_package_lock->>'plugin_version'
+        WHEN 'openai' THEN candidate.openai_package_lock->>'plugin_version'
+      END
+      AND candidate.endpoint = CASE artifact.platform
+        WHEN 'claude' THEN candidate.claude_package_lock->>'endpoint'
+        WHEN 'openai' THEN candidate.openai_package_lock->>'endpoint'
+      END
     WHERE artifact.platform IN ('claude', 'openai')
       AND artifact.state = 'live'
       AND EXISTS (

@@ -34,6 +34,17 @@ describe("owner install actions", () => {
       },
     ]);
     assert.match(queries[0], /state = 'live'/i);
+    assert.match(queries[0], /artifact\.state = 'live'/i);
+    assert.match(
+      queries[0],
+      /candidate\.profile_id = 'hosted-alpha-agent-v1' AND candidate\.state = 'live'/i
+    );
+    assert.match(queries[0], /artifact\.contract_sha256 = candidate\.schema_digest/i);
+    assert.match(queries[0], /artifact\.compatibility_sha256 = candidate\.compatibility_digest/i);
+    assert.match(queries[0], /artifact\.package_sha256 =/i);
+    assert.match(queries[0], /artifact\.archive_sha256 =/i);
+    assert.match(queries[0], /artifact\.plugin_version =/i);
+    assert.match(queries[0], /candidate\.endpoint =/i);
     assert.match(queries[0], /tenant\.owner_user_id = \?/i);
     assert.match(queries[0], /tenant\.id = \?/i);
     assert.match(
@@ -74,5 +85,92 @@ describe("owner install actions", () => {
         },
       ]
     );
+  });
+
+  it("hides pending and failed artifacts even when a matching contract query returns them", async () => {
+    __setExomemSqlForTests(async () => ({
+      rows: [
+        {
+          platform: "claude",
+          state: "pending",
+          plugin_version: "0.34.0",
+          install_url: "https://claude.ai/plugins/exomem-hosted",
+        },
+        {
+          platform: "openai",
+          state: "failed",
+          plugin_version: "0.34.0",
+          install_url: "https://chatgpt.com/plugins/exomem-hosted",
+        },
+      ],
+    }));
+
+    assert.deepEqual(
+      await loadOwnerInstallActions(
+        "018f2d91-7c42-7000-8000-000000000091",
+        "018f2d91-7c42-7000-8000-000000000092"
+      ),
+      []
+    );
+  });
+
+  it("returns no action when the required live contract has no matching artifact", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [] };
+    });
+
+    assert.deepEqual(
+      await loadOwnerInstallActions(
+        "018f2d91-7c42-7000-8000-000000000091",
+        "018f2d91-7c42-7000-8000-000000000092"
+      ),
+      []
+    );
+    assert.match(
+      queries[0],
+      /JOIN exomem_agent_contract_candidates AS candidate ON candidate\.profile_id = 'hosted-alpha-agent-v1' AND candidate\.state = 'live'/i
+    );
+  });
+
+  it("requires exact contract, compatibility, package, archive, version, and endpoint identity", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [] };
+    });
+
+    assert.deepEqual(
+      await loadOwnerInstallActions(
+        "018f2d91-7c42-7000-8000-000000000091",
+        "018f2d91-7c42-7000-8000-000000000092"
+      ),
+      []
+    );
+    assert.match(queries[0], /artifact\.contract_sha256 = candidate\.schema_digest/i);
+    assert.match(queries[0], /artifact\.compatibility_sha256 = candidate\.compatibility_digest/i);
+    assert.match(queries[0], /artifact\.package_sha256 =/i);
+    assert.match(queries[0], /artifact\.archive_sha256 =/i);
+    assert.match(queries[0], /artifact\.plugin_version =/i);
+    assert.match(queries[0], /candidate\.endpoint =/i);
+  });
+
+  it("keeps OpenAI absent until its matching lock exists on the live contract", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [] };
+    });
+
+    assert.deepEqual(
+      await loadOwnerInstallActions(
+        "018f2d91-7c42-7000-8000-000000000091",
+        "018f2d91-7c42-7000-8000-000000000092"
+      ),
+      []
+    );
+    assert.match(queries[0], /candidate\.openai_package_lock->>'artifact_sha256'/i);
+    assert.match(queries[0], /candidate\.openai_archive_lock->>'archive_sha256'/i);
   });
 });
