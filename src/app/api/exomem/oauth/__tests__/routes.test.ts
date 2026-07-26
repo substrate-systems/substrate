@@ -29,6 +29,7 @@ type StoredContinuation = {
 const continuations = new Map<string, StoredContinuation>();
 const attached: Array<{ sessionId: string; transactionDigest: Buffer; codeDigest: Buffer }> = [];
 let admitCalls: Array<Record<string, unknown>> = [];
+let admissionError: Error | null = null;
 let rateLimitAllowed = true;
 let tokenStoreCalls = 0;
 const codes = new Map<
@@ -226,6 +227,7 @@ before(() => {
       },
       admitFirstOAuthInviteAtomic: async (input: Record<string, unknown>) => {
         admitCalls.push(input);
+        if (admissionError) throw admissionError;
         return { tenantId: "tenant-1", sessionId: "session-1", grantId: "grant-1" };
       },
     },
@@ -282,6 +284,7 @@ beforeEach(() => {
   continuations.clear();
   attached.length = 0;
   admitCalls = [];
+  admissionError = null;
   rateLimitAllowed = true;
   tokenStoreCalls = 0;
   codes.clear();
@@ -487,6 +490,37 @@ describe("Exomem OAuth routes", () => {
     assert.deepEqual(admitCalls[0].inviteDigest, digestSecret(inviteToken));
     assert.ok(Buffer.isBuffer(admitCalls[0].sessionDigest));
     assert.ok(Buffer.isBuffer(admitCalls[0].codeDigest));
+  });
+
+  it("returns an opaque temporary-unavailable OAuth response when first-admission capacity is exhausted", async () => {
+    admissionError = new (await import("@/lib/exomem-hosted/errors")).ExomemHostedError({
+      code: "CAPACITY_UNAVAILABLE",
+      status: 503,
+      message: "hosted capacity is temporarily unavailable",
+      retryable: true,
+    });
+    const { GET } = await import("../authorize/route");
+    const { POST } = await import("../authorize/invite/route");
+    const started = await GET(authorizeRequest("capacity-state"));
+    const transaction = cookie(started, "exomem_oauth_tx");
+    const nonce = cookie(started, "exomem_oauth_form_nonce");
+    const response = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/authorize/invite`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: BASE_URL,
+          cookie: `exomem_oauth_tx=${transaction}`,
+        },
+        body: JSON.stringify({ token: Buffer.alloc(32, 0x45).toString("base64url"), nonce }),
+      })
+    );
+    assert.equal(response.status, 503);
+    const body = (await response.json()) as { error: string; request_id?: string };
+    assert.equal(body.error, "temporarily_unavailable");
+    assert.match(body.request_id ?? "", /^[0-9a-f-]{36}$/i);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("retry-after"), "1");
   });
 
   it("exchanges one authorization code with exact PKCE and resource binding", async () => {

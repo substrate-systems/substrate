@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
+import { newRequestId } from "@/lib/exomem-hosted/http";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import { admitFirstOAuthInviteAtomic } from "@/lib/exomem-hosted/oauth-store";
 import {
@@ -35,7 +37,15 @@ function accessDenied(): NextResponse {
   );
 }
 
+function temporarilyUnavailable(requestId: string): NextResponse {
+  return NextResponse.json(
+    { error: "temporarily_unavailable", request_id: requestId },
+    { status: 503, headers: { ...oauthNoStoreHeaders(), "retry-after": "1" } }
+  );
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
+  const requestId = newRequestId();
   const continuation = await resolveOAuthContinuation(request);
   const transactionDigest = oauthContinuationDigest(request);
   const transaction = oauthContinuationToken(request);
@@ -82,7 +92,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     applySessionCookies(response, session);
     clearOAuthContinuationCookie(response);
     return response;
-  } catch {
+  } catch (error) {
+    if (error instanceof ExomemHostedError && error.code === "CAPACITY_UNAVAILABLE")
+      return temporarilyUnavailable(requestId);
     return accessDenied();
   }
 }

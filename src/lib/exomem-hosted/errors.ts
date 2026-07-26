@@ -106,6 +106,15 @@ export const exomemErrors = {
       message: "too many requests",
       retryable: true,
     }),
+  capacityUnavailable: () =>
+    new ExomemHostedError({
+      code: "CAPACITY_UNAVAILABLE",
+      status: 503,
+      message: "hosted capacity is temporarily unavailable",
+      retryable: true,
+      retryAfterMs: 1000,
+      remediation: "retry_later",
+    }),
   emailDeliveryUnavailable: () =>
     new ExomemHostedError({
       code: "EMAIL_DELIVERY_UNAVAILABLE",

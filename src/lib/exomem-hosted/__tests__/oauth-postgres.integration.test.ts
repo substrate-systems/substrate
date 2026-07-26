@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
+import { ExomemHostedError } from "../errors";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
   admitFirstOAuthInviteAtomic,
@@ -360,7 +361,11 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 1);
 
     await seedAdmission(internal, 220, "losing-invite@example.test");
-    assert.equal(await admitFirstOAuthInviteAtomic(admissionInput(220)), null);
+    await assert.rejects(
+      admitFirstOAuthInviteAtomic(admissionInput(220)),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CAPACITY_UNAVAILABLE"
+    );
     assert.equal(
       await scalar(
         "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",

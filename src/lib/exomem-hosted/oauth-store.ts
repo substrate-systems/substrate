@@ -1,4 +1,5 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { exomemErrors } from "./errors";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import type { SecretEnvelope } from "./security";
 
@@ -320,6 +321,7 @@ export async function pruneExpiredOAuthState(): Promise<void> {
 }
 
 class OAuthAdmissionRejected extends Error {}
+export class OAuthAdmissionCapacityUnavailable extends Error {}
 
 type OAuthInviteAdmission = {
   tenantId: string;
@@ -445,7 +447,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
           RETURNING id
         `;
         const pool = reservationResult.rows[0] as { id: string } | undefined;
-        if (!pool) throw new OAuthAdmissionRejected();
+        if (!pool) throw new OAuthAdmissionCapacityUnavailable();
 
         const tenantResult = await tx`
           INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
@@ -548,6 +550,8 @@ export async function admitFirstOAuthInviteAtomic(input: {
       return { tenantId, sessionId: session.id, operationId, grantId: grant.id };
     });
   } catch (error) {
+    if (error instanceof OAuthAdmissionCapacityUnavailable)
+      throw exomemErrors.capacityUnavailable();
     if (error instanceof OAuthAdmissionRejected) return null;
     if (typeof error === "object" && error && "code" in error && error.code === "23505")
       return null;
