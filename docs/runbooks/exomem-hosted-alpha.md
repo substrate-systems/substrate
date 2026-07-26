@@ -179,7 +179,7 @@ tokens, or a tenant identifier.
 Each admitted OAuth client is bound to the promoted client evidence by a public,
 canonical SHA-256 configuration digest. Its exact bytes are the UTF-8 domain
 prefix `exomem-oauth-client-config:v1\0` followed by compact stable JSON with
-`platform`, `admission_mode`, `client_id`, sorted exact raw `redirect_uris`, and
+sorted keys `admission_mode`, `client_id`, `platform`, sorted exact raw `redirect_uris`, and
 `token_endpoint_auth_method: "none"`. The signed promotion envelope carries
 that digest; no separate environment secret exists and there is nothing to
 rotate. An operator registers the platform and selected pending/live artifact,

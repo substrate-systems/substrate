@@ -748,4 +748,49 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       1
     );
   });
+
+  it("fails closed for an expired CIMD client without relying on the prune job", async () => {
+    const internal = await seedClient();
+    const fixture = await seedAuthorizationCode(internal, 250, true);
+    const issued = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: fixture.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(251),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(252),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(issued);
+    await pool!.query(
+      `UPDATE exomem_oauth_clients
+       SET admission_mode = 'cimd', metadata_document_digest = $1, metadata_fetched_at = now(),
+           metadata_ttl_seconds = 300, metadata_expires_at = now() - interval '1 second',
+           cimd_host = 'client.example.test'
+       WHERE id = $2`,
+      [Buffer.alloc(32, 7), internal]
+    );
+    assert.equal(await findActiveOAuthAccessToken(digest(252)), null);
+    assert.equal(await findMcpOAuthAccessToken(digest(252)), null);
+    assert.equal(
+      await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(251),
+        replacementRefreshDigest: digest(253),
+        accessDigest: digest(254),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId,
+        resource,
+      }),
+      null
+    );
+    await pool!.query(
+      `UPDATE exomem_oauth_clients
+       SET admission_mode = 'pinned', metadata_document_digest = NULL, metadata_fetched_at = NULL,
+           metadata_ttl_seconds = NULL, metadata_expires_at = NULL, cimd_host = NULL
+       WHERE id = $1`,
+      [internal]
+    );
+  });
 });

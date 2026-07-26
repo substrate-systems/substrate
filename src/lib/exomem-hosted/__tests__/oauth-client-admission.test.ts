@@ -58,6 +58,7 @@ describe("operator OAuth client admission", () => {
     );
     assert.equal(isCimdNetworkAddressAllowed("fec0::1"), false);
     assert.equal(isCimdNetworkAddressAllowed("2001:0::1"), false);
+    assert.equal(isCimdNetworkAddressAllowed("64:ff9b:1::1"), false);
     assert.equal(isCimdNetworkAddressAllowed("2001:4860:4860::8888"), true);
   });
 
@@ -89,6 +90,18 @@ describe("operator OAuth client admission", () => {
         clientId: "desktop-client",
         redirectUris: ["https://a.example.test/callback", "https://b.example.test/callback"],
       })
+    );
+    assert.equal(
+      oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "cimd",
+        clientId: "https://claude.example.com/oauth/client",
+        redirectUris: [
+          "https://claude.example.com/oauth/return",
+          "https://claude.example.com/oauth/callback",
+        ],
+      }),
+      "3c8bbd83906d29816f59d21b48a7e5a859379b124108b2abb1aa9a309ec3a339"
     );
   });
 });

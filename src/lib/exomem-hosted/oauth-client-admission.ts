@@ -164,10 +164,9 @@ export function oauthClientConfigSha256(input: {
     .update("exomem-oauth-client-config:v1\0", "utf8")
     .update(
       JSON.stringify({
-        v: 1,
-        platform: input.platform,
         admission_mode: input.admissionMode,
         client_id: input.clientId,
+        platform: input.platform,
         redirect_uris: [...input.redirectUris].sort(),
         token_endpoint_auth_method: "none",
       }),
@@ -215,6 +214,7 @@ export function isCimdNetworkAddressAllowed(address: string): boolean {
     normalized.startsWith("ff") ||
     normalized.startsWith("::ffff:") ||
     normalized.startsWith("64:ff9b:") ||
+    normalized.startsWith("64:ff9b:1:") ||
     normalized.startsWith("2002:") ||
     normalized.startsWith("2001:0000:") ||
     normalized.startsWith("2001:0:") ||
