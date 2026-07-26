@@ -627,7 +627,8 @@ export async function findActiveOAuthAccessToken(
 export async function findMcpOAuthAccessToken(
   accessDigest: Buffer
 ): Promise<ActiveOAuthAccessToken | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:find-mcp-oauth-access-token */
     SELECT token.family_id, token.grant_id, grant.user_id, grant.tenant_id,
            client.client_id, token.resource, token.scopes
@@ -636,30 +637,44 @@ export async function findMcpOAuthAccessToken(
       ON family.id = token.family_id AND family.revoked_at IS NULL AND family.expires_at > now()
     JOIN exomem_oauth_grants AS grant ON grant.id = token.grant_id AND grant.revoked_at IS NULL
     JOIN exomem_oauth_clients AS client ON client.id = token.client_id AND client.enabled = true
-    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id AND tenant.owner_user_id = grant.user_id
-    JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
-    WHERE token.access_digest = ${accessDigest} AND token.revoked_at IS NULL AND token.expires_at > now()
+    JOIN exomem_tenants AS tenant
+      ON tenant.id = grant.tenant_id
+     AND tenant.owner_user_id = grant.user_id
+     AND tenant.status <> 'deleted'
+     AND tenant.deleted_at IS NULL
+    JOIN exomem_entitlements AS entitlement
+      ON entitlement.tenant_id = tenant.id
+     AND entitlement.effective_state <> 'cancelled'
+    WHERE token.access_digest = ${accessDigest}
+      AND token.revoked_at IS NULL
+      AND token.expires_at > now()
+      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      AND NOT EXISTS (
+        SELECT 1 FROM exomem_oauth_account_blocks AS block
+        WHERE block.tenant_id = grant.tenant_id AND block.owner_user_id = grant.user_id
+      )
     LIMIT 1
   `;
-  const row = rows[0] as Record<string, unknown> | undefined;
-  return row &&
-    typeof row.family_id === "string" &&
-    typeof row.grant_id === "string" &&
-    typeof row.user_id === "string" &&
-    typeof row.tenant_id === "string" &&
-    typeof row.client_id === "string" &&
-    typeof row.resource === "string" &&
-    Array.isArray(row.scopes)
-    ? {
-        familyId: row.family_id,
-        grantId: row.grant_id,
-        userId: row.user_id,
-        tenantId: row.tenant_id,
-        clientId: row.client_id,
-        resource: row.resource,
-        scopes: row.scopes.filter((scope): scope is string => typeof scope === "string"),
-      }
-    : null;
+    const row = rows[0] as Record<string, unknown> | undefined;
+    return row &&
+      typeof row.family_id === "string" &&
+      typeof row.grant_id === "string" &&
+      typeof row.user_id === "string" &&
+      typeof row.tenant_id === "string" &&
+      typeof row.client_id === "string" &&
+      typeof row.resource === "string" &&
+      Array.isArray(row.scopes)
+      ? {
+          familyId: row.family_id,
+          grantId: row.grant_id,
+          userId: row.user_id,
+          tenantId: row.tenant_id,
+          clientId: row.client_id,
+          resource: row.resource,
+          scopes: row.scopes.filter((scope): scope is string => typeof scope === "string"),
+        }
+      : null;
+  });
 }
 
 export async function revokeOAuthTokenFamily(familyId: string): Promise<void> {

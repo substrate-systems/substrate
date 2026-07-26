@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import {
   CallToolRequestSchema,
+  ListToolsResultSchema,
   ListToolsRequestSchema,
   ToolSchema,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -23,8 +24,9 @@ import { SqlLifecycleStore } from "./lifecycle-store";
 import { findMcpOAuthAccessToken, type ActiveOAuthAccessToken } from "./oauth-store";
 import { bearerChallenge, mcpAuthenticateMeta, parseBearerAuthorization } from "./oauth";
 import { exomemPublicBaseUrlFromEnv } from "./public-origin";
+import { buildOperationalEvent, type OperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, clientAddressKey, takeExomemRateLimit } from "./rate-limit";
-import { digestSecret } from "./security";
+import { controlPlaneKeyFromEnv, digestSecret } from "./security";
 
 const MAX_MCP_REQUEST_BYTES = 1024 * 1024;
 const MCP_PROTOCOLS = new Set(["2025-11-25", "2025-06-18"]);
@@ -32,6 +34,13 @@ const MAX_MCP_CONCURRENCY = 16;
 let activeMcpCalls = 0;
 const activeMcpCallsByTenantClient = new Map<string, number>();
 const MAX_MCP_TENANT_CLIENT_CONCURRENCY = 4;
+const PRIVATE_ERROR_MESSAGES: Record<string, string> = {
+  CELL_UNAVAILABLE: "your Exomem is temporarily unavailable",
+  COMMAND_NOT_FOUND: "that Exomem action is not available",
+  EXOMEM_ENTITLEMENT_DENIED: "your current Exomem access does not include this action",
+  INVALID_REQUEST: "the request could not be accepted",
+  RATE_LIMITED: "too many requests",
+};
 
 type JsonRecord = Record<string, unknown>;
 type LiveTool = {
@@ -40,6 +49,8 @@ type LiveTool = {
   command: HostedContractCommand;
   inputSchema: JsonRecord;
   outputSchema: JsonRecord;
+  inputValidator: ReturnType<AjvJsonSchemaValidator["getValidator"]>;
+  outputValidator: ReturnType<AjvJsonSchemaValidator["getValidator"]>;
 };
 type LifecycleStatus = { state: string; code: string; retryable: boolean };
 
@@ -50,10 +61,30 @@ export type McpDependencies = {
   routeCommand?: typeof routeExomemCommand;
   takeRateLimit?: typeof takeExomemRateLimit;
   baseUrl?: string;
+  telemetry?: (event: OperationalEvent) => void;
+  telemetryKey?: Buffer;
 };
 
 function object(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
+}
+
+function opaqueMcpIdentifier(value: string, key: Buffer): string {
+  return createHmac("sha256", key).update("exomem-mcp-telemetry:v1\0").update(value).digest("hex");
+}
+
+function mcpByteBucket(request: Request): string {
+  const size = Number(request.headers.get("content-length") ?? 0);
+  return size <= 1024 ? "le_1k" : size <= 65_536 ? "le_64k" : "gt_64k";
+}
+
+async function awaitMcpBound<T>(value: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw exomemErrors.cellUnavailable();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(exomemErrors.cellUnavailable());
+    signal.addEventListener("abort", onAbort, { once: true });
+    void value.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 const MAX_JSON_DEPTH = 32;
@@ -61,17 +92,38 @@ const MAX_JSON_NODES = 10_000;
 const TOOL_SELECTOR_FIELDS = new Set([
   "tenant",
   "tenant_id",
+  "account",
+  "account_id",
+  "user",
+  "user_id",
+  "resource",
+  "public_subject",
   "cell",
   "cell_id",
   "endpoint",
   "internal_endpoint",
+  "private_address",
   "auth",
   "authorization",
   "session",
   "session_id",
   "vault",
   "vault_path",
+  "vault_root",
+  "storage_root",
+  "path",
   "principal",
+  "scope",
+  "protocol",
+  "protocol_version",
+  "version",
+  "service_credential",
+  "request",
+  "request_id",
+  "idempotency",
+  "idempotency_scope",
+  "retry",
+  "retry_scope",
   "profile_id",
   "profile",
 ]);
@@ -131,7 +183,11 @@ export function canonicalMcpArguments(value: unknown): string {
   return JSON.stringify(root);
 }
 
-export function hasMcpSelector(value: unknown, allowTopLevelProfile = false): boolean {
+export function hasMcpSelector(
+  value: unknown,
+  allowTopLevelProfile = false,
+  allowedTopLevelFields = new Set<string>()
+): boolean {
   const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
   while (pending.length) {
     const current = pending.pop()!;
@@ -144,7 +200,11 @@ export function hasMcpSelector(value: unknown, allowTopLevelProfile = false): bo
         const normalized = normalizedField(key);
         if (
           TOOL_SELECTOR_FIELDS.has(normalized) &&
-          !(allowTopLevelProfile && current.depth === 0 && normalized === "profile")
+          !(
+            current.depth === 0 &&
+            (allowedTopLevelFields.has(normalized) ||
+              (allowTopLevelProfile && normalized === "profile"))
+          )
         )
           return true;
         pending.push({ value: nested, depth: current.depth + 1 });
@@ -164,6 +224,7 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
   const commands = agent && Array.isArray(agent.commands) ? agent.commands : null;
   if (!commands) throw exomemErrors.protocolMismatch();
   const tools = new Map<string, LiveTool>();
+  const validator = new AjvJsonSchemaValidator();
   for (const raw of commands) {
     const command = object(raw);
     const rawTool = command && object(command.mcp_tool);
@@ -183,14 +244,7 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
           return { name: value.name, type: value.type, required: value.required };
         })
       : null;
-    // SDK validation is applied to a validation copy only: discovery returns the exact imported tool,
-    // including explicit null/default values used by native clients.
-    const validationTool = rawTool && {
-      ...rawTool,
-      execution: rawTool.execution ?? undefined,
-      icons: rawTool.icons ?? undefined,
-    };
-    const parsed = ToolSchema.safeParse(validationTool);
+    const parsed = ToolSchema.safeParse(rawTool);
     const inputSchema = rawTool && object(rawTool.inputSchema);
     const outputSchema = rawTool && object(rawTool.outputSchema);
     if (
@@ -220,9 +274,15 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
         capability: typeof command.capability === "string" ? command.capability : "core",
         guarded_fields: [],
       },
+      inputValidator: validator.getValidator(inputSchema),
+      outputValidator: validator.getValidator(outputSchema),
     });
   }
-  if (tools.size === 0) throw exomemErrors.protocolMismatch();
+  if (
+    tools.size === 0 ||
+    !ListToolsResultSchema.safeParse({ tools: [...tools.values()].map(({ tool }) => tool) }).success
+  )
+    throw exomemErrors.protocolMismatch();
   return tools;
 }
 
@@ -232,20 +292,61 @@ function requiredScope(readOnly: boolean): "exomem.read" | "exomem.write" {
 
 function lifecycleError(status: LifecycleStatus): ExomemHostedError | null {
   if (status.state === "ready") return null;
-  const messages: Record<string, { status: number; retryable: boolean; message: string }> = {
+  const messages: Record<
+    string,
+    {
+      status: number;
+      retryable: boolean;
+      message: string;
+      retryAfterMs?: number;
+      remediation?: string;
+    }
+  > = {
     CAPACITY_UNAVAILABLE: {
       status: 503,
       retryable: true,
       message: "Hosted capacity is temporarily unavailable",
+      retryAfterMs: 1_000,
+      remediation: "retry_later",
     },
     EXOMEM_SUSPENDED: {
       status: 403,
       retryable: false,
       message: "Your Exomem is currently suspended",
+      remediation: "contact_support",
     },
-    EXOMEM_DELETED: { status: 410, retryable: false, message: "Your Exomem has been deleted" },
-    CELL_PREPARING: { status: 503, retryable: true, message: "Your Exomem is still preparing" },
-    TENANT_PREPARING: { status: 503, retryable: true, message: "Your Exomem is still preparing" },
+    EXOMEM_DELETED: {
+      status: 410,
+      retryable: false,
+      message: "Your Exomem has been deleted",
+      remediation: "contact_support",
+    },
+    DELETION_IN_PROGRESS: {
+      status: 410,
+      retryable: false,
+      message: "Your Exomem deletion is in progress",
+      remediation: "deletion_in_progress",
+    },
+    deletion_pending: {
+      status: 410,
+      retryable: false,
+      message: "Your Exomem deletion is in progress",
+      remediation: "deletion_in_progress",
+    },
+    CELL_PREPARING: {
+      status: 503,
+      retryable: true,
+      message: "Your Exomem is still preparing",
+      retryAfterMs: 1_000,
+      remediation: "retry_later",
+    },
+    TENANT_PREPARING: {
+      status: 503,
+      retryable: true,
+      message: "Your Exomem is still preparing",
+      retryAfterMs: 1_000,
+      remediation: "retry_later",
+    },
   };
   const mapped = messages[status.code];
   if (mapped) return new ExomemHostedError({ code: status.code, ...mapped });
@@ -255,6 +356,7 @@ function lifecycleError(status: LifecycleStatus): ExomemHostedError | null {
       status: 503,
       retryable: status.retryable,
       message: "Your Exomem could not be prepared",
+      remediation: "contact_support",
     });
   }
   return new ExomemHostedError({
@@ -262,15 +364,33 @@ function lifecycleError(status: LifecycleStatus): ExomemHostedError | null {
     status: 503,
     retryable: status.retryable,
     message: "Your Exomem is not ready",
+    retryAfterMs: status.retryable ? 1_000 : undefined,
+    remediation: status.retryable ? "retry_later" : "contact_support",
   });
 }
 
-function toolFailure(error: unknown): {
+function toolFailure(
+  error: unknown,
+  requestId?: string
+): {
   content: Array<{ type: "text"; text: string }>;
   isError: true;
+  _meta?: Record<string, unknown>;
 } {
   const safe = error instanceof ExomemHostedError ? error : exomemErrors.cellUnavailable();
-  return { content: [{ type: "text", text: `${safe.code}: ${safe.message}` }], isError: true };
+  return {
+    content: [{ type: "text", text: `${safe.code}: ${safe.message}` }],
+    isError: true,
+    _meta: {
+      exomem: {
+        code: safe.code,
+        ...(requestId ? { requestId } : {}),
+        retryable: safe.retryable,
+        ...(safe.retryAfterMs ? { retryAfterMs: safe.retryAfterMs } : {}),
+        ...(safe.remediation ? { remediation: safe.remediation } : {}),
+      },
+    },
+  };
 }
 
 async function boundedBody(request: Request): Promise<unknown> {
@@ -341,8 +461,9 @@ async function withConcurrency<T>(key: string, operation: () => Promise<T>): Pro
     return await operation();
   } finally {
     activeMcpCalls -= 1;
-    if (activeForIdentity === 0) activeMcpCallsByTenantClient.delete(key);
-    else activeMcpCallsByTenantClient.set(key, activeForIdentity);
+    const remaining = (activeMcpCallsByTenantClient.get(key) ?? 1) - 1;
+    if (remaining <= 0) activeMcpCallsByTenantClient.delete(key);
+    else activeMcpCallsByTenantClient.set(key, remaining);
   }
 }
 
@@ -401,6 +522,7 @@ export async function handleHostedMcpRequest(
     const safe = error instanceof ExomemHostedError ? error : exomemErrors.invalidRequest();
     return Response.json({ error: safe.code }, { status: safe.status });
   }
+  if (Array.isArray(body)) return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
   const envelope = object(body);
   if (envelope?.method === "initialize") {
     const params = object(envelope.params);
@@ -442,48 +564,85 @@ export async function handleHostedMcpRequest(
   }));
   server.setRequestHandler(CallToolRequestSchema, async (rpc, extra) => {
     const tool = tools.get(rpc.params.name);
-    const args = object(rpc.params.arguments) ?? {};
+    const args = rpc.params.arguments === undefined ? {} : object(rpc.params.arguments);
+    const startedAt = Date.now();
+    const requestId = randomUUID();
+    const telemetry = (outcome: "succeeded" | "failed" | "denied", errorCode?: string) => {
+      if (!dependencies.telemetry || !tool) return;
+      const key = dependencies.telemetryKey ?? controlPlaneKeyFromEnv();
+      try {
+        dependencies.telemetry(
+          buildOperationalEvent({
+            event: "mcp.request",
+            outcome,
+            requestClass: "tool",
+            toolClass: tool.readOnly ? "read" : "write",
+            byteBucket: mcpByteBucket(request),
+            durationBucket: Date.now() - startedAt < 1000 ? "lt_1s" : "ge_1s",
+            retryBucket: "none",
+            clientHash: opaqueMcpIdentifier(access.clientId, key),
+            cohortHash: opaqueMcpIdentifier("hosted-alpha-agent-v1", key),
+            ...(errorCode ? { errorCode } : {}),
+          })
+        );
+      } catch {
+        // Telemetry is observability-only and cannot change a tool result.
+      }
+    };
+    if (!tool) return toolFailure(exomemErrors.commandNotFound(), requestId);
+    if (!args) return toolFailure(exomemErrors.invalidRequest(), requestId);
     if (
-      !tool ||
-      hasMcpSelector(args, rpc.params.name === "bootstrap") ||
-      !access.scopes.includes(requiredScope(tool.readOnly))
+      hasMcpSelector(
+        args,
+        rpc.params.name === "bootstrap",
+        new Set(tool.command.params.map((parameter) => normalizedField(parameter.name)))
+      )
     )
-      return toolFailure(exomemErrors.entitlementDenied());
+      return toolFailure(exomemErrors.selectorRejected(), requestId);
+    if (!access.scopes.includes(requiredScope(tool.readOnly)))
+      return toolFailure(exomemErrors.entitlementDenied(), requestId);
     try {
       if (extra.signal.aborted) throw exomemErrors.cellUnavailable();
-      const inputValidator = new AjvJsonSchemaValidator().getValidator(tool.inputSchema);
-      if (!inputValidator(args).valid) throw exomemErrors.invalidRequest();
+      if (!tool.inputValidator(args).valid) throw exomemErrors.invalidRequest();
       const result = await withConcurrency(`${access.tenantId}:${access.clientId}`, async () => {
-        const status = await (
-          dependencies.statusForTenant ??
-          ((tenantId: string) => new SqlLifecycleStore().statusForTenant(tenantId))
-        )(access.tenantId);
+        const signal = AbortSignal.any([request.signal, extra.signal, AbortSignal.timeout(10_000)]);
+        const status = await awaitMcpBound(
+          (
+            dependencies.statusForTenant ??
+            ((tenantId: string) => new SqlLifecycleStore().statusForTenant(tenantId))
+          )(access.tenantId),
+          signal
+        );
         const lifecycle = lifecycleError(status);
         if (lifecycle) throw lifecycle;
-        if (extra.signal.aborted) throw exomemErrors.cellUnavailable();
-        return (dependencies.routeCommand ?? routeExomemCommand)({
-          session: { userId: access.userId, tenantId: access.tenantId },
-          commandName: rpc.params.name,
-          args,
-          command: tool.command,
-          hostedContract: {
-            profile: live.profile,
-            sourceRelease: live.sourceRelease,
-            protocolVersion: live.protocolVersion,
-            commandFingerprint: live.commandFingerprint,
-            schemaDigest: live.schemaDigest,
-            compatibilityDigest: live.compatibilityDigest,
-          },
-          idempotencyKey: tool.readOnly
-            ? null
-            : idempotencyKey(access, extra.requestId, rpc.params.name, args),
-          requestId: randomUUID(),
-        });
+        if (signal.aborted) throw exomemErrors.cellUnavailable();
+        return awaitMcpBound(
+          (dependencies.routeCommand ?? routeExomemCommand)({
+            session: { userId: access.userId, tenantId: access.tenantId },
+            commandName: rpc.params.name,
+            args,
+            command: tool.command,
+            hostedContract: {
+              profile: live.profile,
+              sourceRelease: live.sourceRelease,
+              protocolVersion: live.protocolVersion,
+              commandFingerprint: live.commandFingerprint,
+              schemaDigest: live.schemaDigest,
+              compatibilityDigest: live.compatibilityDigest,
+            },
+            idempotencyKey: tool.readOnly
+              ? null
+              : idempotencyKey(access, extra.requestId, rpc.params.name, args),
+            requestId,
+            dependencies: { signal },
+          }),
+          signal
+        );
       });
       const envelope = object(result.body);
       if (envelope?.success === true) {
-        const outputValidator = new AjvJsonSchemaValidator().getValidator(tool.outputSchema);
-        if (!outputValidator(envelope.data).valid) throw exomemErrors.cellResponseInvalid();
+        if (!tool.outputValidator(envelope.data).valid) throw exomemErrors.cellResponseInvalid();
+        telemetry("succeeded");
         return {
           content: [{ type: "text" as const, text: JSON.stringify(envelope.data ?? null) }],
           structuredContent: envelope.data as JsonRecord,
@@ -492,24 +651,25 @@ export async function handleHostedMcpRequest(
       if (envelope?.success === false && object(envelope.error)) {
         const error = object(envelope.error)!;
         const code =
-          typeof error.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code)
+          typeof error.code === "string" && Object.hasOwn(PRIVATE_ERROR_MESSAGES, error.code)
             ? error.code
             : "CELL_UNAVAILABLE";
+        telemetry("failed", code);
         return toolFailure(
           new ExomemHostedError({
             code,
             status: result.status >= 400 ? result.status : 502,
             retryable: error.retryable === true,
-            message:
-              typeof error.message === "string"
-                ? error.message.slice(0, 256)
-                : "the Exomem action could not be completed",
-          })
+            message: PRIVATE_ERROR_MESSAGES[code],
+          }),
+          requestId
         );
       }
-      return toolFailure(exomemErrors.cellResponseInvalid());
+      telemetry("failed", "CELL_RESPONSE_INVALID");
+      return toolFailure(exomemErrors.cellResponseInvalid(), requestId);
     } catch (error) {
-      return toolFailure(error);
+      telemetry("failed", error instanceof ExomemHostedError ? error.code : "CELL_UNAVAILABLE");
+      return toolFailure(error, requestId);
     }
   });
   const transport = new WebStandardStreamableHTTPServerTransport({

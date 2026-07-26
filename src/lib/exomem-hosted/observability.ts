@@ -11,6 +11,7 @@ const EVENT_NAMES = new Set([
   "access.request.denied",
   "lifecycle.capacity.transition",
   "lifecycle.capacity.claim",
+  "mcp.request",
 ]);
 
 const ERROR_CODES = new Set([
@@ -29,6 +30,18 @@ const ERROR_CODES = new Set([
   "INVALID_REQUEST",
   "RATE_LIMITED",
   "CAPACITY_UNAVAILABLE",
+  "CELL_RESPONSE_INVALID",
+  "CELL_UNAVAILABLE",
+  "CELL_PROTOCOL_MISMATCH",
+  "DELETION_IN_PROGRESS",
+  "EXOMEM_ENTITLEMENT_DENIED",
+  "EXOMEM_DELETED",
+  "EXOMEM_NOT_READY",
+  "EXOMEM_PROVISIONING_FAILED",
+  "EXOMEM_SUSPENDED",
+  "HOSTED_SELECTOR_REJECTED",
+  "TENANT_PREPARING",
+  "TOO_LARGE",
 ]);
 
 const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
@@ -61,6 +74,11 @@ export type OperationalEvent = {
   capacityBucket?: string;
   transition?: string;
   claimKind?: string;
+  clientHash?: string;
+  cohortHash?: string;
+  requestClass?: string;
+  toolClass?: string;
+  retryBucket?: string;
 };
 
 function optionalUuid(value: unknown): string | undefined {
@@ -73,6 +91,10 @@ function optionalBoundedLabel(value: unknown): string | undefined {
 
 function optionalEnum(value: unknown, allowed: Set<string>): string | undefined {
   return typeof value === "string" && allowed.has(value) ? value : undefined;
+}
+
+function optionalOpaqueHash(value: unknown): string | undefined {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value) ? value : undefined;
 }
 
 export function buildOperationalEvent(
@@ -124,6 +146,21 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalEnum(input.claimKind, CLAIM_KINDS)
       ? { claimKind: optionalEnum(input.claimKind, CLAIM_KINDS) }
+      : {}),
+    ...(optionalOpaqueHash(input.clientHash)
+      ? { clientHash: optionalOpaqueHash(input.clientHash) }
+      : {}),
+    ...(optionalOpaqueHash(input.cohortHash)
+      ? { cohortHash: optionalOpaqueHash(input.cohortHash) }
+      : {}),
+    ...(optionalBoundedLabel(input.requestClass)
+      ? { requestClass: optionalBoundedLabel(input.requestClass) }
+      : {}),
+    ...(optionalBoundedLabel(input.toolClass)
+      ? { toolClass: optionalBoundedLabel(input.toolClass) }
+      : {}),
+    ...(optionalBoundedLabel(input.retryBucket)
+      ? { retryBucket: optionalBoundedLabel(input.retryBucket) }
       : {}),
   };
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
   findActiveOAuthAccessToken,
+  findMcpOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
   resolveApprovedOAuthClient,
@@ -28,6 +29,36 @@ function setSqlForTests(sql: ExomemSql): void {
 }
 
 describe("Exomem OAuth token store", () => {
+  it("fences MCP access under the shared cohort lock and accepts non-ready token context", async () => {
+    const queries: string[] = [];
+    setSqlForTests(async (strings) => {
+      const query = strings.join("?");
+      queries.push(query);
+      return query.includes("find-mcp-oauth-access-token")
+        ? {
+            rows: [
+              {
+                family_id: "family-1",
+                grant_id: "grant-1",
+                user_id: "user-1",
+                tenant_id: "tenant-1",
+                client_id: "client-1",
+                resource: "https://substratesystems.io/api/exomem/mcp/v1",
+                scopes: ["exomem.read"],
+              },
+            ],
+          }
+        : { rows: [] };
+    });
+
+    assert.equal((await findMcpOAuthAccessToken(Buffer.alloc(32, 1)))?.tenantId, "tenant-1");
+    assert.match(queries[0] ?? "", /pg_advisory_xact_lock_shared/i);
+    assert.match(queries[1] ?? "", /exomem_hosted_alpha_cohort/i);
+    assert.match(queries[1] ?? "", /exomem_oauth_account_blocks/i);
+    assert.match(queries[1] ?? "", /tenant\.status <> 'deleted'/i);
+    assert.doesNotMatch(queries[1] ?? "", /tenant\.status IN \('provisioning', 'active'\)/i);
+  });
+
   it("consumes a code and persists a new token family in one statement", async () => {
     let query = "";
     setSqlForTests(async (strings) => {

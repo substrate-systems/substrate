@@ -69,6 +69,14 @@ function target(input: {
   cellId: string;
   endpoint: string;
   capabilities?: string[];
+  hosted?: {
+    profile: string;
+    sourceRelease: string;
+    protocolVersion: string;
+    commandFingerprint: string;
+    schemaDigest: string;
+    compatibilityDigest: string;
+  };
 }): GatewayTarget {
   return {
     userId: input.userId,
@@ -93,6 +101,12 @@ function target(input: {
       workerCount: 0,
     },
     manuallySuspended: false,
+    hostedProfile: input.hosted?.profile,
+    hostedSourceRelease: input.hosted?.sourceRelease,
+    hostedProtocolVersion: input.hosted?.protocolVersion,
+    hostedCommandFingerprint: input.hosted?.commandFingerprint,
+    hostedContractDigest: input.hosted?.schemaDigest,
+    hostedCompatibilityDigest: input.hosted?.compatibilityDigest,
   };
 }
 
@@ -103,6 +117,59 @@ function decrypt(envelope: SecretEnvelope): SensitiveSecret {
 beforeEach(clearContractCacheForTests);
 
 describe("registry-derived Exomem gateway", () => {
+  it("accepts the exact hosted private profile-contract response shape", async () => {
+    const hosted = {
+      profile: "hosted-alpha-agent-v1",
+      sourceRelease: "0.24.0",
+      protocolVersion: "1",
+      commandFingerprint: "a".repeat(64),
+      schemaDigest: "b".repeat(64),
+      compatibilityDigest: "c".repeat(64),
+    };
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-a",
+      endpoint: "https://cell-a.internal/",
+      hosted,
+    });
+    const result = await routeExomemCommand({
+      session: { userId: USER_A, tenantId: TENANT_A },
+      commandName: "ask_memory",
+      args: { query: "private shape" },
+      command: {
+        name: "ask_memory",
+        params: [{ name: "query", type: "str", required: true }],
+        read_only: true,
+        mode: "read",
+        tier: 1,
+        capability: "core",
+        guarded_fields: [],
+      },
+      hostedContract: hosted,
+      dependencies: {
+        resolveTarget: async () => row,
+        fetch: async (input) =>
+          String(input).endsWith("/contract")
+            ? Response.json({
+                agent_profile: {
+                  profile: hosted.profile,
+                  active_capability_sha256: hosted.commandFingerprint,
+                },
+                exomem_release: hosted.sourceRelease,
+                protocol_version: hosted.protocolVersion,
+                digest: { value: hosted.schemaDigest },
+                compatibility: { rollout: "current" },
+              })
+            : Response.json({ success: true, data: {} }),
+        expectedProtocol: "1",
+        decrypt,
+        principalScope: () => "A".repeat(43),
+      },
+    });
+    assert.deepEqual(result.body, { success: true, data: {} });
+  });
+
   it("rejects browser attempts to supply Cloudflare Access service credentials", () => {
     for (const name of ["CF-Access-Client-Id", "CF-Access-Client-Secret"]) {
       assert.equal(hasForbiddenGatewayHeaders(new Headers({ [name]: "browser-value" })), true);

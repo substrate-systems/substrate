@@ -14,13 +14,24 @@ export class ExomemHostedError extends Error {
   readonly code: string;
   readonly status: number;
   readonly retryable: boolean;
+  readonly retryAfterMs?: number;
+  readonly remediation?: string;
 
-  constructor(params: { code: string; status: number; message: string; retryable?: boolean }) {
+  constructor(params: {
+    code: string;
+    status: number;
+    message: string;
+    retryable?: boolean;
+    retryAfterMs?: number;
+    remediation?: string;
+  }) {
     super(params.message);
     this.name = "ExomemHostedError";
     this.code = params.code;
     this.status = params.status;
     this.retryable = params.retryable ?? false;
+    this.retryAfterMs = params.retryAfterMs;
+    this.remediation = params.remediation;
   }
 
   toJSON(): ExomemHostedErrorEnvelope["error"] {
