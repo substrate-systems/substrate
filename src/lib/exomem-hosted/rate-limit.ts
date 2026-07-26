@@ -54,6 +54,11 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 30,
     windowSeconds: 60,
   },
+  oauthRevokeIp: {
+    scope: "exomem:oauth-revoke:ip",
+    limit: 30,
+    windowSeconds: 60,
+  },
   mcpIp: {
     scope: "exomem:mcp:ip",
     limit: 120,

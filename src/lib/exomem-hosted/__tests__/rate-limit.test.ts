@@ -30,3 +30,10 @@ test("OAuth token exchanges use a dedicated bounded IP rule", () => {
   assert.ok(rule.limit > 0);
   assert.ok(rule.windowSeconds > 0);
 });
+
+test("OAuth revocation uses a dedicated bounded IP rule", () => {
+  const rule = EXOMEM_RATE_LIMITS.oauthRevokeIp;
+  assert.equal(rule.scope, "exomem:oauth-revoke:ip");
+  assert.ok(rule.limit > 0);
+  assert.ok(rule.windowSeconds > 0);
+});

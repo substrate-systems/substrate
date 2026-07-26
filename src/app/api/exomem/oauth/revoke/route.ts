@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { readOAuthForm, oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
 import { revokeOAuthTokenForClient } from "@/lib/exomem-hosted/oauth-store";
+import {
+  clientAddressKey,
+  EXOMEM_RATE_LIMITS,
+  takeExomemRateLimit,
+} from "@/lib/exomem-hosted/rate-limit";
 import { digestSecret } from "@/lib/exomem-hosted/security";
 
 export const runtime = "nodejs";
@@ -22,8 +27,26 @@ function invalidRequest(): NextResponse {
   );
 }
 
+function rateLimited(): NextResponse {
+  return NextResponse.json(
+    { error: "temporarily_unavailable" },
+    {
+      status: 429,
+      headers: {
+        ...oauthNoStoreHeaders(),
+        "retry-after": String(EXOMEM_RATE_LIMITS.oauthRevokeIp.windowSeconds),
+      },
+    }
+  );
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   try {
+    const allowed = await takeExomemRateLimit(
+      EXOMEM_RATE_LIMITS.oauthRevokeIp,
+      clientAddressKey(request) ?? "unavailable"
+    );
+    if (!allowed) return rateLimited();
     const form = await readOAuthForm(request, REVOCATION_FIELDS);
     if (!form.token || !form.client_id) return invalidRequest();
     await revokeForClient({

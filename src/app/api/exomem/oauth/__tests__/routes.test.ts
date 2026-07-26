@@ -218,6 +218,7 @@ before(() => {
         };
       },
       revokeOAuthTokenForClient: async (input: { tokenDigest: Buffer; clientId: string }) => {
+        tokenStoreCalls++;
         const familyId = revocableCredentialFamilies.get(digestKey(input.tokenDigest));
         const family = familyId ? families.get(familyId) : null;
         if (family && family.clientId === input.clientId) {
@@ -238,6 +239,7 @@ before(() => {
         oauthAuthorizeIp: {},
         oauthAuthorizeClient: {},
         oauthTokenIp: { windowSeconds: 60 },
+        oauthRevokeIp: { windowSeconds: 60 },
       },
       clientAddressKey: () => "203.0.113.10",
       takeExomemRateLimit: async () => rateLimitAllowed,
@@ -725,6 +727,35 @@ describe("Exomem OAuth routes", () => {
       revoked: true,
       revokedReason: "client_revoked",
     });
+  });
+
+  it("rate limits revocation before reading form data or invoking the token store", async () => {
+    const { POST } = await import("../revoke/route");
+    rateLimitAllowed = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(`client_id=${FORM_SECRET}&token=${FORM_SECRET}`)
+        );
+        controller.close();
+      },
+    });
+    const request = new Request(`${BASE_URL}/api/exomem/oauth/revoke`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    const response = await POST(request);
+    const responseBody = await response.text();
+    assert.equal(response.status, 429);
+    assert.deepEqual(JSON.parse(responseBody), { error: "temporarily_unavailable" });
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+    assert.equal(response.headers.get("retry-after"), "60");
+    assert.equal(request.bodyUsed, false);
+    assert.equal(tokenStoreCalls, 0);
+    assert.equal(responseBody.includes(FORM_SECRET), false);
   });
 
   it("rejects oversized and non-form token requests without reflecting credentials", async () => {
