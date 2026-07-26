@@ -3,7 +3,8 @@ import { exomemHostedContractFixture } from "./agent-contract-fixture";
 import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
-type Platform = "claude" | "openai";
+export type ClientArtifactPlatform = "claude" | "openai";
+type Platform = ClientArtifactPlatform;
 type ClientArtifact = {
   platform: Platform;
   state: ClientArtifactState;
@@ -19,14 +20,18 @@ type ClientArtifact = {
   installUrl: string;
   evidenceSha256: string;
   resultSha256: string;
+  oauthClientConfigHmacSha256: string;
   observedAt: string;
+  candidateId: string;
 };
-type PlatformLocks = {
+export type PlatformLocks = {
   packageLock: Record<string, unknown>;
   archiveLock: Record<string, unknown>;
   candidateId: string | null;
   registeredAppIdSha256: string | null;
 };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const sha256 = (value: unknown, label: string): string => {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))
@@ -91,6 +96,8 @@ function parseClientArtifact(input: unknown): ClientArtifact {
     throw new Error("client identity must be supplied only as a privacy-safe hash");
   if (["registered_app_id", "registeredAppId", "app_id"].some((key) => key in raw))
     throw new Error("raw registered app IDs must never be persisted");
+  if (typeof raw.candidateId !== "string" || !UUID.test(raw.candidateId))
+    throw new Error("artifact contract candidate identity is invalid");
   return {
     platform: raw.platform,
     state: "pending",
@@ -106,7 +113,12 @@ function parseClientArtifact(input: unknown): ClientArtifact {
     installUrl: target.href,
     evidenceSha256: sha256(raw.evidenceSha256, "evidence digest"),
     resultSha256: sha256(raw.resultSha256, "result digest"),
+    oauthClientConfigHmacSha256: sha256(
+      raw.oauthClientConfigHmacSha256,
+      "OAuth client configuration digest"
+    ),
     observedAt: observedAt.toISOString(),
+    candidateId: raw.candidateId,
   };
 }
 
@@ -132,6 +144,7 @@ const evidenceStrings = [
   "profile",
   "operator_key_id",
   "operator_signature",
+  "oauth_client_config_hmac_sha256",
 ] as const;
 const evidenceCounts = [
   "identity_count",
@@ -151,29 +164,39 @@ const evidenceOperations = [
   "fresh_chat_recall",
 ] as const;
 
-async function platformLocks(
+export async function loadClientArtifactLocks(
   platform: Platform,
+  candidateId: string,
   sql: ExomemSql = executeExomemSql
 ): Promise<PlatformLocks> {
-  if (platform === "claude") {
-    return {
-      packageLock: exomemHostedContractFixture.packageLock,
-      archiveLock: exomemHostedContractFixture.archiveLock,
-      candidateId: null,
-      registeredAppIdSha256: null,
-    };
-  }
   const { rows } = await sql`
-    /* exomem:load-openai-contract-locks */
-    SELECT id::text AS candidate_id, openai_package_lock, openai_archive_lock
+    /* exomem:load-client-artifact-contract-locks */
+    SELECT id::text AS candidate_id, claude_package_lock, claude_archive_lock,
+           openai_package_lock, openai_archive_lock
     FROM exomem_agent_contract_candidates
-    WHERE profile_id = 'hosted-alpha-agent-v1' AND state IN ('pending', 'live')
-      AND openai_package_lock IS NOT NULL AND openai_archive_lock IS NOT NULL
-    ORDER BY CASE state WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC, id DESC
-    LIMIT 1
+    WHERE id = ${candidateId}::uuid AND profile_id = 'hosted-alpha-agent-v1'
+      AND state IN ('pending', 'live')
     FOR UPDATE
   `;
   const row = rows[0];
+  if (!row || row.candidate_id !== candidateId)
+    throw new Error("artifact contract candidate is not pending or live");
+  if (platform === "claude") {
+    if (
+      !row.claude_package_lock ||
+      !row.claude_archive_lock ||
+      canonical(row.claude_package_lock) !== canonical(exomemHostedContractFixture.packageLock) ||
+      canonical(row.claude_archive_lock) !== canonical(exomemHostedContractFixture.archiveLock)
+    ) {
+      throw new Error("Claude locks differ from the checked Exomem release");
+    }
+    return {
+      packageLock: exomemHostedContractFixture.packageLock,
+      archiveLock: exomemHostedContractFixture.archiveLock,
+      candidateId,
+      registeredAppIdSha256: null,
+    };
+  }
   if (
     !row ||
     !row.openai_package_lock ||
@@ -187,7 +210,6 @@ async function platformLocks(
   }
   const packageLock = row.openai_package_lock as Record<string, unknown>;
   const archiveLock = row.openai_archive_lock as Record<string, unknown>;
-  const candidateId = typeof row.candidate_id === "string" ? row.candidate_id : null;
   const fixtureLock: Record<string, unknown> = exomemHostedContractFixture.packageLock;
   const identityFields = [
     "schema_version",
@@ -237,7 +259,6 @@ async function platformLocks(
   ) {
     throw new Error("OpenAI package and archive locks have different registered app ID digests");
   }
-  if (!candidateId) throw new Error("OpenAI contract candidate identity is invalid");
   const registeredAppIdSha256 = sha256(
     packageLock.registered_app_id_sha256,
     "OpenAI registered app ID digest"
@@ -251,7 +272,7 @@ async function platformLocks(
   return { packageLock, archiveLock, candidateId, registeredAppIdSha256 };
 }
 
-function validatePromotionEvidence(
+export function validatePromotionEvidence(
   input: unknown,
   platform: Platform,
   locks: PlatformLocks
@@ -336,6 +357,7 @@ function validatePromotionEvidence(
     "entitlement_hmac_sha256",
     "provisioning_operation_hmac_sha256",
     "cell_hmac_sha256",
+    "oauth_client_config_hmac_sha256",
   ] as const)
     sha256(evidence[key], key);
   const keyId = process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID;
@@ -351,50 +373,8 @@ function validatePromotionEvidence(
   return evidence;
 }
 
-/** Verify Exomem's canonical evidence object using only server-owned operator key material. */
-export async function promoteClientArtifact(input: {
-  artifactId: string;
-  platform: Platform;
-  evidence: unknown;
-}): Promise<boolean> {
-  return withExomemTransaction(async (transaction) => {
-    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
-    const locks = await platformLocks(input.platform, transaction);
-    const evidence = validatePromotionEvidence(input.evidence, input.platform, locks);
-    const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
-    const installUrl = trustedInstallTarget(input.platform).href;
-    const { rows } = await transaction`
-      /* exomem:promote-client-artifact */
-      WITH candidate AS (
-        SELECT * FROM exomem_client_artifacts WHERE id = ${input.artifactId}::uuid AND platform = ${input.platform} AND state = 'pending' FOR UPDATE
-    ), evidence_match AS (
-      SELECT 1 FROM candidate WHERE evidence_sha256 = ${evidenceSha256}
-        AND result_sha256 = ${sha256(evidence.result_sha256, "result digest")}
-        AND package_sha256 = ${sha256(evidence.package_artifact_sha256, "package digest")}
-        AND archive_sha256 = ${sha256(evidence.archive_sha256, "archive digest")}
-        AND compatibility_sha256 = ${sha256(evidence.compatibility_sha256, "compatibility digest")}
-        AND contract_sha256 = ${sha256(evidence.schema_contract_sha256, "contract digest")}
-        AND plugin_version = ${String(evidence.plugin_version)}
-        AND install_url = ${installUrl}
-        AND client_identity_sha256 = ${sha256(evidence.clean_client_identity_hmac_sha256, "clean client identity digest")}
-        AND paired_run_hmac_sha256 = ${sha256(evidence.paired_run_hmac_sha256, "paired run digest")}
-        AND exomem_identity_hmac_sha256 = ${sha256(evidence.exomem_identity_hmac_sha256, "Exomem identity digest")}
-        AND tenant_hmac_sha256 = ${sha256(evidence.tenant_hmac_sha256, "tenant digest")}
-        AND contract_candidate_id IS NOT DISTINCT FROM ${locks.candidateId}::uuid
-        AND registered_app_id_sha256 IS NOT DISTINCT FROM ${locks.registeredAppIdSha256}
-        AND observed_at <= now() AND observed_at > now() - interval '24 hours'
-    ), retired AS (
-      UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = ${input.platform} AND state = 'live' AND EXISTS (SELECT 1 FROM evidence_match) RETURNING id
-    ), retirement_complete AS (
-      SELECT count(*) AS retired_count FROM retired
-    ), promoted AS (
-      UPDATE exomem_client_artifacts SET state = 'live', promoted_at = now()
-      FROM retirement_complete
-      WHERE id = ${input.artifactId}::uuid AND EXISTS (SELECT 1 FROM evidence_match) RETURNING id
-      ) SELECT id FROM promoted
-    `;
-    return rows.length === 1;
-  });
+export function promotionEvidenceDigest(evidence: Record<string, unknown>): string {
+  return createHash("sha256").update(canonical(evidence)).digest("hex");
 }
 
 export async function demoteClientArtifact(
@@ -416,9 +396,9 @@ export async function demoteClientArtifact(
 export async function storeClientArtifact(input: unknown): Promise<string> {
   const artifact = parseClientArtifact(input);
   const source = input as Record<string, unknown>;
-  const locks = await platformLocks(artifact.platform);
+  const locks = await loadClientArtifactLocks(artifact.platform, artifact.candidateId);
   const evidence = validatePromotionEvidence(source.evidence, artifact.platform, locks);
-  const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
+  const evidenceSha256 = promotionEvidenceDigest(evidence);
   if (
     artifact.evidenceSha256 !== evidenceSha256 ||
     artifact.resultSha256 !== evidence.result_sha256 ||
@@ -430,14 +410,15 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
     artifact.clientIdentitySha256 !== evidence.clean_client_identity_hmac_sha256 ||
     artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 ||
     artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
-    artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256
+    artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256 ||
+    artifact.oauthClientConfigHmacSha256 !== evidence.oauth_client_config_hmac_sha256
   ) {
     throw new Error("artifact fields do not match signed evidence");
   }
   const { rows } = await executeExomemSql`
     /* exomem:store-client-artifact */
-    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id, registered_app_id_sha256, observed_at)
-    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${locks.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.observedAt}) RETURNING id
+    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id, registered_app_id_sha256, oauth_client_config_hmac_sha256, observed_at)
+    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${artifact.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.oauthClientConfigHmacSha256}, ${artifact.observedAt}) RETURNING id
   `;
   const id = rows[0]?.id;
   if (typeof id !== "string") throw new Error("client artifact insert returned no id");

@@ -9,7 +9,6 @@ import fixture from "./fixtures/hosted-paired-acceptance-v1.json";
 import { getLiveExomemAgentContract } from "../agent-contract-store";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { loadOwnerInstallActions } from "../account-install-actions";
-import { promoteClientArtifact } from "../client-artifacts";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
@@ -744,14 +743,14 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       "SELECT state FROM exomem_agent_contract_candidates WHERE id = $1",
       [cohort.candidateId]
     );
-    await assert.rejects(
-      () =>
-        promoteClientArtifact({
-          artifactId: pendingArtifact.rows[0]!.id,
-          platform: "claude",
-          evidence: localPromotionEvidence(),
-        }),
-      /live promotion requires exact real content-bearing client evidence/
+    // Pending artifacts cannot change a published cohort outside the atomic cohort endpoint.
+    assert.equal(
+      (
+        await pool!.query("SELECT state FROM exomem_client_artifacts WHERE id = $1", [
+          pendingArtifact.rows[0]!.id,
+        ])
+      ).rows[0]?.state,
+      "pending"
     );
     assert.deepEqual(
       (await pool!.query("SELECT platform, state FROM exomem_client_artifacts ORDER BY platform"))

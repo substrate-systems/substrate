@@ -10,16 +10,11 @@ import {
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import {
   attachOpenAiContractLocks,
-  demoteExomemAgentContractCandidate,
-  promoteExomemAgentContractCandidate,
+  promoteExomemHostedCohort,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
-import {
-  demoteClientArtifact,
-  promoteClientArtifact,
-  storeClientArtifact,
-} from "../client-artifacts";
+import { demoteClientArtifact, storeClientArtifact } from "../client-artifacts";
 
 const sha = (character: string) => character.repeat(64);
 
@@ -45,6 +40,9 @@ afterEach(() => {
 });
 
 describe("Exomem Hosted agent contracts", () => {
+  it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
+    assert.equal(typeof promoteExomemHostedCohort, "function");
+  });
   it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
@@ -95,6 +93,7 @@ describe("Exomem Hosted agent contracts", () => {
       entitlement_hmac_sha256: sha("5"),
       provisioning_operation_hmac_sha256: sha("6"),
       cell_hmac_sha256: sha("7"),
+      oauth_client_config_hmac_sha256: sha("a"),
       identity_count: 1,
       tenant_count: 1,
       entitlement_count: 1,
@@ -140,50 +139,31 @@ describe("Exomem Hosted agent contracts", () => {
       installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL,
       evidenceSha256: createHash("sha256").update(canonical(evidence)).digest("hex"),
       resultSha256: sha("8"),
+      oauthClientConfigHmacSha256: sha("a"),
       observedAt: new Date().toISOString(),
+      candidateId: "00000000-0000-0000-0000-000000000002",
       evidence,
     };
     const queries: string[] = [];
     __setExomemSqlForTests(async (strings) => {
       queries.push(strings.join("?"));
-      return { rows: [{ id: "artifact-1" }] };
+      return {
+        rows: [
+          {
+            id: "artifact-1",
+            candidate_id: "00000000-0000-0000-0000-000000000002",
+            claude_package_lock: exomemHostedContractFixture.packageLock,
+            claude_archive_lock: exomemHostedContractFixture.archiveLock,
+          },
+        ],
+      };
     });
-    const transactionQueries: string[] = [];
-    __setExomemTransactionForTests(async (work) =>
-      work(async (strings) => {
-        transactionQueries.push(strings.join("?"));
-        return { rows: [{ id: "artifact-1" }] };
-      })
-    );
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
-    await promoteClientArtifact({
-      artifactId: "00000000-0000-0000-0000-000000000001",
-      platform: "claude",
-      evidence,
-    });
-    assert.match(queries[0], /INSERT INTO exomem_client_artifacts/i);
-    assert.match(
-      transactionQueries[0],
-      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
-    );
-    assert.match(transactionQueries[1], /package_sha256/i);
+    assert.match(queries[0], /load-client-artifact-contract-locks/i);
+    assert.match(queries[1], /INSERT INTO exomem_client_artifacts/i);
     assert.equal(
       await demoteClientArtifact("00000000-0000-0000-0000-000000000001", sha("9")),
       true
-    );
-    assert.match(
-      transactionQueries[2],
-      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
-    );
-    assert.match(transactionQueries[3], /UPDATE exomem_client_artifacts/i);
-    await assert.rejects(
-      () =>
-        promoteClientArtifact({
-          artifactId: "00000000-0000-0000-0000-000000000001",
-          platform: "claude",
-          evidence: { ...evidence, operator_signature: sha("0") },
-        }),
-      /signature is invalid/i
     );
     await assert.rejects(
       () => storeClientArtifact({ ...artifact, clientIdentity: "private" }),
@@ -231,6 +211,7 @@ describe("Exomem Hosted agent contracts", () => {
       entitlement_hmac_sha256: sha("5"),
       provisioning_operation_hmac_sha256: sha("6"),
       cell_hmac_sha256: sha("7"),
+      oauth_client_config_hmac_sha256: sha("a"),
       identity_count: 1,
       tenant_count: 1,
       entitlement_count: 1,
@@ -277,14 +258,16 @@ describe("Exomem Hosted agent contracts", () => {
       installUrl: process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL,
       evidenceSha256: createHash("sha256").update(canonical(evidence)).digest("hex"),
       resultSha256: sha("8"),
+      oauthClientConfigHmacSha256: sha("a"),
       observedAt: new Date().toISOString(),
+      candidateId: "00000000-0000-0000-0000-000000000002",
       evidence,
     };
     const queries: string[] = [];
     __setExomemSqlForTests(async (strings) => {
       const query = strings.join("?");
       queries.push(query);
-      if (/load-openai-contract-locks/i.test(query))
+      if (/load-client-artifact-contract-locks/i.test(query))
         return {
           rows: [
             {
@@ -296,63 +279,16 @@ describe("Exomem Hosted agent contracts", () => {
         };
       return { rows: [{ id: "openai-artifact-1" }] };
     });
-    const transactionQueries: string[] = [];
-    let authoritativeCandidateId = "00000000-0000-0000-0000-000000000002";
-    __setExomemTransactionForTests(async (work) =>
-      work(async (strings) => {
-        const query = strings.join("?");
-        transactionQueries.push(query);
-        if (/load-openai-contract-locks/i.test(query))
-          return {
-            rows: [
-              {
-                candidate_id: authoritativeCandidateId,
-                openai_package_lock: locks.packageLock,
-                openai_archive_lock: locks.archiveLock,
-              },
-            ],
-          };
-        if (
-          /promote-client-artifact/i.test(query) &&
-          authoritativeCandidateId !== "00000000-0000-0000-0000-000000000002"
-        )
-          return { rows: [] };
-        return { rows: [{ id: "openai-artifact-1" }] };
-      })
-    );
     assert.equal(
       await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature: importSignature }),
       true
     );
     assert.equal(await storeClientArtifact(artifact), "openai-artifact-1");
     assert.equal(
-      await promoteClientArtifact({
-        artifactId: "00000000-0000-0000-0000-000000000003",
-        platform: "openai",
-        evidence,
-      }),
-      true
+      queries.filter((query) => /load-client-artifact-contract-locks/i.test(query)).length,
+      1
     );
-    assert.equal(queries.filter((query) => /load-openai-contract-locks/i.test(query)).length, 1);
     assert.match(queries[0], /openai_package_lock/i);
-    assert.match(queries[0], /created_at DESC, id DESC/i);
-    assert.match(
-      transactionQueries[0],
-      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
-    );
-    assert.match(transactionQueries[1], /load-openai-contract-locks/i);
-    assert.match(transactionQueries[2], /UPDATE exomem_client_artifacts SET state = 'live'/i);
-    assert.match(transactionQueries[2], /contract_candidate_id/i);
-    assert.match(transactionQueries[2], /registered_app_id_sha256/i);
-    authoritativeCandidateId = "00000000-0000-0000-0000-000000000009";
-    assert.equal(
-      await promoteClientArtifact({
-        artifactId: "00000000-0000-0000-0000-000000000003",
-        platform: "openai",
-        evidence,
-      }),
-      false
-    );
     await assert.rejects(
       () =>
         attachOpenAiContractLocks({
@@ -457,57 +393,7 @@ describe("Exomem Hosted agent contracts", () => {
       queries.push(strings.join("?"));
       return { rows: [{ id: "contract-1" }] };
     });
-    const transactionQueries: string[] = [];
-    __setExomemTransactionForTests(async (work) =>
-      work(async (strings) => {
-        transactionQueries.push(strings.join("?"));
-        return { rows: [{ id: "contract-1" }] };
-      })
-    );
     assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
-    assert.equal(
-      await promoteExomemAgentContractCandidate({
-        candidateId: "00000000-0000-0000-0000-000000000004",
-        expectedRoutableCellDigest: sha("9"),
-      }),
-      true
-    );
-    assert.match(
-      transactionQueries[0],
-      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
-    );
-    assert.match(
-      transactionQueries[1],
-      /UPDATE exomem_agent_contract_candidates SET state = 'live'/i
-    );
-    assert.match(transactionQueries[1], /candidate\.mcp_protocol_versions IS NOT NULL/i);
-    assert.match(
-      transactionQueries[1],
-      /jsonb_array_length\(candidate\.mcp_protocol_versions\) BETWEEN 1 AND 8/i
-    );
-    assert.match(
-      transactionQueries[1],
-      /exomem_mcp_protocol_versions_are_valid\(candidate\.mcp_protocol_versions\)/i
-    );
-    assert.match(
-      transactionQueries[1],
-      /retired AS \([\s\S]*state = 'live'[\s\S]*EXISTS \(SELECT 1 FROM exact_cells\)[\s\S]*EXISTS \(SELECT 1 FROM evidence\)/i
-    );
-    assert.match(
-      transactionQueries[1],
-      /promoted AS \([\s\S]*SET state = 'live'[\s\S]*EXISTS \(SELECT 1 FROM exact_cells\)[\s\S]*EXISTS \(SELECT 1 FROM evidence\)/i
-    );
-    assert.equal(
-      await demoteExomemAgentContractCandidate("00000000-0000-0000-0000-000000000004"),
-      true
-    );
-    assert.match(
-      transactionQueries[2],
-      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
-    );
-    assert.match(
-      transactionQueries[3],
-      /UPDATE exomem_agent_contract_candidates[\s\S]*state = 'retired'/i
-    );
+    assert.match(queries[0], /mcp_protocol_versions/i);
   });
 });

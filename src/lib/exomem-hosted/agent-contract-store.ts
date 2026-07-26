@@ -1,6 +1,11 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, executeExomemTransaction, withExomemTransaction } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import {
+  loadClientArtifactLocks,
+  promotionEvidenceDigest,
+  validatePromotionEvidence,
+} from "./client-artifacts";
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
@@ -300,6 +305,15 @@ export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContr
   }
 }
 
+/** The operator uses this opaque identifier as the cohort promotion compare-and-swap value. */
+export async function getLiveExomemHostedCohortCandidateId(): Promise<string | null> {
+  const { rows } = await executeExomemSql`
+    /* exomem:get-live-hosted-cohort-candidate */
+    SELECT id::text AS id FROM exomem_hosted_alpha_cohort LIMIT 2
+  `;
+  return rows.length === 1 && typeof rows[0]?.id === "string" ? rows[0].id : null;
+}
+
 export type OperatorExomemAgentContractStatus = {
   id: string;
   state: "pending" | "live" | "retired";
@@ -493,16 +507,53 @@ export async function recordRoutableCellObservation(input: {
   });
 }
 
-/** One statement locks the candidate, rechecks all authoritative routable cells, then swaps live state. */
-export async function promoteExomemAgentContractCandidate(input: {
+export type ExomemHostedCohortPromotionResult = "promoted" | "already_live" | "precondition_failed";
+
+/** Promote the contract and both native client artifacts as one locked cohort. */
+export async function promoteExomemHostedCohort(input: {
   candidateId: string;
+  claudeArtifactId: string;
+  openaiArtifactId: string;
+  expectedLiveCandidateId: string | null;
   expectedRoutableCellDigest: string;
-}): Promise<boolean> {
+  claudeEvidence: unknown;
+  openaiEvidence: unknown;
+}): Promise<ExomemHostedCohortPromotionResult> {
   const expected = sha256(input.expectedRoutableCellDigest, "routable cell digest");
   return withExomemTransaction(async (transaction) => {
     await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const claudeLocks = await loadClientArtifactLocks("claude", input.candidateId, transaction);
+    const openaiLocks = await loadClientArtifactLocks("openai", input.candidateId, transaction);
+    const claudeEvidence = validatePromotionEvidence(input.claudeEvidence, "claude", claudeLocks);
+    const openaiEvidence = validatePromotionEvidence(input.openaiEvidence, "openai", openaiLocks);
+    for (const key of [
+      "paired_run_hmac_sha256",
+      "exomem_identity_hmac_sha256",
+      "tenant_hmac_sha256",
+    ]) {
+      if (claudeEvidence[key] !== openaiEvidence[key])
+        throw new Error("paired client evidence must name the same Hosted cohort");
+    }
+    const { rows: liveRows } = await transaction`
+      /* exomem:lock-live-hosted-cohort */
+      SELECT id::text AS id
+      FROM exomem_agent_contract_candidates
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live'
+      ORDER BY id
+      FOR UPDATE
+    `;
+    const liveCandidateIds = liveRows.flatMap((row) =>
+      typeof row.id === "string" ? [row.id] : []
+    );
+    if (
+      liveCandidateIds.length !== (input.expectedLiveCandidateId === null ? 0 : 1) ||
+      (input.expectedLiveCandidateId !== null &&
+        liveCandidateIds[0] !== input.expectedLiveCandidateId)
+    ) {
+      return "precondition_failed";
+    }
     const { rows } = await transaction`
-      /* exomem:promote-agent-contract-candidate */
+      /* exomem:validate-hosted-cohort-promotion */
       WITH authority AS (
       SELECT authority.*
       FROM exomem_agent_contract_profile_authority AS authority
@@ -510,16 +561,27 @@ export async function promoteExomemAgentContractCandidate(input: {
       FOR UPDATE
     ), candidate AS (
       SELECT * FROM exomem_agent_contract_candidates
-      WHERE id = ${input.candidateId}::uuid AND state = 'pending'
+      WHERE id = ${input.candidateId}::uuid AND state IN ('pending', 'live')
       FOR UPDATE
     ), cells AS (
       SELECT source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest
       FROM exomem_routable_cell_contracts
       WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
       FOR UPDATE
+    ), claude AS (
+      SELECT * FROM exomem_client_artifacts
+      WHERE id = ${input.claudeArtifactId}::uuid AND platform = 'claude' AND state IN ('pending', 'live')
+      FOR UPDATE
+    ), openai AS (
+      SELECT * FROM exomem_client_artifacts
+      WHERE id = ${input.openaiArtifactId}::uuid AND platform = 'openai' AND state IN ('pending', 'live')
+      FOR UPDATE
     ), exact_cells AS (
-      SELECT 1 FROM candidate
+      SELECT candidate.state AS candidate_state, claude.state AS claude_state, openai.state AS openai_state
+      FROM candidate
       JOIN authority ON authority.profile_id = candidate.profile_id
+      JOIN claude ON true
+      JOIN openai ON true
       WHERE EXISTS (SELECT 1 FROM cells)
         AND candidate.mcp_protocol_versions IS NOT NULL
         AND exomem_mcp_protocol_versions_are_valid(candidate.mcp_protocol_versions)
@@ -538,59 +600,104 @@ export async function promoteExomemAgentContractCandidate(input: {
              OR contract_digest <> candidate.schema_digest
              OR compatibility_digest <> candidate.compatibility_digest
         )
-    ), artifact_rows AS (
-      SELECT * FROM exomem_client_artifacts
-      WHERE platform IN ('claude', 'openai') AND state = 'live'
-      FOR UPDATE
-    ), evidence AS (
-      SELECT 1 FROM candidate
-      WHERE EXISTS (
-        SELECT 1 FROM artifact_rows AS claude
-        WHERE claude.platform = 'claude' AND claude.state = 'live'
-          AND claude.compatibility_sha256 = candidate.compatibility_digest
-          AND claude.contract_sha256 = candidate.schema_digest
-          AND claude.package_sha256 = candidate.claude_package_lock->>'artifact_sha256'
-          AND claude.archive_sha256 = candidate.claude_archive_lock->>'archive_sha256'
-          AND claude.observed_at <= now() AND claude.observed_at > now() - interval '24 hours'
-      ) AND EXISTS (
-        SELECT 1 FROM artifact_rows AS openai
-        WHERE openai.platform = 'openai' AND openai.state = 'live'
-          AND openai.compatibility_sha256 = candidate.compatibility_digest
-          AND openai.contract_sha256 = candidate.schema_digest
-          -- The checked release currently has no registered OpenAI package/archive lock.
-          -- Until one is imported into the candidate, promotion must fail closed.
-          AND candidate.openai_package_lock->>'platform' = 'openai'
-          AND candidate.openai_package_lock->>'registered_app_id_sha256' IS NOT NULL
-          AND candidate.openai_package_lock->>'registered_app_id_sha256' = candidate.openai_archive_lock->>'registered_app_id_sha256'
-          AND openai.package_sha256 = candidate.openai_package_lock->>'artifact_sha256'
-          AND openai.archive_sha256 = candidate.openai_archive_lock->>'archive_sha256'
-          AND openai.plugin_version = candidate.openai_package_lock->>'plugin_version'
-          AND openai.contract_candidate_id = candidate.id
-          AND openai.registered_app_id_sha256 = candidate.openai_package_lock->>'registered_app_id_sha256'
-          AND EXISTS (
-            SELECT 1 FROM artifact_rows AS claude_pair
-            WHERE claude_pair.platform = 'claude'
-              AND claude_pair.paired_run_hmac_sha256 = openai.paired_run_hmac_sha256
-              AND claude_pair.exomem_identity_hmac_sha256 = openai.exomem_identity_hmac_sha256
-              AND claude_pair.tenant_hmac_sha256 = openai.tenant_hmac_sha256
-          )
-          AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
-      )
-    ), retired AS (
-      UPDATE exomem_agent_contract_candidates SET state = 'retired', retired_at = now()
-      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live'
-        AND EXISTS (SELECT 1 FROM exact_cells) AND EXISTS (SELECT 1 FROM evidence)
-      RETURNING id
-    ), retirement_complete AS (
-      SELECT count(*) AS count FROM retired
-    ), promoted AS (
-      UPDATE exomem_agent_contract_candidates SET state = 'live', promoted_at = now()
-      FROM retirement_complete
-      WHERE id = ${input.candidateId}::uuid AND EXISTS (SELECT 1 FROM exact_cells)
-        AND EXISTS (SELECT 1 FROM evidence)
-      RETURNING id
-      ) SELECT id FROM promoted
+        AND claude.evidence_sha256 = ${promotionEvidenceDigest(claudeEvidence)}
+        AND claude.result_sha256 = ${sha256(claudeEvidence.result_sha256, "Claude result digest")}
+        AND claude.package_sha256 = ${sha256(claudeEvidence.package_artifact_sha256, "Claude package digest")}
+        AND claude.archive_sha256 = ${sha256(claudeEvidence.archive_sha256, "Claude archive digest")}
+        AND claude.compatibility_sha256 = candidate.compatibility_digest
+        AND claude.contract_sha256 = candidate.schema_digest
+        AND claude.plugin_version = candidate.claude_package_lock->>'plugin_version'
+        AND claude.contract_candidate_id = candidate.id
+        AND claude.client_identity_sha256 = ${sha256(claudeEvidence.clean_client_identity_hmac_sha256, "Claude identity digest")}
+        AND claude.paired_run_hmac_sha256 = ${sha256(claudeEvidence.paired_run_hmac_sha256, "Claude paired-run digest")}
+        AND claude.exomem_identity_hmac_sha256 = ${sha256(claudeEvidence.exomem_identity_hmac_sha256, "Claude Exomem identity digest")}
+        AND claude.tenant_hmac_sha256 = ${sha256(claudeEvidence.tenant_hmac_sha256, "Claude tenant digest")}
+        AND claude.oauth_client_config_hmac_sha256 = ${sha256(
+          claudeEvidence.oauth_client_config_hmac_sha256,
+          "Claude OAuth client configuration digest"
+        )}
+        AND claude.oauth_client_config_hmac_sha256 IS NOT NULL
+        AND claude.observed_at <= now() AND claude.observed_at > now() - interval '24 hours'
+        AND openai.evidence_sha256 = ${promotionEvidenceDigest(openaiEvidence)}
+        AND openai.result_sha256 = ${sha256(openaiEvidence.result_sha256, "OpenAI result digest")}
+        AND openai.package_sha256 = ${sha256(openaiEvidence.package_artifact_sha256, "OpenAI package digest")}
+        AND openai.archive_sha256 = ${sha256(openaiEvidence.archive_sha256, "OpenAI archive digest")}
+        AND openai.compatibility_sha256 = candidate.compatibility_digest
+        AND openai.contract_sha256 = candidate.schema_digest
+        AND openai.plugin_version = candidate.openai_package_lock->>'plugin_version'
+        AND openai.contract_candidate_id = candidate.id
+        AND openai.registered_app_id_sha256 = candidate.openai_package_lock->>'registered_app_id_sha256'
+        AND openai.client_identity_sha256 = ${sha256(openaiEvidence.clean_client_identity_hmac_sha256, "OpenAI identity digest")}
+        AND openai.paired_run_hmac_sha256 = ${sha256(openaiEvidence.paired_run_hmac_sha256, "OpenAI paired-run digest")}
+        AND openai.exomem_identity_hmac_sha256 = ${sha256(openaiEvidence.exomem_identity_hmac_sha256, "OpenAI Exomem identity digest")}
+        AND openai.tenant_hmac_sha256 = ${sha256(openaiEvidence.tenant_hmac_sha256, "OpenAI tenant digest")}
+        AND openai.oauth_client_config_hmac_sha256 = ${sha256(
+          openaiEvidence.oauth_client_config_hmac_sha256,
+          "OpenAI OAuth client configuration digest"
+        )}
+        AND openai.oauth_client_config_hmac_sha256 IS NOT NULL
+        AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
+        AND EXISTS (
+          SELECT 1 FROM exomem_oauth_clients AS claude_client
+          WHERE claude_client.enabled
+            AND claude_client.client_platform = 'claude'
+            AND claude_client.oauth_client_config_hmac_sha256 = claude.oauth_client_config_hmac_sha256
+        )
+        AND EXISTS (
+          SELECT 1 FROM exomem_oauth_clients AS openai_client
+          WHERE openai_client.enabled
+            AND openai_client.client_platform = 'openai'
+            AND openai_client.oauth_client_config_hmac_sha256 = openai.oauth_client_config_hmac_sha256
+        )
+      ) SELECT candidate_state, claude_state, openai_state FROM exact_cells
     `;
-    return rows.length === 1;
+    const states = rows[0];
+    if (!states) return "precondition_failed";
+    if (
+      states.candidate_state === "live" &&
+      states.claude_state === "live" &&
+      states.openai_state === "live"
+    ) {
+      return "already_live";
+    }
+    if (
+      states.candidate_state !== "pending" ||
+      states.claude_state !== "pending" ||
+      states.openai_state !== "pending"
+    ) {
+      return "precondition_failed";
+    }
+    await transaction`
+      /* exomem:retire-live-hosted-cohort */
+      UPDATE exomem_agent_contract_candidates
+      SET state = 'retired', retired_at = now()
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live'
+    `;
+    await transaction`
+      /* exomem:retire-live-hosted-client-artifacts */
+      UPDATE exomem_client_artifacts
+      SET state = 'retired', retired_at = now()
+      WHERE platform IN ('claude', 'openai') AND state = 'live'
+    `;
+    await transaction`
+      /* exomem:promote-hosted-cohort */
+      UPDATE exomem_agent_contract_candidates
+      SET state = 'live', promoted_at = now()
+      WHERE id = ${input.candidateId}::uuid AND state = 'pending'
+    `;
+    await transaction`
+      /* exomem:promote-hosted-cohort-client-artifacts */
+      UPDATE exomem_client_artifacts
+      SET state = 'live', promoted_at = now()
+      WHERE id IN (${input.claudeArtifactId}::uuid, ${input.openaiArtifactId}::uuid)
+        AND state = 'pending'
+    `;
+    const { rows: cohortRows } = await transaction`
+      /* exomem:assert-promoted-hosted-cohort */
+      SELECT id::text AS id FROM exomem_hosted_alpha_cohort
+    `;
+    if (cohortRows.length !== 1 || cohortRows[0]?.id !== input.candidateId)
+      throw new Error("atomic Hosted cohort promotion produced a partial cohort");
+    return "promoted";
   });
 }

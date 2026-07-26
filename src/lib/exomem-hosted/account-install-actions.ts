@@ -45,8 +45,10 @@ export async function loadOwnerInstallActions(
   const { rows } = await executeExomemSql`
     /* exomem:owner-install-actions */
     SELECT artifact.platform, artifact.state, artifact.plugin_version, artifact.install_url
-    FROM exomem_client_artifacts AS artifact
-    JOIN exomem_agent_contract_candidates AS candidate ON candidate.profile_id = 'hosted-alpha-agent-v1' AND candidate.state = 'live'
+    FROM exomem_hosted_alpha_cohort AS cohort
+    JOIN exomem_agent_contract_candidates AS candidate ON candidate.id = cohort.id
+    JOIN exomem_client_artifacts AS artifact ON artifact.platform IN ('claude', 'openai')
+      AND artifact.state = 'live'
       AND artifact.contract_sha256 = candidate.schema_digest
       AND artifact.compatibility_sha256 = candidate.compatibility_digest
       AND artifact.package_sha256 = CASE artifact.platform
@@ -65,9 +67,11 @@ export async function loadOwnerInstallActions(
         WHEN 'claude' THEN candidate.claude_package_lock->>'endpoint'
         WHEN 'openai' THEN candidate.openai_package_lock->>'endpoint'
       END
-    WHERE artifact.platform IN ('claude', 'openai')
-      AND artifact.state = 'live'
-      AND EXISTS (
+      AND (
+        artifact.contract_candidate_id = candidate.id
+        OR (artifact.platform = 'claude' AND artifact.contract_candidate_id IS NULL)
+      )
+    WHERE EXISTS (
         SELECT 1
         FROM exomem_tenants AS tenant
         JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
@@ -79,8 +83,11 @@ export async function loadOwnerInstallActions(
       )
     ORDER BY artifact.platform
   `;
-  return rows.flatMap((row) => {
+  const actions = rows.flatMap((row) => {
     const action = publicInstallAction(row as Record<string, unknown>);
     return action ? [action] : [];
   });
+  return actions.length === 2 && new Set(actions.map((action) => action.platform)).size === 2
+    ? actions
+    : [];
 }

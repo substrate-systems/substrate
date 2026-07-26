@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   attachOpenAiContractLocks,
   demoteExomemAgentContractCandidate,
+  getLiveExomemHostedCohortCandidateId,
   listExomemAgentContractStatus,
-  promoteExomemAgentContractCandidate,
+  promoteExomemHostedCohort,
   storeExomemAgentContractCandidate,
 } from "@/lib/exomem-hosted/agent-contract-store";
-import { promoteClientArtifact, storeClientArtifact } from "@/lib/exomem-hosted/client-artifacts";
+import { storeClientArtifact } from "@/lib/exomem-hosted/client-artifacts";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
   newRequestId,
@@ -29,19 +30,24 @@ const uuid = (value: unknown): string | null =>
   typeof value === "string" && UUID.test(value) ? value : null;
 const digest = (value: unknown): string | null =>
   typeof value === "string" && SHA256.test(value) ? value : null;
-const platform = (value: unknown): "claude" | "openai" | null =>
-  value === "claude" || value === "openai" ? value : null;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     await requireRateLimitedExomemOperator(request, "read");
-    const [agentContracts, clientArtifacts] = await Promise.all([
+    const [agentContracts, clientArtifacts, liveCohortCandidateId] = await Promise.all([
       listExomemAgentContractStatus(),
       listOperatorClientArtifacts(),
+      getLiveExomemHostedCohortCandidateId(),
     ]);
     operatorSuccessEvent(requestId);
-    return NextResponse.json({ success: true, agentContracts, clientArtifacts, requestId });
+    return NextResponse.json({
+      success: true,
+      agentContracts,
+      clientArtifacts,
+      liveCohortCandidateId,
+      requestId,
+    });
   } catch (error) {
     return operatorErrorResponse(error, requestId);
   }
@@ -73,14 +79,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           operatorSignature: body.operatorSignature,
         }),
       };
-    } else if (body.action === "promote-agent") {
+    } else if (body.action === "promote-cohort") {
       const candidateId = uuid(body.candidateId);
+      const claudeArtifactId = uuid(body.claudeArtifactId);
+      const openaiArtifactId = uuid(body.openaiArtifactId);
+      const expectedLiveCandidateId =
+        body.expectedLiveCandidateId === null ? null : uuid(body.expectedLiveCandidateId);
       const expectedRoutableCellDigest = digest(body.expectedRoutableCellDigest);
-      if (!candidateId || !expectedRoutableCellDigest) throw exomemErrors.invalidRequest();
+      if (
+        !candidateId ||
+        !claudeArtifactId ||
+        !openaiArtifactId ||
+        (body.expectedLiveCandidateId !== null && !expectedLiveCandidateId) ||
+        !expectedRoutableCellDigest
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
       response = {
-        promoted: await promoteExomemAgentContractCandidate({
+        result: await promoteExomemHostedCohort({
           candidateId,
+          claudeArtifactId,
+          openaiArtifactId,
+          expectedLiveCandidateId,
           expectedRoutableCellDigest,
+          claudeEvidence: body.claudeEvidence,
+          openaiEvidence: body.openaiEvidence,
         }),
       };
     } else if (body.action === "demote-agent") {
@@ -89,17 +112,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       response = { demoted: await demoteExomemAgentContractCandidate(candidateId) };
     } else if (body.action === "import-artifact") {
       response = { artifactId: await storeClientArtifact(body.artifact) };
-    } else if (body.action === "promote-artifact") {
-      const artifactId = uuid(body.artifactId);
-      const artifactPlatform = platform(body.platform);
-      if (!artifactId || !artifactPlatform) throw exomemErrors.invalidRequest();
-      response = {
-        promoted: await promoteClientArtifact({
-          artifactId,
-          platform: artifactPlatform,
-          evidence: body.evidence,
-        }),
-      };
     } else if (body.action === "demote-artifact") {
       const artifactId = uuid(body.artifactId);
       if (!artifactId) throw exomemErrors.invalidRequest();

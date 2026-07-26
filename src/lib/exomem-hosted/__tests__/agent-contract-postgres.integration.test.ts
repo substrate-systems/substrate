@@ -13,15 +13,11 @@ import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import {
   attachOpenAiContractLocks,
   getLiveExomemAgentContract,
-  promoteExomemAgentContractCandidate,
+  promoteExomemHostedCohort,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
-import {
-  demoteClientArtifact,
-  promoteClientArtifact,
-  storeClientArtifact,
-} from "../client-artifacts";
+import { storeClientArtifact } from "../client-artifacts";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
@@ -138,6 +134,7 @@ function evidence(
     entitlement_hmac_sha256: sha("5"),
     provisioning_operation_hmac_sha256: sha("6"),
     cell_hmac_sha256: sha("7"),
+    oauth_client_config_hmac_sha256: sha("a"),
     identity_count: 1,
     tenant_count: 1,
     entitlement_count: 1,
@@ -209,77 +206,6 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     }
   });
 
-  it("serializes public replacement of a live artifact before promoting its successor", async () => {
-    const makeArtifact = (signed: Record<string, unknown>) => ({
-      platform: "claude",
-      state: "pending",
-      packageSha256: signed.package_artifact_sha256,
-      archiveSha256: signed.archive_sha256,
-      compatibilitySha256: signed.compatibility_sha256,
-      contractSha256: signed.schema_contract_sha256,
-      pluginVersion: signed.plugin_version,
-      clientIdentitySha256: signed.clean_client_identity_hmac_sha256,
-      pairedRunHmacSha256: signed.paired_run_hmac_sha256,
-      exomemIdentityHmacSha256: signed.exomem_identity_hmac_sha256,
-      tenantHmacSha256: signed.tenant_hmac_sha256,
-      installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL,
-      evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
-      resultSha256: signed.result_sha256,
-      observedAt: new Date().toISOString(),
-      evidence: signed,
-    });
-    const firstEvidence = evidence("claude", "integration-secret", randomUUID());
-    const firstId = await storeClientArtifact(makeArtifact(firstEvidence));
-    assert.equal(
-      await promoteClientArtifact({
-        artifactId: firstId,
-        platform: "claude",
-        evidence: firstEvidence,
-      }),
-      true
-    );
-    const secondEvidence = evidence("claude", "integration-secret", randomUUID());
-    const secondId = await storeClientArtifact(makeArtifact(secondEvidence));
-    assert.equal(
-      await promoteClientArtifact({
-        artifactId: secondId,
-        platform: "claude",
-        evidence: secondEvidence,
-      }),
-      true
-    );
-    const replaced = await pool!.query<{ id: string; state: string }>(
-      "SELECT id, state FROM exomem_client_artifacts WHERE id = ANY($1::uuid[])",
-      [[firstId, secondId]]
-    );
-    assert.deepEqual(
-      replaced.rows
-        .sort((left, right) => left.id.localeCompare(right.id))
-        .map((row) => row.state)
-        .sort(),
-      ["live", "retired"]
-    );
-    assert.equal(await demoteClientArtifact(secondId, sha("9")), true);
-    const row = await pool!.query<{ state: string; promoted_at: Date; failed_at: Date }>(
-      "SELECT state, promoted_at, failed_at FROM exomem_client_artifacts WHERE id = $1",
-      [secondId]
-    );
-    assert.equal(row.rows[0]?.state, "failed");
-    assert.ok(row.rows[0]?.promoted_at);
-    assert.ok(row.rows[0]?.failed_at);
-  });
-
-  it("fails contract promotion closed while the exact OpenAI package lock is absent", async () => {
-    const candidateId = await storeExomemAgentContractCandidate();
-    assert.equal(
-      await promoteExomemAgentContractCandidate({
-        candidateId,
-        expectedRoutableCellDigest: sha("0"),
-      }),
-      false
-    );
-  });
-
   it("accepts test-signed OpenAI evidence only after test-only exact locks are operator-imported and pairs both live rows", async () => {
     const fixture = exomemHostedContractFixture.compatibility;
     const routableCell = await pool!.query<{ id: string }>(
@@ -309,7 +235,11 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       .update(canonical(lockUnsigned))
       .digest("hex");
     assert.equal(await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature }), true);
-    const makeArtifact = (platform: "claude" | "openai", signed: Record<string, unknown>) => ({
+    const makeArtifact = (
+      platform: "claude" | "openai",
+      signed: Record<string, unknown>,
+      artifactCandidateId: string
+    ) => ({
       platform,
       state: "pending",
       packageSha256: signed.package_artifact_sha256,
@@ -327,28 +257,25 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           : process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL,
       evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
       resultSha256: signed.result_sha256,
+      oauthClientConfigHmacSha256: signed.oauth_client_config_hmac_sha256,
       observedAt: new Date().toISOString(),
+      candidateId: artifactCandidateId,
       evidence: signed,
     });
     const claudeEvidence = evidence("claude", "integration-secret", randomUUID());
     const openAiEvidence = evidence("openai", "integration-secret", randomUUID());
-    const claudeId = await storeClientArtifact(makeArtifact("claude", claudeEvidence));
-    const openAiId = await storeClientArtifact(makeArtifact("openai", openAiEvidence));
-    assert.equal(
-      await promoteClientArtifact({
-        artifactId: claudeId,
-        platform: "claude",
-        evidence: claudeEvidence,
-      }),
-      true
-    );
-    assert.equal(
-      await promoteClientArtifact({
-        artifactId: openAiId,
-        platform: "openai",
-        evidence: openAiEvidence,
-      }),
-      true
+    const claudeId = await storeClientArtifact(makeArtifact("claude", claudeEvidence, candidateId));
+    const openAiId = await storeClientArtifact(makeArtifact("openai", openAiEvidence, candidateId));
+    await pool!.query(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, metadata_provenance, redirect_uris,
+         redirect_uris_digest, client_platform, oauth_client_config_hmac_sha256
+       ) VALUES
+         ($1, 'pinned', true, '{}'::jsonb, '["https://example.test/callback"]'::jsonb,
+          digest(convert_to('["https://example.test/callback"]', 'utf8'), 'sha256'), 'claude', $2),
+         ($3, 'pinned', true, '{}'::jsonb, '["https://example.test/callback"]'::jsonb,
+          digest(convert_to('["https://example.test/callback"]', 'utf8'), 'sha256'), 'openai', $2)`,
+      [randomUUID(), sha("a"), randomUUID()]
     );
     const authority = await pool!.query<{ routable_set_digest: string }>(
       "SELECT routable_set_digest FROM exomem_agent_contract_profile_authority WHERE profile_id = $1",
@@ -359,16 +286,118 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       "requires a public routable authority observation"
     );
     assert.equal(
-      await promoteExomemAgentContractCandidate({
+      await promoteExomemHostedCohort({
         candidateId,
+        claudeArtifactId: claudeId,
+        openaiArtifactId: openAiId,
+        expectedLiveCandidateId: null,
         expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+        claudeEvidence,
+        openaiEvidence: openAiEvidence,
       }),
-      true
+      "promoted"
     );
     assert.deepEqual((await getLiveExomemAgentContract())?.mcpProtocolVersions, [
       "2025-11-25",
       "2025-06-18",
     ]);
+    assert.equal(
+      await promoteExomemHostedCohort({
+        candidateId,
+        claudeArtifactId: claudeId,
+        openaiArtifactId: openAiId,
+        expectedLiveCandidateId: candidateId,
+        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+        claudeEvidence,
+        openaiEvidence: openAiEvidence,
+      }),
+      "already_live"
+    );
+
+    const replacementCandidateId = await storeExomemAgentContractCandidate();
+    const replacementUnsigned = {
+      candidateId: replacementCandidateId,
+      packageLock: testOnlyOpenAiLocks.packageLock,
+      archiveLock: testOnlyOpenAiLocks.archiveLock,
+      operatorKeyId: "integration-importer",
+    };
+    assert.equal(
+      await attachOpenAiContractLocks({
+        ...replacementUnsigned,
+        operatorSignature: createHmac("sha256", "integration-import-secret")
+          .update(canonical(replacementUnsigned))
+          .digest("hex"),
+      }),
+      true
+    );
+    const replacementClaudeEvidence = evidence("claude", "integration-secret", randomUUID());
+    const replacementOpenAiEvidence = evidence("openai", "integration-secret", randomUUID());
+    const replacementClaudeId = await storeClientArtifact(
+      makeArtifact("claude", replacementClaudeEvidence, replacementCandidateId)
+    );
+    const replacementOpenAiId = await storeClientArtifact(
+      makeArtifact("openai", replacementOpenAiEvidence, replacementCandidateId)
+    );
+    const mismatchedOpenAiUnsigned: Record<string, unknown> = {
+      ...replacementOpenAiEvidence,
+      tenant_hmac_sha256: sha("f"),
+    };
+    delete mismatchedOpenAiUnsigned.operator_signature;
+    const mismatchedOpenAiEvidence = {
+      ...mismatchedOpenAiUnsigned,
+      operator_signature: createHmac("sha256", "integration-secret")
+        .update(canonical(mismatchedOpenAiUnsigned))
+        .digest("hex"),
+    };
+    await assert.rejects(
+      () =>
+        promoteExomemHostedCohort({
+          candidateId: replacementCandidateId,
+          claudeArtifactId: replacementClaudeId,
+          openaiArtifactId: replacementOpenAiId,
+          expectedLiveCandidateId: candidateId,
+          expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+          claudeEvidence: replacementClaudeEvidence,
+          openaiEvidence: mismatchedOpenAiEvidence,
+        }),
+      /same Hosted cohort/
+    );
+    assert.deepEqual(
+      (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
+        (row) => row.id
+      ),
+      [candidateId]
+    );
+    assert.equal(
+      await promoteExomemHostedCohort({
+        candidateId: replacementCandidateId,
+        claudeArtifactId: replacementClaudeId,
+        openaiArtifactId: replacementOpenAiId,
+        expectedLiveCandidateId: candidateId,
+        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+        claudeEvidence: replacementClaudeEvidence,
+        openaiEvidence: replacementOpenAiEvidence,
+      }),
+      "promoted"
+    );
+    assert.deepEqual(
+      (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
+        (row) => row.id
+      ),
+      [replacementCandidateId]
+    );
+    assert.deepEqual(
+      (
+        await pool!.query<{ id: string; state: string }>(
+          "SELECT id, state FROM exomem_agent_contract_candidates WHERE id = ANY($1::uuid[]) ORDER BY id",
+          [[candidateId, replacementCandidateId]]
+        )
+      ).rows.sort((left, right) => left.id.localeCompare(right.id)),
+      [
+        { id: candidateId, state: "retired" },
+        { id: replacementCandidateId, state: "live" },
+      ].sort((left, right) => left.id.localeCompare(right.id))
+    );
 
     const invalidCandidateId = await storeExomemAgentContractCandidate();
     for (const versions of [[null], [42], ["2025-11-25", "2025-11-25"], ["not-a-date"]]) {
