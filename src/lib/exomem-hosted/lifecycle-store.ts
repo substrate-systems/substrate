@@ -1700,7 +1700,7 @@ export class SqlLifecycleStore implements LifecycleStore {
     owner: string,
     kind: "initial_provision" | "resume",
     leaseSeconds: number
-  ): Promise<"acquired" | "exhausted" | "conflict"> {
+  ): Promise<"acquired" | "exhausted" | "conflict" | "legacy"> {
     return acquireCapacityProviderWorkAtomic({
       operationId,
       leaseOwner: owner,

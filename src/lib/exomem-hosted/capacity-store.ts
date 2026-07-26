@@ -1,4 +1,5 @@
 import { executeExomemSql, withExomemTransaction } from "./db";
+import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 
 export type CapacityAllocationState =
   | "reserved"
@@ -20,6 +21,55 @@ function boundedLeaseSeconds(seconds: number): number {
 }
 
 class CapacityTransitionRejected extends Error {}
+
+function transitionLabel(
+  previous: CapacityAllocationState,
+  next: CapacityAllocationState
+): string | undefined {
+  if (next === "released") return "any_to_released";
+  const label = `${previous}_to_${next}`;
+  return new Set([
+    "reserved_to_uncertain",
+    "uncertain_to_occupied",
+    "occupied_to_retained_storage",
+    "uncertain_to_retained_storage",
+    "retained_storage_to_uncertain",
+  ]).has(label)
+    ? label
+    : undefined;
+}
+
+function emitCapacityTransition(input: {
+  operationId?: string;
+  previous: CapacityAllocationState;
+  next: CapacityAllocationState;
+}): void {
+  const transition = transitionLabel(input.previous, input.next);
+  if (!transition) return;
+  emitOperationalEvent(
+    buildOperationalEvent({
+      event: "lifecycle.capacity.transition",
+      outcome: "succeeded",
+      operationId: input.operationId,
+      transition,
+    })
+  );
+}
+
+function emitCapacityClaim(input: {
+  operationId: string;
+  kind: "initial_provision" | "resume";
+}): void {
+  emitOperationalEvent(
+    buildOperationalEvent({
+      event: "lifecycle.capacity.claim",
+      outcome: "succeeded",
+      operationId: input.operationId,
+      capacityBucket: "provision",
+      claimKind: input.kind,
+    })
+  );
+}
 
 function capacityUsage(
   state: CapacityAllocationState,
@@ -51,7 +101,7 @@ export async function transitionCapacityAllocationAtomic(input: {
 }): Promise<boolean> {
   if (!allocationStates.has(input.state)) throw new Error("invalid capacity allocation state");
   try {
-    return await withExomemTransaction(async (tx) => {
+    const result = await withExomemTransaction(async (tx) => {
       const lockedResult = await tx`
         SELECT allocation.id, allocation.pool_id, allocation.storage_bytes, allocation.runtime_slots,
                allocation.provision_slots, allocation.state AS previous_state,
@@ -85,7 +135,7 @@ export async function transitionCapacityAllocationAtomic(input: {
             provision_reservation_capacity: number;
           }
         | undefined;
-      if (!locked) return false;
+      if (!locked) return { succeeded: false };
       const allowed =
         locked.previous_state === input.state ||
         (locked.previous_state === "reserved" &&
@@ -94,7 +144,7 @@ export async function transitionCapacityAllocationAtomic(input: {
           ["occupied", "uncertain", "retained_storage", "released"].includes(input.state)) ||
         (locked.previous_state === "retained_storage" &&
           ["uncertain", "retained_storage", "released"].includes(input.state));
-      if (!allowed) return false;
+      if (!allowed) return { succeeded: false };
       const oldUsage = capacityUsage(locked.previous_state, locked);
       const nextUsage = capacityUsage(input.state, locked);
       const next = {
@@ -116,7 +166,7 @@ export async function transitionCapacityAllocationAtomic(input: {
         (delta.runtime > 0 && next.runtime > Number(locked.runtime_capacity_slots)) ||
         (delta.provision > 0 && next.provision > Number(locked.provision_reservation_capacity))
       )
-        return false;
+        return { succeeded: false };
       const poolResult = await tx`
         UPDATE exomem_capacity_pools
         SET reserved_storage_bytes = ${next.storage}, reserved_runtime_slots = ${next.runtime},
@@ -135,8 +185,16 @@ export async function transitionCapacityAllocationAtomic(input: {
         RETURNING id
       `;
       if (!allocationResult.rows[0]) throw new CapacityTransitionRejected();
-      return true;
+      return { succeeded: true, previous: locked.previous_state };
     });
+    if (result.succeeded) {
+      emitCapacityTransition({
+        operationId: input.operationId,
+        previous: result.previous as CapacityAllocationState,
+        next: input.state,
+      });
+    }
+    return result.succeeded;
   } catch (error) {
     if (error instanceof CapacityTransitionRejected) return false;
     throw error;
@@ -390,9 +448,21 @@ export async function acquireCapacityProviderWorkAtomic(input: {
   leaseOwner: string;
   kind: "initial_provision" | "resume";
   leaseSeconds: number;
-}): Promise<"acquired" | "exhausted" | "conflict"> {
+}): Promise<"acquired" | "exhausted" | "conflict" | "legacy"> {
   const leaseSeconds = boundedLeaseSeconds(input.leaseSeconds);
-  return withExomemTransaction(async (tx) => {
+  const result = await withExomemTransaction(async (tx) => {
+    const legacy = await tx`
+      SELECT tenant.legacy_unmetered
+      FROM exomem_lifecycle_operations AS operation
+      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+      WHERE operation.id = ${input.operationId}::uuid AND operation.state = 'running'
+        AND operation.lease_owner = ${input.leaseOwner} AND operation.lease_expires_at > now()
+        AND operation.fence_generation = tenant.fence_generation
+      FOR UPDATE OF operation, tenant
+    `;
+    if (!legacy.rows[0]) return "conflict";
+    if ((legacy.rows[0] as { legacy_unmetered?: boolean }).legacy_unmetered === true)
+      return "legacy";
     const { rows } = await tx`
       SELECT operation.id AS operation_id, allocation.id AS allocation_id, allocation.pool_id,
              allocation.state, allocation.storage_bytes, allocation.runtime_slots,
@@ -462,6 +532,8 @@ export async function acquireCapacityProviderWorkAtomic(input: {
       await tx`INSERT INTO exomem_capacity_claims (pool_id, allocation_id, operation_id, claim_kind, lease_owner, lease_expires_at) VALUES (${String(row.pool_id)}::uuid, ${String(row.allocation_id)}::uuid, ${input.operationId}::uuid, ${input.kind}, ${input.leaseOwner}, now() + (${leaseSeconds} * interval '1 second'))`;
     return "acquired";
   });
+  if (result === "acquired") emitCapacityClaim(input);
+  return result;
 }
 
 export async function markUnboundCellDestroyedAtomic(input: {
@@ -469,7 +541,7 @@ export async function markUnboundCellDestroyedAtomic(input: {
   leaseOwner: string;
   cellId: string;
 }): Promise<boolean> {
-  return withExomemTransaction(async (tx) => {
+  const result = await withExomemTransaction(async (tx) => {
     const locked = await tx`
       SELECT operation.operation_type, operation.tenant_id, allocation.id AS allocation_id,
              allocation.operation_id AS allocation_operation_id, allocation.pool_id,
@@ -487,7 +559,15 @@ export async function markUnboundCellDestroyedAtomic(input: {
       FOR UPDATE OF operation, tenant, cell, allocation, pool
     `;
     const row = locked.rows[0] as Record<string, unknown> | undefined;
-    if (!row) return false;
+    if (!row) return { completed: false, released: false };
+    if (
+      row.operation_type === "provision" &&
+      (!row.allocation_id ||
+        row.allocation_operation_id !== input.operationId ||
+        row.state === "released")
+    ) {
+      return { completed: false, released: false };
+    }
     await tx`
       UPDATE exomem_cells SET lifecycle_state = 'deleted', routing_state = 'retiring', desired_state = 'deleted',
         provider_ref = NULL, private_endpoint_ciphertext = NULL, service_credential_ciphertext = NULL,
@@ -496,8 +576,8 @@ export async function markUnboundCellDestroyedAtomic(input: {
         retired_at = COALESCE(retired_at, now()), updated_at = now()
       WHERE id = ${input.cellId}::uuid
     `;
-    if (row.operation_type !== "provision" || !row.allocation_id) return true;
-    if (row.allocation_operation_id !== input.operationId || row.state === "released") return false;
+    if (row.operation_type !== "provision" || !row.allocation_id)
+      return { completed: true, released: false };
     const old = capacityUsage(row.state as CapacityAllocationState, {
       storage_bytes: Number(row.storage_bytes),
       runtime_slots: Number(row.runtime_slots),
@@ -511,8 +591,20 @@ export async function markUnboundCellDestroyedAtomic(input: {
     `;
     await tx`UPDATE exomem_capacity_allocations SET state = 'released', released_at = now(), updated_at = now() WHERE id = ${String(row.allocation_id)}::uuid`;
     await tx`DELETE FROM exomem_capacity_claims WHERE allocation_id = ${String(row.allocation_id)}::uuid`;
-    return true;
+    return {
+      completed: true,
+      released: true,
+      previous: row.state as CapacityAllocationState,
+    };
   });
+  if (result.released) {
+    emitCapacityTransition({
+      operationId: input.operationId,
+      previous: result.previous as CapacityAllocationState,
+      next: "released",
+    });
+  }
+  return result.completed;
 }
 
 /** Legacy CTE implementation retained temporarily for migration review. */

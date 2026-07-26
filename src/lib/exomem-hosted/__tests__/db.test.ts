@@ -109,6 +109,11 @@ describe("Exomem hosted database boundary", () => {
     assert.match(capturedSql, /FOR UPDATE/i);
     assert.match(capturedSql, /INSERT INTO users/i);
     assert.match(capturedSql, /INSERT INTO exomem_tenants/i);
+    assert.match(capturedSql, /legacy_unmetered\)\s*SELECT[^;]*true/i);
+    assert.doesNotMatch(
+      capturedSql,
+      /ON CONFLICT \(owner_user_id\) DO UPDATE[\s\S]{0,240}legacy_unmetered/i
+    );
     assert.match(capturedSql, /INSERT INTO exomem_entitlements/i);
     assert.match(capturedSql, /ON CONFLICT \(tenant_id\) DO NOTHING/i);
     assert.doesNotMatch(

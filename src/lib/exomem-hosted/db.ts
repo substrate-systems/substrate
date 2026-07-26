@@ -226,8 +226,8 @@ export async function redeemInviteAtomic(
       RETURNING id
     ),
     tenant AS (
-      INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
-      SELECT id, 'provisioning', 'running'
+      INSERT INTO exomem_tenants (owner_user_id, status, desired_state, legacy_unmetered)
+      SELECT id, 'provisioning', 'running', true
       FROM owner
       ON CONFLICT (owner_user_id) DO UPDATE
       SET updated_at = exomem_tenants.updated_at

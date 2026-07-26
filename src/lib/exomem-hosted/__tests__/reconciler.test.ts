@@ -247,6 +247,19 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.capacityAllocations.get(initial.id)?.state, "occupied");
   });
 
+  it("admits an allocation-less provision only for an explicitly marked legacy tenant", async () => {
+    const { store, reconciler, provisioner } = harness();
+    const operation = await store.enqueue(TENANT, "provision", "legacy-unmetered");
+    store.legacyUnmeteredTenants.add(TENANT);
+    store.capacityAllocations.delete(operation.id);
+
+    await convergeProvision(reconciler);
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(provisioner.resources.size, 1);
+    assert.equal(store.capacityClaims.size, 0);
+  });
+
   it("waits through more than six provider-pending polls without consuming attempts", async () => {
     class PendingProvisioner extends FakeCellProvisioner {
       remaining = 8;

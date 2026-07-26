@@ -255,7 +255,7 @@ export interface LifecycleStore {
     owner: string,
     kind: "initial_provision" | "resume",
     leaseSeconds: number
-  ): Promise<"acquired" | "exhausted" | "conflict">;
+  ): Promise<"acquired" | "exhausted" | "conflict" | "legacy">;
   releaseCapacityProviderWork(operationId: string, owner: string): Promise<boolean>;
   statusForTenant(tenantId: string): Promise<LifecycleStatus> | LifecycleStatus;
 }
@@ -805,7 +805,7 @@ export class LifecycleReconciler {
           ? { kind: "retry_scheduled", operationId: operation.id, code: "CAPACITY_UNAVAILABLE" }
           : { kind: "idle" };
       }
-      if (capacity !== "acquired") {
+      if (capacity !== "acquired" && capacity !== "legacy") {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
       const request: ProvisionCellRequest = {
@@ -830,7 +830,9 @@ export class LifecycleReconciler {
           }),
         })
       );
-      this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
+      if (capacity === "acquired") {
+        this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
+      }
       return this.#advance(operation, owner, "provider-converged");
     }
     if (operation.checkpoint === "provider-converged") {
@@ -1000,11 +1002,13 @@ export class LifecycleReconciler {
           ? { kind: "retry_scheduled", operationId: operation.id, code: "CAPACITY_UNAVAILABLE" }
           : { kind: "idle" };
       }
-      if (capacity !== "acquired") {
+      if (capacity !== "acquired" && capacity !== "legacy") {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
       await this.#provisioner.resume(this.#target(operation, cell));
-      this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
+      if (capacity === "acquired") {
+        this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
+      }
       return this.#advance(operation, owner, "resumed");
     }
     if (operation.checkpoint === "resumed") {
@@ -1566,6 +1570,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     string,
     { allocationId: string; operationId: string; owner: string; expiresAt: Date }
   >();
+  readonly legacyUnmeteredTenants = new Set<string>();
   storageCapacityBytes = Number.MAX_SAFE_INTEGER;
   runtimeCapacitySlots = Number.MAX_SAFE_INTEGER;
   provisionReservationCapacity = Number.MAX_SAFE_INTEGER;
@@ -2486,10 +2491,12 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     owner: string,
     kind: "initial_provision" | "resume",
     leaseSeconds: number
-  ): Promise<"acquired" | "exhausted" | "conflict"> {
+  ): Promise<"acquired" | "exhausted" | "conflict" | "legacy"> {
     const operation = this.#owned(operationId, owner);
     const allocation = operation ? this.#allocationForTenant(operation.tenantId) : undefined;
-    if (!operation || !allocation) return "conflict";
+    if (!operation) return "conflict";
+    if (this.legacyUnmeteredTenants.has(operation.tenantId)) return "legacy";
+    if (!allocation) return "conflict";
     const expectedState = kind === "initial_provision" ? "reserved" : "retained_storage";
     if (allocation.state !== expectedState && allocation.state !== "uncertain") return "conflict";
     const existing = this.capacityClaims.get(operationId);
