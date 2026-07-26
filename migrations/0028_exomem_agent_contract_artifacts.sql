@@ -68,8 +68,10 @@ CREATE TABLE exomem_client_artifacts (
   created_at timestamptz NOT NULL DEFAULT now(),
   promoted_at timestamptz,
   retired_at timestamptz,
+  failed_at timestamptz,
   CHECK ((state IN ('live', 'retired')) = (promoted_at IS NOT NULL)),
   CHECK ((state = 'retired') = (retired_at IS NOT NULL)),
+  CHECK ((state = 'failed') = (failed_at IS NOT NULL)),
   CHECK (install_url ~ '^https://')
 );
 

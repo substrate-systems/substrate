@@ -213,14 +213,14 @@ export async function promoteExomemAgentContractCandidate(input: {
           AND claude.contract_sha256 = candidate.schema_digest
           AND claude.package_sha256 = candidate.package_lock->>'artifact_sha256'
           AND claude.archive_sha256 = candidate.archive_lock->>'archive_sha256'
-          AND claude.observed_at > now() - interval '24 hours'
+          AND claude.observed_at <= now() AND claude.observed_at > now() - interval '24 hours'
       ) AND EXISTS (
         SELECT 1 FROM artifact_rows AS openai
         WHERE openai.platform = 'openai' AND openai.state = 'live'
           AND openai.compatibility_sha256 = candidate.compatibility_digest
           AND openai.contract_sha256 = candidate.schema_digest
           AND openai.plugin_version = candidate.package_lock->>'plugin_version'
-          AND openai.observed_at > now() - interval '24 hours'
+          AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
       )
     ), retired AS (
       UPDATE exomem_agent_contract_candidates SET state = 'retired', retired_at = now()

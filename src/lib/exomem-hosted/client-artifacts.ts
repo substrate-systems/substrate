@@ -102,7 +102,7 @@ export async function promoteClientArtifact(input: {
 export async function demoteClientArtifact(artifactId: string, reasonSha256: string): Promise<boolean> {
   const { rows } = await executeExomemSql`
     /* exomem:demote-client-artifact */
-    UPDATE exomem_client_artifacts SET state = 'failed', retired_at = now()
+    UPDATE exomem_client_artifacts SET state = 'failed', failed_at = now()
     WHERE id = ${artifactId}::uuid AND state = 'live' AND ${sha256(reasonSha256, "demotion reason")} IS NOT NULL
     RETURNING id
   `;

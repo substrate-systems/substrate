@@ -99,6 +99,7 @@ describe("Exomem Hosted agent contracts", () => {
     assert.match(queries[1], /platform = 'claude'/i);
     assert.match(queries[1], /platform = 'openai'/i);
     assert.match(queries[1], /artifact_rows[\s\S]*FOR UPDATE/i);
+    assert.match(queries[1], /observed_at <= now\(\)/i);
     assert.match(queries[1], /retired_at = now\(\)/i);
     assert.match(queries[1], /UPDATE exomem_agent_contract_candidates/i);
     assert.doesNotMatch(queries[1], /digest\(/i);
