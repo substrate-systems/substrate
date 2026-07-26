@@ -25,7 +25,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     await requireRateLimitedExomemOperator(request, "read");
     const clients = await listOperatorOAuthClients();
     operatorSuccessEvent(requestId);
-    return NextResponse.json({ success: true, clients, requestId });
+    return NextResponse.json({
+      success: true,
+      clients: clients.map((client) => ({
+        id: client.id,
+        enabled: client.enabled,
+        admissionMode: client.admissionMode,
+        clientFingerprint: client.clientFingerprint,
+        redirectDigest: client.redirectDigest,
+        redirectCount: client.redirectCount,
+        metadataExpiresAt: client.metadataExpiresAt,
+      })),
+      requestId,
+    });
   } catch (error) {
     return operatorErrorResponse(error, requestId);
   }

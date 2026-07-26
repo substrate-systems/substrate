@@ -141,23 +141,25 @@ describe("Exomem Hosted agent contracts", () => {
       resultSha256: sha("8"),
       oauthClientConfigSha256: sha("a"),
       observedAt: new Date().toISOString(),
-      candidateId: "00000000-0000-0000-0000-000000000002",
+      candidateId: "018f2d91-7c42-7000-8000-000000000002",
       evidence,
     };
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const sql = async (strings: TemplateStringsArray) => {
       queries.push(strings.join("?"));
       return {
         rows: [
           {
             id: "artifact-1",
-            candidate_id: "00000000-0000-0000-0000-000000000002",
+            candidate_id: "018f2d91-7c42-7000-8000-000000000002",
             claude_package_lock: exomemHostedContractFixture.packageLock,
             claude_archive_lock: exomemHostedContractFixture.archiveLock,
           },
         ],
       };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (callback) => callback(sql));
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
     assert.match(queries[0], /load-client-artifact-contract-locks/i);
     assert.match(queries[1], /INSERT INTO exomem_client_artifacts/i);
@@ -191,7 +193,7 @@ describe("Exomem Hosted agent contracts", () => {
       },
     };
     const lockUnsigned = {
-      candidateId: "00000000-0000-0000-0000-000000000002",
+      candidateId: "018f2d91-7c42-7000-8000-000000000002",
       ...locks,
       operatorKeyId: "test-importer",
     };
@@ -260,7 +262,7 @@ describe("Exomem Hosted agent contracts", () => {
       resultSha256: sha("8"),
       oauthClientConfigSha256: sha("a"),
       observedAt: new Date().toISOString(),
-      candidateId: "00000000-0000-0000-0000-000000000002",
+      candidateId: "018f2d91-7c42-7000-8000-000000000002",
       evidence,
     };
     const queries: string[] = [];
@@ -271,7 +273,7 @@ describe("Exomem Hosted agent contracts", () => {
         return {
           rows: [
             {
-              candidate_id: "00000000-0000-0000-0000-000000000002",
+              candidate_id: "018f2d91-7c42-7000-8000-000000000002",
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,
             },
@@ -339,7 +341,7 @@ describe("Exomem Hosted agent contracts", () => {
           evidence: mismatchedEvidence,
           evidenceSha256: createHash("sha256").update(canonical(mismatchedEvidence)).digest("hex"),
         }),
-      /registered app ID digest/i
+      /exact registered package and archive locks/i
     );
   });
 

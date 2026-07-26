@@ -122,28 +122,14 @@ export function setOAuthContinuationCookie(
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: "/api/exomem",
-    maxAge: Math.floor(OAUTH_TRANSACTION_TTL_MS / 1000),
-  });
-  response.cookies.set(EXOMEM_OAUTH_CONTINUITY_COOKIE, continuation.transaction, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/exomem/authorize",
+    path: "/",
     maxAge: Math.floor(OAUTH_TRANSACTION_TTL_MS / 1000),
   });
   response.cookies.set(EXOMEM_OAUTH_FORM_NONCE_COOKIE, continuation.formNonce, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: "/exomem/authorize",
-    maxAge: Math.floor(OAUTH_TRANSACTION_TTL_MS / 1000),
-  });
-  response.cookies.set(EXOMEM_OAUTH_FORM_NONCE_COOKIE, continuation.formNonce, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/api/exomem",
+    path: "/",
     maxAge: Math.floor(OAUTH_TRANSACTION_TTL_MS / 1000),
   });
 }
@@ -153,28 +139,14 @@ export function clearOAuthContinuationCookie(response: NextResponse): void {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: "/api/exomem",
-    maxAge: 0,
-  });
-  response.cookies.set(EXOMEM_OAUTH_CONTINUITY_COOKIE, "", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/exomem/authorize",
+    path: "/",
     maxAge: 0,
   });
   response.cookies.set(EXOMEM_OAUTH_FORM_NONCE_COOKIE, "", {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: "/exomem/authorize",
-    maxAge: 0,
-  });
-  response.cookies.set(EXOMEM_OAUTH_FORM_NONCE_COOKIE, "", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/api/exomem",
+    path: "/",
     maxAge: 0,
   });
 }

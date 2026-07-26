@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import { setOperationalEventSinkForTests } from "../observability";
 import {
   acquireCapacityProviderWorkAtomic,
   acquireCapacityProvisionClaim,
@@ -15,6 +16,7 @@ import {
 afterEach(() => {
   __setExomemSqlForTests(null);
   __setExomemTransactionForTests(null);
+  setOperationalEventSinkForTests(null);
 });
 
 function setTestSql(sql: ExomemSql): void {
@@ -240,7 +242,6 @@ describe("capacity store", () => {
 
   it("emits capacity transitions only after their transaction commits", async () => {
     const lines: string[] = [];
-    const originalInfo = console.info;
     let committed = false;
     const sql: ExomemSql = async (strings) => {
       const query = strings.join("?");
@@ -272,23 +273,19 @@ describe("capacity store", () => {
       committed = true;
       return result;
     });
-    console.info = ((line: string) => {
+    setOperationalEventSinkForTests((line) => {
       assert.equal(committed, true);
       lines.push(line);
-    }) as typeof console.info;
+    });
 
-    try {
-      assert.equal(
-        await transitionCapacityAllocationAtomic({
-          allocationId: "018f2d91-7c42-7000-8000-000000000061",
-          operationId: "018f2d91-7c42-7000-8000-000000000063",
-          state: "uncertain",
-        }),
-        true
-      );
-    } finally {
-      console.info = originalInfo;
-    }
+    assert.equal(
+      await transitionCapacityAllocationAtomic({
+        allocationId: "018f2d91-7c42-7000-8000-000000000061",
+        operationId: "018f2d91-7c42-7000-8000-000000000063",
+        state: "uncertain",
+      }),
+      true
+    );
 
     const event = JSON.parse(lines[0] ?? "{}");
     assert.match(event.timestamp, /^\d{4}-\d{2}-\d{2}T/);
@@ -344,7 +341,6 @@ describe("capacity store", () => {
     );
 
     const lines: string[] = [];
-    const originalInfo = console.info;
     let committed = false;
     __setExomemSqlForTests(sql);
     __setExomemTransactionForTests(async (callback) => {
@@ -352,23 +348,19 @@ describe("capacity store", () => {
       committed = true;
       return result;
     });
-    console.info = ((line: string) => {
+    setOperationalEventSinkForTests((line) => {
       assert.equal(committed, true);
       lines.push(line);
-    }) as typeof console.info;
-    try {
-      assert.equal(
-        await acquireCapacityProviderWorkAtomic({
-          operationId,
-          leaseOwner: "worker-a",
-          kind: "initial_provision",
-          leaseSeconds: 60,
-        }),
-        "acquired"
-      );
-    } finally {
-      console.info = originalInfo;
-    }
+    });
+    assert.equal(
+      await acquireCapacityProviderWorkAtomic({
+        operationId,
+        leaseOwner: "worker-a",
+        kind: "initial_provision",
+        leaseSeconds: 60,
+      }),
+      "acquired"
+    );
     const events = lines.map((line) => JSON.parse(line));
     assert.equal(events[0]?.event, "lifecycle.capacity.transition");
     assert.equal(events[0]?.transition, "reserved_to_uncertain");

@@ -89,6 +89,14 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   return { promise: new Promise<void>((done) => (resolve = done)), resolve };
 }
 
+async function waitFor(condition: () => boolean, description: string): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (!condition()) {
+    if (Date.now() >= deadline) assert.fail(`Timed out waiting for ${description}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function bootstrapResult() {
   const command = LIVE.contract.agent_contract.commands.find(
     (candidate) => candidate.name === "bootstrap"
@@ -690,18 +698,26 @@ describe("Hosted MCP boundary", () => {
 
   it("emits one measured denial event when the SDK rejects a malformed tools call", async () => {
     const events: Array<Record<string, unknown>> = [];
+    let routes = 0;
     const response = await handleHostedMcpRequest(
       request({ jsonrpc: "2.0", id: 1, method: "tools/call" }),
       {
         baseUrl: "https://substratesystems.io",
         findAccessToken: async () => ACCESS,
         getLiveContract: async () => LIVE,
+        routeCommand: async () => {
+          routes += 1;
+          return bootstrapResult();
+        },
         takeRateLimit: async () => true,
         telemetry: (event: Record<string, unknown>) => events.push(event),
         telemetryKey: Buffer.alloc(32, 8),
       }
     );
-    assert.equal(response.status, 400);
+    assert.equal(response.status, 200);
+    const payload = (await response.json()) as { error?: unknown };
+    assert.ok(payload.error);
+    assert.equal(routes, 0);
     assert.equal(events.length, 1);
     assert.deepEqual(
       { outcome: events[0].outcome, errorCode: events[0].errorCode },
@@ -771,72 +787,82 @@ describe("Hosted MCP boundary", () => {
     assert.equal(Object.hasOwn(events[0], "clientHash"), false);
   });
 
-  it("keeps overlapping tenant-client calls counted until each call actually finishes", async () => {
-    const waits: Array<ReturnType<typeof deferred>> = [];
-    let started = 0;
-    const dependencies = {
-      baseUrl: "https://substratesystems.io",
-      findAccessToken: async () => ACCESS,
-      getLiveContract: async () => LIVE,
-      statusForTenant: async () => {
-        started += 1;
-        const wait = deferred();
-        waits.push(wait);
-        await wait.promise;
-        return { state: "ready", code: "READY", retryable: false };
-      },
-      routeCommand: async () => bootstrapResult(),
-      takeRateLimit: async () => true,
-    };
-    const call = () =>
-      handleHostedMcpRequest(
-        request({
-          jsonrpc: "2.0",
-          id: Math.random(),
-          method: "tools/call",
-          params: { name: "bootstrap", arguments: {} },
-        }),
-        dependencies
-      );
-    const first = [call(), call(), call(), call()];
-    while (started < 4) await new Promise((resolve) => setTimeout(resolve, 0));
-    waits[0].resolve();
-    await first[0];
-    const overlap = [call(), call(), call()];
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.equal(started, 5);
-    for (const wait of waits) wait.resolve();
-    await Promise.all([...first.slice(1), ...overlap]);
-  });
+  it(
+    "keeps overlapping tenant-client calls counted until each call actually finishes",
+    { timeout: 5_000 },
+    async () => {
+      const waits: Array<ReturnType<typeof deferred>> = [];
+      let started = 0;
+      const dependencies = {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => {
+          started += 1;
+          const wait = deferred();
+          waits.push(wait);
+          await wait.promise;
+          return { state: "ready", code: "READY", retryable: false };
+        },
+        routeCommand: async () => bootstrapResult(),
+        takeRateLimit: async () => true,
+      };
+      let id = 0;
+      const call = () =>
+        handleHostedMcpRequest(
+          request({
+            jsonrpc: "2.0",
+            id: ++id,
+            method: "tools/call",
+            params: { name: "bootstrap", arguments: {} },
+          }),
+          dependencies
+        );
+      const first = [call(), call(), call(), call()];
+      await waitFor(() => started >= 4, "four overlapping calls to start");
+      waits[0].resolve();
+      await first[0];
+      const overlap = [call(), call(), call()];
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(started, 5);
+      for (const wait of waits) wait.resolve();
+      await Promise.all([...first.slice(1), ...overlap]);
+    }
+  );
 
-  it("rejects excess authenticated requests before live-contract loading", async () => {
-    const waits: Array<ReturnType<typeof deferred>> = [];
-    let liveReads = 0;
-    const dependencies = {
-      baseUrl: "https://substratesystems.io",
-      findAccessToken: async () => ACCESS,
-      getLiveContract: async () => {
-        liveReads += 1;
-        const wait = deferred();
-        waits.push(wait);
-        await wait.promise;
-        return LIVE;
-      },
-      takeRateLimit: async () => true,
-    };
-    const call = () =>
-      handleHostedMcpRequest(
-        request({ jsonrpc: "2.0", id: Math.random(), method: "tools/list" }),
-        dependencies
-      );
-    const first = [call(), call(), call(), call()];
-    while (liveReads < 4) await new Promise((resolve) => setTimeout(resolve, 0));
-    const excess = await call();
-    assert.equal(excess.status, 429);
-    assert.equal(liveReads, 4);
-    for (const wait of waits) wait.resolve();
-    await Promise.all(first);
-  });
+  it(
+    "rejects excess authenticated requests before live-contract loading",
+    { timeout: 5_000 },
+    async () => {
+      const waits: Array<ReturnType<typeof deferred>> = [];
+      let liveReads = 0;
+      const dependencies = {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => {
+          liveReads += 1;
+          const wait = deferred();
+          waits.push(wait);
+          await wait.promise;
+          return LIVE;
+        },
+        takeRateLimit: async () => true,
+      };
+      let id = 0;
+      const call = () =>
+        handleHostedMcpRequest(
+          request({ jsonrpc: "2.0", id: ++id, method: "tools/list" }),
+          dependencies
+        );
+      const first = [call(), call(), call(), call()];
+      await waitFor(() => liveReads >= 4, "four live-contract reads to start");
+      const excess = await call();
+      assert.equal(excess.status, 429);
+      assert.equal(liveReads, 4);
+      for (const wait of waits) wait.resolve();
+      await Promise.all(first);
+    }
+  );
 
   it("times out stalled authenticated bodies and releases their tenant-client capacity", async () => {
     let cancellations = 0;
@@ -892,165 +918,177 @@ describe("Hosted MCP boundary", () => {
     assert.equal(afterTimeout.status, 200);
   });
 
-  it("turns an aborted HTTP request into a stable MCP tool error before routing", async () => {
-    const controller = new AbortController();
-    const wait = deferred();
-    let routes = 0;
-    let lifecycleStarted = false;
-    const pending = handleHostedMcpRequest(
-      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          authorization: `Bearer ${"a".repeat(43)}`,
-          accept: "application/json, text/event-stream",
-          "content-type": "application/json",
-          "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: { name: "bootstrap", arguments: {} },
+  it(
+    "turns an aborted HTTP request into a stable MCP tool error before routing",
+    { timeout: 5_000 },
+    async () => {
+      const controller = new AbortController();
+      const wait = deferred();
+      let routes = 0;
+      let lifecycleStarted = false;
+      const pending = handleHostedMcpRequest(
+        new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            authorization: `Bearer ${"a".repeat(43)}`,
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+            "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "bootstrap", arguments: {} },
+          }),
         }),
-      }),
-      {
+        {
+          baseUrl: "https://substratesystems.io",
+          findAccessToken: async () => ACCESS,
+          getLiveContract: async () => LIVE,
+          statusForTenant: async () => {
+            lifecycleStarted = true;
+            await wait.promise;
+            return { state: "ready", code: "READY", retryable: false };
+          },
+          routeCommand: async () => {
+            routes += 1;
+            return bootstrapResult();
+          },
+          takeRateLimit: async () => true,
+        }
+      );
+      await waitFor(() => lifecycleStarted, "lifecycle lookup to start");
+      controller.abort();
+      const payload = (await (await pending).json()) as {
+        result?: { content?: Array<{ text?: string }> };
+      };
+      wait.resolve();
+      assert.equal(routes, 0);
+      assert.match(payload.result?.content?.[0]?.text ?? "", /CELL_UNAVAILABLE/);
+    }
+  );
+
+  it(
+    "uses one abort deadline through private routing and releases the tenant-client slot",
+    { timeout: 5_000 },
+    async () => {
+      const controller = new AbortController();
+      const routeWait = deferred();
+      let routes = 0;
+      const dependencies = {
         baseUrl: "https://substratesystems.io",
         findAccessToken: async () => ACCESS,
         getLiveContract: async () => LIVE,
-        statusForTenant: async () => {
-          lifecycleStarted = true;
-          await wait.promise;
-          return { state: "ready", code: "READY", retryable: false };
-        },
-        routeCommand: async () => {
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async (input: { dependencies?: { signal?: AbortSignal } }) => {
           routes += 1;
+          assert.equal(input.dependencies?.signal?.aborted, false);
+          if (routes === 1) await routeWait.promise;
           return bootstrapResult();
         },
         takeRateLimit: async () => true,
-      }
-    );
-    while (!lifecycleStarted) await new Promise((resolve) => setTimeout(resolve, 0));
-    controller.abort();
-    const payload = (await (await pending).json()) as {
-      result?: { content?: Array<{ text?: string }> };
-    };
-    wait.resolve();
-    assert.equal(routes, 0);
-    assert.match(payload.result?.content?.[0]?.text ?? "", /CELL_UNAVAILABLE/);
-  });
-
-  it("uses one abort deadline through private routing and releases the tenant-client slot", async () => {
-    const controller = new AbortController();
-    const routeWait = deferred();
-    let routes = 0;
-    const dependencies = {
-      baseUrl: "https://substratesystems.io",
-      findAccessToken: async () => ACCESS,
-      getLiveContract: async () => LIVE,
-      statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
-      routeCommand: async (input: { dependencies?: { signal?: AbortSignal } }) => {
-        routes += 1;
-        assert.equal(input.dependencies?.signal?.aborted, false);
-        if (routes === 1) await routeWait.promise;
-        return bootstrapResult();
-      },
-      takeRateLimit: async () => true,
-    };
-    const pending = handleHostedMcpRequest(
-      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          authorization: `Bearer ${"a".repeat(43)}`,
-          accept: "application/json, text/event-stream",
-          "content-type": "application/json",
-          "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
-        },
-        body: JSON.stringify({
+      };
+      const pending = handleHostedMcpRequest(
+        new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            authorization: `Bearer ${"a".repeat(43)}`,
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+            "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "bootstrap", arguments: {} },
+          }),
+        }),
+        dependencies
+      );
+      await waitFor(() => routes === 1, "private route to start");
+      controller.abort();
+      const first = await pending;
+      assert.equal(first.status, 200);
+      const second = await handleHostedMcpRequest(
+        request({
           jsonrpc: "2.0",
-          id: 1,
+          id: 2,
           method: "tools/call",
           params: { name: "bootstrap", arguments: {} },
         }),
-      }),
-      dependencies
-    );
-    while (routes !== 1) await new Promise((resolve) => setTimeout(resolve, 0));
-    controller.abort();
-    const first = await pending;
-    assert.equal(first.status, 200);
-    const second = await handleHostedMcpRequest(
-      request({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: { name: "bootstrap", arguments: {} },
-      }),
-      dependencies
-    );
-    assert.equal(second.status, 200);
-    assert.equal(routes, 2);
-    routeWait.resolve();
-  });
-
-  it("uses the official Streamable HTTP client for ordered discovery, calls, and content-free telemetry", async () => {
-    const telemetry: Array<Record<string, unknown>> = [];
-    const dependencies = {
-      baseUrl: "https://substratesystems.io",
-      findAccessToken: async () => ACCESS,
-      getLiveContract: async () => LIVE,
-      statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
-      routeCommand: async (input: { commandName: string }) => {
-        const command = LIVE.contract.agent_contract.commands.find(
-          (candidate) => candidate.name === input.commandName
-        );
-        assert.ok(command);
-        return {
-          status: 200,
-          requestId: "request",
-          body: { success: true, data: schemaSample(command.mcp_tool.outputSchema) },
-        };
-      },
-      takeRateLimit: async () => true,
-      telemetry: (event: Record<string, unknown>) => telemetry.push(event),
-      telemetryKey: Buffer.alloc(32, 7),
-    };
-    const transport = new StreamableHTTPClientTransport(
-      new URL("https://substratesystems.io/api/exomem/mcp/v1"),
-      {
-        requestInit: { headers: { authorization: `Bearer ${"a".repeat(43)}` } },
-        fetch: (input, init) =>
-          handleHostedMcpRequest(new Request(input.toString(), init), dependencies),
-      }
-    );
-    const client = new Client({ name: "acceptance", version: "1" });
-    await client.connect(transport);
-    const listed = await client.listTools();
-    assert.deepEqual(
-      listed.tools.map((tool) => tool.name),
-      exomemHostedContractFixture.compatibility.agent_contract.commands.map(
-        (command) => command.mcp_tool.name
-      )
-    );
-    for (const tool of listed.tools) {
-      const result = await client.callTool({
-        name: tool.name,
-        arguments: schemaSample(tool.inputSchema) as Record<string, unknown>,
-      });
-      assert.notEqual(result.isError, true, tool.name);
-      assert.ok(result.structuredContent, tool.name);
+        dependencies
+      );
+      assert.equal(second.status, 200);
+      assert.equal(routes, 2);
+      routeWait.resolve();
     }
-    await transport.close();
-    assert.equal(telemetry.length, 16);
-    assert.equal(telemetry.filter((event) => event.requestClass === "tool").length, 13);
-    assert.equal(telemetry.filter((event) => event.requestClass === "request").length, 3);
-    const serialized = JSON.stringify(telemetry);
-    assert.equal(serialized.includes("client-secret-sentinel"), false);
-    assert.equal(serialized.includes("https://substratesystems.io/api/exomem/mcp/v1"), false);
-    assert.equal(
-      telemetry.every((event) => event.event === "mcp.request"),
-      true
-    );
-  });
+  );
+
+  it(
+    "uses the official Streamable HTTP client for ordered discovery, calls, and content-free telemetry",
+    { timeout: 15_000 },
+    async () => {
+      const telemetry: Array<Record<string, unknown>> = [];
+      const dependencies = {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async (input: { commandName: string }) => {
+          const command = LIVE.contract.agent_contract.commands.find(
+            (candidate) => candidate.name === input.commandName
+          );
+          assert.ok(command);
+          return {
+            status: 200,
+            requestId: "request",
+            body: { success: true, data: schemaSample(command.mcp_tool.outputSchema) },
+          };
+        },
+        takeRateLimit: async () => true,
+        telemetry: (event: Record<string, unknown>) => telemetry.push(event),
+        telemetryKey: Buffer.alloc(32, 7),
+      };
+      const transport = new StreamableHTTPClientTransport(
+        new URL("https://substratesystems.io/api/exomem/mcp/v1"),
+        {
+          requestInit: { headers: { authorization: `Bearer ${"a".repeat(43)}` } },
+          fetch: (input, init) =>
+            handleHostedMcpRequest(new Request(input.toString(), init), dependencies),
+        }
+      );
+      const client = new Client({ name: "acceptance", version: "1" });
+      await client.connect(transport);
+      const listed = await client.listTools();
+      assert.deepEqual(
+        listed.tools.map((tool) => tool.name),
+        exomemHostedContractFixture.compatibility.agent_contract.commands.map(
+          (command) => command.mcp_tool.name
+        )
+      );
+      for (const tool of listed.tools) {
+        const result = await client.callTool({
+          name: tool.name,
+          arguments: schemaSample(tool.inputSchema) as Record<string, unknown>,
+        });
+        assert.notEqual(result.isError, true, tool.name);
+        assert.ok(result.structuredContent, tool.name);
+      }
+      await transport.close();
+      assert.equal(telemetry.length, 17);
+      assert.equal(telemetry.filter((event) => event.requestClass === "tool").length, 13);
+      assert.equal(telemetry.filter((event) => event.requestClass === "request").length, 4);
+      const serialized = JSON.stringify(telemetry);
+      assert.equal(serialized.includes("client-secret-sentinel"), false);
+      assert.equal(serialized.includes("https://substratesystems.io/api/exomem/mcp/v1"), false);
+      assert.equal(
+        telemetry.every((event) => event.event === "mcp.request"),
+        true
+      );
+    }
+  );
 });

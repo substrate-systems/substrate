@@ -8,7 +8,10 @@ let listed = [
     id: "018f2d91-7c42-7000-8000-000000000001",
     enabled: true,
     admissionMode: "pinned",
+    clientFingerprint: "a".repeat(64),
+    redirectDigest: "b".repeat(64),
     redirectCount: 1,
+    metadataExpiresAt: null,
   },
 ];
 let updated: Record<string, unknown> | null = null;
@@ -58,7 +61,10 @@ beforeEach(() => {
       id: "018f2d91-7c42-7000-8000-000000000001",
       enabled: true,
       admissionMode: "pinned",
+      clientFingerprint: "a".repeat(64),
+      redirectDigest: "b".repeat(64),
       redirectCount: 1,
+      metadataExpiresAt: null,
     },
   ];
   updated = null;
@@ -77,7 +83,7 @@ function request(method: string, input: { authorization?: string; body?: unknown
 
 describe("Exomem operator OAuth client controls", () => {
   it("requires the operator bearer and returns no raw client identity", async () => {
-    listed = [{ ...listed[0], clientId: SENTINEL } as never];
+    listed = [{ ...listed[0], clientId: SENTINEL, unexpected: SENTINEL } as never];
     const { GET } = await import("../route");
     assert.equal((await GET(request("GET"))).status, 401);
     const response = await GET(request("GET", { authorization: `Bearer ${ADMIN_TOKEN}` }));

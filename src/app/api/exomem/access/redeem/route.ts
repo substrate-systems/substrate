@@ -40,15 +40,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ) {
       throw exomemErrors.invalidRequest();
     }
-    const transactionDigest = oauthContinuationDigest(request);
-    if (transactionDigest) {
+    const transaction = oauthContinuationToken(request);
+    const formNonce = oauthFormNonceFromRequest(request);
+    if (transaction || formNonce) {
+      const transactionDigest = oauthContinuationDigest(request);
+      if (!transaction || !transactionDigest || !formNonce) {
+        throw exomemErrors.invalidRequest();
+      }
       const continuation = await resolveOAuthContinuation(request);
-      const transaction = oauthContinuationToken(request);
-      const formNonce = oauthFormNonceFromRequest(request);
       if (
         !continuation ||
-        !transaction ||
-        !formNonce ||
         !validateOAuthContinuationNonce({ continuation, transaction, formNonce })
       ) {
         throw exomemErrors.invalidRequest();

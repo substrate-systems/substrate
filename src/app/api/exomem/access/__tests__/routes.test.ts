@@ -10,6 +10,7 @@ let inviteCalls = 0;
 let inviteError: Error | null = null;
 let magicRequests = 0;
 let magicRedeems = 0;
+let continuationLookups = 0;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/access", {
@@ -56,6 +57,17 @@ before(() => {
       },
     },
   });
+  mock.module("@/lib/exomem-hosted/oauth-store", {
+    namedExports: {
+      admitFirstOAuthInviteAtomic: async () => null,
+      createAuthorizationTransaction: async () => null,
+      findPendingOAuthAuthorization: async () => {
+        continuationLookups += 1;
+        return null;
+      },
+      resolveApprovedOAuthClient: async () => null,
+    },
+  });
 });
 
 after(() => mock.reset());
@@ -65,6 +77,7 @@ beforeEach(() => {
   inviteError = null;
   magicRequests = 0;
   magicRedeems = 0;
+  continuationLookups = 0;
 });
 
 function post(
@@ -113,7 +126,7 @@ describe("Exomem access routes", () => {
     assert.equal(inviteCalls, 0);
   });
 
-  it("does not send an OAuth continuation through pre-MCP invite redemption", async () => {
+  it("rejects an incomplete OAuth continuation before looking it up", async () => {
     const { POST } = await import("../redeem/route");
     const response = await POST(
       post(
@@ -124,6 +137,7 @@ describe("Exomem access routes", () => {
     );
     assert.equal(response.status, 400);
     assert.equal(inviteCalls, 0);
+    assert.equal(continuationLookups, 0);
   });
 
   it("rejects login CSRF, form-compatible content, and padded redemption bodies", async () => {

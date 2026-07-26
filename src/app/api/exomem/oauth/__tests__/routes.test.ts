@@ -263,8 +263,8 @@ before(() => {
         csrfDigest: Buffer.alloc(32, 0x33),
         expiresAt: new Date("2026-08-01T00:00:00.000Z"),
       }),
-      applySessionCookies: (response: Response) => {
-        response.headers.append("set-cookie", `exomem_session=${SESSION_TOKEN}; HttpOnly; Path=/`);
+      applySessionCookies: (response: import("next/server").NextResponse) => {
+        response.cookies.set("exomem_session", SESSION_TOKEN, { httpOnly: true, path: "/" });
       },
       clearMagicLinkChallengeCookie: () => undefined,
     },
@@ -426,6 +426,11 @@ describe("Exomem OAuth routes", () => {
     assert.equal(response.headers.get("location")?.includes(transaction), false);
     assert.equal(response.headers.getSetCookie().join("\n").includes("HttpOnly"), true);
     assert.equal(response.headers.getSetCookie().join("\n").includes("Secure"), true);
+    const continuityCookies = response.headers
+      .getSetCookie()
+      .filter((value) => value.startsWith("exomem_oauth_"));
+    assert.equal(continuityCookies.length, 2);
+    assert.equal(continuityCookies.every((value) => /Path=\//i.test(value)), true);
     const stored = continuations.get(digestKey(digestSecret(transaction)));
     assert.ok(stored);
     assert.deepEqual(
@@ -563,7 +568,16 @@ describe("Exomem OAuth routes", () => {
     assert.ok(destination.searchParams.get("code"));
     assert.equal(JSON.stringify(body).includes(inviteToken), false);
     assert.match(redeemed.headers.getSetCookie().join("\n"), /exomem_session=.*HttpOnly/i);
-    assert.match(redeemed.headers.getSetCookie().join("\n"), /exomem_oauth_tx=.*Max-Age=0/i);
+    const clearedContinuityCookies = redeemed.headers
+      .getSetCookie()
+      .filter((value) => value.startsWith("exomem_oauth_"));
+    assert.equal(clearedContinuityCookies.length, 2);
+    assert.equal(
+      clearedContinuityCookies.every(
+        (value) => /Path=\//i.test(value) && /Max-Age=0/i.test(value)
+      ),
+      true
+    );
     assert.equal(admitCalls.length, 1);
     assert.deepEqual(admitCalls[0].transactionDigest, digestSecret(transaction));
     assert.deepEqual(admitCalls[0].inviteDigest, digestSecret(inviteToken));
@@ -874,7 +888,21 @@ describe("Exomem OAuth routes", () => {
           }),
           ["grant_type", "client_id", "refresh_token", "resource"]
         ),
-      /EXOMEM_INVALID_REQUEST/
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "INVALID_REQUEST"
+    );
+    await assert.rejects(
+      () =>
+        readOAuthForm(
+          new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: "grant_type=refresh_token&client_id=client&client_id=duplicate&refresh_token=one",
+          }),
+          ["grant_type", "client_id", "refresh_token", "resource"]
+        ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "INVALID_REQUEST"
     );
   });
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
+import { setOperationalEventSinkForTests } from "@/lib/exomem-hosted/observability";
 
 const ADMIN_TOKEN = Buffer.alloc(32, 0x71).toString("base64url");
 const SENTINEL = "operator-email-token-credential-sentinel@example.com";
@@ -83,8 +84,7 @@ describe("POST /api/exomem/admin/invites", () => {
       retryable: true,
     });
     const lines: string[] = [];
-    const originalInfo = console.info;
-    console.info = (line?: unknown) => lines.push(String(line));
+    setOperationalEventSinkForTests((line) => lines.push(line));
     try {
       const { POST } = await import("../route");
       const response = await POST(request({ authorization: `Bearer ${ADMIN_TOKEN}` }));
@@ -93,7 +93,7 @@ describe("POST /api/exomem/admin/invites", () => {
       assert.equal(lines.join("\n").includes(SENTINEL), false);
       assert.match(lines.join("\n"), /EMAIL_DELIVERY_UNAVAILABLE/);
     } finally {
-      console.info = originalInfo;
+      setOperationalEventSinkForTests(null);
     }
   });
 });

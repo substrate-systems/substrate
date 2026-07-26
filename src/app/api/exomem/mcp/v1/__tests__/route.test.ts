@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it, mock } from "node:test";
+import { buildOperationalEvent, type OperationalEvent } from "@/lib/exomem-hosted/observability";
 
 const lines: string[] = [];
 
@@ -8,9 +9,14 @@ before(() => {
     namedExports: {
       handleHostedMcpRequest: async (
         _request: Request,
-        dependencies: { telemetry?: (event: Record<string, unknown>) => void }
+        dependencies: { telemetry?: (event: OperationalEvent) => void }
       ) => {
-        dependencies.telemetry?.({ event: "mcp.request", outcome: "denied" });
+        dependencies.telemetry?.(
+          buildOperationalEvent(
+            { event: "mcp.request", outcome: "denied" },
+            () => new Date("2026-07-26T00:00:00.000Z")
+          )
+        );
         return new Response(null, { status: 401 });
       },
     },
@@ -33,7 +39,7 @@ describe("POST /api/exomem/mcp/v1", () => {
         lines.map((line) => JSON.parse(line)),
         [
           {
-            timestamp: JSON.parse(lines[0]).timestamp,
+            timestamp: "2026-07-26T00:00:00.000Z",
             event: "mcp.request",
             outcome: "denied",
           },
