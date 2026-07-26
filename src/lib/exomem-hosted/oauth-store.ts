@@ -59,7 +59,6 @@ export async function createAuthorizationTransaction(input: {
   stateEnvelope: SecretEnvelope;
   formNonceDigest: Buffer;
   continuationBinding: Buffer;
-  pkceChallenge: string;
   clientId: string;
   redirectUri: string;
   resource: string;
@@ -110,6 +109,7 @@ export type PendingOAuthAuthorization = {
   stateDigest: Buffer;
   formNonceDigest: Buffer;
   continuationBinding: Buffer;
+  pkceChallenge: string;
 };
 
 export async function findPendingOAuthAuthorization(

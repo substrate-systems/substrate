@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readOAuthForm, oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
 import { revokeOAuthTokenForClient } from "@/lib/exomem-hosted/oauth-store";
-import { tokenDigest } from "@/lib/exomem-hosted/security";
+import { digestSecret } from "@/lib/exomem-hosted/security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +19,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const form = await readOAuthForm(request, REVOCATION_FIELDS);
     if (!form.token || !form.client_id) return invalidRequest();
-    const digest = tokenDigest(form.token);
-    if (!digest) return invalidRequest();
-    await revokeOAuthTokenForClient({ tokenDigest: digest, clientId: form.client_id });
+    await revokeOAuthTokenForClient({
+      tokenDigest: digestSecret(form.token),
+      clientId: form.client_id,
+    });
   } catch {
     return invalidRequest();
   }

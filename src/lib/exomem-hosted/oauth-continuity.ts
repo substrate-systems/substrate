@@ -198,6 +198,21 @@ export function oauthContinuationToken(request: Request): string | null {
   return cookieValue(request, EXOMEM_OAUTH_CONTINUITY_COOKIE);
 }
 
+export function oauthConfirmationHandle(transaction: string): string {
+  return digestSecret(transaction).toString("base64url");
+}
+
+export function matchesOAuthConfirmationHandle(
+  transaction: string | null | undefined,
+  handle: string | null | undefined
+): boolean {
+  return (
+    !!transaction &&
+    !!handle &&
+    constantTimeSecretEqual(oauthConfirmationHandle(transaction), handle)
+  );
+}
+
 export async function resolveOAuthContinuation(
   request: Request
 ): Promise<OAuthContinuation | null> {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { parseAuthorizeParameters, validateAuthorizationRequest } from "@/lib/exomem-hosted/oauth";
 import {
   createOAuthContinuation,
+  oauthConfirmationHandle,
   resolveOAuthContinuation,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
@@ -68,7 +69,10 @@ export async function GET(request: Request): Promise<NextResponse> {
     const transaction = await createOAuthContinuation(authorization);
     if (!transaction) return error();
     const response = NextResponse.redirect(
-      new URL("/exomem/authorize", exomemPublicBaseUrlFromEnv()),
+      new URL(
+        `/exomem/authorize?confirmation=${encodeURIComponent(oauthConfirmationHandle(transaction.transaction))}`,
+        exomemPublicBaseUrlFromEnv()
+      ),
       303
     );
     response.headers.set("cache-control", "no-store");

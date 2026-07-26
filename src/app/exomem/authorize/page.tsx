@@ -4,6 +4,7 @@ import { PrivateShell } from "../private-shell";
 import {
   EXOMEM_OAUTH_FORM_NONCE_COOKIE,
   EXOMEM_OAUTH_CONTINUITY_COOKIE,
+  matchesOAuthConfirmationHandle,
   oauthFormNonceFromCookie,
   resolveOAuthContinuationToken,
 } from "@/lib/exomem-hosted/oauth-continuity";
@@ -17,13 +18,19 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-export default async function ExomemAuthorizePage() {
+export default async function ExomemAuthorizePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ confirmation?: string }>;
+}) {
   const cookieStore = await cookies();
+  const query = await searchParams;
   const nonce =
     oauthFormNonceFromCookie(cookieStore.get(EXOMEM_OAUTH_FORM_NONCE_COOKIE)?.value) ?? "";
-  const continuation = await resolveOAuthContinuationToken(
-    cookieStore.get(EXOMEM_OAUTH_CONTINUITY_COOKIE)?.value
-  );
+  const transaction = cookieStore.get(EXOMEM_OAUTH_CONTINUITY_COOKIE)?.value;
+  const continuation = matchesOAuthConfirmationHandle(transaction, query.confirmation)
+    ? await resolveOAuthContinuationToken(transaction)
+    : null;
   return (
     <PrivateShell>
       <main className="mx-auto max-w-xl px-6 py-16">
@@ -46,6 +53,7 @@ export default async function ExomemAuthorizePage() {
         ) : null}
         <form action="/api/exomem/oauth/authorize/complete" className="mt-8" method="post">
           <input name="nonce" type="hidden" value={nonce} />
+          <input name="confirmation" type="hidden" value={query.confirmation ?? ""} />
           <button className="rounded bg-black px-4 py-2 text-white" type="submit">
             Continue
           </button>

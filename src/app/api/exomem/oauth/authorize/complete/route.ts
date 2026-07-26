@@ -6,6 +6,7 @@ import {
   mintContinuationCode,
   oauthContinuationDigest,
   oauthContinuationToken,
+  matchesOAuthConfirmationHandle,
   resolveOAuthContinuation,
   validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
@@ -48,7 +49,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!validOrigin(request)) return invalidRequest();
   let form: Record<string, string>;
   try {
-    form = await readOAuthForm(request, ["nonce"]);
+    form = await readOAuthForm(request, ["nonce", "confirmation"]);
   } catch {
     return invalidRequest();
   }
@@ -60,6 +61,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     !transactionDigest ||
     !transaction ||
     !form.nonce ||
+    !matchesOAuthConfirmationHandle(transaction, form.confirmation) ||
     !validateOAuthContinuationNonce({ continuation, transaction, formNonce: form.nonce })
   ) {
     return invalidRequest();
