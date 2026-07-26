@@ -451,9 +451,22 @@ describe("Exomem OAuth routes", () => {
         body: JSON.stringify({ token: Buffer.alloc(32, 0x42).toString("base64url") }),
       }) as never
     );
+    const magicDestination = ((await magicResult.json()) as { destination: string }).destination;
+    const magicConfirmation = new URL(magicDestination, BASE_URL).searchParams.get("confirmation");
+    assert.equal(new URL(magicDestination, BASE_URL).pathname, "/exomem/authorize");
+    assert.ok(magicConfirmation);
+    assert.equal(magicDestination.includes(magicTransaction), false);
+    const magicComplete = await complete(
+      completionRequest({
+        transaction: magicTransaction,
+        nonce: cookie(magicStarted, "exomem_oauth_form_nonce"),
+        confirmation: magicConfirmation,
+      })
+    );
+    assert.equal(magicComplete.status, 303);
     assert.equal(
-      ((await magicResult.json()) as { destination: string }).destination,
-      "/exomem/authorize"
+      new URL(magicComplete.headers.get("location")!).searchParams.get("state"),
+      "magic-state"
     );
   });
 

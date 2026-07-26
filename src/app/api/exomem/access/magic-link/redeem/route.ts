@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { redeemMagicLink } from "@/lib/exomem-hosted/access";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
-import { resolveOAuthContinuation } from "@/lib/exomem-hosted/oauth-continuity";
+import {
+  oauthConfirmationHandle,
+  oauthContinuationToken,
+  resolveOAuthContinuation,
+} from "@/lib/exomem-hosted/oauth-continuity";
 import {
   applySessionCookies,
   clearMagicLinkChallengeCookie,
@@ -34,13 +38,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw exomemErrors.invalidRequest();
     }
     const redeemed = await redeemMagicLink({ token: body.token, browserChallenge });
+    const continuation = await resolveOAuthContinuation(request);
+    const transaction = continuation ? oauthContinuationToken(request) : null;
     response = NextResponse.json(
       {
         success: true,
         status: "accepted",
-        destination: (await resolveOAuthContinuation(request))
-          ? "/exomem/authorize"
-          : "/exomem/home",
+        destination:
+          continuation && transaction
+            ? `/exomem/authorize?confirmation=${encodeURIComponent(oauthConfirmationHandle(transaction))}`
+            : "/exomem/home",
         requestId,
       },
       { status: 200 }
