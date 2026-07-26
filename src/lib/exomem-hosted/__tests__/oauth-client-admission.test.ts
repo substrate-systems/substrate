@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   normalizeOperatorOAuthClientRegistration,
@@ -103,5 +104,15 @@ describe("operator OAuth client admission", () => {
       }),
       "3c8bbd83906d29816f59d21b48a7e5a859379b124108b2abb1aa9a309ec3a339"
     );
+  });
+
+  it("anchors initial CIMD expiry to the database clock rather than app-clock skew", () => {
+    const source = readFileSync("src/lib/exomem-hosted/operator-controls.ts", "utf8");
+    assert.match(source, /CASE WHEN \$\{fetched !== null\} THEN now\(\) ELSE NULL END/);
+    assert.match(
+      source,
+      /now\(\) \+ \(\$\{fetched \? registration\.ttlSeconds : 0\} \* interval '1 second'\)/
+    );
+    assert.doesNotMatch(source, /new Date\(Date\.now\(\) \+ registration\.ttlSeconds/);
   });
 });

@@ -143,9 +143,11 @@ export async function registerOperatorOAuthClient(
              ${JSON.stringify(registration.redirectUris)}::jsonb,
              digest(convert_to(${JSON.stringify(registration.redirectUris)}::jsonb::text, 'utf8'), 'sha256'),
              ${fetched ? documentDigest(fetched.raw) : null},
-             ${fetched ? new Date().toISOString() : null},
+             CASE WHEN ${fetched !== null} THEN now() ELSE NULL END,
              ${fetched ? registration.ttlSeconds : null},
-             ${fetched ? new Date(Date.now() + registration.ttlSeconds * 1000).toISOString() : null},
+             CASE WHEN ${fetched !== null}
+               THEN now() + (${fetched ? registration.ttlSeconds : 0} * interval '1 second')
+               ELSE NULL END,
              ${fetched ? new URL(registration.clientId).hostname.toLowerCase() : null},
              ${registration.platform}, ${configSha256},
              gen_random_uuid()
