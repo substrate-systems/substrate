@@ -1,0 +1,105 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { after, before, describe, it } from "node:test";
+import { Pool, type PoolClient } from "pg";
+import { applyMigrations } from "../../../../scripts/migrate";
+import { acquireCapacityProviderWorkAtomic } from "../capacity-store";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+
+const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
+let pool: Pool | undefined;
+let schema: string | undefined;
+
+function taggedSql(client: Pool | PoolClient): ExomemSql {
+  return async (strings, ...values) => {
+    let text = strings[0];
+    for (let index = 0; index < values.length; index += 1) {
+      text += `$${index + 1}${strings[index + 1]}`;
+    }
+    const result = await client.query(text, values);
+    return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+  };
+}
+
+async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  const client = await pool!.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+    const result = await callback(taggedSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function runningProvision(legacyUnmetered = false): Promise<string> {
+  const email = `capacity-${randomUUID()}@example.test`;
+  const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [email]);
+  const tenant = await pool!.query(
+    "INSERT INTO exomem_tenants (owner_user_id, legacy_unmetered) VALUES ($1, $2) RETURNING id",
+    [user.rows[0].id, legacyUnmetered]
+  );
+  const operation = await pool!.query(
+    `INSERT INTO exomem_lifecycle_operations (
+       tenant_id, operation_type, state, idempotency_key, fence_generation,
+       checkpoint, lease_owner, lease_expires_at
+     ) VALUES ($1, 'provision', 'running', $2, 1, 'candidate-created', 'worker-a', now() + interval '1 hour')
+     RETURNING id`,
+    [tenant.rows[0].id, randomUUID()]
+  );
+  return operation.rows[0].id;
+}
+
+describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, () => {
+  before(async () => {
+    schema = `capacity_it_${randomUUID().replaceAll("-", "")}`;
+    const admin = new Pool({ connectionString: databaseUrl });
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    const scoped = new URL(databaseUrl!);
+    scoped.searchParams.set("options", `-c search_path=${schema}`);
+    await applyMigrations({ databaseUrl: scoped.toString() });
+    await admin.end();
+    pool = new Pool({ connectionString: scoped.toString() });
+    __setExomemSqlForTests(taggedSql(pool));
+    __setExomemTransactionForTests(interactiveTransaction);
+  });
+
+  after(async () => {
+    __setExomemSqlForTests(null);
+    __setExomemTransactionForTests(null);
+    if (pool) await pool.end();
+    if (schema) {
+      const admin = new Pool({ connectionString: databaseUrl });
+      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await admin.end();
+    }
+  });
+
+  it("rejects arbitrary allocation-less rows but admits only the explicit legacy marker", async () => {
+    const unmarked = await runningProvision();
+    assert.equal(
+      await acquireCapacityProviderWorkAtomic({
+        operationId: unmarked,
+        leaseOwner: "worker-a",
+        kind: "initial_provision",
+        leaseSeconds: 60,
+      }),
+      "conflict"
+    );
+
+    const legacy = await runningProvision(true);
+    assert.equal(
+      await acquireCapacityProviderWorkAtomic({
+        operationId: legacy,
+        leaseOwner: "worker-a",
+        kind: "initial_provision",
+        leaseSeconds: 60,
+      }),
+      "legacy"
+    );
+  });
+});
