@@ -1,0 +1,78 @@
+"use client";
+
+import { FormEvent, useState } from "react";
+import { friendlyHostedError, postPublicJson } from "@/lib/exomem-hosted/hosted-browser";
+import styles from "../private-shell.module.css";
+import { redeemInvitationUrl } from "./invite-resume";
+
+type AuthorizeClientProps = {
+  confirmation: string;
+  nonce: string;
+};
+
+export default function AuthorizeClient({ confirmation, nonce }: AuthorizeClientProps) {
+  const [invitationUrl, setInvitationUrl] = useState("");
+  const [redeemingInvitation, setRedeemingInvitation] = useState(false);
+  const [invitationError, setInvitationError] = useState("");
+
+  async function useInvitation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (redeemingInvitation) return;
+    setRedeemingInvitation(true);
+    setInvitationError("");
+    try {
+      const result = await redeemInvitationUrl(
+        { invitationUrl, origin: window.location.origin },
+        {
+          clear: () => setInvitationUrl(""),
+          post: postPublicJson,
+          replace: (destination) => window.location.replace(destination),
+        }
+      );
+      if (result === "invalid") {
+        setInvitationError("Paste the complete invitation link from your email.");
+        setRedeemingInvitation(false);
+      }
+    } catch (error) {
+      setInvitationError(friendlyHostedError(error));
+      setRedeemingInvitation(false);
+    }
+  }
+
+  return (
+    <>
+      <form action="/api/exomem/oauth/authorize/complete" className="mt-8" method="post">
+        <input name="nonce" type="hidden" value={nonce} />
+        <input name="confirmation" type="hidden" value={confirmation} />
+        <button className="rounded bg-black px-4 py-2 text-white" type="submit">
+          Continue
+        </button>
+      </form>
+      <form className={styles.form} noValidate onSubmit={useInvitation}>
+        <label className={styles.label} htmlFor="exomem-invitation-url">
+          Use your invitation
+        </label>
+        <input
+          className={styles.input}
+          id="exomem-invitation-url"
+          autoComplete="off"
+          inputMode="url"
+          spellCheck={false}
+          type="url"
+          value={invitationUrl}
+          onChange={(event) => setInvitationUrl(event.target.value)}
+        />
+        <button className={styles.quietButton} type="submit" disabled={redeemingInvitation}>
+          {redeemingInvitation ? "Using invitation…" : "Use invitation"}
+        </button>
+        <p
+          className={`${styles.status} ${invitationError ? styles.error : ""}`}
+          role={invitationError ? "alert" : undefined}
+          aria-live="polite"
+        >
+          {invitationError || "Paste the complete invitation link from your email."}
+        </p>
+      </form>
+    </>
+  );
+}

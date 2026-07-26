@@ -8,6 +8,7 @@ import {
   oauthFormNonceFromCookie,
   resolveOAuthContinuationToken,
 } from "@/lib/exomem-hosted/oauth-continuity";
+import AuthorizeClient from "./authorize-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,6 +32,7 @@ export default async function ExomemAuthorizePage({
   const continuation = matchesOAuthConfirmationHandle(transaction, query.confirmation)
     ? await resolveOAuthContinuationToken(transaction)
     : null;
+  const canContinue = !!continuation && !!nonce && !!query.confirmation;
   return (
     <PrivateShell>
       <main className="mx-auto max-w-xl px-6 py-16">
@@ -39,7 +41,7 @@ export default async function ExomemAuthorizePage({
           Confirm to connect this client to your Exomem account. If you are not signed in, use your
           existing Exomem access link first, then return here.
         </p>
-        {continuation ? (
+        {canContinue ? (
           <dl className="mt-6 space-y-2 text-sm text-neutral-700">
             <div>
               <dt className="font-medium">Client</dt>
@@ -50,14 +52,13 @@ export default async function ExomemAuthorizePage({
               <dd>{continuation.scopes.join(", ")}</dd>
             </div>
           </dl>
-        ) : null}
-        <form action="/api/exomem/oauth/authorize/complete" className="mt-8" method="post">
-          <input name="nonce" type="hidden" value={nonce} />
-          <input name="confirmation" type="hidden" value={query.confirmation ?? ""} />
-          <button className="rounded bg-black px-4 py-2 text-white" type="submit">
-            Continue
-          </button>
-        </form>
+        ) : (
+          <p className="mt-6 text-sm text-neutral-600">
+            This connection request is no longer active. Start again from the client you want to
+            connect.
+          </p>
+        )}
+        {canContinue ? <AuthorizeClient confirmation={query.confirmation!} nonce={nonce} /> : null}
       </main>
     </PrivateShell>
   );
