@@ -259,9 +259,11 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
 }
 
 export async function pruneExpiredOAuthState(): Promise<void> {
-  await executeExomemSql`
-    /* exomem:prune-expired-oauth-state */
-    WITH expired_transactions AS (
+  await withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    await tx`
+      /* exomem:prune-expired-oauth-state */
+      WITH expired_transactions AS (
       DELETE FROM exomem_oauth_authorization_transactions
       WHERE id IN (
         SELECT id FROM exomem_oauth_authorization_transactions
@@ -310,10 +312,11 @@ export async function pruneExpiredOAuthState(): Promise<void> {
       )
       RETURNING id
     )
-    UPDATE exomem_oauth_clients
-    SET enabled = false, metadata_expires_at = now()
-    WHERE admission_mode = 'cimd' AND metadata_expires_at <= now()
-  `;
+      UPDATE exomem_oauth_clients
+      SET enabled = false, metadata_expires_at = now()
+      WHERE admission_mode = 'cimd' AND metadata_expires_at <= now()
+    `;
+  });
 }
 
 class OAuthAdmissionRejected extends Error {}

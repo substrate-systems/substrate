@@ -22,6 +22,7 @@ const clientId = "https://client.example.test/metadata.json";
 const resource = "https://substratesystems.io/api/exomem/mcp/v1";
 let pool: Pool | undefined;
 let schema: string | undefined;
+let transactionApplicationName: string | undefined;
 
 function digest(value: number): Buffer {
   return Buffer.alloc(32, value);
@@ -42,6 +43,11 @@ async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>
   const client = await pool!.connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+    if (transactionApplicationName) {
+      await client.query("SELECT set_config('application_name', $1, true)", [
+        transactionApplicationName,
+      ]);
+    }
     const result = await callback(taggedSql(client));
     await client.query("COMMIT");
     return result;
@@ -51,6 +57,23 @@ async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>
   } finally {
     client.release();
   }
+}
+
+async function waitForAdvisoryLockWait(applicationName: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await pool!.query(
+      `SELECT 1
+       FROM pg_stat_activity
+       WHERE application_name = $1
+         AND wait_event_type = 'Lock'
+         AND wait_event = 'advisory'`,
+      [applicationName]
+    );
+    if (result.rowCount === 1) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("consumer did not reach the cohort advisory-lock wait");
 }
 
 async function scalar(query: string, values: unknown[] = []): Promise<number> {
@@ -396,22 +419,25 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
   it("waits for artifact demotion before taking the cohort authorization snapshot", async () => {
     await seedClient();
     const lock = await pool!.connect();
+    const applicationName = `exomem-oauth-cohort-${randomUUID()}`;
     try {
       await lock.query("BEGIN");
       await lock.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
       await lock.query(
         "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'openai'"
       );
+      transactionApplicationName = applicationName;
       let settled = false;
       const resolution = resolveApprovedOAuthClient(clientId).then((result) => {
         settled = true;
         return result;
       });
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      await waitForAdvisoryLockWait(applicationName);
       assert.equal(settled, false);
       await lock.query("COMMIT");
       assert.equal(await resolution, null);
     } finally {
+      transactionApplicationName = undefined;
       await lock.query("ROLLBACK").catch(() => undefined);
       lock.release();
       await pool!.query(

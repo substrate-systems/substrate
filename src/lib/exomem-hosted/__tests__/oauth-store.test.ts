@@ -135,6 +135,21 @@ describe("Exomem OAuth token store", () => {
     assert.doesNotMatch(query, /family\.revoked_at < now\(\) - interval '1 day'/i);
   });
 
+  it("takes the exclusive cohort lock before disabling expired CIMD clients", async () => {
+    const queries: string[] = [];
+    setSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [] };
+    });
+
+    await pruneExpiredOAuthState();
+
+    assert.match(queries[0] ?? "", /pg_advisory_xact_lock\(/i);
+    assert.doesNotMatch(queries[0] ?? "", /pg_advisory_xact_lock_shared/i);
+    assert.match(queries[1] ?? "", /UPDATE exomem_oauth_clients/i);
+    assert.match(queries[1] ?? "", /admission_mode = 'cimd'/i);
+  });
+
   it("resolves only current entitled access and revokes one family without touching another", async () => {
     const queries: string[] = [];
     setSqlForTests(async (strings) => {
