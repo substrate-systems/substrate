@@ -19,7 +19,11 @@ import {
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
 import { oauthClientConfigSha256 } from "../oauth-client-admission";
-import { registerOperatorOAuthClient, setOperatorOAuthClientEnabled } from "../operator-controls";
+import {
+  refreshOperatorCimdOAuthClient,
+  registerOperatorOAuthClient,
+  setOperatorOAuthClientEnabled,
+} from "../operator-controls";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const clientId = "https://client.example.test/metadata.json";
@@ -83,6 +87,52 @@ async function waitForAdvisoryLockWait(applicationName: string): Promise<void> {
 async function scalar(query: string, values: unknown[] = []): Promise<number> {
   const result = await pool!.query(query, values);
   return Number(result.rows[0]?.count ?? 0);
+}
+
+async function hostedProvisioningSnapshot(): Promise<Record<string, number>> {
+  const result = await pool!.query(
+    `SELECT
+       (SELECT count(*) FROM users) AS users,
+       (SELECT count(*) FROM exomem_tenants) AS tenants,
+       (SELECT count(*) FROM exomem_entitlements) AS entitlements,
+       (SELECT count(*) FROM exomem_capacity_allocations) AS capacity_allocations,
+       (SELECT count(*) FROM exomem_capacity_claims) AS capacity_claims,
+       (SELECT count(*) FROM exomem_lifecycle_operations) AS lifecycle_operations,
+       (SELECT count(*) FROM exomem_cells) AS cells,
+       (SELECT count(*) FROM exomem_cells WHERE provider_ref IS NOT NULL) AS cell_provider_refs,
+       (SELECT count(*) FROM exomem_entitlements
+        WHERE provider_customer_ref IS NOT NULL
+           OR provider_subscription_ref IS NOT NULL
+           OR provider_transaction_ref IS NOT NULL) AS entitlement_provider_refs,
+       (SELECT count(*) FROM exomem_lifecycle_operations
+        WHERE provider_result_ref IS NOT NULL) AS lifecycle_provider_refs,
+       (SELECT count(*) FROM exomem_capacity_pools
+        WHERE reserved_storage_bytes <> 0
+           OR reserved_runtime_slots <> 0
+           OR reserved_provision_slots <> 0) AS reserved_capacity_pools`
+  );
+  return Object.fromEntries(
+    Object.entries(result.rows[0] as Record<string, string>).map(([key, value]) => [
+      key,
+      Number(value),
+    ])
+  );
+}
+
+function cimdMetadata(clientId: string, redirectUris: string[], label: string) {
+  return {
+    raw: JSON.stringify({
+      client_id: clientId,
+      redirect_uris: redirectUris,
+      token_endpoint_auth_method: "none",
+      label,
+    }),
+    document: {
+      client_id: clientId,
+      redirect_uris: redirectUris,
+      token_endpoint_auth_method: "none" as const,
+    },
+  };
 }
 
 async function seedClient(): Promise<string> {
@@ -551,6 +601,306 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
       ["f".repeat(64), artifact.rows[0]!.id]
     );
+  });
+
+  it("keeps the 32-client admission bound under concurrent registration and permits an existing client at capacity", async () => {
+    const artifact = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+    );
+    const existingClientId = `https://oauth-capacity-existing.example.test/${randomUUID()}`;
+    const existingRedirectUri = "https://oauth-capacity-existing.example.test/callback";
+    const existingConfig = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "pinned",
+      clientId: existingClientId,
+      redirectUris: [existingRedirectUri],
+    });
+    const newClients = ["one", "two"].map((suffix) => {
+      const clientId = `https://oauth-capacity-new-${suffix}.example.test/${randomUUID()}`;
+      const redirectUri = `https://oauth-capacity-new-${suffix}.example.test/callback`;
+      return {
+        clientId,
+        redirectUri,
+        config: oauthClientConfigSha256({
+          platform: "claude",
+          admissionMode: "pinned",
+          clientId,
+          redirectUris: [redirectUri],
+        }),
+      };
+    });
+    const pendingArtifactIds: string[] = [];
+
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+      [existingConfig, artifact.rows[0]!.id]
+    );
+    try {
+      const registered = await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform: "claude",
+        artifactId: artifact.rows[0]!.id,
+        clientId: existingClientId,
+        redirectUris: [existingRedirectUri],
+      });
+      assert.equal(
+        await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
+        true
+      );
+
+      const currentCount = await scalar("SELECT count(*) FROM exomem_oauth_clients");
+      assert.ok(currentCount <= 32);
+      for (let index = currentCount; index < 31; index += 1) {
+        const fillerClientId = `https://oauth-capacity-filler.example.test/${randomUUID()}`;
+        const fillerRedirectUri = "https://oauth-capacity-filler.example.test/callback";
+        await pool!.query(
+          `INSERT INTO exomem_oauth_clients (
+             client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+             client_platform, oauth_client_config_sha256
+           ) VALUES ($1, 'pinned', false, $2::jsonb,
+                     digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
+                     'claude', $3)`,
+          [
+            fillerClientId,
+            JSON.stringify([fillerRedirectUri]),
+            oauthClientConfigSha256({
+              platform: "claude",
+              admissionMode: "pinned",
+              clientId: fillerClientId,
+              redirectUris: [fillerRedirectUri],
+            }),
+          ]
+        );
+      }
+      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_clients"), 31);
+
+      for (const client of newClients) {
+        const pending = await pool!.query<{ id: string }>(
+          `INSERT INTO exomem_client_artifacts (
+             platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
+             plugin_version, client_identity_sha256, paired_run_hmac_sha256,
+             exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256,
+             result_sha256, oauth_client_config_sha256, observed_at
+           ) SELECT platform, 'pending', package_sha256, archive_sha256, compatibility_sha256,
+                    contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256,
+                    exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256,
+                    result_sha256, $1, now()
+             FROM exomem_client_artifacts WHERE id = $2
+             RETURNING id`,
+          [client.config, artifact.rows[0]!.id]
+        );
+        pendingArtifactIds.push(pending.rows[0]!.id);
+      }
+      const attempts = await Promise.allSettled(
+        newClients.map((client, index) =>
+          registerOperatorOAuthClient({
+            admissionMode: "pinned",
+            platform: "claude",
+            artifactId: pendingArtifactIds[index],
+            clientId: client.clientId,
+            redirectUris: [client.redirectUri],
+          })
+        )
+      );
+      assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+      assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+      const rejected = attempts.find((attempt) => attempt.status === "rejected");
+      assert.ok(
+        rejected &&
+          rejected.reason instanceof ExomemHostedError &&
+          rejected.reason.code === "INVALID_REQUEST"
+      );
+      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_clients"), 32);
+
+      const idempotent = await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform: "claude",
+        artifactId: artifact.rows[0]!.id,
+        clientId: existingClientId,
+        redirectUris: [existingRedirectUri],
+      });
+      assert.deepEqual(idempotent, { id: registered.id, enabled: true });
+    } finally {
+      await pool!.query(
+        "DELETE FROM exomem_oauth_clients WHERE client_id LIKE 'https://oauth-capacity-%'"
+      );
+      if (pendingArtifactIds.length > 0) {
+        await pool!.query("DELETE FROM exomem_client_artifacts WHERE id = ANY($1::uuid[])", [
+          pendingArtifactIds,
+        ]);
+      }
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        ["f".repeat(64), artifact.rows[0]!.id]
+      );
+    }
+  });
+
+  it("does not let a slow CIMD refresh overwrite a newer disabled cache authority", async () => {
+    const artifact = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+    );
+    const cimdClientId = `https://cimd-client.example.test/${randomUUID()}`;
+    const redirectUris = ["https://cimd-client.example.test/callback"];
+    const config = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "cimd",
+      clientId: cimdClientId,
+      redirectUris,
+    });
+    const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+    process.env.EXOMEM_CIMD_ALLOWED_HOSTS = "cimd-client.example.test";
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+      [config, artifact.rows[0]!.id]
+    );
+    try {
+      const registered = await registerOperatorOAuthClient(
+        {
+          admissionMode: "cimd",
+          platform: "claude",
+          artifactId: artifact.rows[0]!.id,
+          clientId: cimdClientId,
+          redirectUris,
+        },
+        { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "initial") }
+      );
+      assert.equal(
+        await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
+        true
+      );
+
+      let releaseSlowFetch: (() => void) | undefined;
+      let signalSlowFetch: (() => void) | undefined;
+      const slowFetchStarted = new Promise<void>((resolve) => {
+        signalSlowFetch = resolve;
+      });
+      const slowRefresh = refreshOperatorCimdOAuthClient(registered.id, {
+        fetchCimd: async () => {
+          signalSlowFetch!();
+          await new Promise<void>((resolve) => {
+            releaseSlowFetch = resolve;
+          });
+          return cimdMetadata(cimdClientId, redirectUris, "stale");
+        },
+      });
+      await slowFetchStarted;
+
+      assert.equal(
+        await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: false }),
+        true
+      );
+      await registerOperatorOAuthClient(
+        {
+          admissionMode: "cimd",
+          platform: "claude",
+          artifactId: artifact.rows[0]!.id,
+          clientId: cimdClientId,
+          redirectUris,
+        },
+        { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "newer") }
+      );
+      const newer = await pool!.query(
+        `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
+                redirect_uris::text, metadata_provenance::text
+         FROM exomem_oauth_clients WHERE id = $1`,
+        [registered.id]
+      );
+      releaseSlowFetch!();
+      await assert.rejects(
+        slowRefresh,
+        (error: unknown) => error instanceof ExomemHostedError && error.code === "INVALID_REQUEST"
+      );
+      const afterConflict = await pool!.query(
+        `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
+                redirect_uris::text, metadata_provenance::text
+         FROM exomem_oauth_clients WHERE id = $1`,
+        [registered.id]
+      );
+      assert.equal(newer.rows[0].enabled, false);
+      assert.deepEqual(afterConflict.rows, newer.rows);
+    } finally {
+      if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+      else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [cimdClientId]);
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        ["f".repeat(64), artifact.rows[0]!.id]
+      );
+    }
+  });
+
+  it("keeps registration and CIMD refresh out of hosted provisioning and provider state", async () => {
+    const artifact = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+    );
+    const pinnedClientId = `https://oauth-state-pinned.example.test/${randomUUID()}`;
+    const pinnedRedirectUri = "https://oauth-state-pinned.example.test/callback";
+    const pinnedConfig = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "pinned",
+      clientId: pinnedClientId,
+      redirectUris: [pinnedRedirectUri],
+    });
+    const cimdClientId = `https://oauth-state-cimd.example.test/${randomUUID()}`;
+    const cimdRedirectUris = ["https://oauth-state-cimd.example.test/callback"];
+    const cimdConfig = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "cimd",
+      clientId: cimdClientId,
+      redirectUris: cimdRedirectUris,
+    });
+    const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+    process.env.EXOMEM_CIMD_ALLOWED_HOSTS = "oauth-state-cimd.example.test";
+    try {
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        [pinnedConfig, artifact.rows[0]!.id]
+      );
+      const beforePinned = await hostedProvisioningSnapshot();
+      await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform: "claude",
+        artifactId: artifact.rows[0]!.id,
+        clientId: pinnedClientId,
+        redirectUris: [pinnedRedirectUri],
+      });
+      assert.deepEqual(await hostedProvisioningSnapshot(), beforePinned);
+
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        [cimdConfig, artifact.rows[0]!.id]
+      );
+      const beforeCimdRegistration = await hostedProvisioningSnapshot();
+      const cimd = await registerOperatorOAuthClient(
+        {
+          admissionMode: "cimd",
+          platform: "claude",
+          artifactId: artifact.rows[0]!.id,
+          clientId: cimdClientId,
+          redirectUris: cimdRedirectUris,
+        },
+        { fetchCimd: async () => cimdMetadata(cimdClientId, cimdRedirectUris, "registered") }
+      );
+      assert.deepEqual(await hostedProvisioningSnapshot(), beforeCimdRegistration);
+
+      const beforeRefresh = await hostedProvisioningSnapshot();
+      await refreshOperatorCimdOAuthClient(cimd.id, {
+        fetchCimd: async () => cimdMetadata(cimdClientId, cimdRedirectUris, "refreshed"),
+      });
+      assert.deepEqual(await hostedProvisioningSnapshot(), beforeRefresh);
+    } finally {
+      if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+      else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id IN ($1, $2)", [
+        pinnedClientId,
+        cimdClientId,
+      ]);
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        ["f".repeat(64), artifact.rows[0]!.id]
+      );
+    }
   });
 
   it("waits for artifact demotion before taking the cohort authorization snapshot", async () => {
