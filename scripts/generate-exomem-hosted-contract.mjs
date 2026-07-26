@@ -2,7 +2,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const PROFILE = "hosted-alpha-agent-v1";
@@ -61,7 +61,37 @@ function gitBlob(repo, commit, path) {
   }
 }
 
+function tarEntries(archive) {
+  const files = new Map();
+  let offset = 0;
+  let commit = "";
+  while (offset + 512 <= archive.length) {
+    const header = archive.subarray(offset, offset + 512);
+    const name = header.subarray(0, 100).toString("utf8").replace(/\0.*$/, "");
+    const size = Number.parseInt(header.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(), 8) || 0;
+    if (!name) break;
+    const body = archive.subarray(offset + 512, offset + 512 + size);
+    if (name === "pax_global_header") {
+      const match = body.toString("utf8").match(/comment=([0-9a-f]{40})/);
+      if (match) commit = match[1];
+    } else if (!name.endsWith("/")) {
+      if (name.startsWith("/")) fail("unsafe exact-commit archive path");
+      files.set(name, Buffer.from(body));
+    }
+    offset += 512 + Math.ceil(size / 512) * 512;
+  }
+  return { files, commit };
+}
+
 function packageDigest(repo, commit, packagePath) {
+  if (archive) {
+    const entries = [...archive.files.entries()]
+      .filter(([path]) => path.startsWith(`${packagePath}/`))
+      .map(([path, contents]) => [path.slice(`${packagePath}/`.length), createHash("sha256").update(contents).digest("hex")])
+      .sort(([left], [right]) => left.localeCompare(right));
+    if (!entries.length) fail("committed package tree is empty");
+    return canonicalSha256(entries);
+  }
   const listing = execFileSync("git", ["ls-tree", "-r", "-z", commit, "--", packagePath], { cwd: repo });
   const entries = listing.toString("utf8").split("\0").filter(Boolean).map((entry) => {
     const [, blob, path] = /^(?:\d+) blob ([0-9a-f]{40})\t(.+)$/.exec(entry) ?? [];
@@ -77,6 +107,7 @@ const args = argumentsFrom(process.argv.slice(2));
 const repoArg = args.get("exomem-repo");
 const outputArg = args.get("output");
 const jsonOutputArg = args.get("json-output");
+const archiveArg = args.get("archive-file");
 const expectedCommit = args.get("expected-commit") ?? "";
 if (!repoArg || !outputArg || !jsonOutputArg || !/^[0-9a-f]{40}$/.test(expectedCommit)) {
   fail("required: --exomem-repo PATH --output PATH --json-output PATH --expected-commit FULL_SHA");
@@ -85,19 +116,24 @@ if (expectedCommit !== RELEASE_COMMIT) fail("generator only accepts the pinned E
 const repo = resolve(repoArg);
 const output = resolve(outputArg);
 const jsonOutput = resolve(jsonOutputArg);
-const actualCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
-if (actualCommit !== expectedCommit) fail("Exomem checkout is not at the selected commit");
-if (execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" }).trim() !== "") {
-  fail("Exomem checkout must be clean before generating a release fixture");
+const archive = archiveArg ? tarEntries(readFileSync(resolve(archiveArg))) : null;
+if (!archive) {
+  const actualCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo, encoding: "utf8" }).trim();
+  if (actualCommit !== expectedCommit) fail("Exomem checkout is not at the selected commit");
+  if (execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" }).trim() !== "") {
+    fail("Exomem checkout must be clean before generating a release fixture");
+  }
 }
+if (archive && archive.commit !== expectedCommit) fail("archive does not prove the pinned Exomem commit");
+const sourceBlob = (path) => archive ? (archive.files.get(path) ?? fail(`archive is missing ${path}`)) : gitBlob(repo, expectedCommit, path);
 
 const generated = "plugins/hosted/generated";
-const compatibility = object(readJson(gitBlob(repo, expectedCommit, `${generated}/compatibility.json`), "compatibility artifact"), "compatibility artifact");
+const compatibility = object(readJson(sourceBlob(`${generated}/compatibility.json`), "compatibility artifact"), "compatibility artifact");
 const agentContract = object(compatibility.agent_contract, "agent contract");
 const agentProfile = object(agentContract.agent_profile, "agent profile");
 const digest = object(agentContract.digest, "agent contract digest");
-const packageLock = object(readJson(gitBlob(repo, expectedCommit, `${generated}/claude.lock.json`), "Claude package lock"), "Claude package lock");
-const archiveLock = object(readJson(gitBlob(repo, expectedCommit, `${generated}/claude.zip.lock.json`), "Claude archive lock"), "Claude archive lock");
+const packageLock = object(readJson(sourceBlob(`${generated}/claude.lock.json`), "Claude package lock"), "Claude package lock");
+const archiveLock = object(readJson(sourceBlob(`${generated}/claude.zip.lock.json`), "Claude archive lock"), "Claude archive lock");
 if (compatibility.schema_version !== 1 || compatibility.profile !== PROFILE || compatibility.endpoint !== RESOURCE ||
     agentProfile.profile !== PROFILE || agentContract.protocol_version !== "1" || digest.algorithm !== "sha256" ||
     sha256(digest.value, "agent contract digest") !== sha256(compatibility.schema_contract_sha256, "schema digest") ||
@@ -141,12 +177,12 @@ if (packageLock.platform !== "claude" || archiveLock.platform !== "claude") fail
 sha256(packageLock.artifact_sha256, "Claude package artifact digest");
 sha256(archiveLock.archive_sha256, "Claude archive digest");
 if (packageDigest(repo, expectedCommit, `${generated}/claude`) !== packageLock.artifact_sha256 ||
-    createHash("sha256").update(gitBlob(repo, expectedCommit, `${generated}/claude.zip`)).digest("hex") !== archiveLock.archive_sha256) {
+    createHash("sha256").update(sourceBlob(`${generated}/claude.zip`)).digest("hex") !== archiveLock.archive_sha256) {
   fail("committed package or archive bytes do not match their lock");
 }
 
-const fixture = { sourceCommit: actualCommit, compatibility, packageLock, archiveLock };
+const fixture = { sourceCommit: expectedCommit, compatibility, packageLock, archiveLock };
 const json = `${JSON.stringify(fixture, null, 2)}\n`;
-const source = `// Generated from Exomem compatibility.json at commit ${actualCommit}. Do not edit.\nexport const exomemHostedContractFixture = ${JSON.stringify(fixture, null, 2)} as const;\n`;
+const source = `// Generated from Exomem compatibility.json at commit ${expectedCommit}. Do not edit.\nexport const exomemHostedContractFixture = ${JSON.stringify(fixture, null, 2)} as const;\n`;
 writeFileSync(output, source, { encoding: "utf8", mode: 0o644 });
 writeFileSync(jsonOutput, json, { encoding: "utf8", mode: 0o644 });
