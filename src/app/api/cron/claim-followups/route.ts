@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withApiVersion } from '@/lib/hosted-backup/api-version';
 import { verifyCronAuth } from '@/lib/hosted-backup/cron-auth';
+import { captureCronOutcome } from '@/lib/analytics-server';
 import {
   findFounderAlertableClaims,
   findResendableClaims,
@@ -103,6 +104,12 @@ export async function GET(req: NextRequest) {
   // follow-up that enriches digests with user-created-at).
   void findUserById;
   void renderResendClaimEmail;
+
+  await captureCronOutcome({
+    job: 'claim-followups',
+    outcome: 'completed',
+    properties: { resent, founderAlerted },
+  });
 
   return ok({ ok: true, resent, founderAlerted }, 200);
 }

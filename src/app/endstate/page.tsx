@@ -15,14 +15,59 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { c, fadeUp, Nav, EndstateFooter } from "./_shared";
+import { GithubMark } from "@/components/GithubMark";
 import { BuyButton } from "./BuyButton";
 import { PaddleTransactionOpener } from "./PaddleTransactionOpener";
 import { usePaddle, type HostedBackupCadence } from "@/lib/paddle";
+import { siteConfig } from "@/lib/seo";
 import { faqs } from "./faq-data";
 
+const softwareJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Endstate",
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "Windows",
+  description:
+    "Reinstall your apps and restore your settings on a new Windows PC. Scan your current machine, save a portable setup file, then restore everything on a fresh install in minutes.",
+  url: `${siteConfig.url}/endstate`,
+  downloadUrl: `${siteConfig.url}/download`,
+  installUrl: `${siteConfig.url}/download`,
+  screenshot: [
+    `${siteConfig.url}/endstate/01-landing.png`,
+    `${siteConfig.url}/endstate/02-save-results.png`,
+    `${siteConfig.url}/endstate/03-setup-results.png`,
+  ],
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "EUR",
+    availability: "https://schema.org/InStock",
+  },
+  author: {
+    "@type": "Organization",
+    name: siteConfig.name,
+    url: siteConfig.url,
+  },
+  license: `${siteConfig.url}/terms`,
+  codeRepository: "https://github.com/Artexis10/endstate",
+};
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: typeof faq.a === "string" ? faq.a : (faq.aText ?? ""),
+    },
+  })),
+};
+
 const prefersReducedMotion = () =>
-  typeof window !== "undefined" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function useInView(options = { threshold: 0.15 }) {
   const ref = useRef<HTMLElement>(null);
@@ -32,10 +77,7 @@ function useInView(options = { threshold: 0.15 }) {
       setVisible(true);
       return;
     }
-    const obs = new IntersectionObserver(
-      ([e]) => e.isIntersecting && setVisible(true),
-      options
-    );
+    const obs = new IntersectionObserver(([e]) => e.isIntersecting && setVisible(true), options);
     if (ref.current) obs.observe(ref.current);
     return () => obs.disconnect();
   }, []);
@@ -87,8 +129,7 @@ function SignatureMoment() {
     const sig = rootRef.current;
     if (!sig) return;
     const q = (s: string) => sig.querySelector(s) as HTMLElement | null;
-    const qa = (s: string) =>
-      Array.from(sig.querySelectorAll(s)) as HTMLElement[];
+    const qa = (s: string) => Array.from(sig.querySelectorAll(s)) as HTMLElement[];
     const el = {
       aRows: qa("[data-smarow]"),
       aDots: qa("[data-smadot]"),
@@ -102,7 +143,8 @@ function SignatureMoment() {
       fill: q("#smLineFill"),
       done: q("#smDone"),
     };
-    if (!el.apps || !el.sets || !el.scanLabel || !el.bLabel || !el.chip || !el.fill || !el.done) return;
+    if (!el.apps || !el.sets || !el.scanLabel || !el.bLabel || !el.chip || !el.fill || !el.done)
+      return;
     const N = el.aRows.length;
     const clamp = (x: number) => Math.max(0, Math.min(1, x));
     const ease = (x: number) => 1 - Math.pow(1 - x, 3);
@@ -130,10 +172,9 @@ function SignatureMoment() {
     }
 
     let visible = false;
-    const sigIo = new IntersectionObserver(
-      (es) => (visible = es[0].isIntersecting),
-      { threshold: 0.2 }
-    );
+    const sigIo = new IntersectionObserver((es) => (visible = es[0].isIntersecting), {
+      threshold: 0.2,
+    });
     sigIo.observe(sig);
 
     const DUR = 9.5;
@@ -163,8 +204,7 @@ function SignatureMoment() {
       if (t > 4.7) chipO = 1 - clamp((t - 4.7) / 0.4);
       const D = travelDist();
       el.chip!.style.opacity = String(chipO);
-      el.chip!.style.transform =
-        "translateX(" + (-D + ease(trav) * 2 * D).toFixed(1) + "px)";
+      el.chip!.style.transform = "translateX(" + (-D + ease(trav) * 2 * D).toFixed(1) + "px)";
       el.fill!.style.width = (ease(trav) * 100).toFixed(1) + "%";
 
       const restoreStart = 4.7;
@@ -250,17 +290,32 @@ function SignatureMoment() {
         <div style={cardShell}>
           <div style={headerRow}>
             <span style={{ ...headerLabel, color: c.textMuted }}>THIS MACHINE</span>
-            <span id="smScanLabel" style={{ ...headerLabel, color: c.teal }}>SCANNING</span>
+            <span id="smScanLabel" style={{ ...headerLabel, color: c.teal }}>
+              SCANNING
+            </span>
           </div>
           <div style={{ padding: "10px 18px 8px" }}>
             {SIG_APPS.map((app, i) => (
               <div key={app.name} data-smarow={i} style={{ ...rowBase, opacity: 0.4 }}>
                 <span
                   data-smadot={i}
-                  style={{ width: 6, height: 6, borderRadius: "50%", background: "#3a3a3a", flexShrink: 0 }}
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "#3a3a3a",
+                    flexShrink: 0,
+                  }}
                 />
                 {app.name}
-                <span style={{ marginLeft: "auto", fontFamily: mono, fontSize: "0.62rem", color: c.textMuted }}>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    fontFamily: mono,
+                    fontSize: "0.62rem",
+                    color: c.textMuted,
+                  }}
+                >
                   {app.source}
                 </span>
               </div>
@@ -280,19 +335,39 @@ function SignatureMoment() {
               fontSize: "0.72rem",
             }}
           >
-            <span id="smApps" style={{ color: c.teal, fontWeight: 500 }}>0</span>
+            <span id="smApps" style={{ color: c.teal, fontWeight: 500 }}>
+              0
+            </span>
             <span style={{ color: c.textMuted }}>apps ·</span>
-            <span id="smSet" style={{ color: c.teal, fontWeight: 500 }}>0</span>
+            <span id="smSet" style={{ color: c.teal, fontWeight: 500 }}>
+              0
+            </span>
             <span style={{ color: c.textMuted }}>settings detected</span>
           </div>
         </div>
 
         {/* Connector */}
         <div className="es-sig-conn">
-          <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 2, background: "#222" }} />
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: "50%",
+              height: 2,
+              background: "#222",
+            }}
+          />
           <div
             id="smLineFill"
-            style={{ position: "absolute", left: 0, top: "50%", height: 2, width: "0%", background: "linear-gradient(90deg, #2dd4bf, #22c55e)" }}
+            style={{
+              position: "absolute",
+              left: 0,
+              top: "50%",
+              height: 2,
+              width: "0%",
+              background: "linear-gradient(90deg, #2dd4bf, #22c55e)",
+            }}
           />
           <div
             id="smChip"
@@ -323,7 +398,9 @@ function SignatureMoment() {
         <div style={cardShell}>
           <div style={headerRow}>
             <span style={{ ...headerLabel, color: c.textMuted }}>NEW MACHINE</span>
-            <span id="smBLabel" style={{ ...headerLabel, color: c.textMuted }}>WAITING</span>
+            <span id="smBLabel" style={{ ...headerLabel, color: c.textMuted }}>
+              WAITING
+            </span>
           </div>
           <div style={{ padding: "10px 18px 8px" }}>
             {SIG_APPS.map((app, i) => (
@@ -331,7 +408,13 @@ function SignatureMoment() {
                 {app.name}
                 <span
                   data-smbcheck={i}
-                  style={{ marginLeft: "auto", color: c.teal, fontSize: "0.75rem", fontWeight: 700, opacity: 0 }}
+                  style={{
+                    marginLeft: "auto",
+                    color: c.teal,
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    opacity: 0,
+                  }}
                 >
                   ✓
                 </span>
@@ -340,7 +423,10 @@ function SignatureMoment() {
             <div style={{ ...rowBase, color: c.textMuted, opacity: 0.5 }}>+ 75 more</div>
           </div>
           <div style={{ padding: "12px 18px", borderTop: `1px solid ${c.border}` }}>
-            <span id="smDone" style={{ fontFamily: mono, fontSize: "0.72rem", color: c.green, opacity: 0 }}>
+            <span
+              id="smDone"
+              style={{ fontFamily: mono, fontSize: "0.72rem", color: c.green, opacity: 0 }}
+            >
               Ready in minutes, not a weekend.
             </span>
           </div>
@@ -391,8 +477,8 @@ function Hero() {
           style={{ fontSize: "1.2rem", color: c.textSec, maxWidth: 600, lineHeight: 1.7 }}
           {...fadeUp(0.2)}
         >
-          Endstate captures the apps and settings that make your Windows machine yours,
-          then puts them back on the next one in minutes. Free, open source, your data stays yours.
+          Endstate captures the apps and settings that make your Windows machine yours, then puts
+          them back on the next one in minutes. Free, open source, your data stays yours.
         </motion.p>
         <motion.div className="flex justify-center gap-4 flex-wrap" {...fadeUp(0.3)}>
           <Link
@@ -407,10 +493,17 @@ function Hero() {
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-lg font-semibold transition-all duration-200"
-            style={{ background: "transparent", color: c.text, border: `1px solid ${c.border}`, fontSize: "1rem", textDecoration: "none" }}
+            style={{
+              background: "transparent",
+              color: c.text,
+              border: `1px solid ${c.border}`,
+              fontSize: "1rem",
+              textDecoration: "none",
+            }}
             onMouseEnter={(e) => (e.currentTarget.style.borderColor = c.borderAccent)}
             onMouseLeave={(e) => (e.currentTarget.style.borderColor = c.border)}
           >
+            <GithubMark size={17} />
             View on GitHub
           </a>
         </motion.div>
@@ -419,7 +512,9 @@ function Hero() {
           style={{ fontSize: "0.85rem", color: c.textMuted }}
           {...fadeUp(0.4)}
         >
-          Free forever · <strong style={{ color: c.textSec, fontWeight: 600 }}>Open source engine</strong> · No account required
+          Free forever ·{" "}
+          <strong style={{ color: c.textSec, fontWeight: 600 }}>Open source engine</strong> · No
+          account required
         </motion.p>
       </div>
 
@@ -499,13 +594,10 @@ function HowItWorks() {
   useEffect(() => {
     const container = threadRef.current;
     if (!container) return;
-    const threads = Array.from(
-      container.querySelectorAll("[data-thread]")
-    ) as HTMLElement[];
+    const threads = Array.from(container.querySelectorAll("[data-thread]")) as HTMLElement[];
     if (!threads.length) return;
     threads.forEach((t) => {
-      t.style.transformOrigin =
-        t.getAttribute("data-thread") === "l" ? "100% 50%" : "0% 50%";
+      t.style.transformOrigin = t.getAttribute("data-thread") === "l" ? "100% 50%" : "0% 50%";
     });
     if (prefersReducedMotion()) {
       threads.forEach((t) => (t.style.transform = "scaleX(1)"));
@@ -544,7 +636,12 @@ function HowItWorks() {
         </motion.div>
         <motion.h2
           className="mb-4"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          style={{
+            fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)",
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            color: c.text,
+          }}
           initial={{ opacity: 0, y: 8 }}
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.1 }}
@@ -558,19 +655,19 @@ function HowItWorks() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.2 }}
         >
-          Scan your current machine, save your setup to a file you control,
-          then load it on any fresh Windows install. Everything runs locally.
+          Scan your current machine, save your setup to a file you control, then load it on any
+          fresh Windows install. Everything runs locally.
         </motion.p>
 
         {/* Portable-file thread */}
-        <div
-          ref={threadRef}
-          className="flex items-center gap-4 mb-10"
-          aria-hidden="true"
-        >
+        <div ref={threadRef} className="flex items-center gap-4 mb-10" aria-hidden="true">
           <div
             data-thread="l"
-            style={{ flex: 1, height: 1, background: "linear-gradient(90deg, transparent, rgba(45,212,191,0.35))" }}
+            style={{
+              flex: 1,
+              height: 1,
+              background: "linear-gradient(90deg, transparent, rgba(45,212,191,0.35))",
+            }}
           />
           <span
             style={{
@@ -592,7 +689,11 @@ function HowItWorks() {
           </span>
           <div
             data-thread="r"
-            style={{ flex: 1, height: 1, background: "linear-gradient(90deg, rgba(34,197,94,0.35), transparent)" }}
+            style={{
+              flex: 1,
+              height: 1,
+              background: "linear-gradient(90deg, rgba(34,197,94,0.35), transparent)",
+            }}
           />
         </div>
 
@@ -619,9 +720,8 @@ function HowItWorks() {
               Scan your machine
             </h3>
             <p className="mb-6" style={{ fontSize: "0.95rem", color: c.textSec, lineHeight: 1.7 }}>
-              Endstate detects every installed app on your machine and
-              finds settings for supported apps. Everything gets saved
-              to a single file — no manual lists required.
+              Endstate detects every installed app on your machine and finds settings for supported
+              apps. Everything gets saved to a single file — no manual lists required.
             </p>
             <div
               className="overflow-hidden"
@@ -670,9 +770,8 @@ function HowItWorks() {
               Restore on a new machine
             </h3>
             <p className="mb-6" style={{ fontSize: "0.95rem", color: c.textSec, lineHeight: 1.7 }}>
-              Open your saved file on a fresh Windows install. Endstate
-              shows what needs installing and what you already have.
-              Choose whether to restore settings too, then hit apply.
+              Open your saved file on a fresh Windows install. Endstate shows what needs installing
+              and what you already have. Choose whether to restore settings too, then hit apply.
             </p>
             <div
               className="overflow-hidden"
@@ -768,7 +867,12 @@ function Features() {
         </motion.div>
         <motion.h2
           className="mb-4"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          style={{
+            fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)",
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            color: c.text,
+          }}
           initial={{ opacity: 0, y: 8 }}
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.1 }}
@@ -782,9 +886,9 @@ function Features() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.15 }}
         >
-          Designers, editors, creators, gamers, freelancers, students, sysadmins —
-          anyone whose laptop is full of carefully chosen tools and settings.
-          Endstate gets you back to work in minutes, not a weekend.
+          Designers, editors, creators, gamers, freelancers, students, sysadmins — anyone whose
+          laptop is full of carefully chosen tools and settings. Endstate gets you back to work in
+          minutes, not a weekend.
         </motion.p>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -858,9 +962,7 @@ function Contrast() {
   useEffect(() => {
     const card = withoutRef.current;
     if (!card) return;
-    const strikes = Array.from(
-      card.querySelectorAll("[data-strike]")
-    ) as HTMLElement[];
+    const strikes = Array.from(card.querySelectorAll("[data-strike]")) as HTMLElement[];
     if (!strikes.length) return;
     if (prefersReducedMotion()) {
       strikes.forEach((s) => (s.style.width = "100%"));
@@ -898,7 +1000,12 @@ function Contrast() {
         </motion.div>
         <motion.h2
           className="mb-16"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          style={{
+            fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)",
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            color: c.text,
+          }}
           initial={{ opacity: 0, y: 8 }}
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.1 }}
@@ -1005,7 +1112,9 @@ function Contrast() {
                       color: isLast ? c.teal : c.text,
                     }}
                   >
-                    <span style={{ color: c.teal, fontSize: "0.75rem", flexShrink: 0 }}>&#x2713;</span>
+                    <span style={{ color: c.teal, fontSize: "0.75rem", flexShrink: 0 }}>
+                      &#x2713;
+                    </span>
                     {row.with}
                   </div>
                 );
@@ -1040,7 +1149,12 @@ function FAQ() {
         </motion.div>
         <motion.h2
           className="mb-12"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          style={{
+            fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)",
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            color: c.text,
+          }}
           initial={{ opacity: 0, y: 8 }}
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.1 }}
@@ -1062,7 +1176,9 @@ function FAQ() {
                 style={{ background: "transparent", border: "none", cursor: "pointer" }}
                 onClick={() => setOpenIndex(openIndex === i ? null : i)}
               >
-                <span style={{ fontSize: "0.95rem", fontWeight: 500, color: c.text, paddingRight: 16 }}>
+                <span
+                  style={{ fontSize: "0.95rem", fontWeight: 500, color: c.text, paddingRight: 16 }}
+                >
                   {faq.q}
                 </span>
                 <span
@@ -1202,25 +1318,52 @@ function HostedBackupCadenceToggle({
 function Pricing() {
   const { ref, visible } = useInView();
   const { openHostedBackupCheckout, openSupporterCheckout } = usePaddle();
-  const [hostedBackupCadence, setHostedBackupCadence] =
-    useState<HostedBackupCadence>("monthly");
+  const [hostedBackupCadence, setHostedBackupCadence] = useState<HostedBackupCadence>("monthly");
 
   const hostedBackupPrice =
     hostedBackupCadence === "monthly" ? (
       <>
-        <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
-        <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+        <span
+          style={{
+            fontSize: "1.5rem",
+            fontWeight: 400,
+            color: c.textSec,
+            verticalAlign: "super",
+            marginRight: 2,
+          }}
+        >
+          €
+        </span>
+        <span
+          style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}
+        >
           4
         </span>
-        <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>/mo</span>
+        <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>
+          /mo
+        </span>
       </>
     ) : (
       <>
-        <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
-        <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+        <span
+          style={{
+            fontSize: "1.5rem",
+            fontWeight: 400,
+            color: c.textSec,
+            verticalAlign: "super",
+            marginRight: 2,
+          }}
+        >
+          €
+        </span>
+        <span
+          style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}
+        >
           40
         </span>
-        <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>/yr</span>
+        <span style={{ fontSize: "1rem", fontWeight: 400, color: c.textSec, marginLeft: 4 }}>
+          /yr
+        </span>
       </>
     );
   const hostedBackupCadenceLabel =
@@ -1228,16 +1371,16 @@ function Pricing() {
       ? "Billed monthly · Cancel any time"
       : "Billed yearly · Cancel any time";
   const hostedBackupCtaLabel =
-    hostedBackupCadence === "monthly"
-      ? "Get Hosted Backup — €4/mo"
-      : "Get Hosted Backup — €40/yr";
+    hostedBackupCadence === "monthly" ? "Get Hosted Backup — €4/mo" : "Get Hosted Backup — €40/yr";
 
   const tiers: PricingTier[] = [
     {
       name: "Free",
       price: (
         <>
-          <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+          <span
+            style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}
+          >
             €0
           </span>
         </>
@@ -1282,14 +1425,27 @@ function Pricing() {
       name: "Supporter License",
       price: (
         <>
-          <span style={{ fontSize: "1.5rem", fontWeight: 400, color: c.textSec, verticalAlign: "super", marginRight: 2 }}>€</span>
-          <span style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}>
+          <span
+            style={{
+              fontSize: "1.5rem",
+              fontWeight: 400,
+              color: c.textSec,
+              verticalAlign: "super",
+              marginRight: 2,
+            }}
+          >
+            €
+          </span>
+          <span
+            style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}
+          >
             89
           </span>
         </>
       ),
       cadence: "One-time · Optional",
-      blurb: "No extra features. You support development, you get a thank-you on the supporters page.",
+      blurb:
+        "No extra features. You support development, you get a thank-you on the supporters page.",
       features: [
         "Your name on the supporters page (opt-in)",
         "Your name in the GitHub repo",
@@ -1343,7 +1499,12 @@ function Pricing() {
           </motion.div>
           <motion.h2
             className="mb-4"
-            style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+            style={{
+              fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)",
+              fontWeight: 700,
+              letterSpacing: "-0.03em",
+              color: c.text,
+            }}
             initial={{ opacity: 0, y: 8 }}
             animate={visible ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.8, delay: 0.1 }}
@@ -1356,8 +1517,8 @@ function Pricing() {
             animate={visible ? { opacity: 1 } : {}}
             transition={{ duration: 0.7, delay: 0.2 }}
           >
-            The local product is free, forever. Pay only for managed services you actually want, or chip in if you
-            want to support the project.
+            The local product is free, forever. Pay only for managed services you actually want, or
+            chip in if you want to support the project.
           </motion.p>
         </div>
 
@@ -1409,8 +1570,17 @@ function Pricing() {
 
               {tier.cadenceToggle}
               <div style={{ marginBottom: "0.25rem" }}>{tier.price}</div>
-              <p style={{ fontSize: "0.82rem", color: c.textMuted, marginBottom: "1rem" }}>{tier.cadence}</p>
-              <p style={{ fontSize: "0.92rem", color: c.textSec, lineHeight: 1.6, marginBottom: "1.5rem" }}>
+              <p style={{ fontSize: "0.82rem", color: c.textMuted, marginBottom: "1rem" }}>
+                {tier.cadence}
+              </p>
+              <p
+                style={{
+                  fontSize: "0.92rem",
+                  color: c.textSec,
+                  lineHeight: 1.6,
+                  marginBottom: "1.5rem",
+                }}
+              >
                 {tier.blurb}
               </p>
 
@@ -1421,7 +1591,17 @@ function Pricing() {
                     className="flex items-start gap-3"
                     style={{ fontSize: "0.88rem", color: c.textSec, lineHeight: 1.5 }}
                   >
-                    <span style={{ color: c.green, fontWeight: 700, fontSize: "0.8rem", flexShrink: 0, marginTop: 2 }}>✓</span>
+                    <span
+                      style={{
+                        color: c.green,
+                        fontWeight: 700,
+                        fontSize: "0.8rem",
+                        flexShrink: 0,
+                        marginTop: 2,
+                      }}
+                    >
+                      ✓
+                    </span>
                     {f}
                   </li>
                 ))}
@@ -1490,7 +1670,12 @@ function Pricing() {
 
         <motion.p
           className="text-center mt-10"
-          style={{ fontSize: "0.85rem", color: c.textMuted, maxWidth: 640, margin: "2.5rem auto 0" }}
+          style={{
+            fontSize: "0.85rem",
+            color: c.textMuted,
+            maxWidth: 640,
+            margin: "2.5rem auto 0",
+          }}
           initial={{ opacity: 0 }}
           animate={visible ? { opacity: 1 } : {}}
           transition={{ duration: 0.7, delay: 0.6 }}
@@ -1500,7 +1685,11 @@ function Pricing() {
             href="https://github.com/Artexis10/endstate/blob/main/PRINCIPLES.md"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: c.textSec, textDecoration: "underline", textDecorationColor: "rgba(153,153,153,0.3)" }}
+            style={{
+              color: c.textSec,
+              textDecoration: "underline",
+              textDecorationColor: "rgba(153,153,153,0.3)",
+            }}
           >
             principles
           </a>{" "}
@@ -1516,6 +1705,10 @@ function Guides() {
   const { ref, visible } = useInView();
   const guides = [
     {
+      href: "/blog/transfer-programs-to-another-computer",
+      label: "How to transfer programs from one computer to another",
+    },
+    {
       href: "/blog/new-windows-pc-setup-guide",
       label: "The complete guide to setting up a new Windows PC",
     },
@@ -1524,8 +1717,8 @@ function Guides() {
       label: "A free, open-source alternative to EaseUS, Zinstall & Laplink",
     },
     {
-      href: "/blog/set-up-new-windows-pc-fast",
-      label: "Set up a new Windows PC in minutes, not a weekend",
+      href: "/blog/reinstall-all-apps-with-winget",
+      label: "How to reinstall all your apps with winget (and what it misses)",
     },
     {
       href: "/blog/winget-export-microsoft-store-apps",
@@ -1548,7 +1741,12 @@ function Guides() {
         </motion.div>
         <motion.h2
           className="mb-8"
-          style={{ fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-0.03em", color: c.text }}
+          style={{
+            fontSize: "clamp(1.8rem, 3.5vw, 2.4rem)",
+            fontWeight: 700,
+            letterSpacing: "-0.03em",
+            color: c.text,
+          }}
           initial={{ opacity: 0, y: 8 }}
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.1 }}
@@ -1578,7 +1776,9 @@ function Guides() {
               onMouseLeave={(e) => (e.currentTarget.style.color = c.text)}
             >
               <span>{guide.label}</span>
-              <span style={{ color: c.teal, flexShrink: 0 }} aria-hidden="true">→</span>
+              <span style={{ color: c.teal, flexShrink: 0 }} aria-hidden="true">
+                →
+              </span>
             </a>
           ))}
         </motion.div>
@@ -1610,7 +1810,8 @@ function Closing() {
           animate={visible ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
-          Next time you&apos;re staring at a fresh Windows install — this is the first thing to install.
+          Next time you&apos;re staring at a fresh Windows install — this is the first thing to
+          install.
         </motion.p>
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -1634,8 +1835,23 @@ function Closing() {
 export default function EndstatePage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
       <ElevationStyles />
-      <main style={{ fontFamily: "var(--font-dm-sans), -apple-system, sans-serif", background: c.bg, minHeight: "100vh", WebkitFontSmoothing: "antialiased" }}>
+      <main
+        style={{
+          fontFamily: "var(--font-dm-sans), -apple-system, sans-serif",
+          background: c.bg,
+          minHeight: "100vh",
+          WebkitFontSmoothing: "antialiased",
+        }}
+      >
         <PaddleTransactionOpener />
         <Nav />
         <Hero />

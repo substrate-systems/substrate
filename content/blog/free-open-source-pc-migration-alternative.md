@@ -14,6 +14,8 @@ status: published
 
 I built [Endstate](https://substratesystems.io/endstate), so take the framing here for what it is: I have a horse in this race. But I've spent enough time reading how the incumbent PC-migration tools work, and how much they cost, that I think the comparison is worth writing down plainly — including the parts where they're better than what I built.
 
+For the practical setup sequence behind the comparison, see [the complete Windows setup guide](/blog/new-windows-pc-setup-guide).
+
 If you've bought a new Windows PC recently, you've hit the same wall I did: reinstalling twenty-plus apps, re-signing into things, digging up license keys, re-configuring the settings you forgot you'd customized. The tools that exist to solve this — EaseUS Todo PCTrans, Zinstall, Laplink PCmover — are all closed source and all charge $50-130 for what should, in most cases, be a solved problem. Endstate is the free, open-source alternative I wanted and couldn't find.
 
 ## What the paid tools actually do
@@ -22,7 +24,7 @@ EaseUS Todo PCTrans, Zinstall WinWin, and Laplink PCmover Professional all take 
 
 This is a real capability. If you have some ancient, unlicensed-media, install-CD-lost-a-decade-ago piece of software that still runs your business, byte-copying it across is sometimes the only way to keep it alive. That's a legitimate use case, and it's the strongest argument for tools built this way.
 
-It's also the risk. Copying a program's files and registry state onto a different Windows install, possibly a different Windows version, is not the same thing as installing it there. Driver-dependent software, anything tied to hardware IDs, anything with a service that expects a specific system state — these are exactly the categories that break under byte-copy migration, and when they break, you're debugging a copied program with no clean install to fall back to.
+It's also the risk. Copying a program's files and registry state onto a different Windows install, possibly a different Windows version, is not the same thing as installing it there. I go into why that copy can't be made reliable, and what to do instead, in [how to transfer programs from one computer to another](/blog/transfer-programs-to-another-computer). Driver-dependent software, anything tied to hardware IDs, anything with a service that expects a specific system state — these are exactly the categories that break under byte-copy migration, and when they break, you're debugging a copied program with no clean install to fall back to.
 
 And none of them are free in any real sense. Here's what they currently cost:
 
@@ -55,14 +57,14 @@ The honest tradeoff: if you have that one piece of software with no clean instal
 
 ## Comparison
 
-| Tool | Price | Open source | Method | Restores settings | Account required | Telemetry |
-|---|---|---|---|---|---|---|
-| **Endstate** | Free (paid extras optional) | Yes (Apache 2.0) | Reinstalls apps fresh | Yes, opt-in | No | No |
-| EaseUS Todo PCTrans Pro | Free tier limited; Pro $39.95/mo–$69 lifetime | No | Byte-copies programs | Partial | No | Unknown |
-| Zinstall WinWin | $129, no full free tier | No | Byte-copies entire environment | Yes | No | Unknown |
-| Laplink PCmover Professional | $69.95 | No | Byte-copies programs | Yes | No | Unknown |
-| Windows Restore Apps | Free | No | Redownloads Store apps only | Windows settings only | Yes (Microsoft account) | N/A (built-in) |
-| `winget export` | Free | Yes (winget itself) | Reinstalls winget-tracked apps | No | No | No |
+| Tool                         | Price                                         | Open source         | Method                         | Restores settings     | Account required        | Telemetry      |
+| ---------------------------- | --------------------------------------------- | ------------------- | ------------------------------ | --------------------- | ----------------------- | -------------- |
+| **Endstate**                 | Free (paid extras optional)                   | Yes (Apache 2.0)    | Reinstalls apps fresh          | Yes, opt-in           | No                      | No             |
+| EaseUS Todo PCTrans Pro      | Free tier limited; Pro $39.95/mo–$69 lifetime | No                  | Byte-copies programs           | Partial               | No                      | Unknown        |
+| Zinstall WinWin              | $129, no full free tier                       | No                  | Byte-copies entire environment | Yes                   | No                      | Unknown        |
+| Laplink PCmover Professional | $69.95                                        | No                  | Byte-copies programs           | Yes                   | No                      | Unknown        |
+| Windows Restore Apps         | Free                                          | No                  | Redownloads Store apps only    | Windows settings only | Yes (Microsoft account) | N/A (built-in) |
+| `winget export`              | Free                                          | Yes (winget itself) | Reinstalls winget-tracked apps | No                    | No                      | No             |
 
 ## Where you can get it
 

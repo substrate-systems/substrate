@@ -15,9 +15,9 @@
 ## 3. Library
 
 - [ ] 3.1 Add `argon2` to `dependencies` in `package.json`. Run install.
-- [ ] 3.2 `src/lib/hosted-backup/db.ts` — Neon singleton mirroring `src/lib/license/db.ts`, plus typed query functions: `findUserByEmail`, `insertUser`, `getAuthCredentials`, `insertAuthCredentials`, `updateAuthCredentialsForRecovery`, `insertRefreshToken`, `findRefreshTokenByHash`, `revokeRefreshToken`, `revokeRefreshChain`, `getActiveSigningKeys`, `insertSigningKey`, `retireSigningKey`, `getSubscriptionStatus` (PR1 stub returning `'none'` with TODO referencing PR3).
+- [ ] 3.2 `src/lib/hosted-backup/db.ts` — Neon singleton plus typed query functions: `findUserByEmail`, `insertUser`, `getAuthCredentials`, `insertAuthCredentials`, `updateAuthCredentialsForRecovery`, `insertRefreshToken`, `findRefreshTokenByHash`, `revokeRefreshToken`, `revokeRefreshChain`, `getActiveSigningKeys`, `insertSigningKey`, `retireSigningKey`, `getSubscriptionStatus` (PR1 stub returning `'none'` with TODO referencing PR3).
 - [ ] 3.3 `src/lib/hosted-backup/kdf.ts` — `validateKdfParams(p)` (rejects below-floor: memory < 65536, iter < 3, par < 4, algorithm ≠ `argon2id`); `hashServerPassword(value: Uint8Array)` and `verifyServerPassword(hash, value)` using `argon2.hash`/`argon2.verify` with `{ type: argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 }`. Same helpers re-export for recovery verifier.
-- [ ] 3.4 `src/lib/hosted-backup/jwt.ts` — `mintAccessToken({ userId, subscriptionStatus })` returning `{ token, jti, exp }`; `verifyAccessToken(token)` returning `{ userId, subscriptionStatus, jti }` or throwing `JwtError`. EdDSA over base64url(`header`)`.`base64url(`payload`)`, signed with `signBytes` from `src/lib/license/crypto.ts` style (using a separate keypair sourced from `ENDSTATE_JWT_PRIVATE_KEY_HEX`/`ENDSTATE_JWT_ACTIVE_KID`). Exp 900 s, `iss=process.env.ENDSTATE_OIDC_ISSUER_URL ?? 'https://substratesystems.io'`, `aud='endstate-backup'`, `nbf=iat`, `jti=randomUUID()`. Verify rejects wrong `aud`, wrong `iss`, expired (`exp<=now`), unknown `kid`, tampered signature, `nbf>now`.
+- [ ] 3.4 `src/lib/hosted-backup/jwt.ts` — `mintAccessToken({ userId, subscriptionStatus })` returning `{ token, jti, exp }`; `verifyAccessToken(token)` returning `{ userId, subscriptionStatus, jti }` or throwing `JwtError`. EdDSA over base64url(`header`)`.`base64url(`payload`)`, using the Hosted Backup keypair sourced from `ENDSTATE_JWT_PRIVATE_KEY_HEX`/`ENDSTATE_JWT_ACTIVE_KID`. Exp 900 s, `iss=process.env.ENDSTATE_OIDC_ISSUER_URL ?? 'https://substratesystems.io'`, `aud='endstate-backup'`, `nbf=iat`, `jti=randomUUID()`. Verify rejects wrong `aud`, wrong `iss`, expired (`exp<=now`), unknown `kid`, tampered signature, `nbf>now`.
 - [ ] 3.5 `src/lib/hosted-backup/refresh.ts` — `issueRefreshToken({ userId, parentId?, chainId? })` returns `{ token, expiresAt }`; stores SHA-256(token); 30-day max chain lifetime. `rotateRefreshToken(presentedToken)` — if presented token is already revoked, revokes the entire chain and throws `RefreshReuseError`; otherwise revokes presented and issues a child token.
 - [ ] 3.6 `src/lib/hosted-backup/auth-middleware.ts` — `requireAuth(req)` returns `{ userId, subscriptionStatus }` or throws `HostedBackupError(code='UNAUTHENTICATED', status=401)`; checks `Authorization: Bearer <jwt>`.
 - [ ] 3.7 `src/lib/hosted-backup/api-version.ts` — `withApiVersion(response)` adds `X-Endstate-API-Version: 1.0` to a `NextResponse` and returns it. `SchemaVersion = '1.0'` constant exported from `types.ts`.
@@ -45,7 +45,8 @@
 
 ## 7. Tests
 
-Tests use `node:test` + `assert/strict`, matching `src/lib/license/__tests__/canonical-signing.test.ts`.
+Tests use `node:test` + `assert/strict`, matching the repository's route and
+library test conventions.
 
 - [ ] 7.1 `src/lib/hosted-backup/__tests__/kdf.test.ts` — floor rejection (memory, iter, par, algorithm), hash+verify roundtrip.
 - [ ] 7.2 `src/lib/hosted-backup/__tests__/jwt.test.ts` — mint+verify roundtrip; reject wrong audience, expired (`exp` in the past), wrong issuer, tampered signature, unknown kid, `nbf > now`.

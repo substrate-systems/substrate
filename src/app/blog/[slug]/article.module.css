@@ -133,10 +133,19 @@
 
 /* GFM tables — wide comparison tables break out a little wider than the text
    column and stay centered, so many-column tables read cleanly instead of
-   overflowing the page; on narrow screens the table scrolls within its own box. */
+   overflowing the page; on narrow screens the table scrolls within its own box.
+
+   width must be max-content, not a fixed cap. display: block makes this element
+   a block box, but the table grid inside it still shrinks to its own content and
+   sits flush left — so a fixed width centred only the invisible wrapper. A
+   3-column table rendered 596px of grid inside a 1060px box and landed 232px
+   left of centre. max-content sizes the box to the grid, so translateX(-50%)
+   centres what you can actually see; max-width keeps the breakout cap and lets
+   genuinely wide tables scroll inside themselves. */
 .prose table {
   display: block;
-  width: min(1060px, calc(100vw - 2.5rem));
+  width: max-content;
+  max-width: min(1060px, calc(100vw - 2.5rem));
   margin: 0.75rem 0 1.75rem;
   margin-left: 50%;
   transform: translateX(-50%);

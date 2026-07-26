@@ -1,0 +1,2229 @@
+{
+  "schema_version": 1,
+  "protocol_version": "1",
+  "exomem_release": "0.24.0",
+  "compatibility": {
+    "policy": "additive",
+    "optional_response_fields_may_be_added": true,
+    "breaking_changes_require_coordinated_rollout": true,
+    "breaking_change_classes": [
+      "command-removal",
+      "parameter-removal-or-change",
+      "envelope-change",
+      "stable-error-removal-or-change"
+    ]
+  },
+  "trusted_headers": {
+    "cell": "X-Exomem-Cell-Id",
+    "protocol": "X-Exomem-Protocol-Version",
+    "request": "X-Exomem-Request-Id",
+    "principal": "X-Exomem-Principal-Scope",
+    "idempotency": "Idempotency-Key"
+  },
+  "envelopes": {
+    "success": {
+      "required": ["success", "data"],
+      "shape": {
+        "success": true,
+        "data": "command-result"
+      }
+    },
+    "error": {
+      "required": ["success", "error"],
+      "error_required": ["code", "message", "remediation"],
+      "shape": {
+        "success": false,
+        "error": {
+          "code": "stable-code",
+          "message": "content-free-message",
+          "remediation": null
+        }
+      }
+    }
+  },
+  "transfer_grant": {
+    "version": 1,
+    "audience": "exomem-hosted-transfer",
+    "operations": ["download", "upload"],
+    "max_ttl_seconds": 900
+  },
+  "commands": [
+    {
+      "name": "coordination_status",
+      "params": [],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "advanced",
+      "actions": ["review"],
+      "first_run_safe": true,
+      "routes": ["coordination_status"],
+      "guarded_fields": []
+    },
+    {
+      "name": "bootstrap",
+      "params": [
+        {
+          "name": "profile",
+          "type": "str",
+          "required": false,
+          "description": "\"compact\" (default), \"full\", or \"diagnostics\". Compact is enough for normal clients. Full adds examples. Diagnostics adds performance interpretation guidance."
+        },
+        {
+          "name": "workflow",
+          "type": "str",
+          "required": false,
+          "description": "Optional caller-selected workflow label. Returned as context only; it does not change server behavior."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": [],
+      "first_run_safe": true,
+      "routes": ["bootstrap"],
+      "guarded_fields": []
+    },
+    {
+      "name": "ask_memory",
+      "params": [
+        {
+          "name": "query",
+          "type": "str",
+          "required": false,
+          "description": "Question or search phrase. Empty means recent/filtered recall."
+        },
+        {
+          "name": "types",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional page-type filters."
+        },
+        {
+          "name": "projects",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional project-key filters."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional tag filters."
+        },
+        {
+          "name": "speakers",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional diarized speaker filters."
+        },
+        {
+          "name": "file_types",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional artifact kind filters such as pdf, image, csv, json."
+        },
+        {
+          "name": "exclude_file_types",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional artifact kinds to exclude."
+        },
+        {
+          "name": "categories",
+          "type": "list[str]",
+          "required": false,
+          "description": "Semantic-unit category shortcuts, such as config or rule."
+        },
+        {
+          "name": "kinds",
+          "type": "list[str]",
+          "required": false,
+          "description": "Semantic-unit kind shortcuts, such as decision or claim."
+        },
+        {
+          "name": "filters",
+          "type": "dict",
+          "required": false,
+          "description": "Structured page/unit metadata filters."
+        },
+        {
+          "name": "result_level",
+          "type": "str",
+          "required": false,
+          "description": "auto, page, unit, or mixed."
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "required": false,
+          "description": "Max hits. Default 15."
+        },
+        {
+          "name": "scope",
+          "type": "str",
+          "required": false,
+          "description": "kb, vault, or kb-only."
+        },
+        {
+          "name": "mode",
+          "type": "str",
+          "required": false,
+          "description": "hybrid, keyword, or vector."
+        },
+        {
+          "name": "detail",
+          "type": "str",
+          "required": false,
+          "description": "compact or full hit detail."
+        },
+        {
+          "name": "deep",
+          "type": "bool",
+          "required": false,
+          "description": "Return a packed context for reasoning."
+        },
+        {
+          "name": "graph",
+          "type": "bool",
+          "required": false,
+          "description": "Include graph-neighbour ranking in hybrid/vector search."
+        },
+        {
+          "name": "rerank",
+          "type": "bool",
+          "required": false,
+          "description": "Force or suppress cross-encoder reranking; omit for mode-aware auto."
+        },
+        {
+          "name": "prefer_compiled",
+          "type": "bool",
+          "required": false,
+          "description": "Prefer compiled notes over raw sources by default."
+        },
+        {
+          "name": "prefer_active",
+          "type": "bool",
+          "required": false,
+          "description": "Prefer active conclusions over superseded ones."
+        },
+        {
+          "name": "prefer_used",
+          "type": "bool",
+          "required": false,
+          "description": "Apply usage boost when explicitly requested."
+        },
+        {
+          "name": "graph_enrich",
+          "type": "bool",
+          "required": false,
+          "description": "With deep mode, include typed graph neighborhood data."
+        },
+        {
+          "name": "include_timings",
+          "type": "bool",
+          "required": false,
+          "description": "Include retrieval timings for diagnostics."
+        },
+        {
+          "name": "explain",
+          "type": "bool",
+          "required": false,
+          "description": "Add bounded retrieval-plan and per-hit ranking evidence."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["ask"],
+      "first_run_safe": true,
+      "routes": ["search", "find"],
+      "guarded_fields": []
+    },
+    {
+      "name": "read_memory",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": true,
+          "description": "Vault-relative path or Knowledge Base-relative shorthand."
+        },
+        {
+          "name": "frontmatter_only",
+          "type": "bool",
+          "required": false,
+          "description": "Return only frontmatter for cheap scanning."
+        },
+        {
+          "name": "include_history",
+          "type": "bool",
+          "required": false,
+          "description": "Include recorded edit/supersession history."
+        },
+        {
+          "name": "links",
+          "type": "bool",
+          "required": false,
+          "description": "Include inbound and outbound wikilink summaries."
+        },
+        {
+          "name": "include_raw",
+          "type": "bool",
+          "required": false,
+          "description": "Include the raw markdown file text."
+        },
+        {
+          "name": "unit_ref",
+          "type": "str",
+          "required": false,
+          "description": "Exact unit reference returned by unit-level recall. Page-only expansion flags are not accepted together with an exact unit read."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["ask"],
+      "first_run_safe": true,
+      "routes": ["fetch", "get"],
+      "guarded_fields": []
+    },
+    {
+      "name": "browse_memory",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "Vault-relative subtree. Empty means vault root."
+        },
+        {
+          "name": "mode",
+          "type": "str",
+          "required": false,
+          "description": "overview or list."
+        },
+        {
+          "name": "max_depth",
+          "type": "int",
+          "required": false,
+          "description": "Overview tree depth cap."
+        },
+        {
+          "name": "include_hidden",
+          "type": "bool",
+          "required": false,
+          "description": "Include dotfiles and hidden/system folders."
+        },
+        {
+          "name": "samples",
+          "type": "int",
+          "required": false,
+          "description": "Filename samples per folder for overview mode."
+        },
+        {
+          "name": "recursive",
+          "type": "bool",
+          "required": false,
+          "description": "In list mode, walk subfolders."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["adopt", "ask"],
+      "first_run_safe": true,
+      "routes": ["overview", "list_directory"],
+      "guarded_fields": []
+    },
+    {
+      "name": "remember",
+      "params": [
+        {
+          "name": "content",
+          "type": "str",
+          "required": true,
+          "description": "Full markdown body to write after frontmatter."
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "required": true,
+          "description": "Unicode display title stored in frontmatter and the H1."
+        },
+        {
+          "name": "slug",
+          "type": "str",
+          "required": false,
+          "description": "Optional lowercase ASCII kebab-case filename component."
+        },
+        {
+          "name": "note_type",
+          "type": "str",
+          "required": false,
+          "description": "research-note, insight, failure, pattern, experiment, or production-log."
+        },
+        {
+          "name": "project",
+          "type": "str",
+          "required": false,
+          "description": "Required for research-note. (any slug; unknown keys auto-register on first use)"
+        },
+        {
+          "name": "projects",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional project keys for cross-project notes. (any slug; unknown keys auto-register on first use)"
+        },
+        {
+          "name": "sources",
+          "type": "list[str]",
+          "required": false,
+          "description": "Source/evidence paths this conclusion draws from."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Lowercase tags."
+        },
+        {
+          "name": "status",
+          "type": "str",
+          "required": false,
+          "description": "Optional status override."
+        },
+        {
+          "name": "severity",
+          "type": "str",
+          "required": false,
+          "description": "Failure severity."
+        },
+        {
+          "name": "pattern_type",
+          "type": "str",
+          "required": false,
+          "description": "Pattern subtype."
+        },
+        {
+          "name": "domain",
+          "type": "str",
+          "required": false,
+          "description": "Experiment domain."
+        },
+        {
+          "name": "started",
+          "type": "str",
+          "required": false,
+          "description": "Experiment start date."
+        },
+        {
+          "name": "duration",
+          "type": "str",
+          "required": false,
+          "description": "Experiment duration."
+        },
+        {
+          "name": "hypothesis",
+          "type": "str",
+          "required": false,
+          "description": "Experiment hypothesis."
+        },
+        {
+          "name": "n",
+          "type": "int",
+          "required": false,
+          "description": "Experiment sample size."
+        },
+        {
+          "name": "concluded",
+          "type": "str",
+          "required": false,
+          "description": "Experiment conclusion date."
+        },
+        {
+          "name": "medium",
+          "type": "str",
+          "required": false,
+          "description": "Production-log medium."
+        },
+        {
+          "name": "recorded",
+          "type": "str",
+          "required": false,
+          "description": "Production recording date."
+        },
+        {
+          "name": "published",
+          "type": "str",
+          "required": false,
+          "description": "Production publication date."
+        },
+        {
+          "name": "host",
+          "type": "str",
+          "required": false,
+          "description": "Production host/creator."
+        },
+        {
+          "name": "editor",
+          "type": "str",
+          "required": false,
+          "description": "Production editor/producer."
+        },
+        {
+          "name": "suggestions",
+          "type": "bool",
+          "required": false,
+          "description": "Include link suggestions in the result."
+        },
+        {
+          "name": "project_category",
+          "type": "str",
+          "required": false,
+          "description": "Category for a new project key."
+        },
+        {
+          "name": "validate_only",
+          "type": "bool",
+          "required": false,
+          "description": "Validate and return an immutable creation draft without writing."
+        },
+        {
+          "name": "draft_id",
+          "type": "str",
+          "required": false,
+          "description": "Draft identity returned by validate_only."
+        },
+        {
+          "name": "draft_hash",
+          "type": "str",
+          "required": false,
+          "description": "Exact reviewed draft hash returned by validate_only."
+        },
+        {
+          "name": "draft_token",
+          "type": "str",
+          "required": false,
+          "description": "Opaque destination/date token returned by validate_only."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Reviewed relation outcome for commit."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Draft hash covered by the relation review."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for a reviewed-none disposition."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["save", "update"],
+      "first_run_safe": false,
+      "routes": ["note"],
+      "guarded_fields": ["content"]
+    },
+    {
+      "name": "edit_memory",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": true,
+          "description": "Page to edit."
+        },
+        {
+          "name": "why",
+          "type": "str",
+          "required": true,
+          "description": "One-line rationale recorded in the log."
+        },
+        {
+          "name": "new_body",
+          "type": "str",
+          "required": false,
+          "description": "Replace the whole markdown body."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Replace tags."
+        },
+        {
+          "name": "old_string",
+          "type": "str",
+          "required": false,
+          "description": "Exact body snippet to replace."
+        },
+        {
+          "name": "new_string",
+          "type": "str",
+          "required": false,
+          "description": "Replacement text."
+        },
+        {
+          "name": "replace_all",
+          "type": "bool",
+          "required": false,
+          "description": "Replace every occurrence of old_string."
+        },
+        {
+          "name": "heading",
+          "type": "str",
+          "required": false,
+          "description": "Section heading for section-targeted edits."
+        },
+        {
+          "name": "section_position",
+          "type": "str",
+          "required": false,
+          "description": "append, prepend, or replace."
+        },
+        {
+          "name": "edits",
+          "type": "json",
+          "required": false,
+          "description": "Batch edits, each with old_string/new_string/replace_all."
+        },
+        {
+          "name": "row_key",
+          "type": "str",
+          "required": false,
+          "description": "Opinion-row key to fill."
+        },
+        {
+          "name": "take",
+          "type": "str",
+          "required": false,
+          "description": "Opinion-row text."
+        },
+        {
+          "name": "overwrite",
+          "type": "bool",
+          "required": false,
+          "description": "Allow replacing an existing take."
+        },
+        {
+          "name": "field",
+          "type": "str",
+          "required": false,
+          "description": "Frontmatter field to set."
+        },
+        {
+          "name": "value",
+          "type": "json",
+          "required": false,
+          "description": "New frontmatter value."
+        },
+        {
+          "name": "allow_curated",
+          "type": "bool",
+          "required": false,
+          "description": "Permit frontmatter patch under curated trees."
+        },
+        {
+          "name": "expected_hash",
+          "type": "str",
+          "required": false,
+          "description": "Refuse write if content changed since read."
+        },
+        {
+          "name": "validate_only",
+          "type": "bool",
+          "required": false,
+          "description": "Preview a surgical match without writing."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["update"],
+      "first_run_safe": false,
+      "routes": ["edit"],
+      "guarded_fields": ["new_body", "new_string"]
+    },
+    {
+      "name": "observe_memory",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": true,
+          "description": "Parent page path or canonical memory reference."
+        },
+        {
+          "name": "operation",
+          "type": "str",
+          "required": false,
+          "description": "add, update, remove, or validate."
+        },
+        {
+          "name": "category",
+          "type": "str",
+          "required": false,
+          "description": "Open semantic category for add/update/validate."
+        },
+        {
+          "name": "content",
+          "type": "str",
+          "required": false,
+          "description": "Unit content for add/update/validate."
+        },
+        {
+          "name": "kind",
+          "type": "str",
+          "required": false,
+          "description": "Optional governed rich kind; omitted means compact observation."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional compact suffix tags or rich metadata tags."
+        },
+        {
+          "name": "context",
+          "type": "str",
+          "required": false,
+          "description": "Optional compact suffix context or rich metadata context."
+        },
+        {
+          "name": "relations",
+          "type": "json",
+          "required": false,
+          "description": "Rich typed relations as {kind, target} objects."
+        },
+        {
+          "name": "unit_ref",
+          "type": "str",
+          "required": false,
+          "description": "Current exact unit reference for update/remove or update validation."
+        },
+        {
+          "name": "expected_fingerprint",
+          "type": "str",
+          "required": false,
+          "description": "Current exact unit fingerprint; required for update/remove."
+        },
+        {
+          "name": "expected_hash",
+          "type": "str",
+          "required": false,
+          "description": "Current exact parent-page content hash; required for update/remove."
+        },
+        {
+          "name": "transition_token",
+          "type": "str",
+          "required": false,
+          "description": "Exact transition token returned by validate."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Existing-page semantic review disposition."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Transition hash covered by reviewed-none."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for reviewed-none."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["update", "save"],
+      "first_run_safe": false,
+      "routes": ["observe_memory"],
+      "guarded_fields": ["content"]
+    },
+    {
+      "name": "replace_memory",
+      "params": [
+        {
+          "name": "old_path",
+          "type": "str",
+          "required": true,
+          "description": "Existing page to supersede."
+        },
+        {
+          "name": "content",
+          "type": "str",
+          "required": true,
+          "description": "Full markdown body for the new page."
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "required": true,
+          "description": "New page title."
+        },
+        {
+          "name": "slug",
+          "type": "str",
+          "required": false,
+          "description": "Optional lowercase ASCII kebab-case filename component."
+        },
+        {
+          "name": "note_type",
+          "type": "str",
+          "required": false,
+          "description": "New page type."
+        },
+        {
+          "name": "reason",
+          "type": "str",
+          "required": false,
+          "description": "Why the old page is being superseded."
+        },
+        {
+          "name": "project",
+          "type": "str",
+          "required": false,
+          "description": "Required for research-note."
+        },
+        {
+          "name": "projects",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional project keys."
+        },
+        {
+          "name": "sources",
+          "type": "list[str]",
+          "required": false,
+          "description": "Source/evidence paths for the new conclusion."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Lowercase tags."
+        },
+        {
+          "name": "status",
+          "type": "str",
+          "required": false,
+          "description": "Optional status override."
+        },
+        {
+          "name": "severity",
+          "type": "str",
+          "required": false,
+          "description": "Failure severity."
+        },
+        {
+          "name": "pattern_type",
+          "type": "str",
+          "required": false,
+          "description": "Pattern subtype."
+        },
+        {
+          "name": "domain",
+          "type": "str",
+          "required": false,
+          "description": "Experiment domain."
+        },
+        {
+          "name": "started",
+          "type": "str",
+          "required": false,
+          "description": "Experiment start date."
+        },
+        {
+          "name": "duration",
+          "type": "str",
+          "required": false,
+          "description": "Experiment duration."
+        },
+        {
+          "name": "hypothesis",
+          "type": "str",
+          "required": false,
+          "description": "Experiment hypothesis."
+        },
+        {
+          "name": "n",
+          "type": "int",
+          "required": false,
+          "description": "Experiment sample size."
+        },
+        {
+          "name": "concluded",
+          "type": "str",
+          "required": false,
+          "description": "Experiment conclusion date."
+        },
+        {
+          "name": "medium",
+          "type": "str",
+          "required": false,
+          "description": "Production-log medium."
+        },
+        {
+          "name": "recorded",
+          "type": "str",
+          "required": false,
+          "description": "Production recording date."
+        },
+        {
+          "name": "published",
+          "type": "str",
+          "required": false,
+          "description": "Production publication date."
+        },
+        {
+          "name": "host",
+          "type": "str",
+          "required": false,
+          "description": "Production host/creator."
+        },
+        {
+          "name": "editor",
+          "type": "str",
+          "required": false,
+          "description": "Production editor/producer."
+        },
+        {
+          "name": "project_category",
+          "type": "str",
+          "required": false,
+          "description": "Category for a new project key."
+        },
+        {
+          "name": "validate_only",
+          "type": "bool",
+          "required": false,
+          "description": "Validate the replacement draft without writing either page."
+        },
+        {
+          "name": "draft_id",
+          "type": "str",
+          "required": false,
+          "description": "Draft identity returned by validate_only."
+        },
+        {
+          "name": "draft_hash",
+          "type": "str",
+          "required": false,
+          "description": "Exact reviewed draft hash returned by validate_only."
+        },
+        {
+          "name": "draft_token",
+          "type": "str",
+          "required": false,
+          "description": "Opaque destination/date token returned by validate_only."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Reviewed relation outcome for commit."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Draft hash covered by the relation review."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for a reviewed-none disposition."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["update"],
+      "first_run_safe": false,
+      "routes": ["replace"],
+      "guarded_fields": ["content"]
+    },
+    {
+      "name": "capture_source",
+      "params": [
+        {
+          "name": "content",
+          "type": "str",
+          "required": true,
+          "description": "Raw source text."
+        },
+        {
+          "name": "title",
+          "type": "str",
+          "required": true,
+          "description": "Source title."
+        },
+        {
+          "name": "slug",
+          "type": "str",
+          "required": false,
+          "description": "Optional lowercase ASCII kebab-case filename component."
+        },
+        {
+          "name": "source_type",
+          "type": "str",
+          "required": false,
+          "description": "article, session, book, paper, video, or other."
+        },
+        {
+          "name": "url",
+          "type": "str",
+          "required": false,
+          "description": "Required for article, paper, or video sources."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Lowercase tags."
+        },
+        {
+          "name": "why_captured",
+          "type": "str",
+          "required": false,
+          "description": "Short reason this source matters."
+        },
+        {
+          "name": "compile_guidance",
+          "type": "bool",
+          "required": false,
+          "description": "Return a compilation proposal for the captured source."
+        },
+        {
+          "name": "suggested_title",
+          "type": "str",
+          "required": false,
+          "description": "Optional title hint for the compilation proposal."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["save"],
+      "first_run_safe": false,
+      "routes": ["add", "propose_compilation"],
+      "guarded_fields": ["content"]
+    },
+    {
+      "name": "compile_source",
+      "params": [
+        {
+          "name": "sources",
+          "type": "list[str]",
+          "required": true,
+          "description": "Source paths or wikilinks to compile from."
+        },
+        {
+          "name": "suggested_title",
+          "type": "str",
+          "required": false,
+          "description": "Optional title override."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["review", "save"],
+      "first_run_safe": true,
+      "routes": ["propose_compilation"],
+      "guarded_fields": []
+    },
+    {
+      "name": "preserve_evidence",
+      "params": [
+        {
+          "name": "scope",
+          "type": "str",
+          "required": true,
+          "description": "Incident, case, project, or domain key."
+        },
+        {
+          "name": "category",
+          "type": "str",
+          "required": true,
+          "description": "Evidence category within the scope."
+        },
+        {
+          "name": "filename",
+          "type": "str",
+          "required": true,
+          "description": "Artifact filename, including extension."
+        },
+        {
+          "name": "content",
+          "type": "str",
+          "required": true,
+          "description": "UTF-8 text to preserve as received."
+        },
+        {
+          "name": "description",
+          "type": "str",
+          "required": false,
+          "description": "Optional sidecar description."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["prove", "save"],
+      "first_run_safe": false,
+      "routes": ["preserve"],
+      "guarded_fields": ["content"]
+    },
+    {
+      "name": "transfer_artifact",
+      "params": [
+        {
+          "name": "operation",
+          "type": "str",
+          "required": false,
+          "description": "upload or download."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["prove"],
+      "first_run_safe": true,
+      "routes": ["transfer_token"],
+      "guarded_fields": []
+    },
+    {
+      "name": "process_media",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "Optional governed Knowledge Base media path. Omit for bounded all-media work."
+        },
+        {
+          "name": "operation",
+          "type": "str",
+          "required": false,
+          "description": "process, status, or retry."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "advanced",
+      "actions": ["prove", "review", "update"],
+      "first_run_safe": false,
+      "routes": [],
+      "guarded_fields": []
+    },
+    {
+      "name": "review_memory",
+      "params": [
+        {
+          "name": "mode",
+          "type": "str",
+          "required": false,
+          "description": "attention, activation, item, audit, provenance, evolution, compilation, stale, contradiction, unprocessed-sources, relation-debt, relation-queue, or adoption. `relation-queue` returns the read-only, batched relation-acceptance queue (deterministic suggestion candidates grouped by source page, with signal fingerprints and coverage counters); accept a candidate via `connect_memory(operation=\"accept-relation\")` or reject via `triage_memory`. `adoption` returns the read-only Adoption Studio proposal queue grouped per run (structured agent proposals with signal fingerprints); approve a proposal via `adoption_studio(action=\"apply-proposal\")` or dismiss via `triage_memory`."
+        },
+        {
+          "name": "categories",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional category filter for attention/activation/audit."
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "required": false,
+          "description": "Attention/activation/evolution result cap."
+        },
+        {
+          "name": "query",
+          "type": "str",
+          "required": false,
+          "description": "Topic for evolution review."
+        },
+        {
+          "name": "sources",
+          "type": "list[str]",
+          "required": false,
+          "description": "Source paths for compilation mode."
+        },
+        {
+          "name": "suggested_title",
+          "type": "str",
+          "required": false,
+          "description": "Optional compilation title hint."
+        },
+        {
+          "name": "tag",
+          "type": "str",
+          "required": false,
+          "description": "Provenance tag shorthand."
+        },
+        {
+          "name": "key",
+          "type": "str",
+          "required": false,
+          "description": "Provenance key filter."
+        },
+        {
+          "name": "value",
+          "type": "str",
+          "required": false,
+          "description": "Provenance value filter."
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "Restrict provenance scan to one path."
+        },
+        {
+          "name": "state",
+          "type": "str",
+          "required": false,
+          "description": "For attention/activation, open (default), all, snoozed, or dismissed."
+        },
+        {
+          "name": "ref",
+          "type": "str",
+          "required": false,
+          "description": "Stable `exomem://review/<id>` reference for item mode."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["review", "ask", "prove"],
+      "first_run_safe": true,
+      "routes": ["attention", "audit", "evolution", "provenance_report", "propose_compilation"],
+      "guarded_fields": []
+    },
+    {
+      "name": "review_item_context",
+      "params": [
+        {
+          "name": "ref",
+          "type": "str",
+          "required": true,
+          "description": "Stable `exomem://review/<id>` reference. An `exomem://review/adoption/<id>` ref returns the bounded Adoption Studio proposal context (proposal record, live binding check, and target-page summary) instead."
+        },
+        {
+          "name": "expected_fingerprint",
+          "type": "str",
+          "required": false,
+          "description": "Optional reviewed fingerprint; a mismatch asks the caller to refresh instead of presenting stale context."
+        },
+        {
+          "name": "max_body_chars",
+          "type": "int",
+          "required": false,
+          "description": "Maximum target body characters."
+        },
+        {
+          "name": "max_related_pages",
+          "type": "int",
+          "required": false,
+          "description": "Maximum related-page summaries."
+        },
+        {
+          "name": "max_graph_nodes",
+          "type": "int",
+          "required": false,
+          "description": "Maximum graph nodes."
+        },
+        {
+          "name": "max_graph_edges",
+          "type": "int",
+          "required": false,
+          "description": "Maximum graph edges."
+        },
+        {
+          "name": "max_history",
+          "type": "int",
+          "required": false,
+          "description": "Maximum recorded history entries."
+        },
+        {
+          "name": "max_evolution_versions",
+          "type": "int",
+          "required": false,
+          "description": "Maximum recorded supersession versions."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["review", "ask"],
+      "first_run_safe": true,
+      "routes": ["review_item_context"],
+      "guarded_fields": []
+    },
+    {
+      "name": "triage_memory",
+      "params": [
+        {
+          "name": "ref",
+          "type": "str",
+          "required": true,
+          "description": "Stable `exomem://review/<id>` reference from review_memory. An `exomem://review/adoption/<id>` ref triages an Adoption Studio proposal instead, keyed the same way (`review_id:fingerprint`)."
+        },
+        {
+          "name": "action",
+          "type": "str",
+          "required": true,
+          "description": "dismiss, snooze, or reopen."
+        },
+        {
+          "name": "until",
+          "type": "str",
+          "required": false,
+          "description": "Snooze-through date as YYYY-MM-DD; required only for snooze."
+        },
+        {
+          "name": "why",
+          "type": "str",
+          "required": false,
+          "description": "Optional short rationale stored with the review decision."
+        },
+        {
+          "name": "expected_fingerprint",
+          "type": "str",
+          "required": false,
+          "description": "Optional reviewed fingerprint; a mismatch refuses the write and asks the caller to refresh."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["review", "update"],
+      "first_run_safe": false,
+      "routes": ["attention"],
+      "guarded_fields": []
+    },
+    {
+      "name": "connect_memory",
+      "params": [
+        {
+          "name": "operation",
+          "type": "str",
+          "required": false,
+          "description": "context, suggest-links, suggest-relations, graph-context, inbound-links, create-entity, or accept-relation."
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "Existing page path for link, graph, or relation context."
+        },
+        {
+          "name": "target",
+          "type": "str",
+          "required": false,
+          "description": "Target path for inbound-links; defaults to path."
+        },
+        {
+          "name": "query",
+          "type": "str",
+          "required": false,
+          "description": "Query seed for graph-context."
+        },
+        {
+          "name": "unit_ref",
+          "type": "str",
+          "required": false,
+          "description": "Exact current semantic-unit seed for graph-context."
+        },
+        {
+          "name": "categories",
+          "type": "list[str]",
+          "required": false,
+          "description": "Registry-resolved semantic-unit category allowlist."
+        },
+        {
+          "name": "kinds",
+          "type": "list[str]",
+          "required": false,
+          "description": "Governed semantic-unit kind allowlist."
+        },
+        {
+          "name": "draft_title",
+          "type": "str",
+          "required": false,
+          "description": "Draft title for suggestion modes."
+        },
+        {
+          "name": "draft_body",
+          "type": "str",
+          "required": false,
+          "description": "Draft body for suggestion modes."
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "required": false,
+          "description": "Candidate cap for suggestion modes."
+        },
+        {
+          "name": "scope",
+          "type": "str",
+          "required": false,
+          "description": "Search scope for link suggestions."
+        },
+        {
+          "name": "include_model_suggestions",
+          "type": "bool",
+          "required": false,
+          "description": "Request optional model-backed relation suggestions."
+        },
+        {
+          "name": "depth",
+          "type": "int",
+          "required": false,
+          "description": "Graph traversal depth."
+        },
+        {
+          "name": "relation_types",
+          "type": "list[str]",
+          "required": false,
+          "description": "Graph relation-type allowlist."
+        },
+        {
+          "name": "node_types",
+          "type": "list[str]",
+          "required": false,
+          "description": "Graph node-type allowlist."
+        },
+        {
+          "name": "max_nodes",
+          "type": "int",
+          "required": false,
+          "description": "Graph node cap."
+        },
+        {
+          "name": "max_edges",
+          "type": "int",
+          "required": false,
+          "description": "Graph edge cap."
+        },
+        {
+          "name": "traversal_profile",
+          "type": "str",
+          "required": false,
+          "description": "Deterministic graph lens; omission preserves `all`."
+        },
+        {
+          "name": "max_body_chars",
+          "type": "int",
+          "required": false,
+          "description": "Per-document stored-body cap for context."
+        },
+        {
+          "name": "entity_type",
+          "type": "str",
+          "required": false,
+          "description": "Entity type for create-entity."
+        },
+        {
+          "name": "name",
+          "type": "str",
+          "required": false,
+          "description": "Entity name for create-entity."
+        },
+        {
+          "name": "slug",
+          "type": "str",
+          "required": false,
+          "description": "Optional lowercase ASCII kebab-case entity filename component."
+        },
+        {
+          "name": "summary",
+          "type": "str",
+          "required": false,
+          "description": "Entity summary for create-entity."
+        },
+        {
+          "name": "why_in_kb",
+          "type": "str",
+          "required": false,
+          "description": "Optional entity relevance paragraph."
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "required": false,
+          "description": "Entity tags."
+        },
+        {
+          "name": "connections",
+          "type": "list[str]",
+          "required": false,
+          "description": "Entity connection paths."
+        },
+        {
+          "name": "affiliation",
+          "type": "str",
+          "required": false,
+          "description": "Person affiliation."
+        },
+        {
+          "name": "relationship",
+          "type": "str",
+          "required": false,
+          "description": "Person relationship."
+        },
+        {
+          "name": "domain",
+          "type": "str",
+          "required": false,
+          "description": "Concept domain."
+        },
+        {
+          "name": "language",
+          "type": "str",
+          "required": false,
+          "description": "Library language."
+        },
+        {
+          "name": "repo",
+          "type": "str",
+          "required": false,
+          "description": "Library repository."
+        },
+        {
+          "name": "license",
+          "type": "str",
+          "required": false,
+          "description": "Library license."
+        },
+        {
+          "name": "used_in",
+          "type": "list[str]",
+          "required": false,
+          "description": "Library usage project keys."
+        },
+        {
+          "name": "decided",
+          "type": "str",
+          "required": false,
+          "description": "Decision date."
+        },
+        {
+          "name": "project",
+          "type": "str",
+          "required": false,
+          "description": "Decision project key."
+        },
+        {
+          "name": "decision_status",
+          "type": "str",
+          "required": false,
+          "description": "Decision status."
+        },
+        {
+          "name": "ref",
+          "type": "str",
+          "required": false,
+          "description": "Relation-queue item ref for accept-relation."
+        },
+        {
+          "name": "expected_hash",
+          "type": "str",
+          "required": false,
+          "description": "Target page `content_hash` drift guard for accept-relation. Required for accept-relation."
+        },
+        {
+          "name": "why",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason recorded with the accept-relation edit."
+        },
+        {
+          "name": "expected_fingerprint",
+          "type": "str",
+          "required": false,
+          "description": "Reviewed candidate fingerprint for accept-relation. Required for accept-relation (not optional — a mismatch, or an omitted value, refuses the write); accept re-validates live eligibility too, so a candidate that stopped being open between the queue read and this call also refuses."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["connect", "ask", "save"],
+      "first_run_safe": true,
+      "routes": [
+        "suggest_links",
+        "graph_context",
+        "suggest_relations",
+        "link",
+        "list_inbound_links"
+      ],
+      "guarded_fields": []
+    },
+    {
+      "name": "adopt_vault",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "Vault subtree to scan."
+        },
+        {
+          "name": "mode",
+          "type": "str",
+          "required": false,
+          "description": "scan-only, save-manifest, copy-as-sources, or compile-selected."
+        },
+        {
+          "name": "max_depth",
+          "type": "int",
+          "required": false,
+          "description": "Folder tree depth cap."
+        },
+        {
+          "name": "include_hidden",
+          "type": "bool",
+          "required": false,
+          "description": "Include hidden files/directories."
+        },
+        {
+          "name": "samples",
+          "type": "int",
+          "required": false,
+          "description": "Filename sample count per folder."
+        },
+        {
+          "name": "pack_limit",
+          "type": "int",
+          "required": false,
+          "description": "Max suggested knowledge packs."
+        },
+        {
+          "name": "manifest_path",
+          "type": "str",
+          "required": false,
+          "description": "Optional manifest destination."
+        },
+        {
+          "name": "selected_paths",
+          "type": "list[str]",
+          "required": false,
+          "description": "Explicit legacy files for copy/compile modes."
+        },
+        {
+          "name": "semantic_max_files",
+          "type": "int",
+          "required": false,
+          "description": "Maximum Markdown files read by the semantic census."
+        },
+        {
+          "name": "semantic_max_bytes",
+          "type": "int",
+          "required": false,
+          "description": "Maximum total Markdown bytes read by the semantic census."
+        },
+        {
+          "name": "semantic_example_limit",
+          "type": "int",
+          "required": false,
+          "description": "Maximum bounded semantic examples per grouping."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["adopt"],
+      "first_run_safe": true,
+      "routes": ["adopt"],
+      "guarded_fields": []
+    },
+    {
+      "name": "adoption_studio",
+      "params": [
+        {
+          "name": "action",
+          "type": "str",
+          "required": true,
+          "description": "Required. One of start, status, select, plan, apply, cancel, finish, work-item, propose, or apply-proposal."
+        },
+        {
+          "name": "run_id",
+          "type": "str",
+          "required": false,
+          "description": "Stable adoption run id from `start`; required by every action except `start` and the run-listing form of `status`."
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "For `start`, the vault subtree to scan. Defaults to the vault root."
+        },
+        {
+          "name": "include_hidden",
+          "type": "bool",
+          "required": false,
+          "description": "For `start`, include hidden files/directories in the scan."
+        },
+        {
+          "name": "initialize_kb",
+          "type": "bool",
+          "required": false,
+          "description": "For `start`, bootstrap the Knowledge Base scaffold first when it does not exist yet (otherwise `start` refuses with KB_NOT_INITIALIZED)."
+        },
+        {
+          "name": "include",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `select`, folder or file paths whose eligible files are selected (server materializes the concrete set)."
+        },
+        {
+          "name": "exclude",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `select`, folder or file paths to remove from the selection."
+        },
+        {
+          "name": "overrides",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `select`, explicit per-file paths to force-select."
+        },
+        {
+          "name": "include_junk",
+          "type": "bool",
+          "required": false,
+          "description": "For `select`, include junk (e.g. zero-byte) files that are otherwise demoted. Default false."
+        },
+        {
+          "name": "plan_id",
+          "type": "str",
+          "required": false,
+          "description": "For `apply`, the plan id echoed from `plan`/`status`; a mismatch or a changed selection is refused with PLAN_STALE."
+        },
+        {
+          "name": "retry_failed",
+          "type": "bool",
+          "required": false,
+          "description": "For `apply`, re-plan and re-apply only the failed subset."
+        },
+        {
+          "name": "only_paths",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `apply`, restrict the (retry) apply to these originals."
+        },
+        {
+          "name": "why",
+          "type": "str",
+          "required": false,
+          "description": "Required approver rationale for `apply-proposal`; also records the reason on `cancel`."
+        },
+        {
+          "name": "write_manifest",
+          "type": "bool",
+          "required": false,
+          "description": "For `finish`, write an optional run manifest under `Knowledge Base/_Adoption/`. Default true."
+        },
+        {
+          "name": "sources",
+          "type": "list[str]",
+          "required": false,
+          "description": "For `work-item`, explicit source paths to include instead of the first `max_sources` applied imports."
+        },
+        {
+          "name": "max_sources",
+          "type": "int",
+          "required": false,
+          "description": "For `work-item`, the maximum sources returned. Default 5."
+        },
+        {
+          "name": "max_chars_per_source",
+          "type": "int",
+          "required": false,
+          "description": "For `work-item`, the per-source excerpt cap. Default 2000."
+        },
+        {
+          "name": "proposals",
+          "type": "json",
+          "required": false,
+          "description": "For `propose`, the list of structured proposal objects to submit."
+        },
+        {
+          "name": "ref",
+          "type": "str",
+          "required": false,
+          "description": "For `apply-proposal`, the `exomem://review/adoption/<id>` proposal ref."
+        },
+        {
+          "name": "expected_fingerprint",
+          "type": "str",
+          "required": false,
+          "description": "For `apply-proposal`, the reviewed fingerprint that must still match, or the write is refused."
+        },
+        {
+          "name": "expected_hash",
+          "type": "str",
+          "required": false,
+          "description": "For `apply-proposal`, the target page hash for relation and reconciliation-relate approvals."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "primary",
+      "actions": ["adopt", "review", "save"],
+      "first_run_safe": true,
+      "routes": ["adopt"],
+      "guarded_fields": []
+    },
+    {
+      "name": "maintain_memory",
+      "params": [
+        {
+          "name": "mode",
+          "type": "str",
+          "required": false,
+          "description": "audit, fix, reconcile, or backfill-ids."
+        },
+        {
+          "name": "categories",
+          "type": "list[str]",
+          "required": false,
+          "description": "Optional audit category filter."
+        },
+        {
+          "name": "dry_run",
+          "type": "bool",
+          "required": false,
+          "description": "Report without writing when true. Defaults to true for fix/backfill-ids (safety net) and false for reconcile (matches `op_reconcile`'s own default). Pass explicitly to override either way."
+        },
+        {
+          "name": "rebuild_embeddings",
+          "type": "bool",
+          "required": false,
+          "description": "For fix mode, rebuild embeddings when explicitly requested."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "advanced",
+      "actions": ["review", "update"],
+      "first_run_safe": true,
+      "routes": ["audit", "audit_fix", "reconcile"],
+      "guarded_fields": []
+    },
+    {
+      "name": "schema_memory",
+      "params": [
+        {
+          "name": "operation",
+          "type": "str",
+          "required": true,
+          "description": "infer, validate, or diff."
+        },
+        {
+          "name": "name",
+          "type": "str",
+          "required": false,
+          "description": "Lowercase contract slug; required only for `subject=\"contract\"`."
+        },
+        {
+          "name": "subject",
+          "type": "str",
+          "required": false,
+          "description": "`contract`, `categories`, `relations`, or `traversal-profiles`."
+        },
+        {
+          "name": "project",
+          "type": "str",
+          "required": false,
+          "description": "Optional project scope for inference."
+        },
+        {
+          "name": "page_type",
+          "type": "str",
+          "required": false,
+          "description": "Optional page-type scope for inference."
+        },
+        {
+          "name": "save",
+          "type": "bool",
+          "required": false,
+          "description": "Persist an inferred proposal. Default false."
+        },
+        {
+          "name": "expected_hash",
+          "type": "str",
+          "required": false,
+          "description": "Required current hash when overwriting a saved contract."
+        },
+        {
+          "name": "strict",
+          "type": "bool",
+          "required": false,
+          "description": "In validate mode, signal a failing CLI/CI outcome on findings."
+        },
+        {
+          "name": "compare_to",
+          "type": "str",
+          "required": false,
+          "description": "In diff mode, compare to this saved contract instead of corpus reality."
+        },
+        {
+          "name": "proposal",
+          "type": "dict",
+          "required": false,
+          "description": "Reviewed semantic-language, relation, or traversal-profile proposal."
+        },
+        {
+          "name": "include_model_suggestions",
+          "type": "bool",
+          "required": false,
+          "description": "Request response-only optional relation suggestions."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 1,
+      "capability": "core",
+      "product_surface": "advanced",
+      "actions": ["review", "update"],
+      "first_run_safe": true,
+      "routes": ["schema_memory"],
+      "guarded_fields": []
+    },
+    {
+      "name": "manage_memory_file",
+      "params": [
+        {
+          "name": "operation",
+          "type": "str",
+          "required": false,
+          "description": "list, create, append, move, delete, trash-list, or recover."
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "required": false,
+          "description": "Path for list/create/append/delete, or default recover trash path."
+        },
+        {
+          "name": "content",
+          "type": "str",
+          "required": false,
+          "description": "Text body for create/append."
+        },
+        {
+          "name": "frontmatter",
+          "type": "dict",
+          "required": false,
+          "description": "Optional frontmatter for create."
+        },
+        {
+          "name": "overwrite",
+          "type": "bool",
+          "required": false,
+          "description": "Allow create to replace an existing file."
+        },
+        {
+          "name": "allow_curated",
+          "type": "bool",
+          "required": false,
+          "description": "Permit operations in curated trees where canonical leaves allow it."
+        },
+        {
+          "name": "kind",
+          "type": "str",
+          "required": false,
+          "description": "file or dir for create."
+        },
+        {
+          "name": "parents",
+          "type": "bool",
+          "required": false,
+          "description": "Create parent folders in dir mode."
+        },
+        {
+          "name": "recursive",
+          "type": "bool",
+          "required": false,
+          "description": "Recurse for list or delete-directory."
+        },
+        {
+          "name": "include_hidden",
+          "type": "bool",
+          "required": false,
+          "description": "Include hidden files for list."
+        },
+        {
+          "name": "old_path",
+          "type": "str",
+          "required": false,
+          "description": "Source path for move."
+        },
+        {
+          "name": "new_path",
+          "type": "str",
+          "required": false,
+          "description": "Destination path for move."
+        },
+        {
+          "name": "update_wikilinks",
+          "type": "bool",
+          "required": false,
+          "description": "Rewrite inbound wikilinks on move."
+        },
+        {
+          "name": "confirm",
+          "type": "bool",
+          "required": false,
+          "description": "Required for delete."
+        },
+        {
+          "name": "force_orphan",
+          "type": "bool",
+          "required": false,
+          "description": "Allow delete despite inbound links."
+        },
+        {
+          "name": "force_superseded",
+          "type": "bool",
+          "required": false,
+          "description": "Allow delete of superseded history."
+        },
+        {
+          "name": "expected_dead_inbound",
+          "type": "list[str]",
+          "required": false,
+          "description": "Links expected to die in the same workflow."
+        },
+        {
+          "name": "trash_path",
+          "type": "str",
+          "required": false,
+          "description": "Trash entry to recover."
+        },
+        {
+          "name": "restore_path",
+          "type": "str",
+          "required": false,
+          "description": "Optional recovery destination."
+        },
+        {
+          "name": "date",
+          "type": "str",
+          "required": false,
+          "description": "YYYY-MM-DD filter for trash-list."
+        },
+        {
+          "name": "validate_only",
+          "type": "bool",
+          "required": false,
+          "description": "Validate a Markdown create-file operation without writing."
+        },
+        {
+          "name": "draft_id",
+          "type": "str",
+          "required": false,
+          "description": "Draft identity returned by validate_only."
+        },
+        {
+          "name": "draft_hash",
+          "type": "str",
+          "required": false,
+          "description": "Exact reviewed draft hash returned by validate_only."
+        },
+        {
+          "name": "draft_token",
+          "type": "str",
+          "required": false,
+          "description": "Opaque destination/date token returned by validate_only."
+        },
+        {
+          "name": "relation_disposition",
+          "type": "str",
+          "required": false,
+          "description": "Reviewed relation outcome for semantic file creation."
+        },
+        {
+          "name": "relation_review_hash",
+          "type": "str",
+          "required": false,
+          "description": "Draft hash covered by the relation review."
+        },
+        {
+          "name": "relation_review_reason",
+          "type": "str",
+          "required": false,
+          "description": "Audit reason for a reviewed-none disposition."
+        }
+      ],
+      "read_only": false,
+      "mode": "write",
+      "tier": 2,
+      "capability": "tier-2",
+      "product_surface": "advanced",
+      "actions": ["update", "ask"],
+      "first_run_safe": false,
+      "routes": [
+        "create_file",
+        "list_directory",
+        "move_file",
+        "delete",
+        "append_to_file",
+        "list_trash",
+        "recover_from_trash"
+      ],
+      "guarded_fields": ["content"]
+    },
+    {
+      "name": "query_dataset",
+      "params": [
+        {
+          "name": "path",
+          "type": "str",
+          "required": true,
+          "description": "Vault-relative dataset path."
+        },
+        {
+          "name": "record_path",
+          "type": "str",
+          "required": false,
+          "description": "Dotted JSON array path."
+        },
+        {
+          "name": "filters",
+          "type": "json",
+          "required": false,
+          "description": "List of filter objects."
+        },
+        {
+          "name": "columns",
+          "type": "list[str]",
+          "required": false,
+          "description": "Columns to project."
+        },
+        {
+          "name": "sort_by",
+          "type": "str",
+          "required": false,
+          "description": "Column to sort by."
+        },
+        {
+          "name": "descending",
+          "type": "bool",
+          "required": false,
+          "description": "Sort descending."
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "required": false,
+          "description": "Row cap."
+        },
+        {
+          "name": "offset",
+          "type": "int",
+          "required": false,
+          "description": "Pagination offset."
+        },
+        {
+          "name": "aggregate",
+          "type": "str",
+          "required": false,
+          "description": "count, profile, or func:column."
+        },
+        {
+          "name": "date_from",
+          "type": "str",
+          "required": false,
+          "description": "Date range start."
+        },
+        {
+          "name": "date_to",
+          "type": "str",
+          "required": false,
+          "description": "Date range end."
+        },
+        {
+          "name": "date_column",
+          "type": "str",
+          "required": false,
+          "description": "Date column name."
+        }
+      ],
+      "read_only": true,
+      "mode": "read",
+      "tier": 2,
+      "capability": "tier-2",
+      "product_surface": "advanced",
+      "actions": ["ask"],
+      "first_run_safe": true,
+      "routes": ["query_data"],
+      "guarded_fields": []
+    }
+  ],
+  "digest": {
+    "algorithm": "sha256",
+    "value": "b760214e79b4f9819757609ec7c6a6be74762e7b675680aa91e8386dd71ee32d"
+  }
+}

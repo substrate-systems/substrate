@@ -3,6 +3,7 @@ title: "How to reinstall all your apps with winget (and what it misses)"
 slug: reinstall-all-apps-with-winget
 description: "winget can export and reinstall your Windows apps from one file. Here's exactly how, plus the apps and settings it quietly leaves behind."
 published: 2026-07-03
+updated: 2026-07-22
 tags:
   - windows
   - winget
@@ -15,6 +16,8 @@ status: published
 Setting up a new Windows machine used to cost me an evening. Open a browser, hunt for the same twenty apps one at a time, click through every installer, and still miss half of them until the moment I needed one. winget fixes most of that, and it's the install engine I built Endstate on top of. But winget on its own leaves gaps, and they're the kind you only notice later.
 
 Here is how to reinstall your apps with winget, and exactly where it stops.
+
+For the complete new-PC sequence — settings, data, offline copies, and the Store-app gap — start with [the complete Windows setup guide](/blog/new-windows-pc-setup-guide).
 
 ## Export what you have
 
@@ -42,7 +45,7 @@ For apps winget tracks, this is the good part. It genuinely turns a weekend into
 
 Three things, and each one bites.
 
-**Microsoft Store apps.** `winget export` only serializes packages from the winget source. Store apps come from a different source and don't make it into the file, so they silently drop off your new machine. This is a documented limitation, not a bug you can flag away. I wrote up the details separately: [why winget export skips your Store apps](/blog/winget-export-microsoft-store-apps).
+**Microsoft Store apps.** `winget export` does not serialize every Store app. See [why winget export skips your Store apps](/blog/winget-export-microsoft-store-apps) for the limitation and how to check it.
 
 **Anything outside a winget source.** Portable apps, tools you installed by hand, anything not registered where winget can see it — none of it is captured.
 

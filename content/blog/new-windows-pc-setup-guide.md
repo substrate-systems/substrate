@@ -3,6 +3,7 @@ title: "The complete guide to setting up a new Windows PC"
 slug: new-windows-pc-setup-guide
 description: "A practical guide to setting up a new Windows PC: reinstall your apps, bring your settings, handle the Store gap, and skip the paid migration tools."
 published: 2026-07-04
+updated: 2026-07-22
 tags:
   - windows
   - new-pc-setup
@@ -12,41 +13,60 @@ author: Hugo Ander Kivi
 status: published
 ---
 
-I've set up a lot of new Windows machines, and for years I did it the slow way: a browser, a list in my head, and a whole evening lost to installers and settings. This is the guide I wish I'd had. It covers the parts that actually take time, the tools that help, and the ones that overpromise. Each section links to a deeper write-up if you want the detail.
+I've set up a lot of new Windows machines, and for years I did it the slow way: a browser, a list in my head, and a whole evening lost to installers and settings. The reliable version is not a faster memory game. It is a small setup kit you make once, keep somewhere you own, and use whenever you start fresh.
 
-## The two halves of a setup
+## What you are actually moving
 
-A new-PC setup is really two jobs, and most guides only talk about the first:
+A new-PC setup has three separate parts:
 
-1. **The apps** — getting your programs back.
-2. **The settings** — getting *your* version of those programs back.
+1. **Apps** — the programs you need installed again.
+2. **Settings** — your editor config, terminal profile, keybindings, presets, and other choices that make those apps yours.
+3. **Data** — documents, project folders, browser profiles, and the files the apps work on.
 
-The apps are the visible half. The settings are the half that decides whether the new machine feels like yours or like a stranger's. Handle both from a file and setup stops being a weekend.
+An app list is useful, but it is only the first part. It does not bring settings or personal data along. Treat those as separate jobs and a new machine stops feeling like a strange default install.
 
-## Getting your apps back
+## Make a setup kit before you need it
 
-The built-in tool for this is winget, Windows' package manager. It can export a list of your installed apps and reinstall them on a new machine in minutes. It's genuinely good, and it's what I build on. But it has two gaps worth knowing before you rely on it:
+Do this on the machine that already works. The practical sequence is:
 
-- It reinstalls the app but brings none of your configuration.
-- It quietly skips your Microsoft Store apps.
+1. Export the apps winget can reinstall.
+2. Save that manifest with the settings and data backups you actually need.
+3. Write down Microsoft Store or manually installed apps that will not be in the manifest.
+4. Keep the kit somewhere you own — your own sync folder is fine, but keep an offline copy on a USB stick or external drive too. A fresh PC should not depend on a cloud account being configured first.
 
-I wrote both of these up in detail: [how to reinstall all your apps with winget (and what it misses)](/blog/reinstall-all-apps-with-winget), and [why winget export skips your Microsoft Store apps](/blog/winget-export-microsoft-store-apps).
+Start with the app manifest:
 
-## Getting your settings back
+```
+winget export -o apps.json
+```
 
-This is the part nobody automates, and it's the part that costs the most time. Your editor config, your terminal, your keybindings, your creative-tool presets — rebuilding those by hand from memory is the real tax of a new machine.
+That gives you a portable list of winget-source apps. Save `apps.json` beside the configuration exports and data backups you care about, not in a disposable Downloads folder. If you use a password manager, source-control your dotfiles, or sync documents elsewhere, make sure you can reach those before wiping the old machine.
 
-It's also the hardest thing to copy safely, which is why the settings coverage matters more than the app count. If a tool backs up settings for a handful of apps, it's a demo. Endstate has settings modules for [300+ apps](/endstate/apps), from editors and IDEs to creative suites, media players, and emulators. And because each setup is a portable file, you can even [hand your exact configuration to someone else](/blog/share-your-app-setup).
+## Restore the apps on the new PC
 
-## Doing it fast, and repeatably
+Once Windows is updated and you have copied your setup kit over, open Terminal and run:
 
-The trick isn't doing the setup faster by hand. It's not doing it from memory at all: capture your machine once, save it to a file you control, and restore it on any fresh install. I walk through that workflow here: [how to set up a new Windows PC in minutes](/blog/set-up-new-windows-pc-fast).
+```
+winget import -i apps.json --accept-package-agreements --accept-source-agreements
+```
+
+That reinstalls the apps in the manifest without walking through installers one at a time. The focused [winget restore guide](/blog/reinstall-all-apps-with-winget) explains useful flags and the command workflow in more detail.
+
+## Fill the gaps deliberately
+
+`winget export` does not capture your settings or data. Restore those from the copies you made: import your editor and terminal preferences, clone or copy project folders, and sign back into the services you use.
+
+It also does not faithfully include every app. Microsoft Store apps and apps installed outside a winget source can be absent, so check your list and reinstall them separately. The dedicated [Store-app guide](/blog/winget-export-microsoft-store-apps) shows how to spot that gap before it surprises you.
+
+If you want one tool to capture apps, settings, and Store-app coverage into a portable setup file, [Endstate](/endstate) is the local-first route I built for that job. It still helps to understand the pieces: the file is yours, settings are opt-in, and no app list replaces your own data backup.
 
 ## What about the paid migration tools?
 
 EaseUS Todo PCTrans, Zinstall, and Laplink PCmover all promise a one-click move to a new PC. They work by copying your installed programs byte-for-byte across machines. That's a real capability for legacy software with no installer left, but it's also the risky path: you're transplanting a program's files onto a different Windows install and hoping it runs. They're closed source and cost $50–130.
 
 For most setups, a clean reinstall plus a settings restore is safer, produces a cleaner machine, and costs nothing. I compared them honestly here: [a free, open-source alternative to EaseUS, Zinstall, and Laplink](/blog/free-open-source-pc-migration-alternative).
+
+If your question is narrower — you just want the programs themselves moved across and are wondering why nothing does it cleanly — [how to transfer programs from one computer to another](/blog/transfer-programs-to-another-computer) covers why that copy isn't possible and what to do instead.
 
 ## The short version
 

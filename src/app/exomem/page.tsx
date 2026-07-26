@@ -1,18 +1,22 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
-import { faqs } from "./faq-data";
 import RevealManager from "./reveal-manager";
 import MemoryGraph from "./memory-graph";
 import CopyButton from "./copy-button";
 import HostedInterestForm from "./hosted-interest-form";
 import FaqAccordion, { type ExoFaq } from "./faq-accordion";
+import { GithubMark } from "@/components/GithubMark";
 
 export const metadata = {
   ...buildMetadata({
-    title: "Exomem — long-term memory for AI agents over Markdown",
+    // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
+    // "markdown knowledge base" (KD 8) are both reachable at this domain's authority,
+    // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
+    // flagged over-long titles elsewhere.
+    title: "Exomem — MCP memory server over your Markdown knowledge base",
     description:
-      "Give Claude, Codex, and Cursor persistent memory via MCP — over a Markdown and Obsidian vault you own. Hybrid search, local indexing, human review queues.",
+      "Exomem is an open-source MCP memory server that turns the Markdown knowledge base you already own into durable memory for Claude Code, Codex and Cursor. Hybrid local search, no cloud, no lock-in.",
     path: "/exomem",
     ogImage: "/exomem/og",
     standaloneTitle: true,
@@ -28,7 +32,7 @@ const softwareJsonLd = {
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Windows, macOS, Linux",
   description:
-    "Open-source, MCP-native long-term memory for AI agents over a Markdown and Obsidian vault you own. Hybrid keyword and vector retrieval — sub-second at 50,000 notes, measured — with local OCR, ASR, and image indexing.",
+    "Open-source MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at 50,000 notes, measured, with local OCR, ASR, and image indexing.",
   url: `${siteConfig.url}/exomem`,
   downloadUrl: "https://pypi.org/project/exomem/",
   installUrl: "https://pypi.org/project/exomem/",
@@ -52,21 +56,6 @@ const breadcrumb = breadcrumbJsonLd([
   { name: "Home", path: "/" },
   { name: "Exomem", path: "/exomem" },
 ]);
-
-// All eight FAQs stay in the FAQPage JSON-LD for SEO; the page renders the five
-// approved for the redesign (below).
-const faqJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: faqs.map((faq) => ({
-    "@type": "Question",
-    name: faq.q,
-    acceptedAnswer: {
-      "@type": "Answer",
-      text: typeof faq.a === "string" ? faq.a : (faq.aText ?? ""),
-    },
-  })),
-};
 
 const capabilities = [
   {
@@ -108,8 +97,7 @@ const benchmarks = [
     value: "<10",
     unit: "ms",
     color: "var(--fg-primary)",
-    label:
-      "Keyword and lexical lanes, served straight from the SQLite FTS5 index.",
+    label: "Keyword and lexical lanes, served straight from the SQLite FTS5 index.",
   },
   {
     value: "0",
@@ -142,6 +130,19 @@ const displayFaqs: ExoFaq[] = [
     a: "No. The lean install runs keyword and BM25 search out of the box — SQLite's FTS5 engine ships inside Python's standard library. Optional extras add local embeddings, CLIP image search, OCR, and speech-to-text; a GPU accelerates those, but is never required.",
   },
 ];
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: displayFaqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.a,
+    },
+  })),
+};
 
 // ---- shared style tokens ----------------------------------------------------
 const MONO = "var(--font-mono-exo)";
@@ -236,11 +237,7 @@ export default function ExomemPage() {
           >
             exomem
           </span>
-          <Link
-            href="/"
-            className="exo-link-ts"
-            style={{ fontSize: "12px", fontWeight: 300 }}
-          >
+          <Link href="/" className="exo-link-ts" style={{ fontSize: "12px", fontWeight: 300 }}>
             by Substrate Systems
           </Link>
         </div>
@@ -257,14 +254,14 @@ export default function ExomemPage() {
             href="https://github.com/Artexis10/exomem"
             {...externalLink}
             className="exo-link-sp"
+            style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
+            <GithubMark size={13} />
             GitHub
           </a>
-          <a
-            href="https://pypi.org/project/exomem/"
-            {...externalLink}
-            className="exo-link-sp"
-          >
+          {/* PyPI stays text: its mark is the Python blocks logo, which reads as
+              "Python" beside the Octocat, and is a registered PSF trademark. */}
+          <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-sp">
             PyPI
           </a>
         </nav>
@@ -276,22 +273,20 @@ export default function ExomemPage() {
           style={{
             maxWidth: "72rem",
             margin: "0 auto",
-            padding:
-              "clamp(40px,7vh,88px) clamp(20px,5vw,48px) clamp(72px,10vh,128px)",
+            padding: "clamp(40px,7vh,88px) clamp(20px,5vw,48px) clamp(72px,10vh,128px)",
           }}
         >
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit,minmax(min(100%,440px),1fr))",
+              gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,440px),1fr))",
               gap: "clamp(40px,5vw,72px)",
               alignItems: "center",
             }}
           >
             <div style={{ containerType: "inline-size" }}>
               <p data-reveal data-reveal-delay="0" style={label}>
-                External memory for agents
+                MCP memory server
               </p>
               <h1
                 data-reveal
@@ -323,10 +318,10 @@ export default function ExomemPage() {
                   color: "var(--fg-secondary)",
                 }}
               >
-                Exomem is an open-source, MCP-native memory layer over the
-                Markdown or Obsidian vault you already own. Claude Code, Codex,
-                and Cursor get durable context — you keep the files, the
-                provenance, and the review loop.
+                Exomem is an open-source MCP memory server that runs over the Markdown knowledge
+                base you already own — a plain folder, or your Obsidian vault. Claude Code, Codex,
+                and Cursor get durable context; you keep the files, the provenance, and the review
+                loop.
               </p>
               <div
                 data-reveal
@@ -388,8 +383,7 @@ export default function ExomemPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit,minmax(min(100%,420px),1fr))",
+                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))",
                 gap: "clamp(28px,4vw,64px)",
                 marginTop: "28px",
               }}
@@ -399,8 +393,8 @@ export default function ExomemPage() {
                 data-reveal-delay="80"
                 style={{ ...h2, margin: 0, textWrap: "balance" }}
               >
-                Memory should be inspectable infrastructure you own — not hidden
-                assistant state in someone else&rsquo;s cloud.
+                Memory should be inspectable infrastructure you own — not hidden assistant state in
+                someone else&rsquo;s cloud.
               </h2>
               <div
                 data-reveal
@@ -416,15 +410,14 @@ export default function ExomemPage() {
                 }}
               >
                 <p style={{ margin: 0 }}>
-                  Exomem gives agents a shared substrate without asking you to
-                  move your knowledge into another app. Source material, compiled
-                  notes, typed entities, evidence, and supersession history remain
-                  plain files — open any of them in a text editor.
+                  Exomem gives agents a shared substrate without asking you to move your knowledge
+                  into another app. Source material, compiled notes, typed entities, evidence, and
+                  supersession history remain plain files — open any of them in a text editor.
                 </p>
                 <p style={{ margin: 0 }}>
-                  The server measures and routes: search, embeddings, extraction,
-                  file writes, graph health, review queues. Judgment stays with
-                  the human and the client model using the tools.
+                  The server measures and routes: search, embeddings, extraction, file writes, graph
+                  health, review queues. Judgment stays with the human and the client model using
+                  the tools.
                 </p>
               </div>
 
@@ -474,24 +467,18 @@ export default function ExomemPage() {
                       overflowWrap: "anywhere",
                     }}
                   >
-                    <span style={{ color: "var(--fg-tertiary)" }}>
-                      {"---\ntype:"}
-                    </span>
+                    <span style={{ color: "var(--fg-tertiary)" }}>{"---\ntype:"}</span>
                     {" decision\n"}
                     <span style={{ color: "var(--fg-tertiary)" }}>status:</span>
                     {" superseded\n"}
-                    <span style={{ color: "var(--fg-tertiary)" }}>
-                      superseded_by:
-                    </span>{" "}
+                    <span style={{ color: "var(--fg-tertiary)" }}>superseded_by:</span>{" "}
                     <span style={{ color: "var(--exo-amber)" }}>
                       &quot;[[newer-constraint]]&quot;
                     </span>
                     {"\n"}
                     <span style={{ color: "var(--fg-tertiary)" }}>---</span>
                     {"\n\nBatch embeddings at 256 on 16 GB cards.\nReplaced after "}
-                    <span style={{ color: "rgba(255,176,0,0.8)" }}>
-                      [[benchmark-run-014]]
-                    </span>
+                    <span style={{ color: "rgba(255,176,0,0.8)" }}>[[benchmark-run-014]]</span>
                     {" showed VRAM\nheadroom, not throughput, is the bound."}
                   </pre>
                 </div>
@@ -504,8 +491,8 @@ export default function ExomemPage() {
                     color: "var(--fg-tertiary)",
                   }}
                 >
-                  Supersession lives in the file, not in a hidden database — grep
-                  it, diff it, version it.
+                  Supersession lives in the file, not in a hidden database — grep it, diff it,
+                  version it.
                 </p>
               </div>
             </div>
@@ -525,8 +512,7 @@ export default function ExomemPage() {
               style={{
                 marginTop: "44px",
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit,minmax(min(100%,300px),1fr))",
+                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,300px),1fr))",
                 gap: "0 clamp(24px,3vw,48px)",
               }}
             >
@@ -609,15 +595,14 @@ export default function ExomemPage() {
                 color: "var(--fg-secondary)",
               }}
             >
-              Most memory tools claim they scale. Exomem publishes the numbers —
-              and the methodology, so you can reproduce them on your own vault.
+              Most memory tools claim they scale. Exomem publishes the numbers — and the
+              methodology, so you can reproduce them on your own vault.
             </p>
             <div
               style={{
                 marginTop: "48px",
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit,minmax(min(100%,260px),1fr))",
+                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))",
                 gap: "1px",
                 background: "rgba(236,233,226,0.09)",
                 border: "1px solid rgba(236,233,226,0.09)",
@@ -696,19 +681,14 @@ export default function ExomemPage() {
             <p data-reveal style={label}>
               04 — The difference
             </p>
-            <h2
-              data-reveal
-              data-reveal-delay="80"
-              style={{ ...h2, maxWidth: "44rem" }}
-            >
+            <h2 data-reveal data-reveal-delay="80" style={{ ...h2, maxWidth: "44rem" }}>
               Your memory stays yours.
             </h2>
             <div
               style={{
                 marginTop: "44px",
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit,minmax(min(100%,320px),1fr))",
+                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,320px),1fr))",
                 gap: "clamp(16px,2vw,24px)",
               }}
             >
@@ -843,10 +823,7 @@ export default function ExomemPage() {
                         color: "#c8c3b8",
                       }}
                     >
-                      <span
-                        aria-hidden="true"
-                        style={{ color: "var(--exo-amber)", flex: "none" }}
-                      >
+                      <span aria-hidden="true" style={{ color: "var(--exo-amber)", flex: "none" }}>
                         ▸
                       </span>
                       {li}
@@ -864,11 +841,12 @@ export default function ExomemPage() {
                 color: "var(--fg-secondary)",
               }}
             >
-              <Link
-                href="/blog/exomem-vs-mem0-letta-zep"
-                className="exo-underline-pp"
-              >
+              <Link href="/blog/exomem-vs-mem0-letta-zep" className="exo-underline-pp">
                 Full comparison vs mem0, Letta, Zep, cognee, and Basic Memory →
+              </Link>
+              <br />
+              <Link href="/blog/exomem-vs-claude-mem" className="exo-underline-pp">
+                Exomem vs claude-mem: session continuity vs durable knowledge →
               </Link>
             </p>
           </div>
@@ -884,8 +862,7 @@ export default function ExomemPage() {
               style={{
                 marginTop: "28px",
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit,minmax(min(100%,340px),1fr))",
+                gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,340px),1fr))",
                 gap: "clamp(24px,4vw,56px)",
                 alignItems: "start",
                 maxWidth: "64rem",
@@ -932,12 +909,10 @@ export default function ExomemPage() {
                   }}
                 >
                   <p style={{ margin: 0 }}>
-                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>pip
-                    install exomem
+                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>pip install exomem
                   </p>
                   <p style={{ margin: 0 }}>
-                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>exomem
-                    --help
+                    <span style={{ color: "var(--fg-tertiary)" }}>$ </span>exomem --help
                   </p>
                   <p style={{ margin: 0, color: "var(--fg-tertiary)" }}>
                     # extras: local embeddings · CLIP · OCR · ASR
@@ -955,27 +930,23 @@ export default function ExomemPage() {
                     gap: "10px",
                   }}
                 >
-                  {[
-                    "Claude Code",
-                    "Claude Desktop",
-                    "Codex",
-                    "Cursor",
-                    "any MCP client",
-                  ].map((chip) => (
-                    <span
-                      key={chip}
-                      style={{
-                        border: "1px solid var(--exo-border-input)",
-                        borderRadius: "999px",
-                        padding: "7px 15px",
-                        fontFamily: MONO,
-                        fontSize: "11.5px",
-                        color: "var(--fg-secondary)",
-                      }}
-                    >
-                      {chip}
-                    </span>
-                  ))}
+                  {["Claude Code", "Claude Desktop", "Codex", "Cursor", "any MCP client"].map(
+                    (chip) => (
+                      <span
+                        key={chip}
+                        style={{
+                          border: "1px solid var(--exo-border-input)",
+                          borderRadius: "999px",
+                          padding: "7px 15px",
+                          fontFamily: MONO,
+                          fontSize: "11.5px",
+                          color: "var(--fg-secondary)",
+                        }}
+                      >
+                        {chip}
+                      </span>
+                    )
+                  )}
                 </div>
                 <p
                   style={{
@@ -987,8 +958,8 @@ export default function ExomemPage() {
                     color: "var(--fg-secondary)",
                   }}
                 >
-                  The same memory is also reachable from the CLI and a personal
-                  REST facade — all generated from one operation registry.
+                  The same memory is also reachable from the CLI and a personal REST facade — all
+                  generated from one operation registry.
                 </p>
               </div>
             </div>
@@ -1011,11 +982,7 @@ export default function ExomemPage() {
               >
                 GitHub source →
               </a>
-              <a
-                href="https://pypi.org/project/exomem/"
-                {...externalLink}
-                className="exo-link-sp"
-              >
+              <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-sp">
                 PyPI package →
               </a>
               <a
@@ -1064,9 +1031,9 @@ export default function ExomemPage() {
                   color: "var(--fg-secondary)",
                 }}
               >
-                Exomem is free and self-hosted forever. If you&rsquo;d rather not
-                run it yourself, a managed tier is on the table. Register interest
-                and help decide whether it gets built.
+                Exomem is free and self-hosted forever. If you&rsquo;d rather not run it yourself, a
+                managed tier is on the table. Register interest and help decide whether it gets
+                built.
               </p>
               <p
                 style={{
@@ -1157,18 +1124,10 @@ export default function ExomemPage() {
             <Link href="/endstate" className="exo-link-ts">
               Endstate
             </Link>
-            <a
-              href="https://github.com/Artexis10/exomem"
-              {...externalLink}
-              className="exo-link-ts"
-            >
+            <a href="https://github.com/Artexis10/exomem" {...externalLink} className="exo-link-ts">
               Exomem source
             </a>
-            <a
-              href="https://pypi.org/project/exomem/"
-              {...externalLink}
-              className="exo-link-ts"
-            >
+            <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-ts">
               PyPI
             </a>
           </nav>

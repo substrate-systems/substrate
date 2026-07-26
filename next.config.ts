@@ -1,7 +1,26 @@
 import type { NextConfig } from "next";
 
+// Keep in sync with src/app/providers.tsx — the SDK posts to /ingest and these
+// rewrites forward to whichever PostHog region is configured.
+const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
+
+/**
+ * PostHog serves the SDK bundle and session assets from a sibling `-assets`
+ * host (us.i.posthog.com -> us-assets.i.posthog.com). Derived rather than
+ * hardcoded so switching regions only means changing the env var.
+ */
+function assetsHost(host: string): string {
+  return host.replace(
+    /^(https:\/\/)([a-z0-9-]+)\.i\.posthog\.com$/,
+    (_match, scheme: string, region: string) => `${scheme}${region}-assets.i.posthog.com`,
+  );
+}
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // PostHog's ingest endpoints are trailing-slash sensitive; Next's default
+  // redirect would break the proxied requests.
+  skipTrailingSlashRedirect: true,
   async rewrites() {
     return [
       // Pretty public URL for the Endstate installer. Served by the
@@ -12,6 +31,9 @@ const nextConfig: NextConfig = {
       // handlers live under /api/.well-known/* (Next App Router); this
       // rewrite makes the public URL match the issuer claim.
       { source: "/.well-known/:path*", destination: "/api/.well-known/:path*" },
+      // Same-origin analytics ingest. Assets rule must precede the catch-all.
+      { source: "/ingest/static/:path*", destination: `${assetsHost(POSTHOG_HOST)}/static/:path*` },
+      { source: "/ingest/:path*", destination: `${POSTHOG_HOST}/:path*` },
     ];
   },
 };

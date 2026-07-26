@@ -42,6 +42,7 @@
     "pg": "^8.22.0",
     "postcss": "^8.5.6",
     "posthog-js": "^1.396.6",
+    "posthog-node": "^5.46.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "rehype-autolink-headings": "^7.1.0",

@@ -27,6 +27,9 @@ const articleJsonLd = {
   },
   datePublished: "2026-04-01",
   url: `${siteConfig.url}/endstate/why`,
+  // Required by schema.org Article; absent, validators report the whole item as
+  // invalid. Matches the OG card above, absolute for off-page consumers.
+  image: [`${siteConfig.url}/api/og?title=${encodeURIComponent(ARTICLE_TITLE)}`],
 };
 
 const breadcrumb = breadcrumbJsonLd([

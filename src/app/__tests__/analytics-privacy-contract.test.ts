@@ -1,0 +1,73 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+const providers = readFileSync(path.join(process.cwd(), "src/app/providers.tsx"), "utf8");
+
+/**
+ * Session replay records the DOM. Substrate renders recovery keys, claim tokens
+ * and account identifiers, and no masking pass has been done, so replay stays
+ * off until one has. Enabling it is a deliberate follow-up change that must
+ * delete this test — which is the point.
+ *
+ * Asserted against the source text rather than by booting PostHog, because the
+ * guarantee is about what is configured, and a runtime assertion would need the
+ * SDK initialised in a browser to observe it.
+ */
+describe("PostHog privacy configuration", () => {
+  it("keeps session replay disabled while masking is unverified", () => {
+    assert.match(
+      providers,
+      /disable_session_recording:\s*true/,
+      "session replay must stay disabled — surfaces rendering recovery keys and claim tokens have no masking rules yet"
+    );
+    assert.doesNotMatch(
+      providers,
+      /disable_session_recording:\s*false/,
+      "session replay was enabled without a masking pass"
+    );
+  });
+
+  it("routes captures through the private-route filter", () => {
+    // before_send is the actual enforcement point for the Exomem privacy
+    // contract; a config that drops it would silently leak authenticated pages.
+    assert.match(
+      providers,
+      /before_send:\s*\(capture\)\s*=>\s*filterPostHogCapture\(/,
+      "every capture must pass through filterPostHogCapture"
+    );
+  });
+
+  it("keeps ingestion same-origin so ad blockers do not bias the data", () => {
+    // Loss to blockers is silent and biased, not random: it skews hardest among
+    // Windows power users, which is precisely the Endstate audience.
+    assert.match(providers, /api_host:\s*["'`]\/ingest/, "ingestion must stay same-origin");
+  });
+
+  it("scopes autocapture away from surfaces rendering a token or an email", () => {
+    // A bare `autocapture: true` would record $el_text on the claim page and the
+    // account page. The config object carries the url_ignorelist that excludes them.
+    assert.match(
+      providers,
+      /autocapture:\s*\{\s*url_ignorelist:\s*autocaptureUrlIgnorelist\s*\}/,
+      "autocapture must be scoped by url_ignorelist, not enabled wholesale"
+    );
+    assert.doesNotMatch(
+      providers,
+      /autocapture:\s*true/,
+      "a bare `autocapture: true` re-enables capture on the claim and account pages"
+    );
+  });
+
+  it("never opts into capturing copied text", () => {
+    // posthog-js only captures cut/copied text when this is explicitly true. The
+    // claim page exists to be copied from, so enabling it would send a live
+    // credential to PostHog.
+    assert.doesNotMatch(
+      providers,
+      /capture_copied_text/,
+      "capture_copied_text must stay unset — the claim page's whole purpose is copying a token"
+    );
+  });
+});

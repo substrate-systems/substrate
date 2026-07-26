@@ -35,6 +35,8 @@ type BuildMetadataInput = {
   standaloneTitle?: boolean;
   /** ISO date for article OG. */
   publishedTime?: string;
+  /** ISO date for a meaningful article update. */
+  modifiedTime?: string;
   authors?: string[];
   /** true = emit robots noindex (still followable). */
   noIndex?: boolean;
@@ -49,6 +51,7 @@ export function buildMetadata(input: BuildMetadataInput): Metadata {
     ogType = "website",
     standaloneTitle = false,
     publishedTime,
+    modifiedTime,
     authors,
     noIndex,
   } = input;
@@ -73,6 +76,7 @@ export function buildMetadata(input: BuildMetadataInput): Metadata {
       locale: siteConfig.locale,
       type: ogType,
       ...(publishedTime ? { publishedTime } : {}),
+      ...(modifiedTime ? { modifiedTime } : {}),
       images: [{ url: ogImage, width: 1200, height: 630, alt: title }],
     },
     twitter: {

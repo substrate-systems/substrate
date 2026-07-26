@@ -1,17 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
+import {
+  captureServer,
+  distinctIdFromRequest,
+  ServerEvent,
+  type ServerEventName,
+} from "@/lib/analytics-server";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
-const REPO = 'Artexis10/endstate-gui';
+const REPO = "Artexis10/endstate-gui";
 const LATEST_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
 const LIST_URL = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
 
-const ALLOWED_FORMATS = new Set(['exe', 'msi']);
+const ALLOWED_FORMATS = new Set(["exe", "msi"]);
 
 const GH_HEADERS = {
-  Accept: 'application/vnd.github+json',
-  'X-GitHub-Api-Version': '2022-11-28',
-  'User-Agent': 'substratesystems.io-download-redirect',
+  Accept: "application/vnd.github+json",
+  "X-GitHub-Api-Version": "2022-11-28",
+  "User-Agent": "substratesystems.io-download-redirect",
 };
 
 type ReleaseAsset = {
@@ -26,15 +32,13 @@ type Release = {
 };
 
 function fail(reason: string, ctx: Record<string, unknown>): NextResponse {
-  console.error('[api/download] download_unavailable', { reason, ...ctx });
-  return NextResponse.json({ error: 'download_unavailable' }, { status: 503 });
+  console.error("[api/download] download_unavailable", { reason, ...ctx });
+  return NextResponse.json({ error: "download_unavailable" }, { status: 503 });
 }
 
 /** The installer asset for a format, skipping detached signatures (.sig). */
 function pickAsset(release: Release | null, suffix: string): ReleaseAsset | undefined {
-  return release?.assets?.find(
-    (a) => a.name.endsWith(suffix) && !a.name.endsWith('.sig'),
-  );
+  return release?.assets?.find((a) => a.name.endsWith(suffix) && !a.name.endsWith(".sig"));
 }
 
 async function fetchGitHubJson<T>(url: string): Promise<T | null> {
@@ -42,20 +46,20 @@ async function fetchGitHubJson<T>(url: string): Promise<T | null> {
   try {
     res = await fetch(url, { headers: GH_HEADERS, next: { revalidate: 300 } });
   } catch (err) {
-    console.error('[api/download] upstream_fetch_threw', {
+    console.error("[api/download] upstream_fetch_threw", {
       url,
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
   }
   if (!res.ok) {
-    console.error('[api/download] upstream_non_2xx', { url, status: res.status });
+    console.error("[api/download] upstream_non_2xx", { url, status: res.status });
     return null;
   }
   try {
     return (await res.json()) as T;
   } catch (err) {
-    console.error('[api/download] upstream_invalid_json', {
+    console.error("[api/download] upstream_invalid_json", {
       url,
       error: err instanceof Error ? err.message : String(err),
     });
@@ -65,15 +69,23 @@ async function fetchGitHubJson<T>(url: string): Promise<T | null> {
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(req.url);
-  const formatParam = searchParams.get('format')?.toLowerCase() ?? 'exe';
-  const format = ALLOWED_FORMATS.has(formatParam) ? formatParam : 'exe';
+  const formatParam = searchParams.get("format")?.toLowerCase() ?? "exe";
+  const format = ALLOWED_FORMATS.has(formatParam) ? formatParam : "exe";
   const suffix = `.${format}`;
+
+  // Captured server-side because this route 302s away: a client-side event
+  // races the page teardown, while every request that lands here is real.
+  // captureServer bounds its own flush so this cannot stall the redirect.
+  const distinctId = distinctIdFromRequest(req);
+  const track = (event: ServerEventName, properties: Record<string, unknown>) =>
+    captureServer({ event, distinctId, properties: { format, ...properties } });
 
   // Primary path: honor GitHub's "Latest" release. The endstate-gui release
   // pipeline only promotes a release to Latest after its installers are verified
   // (release-please.yml), so this is normally the correct artifact.
   const latest = await fetchGitHubJson<Release>(LATEST_URL);
   let asset = pickAsset(latest, suffix);
+  let resolvedVia: "latest" | "fallback_scan" = "latest";
 
   // Resilience: if Latest somehow has no matching installer, redirect to the
   // newest published (non-draft, non-prerelease) release that does, instead of
@@ -84,13 +96,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     for (const release of releases ?? []) {
       if (release.draft || release.prerelease) continue;
       asset = pickAsset(release, suffix);
-      if (asset) break;
+      if (asset) {
+        resolvedVia = "fallback_scan";
+        break;
+      }
     }
   }
 
   if (!asset) {
-    return fail('no_matching_asset', { repo: REPO, format });
+    // A failed install attempt is the most urgent signal this route produces —
+    // during a traffic spike it is the difference between "nobody wanted it"
+    // and "nobody could get it".
+    await track(ServerEvent.DownloadFailed, { reason: "no_matching_asset", repo: REPO });
+    return fail("no_matching_asset", { repo: REPO, format });
   }
 
+  await track(ServerEvent.DownloadServed, { asset: asset.name, resolved_via: resolvedVia });
   return NextResponse.redirect(asset.browser_download_url, 302);
 }

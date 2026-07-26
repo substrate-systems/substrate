@@ -4,8 +4,8 @@ slug: coolify-to-k3s
 subtitle: "How Q's production infrastructure became declarative"
 description: "Migrating Q from Coolify to K3s + Terraform + Ansible — the conversation that started it, what got built, and the operational calm that followed."
 published: 2026-05-24
+updated: 2026-07-20
 date: 2026-05-24
-status: draft
 tags:
   - iac
   - kubernetes
@@ -15,7 +15,7 @@ tags:
 author: Hugo Ander Kivi
 ---
 
-Q runs on K3s these days. K3s, Hetzner, Terraform, Ansible, sealed secrets, automated backups to Backblaze R2, self-hosted GitHub Actions runners, Traefik with Let's Encrypt. It's clean. The whole thing is declarative: if the server dies, recovery is a `terraform apply` away.
+Q, my multi-tenant AI platform for semantic search and RAG-powered Q&A, runs on K3s these days. K3s, Hetzner, Terraform, Ansible, sealed secrets, automated backups to Backblaze B2, self-hosted GitHub Actions runners, Traefik with Let's Encrypt. It's clean. The whole thing is declarative: if the server dies, recovery is a `terraform apply` away.
 
 That's now. Getting there started with a conversation, and took longer than it should have.
 
@@ -47,7 +47,7 @@ The decision to migrate was downstream of that moment. Once I'd committed to dec
 | Host bootstrap | SSH + manual commands | Ansible |
 | Workload management | Coolify containers | K3s |
 | Secrets | Plaintext env vars | Sealed secrets + encryption at rest |
-| Backups | Manual snapshots | CronJobs to Backblaze R2 |
+| Backups | Manual snapshots | CronJobs to Backblaze B2 |
 | CI runners | GitHub-hosted | Self-hosted on cluster |
 | TLS | Coolify-managed | Traefik + Let's Encrypt automation |
 

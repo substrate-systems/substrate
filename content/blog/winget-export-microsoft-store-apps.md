@@ -16,6 +16,8 @@ If you back up your apps with `winget export` and restore them on a new machine,
 
 Here is why it happens, and how to catch it before it costs you.
 
+For the full new-PC sequence — the manifest, settings, data, and an offline copy you own — see [the complete Windows setup guide](/blog/new-windows-pc-setup-guide).
+
 ## winget has more than one source
 
 winget installs from sources. The main one is `winget` itself, the community package repository. But Store apps come from a separate source, `msstore`. `winget list` sees both, so when you look at your installed apps it feels like winget knows about everything:

@@ -32,8 +32,8 @@ describe("authored aurora homepage contract", () => {
     assert.match(footer, /Photography/);
     assert.match(footer, /href: "\/photography"/);
     assert.match(work, /href="\/photography"/);
-    assert.match(sitemap, /\/photography`/);
-    assert.match(sitemap, /\/photography\/iceland-aurora`/);
+    assert.match(sitemap, /path: "\/photography"/);
+    assert.match(sitemap, /path: "\/photography\/iceland-aurora"/);
     assert.match(og, /aurora-hero-og\.jpg/);
     assert.doesNotMatch(og, /metal-structure-dark\.jpg/);
   });
