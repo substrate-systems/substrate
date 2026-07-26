@@ -8,6 +8,10 @@ import {
   operatorOAuthClientFingerprint,
 } from "../oauth-client-admission";
 
+function isInvalidRequest(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "INVALID_REQUEST";
+}
+
 describe("operator OAuth client admission", () => {
   it("keeps a pinned registration bounded and preserves exact redirect values", () => {
     assert.deepEqual(
@@ -25,6 +29,7 @@ describe("operator OAuth client admission", () => {
         artifactId: "018f2d91-7c42-7000-8000-000000000001",
         clientId: "desktop-client",
         redirectUris: ["https://app.example.test/callback"],
+        ttlSeconds: 86_400,
       }
     );
   });
@@ -42,7 +47,7 @@ describe("operator OAuth client admission", () => {
           },
           { cimdHosts: ["trusted.example.test"] }
         ),
-      /INVALID_REQUEST/
+      isInvalidRequest
     );
     assert.equal(
       normalizeOperatorOAuthClientRegistration(
@@ -73,7 +78,7 @@ describe("operator OAuth client admission", () => {
           clientId: "desktop-client",
           redirectUris: ["http://evil.example.test/callback"],
         }),
-      /INVALID_REQUEST/
+      isInvalidRequest
     );
     const fingerprint = operatorOAuthClientFingerprint("desktop-client", Buffer.alloc(32, 9));
     assert.match(fingerprint, /^[a-f0-9]{64}$/);

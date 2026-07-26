@@ -9,14 +9,21 @@ import {
   revokeOperatorOAuthFamily,
   setOperatorOAuthClientEnabled,
 } from "../operator-controls";
+import { operatorOAuthClientFingerprint } from "../oauth-client-admission";
+
+const originalControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
 
 afterEach(() => {
   __setExomemSqlForTests(null);
   __setExomemTransactionForTests(null);
+  if (originalControlPlaneKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+  else process.env.EXOMEM_CONTROL_PLANE_KEY = originalControlPlaneKey;
 });
 
 describe("hosted operator controls", () => {
   it("lists approved clients without returning their raw client identity or redirects", async () => {
+    const controlPlaneKey = Buffer.alloc(32, 0x51);
+    process.env.EXOMEM_CONTROL_PLANE_KEY = controlPlaneKey.toString("base64url");
     __setExomemSqlForTests(async () => ({
       rows: [
         {
@@ -24,7 +31,9 @@ describe("hosted operator controls", () => {
           client_id: "https://private.example/credential-sentinel",
           enabled: true,
           admission_mode: "pinned",
+          redirect_uris_digest: Buffer.alloc(32, 0x22),
           redirect_count: 2,
+          metadata_expires_at: null,
         },
       ],
     }));
@@ -34,7 +43,13 @@ describe("hosted operator controls", () => {
         id: "018f2d91-7c42-7000-8000-000000000001",
         enabled: true,
         admissionMode: "pinned",
+        clientFingerprint: operatorOAuthClientFingerprint(
+          "https://private.example/credential-sentinel",
+          controlPlaneKey
+        ),
+        redirectDigest: Buffer.alloc(32, 0x22).toString("hex"),
         redirectCount: 2,
+        metadataExpiresAt: null,
       },
     ]);
   });
@@ -55,14 +70,17 @@ describe("hosted operator controls", () => {
       }),
       true
     );
-    assert.match(query, /WHERE id = \?::uuid/i);
+    assert.match(query, /WHERE client\.id = \?::uuid/i);
   });
 
   it("fences family and account revocation to the named owner and tenant", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {
-      queries.push(strings.join("?"));
-      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000002" }] };
+      const query = strings.join("?");
+      queries.push(query);
+      return query.includes("revoke-oauth-account-for-owner-tenant")
+        ? { rows: [{ revoked_families: 1 }] }
+        : { rows: [{ id: "018f2d91-7c42-7000-8000-000000000002" }] };
     };
     __setExomemSqlForTests(sql);
     __setExomemTransactionForTests(async (callback) => callback(sql));

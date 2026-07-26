@@ -5,9 +5,12 @@ import {
   listExomemAgentContractStatus,
 } from "../agent-contract-store";
 import { getCapacityPoolStatus } from "../capacity-store";
-import { __setExomemSqlForTests } from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 
-afterEach(() => __setExomemSqlForTests(null));
+afterEach(() => {
+  __setExomemSqlForTests(null);
+  __setExomemTransactionForTests(null);
+});
 
 describe("operator status getters", () => {
   it("returns only coarse capacity totals and active claim count", async () => {
@@ -40,7 +43,7 @@ describe("operator status getters", () => {
 
   it("lists contract digests and retires only a live contract", async () => {
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const sql = async (strings: TemplateStringsArray) => {
       const query = strings.join("?");
       queries.push(query);
       if (query.includes("SELECT id, state")) {
@@ -57,7 +60,9 @@ describe("operator status getters", () => {
         };
       }
       return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000021" }] };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (callback) => callback(sql));
 
     assert.deepEqual(await listExomemAgentContractStatus(), [
       {
@@ -72,7 +77,9 @@ describe("operator status getters", () => {
       await demoteExomemAgentContractCandidate("018f2d91-7c42-7000-8000-000000000021"),
       true
     );
-    assert.match(queries[1], /SET state = 'retired', retired_at = now\(\)/i);
-    assert.match(queries[1], /AND state = 'live'/i);
+    assert.match(queries[1], /pg_advisory_xact_lock\(/i);
+    assert.doesNotMatch(queries[1], /pg_advisory_xact_lock_shared/i);
+    assert.match(queries[2], /SET state = 'retired', retired_at = now\(\)/i);
+    assert.match(queries[2], /AND state = 'live'/i);
   });
 });

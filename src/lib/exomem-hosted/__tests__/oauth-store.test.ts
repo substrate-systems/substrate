@@ -151,7 +151,7 @@ describe("Exomem OAuth token store", () => {
     });
     assert.match(query, /credential AS/i);
     assert.match(query, /current_policy AS/i);
-    assert.match(query, /token\.consumed_at IS NOT NULL/i);
+    assert.match(query, /credential\.consumed_at IS NOT NULL/i);
     assert.doesNotMatch(
       query.slice(query.indexOf("WITH credential"), query.indexOf("current_policy")),
       /JOIN exomem_entitlements/i
@@ -192,7 +192,7 @@ describe("Exomem OAuth token store", () => {
     setSqlForTests(async (strings) => {
       const query = strings.join("?");
       queries.push(query);
-      if (query.includes("SELECT token.family_id")) {
+      if (query.includes("exomem:find-active-oauth-access-token")) {
         return {
           rows: [
             {
@@ -216,10 +216,14 @@ describe("Exomem OAuth token store", () => {
       ownerUserId: "user-1",
       tenantId: "tenant-1",
     });
-    const accessQuery = queries.find((query) => query.includes("SELECT token.family_id"));
-    const revokeQuery = queries.find((query) => query.includes("revoke-oauth-token-family"));
+    const accessQuery = queries.find((query) =>
+      query.includes("exomem:find-active-oauth-access-token")
+    );
+    const revokeQuery = queries.find((query) =>
+      query.includes("exomem:revoke-oauth-token-family-for-owner")
+    );
     assert.match(accessQuery ?? "", /exomem_entitlements/i);
-    assert.match(revokeQuery ?? "", /WHERE id = \?::uuid/i);
+    assert.match(revokeQuery ?? "", /WHERE family\.id = \?::uuid/i);
     assert.match(revokeQuery ?? "", /grant\.user_id = \?::uuid/i);
     assert.match(revokeQuery ?? "", /grant\.tenant_id = \?::uuid/i);
   });
