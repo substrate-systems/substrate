@@ -81,6 +81,8 @@ export function buildAuthorizationServerMetadata(baseUrl: string): Record<string
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
+    client_id_metadata_document_supported: true,
+    token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
   };
 }
@@ -91,6 +93,10 @@ export function protectedResourceMetadataUrl(baseUrl: string): string {
 
 export function bearerChallenge(baseUrl: string): string {
   return `Bearer resource_metadata="${protectedResourceMetadataUrl(baseUrl)}"`;
+}
+
+export function mcpAuthenticateMeta(baseUrl: string): { "mcp/www_authenticate": string[] } {
+  return { "mcp/www_authenticate": [bearerChallenge(baseUrl)] };
 }
 
 /** Returns a raw credential only when it appears as the sole bearer header value. */
@@ -239,6 +245,10 @@ export async function exchangeAuthorizationCode(
   dependencies: {
     consumeAuthorizationCode: (input: {
       codeDigest: Buffer;
+      clientId: string;
+      redirectUri: string;
+      resource: string;
+      pkceChallenge: string;
     }) => Promise<AuthorizationCodeRecord | null>;
     now?: () => Date;
     randomBytes?: RandomBytesSource;
@@ -250,7 +260,13 @@ export async function exchangeAuthorizationCode(
   if (!codeDigest || !PKCE_VALUE.test(input.codeVerifier)) {
     throw new OAuthProtocolError("OAUTH_INVALID_GRANT");
   }
-  const record = await dependencies.consumeAuthorizationCode({ codeDigest });
+  const record = await dependencies.consumeAuthorizationCode({
+    codeDigest,
+    clientId: input.clientId,
+    redirectUri: input.redirectUri,
+    resource: input.resource,
+    pkceChallenge: pkceS256(input.codeVerifier),
+  });
   const now = dependencies.now?.() ?? new Date();
   if (
     !record ||
@@ -278,6 +294,8 @@ export async function rotateRefreshToken(
       replacementRefreshDigest: Buffer;
       accessDigest: Buffer;
       accessExpiresAt: Date;
+      clientId: string;
+      resource: string;
     }) => Promise<{
       clientId: string;
       resource: string;
@@ -302,6 +320,8 @@ export async function rotateRefreshToken(
     replacementRefreshDigest: material.refreshTokenDigest,
     accessDigest: material.accessTokenDigest,
     accessExpiresAt: material.accessTokenExpiresAt,
+    clientId: input.clientId,
+    resource: input.resource,
   });
   if (!record || record.clientId !== input.clientId || record.resource !== input.resource) {
     throw new OAuthProtocolError("OAUTH_INVALID_GRANT");

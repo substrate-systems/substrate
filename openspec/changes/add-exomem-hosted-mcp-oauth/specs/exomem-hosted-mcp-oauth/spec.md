@@ -48,13 +48,13 @@ The authorization server SHALL implement authorization code with PKCE S256, exac
 
 ### Requirement: Login Reuses Invite And Magic-Link Identity Without Setup
 
-An OAuth authorization transaction SHALL derive identity and tenant exclusively from authoritative server state. In the alpha, the proven email-bound invite acceptance flow first atomically creates the normal browser session, tenant, entitlement, capacity reservation, and initial-provision operation; plugin OAuth then connects that existing eligible owner through the browser session or magic-link authentication flow. Pre-tenant OAuth invite resumption is deferred. OAuth never requires Home setup, billing details for complimentary access, a tenant selector, or a second Exomem configuration step.
+An OAuth authorization transaction SHALL resume through the existing email-bound invite redemption or non-enumerating magic-link authentication flow and SHALL derive identity and tenant exclusively from authoritative server state. A valid first authorization MUST atomically validate eligibility, reserve capacity, consume the invite when applicable, resolve or create one identity/tenant/entitlement/initial-provision operation, create the normal browser session recorded as `redeemed_session_id`, authorize the client grant, and issue one-time code without requiring Home setup, billing details for complimentary access, a tenant selector, or a second Exomem configuration step.
 
-#### Scenario: New invitee accepts an invite before plugin OAuth
+#### Scenario: New invitee authorizes from the plugin
 
-- **WHEN** the invite-bound user completes the existing invite acceptance flow and capacity is available
-- **THEN** that transaction creates or resolves exactly one identity, browser session, tenant, entitlement, capacity reservation, and logical initial-provision operation
-- **AND** a later plugin OAuth authorization attaches a client grant to that existing owner while provider provisioning continues asynchronously
+- **WHEN** the invite-bound user completes one valid Exomem login during a client authorization transaction and capacity is available
+- **THEN** the transaction creates or resolves exactly one identity, browser session, tenant, entitlement, capacity reservation, logical initial-provision operation, client grant, and one-time authorization code
+- **AND** provider provisioning continues asynchronously without another setup page
 
 #### Scenario: Existing entitled owner authorizes another client
 

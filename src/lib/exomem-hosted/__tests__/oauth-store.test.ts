@@ -60,6 +60,8 @@ describe("Exomem OAuth token store", () => {
       replacementRefreshDigest: Buffer.alloc(32, 2),
       accessDigest: Buffer.alloc(32, 3),
       accessExpiresAt: new Date("2026-07-26T01:00:00.000Z"),
+      clientId: "client-1",
+      resource: "resource",
     });
     assert.equal(result, null);
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);

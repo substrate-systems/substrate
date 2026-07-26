@@ -48,9 +48,12 @@ CREATE TABLE exomem_oauth_grants (
   authorization_transaction_id uuid REFERENCES exomem_oauth_authorization_transactions(id) ON DELETE SET NULL,
   revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (user_id, tenant_id, client_id, resource)
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX exomem_oauth_grants_active_identity_idx
+  ON exomem_oauth_grants (user_id, tenant_id, client_id, resource)
+  WHERE revoked_at IS NULL;
 
 CREATE TABLE exomem_oauth_authorization_codes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

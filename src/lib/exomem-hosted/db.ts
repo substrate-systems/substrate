@@ -161,61 +161,10 @@ export async function redeemInviteAtomic(
         AND expires_at > now()
       FOR UPDATE
     ),
-    existing_owner AS (
-      SELECT tenant.id AS tenant_id
-      FROM locked_invite
-      JOIN users AS owner ON owner.email = locked_invite.email_normalized
-        AND owner.deleted_at IS NULL
-      JOIN exomem_tenants AS tenant ON tenant.owner_user_id = owner.id
-        AND tenant.status <> 'deleted'
-      JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
-        AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
-      LIMIT 1
-    ),
-    requires_capacity AS (
-      SELECT NOT EXISTS (SELECT 1 FROM existing_owner)
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM exomem_capacity_allocations AS allocation
-                 JOIN users AS owner ON owner.email = locked_invite.email_normalized
-                 JOIN exomem_tenants AS tenant ON tenant.owner_user_id = owner.id
-                 WHERE allocation.tenant_id = tenant.id
-                   AND allocation.state <> 'released'
-               ) AS needed
-      FROM locked_invite
-    ),
-    available_pool AS (
-      SELECT pool.id
-      FROM exomem_capacity_pools AS pool
-      WHERE pool.pool_key = 'exomem-hosted-alpha'
-        AND pool.storage_bytes >= 5368709120 + COALESCE((
-          SELECT SUM(allocation.storage_bytes)
-          FROM exomem_capacity_allocations AS allocation
-          WHERE allocation.pool_id = pool.id
-            AND allocation.state <> 'released'
-        ), 0)
-        AND pool.runtime_slots >= 1 + COALESCE((
-          SELECT SUM(allocation.runtime_slots)
-          FROM exomem_capacity_allocations AS allocation
-          WHERE allocation.pool_id = pool.id
-            AND allocation.state <> 'released'
-        ), 0)
-      FOR UPDATE
-    ),
-    capacity_gate AS (
-      SELECT 1
-      FROM requires_capacity
-      WHERE needed = false
-      UNION ALL
-      SELECT 1
-      FROM requires_capacity
-      JOIN available_pool ON true
-      WHERE needed = true
-    ),
     owner AS (
       INSERT INTO users (email, email_verified_at)
       SELECT email_normalized, now()
-      FROM locked_invite, capacity_gate
+      FROM locked_invite
       ON CONFLICT (email) DO UPDATE
       SET email = EXCLUDED.email,
           email_verified_at = COALESCE(users.email_verified_at, now())
@@ -230,17 +179,6 @@ export async function redeemInviteAtomic(
       SET updated_at = exomem_tenants.updated_at
       WHERE exomem_tenants.status <> 'deleted'
       RETURNING id, owner_user_id
-    ),
-    capacity_allocation AS (
-      INSERT INTO exomem_capacity_allocations (
-        pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state
-      )
-      SELECT available_pool.id, tenant.id, 5368709120, 1, 0, 'reserved'
-      FROM tenant
-      JOIN requires_capacity ON requires_capacity.needed = true
-      JOIN available_pool ON true
-      ON CONFLICT (tenant_id) DO NOTHING
-      RETURNING tenant_id
     ),
     existing_entitlement AS (
       SELECT entitlement.tenant_id
@@ -268,7 +206,6 @@ export async function redeemInviteAtomic(
              locked_invite.entitlement_limits
       FROM tenant
       CROSS JOIN locked_invite
-      LEFT JOIN capacity_allocation ON capacity_allocation.tenant_id = tenant.id
       WHERE NOT EXISTS (
         SELECT 1 FROM existing_entitlement
         WHERE existing_entitlement.tenant_id = tenant.id

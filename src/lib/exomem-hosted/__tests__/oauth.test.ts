@@ -36,6 +36,8 @@ describe("Exomem Hosted OAuth protocol", () => {
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
+      client_id_metadata_document_supported: true,
+      token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
     });
     assert.equal(
@@ -128,7 +130,9 @@ describe("Exomem Hosted OAuth protocol", () => {
       randomBytes: (size) => Buffer.alloc(size, 7),
     });
     let consumed = false;
+    let exchangeInput: Record<string, unknown> | undefined;
     const exchange = async (input: { codeDigest: Buffer }) => {
+      exchangeInput = input;
       if (consumed || !input.codeDigest.equals(issued.codeDigest)) return null;
       consumed = true;
       return issued.record;
@@ -146,6 +150,10 @@ describe("Exomem Hosted OAuth protocol", () => {
     );
     assert.equal(token.clientId, client.clientId);
     assert.equal(token.resource, resource);
+    assert.equal(exchangeInput?.clientId, client.clientId);
+    assert.equal(exchangeInput?.redirectUri, client.redirectUris[0]);
+    assert.equal(exchangeInput?.resource, resource);
+    assert.equal(exchangeInput?.pkceChallenge, pkceS256(verifier));
     assert.ok(Buffer.isBuffer(token.accessTokenDigest));
     assert.equal(JSON.stringify(token).includes(issued.code), false);
     await assert.rejects(
@@ -179,6 +187,8 @@ describe("Exomem Hosted OAuth protocol", () => {
     );
     assert.equal(rotated.clientId, client.clientId);
     assert.ok(Buffer.isBuffer(rotateInput?.refreshDigest));
+    assert.equal(rotateInput?.clientId, client.clientId);
+    assert.equal(rotateInput?.resource, resource);
     assert.equal(JSON.stringify(rotateInput).includes(refreshToken), false);
     await assert.rejects(
       () =>

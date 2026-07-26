@@ -51,9 +51,9 @@ Supporting only one guessed mechanism was rejected because native client behavio
 
 ### 3. OAuth login resumes one sealed invite/magic-link transaction
 
-An authorization request creates a short-lived, content-free transaction bound to client, exact redirect URI, resource, requested scopes, PKCE challenge, and opaque browser state. This alpha slice authorizes only an existing eligible owner through the existing Exomem browser session or magic-link flow. Invite acceptance remains the proven separate flow that creates the browser session, tenant, entitlement, and provision operation before plugin OAuth connect; pre-tenant OAuth invite resumption is later work. The browser never chooses a tenant, email override, profile, or cell.
+An authorization request creates a short-lived, content-free transaction bound to client, exact redirect URI, resource, requested scopes, PKCE challenge, and opaque browser state. Existing Exomem browser authentication may satisfy identity; otherwise the transaction resumes through the existing email-bound invite redemption or non-enumerating magic-link flow. The browser never chooses a tenant, email override, profile, or cell.
 
-For a new invitee, the existing invite-acceptance database transaction:
+For a new invitee, one database transaction:
 
 1. validates the unconsumed email-bound invite and the authenticated identity;
 2. acquires a capacity reservation;
@@ -61,11 +61,11 @@ For a new invitee, the existing invite-acceptance database transaction:
 4. resolves or creates the one Exomem tenant;
 5. projects the provider-neutral entitlement and alpha limits;
 6. resolves or creates one `initial-provision` lifecycle operation; and
-7. creates the normal browser session recorded in `redeemed_session_id`.
+7. authorizes one OAuth grant and one-time code for the client/resource/scopes.
 
-If capacity cannot be reserved, the transaction leaves the invite reusable and creates no session, identity, tenant, entitlement, provisioning operation, OAuth grant, cell, or volume. Existing entitled owners skip first-tenant allocation and later attach a new client grant to their authoritative tenant.
+If capacity cannot be reserved, the transaction leaves the invite reusable and creates no session, identity, tenant, entitlement, provisioning operation, OAuth grant, code, cell, or volume. Existing entitled owners skip first-tenant allocation and attach a new client grant to their authoritative tenant.
 
-After this durable admission transaction commits, a plugin OAuth authorization can issue a code for the existing eligible owner; provider provisioning continues asynchronously. Waiting synchronously for a cell was rejected because provider latency would make OAuth callbacks brittle. Consuming the invite before capacity admission was rejected because it could strand a valid user with neither service nor a reusable invite.
+The authorization code is issued once this durable admission transaction commits; provider provisioning continues asynchronously. Waiting synchronously for a cell was rejected because provider latency would make OAuth callbacks brittle. Consuming the invite before capacity admission was rejected because it could strand a valid user with neither service nor a reusable invite.
 
 ### 4. Exomem owns opaque rotating token families
 

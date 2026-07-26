@@ -39,9 +39,15 @@ describe("Exomem OAuth and capacity migrations", () => {
     ]) {
       assert.match(sql, new RegExp(`CREATE TABLE ${table}\\s*\\(`));
     }
+    assert.match(
+      sql,
+      /storage_capacity_bytes bigint NOT NULL CHECK \(storage_capacity_bytes >= 0\)/i
+    );
+    assert.match(sql, /provision_reservation_capacity integer NOT NULL/i);
+    assert.match(sql, /reserved_storage_bytes bigint NOT NULL DEFAULT 0/i);
+    assert.match(sql, /configured_at timestamptz/i);
     assert.match(sql, /storage_bytes bigint NOT NULL CHECK \(storage_bytes > 0\)/i);
-    assert.match(sql, /runtime_slots integer NOT NULL CHECK \(runtime_slots >= 0\)/i);
-    assert.match(sql, /provision_slots integer NOT NULL CHECK \(provision_slots >= 0\)/i);
+    assert.match(sql, /provision_slots integer NOT NULL CHECK \(provision_slots > 0\)/i);
     assert.match(sql, /'occupied'/i);
     assert.doesNotMatch(sql, /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
     assert.doesNotMatch(sql, /https?:\/\//i);
