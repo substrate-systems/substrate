@@ -9,6 +9,8 @@ const EVENT_NAMES = new Set([
   "access.magic_link.delivery_failed",
   "access.logout.succeeded",
   "access.request.denied",
+  "lifecycle.capacity.transition",
+  "lifecycle.capacity.claim",
 ]);
 
 const ERROR_CODES = new Set([
@@ -26,6 +28,7 @@ const ERROR_CODES = new Set([
   "INVALID_EXPIRY",
   "INVALID_REQUEST",
   "RATE_LIMITED",
+  "CAPACITY_UNAVAILABLE",
 ]);
 
 const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
@@ -45,6 +48,9 @@ export type OperationalEvent = {
   durationBucket?: string;
   byteBucket?: string;
   countBucket?: string;
+  capacityBucket?: string;
+  transition?: string;
+  claimKind?: string;
 };
 
 function optionalUuid(value: unknown): string | undefined {
@@ -95,6 +101,15 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalBoundedLabel(input.countBucket)
       ? { countBucket: optionalBoundedLabel(input.countBucket) }
+      : {}),
+    ...(optionalBoundedLabel(input.capacityBucket)
+      ? { capacityBucket: optionalBoundedLabel(input.capacityBucket) }
+      : {}),
+    ...(optionalBoundedLabel(input.transition)
+      ? { transition: optionalBoundedLabel(input.transition) }
+      : {}),
+    ...(optionalBoundedLabel(input.claimKind)
+      ? { claimKind: optionalBoundedLabel(input.claimKind) }
       : {}),
   };
 }

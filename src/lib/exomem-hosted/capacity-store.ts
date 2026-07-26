@@ -63,7 +63,10 @@ export async function transitionCapacityAllocationAtomic(input: {
         WHERE allocation.id = ${input.allocationId}::uuid
           AND (${input.tenantId ?? null}::uuid IS NULL OR tenant.id = ${input.tenantId ?? null}::uuid)
           AND (${input.operationId ?? null}::uuid IS NULL OR allocation.operation_id = ${input.operationId ?? null}::uuid)
-          AND tenant.deleted_at IS NULL AND tenant.status <> 'deleted'
+          AND (
+            ${input.state} = 'released'
+            OR (tenant.deleted_at IS NULL AND tenant.status <> 'deleted')
+          )
         FOR UPDATE OF allocation, pool, tenant
       `;
       const locked = lockedResult.rows[0] as
@@ -84,6 +87,7 @@ export async function transitionCapacityAllocationAtomic(input: {
         | undefined;
       if (!locked) return false;
       const allowed =
+        locked.previous_state === input.state ||
         (locked.previous_state === "reserved" &&
           ["occupied", "uncertain", "released"].includes(input.state)) ||
         (["occupied", "uncertain"].includes(locked.previous_state) &&
@@ -100,6 +104,9 @@ export async function transitionCapacityAllocationAtomic(input: {
           Number(locked.reserved_provision_slots) - oldUsage.provision + nextUsage.provision,
       };
       if (
+        next.storage < 0 ||
+        next.runtime < 0 ||
+        next.provision < 0 ||
         next.storage > Number(locked.storage_capacity_bytes) ||
         next.runtime > Number(locked.runtime_capacity_slots) ||
         next.provision > Number(locked.provision_reservation_capacity)
@@ -116,7 +123,6 @@ export async function transitionCapacityAllocationAtomic(input: {
       const allocationResult = await tx`
         UPDATE exomem_capacity_allocations
         SET state = ${input.state},
-            provision_slots = CASE WHEN ${input.state} = 'reserved' THEN provision_slots ELSE 0 END,
             occupied_at = CASE WHEN ${input.state} = 'occupied' THEN COALESCE(occupied_at, now()) ELSE occupied_at END,
             released_at = CASE WHEN ${input.state} = 'released' THEN now() ELSE NULL END,
             updated_at = now()
@@ -298,7 +304,7 @@ export async function acquireCapacityProvisionClaim(input: {
         JOIN exomem_tenants AS tenant ON tenant.id = allocation.tenant_id
         WHERE allocation.id = ${input.allocationId}::uuid
           AND (
-            (${input.kind} = 'initial_provision' AND allocation.state = 'reserved')
+            (${input.kind} = 'initial_provision' AND allocation.state IN ('reserved', 'uncertain'))
             OR (${input.kind} = 'resume' AND allocation.state = 'uncertain')
           )
           AND tenant.deleted_at IS NULL AND tenant.status <> 'deleted'

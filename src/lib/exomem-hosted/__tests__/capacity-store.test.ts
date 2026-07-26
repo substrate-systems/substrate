@@ -53,7 +53,7 @@ describe("capacity store", () => {
       true
     );
     assert.match(query, /UPDATE exomem_capacity_allocations/i);
-    assert.match(query, /provision_slots = CASE WHEN \? = 'reserved' THEN/i);
+    assert.doesNotMatch(query, /provision_slots\s*=/i);
   });
 
   it("acquires and renews claims under a pool lock, then releases and expires them in bounded batches", async () => {

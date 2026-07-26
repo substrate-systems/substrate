@@ -197,16 +197,54 @@ describe("Exomem lifecycle reconciler", () => {
 
   it("adopts a provisioned resource after a lost acknowledgement", async () => {
     const { store, reconciler, provisioner } = harness();
-    await store.enqueue(TENANT, "provision", "initial-provision");
+    const operation = await store.enqueue(TENANT, "provision", "initial-provision");
     await reconciler.reconcileOne({ owner: "worker-a", tenantId: TENANT });
     provisioner.loseNextAcknowledgement("provision");
     await reconciler.reconcileOne({ owner: "worker-a", tenantId: TENANT });
+
+    assert.equal(store.capacityAllocations.get(operation.id)?.state, "uncertain");
+    assert.equal(store.capacityClaims.size, 0);
 
     await store.makeRunnable(TENANT);
     await convergeProvision(reconciler);
 
     assert.equal(provisioner.resources.size, 1);
     assert.equal(store.statusForTenant(TENANT).state, "ready");
+    assert.equal(store.capacityAllocations.get(operation.id)?.state, "occupied");
+  });
+
+  it("waits for resume capacity before contacting the provider and retains storage on suspension", async () => {
+    const { store, reconciler, provisioner, nowState } = harness();
+    const initial = await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    await store.enqueue(TENANT, "suspend", "capacity-suspend", cellId);
+    await convergeProvision(reconciler);
+    assert.equal(store.capacityAllocations.get(initial.id)?.state, "retained_storage");
+
+    store.runtimeCapacitySlots = 0;
+    const resume = await store.enqueue(TENANT, "resume", "capacity-resume", cellId);
+    await reconciler.reconcileOne({ owner: "resume-gate", tenantId: TENANT });
+    const blocked = await reconciler.reconcileOne({ owner: "resume-capacity", tenantId: TENANT });
+    assert.deepEqual(blocked, {
+      kind: "retry_scheduled",
+      operationId: resume.id,
+      code: "CAPACITY_UNAVAILABLE",
+    });
+    assert.equal(
+      provisioner.calls.some(
+        (call) => call.action === "resume" && call.idempotencyKey.startsWith(resume.id)
+      ),
+      false
+    );
+    assert.equal(store.statusForTenant(TENANT).code, "CAPACITY_UNAVAILABLE");
+
+    store.runtimeCapacitySlots = 1;
+    nowState.value = new Date(nowState.value.getTime() + 2_001);
+    await convergeProvision(reconciler);
+    assert.equal(store.capacityAllocations.get(initial.id)?.state, "occupied");
   });
 
   it("waits through more than six provider-pending polls without consuming attempts", async () => {
