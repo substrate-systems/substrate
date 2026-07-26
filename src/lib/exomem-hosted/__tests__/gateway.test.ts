@@ -183,10 +183,7 @@ describe("registry-derived Exomem gateway", () => {
     assert.deepEqual(second.body, { success: true, data: { cell: "cell-b" } });
     const commandCalls = calls.filter((call) => call.url.includes("/command/"));
     assert.equal(commandCalls.length, 2);
-    assert.match(
-      commandCalls[0].url,
-      /\/private\/exomem\/v1\/agent\/hosted-alpha-agent-v1\/command\//
-    );
+    assert.match(commandCalls[0].url, /\/private\/exomem\/v1\/command\//);
     assert.equal(commandCalls[0].headers.get("x-exomem-cell-id"), "cell-a");
     assert.equal(commandCalls[1].headers.get("x-exomem-cell-id"), "cell-b");
     assert.equal(commandCalls[0].headers.get("idempotency-key"), "same-public-key");

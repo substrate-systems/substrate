@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { canonicalMcpArguments, hasMcpSelector, mcpProtocolSupported } from "../mcp";
 import { handleHostedMcpRequest } from "../mcp";
+import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import type { ActiveOAuthAccessToken } from "../oauth-store";
 
 const ACCESS: ActiveOAuthAccessToken = {
@@ -17,31 +18,12 @@ const ACCESS: ActiveOAuthAccessToken = {
 const LIVE = {
   profile: "hosted-alpha-agent-v1" as const,
   endpoint: "https://substratesystems.io/api/exomem/mcp/v1" as const,
-  sourceRelease: "0.33.0",
-  commandFingerprint: "a".repeat(64),
-  schemaDigest: "b".repeat(64),
-  compatibilityDigest: "c".repeat(64),
-  protocolVersion: "1",
-  contract: {
-    agent_contract: {
-      commands: [
-        {
-          name: "ask_memory",
-          read_only: true,
-          mode: "read",
-          tier: 1,
-          capability: "core",
-          params: [],
-          mcp_tool: {
-            name: "ask_memory",
-            description: "Read",
-            inputSchema: { type: "object" },
-            annotations: { readOnlyHint: true },
-          },
-        },
-      ],
-    },
-  },
+  sourceRelease: exomemHostedContractFixture.compatibility.source_release,
+  commandFingerprint: exomemHostedContractFixture.compatibility.command_surface_sha256,
+  schemaDigest: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+  compatibilityDigest: exomemHostedContractFixture.compatibility.compatibility_sha256,
+  protocolVersion: exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+  contract: exomemHostedContractFixture.compatibility,
 };
 
 function request(body: unknown, headers: HeadersInit = {}): Request {
@@ -61,7 +43,6 @@ describe("Hosted MCP boundary", () => {
     for (const value of [
       { tenantId: "other" },
       { nested: { cellId: "other" } },
-      { profile: "other" },
       { auth: { token: "other" } },
       { session: "other" },
     ]) {
@@ -79,6 +60,43 @@ describe("Hosted MCP boundary", () => {
   it("accepts only the application-supported MCP protocol versions", () => {
     assert.equal(mcpProtocolSupported("2025-06-18"), true);
     assert.equal(mcpProtocolSupported("2099-01-01"), false);
+  });
+
+  it("negotiates the pinned initialize version and rejects SDK legacy versions", async () => {
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => LIVE,
+      takeRateLimit: async () => true,
+    };
+    const accepted = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "test", version: "1" },
+        },
+      }),
+      dependencies
+    );
+    assert.equal(accepted.status, 200);
+    const rejected = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "test", version: "1" },
+        },
+      }),
+      dependencies
+    );
+    assert.equal(rejected.status, 400);
   });
 
   it("serves imported live tools without resolving a cell", async () => {
@@ -99,7 +117,11 @@ describe("Hosted MCP boundary", () => {
     assert.equal(response.status, 200);
     assert.equal(calls, 0);
     const payload = (await response.json()) as { result?: { tools?: Array<{ name: string }> } };
-    assert.equal(payload.result?.tools?.[0]?.name, "ask_memory");
+    assert.equal(payload.result?.tools?.length, 13);
+    assert.equal(
+      payload.result?.tools?.find((tool) => tool.name === "bootstrap")?.name,
+      "bootstrap"
+    );
   });
 
   it("returns an OAuth challenge before discovery for a missing bearer", async () => {

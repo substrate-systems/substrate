@@ -514,8 +514,51 @@ async function fetchContract(
   return contract;
 }
 
+async function verifyHostedPrivateContract(
+  target: ResolvedPrivateTarget,
+  expected: ExpectedHostedContract,
+  dependencies: GatewayDependencies,
+  requestId: string
+): Promise<void> {
+  const fetchImpl = dependencies.fetch ?? fetch;
+  const url = new URL(
+    "private/exomem/v1/agent/hosted-alpha-agent-v1/contract",
+    `${target.endpoint.toString().replace(/\/$/, "")}/`
+  );
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: "GET",
+      headers: privateGatewayHeaders(target, requestId, dependencies.access),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(PRIVATE_TIMEOUT_MS),
+    });
+  } catch {
+    throw exomemErrors.cellUnavailable();
+  }
+  if (!response.ok) {
+    cancelResponseBody(response);
+    throw exomemErrors.cellUnavailable();
+  }
+  const body = await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES);
+  const compatibility = safeJsonObject(body.compatibility) ?? body;
+  if (
+    compatibility.profile !== expected.profile ||
+    compatibility.source_release !== expected.sourceRelease ||
+    compatibility.protocol_version !== expected.protocolVersion ||
+    compatibility.command_surface_sha256 !== expected.commandFingerprint ||
+    compatibility.schema_contract_sha256 !== expected.schemaDigest ||
+    compatibility.compatibility_sha256 !== expected.compatibilityDigest
+  ) {
+    throw exomemErrors.protocolMismatch();
+  }
+}
+
 function validateArguments(command: HostedContractCommand, args: Record<string, unknown>): void {
-  if (hasReservedSelector(args)) throw exomemErrors.selectorRejected();
+  const selectorChecked = command.name === "bootstrap" ? { ...args } : args;
+  if (command.name === "bootstrap") delete selectorChecked.profile;
+  if (hasReservedSelector(selectorChecked)) throw exomemErrors.selectorRejected();
   const known = new Set(command.params.map((parameter) => parameter.name));
   if (Object.keys(args).some((key) => !known.has(key))) {
     throw exomemErrors.invalidRequest();
@@ -556,10 +599,11 @@ async function forwardCommand(input: {
   idempotencyKey: string | null;
   requestId: string;
   dependencies: GatewayDependencies;
+  hosted: boolean;
 }): Promise<GatewayResult> {
   const fetchImpl = input.dependencies.fetch ?? fetch;
   const url = new URL(
-    `private/exomem/v1/agent/hosted-alpha-agent-v1/command/${encodeURIComponent(input.command.name)}`,
+    `${input.hosted ? "private/exomem/v1/agent/hosted-alpha-agent-v1" : "private/exomem/v1"}/command/${encodeURIComponent(input.command.name)}`,
     `${input.target.endpoint.toString().replace(/\/$/, "")}/`
   );
   const headers: Record<string, string> = {
@@ -627,7 +671,8 @@ export async function routeExomemCommand(input: {
 }): Promise<GatewayResult> {
   const requestId = input.requestId ?? randomUUID();
   if (!COMMAND_NAME.test(input.commandName)) throw exomemErrors.commandNotFound();
-  if (hasReservedSelector(input.args)) throw exomemErrors.selectorRejected();
+  if (!input.hostedContract && hasReservedSelector(input.args))
+    throw exomemErrors.selectorRejected();
   if (INTERCEPTED_COMMANDS.has(input.commandName)) {
     throw exomemErrors.commandInterceptRequired();
   }
@@ -647,6 +692,7 @@ export async function routeExomemCommand(input: {
     ) {
       throw exomemErrors.protocolMismatch();
     }
+    await verifyHostedPrivateContract(target, expected, dependencies, requestId);
   }
   const contract = input.command ? null : await fetchContract(target, dependencies, requestId);
   const command =
@@ -666,6 +712,7 @@ export async function routeExomemCommand(input: {
     idempotencyKey,
     requestId,
     dependencies,
+    hosted: Boolean(input.hostedContract),
   });
 }
 

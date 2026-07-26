@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -15,12 +16,11 @@ import {
 import { ExomemHostedError, exomemErrors } from "./errors";
 import {
   hasForbiddenGatewayHeaders,
-  hasReservedSelector,
   routeExomemCommand,
   type HostedContractCommand,
 } from "./gateway";
 import { SqlLifecycleStore } from "./lifecycle-store";
-import { findActiveOAuthAccessToken, type ActiveOAuthAccessToken } from "./oauth-store";
+import { findMcpOAuthAccessToken, type ActiveOAuthAccessToken } from "./oauth-store";
 import { bearerChallenge, mcpAuthenticateMeta, parseBearerAuthorization } from "./oauth";
 import { exomemPublicBaseUrlFromEnv } from "./public-origin";
 import { EXOMEM_RATE_LIMITS, clientAddressKey, takeExomemRateLimit } from "./rate-limit";
@@ -30,9 +30,17 @@ const MAX_MCP_REQUEST_BYTES = 1024 * 1024;
 const MCP_PROTOCOLS = new Set(["2025-11-25", "2025-06-18"]);
 const MAX_MCP_CONCURRENCY = 16;
 let activeMcpCalls = 0;
+const activeMcpCallsByTenantClient = new Map<string, number>();
+const MAX_MCP_TENANT_CLIENT_CONCURRENCY = 4;
 
 type JsonRecord = Record<string, unknown>;
-type LiveTool = { tool: JsonRecord; readOnly: boolean; command: HostedContractCommand };
+type LiveTool = {
+  tool: JsonRecord;
+  readOnly: boolean;
+  command: HostedContractCommand;
+  inputSchema: JsonRecord;
+  outputSchema: JsonRecord;
+};
 type LifecycleStatus = { state: string; code: string; retryable: boolean };
 
 export type McpDependencies = {
@@ -48,30 +56,102 @@ function object(value: unknown): JsonRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
 
-function clean(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(clean);
-  const candidate = object(value);
-  if (!candidate) return value;
-  return Object.fromEntries(
-    Object.entries(candidate)
-      .filter(([, nested]) => nested !== null)
-      .map(([key, nested]) => [key, clean(nested)])
-  );
+const MAX_JSON_DEPTH = 32;
+const MAX_JSON_NODES = 10_000;
+const TOOL_SELECTOR_FIELDS = new Set([
+  "tenant",
+  "tenant_id",
+  "cell",
+  "cell_id",
+  "endpoint",
+  "internal_endpoint",
+  "auth",
+  "authorization",
+  "session",
+  "session_id",
+  "vault",
+  "vault_path",
+  "principal",
+  "profile_id",
+  "profile",
+]);
+
+function normalizedField(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replaceAll("-", "_");
+}
+
+function boundedJson(value: unknown): void {
+  const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  let nodes = 0;
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (++nodes > MAX_JSON_NODES || current.depth > MAX_JSON_DEPTH)
+      throw exomemErrors.invalidRequest();
+    if (Array.isArray(current.value)) {
+      for (const nested of current.value) pending.push({ value: nested, depth: current.depth + 1 });
+    } else {
+      const candidate = object(current.value);
+      if (candidate)
+        for (const nested of Object.values(candidate))
+          pending.push({ value: nested, depth: current.depth + 1 });
+    }
+  }
 }
 
 /** Canonical JSON makes a JSON-RPC retry bind to the same logical mutation. */
 export function canonicalMcpArguments(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalMcpArguments).join(",")}]`;
-  const candidate = object(value);
-  if (!candidate) return JSON.stringify(value);
-  return `{${Object.keys(candidate)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalMcpArguments(candidate[key])}`)
-    .join(",")}}`;
+  boundedJson(value);
+  const root = Array.isArray(value) ? [] : object(value) ? {} : value;
+  const pending: Array<{ source: unknown; target: unknown }> = [{ source: value, target: root }];
+  while (pending.length) {
+    const { source, target } = pending.pop()!;
+    if (Array.isArray(source) && Array.isArray(target)) {
+      source.forEach((nested, index) => {
+        const child = Array.isArray(nested) ? [] : object(nested) ? {} : nested;
+        target[index] = child;
+        if (typeof child === "object" && child !== null)
+          pending.push({ source: nested, target: child });
+      });
+    } else {
+      const sourceRecord = object(source);
+      const targetRecord = object(target);
+      if (!sourceRecord || !targetRecord) continue;
+      for (const key of Object.keys(sourceRecord).sort()) {
+        const nested = sourceRecord[key];
+        const child = Array.isArray(nested) ? [] : object(nested) ? {} : nested;
+        targetRecord[key] = child;
+        if (typeof child === "object" && child !== null)
+          pending.push({ source: nested, target: child });
+      }
+    }
+  }
+  return JSON.stringify(root);
 }
 
-export function hasMcpSelector(value: unknown): boolean {
-  return hasReservedSelector(value);
+export function hasMcpSelector(value: unknown, allowTopLevelProfile = false): boolean {
+  const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (Array.isArray(current.value)) {
+      for (const nested of current.value) pending.push({ value: nested, depth: current.depth + 1 });
+    } else {
+      const candidate = object(current.value);
+      if (!candidate) continue;
+      for (const [key, nested] of Object.entries(candidate)) {
+        const normalized = normalizedField(key);
+        if (
+          TOOL_SELECTOR_FIELDS.has(normalized) &&
+          !(allowTopLevelProfile && current.depth === 0 && normalized === "profile")
+        )
+          return true;
+        pending.push({ value: nested, depth: current.depth + 1 });
+      }
+    }
+  }
+  return false;
 }
 
 export function mcpProtocolSupported(value: string | null): boolean {
@@ -103,7 +183,16 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
           return { name: value.name, type: value.type, required: value.required };
         })
       : null;
-    const parsed = ToolSchema.safeParse(clean(rawTool));
+    // SDK validation is applied to a validation copy only: discovery returns the exact imported tool,
+    // including explicit null/default values used by native clients.
+    const validationTool = rawTool && {
+      ...rawTool,
+      execution: rawTool.execution ?? undefined,
+      icons: rawTool.icons ?? undefined,
+    };
+    const parsed = ToolSchema.safeParse(validationTool);
+    const inputSchema = rawTool && object(rawTool.inputSchema);
+    const outputSchema = rawTool && object(rawTool.outputSchema);
     if (
       !command ||
       !params ||
@@ -111,13 +200,17 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
       typeof readOnly !== "boolean" ||
       !parsed.success ||
       parsed.data.name !== name ||
+      !inputSchema ||
+      !outputSchema ||
       tools.has(name)
     ) {
       throw exomemErrors.protocolMismatch();
     }
     tools.set(name, {
-      tool: parsed.data as unknown as JsonRecord,
+      tool: rawTool,
       readOnly,
+      inputSchema,
+      outputSchema,
       command: {
         name,
         params,
@@ -184,8 +277,31 @@ async function boundedBody(request: Request): Promise<unknown> {
   const length = request.headers.get("content-length");
   if (length && (!/^\d+$/.test(length) || Number(length) > MAX_MCP_REQUEST_BYTES))
     throw exomemErrors.requestTooLarge();
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > MAX_MCP_REQUEST_BYTES) throw exomemErrors.requestTooLarge();
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_MCP_REQUEST_BYTES) {
+          await reader.cancel();
+          throw exomemErrors.requestTooLarge();
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   try {
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
@@ -215,13 +331,18 @@ function idempotencyKey(
     .digest("hex");
 }
 
-async function withConcurrency<T>(operation: () => Promise<T>): Promise<T> {
+async function withConcurrency<T>(key: string, operation: () => Promise<T>): Promise<T> {
   if (activeMcpCalls >= MAX_MCP_CONCURRENCY) throw exomemErrors.rateLimited();
+  const activeForIdentity = activeMcpCallsByTenantClient.get(key) ?? 0;
+  if (activeForIdentity >= MAX_MCP_TENANT_CLIENT_CONCURRENCY) throw exomemErrors.rateLimited();
   activeMcpCalls += 1;
+  activeMcpCallsByTenantClient.set(key, activeForIdentity + 1);
   try {
     return await operation();
   } finally {
     activeMcpCalls -= 1;
+    if (activeForIdentity === 0) activeMcpCallsByTenantClient.delete(key);
+    else activeMcpCallsByTenantClient.set(key, activeForIdentity);
   }
 }
 
@@ -253,11 +374,11 @@ export async function handleHostedMcpRequest(
   }
   const bearer = parseBearerAuthorization(request.headers.get("authorization"));
   if (!bearer) return unauthorized(baseUrl);
-  const access = await (dependencies.findAccessToken ?? findActiveOAuthAccessToken)(
+  const access = await (dependencies.findAccessToken ?? findMcpOAuthAccessToken)(
     digestSecret(bearer)
   );
   if (!access || access.resource !== EXOMEM_HOSTED_RESOURCE) return unauthorized(baseUrl);
-  if (!(await take(EXOMEM_RATE_LIMITS.mcpIdentity, `${access.familyId}:${access.clientId}`))) {
+  if (!(await take(EXOMEM_RATE_LIMITS.mcpIdentity, `${access.tenantId}:${access.clientId}`))) {
     return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
   }
   if (request.method === "GET" || request.method === "DELETE")
@@ -274,8 +395,23 @@ export async function handleHostedMcpRequest(
     const safe = error instanceof ExomemHostedError ? error : exomemErrors.invalidRequest();
     return Response.json({ error: safe.code }, { status: safe.status });
   }
-  if (hasMcpSelector(body))
-    return Response.json({ error: "HOSTED_SELECTOR_REJECTED" }, { status: 400 });
+  try {
+    boundedJson(body);
+  } catch (error) {
+    const safe = error instanceof ExomemHostedError ? error : exomemErrors.invalidRequest();
+    return Response.json({ error: safe.code }, { status: safe.status });
+  }
+  const envelope = object(body);
+  if (envelope?.method === "initialize") {
+    const params = object(envelope.params);
+    if (
+      !mcpProtocolSupported(
+        typeof params?.protocolVersion === "string" ? params.protocolVersion : null
+      )
+    ) {
+      return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
+    }
+  }
 
   const live = await (dependencies.getLiveContract ?? getLiveExomemAgentContract)();
   if (!live || live.profile !== EXOMEM_HOSTED_PROFILE || live.endpoint !== EXOMEM_HOSTED_RESOURCE) {
@@ -307,18 +443,25 @@ export async function handleHostedMcpRequest(
   server.setRequestHandler(CallToolRequestSchema, async (rpc, extra) => {
     const tool = tools.get(rpc.params.name);
     const args = object(rpc.params.arguments) ?? {};
-    if (!tool || hasMcpSelector(args) || !access.scopes.includes(requiredScope(tool.readOnly)))
+    if (
+      !tool ||
+      hasMcpSelector(args, rpc.params.name === "bootstrap") ||
+      !access.scopes.includes(requiredScope(tool.readOnly))
+    )
       return toolFailure(exomemErrors.entitlementDenied());
     try {
       if (extra.signal.aborted) throw exomemErrors.cellUnavailable();
-      const status = await (
-        dependencies.statusForTenant ??
-        ((tenantId: string) => new SqlLifecycleStore().statusForTenant(tenantId))
-      )(access.tenantId);
-      const lifecycle = lifecycleError(status);
-      if (lifecycle) throw lifecycle;
-      const result = await withConcurrency(() =>
-        (dependencies.routeCommand ?? routeExomemCommand)({
+      const inputValidator = new AjvJsonSchemaValidator().getValidator(tool.inputSchema);
+      if (!inputValidator(args).valid) throw exomemErrors.invalidRequest();
+      const result = await withConcurrency(`${access.tenantId}:${access.clientId}`, async () => {
+        const status = await (
+          dependencies.statusForTenant ??
+          ((tenantId: string) => new SqlLifecycleStore().statusForTenant(tenantId))
+        )(access.tenantId);
+        const lifecycle = lifecycleError(status);
+        if (lifecycle) throw lifecycle;
+        if (extra.signal.aborted) throw exomemErrors.cellUnavailable();
+        return (dependencies.routeCommand ?? routeExomemCommand)({
           session: { userId: access.userId, tenantId: access.tenantId },
           commandName: rpc.params.name,
           args,
@@ -335,13 +478,35 @@ export async function handleHostedMcpRequest(
             ? null
             : idempotencyKey(access, extra.requestId, rpc.params.name, args),
           requestId: randomUUID(),
-        })
-      );
+        });
+      });
       const envelope = object(result.body);
-      if (envelope?.success === true)
+      if (envelope?.success === true) {
+        const outputValidator = new AjvJsonSchemaValidator().getValidator(tool.outputSchema);
+        if (!outputValidator(envelope.data).valid) throw exomemErrors.cellResponseInvalid();
         return {
           content: [{ type: "text" as const, text: JSON.stringify(envelope.data ?? null) }],
+          structuredContent: envelope.data as JsonRecord,
         };
+      }
+      if (envelope?.success === false && object(envelope.error)) {
+        const error = object(envelope.error)!;
+        const code =
+          typeof error.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code)
+            ? error.code
+            : "CELL_UNAVAILABLE";
+        return toolFailure(
+          new ExomemHostedError({
+            code,
+            status: result.status >= 400 ? result.status : 502,
+            retryable: error.retryable === true,
+            message:
+              typeof error.message === "string"
+                ? error.message.slice(0, 256)
+                : "the Exomem action could not be completed",
+          })
+        );
+      }
       return toolFailure(exomemErrors.cellResponseInvalid());
     } catch (error) {
       return toolFailure(error);
