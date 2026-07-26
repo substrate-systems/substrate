@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
 import { afterEach, describe, it } from "node:test";
-import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemTransaction } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { recordRoutableCellObservation, storeExomemAgentContractCandidate } from "../agent-contract-store";
 import { promoteClientArtifact, storeClientArtifact } from "../client-artifacts";
@@ -61,7 +61,7 @@ describe("Exomem Hosted agent contracts", () => {
 
   it("writes routable authority with ordered sequential locks on one transaction", async () => {
     const queries: string[] = [];
-    __setExomemTransactionForTests(async (work) => work({ query: async (text) => {
+    __setExomemTransactionForTests(async (work: (transaction: ExomemTransaction) => Promise<void>) => work({ query: async (text) => {
       queries.push(text);
       if (/SELECT cell_id::text/i.test(text)) return { rows: [{ cell_id: "00000000-0000-0000-0000-000000000001", contract_digest: sha("b") }] };
       return { rows: [] };

@@ -34,6 +34,16 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 120,
     windowSeconds: 10 * 60,
   },
+  mcpIp: {
+    scope: "exomem:mcp:ip",
+    limit: 120,
+    windowSeconds: 60,
+  },
+  mcpIdentity: {
+    scope: "exomem:mcp:identity",
+    limit: 300,
+    windowSeconds: 60,
+  },
   deletionConfirmation: {
     scope: "exomem:deletion-confirmation",
     limit: 3,

@@ -1,25 +1,20 @@
-import { NextResponse } from "next/server";
-import { bearerChallenge, mcpAuthenticateMeta } from "@/lib/exomem-hosted/oauth";
-import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { handleHostedMcpRequest } from "@/lib/exomem-hosted/mcp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function unauthorized(): NextResponse {
-  const baseUrl = exomemPublicBaseUrlFromEnv();
-  return NextResponse.json(
-    { _meta: mcpAuthenticateMeta(baseUrl) },
-    {
-      status: 401,
-      headers: { "www-authenticate": bearerChallenge(baseUrl), "cache-control": "no-store" },
-    }
-  );
+function mcpRequest(request: Request | undefined, method: string): Request {
+  return request ?? new Request("https://substratesystems.io/api/exomem/mcp/v1", { method });
 }
 
-export async function GET(): Promise<NextResponse> {
-  return unauthorized();
+export async function GET(request?: Request): Promise<Response> {
+  return handleHostedMcpRequest(mcpRequest(request, "GET"));
 }
 
-export async function POST(): Promise<NextResponse> {
-  return unauthorized();
+export async function POST(request?: Request): Promise<Response> {
+  return handleHostedMcpRequest(mcpRequest(request, "POST"));
+}
+
+export async function DELETE(request?: Request): Promise<Response> {
+  return handleHostedMcpRequest(mcpRequest(request, "DELETE"));
 }

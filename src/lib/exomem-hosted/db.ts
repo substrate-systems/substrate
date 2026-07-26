@@ -37,7 +37,9 @@ export type ExomemTransaction = {
   query: (text: string, values?: unknown[]) => Promise<ExomemSqlResult>;
 };
 
-let transactionClient: ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>) | null = null;
+let transactionClient:
+  | ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>)
+  | null = null;
 
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<ExomemSqlResult> {
   if (injectedSqlClient) return injectedSqlClient(strings, ...values);
@@ -58,18 +60,24 @@ export function __setExomemSqlForTests(next: ExomemSql | null): void {
 }
 
 /** Test seam for one-connection interactive transactions. */
-export function __setExomemTransactionForTests(next: ExomemTransactionRunner | null): void {
-  transactionRunner = next;
-}
-
+export function __setExomemTransactionForTests(next: ExomemTransactionRunner | null): void;
 export function __setExomemTransactionForTests(
   next: ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>) | null
+): void;
+export function __setExomemTransactionForTests(
+  next:
+    | ExomemTransactionRunner
+    | ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>)
+    | null
 ): void {
-  transactionClient = next;
+  transactionRunner = next as ExomemTransactionRunner | null;
+  transactionClient = next as typeof transactionClient;
 }
 
 /** Run sequential authority writes over one PostgreSQL connection. */
-export async function executeExomemTransaction(work: (transaction: ExomemTransaction) => Promise<void>): Promise<void> {
+export async function executeExomemTransaction(
+  work: (transaction: ExomemTransaction) => Promise<void>
+): Promise<void> {
   if (transactionClient) return transactionClient(work);
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
@@ -81,7 +89,10 @@ export async function executeExomemTransaction(work: (transaction: ExomemTransac
     await work({
       query: async (text, values = []) => {
         const result = await client!.query(text, values);
-        return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+        return {
+          rows: result.rows as Array<Record<string, unknown>>,
+          rowCount: result.rowCount ?? 0,
+        };
       },
     });
     await client.query("COMMIT");
@@ -1107,6 +1118,12 @@ export type GatewayTarget = ActiveCellBinding & {
   capabilities: string[];
   resourceLimits: Record<string, number>;
   manuallySuspended: boolean;
+  hostedProfile?: string | null;
+  hostedSourceRelease?: string | null;
+  hostedProtocolVersion?: string | null;
+  hostedCommandFingerprint?: string | null;
+  hostedContractDigest?: string | null;
+  hostedCompatibilityDigest?: string | null;
 };
 
 /** Resolve all routing and authorization state from one authoritative snapshot. */
@@ -1133,13 +1150,23 @@ export async function resolveGatewayTarget(input: {
            entitlement.effective_state AS entitlement_effective_state,
            entitlement.capabilities,
            entitlement.resource_limits,
-           entitlement.manual_suspended_at
+           entitlement.manual_suspended_at,
+           hosted_contract.profile_id AS hosted_profile,
+           hosted_contract.source_release AS hosted_source_release,
+           hosted_contract.protocol_version AS hosted_protocol_version,
+           hosted_contract.command_fingerprint AS hosted_command_fingerprint,
+           hosted_contract.contract_digest AS hosted_contract_digest,
+           hosted_contract.compatibility_digest AS hosted_compatibility_digest
     FROM exomem_tenants AS tenant
     JOIN exomem_cells AS cell
       ON cell.id = tenant.bound_cell_id
      AND cell.tenant_id = tenant.id
     JOIN exomem_entitlements AS entitlement
       ON entitlement.tenant_id = tenant.id
+    LEFT JOIN exomem_routable_cell_contracts AS hosted_contract
+      ON hosted_contract.cell_id = cell.id
+     AND hosted_contract.profile_id = 'hosted-alpha-agent-v1'
+     AND hosted_contract.routable = true
     WHERE tenant.id = ${input.tenantId}
       AND tenant.owner_user_id = ${input.userId}
     LIMIT 2
@@ -1185,6 +1212,17 @@ export async function resolveGatewayTarget(input: {
     capabilities,
     resourceLimits,
     manuallySuspended: row.manual_suspended_at != null,
+    hostedProfile: row.hosted_profile == null ? null : String(row.hosted_profile),
+    hostedSourceRelease:
+      row.hosted_source_release == null ? null : String(row.hosted_source_release),
+    hostedProtocolVersion:
+      row.hosted_protocol_version == null ? null : String(row.hosted_protocol_version),
+    hostedCommandFingerprint:
+      row.hosted_command_fingerprint == null ? null : String(row.hosted_command_fingerprint),
+    hostedContractDigest:
+      row.hosted_contract_digest == null ? null : String(row.hosted_contract_digest),
+    hostedCompatibilityDigest:
+      row.hosted_compatibility_digest == null ? null : String(row.hosted_compatibility_digest),
   };
 }
 

@@ -50,6 +50,12 @@ const RESERVED_FIELDS = new Set([
   "subject",
   "idempotency_scope",
   "retry_scope",
+  "profile",
+  "profile_id",
+  "auth",
+  "authorization",
+  "session",
+  "session_id",
 ]);
 
 const INTERCEPTED_COMMANDS = new Set(["transfer_artifact", "adopt_vault"]);
@@ -108,6 +114,15 @@ export type GatewayDependencies = {
   access?: CloudflareAccessConfig | null;
 };
 
+export type ExpectedHostedContract = {
+  profile: string;
+  sourceRelease: string;
+  protocolVersion: string;
+  commandFingerprint: string;
+  schemaDigest: string;
+  compatibilityDigest: string;
+};
+
 type CachedContract = {
   contract: HostedContract;
   expiresAt: number;
@@ -120,7 +135,11 @@ export function clearContractCacheForTests(): void {
 }
 
 function normalizeField(value: string): string {
-  return value.trim().toLowerCase().replaceAll("-", "_");
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replaceAll("-", "_");
 }
 
 export function hasReservedSelector(value: unknown): boolean {
@@ -540,7 +559,7 @@ async function forwardCommand(input: {
 }): Promise<GatewayResult> {
   const fetchImpl = input.dependencies.fetch ?? fetch;
   const url = new URL(
-    `private/exomem/v1/command/${encodeURIComponent(input.command.name)}`,
+    `private/exomem/v1/agent/hosted-alpha-agent-v1/command/${encodeURIComponent(input.command.name)}`,
     `${input.target.endpoint.toString().replace(/\/$/, "")}/`
   );
   const headers: Record<string, string> = {
@@ -602,6 +621,8 @@ export async function routeExomemCommand(input: {
   args: Record<string, unknown>;
   idempotencyKey?: string | null;
   requestId?: string;
+  hostedContract?: ExpectedHostedContract;
+  command?: HostedContractCommand;
   dependencies?: GatewayDependencies;
 }): Promise<GatewayResult> {
   const requestId = input.requestId ?? randomUUID();
@@ -614,8 +635,22 @@ export async function routeExomemCommand(input: {
   if (serialized > MAX_COMMAND_BYTES) throw exomemErrors.requestTooLarge();
   const dependencies = input.dependencies ?? {};
   const target = await resolveGatewayPrivateTarget(input.session, dependencies);
-  const contract = await fetchContract(target, dependencies, requestId);
-  const command = contract.commands.find((candidate) => candidate.name === input.commandName);
+  if (input.hostedContract) {
+    const expected = input.hostedContract;
+    if (
+      target.row.hostedProfile !== expected.profile ||
+      target.row.hostedSourceRelease !== expected.sourceRelease ||
+      target.row.hostedProtocolVersion !== expected.protocolVersion ||
+      target.row.hostedCommandFingerprint !== expected.commandFingerprint ||
+      target.row.hostedContractDigest !== expected.schemaDigest ||
+      target.row.hostedCompatibilityDigest !== expected.compatibilityDigest
+    ) {
+      throw exomemErrors.protocolMismatch();
+    }
+  }
+  const contract = input.command ? null : await fetchContract(target, dependencies, requestId);
+  const command =
+    input.command ?? contract?.commands.find((candidate) => candidate.name === input.commandName);
   if (!command) throw exomemErrors.commandNotFound();
   validateArguments(command, input.args);
   assertEntitled(target.row, command);

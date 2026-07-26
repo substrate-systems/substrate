@@ -6,6 +6,7 @@ import { ExomemHostedError } from "../errors";
 import {
   clearContractCacheForTests,
   hasForbiddenGatewayHeaders,
+  hasReservedSelector,
   routeExomemCommand,
 } from "../gateway";
 import { SensitiveSecret, type SecretEnvelope } from "../security";
@@ -182,6 +183,10 @@ describe("registry-derived Exomem gateway", () => {
     assert.deepEqual(second.body, { success: true, data: { cell: "cell-b" } });
     const commandCalls = calls.filter((call) => call.url.includes("/command/"));
     assert.equal(commandCalls.length, 2);
+    assert.match(
+      commandCalls[0].url,
+      /\/private\/exomem\/v1\/agent\/hosted-alpha-agent-v1\/command\//
+    );
     assert.equal(commandCalls[0].headers.get("x-exomem-cell-id"), "cell-a");
     assert.equal(commandCalls[1].headers.get("x-exomem-cell-id"), "cell-b");
     assert.equal(commandCalls[0].headers.get("idempotency-key"), "same-public-key");
@@ -226,6 +231,12 @@ describe("registry-derived Exomem gateway", () => {
     );
     assert.equal(resolutions, 0);
     assert.equal(calls, 0);
+  });
+
+  it("normalizes camel-case authority selectors", () => {
+    assert.equal(hasReservedSelector({ tenantId: TENANT_A }), true);
+    assert.equal(hasReservedSelector({ nested: { cellId: "cell-a" } }), true);
+    assert.equal(hasReservedSelector({ auth: { sessionId: "other" } }), true);
   });
 
   it("retries a lost mutation acknowledgement only against the same cell", async () => {

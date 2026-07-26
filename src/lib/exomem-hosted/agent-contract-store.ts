@@ -25,8 +25,20 @@ type ExomemAgentContractCandidate = {
   openaiArchiveLock: JsonRecord | null;
 };
 
+export type LiveExomemAgentContract = {
+  profile: typeof EXOMEM_HOSTED_PROFILE;
+  endpoint: typeof EXOMEM_HOSTED_RESOURCE;
+  sourceRelease: string;
+  commandFingerprint: string;
+  schemaDigest: string;
+  compatibilityDigest: string;
+  protocolVersion: string;
+  contract: JsonRecord;
+};
+
 function record(value: unknown, label: string): JsonRecord {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`${label} must be an object`);
   return value as JsonRecord;
 }
 
@@ -51,7 +63,10 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
   const packageLock = record(source.packageLock, "Claude package lock");
   const archiveLock = record(source.archiveLock, "Claude archive lock");
   if (compatibility.schema_version !== 1) throw new Error("unsupported compatibility schema");
-  if (compatibility.profile !== EXOMEM_HOSTED_PROFILE || compatibility.endpoint !== EXOMEM_HOSTED_RESOURCE) {
+  if (
+    compatibility.profile !== EXOMEM_HOSTED_PROFILE ||
+    compatibility.endpoint !== EXOMEM_HOSTED_RESOURCE
+  ) {
     throw new Error("compatibility identity is not the Hosted agent contract");
   }
   const agentContract = record(compatibility.agent_contract, "agent contract");
@@ -63,19 +78,32 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
     if (string(raw.name, "agent command name") !== string(mcpTool.name, "raw MCP tool name")) {
       throw new Error("raw MCP tool name differs from the imported command");
     }
-    if (typeof mcpTool.description !== "string" || !record(mcpTool.inputSchema, "raw MCP input schema")) {
+    if (
+      typeof mcpTool.description !== "string" ||
+      !record(mcpTool.inputSchema, "raw MCP input schema")
+    ) {
       throw new Error("raw MCP tool is incomplete");
     }
     record(mcpTool.annotations, "raw MCP annotations");
     return mcpTool;
   });
-  if (!tools?.length || profile.profile !== EXOMEM_HOSTED_PROFILE || agentContract.protocol_version !== "1") {
+  if (
+    !tools?.length ||
+    profile.profile !== EXOMEM_HOSTED_PROFILE ||
+    agentContract.protocol_version !== "1"
+  ) {
     throw new Error("agent profile has an unsupported protocol");
   }
-  const commandSurfaceSha256 = sha256(compatibility.command_surface_sha256, "command surface digest");
+  const commandSurfaceSha256 = sha256(
+    compatibility.command_surface_sha256,
+    "command surface digest"
+  );
   const schemaDigest = sha256(compatibility.schema_contract_sha256, "schema digest");
-  if (sha256(profile.active_capability_sha256, "agent profile digest") !== commandSurfaceSha256 ||
-      sha256(digest.value, "agent contract digest") !== schemaDigest || digest.algorithm !== "sha256") {
+  if (
+    sha256(profile.active_capability_sha256, "agent profile digest") !== commandSurfaceSha256 ||
+    sha256(digest.value, "agent contract digest") !== schemaDigest ||
+    digest.algorithm !== "sha256"
+  ) {
     throw new Error("agent contract digests disagree");
   }
   for (const [key, expected] of Object.entries({
@@ -93,13 +121,21 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
   sha256(packageLock.artifact_sha256, "package artifact digest");
   sha256(archiveLock.archive_sha256, "archive digest");
   return {
-    state: "pending", profile: EXOMEM_HOSTED_PROFILE, endpoint: EXOMEM_HOSTED_RESOURCE,
-    sourceRelease: string(compatibility.source_release, "source release"), commandSurfaceSha256,
-    schemaDigest, compatibilitySha256: sha256(compatibility.compatibility_sha256, "compatibility digest"),
-    protocolVersion: string(agentContract.protocol_version, "protocol version"), tools,
-    compatibility, claudePackageLock: packageLock, claudeArchiveLock: archiveLock,
+    state: "pending",
+    profile: EXOMEM_HOSTED_PROFILE,
+    endpoint: EXOMEM_HOSTED_RESOURCE,
+    sourceRelease: string(compatibility.source_release, "source release"),
+    commandSurfaceSha256,
+    schemaDigest,
+    compatibilitySha256: sha256(compatibility.compatibility_sha256, "compatibility digest"),
+    protocolVersion: string(agentContract.protocol_version, "protocol version"),
+    tools,
+    compatibility,
+    claudePackageLock: packageLock,
+    claudeArchiveLock: archiveLock,
     // The checked release deliberately has no registered OpenAI package/archive lock.
-    openaiPackageLock: null, openaiArchiveLock: null,
+    openaiPackageLock: null,
+    openaiArchiveLock: null,
   };
 }
 
@@ -126,6 +162,38 @@ export async function storeExomemAgentContractCandidate(): Promise<string> {
   return id;
 }
 
+/** Discovery reads one already-promoted contract; it never contacts or wakes a cell. */
+export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContract | null> {
+  const { rows } = await executeExomemSql`
+    /* exomem:get-live-agent-contract */
+    SELECT profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+           compatibility_digest, protocol_version, contract
+    FROM exomem_agent_contract_candidates
+    WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
+      AND endpoint = ${EXOMEM_HOSTED_RESOURCE}
+      AND state = 'live'
+    LIMIT 2
+  `;
+  if (rows.length !== 1) return null;
+  const row = rows[0] as Record<string, unknown>;
+  try {
+    if (row.profile_id !== EXOMEM_HOSTED_PROFILE || row.endpoint !== EXOMEM_HOSTED_RESOURCE)
+      return null;
+    return {
+      profile: EXOMEM_HOSTED_PROFILE,
+      endpoint: EXOMEM_HOSTED_RESOURCE,
+      sourceRelease: string(row.source_release, "live source release"),
+      commandFingerprint: sha256(row.command_fingerprint, "live command fingerprint"),
+      schemaDigest: sha256(row.schema_digest, "live schema digest"),
+      compatibilityDigest: sha256(row.compatibility_digest, "live compatibility digest"),
+      protocolVersion: string(row.protocol_version, "live protocol version"),
+      contract: record(row.contract, "live contract"),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** The sole authority writer: one connection serializes the profile, cells, and exact digest. */
 export async function recordRoutableCellObservation(input: {
   cellId: string;
@@ -143,24 +211,56 @@ export async function recordRoutableCellObservation(input: {
     await transaction.query(
       `INSERT INTO exomem_agent_contract_profile_authority (profile_id, routable_set_digest, routable_cell_count, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest, observed_at)
        VALUES ($1, repeat('0', 64), 0, $2, $3, $4, $5, $6, now()) ON CONFLICT (profile_id) DO NOTHING`,
-      [EXOMEM_HOSTED_PROFILE, input.sourceRelease, input.protocolVersion, fingerprint, contract, compatibility]
+      [
+        EXOMEM_HOSTED_PROFILE,
+        input.sourceRelease,
+        input.protocolVersion,
+        fingerprint,
+        contract,
+        compatibility,
+      ]
     );
-    await transaction.query(`SELECT profile_id FROM exomem_agent_contract_profile_authority WHERE profile_id = $1 FOR UPDATE`, [EXOMEM_HOSTED_PROFILE]);
+    await transaction.query(
+      `SELECT profile_id FROM exomem_agent_contract_profile_authority WHERE profile_id = $1 FOR UPDATE`,
+      [EXOMEM_HOSTED_PROFILE]
+    );
     await transaction.query(
       `INSERT INTO exomem_routable_cell_contracts (cell_id, profile_id, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest, routable, observed_at)
        VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, now())
        ON CONFLICT (cell_id, profile_id) DO UPDATE SET source_release = EXCLUDED.source_release, protocol_version = EXCLUDED.protocol_version, command_fingerprint = EXCLUDED.command_fingerprint, contract_digest = EXCLUDED.contract_digest, compatibility_digest = EXCLUDED.compatibility_digest, routable = EXCLUDED.routable, observed_at = now()`,
-      [input.cellId, EXOMEM_HOSTED_PROFILE, input.sourceRelease, input.protocolVersion, fingerprint, contract, compatibility, input.routable]
+      [
+        input.cellId,
+        EXOMEM_HOSTED_PROFILE,
+        input.sourceRelease,
+        input.protocolVersion,
+        fingerprint,
+        contract,
+        compatibility,
+        input.routable,
+      ]
     );
     const cells = await transaction.query(
       `SELECT cell_id::text AS cell_id, contract_digest FROM exomem_routable_cell_contracts WHERE profile_id = $1 AND routable = true ORDER BY cell_id FOR UPDATE`,
       [EXOMEM_HOSTED_PROFILE]
     );
-    const entries = cells.rows.map((row) => `${String(row.cell_id)}:${String(row.contract_digest)}`);
-    const digest = entries.length ? createHash("sha256").update(entries.join(",")).digest("hex") : "0".repeat(64);
+    const entries = cells.rows.map(
+      (row) => `${String(row.cell_id)}:${String(row.contract_digest)}`
+    );
+    const digest = entries.length
+      ? createHash("sha256").update(entries.join(",")).digest("hex")
+      : "0".repeat(64);
     await transaction.query(
       `UPDATE exomem_agent_contract_profile_authority SET routable_set_digest = $2, routable_cell_count = $3, source_release = $4, protocol_version = $5, command_fingerprint = $6, contract_digest = $7, compatibility_digest = $8, observed_at = now(), updated_at = now() WHERE profile_id = $1`,
-      [EXOMEM_HOSTED_PROFILE, digest, entries.length, input.sourceRelease, input.protocolVersion, fingerprint, contract, compatibility]
+      [
+        EXOMEM_HOSTED_PROFILE,
+        digest,
+        entries.length,
+        input.sourceRelease,
+        input.protocolVersion,
+        fingerprint,
+        contract,
+        compatibility,
+      ]
     );
   });
 }
