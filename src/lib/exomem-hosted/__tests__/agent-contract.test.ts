@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests } from "../db";
 import {
@@ -97,6 +98,7 @@ describe("Exomem Hosted agent contracts", () => {
     assert.match(queries[1], /exomem_routable_cell_contracts/i);
     assert.match(queries[1], /platform = 'claude'/i);
     assert.match(queries[1], /platform = 'openai'/i);
+    assert.match(queries[1], /artifact_rows[\s\S]*FOR UPDATE/i);
     assert.match(queries[1], /retired_at = now\(\)/i);
     assert.match(queries[1], /UPDATE exomem_agent_contract_candidates/i);
     assert.doesNotMatch(queries[1], /digest\(/i);
@@ -125,8 +127,14 @@ describe("Exomem Hosted agent contracts", () => {
       () => parseClientArtifact({ ...artifact, installUrl: "https://user:pass@claude.ai/plugins/exomem-hosted" }, target),
       /tenant-neutral/i
     );
-    await promoteClientArtifact({ artifactId: "artifact-1", platform: "claude", evidenceSha256: sha("e"), resultSha256: sha("f"), trustedSignature: sha("a") });
+    const promotion = { artifactId: "artifact-1", platform: "claude" as const, evidenceSha256: sha("e"), resultSha256: sha("f"), operatorKeyId: "operator-1", trustedKeyId: "operator-1", trustedSecret: "test-secret" };
+    const signaturePayload = JSON.stringify({ artifactId: promotion.artifactId, evidenceSha256: promotion.evidenceSha256, operatorKeyId: promotion.operatorKeyId, platform: promotion.platform, resultSha256: promotion.resultSha256 });
+    await promoteClientArtifact({ ...promotion, signature: createHmac("sha256", promotion.trustedSecret).update(signaturePayload).digest("hex") });
     assert.match(query, /UPDATE exomem_client_artifacts/i);
+    await assert.rejects(
+      () => promoteClientArtifact({ ...promotion, signature: sha("a") }),
+      /signature is invalid/i
+    );
   });
 
   it("fences cell observations before contract promotion", async () => {

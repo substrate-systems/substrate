@@ -200,10 +200,14 @@ export async function promoteExomemAgentContractCandidate(input: {
         AND authority.contract_digest = candidate.schema_digest
         AND authority.compatibility_digest = candidate.compatibility_digest
         AND NOT EXISTS (SELECT 1 FROM cells WHERE contract_digest <> candidate.schema_digest)
+    ), artifact_rows AS (
+      SELECT * FROM exomem_client_artifacts
+      WHERE platform IN ('claude', 'openai') AND state = 'live'
+      FOR UPDATE
     ), evidence AS (
       SELECT 1 FROM candidate
       WHERE EXISTS (
-        SELECT 1 FROM exomem_client_artifacts AS claude
+        SELECT 1 FROM artifact_rows AS claude
         WHERE claude.platform = 'claude' AND claude.state = 'live'
           AND claude.compatibility_sha256 = candidate.compatibility_digest
           AND claude.contract_sha256 = candidate.schema_digest
@@ -211,7 +215,7 @@ export async function promoteExomemAgentContractCandidate(input: {
           AND claude.archive_sha256 = candidate.archive_lock->>'archive_sha256'
           AND claude.observed_at > now() - interval '24 hours'
       ) AND EXISTS (
-        SELECT 1 FROM exomem_client_artifacts AS openai
+        SELECT 1 FROM artifact_rows AS openai
         WHERE openai.platform = 'openai' AND openai.state = 'live'
           AND openai.compatibility_sha256 = candidate.compatibility_digest
           AND openai.contract_sha256 = candidate.schema_digest

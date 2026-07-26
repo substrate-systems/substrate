@@ -1,4 +1,5 @@
 import { executeExomemSql } from "./db";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
 export type ClientArtifact = {
@@ -22,6 +23,15 @@ const sha256 = (value: unknown, label: string): string => {
 };
 
 export type TrustedInstallTarget = { origin: string; path: string };
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
 
 export function parseClientArtifact(input: unknown, trustedTarget: TrustedInstallTarget): ClientArtifact {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("client artifact must be an object");
@@ -51,9 +61,20 @@ export async function promoteClientArtifact(input: {
   platform: "claude" | "openai";
   evidenceSha256: string;
   resultSha256: string;
-  trustedSignature: string;
+  operatorKeyId: string;
+  signature: string;
+  trustedKeyId: string;
+  trustedSecret: string;
 }): Promise<boolean> {
-  if (!/^[a-f0-9]{64}$/.test(input.trustedSignature)) throw new Error("artifact promotion requires signed evidence");
+  if (!input.trustedSecret || input.operatorKeyId !== input.trustedKeyId || !/^[a-f0-9]{64}$/.test(input.signature)) {
+    throw new Error("artifact promotion requires trusted signed evidence");
+  }
+  const signed = canonical({ artifactId: input.artifactId, platform: input.platform, evidenceSha256: input.evidenceSha256, resultSha256: input.resultSha256, operatorKeyId: input.operatorKeyId });
+  const expectedSignature = createHmac("sha256", input.trustedSecret).update(signed).digest();
+  const suppliedSignature = Buffer.from(input.signature, "hex");
+  if (suppliedSignature.length !== expectedSignature.length || !timingSafeEqual(suppliedSignature, expectedSignature)) {
+    throw new Error("artifact evidence signature is invalid");
+  }
   const { rows } = await executeExomemSql`
     /* exomem:promote-client-artifact */
     WITH candidate AS (
