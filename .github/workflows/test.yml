@@ -34,9 +34,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - name: Hosted Exomem paired PostgreSQL acceptance
+      - name: Hosted Exomem PostgreSQL authority and paired acceptance
         env:
           EXOMEM_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/substrate_test
         run: >-
           node --import tsx --experimental-test-module-mocks --test
+          src/lib/exomem-hosted/__tests__/oauth-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/hosted-paired-acceptance.test.ts
