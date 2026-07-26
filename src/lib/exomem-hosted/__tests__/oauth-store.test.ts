@@ -22,6 +22,8 @@ describe("Exomem OAuth token store", () => {
             family_id: "family-1",
             client_id: "client-1",
             resource: "resource",
+            refresh_allowed: true,
+            refresh_inserted: true,
           },
         ],
       };
@@ -42,6 +44,8 @@ describe("Exomem OAuth token store", () => {
       familyId: "family-1",
       clientId: "client-1",
       resource: "resource",
+      refreshAllowed: true,
+      refreshInserted: true,
     });
     assert.match(query, /UPDATE exomem_oauth_authorization_codes/i);
     assert.match(query, /INSERT INTO exomem_oauth_token_families/i);

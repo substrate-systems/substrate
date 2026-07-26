@@ -6,6 +6,8 @@ export type OAuthTokenContext = {
   familyId: string;
   clientId: string;
   resource: string;
+  refreshAllowed?: boolean;
+  refreshInserted?: boolean;
 };
 
 export type ActiveOAuthAccessToken = OAuthTokenContext & {
@@ -473,7 +475,9 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       JOIN exomem_oauth_grants AS grant ON grant.id = consumed_code.grant_id
       RETURNING id
     )
-    SELECT consumed_code.grant_id, family.id AS family_id, client.client_id, consumed_code.resource
+    SELECT consumed_code.grant_id, family.id AS family_id, client.client_id,
+           consumed_code.resource, consumed_code.refresh_allowed,
+           (refresh.family_id IS NOT NULL) AS refresh_inserted
     FROM consumed_code
     JOIN family ON family.grant_id = consumed_code.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = consumed_code.client_id
@@ -481,7 +485,14 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
     JOIN access ON true
   `;
   const row = rows[0] as
-    | { grant_id: string; family_id: string; client_id: string; resource: string }
+    | {
+        grant_id: string;
+        family_id: string;
+        client_id: string;
+        resource: string;
+        refresh_allowed: boolean;
+        refresh_inserted: boolean;
+      }
     | undefined;
   return row
     ? {
@@ -489,6 +500,8 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         familyId: row.family_id,
         clientId: row.client_id,
         resource: row.resource,
+        refreshAllowed: row.refresh_allowed,
+        refreshInserted: row.refresh_inserted,
       }
     : null;
 }
