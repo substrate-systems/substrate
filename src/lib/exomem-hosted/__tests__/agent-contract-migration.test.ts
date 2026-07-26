@@ -51,6 +51,16 @@ describe("Exomem agent-contract artifact migration", () => {
     assert.match(sql, /registered_app_id_sha256 ~ '\^\[a-f0-9\]\{64\}\$'/i);
     assert.match(sql, /exomem_client_artifacts_openai_contract_identity_check/i);
     assert.match(sql, /NOT VALID/i);
+    assert.match(sql, /CREATE OR REPLACE VIEW exomem_hosted_alpha_cohort/i);
+    assert.match(sql, /openai\.contract_candidate_id = contract\.id/i);
+    assert.match(
+      sql,
+      /openai\.registered_app_id_sha256 = contract\.openai_package_lock->>'registered_app_id_sha256'/i
+    );
+    assert.match(
+      sql,
+      /openai\.registered_app_id_sha256 = contract\.openai_archive_lock->>'registered_app_id_sha256'/i
+    );
     assert.doesNotMatch(sql, /(?:registered_app_id|registeredAppId|app_id)\s+(?:text|jsonb)/i);
   });
 });
