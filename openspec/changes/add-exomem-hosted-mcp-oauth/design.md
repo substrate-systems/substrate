@@ -35,7 +35,7 @@ The joint acceptance target is:
 
 ### 1. Substrate is both the OAuth authorization server and MCP resource server
 
-The production resource is one HTTPS Streamable HTTP endpoint derived from `EXOMEM_PUBLIC_BASE_URL` (for example `/api/exomem/mcp`). It returns standards-compliant `401` challenges, OAuth Protected Resource Metadata, and Authorization Server Metadata. Authorization uses the code flow with PKCE S256, exact redirect binding, state preservation, resource indicators/audience binding, and bearer tokens in the `Authorization` header on every MCP request. Tokens in URLs, cookies, tool arguments, or forwarded cell headers are rejected.
+The production resource is one versioned HTTPS Streamable HTTP endpoint derived from `EXOMEM_PUBLIC_BASE_URL` (for example `/api/exomem/mcp/v1`). It returns standards-compliant `401` challenges, OAuth Protected Resource Metadata, and Authorization Server Metadata. Authorization uses the code flow with PKCE S256, exact redirect binding, state preservation, resource indicators/audience binding, and bearer tokens in the `Authorization` header on every MCP request. Tokens in URLs, cookies, tool arguments, or forwarded cell headers are rejected.
 
 Keeping authorization and resource policy in Substrate avoids token exchange or passthrough to a third-party IdP and gives one place to enforce tenant, entitlement, suspension, deletion, and revocation. Reusing the Exomem browser cookie as the MCP credential was rejected because clients need OAuth refresh and audience semantics. Accepting upstream provider tokens was rejected because it couples client continuity to another issuer and recreates the forced-reconnect failure mode.
 
@@ -43,17 +43,17 @@ The resource supports the pinned MCP protocol range and stateless Streamable HTT
 
 ### 2. Client admission is narrow but interoperable
 
-Client identity resolution follows the supported MCP mechanisms in priority order: operator-pinned pre-registration, validated HTTPS Client ID Metadata Documents (CIMD), and a bounded Dynamic Client Registration compatibility adapter only for a promoted host that demonstrably requires it. The accepted Claude and OpenAI identities, redirect URIs, and mechanism are release configuration linked to their live promotion evidence.
+Client identity resolution follows the supported MCP mechanisms in priority order: operator-pinned pre-registration and narrowly allowlisted validated HTTPS Client ID Metadata Documents (CIMD). The accepted Claude and OpenAI identities, redirect URIs, and mechanism are release configuration linked to their live promotion evidence. Public clients use `none` authentication and PKCE S256 unless real host evidence requires `private_key_jwt`.
 
-CIMD fetching is HTTPS-only, SSRF-hardened, response/redirect/size/time bounded, schema validated, exact-client-ID matched, and cache bounded. Dynamic registrations, when enabled, have strict origin/redirect policy, quotas, expiry, and no entitlement or infrastructure effect. Generic arbitrary client admission is default-off for the alpha. Client registration or metadata discovery may create bounded control-plane metadata but can never create an identity, tenant, entitlement, cell, or volume.
+CIMD fetching is HTTPS-only, exact-host allowlisted, SSRF-hardened, response/redirect/size/time bounded, schema validated, exact-client-ID matched, and cache bounded. Generic arbitrary client admission is off for the alpha. Client metadata discovery may create bounded control-plane metadata but can never create an identity, tenant, entitlement, cell, or volume.
 
-Supporting only one guessed mechanism was rejected because native client behavior is an external compatibility contract. Open unauthenticated DCR was rejected because it creates unbounded state and phishing/redirect risk. The real-install gate decides which narrowly enabled adapters remain necessary.
+Supporting only one guessed mechanism was rejected because native client behavior is an external compatibility contract. Dynamic registration was rejected for alpha because it creates unbounded state and phishing/redirect risk. The real-install gate decides whether a future, separately approved adapter is necessary.
 
 ### 3. OAuth login resumes one sealed invite/magic-link transaction
 
-An authorization request creates a short-lived, content-free transaction bound to client, exact redirect URI, resource, requested scopes, PKCE challenge, and opaque browser state. Existing Exomem browser authentication may satisfy identity; otherwise the transaction resumes after the existing email-bound invite redemption or non-enumerating magic-link flow. The browser never chooses a tenant, email override, profile, or cell.
+An authorization request creates a short-lived, content-free transaction bound to client, exact redirect URI, resource, requested scopes, PKCE challenge, and opaque browser state. This alpha slice authorizes only an existing eligible owner through the existing Exomem browser session or magic-link flow. Invite acceptance remains the proven separate flow that creates the browser session, tenant, entitlement, and provision operation before plugin OAuth connect; pre-tenant OAuth invite resumption is later work. The browser never chooses a tenant, email override, profile, or cell.
 
-For a new invitee, one database transaction:
+For a new invitee, the existing invite-acceptance database transaction:
 
 1. validates the unconsumed email-bound invite and the authenticated identity;
 2. acquires a capacity reservation;
@@ -61,15 +61,15 @@ For a new invitee, one database transaction:
 4. resolves or creates the one Exomem tenant;
 5. projects the provider-neutral entitlement and alpha limits;
 6. resolves or creates one `initial-provision` lifecycle operation; and
-7. authorizes one OAuth grant for the client/resource/scopes.
+7. creates the normal browser session recorded in `redeemed_session_id`.
 
-If capacity cannot be reserved, the transaction leaves the invite reusable and creates no tenant, entitlement, provisioning operation, OAuth grant, cell, or volume. An identity established by email authentication may remain, but it has no Exomem routing authority. Existing entitled owners skip first-tenant allocation and attach the new client grant to their authoritative tenant.
+If capacity cannot be reserved, the transaction leaves the invite reusable and creates no session, identity, tenant, entitlement, provisioning operation, OAuth grant, cell, or volume. Existing entitled owners skip first-tenant allocation and later attach a new client grant to their authoritative tenant.
 
-The authorization code is issued once this durable admission transaction commits; provider provisioning continues asynchronously. Waiting synchronously for a cell was rejected because provider latency would make OAuth callbacks brittle. Consuming the invite before capacity admission was rejected because it could strand a valid user with neither service nor a reusable invite.
+After this durable admission transaction commits, a plugin OAuth authorization can issue a code for the existing eligible owner; provider provisioning continues asynchronously. Waiting synchronously for a cell was rejected because provider latency would make OAuth callbacks brittle. Consuming the invite before capacity admission was rejected because it could strand a valid user with neither service nor a reusable invite.
 
 ### 4. Exomem owns opaque rotating token families
 
-Authorization codes, access tokens, and refresh tokens are high-entropy opaque values stored only as digests. Codes are short-lived, single-use, client/redirect/resource/PKCE bound. Access tokens are short-lived and checked against current grant, tenant, entitlement, and lifecycle state on every request. Refresh tokens are longer-lived, one-time rotating members of a client-specific token family; replay or inconsistent rotation revokes the family. Expiry bounds are configuration with secure maximums and are recorded in acceptance evidence.
+Authorization codes, access tokens, and refresh tokens are high-entropy opaque values stored only as digests. Codes are short-lived, single-use, client/redirect/resource/PKCE bound. Access tokens are short-lived and checked against current grant, tenant, entitlement, and lifecycle state on every request. Refresh tokens are longer-lived, one-time rotating members of a client-specific token family; replay or inconsistent rotation revokes the family. There is no same-exchange retry allowance and no recoverable raw replacement-token cache. Expiry bounds are configuration with secure maximums and are recorded in acceptance evidence.
 
 The initial plugin requests read, write, and offline continuity. `offline_access` is handled at the authorization server and is not advertised as a protected-resource requirement. A scope never selects a tenant or expands the immutable profile. Revoking one client family does not revoke another client unless the user/operator chooses account-wide revocation; suspension or deletion denies every family centrally.
 
@@ -79,7 +79,7 @@ This creates one authorization per client installation without sharing vendor to
 
 Substrate imports the exact agent contract emitted by Exomem for `hosted-alpha-agent-v1`. A candidate record contains the profile ID, ordered tool fingerprint, full schema-contract digest, protocol range, command schemas/descriptions/annotations, and source release. `initialize` and `tools/list` are served from the registered live record after bearer authentication; they never wake, health-check, or query a tenant cell.
 
-Only the alpha profile becomes MCP tools. Substrate does not copy an allowlist, rewrite schemas, or derive a broader surface from the full private contract. A new contract enters `pending`; it becomes `live` only after schema validation, exact Exomem package identity agreement, compatible cell deployment, and paired client content tests. Existing live discovery remains in place until promotion is atomic.
+Only the alpha profile becomes MCP tools. Substrate does not copy an allowlist, rewrite schemas, or derive a broader surface from the full private contract; it adds only its gateway-owned OAuth `securitySchemes` overlay and runtime `_meta['mcp/www_authenticate']`. A new contract enters `pending`; it becomes `live` only after schema validation, exact Exomem package identity agreement, compatible cell deployment, and paired client content tests. Existing live discovery remains in place until promotion is atomic.
 
 Static discovery keeps a just-authorized client connected while its cell provisions and prevents N clients listing tools from causing N cell wakes. Serving tools from whatever cell happens to answer was rejected because it couples discovery to tenant health and permits cross-release drift.
 
@@ -129,7 +129,7 @@ The release fails if either client only reaches OAuth, `initialize`, `tools/list
 - [CIMD or DCR becomes an SSRF/state-growth boundary] → Enforce public HTTPS resolution, redirect and response bounds, schema/identity checks, cache/row TTLs, quotas, and no provisioning authority during registration.
 - [OAuth succeeds before the cell is useful] → Keep static discovery available and return a stable preparing result with retry timing until exact readiness passes.
 - [Opaque access-token checks add a database read] → Use indexed digest lookup and bounded safe caching while rechecking central lifecycle/revocation policy; prefer immediate revocation over long self-contained token staleness.
-- [Refresh-token race logs out a legitimate client] → Make rotation atomic, allow only the narrowly documented retry race if the client contract requires it, and revoke on confirmed replay.
+- [Refresh-token race logs out a legitimate client] → Make rotation atomic and revoke the family on any replay; no raw replacement token is retained for retry recovery.
 - [Contract promotion races cell rollout] → Keep pending/live records atomic and require all routable releases plus both package locks to match before promotion.
 - [Automatic client retries amplify cost] → Publish retry timing, coalesce provisioning status, cap concurrent calls/retries, and preserve idempotency.
 - [Suspension saves less than expected because volumes remain billed] → Measure compute and storage separately; release runtime slots on verified stop and retain storage honestly until deletion/retention policy permits destruction.
@@ -138,7 +138,7 @@ The release fails if either client only reaches OAuth, `initialize`, `tools/list
 ## Migration Plan
 
 1. Land the Exomem `hosted-alpha-agent-v1` contract and private route; import its candidate contract into Substrate.
-2. Add database migrations for OAuth transactions/grants/token families and capacity reservations/occupancy with all new public paths disabled.
+2. Add safe additive migrations: `0025_exomem_mcp_oauth.sql` for OAuth/client/contract state and `0026_exomem_capacity.sql` for capacity reservations, occupancy, and claims. Backfill uncertain existing tenant/provider state as occupied, never free, and make no provider calls in either migration. Queued work retains storage/runtime reservations, while a bounded provision claim is acquired only immediately around provider work.
 3. Add pure protocol, token, client-metadata, admission, capacity, discovery, and error-contract tests before route wiring.
 4. Add OAuth metadata/authorize/token/revoke endpoints, then the protected Streamable HTTP MCP route and profile-only forwarding.
 5. Add lifecycle capacity reconciliation, runtime release/reacquisition, rate/byte/concurrency limits, telemetry, and runbooks.

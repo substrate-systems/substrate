@@ -1,9 +1,9 @@
 ## 1. Pin Protocol, Security, And Data Contracts
 
 - [ ] 1.1 Add failing pure tests for protected-resource and authorization-server metadata, `WWW-Authenticate`, supported MCP negotiation, bearer-header-only authority, resource/audience binding, PKCE S256, exact redirect validation, and content-free OAuth errors.
-- [ ] 1.2 Add failing pure tests for approved pre-registration/CIMD resolution, public-HTTPS and SSRF boundaries, fetch/cache/size/redirect limits, and bounded DCR compatibility with generic admission default-off.
+- [ ] 1.2 Add failing pure tests for approved pre-registration/CIMD resolution, public-HTTPS and SSRF boundaries, exact allowlisted host/client/redirect matching, and fetch/cache/size/redirect limits; dynamic registration remains off for alpha.
 - [ ] 1.3 Add failing pure tests for authorization-code single use, opaque access/refresh digests, client/resource/scope/family binding, atomic refresh rotation, replay-family revocation, and current entitlement/lifecycle enforcement.
-- [ ] 1.4 Add migration `migrations/0025_exomem_mcp_oauth_capacity.sql` for authorization transactions/codes, grants/token families, approved or bounded client metadata, live/pending agent contracts, and multidimensional capacity reservations/occupancy with uniqueness, expiry, and deletion constraints.
+- [x] 1.4 Add safe additive migrations `migrations/0025_exomem_mcp_oauth.sql` for authorization transactions/codes, grants/token families, approved or bounded client metadata, and live/pending agent contracts, plus `migrations/0026_exomem_capacity.sql` for multidimensional capacity reservations/occupancy/claims. Backfill uncertain existing tenant/provider state as occupied, never free, and make no provider calls in migrations.
 - [ ] 1.5 Pin the official TypeScript MCP transport dependency and any narrowly required OAuth primitives, documenting why their protocol/security behavior is used instead of a handwritten transport parser.
 
 ## 2. Implement Exomem OAuth Discovery And Tokens

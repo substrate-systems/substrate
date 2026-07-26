@@ -2,7 +2,7 @@
 
 ### Requirement: Public MCP Is A Standards-Compatible Protected Resource
 
-The system SHALL expose one production HTTPS Streamable HTTP MCP resource for Exomem Hosted and SHALL publish the OAuth Protected Resource Metadata, Authorization Server Metadata, challenges, protocol negotiation, and transport behavior required by the promoted Claude and OpenAI clients. Every protected MCP request MUST carry a bearer access token in the `Authorization` header; tokens in URLs, cookies, MCP arguments, or session identifiers MUST be rejected or ignored as authority.
+The system SHALL expose one versioned production HTTPS Streamable HTTP MCP resource for Exomem Hosted and SHALL publish the OAuth Protected Resource Metadata, Authorization Server Metadata, challenges, protocol negotiation, and transport behavior required by the promoted Claude and OpenAI clients. Every protected MCP request MUST carry a bearer access token in the `Authorization` header; tokens in URLs, cookies, MCP arguments, or session identifiers MUST be rejected or ignored as authority.
 
 #### Scenario: Unauthenticated client discovers authorization
 
@@ -48,13 +48,13 @@ The authorization server SHALL implement authorization code with PKCE S256, exac
 
 ### Requirement: Login Reuses Invite And Magic-Link Identity Without Setup
 
-An OAuth authorization transaction SHALL resume through the existing email-bound invite redemption or non-enumerating magic-link authentication flow and SHALL derive the identity and tenant exclusively from authoritative server state. A valid first authorization MUST atomically validate eligibility, reserve capacity, consume the invite when applicable, resolve or create one identity/tenant/entitlement/initial-provision operation, and authorize the client grant without requiring Home setup, billing details for complimentary access, a tenant selector, or a second Exomem configuration step.
+An OAuth authorization transaction SHALL derive identity and tenant exclusively from authoritative server state. In the alpha, the proven email-bound invite acceptance flow first atomically creates the normal browser session, tenant, entitlement, capacity reservation, and initial-provision operation; plugin OAuth then connects that existing eligible owner through the browser session or magic-link authentication flow. Pre-tenant OAuth invite resumption is deferred. OAuth never requires Home setup, billing details for complimentary access, a tenant selector, or a second Exomem configuration step.
 
-#### Scenario: New invitee authorizes from the plugin
+#### Scenario: New invitee accepts an invite before plugin OAuth
 
-- **WHEN** the invite-bound user completes one valid Exomem login during a client authorization transaction and capacity is available
-- **THEN** the transaction creates or resolves exactly one identity, tenant, entitlement, capacity reservation, and logical initial-provision operation and then issues one authorization code
-- **AND** provider provisioning continues asynchronously without another setup page
+- **WHEN** the invite-bound user completes the existing invite acceptance flow and capacity is available
+- **THEN** that transaction creates or resolves exactly one identity, browser session, tenant, entitlement, capacity reservation, and logical initial-provision operation
+- **AND** a later plugin OAuth authorization attaches a client grant to that existing owner while provider provisioning continues asynchronously
 
 #### Scenario: Existing entitled owner authorizes another client
 
@@ -92,7 +92,7 @@ The authorization server SHALL issue high-entropy opaque authorization codes, sh
 
 #### Scenario: Rotated refresh token is replayed
 
-- **WHEN** an already-consumed refresh token is presented outside any explicitly bounded same-exchange retry allowance
+- **WHEN** an already-consumed refresh token is presented
 - **THEN** the token family is revoked and neither the replay nor its descendants can mint another access token
 
 #### Scenario: One client family is revoked
@@ -108,7 +108,7 @@ The authorization server SHALL issue high-entropy opaque authorization codes, sh
 
 ### Requirement: Tool Discovery Is Static, Pinned, And Cell-Independent
 
-The MCP resource SHALL serve `initialize` and `tools/list` from one registered `live` Exomem agent contract containing exactly `hosted-alpha-agent-v1`, its ordered command-surface fingerprint, full schema-contract digest, protocol compatibility, and canonical tool descriptions, input schemas, and annotations. Discovery MUST NOT contact, wake, health-check, or derive authority from a tenant cell and MUST NOT expose a full private control-plane command or a Substrate-maintained copy of profile membership.
+The MCP resource SHALL serve `initialize` and `tools/list` from one registered `live` Exomem agent contract containing exactly `hosted-alpha-agent-v1`, its ordered command-surface fingerprint, full schema-contract digest, protocol compatibility, and canonical tool descriptions, input schemas, and annotations. Substrate MAY add only its gateway-owned OAuth `securitySchemes` overlay and runtime `_meta['mcp/www_authenticate']`; it MUST NOT rewrite the imported tool schemas. Discovery MUST NOT contact, wake, health-check, or derive authority from a tenant cell and MUST NOT expose a full private control-plane command or a Substrate-maintained copy of profile membership.
 
 #### Scenario: Authorized tenant is still provisioning
 
