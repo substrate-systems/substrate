@@ -1,33 +1,15 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "run_id": "hosted-client-plugins-v1",
-  "required_counts": {
-    "cell": 1,
-    "entitlement": 1,
-    "identity": 1,
-    "operation": 1,
-    "tenant": 1,
-    "volume": 1
-  },
-  "required_operations": [
-    "native_install",
-    "authorization",
-    "tool_discovery",
-    "content_recall",
-    "citation",
-    "durable_capture",
-    "fresh_chat_recall"
-  ],
-  "tenant_identity": "paired-runtime-evidence",
-  "exomem_compatibility": {
-    "profile": "hosted-alpha-agent-v1",
-    "source_commit": "23d4a5db2eabd318b0a1f2bf5e9b352bc9852660",
-    "compatibility_sha256": "edf1d9aecb384148fb6df1a3ddc40b09f857757ed257989924ff4378d0b3c70a",
-    "schema_contract_sha256": "2c10eb03d81ff889b4b994c27c4c78f8dc9b104f1adc026557700be6c9a17efa",
-    "command_surface_sha256": "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f"
-  },
-  "local_evidence": {
-    "promotable": false,
-    "real_client_ran": false
-  }
+  "resource": "https://substratesystems.io/api/exomem/mcp/v1",
+  "profile": "hosted-alpha-agent-v1",
+  "exomem_release": "0.33.0",
+  "source_commit": "08f1cee281bd0dbcaf82094421c11d6be04dc5c2",
+  "compatibility_sha256": "aba2095396992240ce9c92ff0f66183362b3db97101442005549a8f8b026eb34",
+  "schema_contract_sha256": "57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3",
+  "command_surface_sha256": "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+  "claude_package_sha256": "b468f0425e7a021f3d7806991abdf6ae5724298fdd3cb6540cb68e1a4edb4c89",
+  "claude_archive_sha256": "cdba2b1b1ca7f165915ff73a27f991228df13b0d6c67c2607f5c34fb4d563057",
+  "local_provenance": "mock",
+  "external_release_gates": ["registered_openai_asdk_app", "clean_content_bearing_cross_client_run"]
 }
