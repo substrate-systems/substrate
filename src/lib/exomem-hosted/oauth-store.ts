@@ -1,11 +1,13 @@
 import { executeExomemSql, withExomemTransaction } from "./db";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
+import type { SecretEnvelope } from "./security";
 
 export type OAuthTokenContext = {
   grantId: string;
   familyId: string;
   clientId: string;
   resource: string;
+  scopes: string[];
   refreshAllowed?: boolean;
   refreshInserted?: boolean;
 };
@@ -52,6 +54,7 @@ export async function resolveApprovedOAuthClient(
 export async function createAuthorizationTransaction(input: {
   transactionDigest: Buffer;
   stateDigest: Buffer;
+  stateEnvelope: SecretEnvelope;
   clientId: string;
   redirectUri: string;
   resource: string;
@@ -63,10 +66,11 @@ export async function createAuthorizationTransaction(input: {
     /* exomem:create-oauth-authorization-transaction */
     INSERT INTO exomem_oauth_authorization_transactions (
       transaction_digest, client_id, redirect_uri, resource, requested_scopes,
-      state_digest, pkce_challenge, expires_at
+      state_digest, state_envelope, pkce_challenge, expires_at
     )
     SELECT ${input.transactionDigest}, client.id, ${input.redirectUri}, ${input.resource},
-           ${input.scopes}, ${input.stateDigest}, ${input.pkceChallenge},
+           ${input.scopes}, ${input.stateDigest}, ${JSON.stringify(input.stateEnvelope)}::jsonb,
+           ${input.pkceChallenge},
            ${input.expiresAt.toISOString()}
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${input.clientId}
@@ -75,6 +79,49 @@ export async function createAuthorizationTransaction(input: {
   `;
   const row = rows[0] as { id: string } | undefined;
   return row ? { id: row.id } : null;
+}
+
+export type PendingOAuthAuthorization = {
+  clientId: string;
+  redirectUri: string;
+  resource: string;
+  scopes: string[];
+  stateEnvelope: SecretEnvelope;
+};
+
+export async function findPendingOAuthAuthorization(
+  transactionDigest: Buffer
+): Promise<PendingOAuthAuthorization | null> {
+  const { rows } = await executeExomemSql`
+    /* exomem:find-pending-oauth-authorization */
+    SELECT client.client_id, transaction.redirect_uri, transaction.resource,
+           transaction.requested_scopes, transaction.state_envelope
+    FROM exomem_oauth_authorization_transactions AS transaction
+    JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
+    WHERE transaction.transaction_digest = ${transactionDigest}
+      AND transaction.consumed_at IS NULL
+      AND transaction.expires_at > now()
+      AND client.enabled = true
+    LIMIT 1
+  `;
+  const row = rows[0] as
+    | {
+        client_id: string;
+        redirect_uri: string;
+        resource: string;
+        requested_scopes: string[];
+        state_envelope: SecretEnvelope;
+      }
+    | undefined;
+  return row
+    ? {
+        clientId: row.client_id,
+        redirectUri: row.redirect_uri,
+        resource: row.resource,
+        scopes: row.requested_scopes,
+        stateEnvelope: row.state_envelope,
+      }
+    : null;
 }
 
 /** Attaches a client grant/code to an already entitled browser-session owner; no capacity or lifecycle row is touched. */
@@ -488,6 +535,33 @@ export async function revokeOAuthTokenFamily(familyId: string): Promise<void> {
   `;
 }
 
+/** RFC 7009 requires unknown or another client's credential to be indistinguishable. */
+export async function revokeOAuthTokenForClient(input: {
+  tokenDigest: Buffer;
+  clientId: string;
+}): Promise<void> {
+  await executeExomemSql`
+    /* exomem:revoke-oauth-token-for-client */
+    UPDATE exomem_oauth_token_families AS family
+    SET revoked_at = COALESCE(family.revoked_at, now()),
+        revoked_reason = COALESCE(family.revoked_reason, 'client_revoked')
+    FROM exomem_oauth_clients AS client
+    WHERE family.client_id = client.id
+      AND client.client_id = ${input.clientId}
+      AND client.enabled = true
+      AND (
+        EXISTS (
+          SELECT 1 FROM exomem_oauth_refresh_tokens AS refresh
+          WHERE refresh.family_id = family.id AND refresh.refresh_digest = ${input.tokenDigest}
+        )
+        OR EXISTS (
+          SELECT 1 FROM exomem_oauth_access_tokens AS access
+          WHERE access.family_id = family.id AND access.access_digest = ${input.tokenDigest}
+        )
+      )
+  `;
+}
+
 export async function issueOAuthTokensFromCodeAtomic(input: {
   codeDigest: Buffer;
   clientId: string;
@@ -548,7 +622,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       RETURNING id
     )
     SELECT consumed_code.grant_id, family.id AS family_id, client.client_id,
-           consumed_code.resource, consumed_code.refresh_allowed,
+           consumed_code.resource, grant.scopes, consumed_code.refresh_allowed,
            (refresh.family_id IS NOT NULL) AS refresh_inserted
     FROM consumed_code
     JOIN family ON family.grant_id = consumed_code.grant_id
@@ -562,6 +636,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         family_id: string;
         client_id: string;
         resource: string;
+        scopes: string[];
         refresh_allowed: boolean;
         refresh_inserted: boolean;
       }
@@ -572,6 +647,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         familyId: row.family_id,
         clientId: row.client_id,
         resource: row.resource,
+        scopes: row.scopes,
         refreshAllowed: row.refresh_allowed,
         refreshInserted: row.refresh_inserted,
       }
@@ -653,7 +729,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       JOIN exomem_oauth_grants AS grant ON grant.id = consumed.grant_id
       RETURNING id
     )
-    SELECT consumed.grant_id, consumed.family_id, client.client_id, grant.resource
+    SELECT consumed.grant_id, consumed.family_id, client.client_id, grant.resource, grant.scopes
     FROM consumed
     JOIN replacement ON replacement.family_id = consumed.family_id
     JOIN access ON true
@@ -661,7 +737,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     JOIN exomem_oauth_clients AS client ON client.id = consumed.client_id
   `;
   const row = rows[0] as
-    | { grant_id: string; family_id: string; client_id: string; resource: string }
+    | { grant_id: string; family_id: string; client_id: string; resource: string; scopes: string[] }
     | undefined;
   return row
     ? {
@@ -669,6 +745,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         familyId: row.family_id,
         clientId: row.client_id,
         resource: row.resource,
+        scopes: row.scopes,
       }
     : null;
 }

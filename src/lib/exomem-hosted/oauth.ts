@@ -111,6 +111,10 @@ export function pkceS256(verifier: string): string {
   return createHash("sha256").update(verifier, "utf8").digest("base64url");
 }
 
+export function isPkceVerifier(value: string): boolean {
+  return PKCE_VALUE.test(value);
+}
+
 function invalidRequest(): never {
   throw new OAuthProtocolError("OAUTH_INVALID_REQUEST");
 }
@@ -230,13 +234,17 @@ export function mintOpaqueTokenMaterial(input: {
   refreshAllowed?: boolean;
 }): OpaqueTokenMaterial {
   const accessToken = generateExternalToken(input.randomBytes);
-  const refreshToken = input.refreshAllowed === false ? undefined : generateExternalToken(input.randomBytes);
+  const refreshToken =
+    input.refreshAllowed === false ? undefined : generateExternalToken(input.randomBytes);
   return {
     accessToken: new SensitiveSecret(accessToken),
     accessTokenDigest: digestSecret(accessToken),
     accessTokenExpiresAt: new Date((input.now ?? new Date()).getTime() + ACCESS_TOKEN_TTL_MS),
     ...(refreshToken
-      ? { refreshToken: new SensitiveSecret(refreshToken), refreshTokenDigest: digestSecret(refreshToken) }
+      ? {
+          refreshToken: new SensitiveSecret(refreshToken),
+          refreshTokenDigest: digestSecret(refreshToken),
+        }
       : {}),
   };
 }

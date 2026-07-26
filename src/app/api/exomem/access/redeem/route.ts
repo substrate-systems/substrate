@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { redeemInvite } from "@/lib/exomem-hosted/access";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
+import { oauthContinuationDigest } from "@/lib/exomem-hosted/oauth-continuity";
 import { applySessionCookies, validatePublicAccessRequest } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
@@ -11,6 +12,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     validatePublicAccessRequest(request);
+    // OAuth admission has its own all-or-nothing transaction. Never let the
+    // pre-MCP redemption path consume an invite while a continuation is live.
+    if (oauthContinuationDigest(request)) throw exomemErrors.invalidRequest();
     let body: Record<string, unknown>;
     try {
       body = (await request.json()) as Record<string, unknown>;

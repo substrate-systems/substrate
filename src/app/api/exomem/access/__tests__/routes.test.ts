@@ -113,6 +113,19 @@ describe("Exomem access routes", () => {
     assert.equal(inviteCalls, 0);
   });
 
+  it("does not send an OAuth continuation through pre-MCP invite redemption", async () => {
+    const { POST } = await import("../redeem/route");
+    const response = await POST(
+      post(
+        "/api/exomem/access/redeem",
+        { token: SENTINEL },
+        `exomem_oauth_tx=${Buffer.alloc(32, 0x24).toString("base64url")}`
+      )
+    );
+    assert.equal(response.status, 400);
+    assert.equal(inviteCalls, 0);
+  });
+
   it("rejects login CSRF, form-compatible content, and padded redemption bodies", async () => {
     const { POST: redeemInviteRoute } = await import("../redeem/route");
     const { POST: redeemMagicRoute } = await import("../magic-link/redeem/route");

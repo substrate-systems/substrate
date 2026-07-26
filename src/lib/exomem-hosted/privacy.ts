@@ -22,6 +22,7 @@ type PostHogCapture = {
  */
 const PRIVATE_EXOMEM_PATHS = [
   "/exomem/invite",
+  "/exomem/authorize",
   "/exomem/sign-in",
   "/exomem/home",
   "/exomem/adopt",
