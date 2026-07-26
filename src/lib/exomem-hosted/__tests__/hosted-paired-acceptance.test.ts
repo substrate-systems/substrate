@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import fixture from "./fixtures/hosted-paired-acceptance-v1.json";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 import { getLiveExomemAgentContract } from "../agent-contract-store";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { loadOwnerInstallActions } from "../account-install-actions";
@@ -31,6 +32,7 @@ import { expectedCellConfiguration, LifecycleReconciler } from "../reconciler";
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const resource = "https://substratesystems.io/api/exomem/mcp/v1";
 const verifier = "v".repeat(43);
+const oauthClientConfigSha256 = sha("f");
 const previousBaseUrl = process.env.EXOMEM_PUBLIC_BASE_URL;
 let pool: Pool | undefined;
 let schema: string | undefined;
@@ -148,9 +150,9 @@ async function seedCohort(): Promise<Cohort> {
         `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
            client_platform, oauth_client_config_sha256
-         ) VALUES ($1, 'pinned', true, jsonb_build_array($2),
-                   digest(convert_to(jsonb_build_array($2)::text, 'utf8'), 'sha256'), $3, $4) RETURNING id`,
-        [clientId, redirectUri, platform, sha("oauth-client-config")]
+         ) VALUES ($1, 'pinned', true, jsonb_build_array($2::text),
+                   digest(convert_to(jsonb_build_array($2::text)::text, 'utf8'), 'sha256'), $3, $4) RETURNING id`,
+        [clientId, redirectUri, platform, oauthClientConfigSha256]
       )
     )
   );
@@ -203,7 +205,7 @@ async function seedCohort(): Promise<Cohort> {
         registered_app_id_sha256, oauth_client_config_sha256, observed_at, promoted_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
         $15::uuid, $16, $17, now(), now())`,
-      [...artifact(platform, candidateId, lock), sha("oauth-client-config")]
+      [...artifact(platform, candidateId, lock), oauthClientConfigSha256]
     );
   }
   await pool!.query(
@@ -223,7 +225,8 @@ async function seedAdmission(
   clientId: string,
   redirectUri: string,
   invitationDigest: Buffer,
-  transactionDigest: Buffer
+  transactionDigest: Buffer,
+  requestedScopes: string[] = ["exomem.read"]
 ) {
   await pool!.query(
     `INSERT INTO exomem_invites (token_digest, email_normalized, entitlement_source,
@@ -234,9 +237,19 @@ async function seedAdmission(
   await pool!.query(
     `INSERT INTO exomem_oauth_authorization_transactions (
       transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
-      pkce_challenge, expires_at
-    ) VALUES ($1, $2::uuid, $3, $4, ARRAY['exomem.read'], $5, $6, now() + interval '1 hour')`,
-    [transactionDigest, clientId, redirectUri, resource, digest(8), pkceS256(verifier)]
+      state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+    ) VALUES ($1, $2::uuid, $3, $4, $5::text[], $6, '{}'::jsonb, $7, $8, $9, now() + interval '1 hour')`,
+    [
+      transactionDigest,
+      clientId,
+      redirectUri,
+      resource,
+      requestedScopes,
+      digest(8),
+      digest(9),
+      digest(10),
+      pkceS256(verifier),
+    ]
   );
 }
 
@@ -320,10 +333,11 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
   before(async () => {
     process.env.EXOMEM_PUBLIC_BASE_URL = "https://hosted.example.test";
     schema = `paired_acceptance_${randomUUID().replaceAll("-", "")}`;
+    await ensureExomemPostgresTestExtensions(databaseUrl!);
     const admin = new Pool({ connectionString: databaseUrl });
     await admin.query(`CREATE SCHEMA "${schema}"`);
     const scoped = new URL(databaseUrl!);
-    scoped.searchParams.set("options", `-c search_path=${schema}`);
+    scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });
@@ -441,9 +455,13 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       redirectUri: cohort.claude.redirectUri,
       resource,
       scopes: ["exomem.read"],
+      offlineAccess: true,
       codeChallenge: pkceS256(verifier),
     });
-    await seedAdmission(cohort.claude.id, cohort.claude.redirectUri, digest(11), digest(12));
+    await seedAdmission(cohort.claude.id, cohort.claude.redirectUri, digest(11), digest(12), [
+      "exomem.read",
+      "offline_access",
+    ]);
     const admitted = await admitFirstOAuthInviteAtomic({
       inviteDigest: digest(11),
       transactionDigest: digest(12),
@@ -535,8 +553,14 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       accessExpiresAt: claudeMaterial.accessTokenExpiresAt,
     });
     assert.ok(claudeIssued);
+    assert.equal(claudeIssued.refreshAllowed, true);
+    assert.equal(claudeIssued.refreshInserted, true);
     assert.deepEqual(await findMcpOAuthAccessToken(claudeMaterial.accessTokenDigest), {
-      ...claudeIssued,
+      grantId: claudeIssued.grantId,
+      familyId: claudeIssued.familyId,
+      clientId: claudeIssued.clientId,
+      resource: claudeIssued.resource,
+      scopes: claudeIssued.scopes,
       userId: (await pool!.query("SELECT owner_user_id FROM exomem_tenants")).rows[0].owner_user_id,
       tenantId: admitted.tenantId,
     });
@@ -587,13 +611,19 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       codeChallenge: pkceS256(verifier),
     });
     await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_transactions (transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest, pkce_challenge, expires_at) VALUES ($1, $2::uuid, $3, $4, ARRAY['exomem.read'], $5, $6, now() + interval '1 hour')`,
+      `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       ) VALUES ($1, $2::uuid, $3, $4, ARRAY['exomem.read'], $5,
+         '{}'::jsonb, $6, $7, $8, now() + interval '1 hour')`,
       [
         digest(21),
         cohort.openai.id,
         cohort.openai.redirectUri,
         resource,
         digest(22),
+        digest(25),
+        digest(26),
         pkceS256(verifier),
       ]
     );

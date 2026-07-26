@@ -5,6 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { acquireCapacityProviderWorkAtomic } from "../capacity-store";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
@@ -88,10 +89,11 @@ async function meteredRunningProvision(checkpoint = "candidate-created"): Promis
 describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `capacity_it_${randomUUID().replaceAll("-", "")}`;
+    await ensureExomemPostgresTestExtensions(databaseUrl!);
     const admin = new Pool({ connectionString: databaseUrl });
     await admin.query(`CREATE SCHEMA "${schema}"`);
     const scoped = new URL(databaseUrl!);
-    scoped.searchParams.set("options", `-c search_path=${schema}`);
+    scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });

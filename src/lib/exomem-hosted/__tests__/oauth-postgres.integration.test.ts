@@ -3,6 +3,7 @@ import { after, before, describe, it } from "node:test";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
 import { ExomemHostedError } from "../errors";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
@@ -33,7 +34,9 @@ let schema: string | undefined;
 let transactionApplicationName: string | undefined;
 
 function digest(value: number): Buffer {
-  return Buffer.alloc(32, value);
+  const result = Buffer.alloc(32);
+  result.writeUInt32BE(value, 28);
+  return result;
 }
 
 function taggedSql(client: Pool | PoolClient): ExomemSql {
@@ -239,10 +242,10 @@ async function seedInviteAndTransaction(clientInternalId: string, suffix: string
   await pool!.query(
     `INSERT INTO exomem_oauth_authorization_transactions (
        transaction_digest, client_id, redirect_uri, resource, requested_scopes,
-       state_digest, pkce_challenge, expires_at
+       state_digest, state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
      ) VALUES ($1, $2, 'https://client.example.test/callback', $3,
-       ARRAY['exomem.read', 'offline_access'], $4, 'challenge', now() + interval '1 hour')`,
-    [digest(Number(suffix) + 20), clientInternalId, resource, digest(80)]
+       ARRAY['exomem.read', 'offline_access'], $4, '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
+    [digest(Number(suffix) + 20), clientInternalId, resource, digest(80), digest(81), digest(82)]
   );
 }
 
@@ -261,10 +264,17 @@ async function seedAdmission(
   await pool!.query(
     `INSERT INTO exomem_oauth_authorization_transactions (
        transaction_digest, client_id, redirect_uri, resource, requested_scopes,
-       state_digest, pkce_challenge, expires_at
+       state_digest, state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
      ) VALUES ($1, $2, 'https://client.example.test/callback', $3,
-       ARRAY['exomem.read'], $4, 'challenge', now() + interval '1 hour')`,
-    [digest(sequence + 20), clientInternalId, resource, digest(sequence + 2)]
+       ARRAY['exomem.read'], $4, '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
+    [
+      digest(sequence + 20),
+      clientInternalId,
+      resource,
+      digest(sequence + 2),
+      digest(sequence + 3),
+      digest(sequence + 4),
+    ]
   );
 }
 
@@ -319,10 +329,11 @@ async function seedAuthorizationCode(
 describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `oauth_it_${randomUUID().replaceAll("-", "")}`;
+    await ensureExomemPostgresTestExtensions(databaseUrl!);
     const admin = new Pool({ connectionString: databaseUrl });
     await admin.query(`CREATE SCHEMA "${schema}"`);
     const scoped = new URL(databaseUrl!);
-    scoped.searchParams.set("options", `-c search_path=${schema}`);
+    scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });
@@ -385,9 +396,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       [user.rows[0].id, tenant.rows[0].id, digest(30), digest(31)]
     );
     await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_transactions (transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest, pkce_challenge, expires_at)
-       VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4, 'challenge', now() + interval '1 hour')`,
-      [digest(32), internal, resource, digest(33)]
+      `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
+         '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
+      [digest(32), internal, resource, digest(33), digest(35), digest(36)]
     );
     const attached = await attachExistingOwnerAuthorizationAtomic({
       sessionId: session.rows[0].id,
@@ -440,8 +454,14 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       "INSERT INTO users (email, deleted_at) VALUES ('deleted-owner@example.test', now())"
     );
     await seedAdmission(internal, 230, "deleted-owner@example.test");
+    const allocationCountBeforeAdmission = await scalar(
+      "SELECT count(*) FROM exomem_capacity_allocations"
+    );
     assert.equal(await admitFirstOAuthInviteAtomic(admissionInput(230)), null);
-    assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
+    assert.equal(
+      await scalar("SELECT count(*) FROM exomem_capacity_allocations"),
+      allocationCountBeforeAdmission
+    );
     assert.equal(
       await scalar(
         "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",

@@ -20,6 +20,7 @@ import {
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { storeClientArtifact } from "../client-artifacts";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
@@ -173,10 +174,11 @@ function evidence(
 describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `agent_contract_it_${randomUUID().replaceAll("-", "")}`;
+    await ensureExomemPostgresTestExtensions(databaseUrl!);
     const admin = new Pool({ connectionString: databaseUrl });
     await admin.query(`CREATE SCHEMA "${schema}"`);
     const scoped = new URL(databaseUrl!);
-    scoped.searchParams.set("options", `-c search_path=${schema}`);
+    scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString(), max: 3 });
@@ -421,7 +423,6 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       CREATE FUNCTION pause_hosted_cohort_promotion() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN
         PERFORM pg_advisory_xact_lock(0, 714229);
-        PERFORM pg_sleep(0.75);
         RETURN NEW;
       END;
       $$
@@ -432,46 +433,72 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       FOR EACH ROW WHEN (NEW.id = '${replacementCandidateId}'::uuid AND NEW.state = 'live')
       EXECUTE FUNCTION pause_hosted_cohort_promotion()
     `);
-    const replacement = promoteExomemHostedCohort({
-      candidateId: replacementCandidateId,
-      claudeArtifactId: replacementClaudeId,
-      openaiArtifactId: replacementOpenAiId,
-      expectedLiveCandidateId: candidateId,
-      expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
-      claudeEvidence: replacementClaudeEvidence,
-      openaiEvidence: replacementOpenAiEvidence,
-    });
-    let barrierReached = false;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const barrier = await pool!.query<{ reached: boolean }>(
-        "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = 0 AND objid = 714229 AND granted) AS reached"
-      );
-      if (barrier.rows[0]?.reached) {
-        barrierReached = true;
-        break;
+    const lockClient = await pool!.connect();
+    let lockHeld = false;
+    let replacement: ReturnType<typeof promoteExomemHostedCohort> | undefined;
+    try {
+      try {
+        await lockClient.query("SELECT pg_advisory_lock(0, 714229)");
+        lockHeld = true;
+        replacement = promoteExomemHostedCohort({
+          candidateId: replacementCandidateId,
+          claudeArtifactId: replacementClaudeId,
+          openaiArtifactId: replacementOpenAiId,
+          expectedLiveCandidateId: candidateId,
+          expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+          claudeEvidence: replacementClaudeEvidence,
+          openaiEvidence: replacementOpenAiEvidence,
+        });
+        const deadline = Date.now() + 10_000;
+        let waiterReached = false;
+        while (Date.now() < deadline) {
+          const waiter = await pool!.query<{ waiting: boolean }>(
+            "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) AND classid = 0 AND objid = 714229 AND objsubid = 2 AND NOT granted) AS waiting"
+          );
+          if (waiter.rows[0]?.waiting) {
+            waiterReached = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        assert.equal(waiterReached, true, "replacement must pause before commit");
+        assert.deepEqual(
+          (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
+            (row) => row.id
+          ),
+          [candidateId]
+        );
+        assert.deepEqual(
+          await loadOwnerInstallActions(owner.rows[0]!.id, ownerTenant.rows[0]!.id),
+          [
+            {
+              platform: "claude",
+              version: exomemHostedContractFixture.packageLock.plugin_version,
+              installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL!,
+            },
+            {
+              platform: "openai",
+              version: testOnlyOpenAiLocks.packageLock.plugin_version,
+              installUrl: process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL!,
+            },
+          ]
+        );
+      } finally {
+        let releaseWithError = false;
+        try {
+          if (lockHeld) await lockClient.query("SELECT pg_advisory_unlock(0, 714229)");
+        } catch (unlockError) {
+          releaseWithError = true;
+          throw unlockError;
+        } finally {
+          lockClient.release(releaseWithError);
+        }
       }
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.equal(await replacement!, "promoted");
+    } catch (error) {
+      if (replacement) await replacement.catch(() => undefined);
+      throw error;
     }
-    assert.equal(barrierReached, true, "replacement must pause before commit");
-    assert.deepEqual(
-      (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
-        (row) => row.id
-      ),
-      [candidateId]
-    );
-    assert.deepEqual(await loadOwnerInstallActions(owner.rows[0]!.id, ownerTenant.rows[0]!.id), [
-      {
-        platform: "claude",
-        version: exomemHostedContractFixture.packageLock.plugin_version,
-        installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL!,
-      },
-      {
-        platform: "openai",
-        version: testOnlyOpenAiLocks.packageLock.plugin_version,
-        installUrl: process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL!,
-      },
-    ]);
-    assert.equal(await replacement, "promoted");
     assert.deepEqual(
       (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
         (row) => row.id

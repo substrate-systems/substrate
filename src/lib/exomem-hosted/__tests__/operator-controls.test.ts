@@ -96,8 +96,8 @@ describe("hosted operator controls", () => {
       true
     );
     assert.equal(await revokeOperatorOAuthAccount({ ownerUserId, tenantId }), 1);
-    assert.match(queries[0], /grant\.user_id = \?/i);
-    assert.match(queries[0], /grant\.tenant_id = \?/i);
+    assert.match(queries[0], /oauth_grant\.user_id = \?/i);
+    assert.match(queries[0], /oauth_grant\.tenant_id = \?/i);
     assert.match(queries[1], /exomem_oauth_account_blocks/i);
     assert.match(queries[1], /FOR UPDATE/i);
   });

@@ -1357,11 +1357,11 @@ export class SqlLifecycleStore implements LifecycleStore {
         RETURNING tenant_id
       ),
       oauth_grants_revoked AS (
-        UPDATE exomem_oauth_grants AS grant
-        SET revoked_at = COALESCE(grant.revoked_at, now()), updated_at = now()
+        UPDATE exomem_oauth_grants AS oauth_grant
+        SET revoked_at = COALESCE(oauth_grant.revoked_at, now()), updated_at = now()
         FROM tenant_gated
-        WHERE ${desired}::text = 'deleted' AND grant.tenant_id = tenant_gated.id
-        RETURNING grant.id, grant.authorization_transaction_id
+        WHERE ${desired}::text = 'deleted' AND oauth_grant.tenant_id = tenant_gated.id
+        RETURNING oauth_grant.id, oauth_grant.authorization_transaction_id
       ),
       oauth_codes_revoked AS (
         UPDATE exomem_oauth_authorization_codes AS code

@@ -60,9 +60,9 @@ describe("Exomem OAuth token store", () => {
     assert.match(queries[1] ?? "", /family\.grant_id = token\.grant_id/i);
     assert.match(queries[1] ?? "", /family\.client_id = token\.client_id/i);
     assert.doesNotMatch(queries[1] ?? "", /family\.resource = token\.resource/i);
-    assert.match(queries[1] ?? "", /grant\.client_id = token\.client_id/i);
-    assert.match(queries[1] ?? "", /grant\.resource = token\.resource/i);
-    assert.match(queries[1] ?? "", /token\.scopes <@ grant\.scopes/i);
+    assert.match(queries[1] ?? "", /oauth_grant\.client_id = token\.client_id/i);
+    assert.match(queries[1] ?? "", /oauth_grant\.resource = token\.resource/i);
+    assert.match(queries[1] ?? "", /token\.scopes <@ oauth_grant\.scopes/i);
   });
 
   it("consumes a code and persists a new token family in one statement", async () => {
@@ -109,6 +109,16 @@ describe("Exomem OAuth token store", () => {
     assert.match(query, /INSERT INTO exomem_oauth_access_tokens/i);
     assert.match(query, /JOIN exomem_tenants AS tenant/i);
     assert.match(query, /JOIN exomem_entitlements AS entitlement/i);
+    const clientJoin =
+      query.match(
+        /JOIN exomem_oauth_clients AS client\s+ON([\s\S]*?)JOIN exomem_tenants AS tenant/i
+      )?.[1] ?? "";
+    assert.doesNotMatch(clientJoin, /\bcode\./i);
+    assert.match(query, /AND code\.client_id = client\.id/i);
+    assert.match(
+      query,
+      /SELECT consumed_code\.grant_id[\s\S]*?FROM consumed_code\s+JOIN family[\s\S]*?JOIN exomem_oauth_clients AS client[\s\S]*?JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant\.id = consumed_code\.grant_id[\s\S]*?LEFT JOIN refresh/i
+    );
   });
 
   it("rotates atomically and revokes the family when the digest was already consumed", async () => {
@@ -224,8 +234,8 @@ describe("Exomem OAuth token store", () => {
     );
     assert.match(accessQuery ?? "", /exomem_entitlements/i);
     assert.match(revokeQuery ?? "", /WHERE family\.id = \?::uuid/i);
-    assert.match(revokeQuery ?? "", /grant\.user_id = \?::uuid/i);
-    assert.match(revokeQuery ?? "", /grant\.tenant_id = \?::uuid/i);
+    assert.match(revokeQuery ?? "", /oauth_grant\.user_id = \?::uuid/i);
+    assert.match(revokeQuery ?? "", /oauth_grant\.tenant_id = \?::uuid/i);
   });
 
   it("revokes a disabled client's exact token without making it eligible for authorization", async () => {

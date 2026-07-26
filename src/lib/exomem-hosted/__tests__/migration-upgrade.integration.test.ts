@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { getLiveExomemAgentContract } from "../agent-contract-store";
 import { __setExomemSqlForTests } from "../db";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const MIGRATION_0017 = resolve(process.cwd(), "migrations/0017_exomem_hosted_service.sql");
@@ -63,6 +64,7 @@ async function applyMigration(client: PoolClient, path: string): Promise<void> {
 }
 
 async function create0017Schema(client: PoolClient, schema: string): Promise<void> {
+  await ensureExomemPostgresTestExtensions(DATABASE_URL!);
   await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
   await client.query(`CREATE SCHEMA ${schema}`);
   await client.query(`SET search_path TO ${schema}, public`);

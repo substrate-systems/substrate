@@ -262,7 +262,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
         )
       FOR UPDATE OF transaction
     ),
-    grant AS (
+    oauth_grant AS (
       INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id)
       SELECT session.user_id, session.tenant_id, transaction.client_id, transaction.resource,
              array_remove(transaction.requested_scopes, 'offline_access'),
@@ -279,10 +279,10 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       INSERT INTO exomem_oauth_authorization_codes (
         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
       )
-      SELECT ${input.codeDigest}, grant.id, transaction.client_id, transaction.redirect_uri,
+      SELECT ${input.codeDigest}, oauth_grant.id, transaction.client_id, transaction.redirect_uri,
              transaction.resource, transaction.pkce_challenge,
              'offline_access' = ANY(transaction.requested_scopes), ${input.codeExpiresAt.toISOString()}
-      FROM grant CROSS JOIN transaction
+      FROM oauth_grant CROSS JOIN transaction
       RETURNING grant_id
     ),
     consumed AS (
@@ -292,7 +292,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       WHERE transaction_row.id = transaction.id
       RETURNING transaction_row.id
     )
-    SELECT grant.id AS grant_id, grant.tenant_id FROM grant CROSS JOIN consumed
+    SELECT oauth_grant.id AS grant_id, oauth_grant.tenant_id FROM oauth_grant CROSS JOIN consumed
   `;
     const row = rows[0] as { grant_id: string; tenant_id: string } | undefined;
     return row ? { grantId: row.grant_id, tenantId: row.tenant_id } : null;
@@ -619,8 +619,8 @@ export async function findActiveOAuthAccessToken(
     /* exomem:find-active-oauth-access-token */
     SELECT token.family_id,
            token.grant_id,
-           grant.user_id,
-           grant.tenant_id,
+           oauth_grant.user_id,
+           oauth_grant.tenant_id,
            client.client_id,
            token.resource,
            token.scopes
@@ -629,9 +629,9 @@ export async function findActiveOAuthAccessToken(
       ON family.id = token.family_id
      AND family.revoked_at IS NULL
      AND family.expires_at > now()
-    JOIN exomem_oauth_grants AS grant
-      ON grant.id = token.grant_id
-     AND grant.revoked_at IS NULL
+    JOIN exomem_oauth_grants AS oauth_grant
+      ON oauth_grant.id = token.grant_id
+     AND oauth_grant.revoked_at IS NULL
     JOIN exomem_oauth_clients AS client
       ON client.id = token.client_id
      AND client.enabled = true
@@ -642,8 +642,8 @@ export async function findActiveOAuthAccessToken(
        AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
      ))
     JOIN exomem_tenants AS tenant
-      ON tenant.id = grant.tenant_id
-     AND tenant.owner_user_id = grant.user_id
+      ON tenant.id = oauth_grant.tenant_id
+     AND tenant.owner_user_id = oauth_grant.user_id
      AND tenant.status IN ('provisioning', 'active')
      AND tenant.desired_state = 'running'
     JOIN exomem_entitlements AS entitlement
@@ -659,7 +659,7 @@ export async function findActiveOAuthAccessToken(
       )
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
-        WHERE block.tenant_id = grant.tenant_id AND block.owner_user_id = grant.user_id
+        WHERE block.tenant_id = oauth_grant.tenant_id AND block.owner_user_id = oauth_grant.user_id
       )
     LIMIT 1
   `;
@@ -695,7 +695,7 @@ export async function findMcpOAuthAccessToken(
   return withCohortLock(async (tx) => {
     const { rows } = await tx`
     /* exomem:find-mcp-oauth-access-token */
-    SELECT token.family_id, token.grant_id, grant.user_id, grant.tenant_id,
+    SELECT token.family_id, token.grant_id, oauth_grant.user_id, oauth_grant.tenant_id,
            client.client_id, token.resource, token.scopes
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
@@ -704,11 +704,11 @@ export async function findMcpOAuthAccessToken(
      AND family.client_id = token.client_id
      AND family.revoked_at IS NULL
      AND family.expires_at > now()
-    JOIN exomem_oauth_grants AS grant
-      ON grant.id = token.grant_id
-     AND grant.client_id = token.client_id
-     AND grant.resource = token.resource
-     AND grant.revoked_at IS NULL
+    JOIN exomem_oauth_grants AS oauth_grant
+      ON oauth_grant.id = token.grant_id
+     AND oauth_grant.client_id = token.client_id
+     AND oauth_grant.resource = token.resource
+     AND oauth_grant.revoked_at IS NULL
     JOIN exomem_oauth_clients AS client ON client.id = token.client_id
       AND client.enabled = true
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
@@ -718,8 +718,8 @@ export async function findMcpOAuthAccessToken(
         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
       ))
     JOIN exomem_tenants AS tenant
-      ON tenant.id = grant.tenant_id
-     AND tenant.owner_user_id = grant.user_id
+      ON tenant.id = oauth_grant.tenant_id
+     AND tenant.owner_user_id = oauth_grant.user_id
      AND tenant.status <> 'deleted'
      AND tenant.deleted_at IS NULL
     JOIN exomem_entitlements AS entitlement
@@ -728,7 +728,7 @@ export async function findMcpOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
-      AND token.scopes <@ grant.scopes
+      AND token.scopes <@ oauth_grant.scopes
       AND EXISTS (
         SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
         WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
@@ -736,7 +736,7 @@ export async function findMcpOAuthAccessToken(
       )
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
-        WHERE block.tenant_id = grant.tenant_id AND block.owner_user_id = grant.user_id
+        WHERE block.tenant_id = oauth_grant.tenant_id AND block.owner_user_id = oauth_grant.user_id
       )
     LIMIT 1
   `;
@@ -783,13 +783,13 @@ export async function revokeOAuthTokenFamilyForOwner(input: {
     UPDATE exomem_oauth_token_families AS family
     SET revoked_at = COALESCE(family.revoked_at, now()),
         revoked_reason = COALESCE(family.revoked_reason, 'operator_revoked')
-    FROM exomem_oauth_grants AS grant
-    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
+    FROM exomem_oauth_grants AS oauth_grant
+    JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id
     WHERE family.id = ${input.familyId}::uuid
-      AND grant.id = family.grant_id
-      AND grant.user_id = ${input.ownerUserId}::uuid
-      AND grant.tenant_id = ${input.tenantId}::uuid
-      AND tenant.owner_user_id = grant.user_id
+      AND oauth_grant.id = family.grant_id
+      AND oauth_grant.user_id = ${input.ownerUserId}::uuid
+      AND oauth_grant.tenant_id = ${input.tenantId}::uuid
+      AND tenant.owner_user_id = oauth_grant.user_id
     RETURNING family.id
   `;
   return rows.length === 1;
@@ -806,12 +806,12 @@ export async function revokeOAuthTokenFamiliesForOwnerTenant(input: {
     UPDATE exomem_oauth_token_families AS family
     SET revoked_at = COALESCE(family.revoked_at, now()),
         revoked_reason = COALESCE(family.revoked_reason, ${input.reason ?? "operator_revoked"})
-    FROM exomem_oauth_grants AS grant
-    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
-    WHERE grant.id = family.grant_id
-      AND grant.user_id = ${input.ownerUserId}::uuid
-      AND grant.tenant_id = ${input.tenantId}::uuid
-      AND tenant.owner_user_id = grant.user_id
+    FROM exomem_oauth_grants AS oauth_grant
+    JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id
+    WHERE oauth_grant.id = family.grant_id
+      AND oauth_grant.user_id = ${input.ownerUserId}::uuid
+      AND oauth_grant.tenant_id = ${input.tenantId}::uuid
+      AND tenant.owner_user_id = oauth_grant.user_id
     RETURNING family.id
   `;
   return rows.length;
@@ -840,11 +840,11 @@ export async function revokeOAuthAccountForOwnerTenantAtomic(input: {
         SET owner_user_id = EXCLUDED.owner_user_id
         RETURNING tenant_id
       ), grants AS (
-        UPDATE exomem_oauth_grants AS grant
-        SET revoked_at = COALESCE(grant.revoked_at, now()), updated_at = now()
+        UPDATE exomem_oauth_grants AS oauth_grant
+        SET revoked_at = COALESCE(oauth_grant.revoked_at, now()), updated_at = now()
         FROM owner
-        WHERE grant.tenant_id = owner.id AND grant.user_id = owner.owner_user_id
-        RETURNING grant.id, grant.authorization_transaction_id
+        WHERE oauth_grant.tenant_id = owner.id AND oauth_grant.user_id = owner.owner_user_id
+        RETURNING oauth_grant.id, oauth_grant.authorization_transaction_id
       ), codes AS (
         UPDATE exomem_oauth_authorization_codes AS code
         SET consumed_at = COALESCE(code.consumed_at, now())
@@ -920,10 +920,10 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
     const tenantLock = await tx`
     SELECT tenant.id
     FROM exomem_tenants AS tenant
-    JOIN exomem_oauth_grants AS grant ON grant.tenant_id = tenant.id
-    JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant.id
+    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.tenant_id = tenant.id
+    JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = oauth_grant.id
     WHERE code.code_digest = ${input.codeDigest}
-      AND tenant.owner_user_id = grant.user_id
+      AND tenant.owner_user_id = oauth_grant.user_id
     FOR UPDATE OF tenant
   `;
     if (!tenantLock.rows[0]) return null;
@@ -932,10 +932,9 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
     WITH consumed_code AS (
       UPDATE exomem_oauth_authorization_codes AS code
       SET consumed_at = now()
-      FROM exomem_oauth_grants AS grant
+      FROM exomem_oauth_grants AS oauth_grant
       JOIN exomem_oauth_clients AS client
-        ON client.id = code.client_id
-       AND client.client_id = ${input.clientId}
+        ON client.client_id = ${input.clientId}
        AND client.enabled = true
        AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
        AND (client.admission_mode = 'pinned' OR (
@@ -944,23 +943,23 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
          AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
        ))
       JOIN exomem_tenants AS tenant
-        ON tenant.id = grant.tenant_id
-       AND tenant.owner_user_id = grant.user_id
+        ON tenant.id = oauth_grant.tenant_id
+       AND tenant.owner_user_id = oauth_grant.user_id
        AND tenant.status IN ('provisioning', 'active') AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement
         ON entitlement.tenant_id = tenant.id
        AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE code.code_digest = ${input.codeDigest}
-        AND code.grant_id = grant.id
+        AND code.grant_id = oauth_grant.id
         AND code.client_id = client.id
-        AND grant.client_id = code.client_id
-        AND grant.resource = code.resource
+        AND oauth_grant.client_id = code.client_id
+        AND oauth_grant.resource = code.resource
         AND code.redirect_uri = ${input.redirectUri}
         AND code.resource = ${input.resource}
         AND code.pkce_challenge = ${input.pkceChallenge}
         AND code.consumed_at IS NULL
         AND code.expires_at > now()
-        AND grant.revoked_at IS NULL
+        AND oauth_grant.revoked_at IS NULL
         AND EXISTS (
           SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
           WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
@@ -968,7 +967,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
-          WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
+          WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id
         )
       RETURNING code.grant_id, code.client_id, code.resource, code.refresh_allowed
     ),
@@ -991,18 +990,19 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
       )
       SELECT ${input.accessDigest}, consumed_code.grant_id, family.id, consumed_code.client_id,
-             consumed_code.resource, grant.scopes, ${input.accessExpiresAt.toISOString()}
+             consumed_code.resource, oauth_grant.scopes, ${input.accessExpiresAt.toISOString()}
       FROM consumed_code
       JOIN family ON family.grant_id = consumed_code.grant_id
-      JOIN exomem_oauth_grants AS grant ON grant.id = consumed_code.grant_id
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed_code.grant_id
       RETURNING id
     )
     SELECT consumed_code.grant_id, family.id AS family_id, client.client_id,
-           consumed_code.resource, grant.scopes, consumed_code.refresh_allowed,
+           consumed_code.resource, oauth_grant.scopes, consumed_code.refresh_allowed,
            (refresh.family_id IS NOT NULL) AS refresh_inserted
     FROM consumed_code
     JOIN family ON family.grant_id = consumed_code.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = consumed_code.client_id
+    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed_code.grant_id
     LEFT JOIN refresh ON refresh.family_id = family.id
     JOIN access ON true
   `;
@@ -1049,12 +1049,12 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     SELECT tenant.id
     FROM exomem_oauth_refresh_tokens AS token
     JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
-    JOIN exomem_oauth_grants AS grant ON grant.id = family.grant_id
+    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = family.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = family.client_id
-    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id AND tenant.owner_user_id = grant.user_id
+    JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
     WHERE token.refresh_digest = ${input.refreshDigest}
       AND client.client_id = ${input.clientId}
-      AND grant.resource = ${input.resource}
+      AND oauth_grant.resource = ${input.resource}
     FOR UPDATE OF tenant
   `;
     if (!tenantLock.rows[0]) return null;
@@ -1066,9 +1066,9 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       FROM exomem_oauth_refresh_tokens AS token
       JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
       JOIN exomem_oauth_clients AS client ON client.id = family.client_id
-      JOIN exomem_oauth_grants AS grant
-        ON grant.id = family.grant_id
-       AND grant.resource = ${input.resource}
+      JOIN exomem_oauth_grants AS oauth_grant
+        ON oauth_grant.id = family.grant_id
+       AND oauth_grant.resource = ${input.resource}
       WHERE token.refresh_digest = ${input.refreshDigest}
         AND client.client_id = ${input.clientId}
         AND client.enabled = true
@@ -1084,9 +1084,9 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       SELECT credential.id
       FROM credential
       JOIN exomem_oauth_clients AS client ON client.id = credential.client_id
-      JOIN exomem_oauth_grants AS grant ON grant.id = credential.grant_id AND grant.revoked_at IS NULL
-      JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
-        AND tenant.owner_user_id = grant.user_id AND tenant.status IN ('provisioning', 'active')
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = credential.grant_id AND oauth_grant.revoked_at IS NULL
+      JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id
+        AND tenant.owner_user_id = oauth_grant.user_id AND tenant.status IN ('provisioning', 'active')
         AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
@@ -1097,7 +1097,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
-          WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
+          WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id
         )
     ),
     consumed AS (
@@ -1138,17 +1138,17 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
       )
       SELECT ${input.accessDigest}, consumed.grant_id, consumed.family_id,
-             consumed.client_id, grant.resource, grant.scopes,
+             consumed.client_id, oauth_grant.resource, oauth_grant.scopes,
              ${input.accessExpiresAt.toISOString()}
       FROM consumed
-      JOIN exomem_oauth_grants AS grant ON grant.id = consumed.grant_id
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
       RETURNING id
     )
-    SELECT consumed.grant_id, consumed.family_id, client.client_id, grant.resource, grant.scopes
+    SELECT consumed.grant_id, consumed.family_id, client.client_id, oauth_grant.resource, oauth_grant.scopes
     FROM consumed
     JOIN replacement ON replacement.family_id = consumed.family_id
     JOIN access ON true
-    JOIN exomem_oauth_grants AS grant ON grant.id = consumed.grant_id
+    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = consumed.client_id
   `;
     const row = rows[0] as
