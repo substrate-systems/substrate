@@ -120,7 +120,12 @@ export async function promoteExomemAgentContractCandidate(input: {
   const expected = sha256(input.expectedRoutableCellDigest, "routable cell digest");
   const { rows } = await executeExomemSql`
     /* exomem:promote-agent-contract-candidate */
-    WITH candidate AS (
+    WITH authority AS (
+      SELECT authority.*
+      FROM exomem_agent_contract_profile_authority AS authority
+      WHERE authority.profile_id = ${EXOMEM_HOSTED_PROFILE}
+      FOR UPDATE
+    ), candidate AS (
       SELECT * FROM exomem_agent_contract_candidates
       WHERE id = ${input.candidateId}::uuid AND state = 'pending'
       FOR UPDATE
@@ -131,15 +136,41 @@ export async function promoteExomemAgentContractCandidate(input: {
       FOR UPDATE
     ), exact_cells AS (
       SELECT 1 FROM candidate
+      JOIN authority ON authority.profile_id = candidate.profile_id
       WHERE EXISTS (SELECT 1 FROM cells)
+        AND authority.routable_set_digest = ${expected}
+        AND authority.observed_at > now() - interval '5 minutes'
         AND NOT EXISTS (SELECT 1 FROM cells WHERE contract_digest <> candidate.schema_digest)
-        AND (SELECT encode(digest(string_agg(contract_digest, ',' ORDER BY contract_digest), 'sha256'), 'hex') FROM cells) = ${expected}
+    ), evidence AS (
+      SELECT 1 FROM candidate
+      WHERE EXISTS (
+        SELECT 1 FROM exomem_client_artifacts AS claude
+        WHERE claude.platform = 'claude' AND claude.state = 'live'
+          AND claude.compatibility_sha256 = candidate.compatibility_digest
+          AND claude.contract_sha256 = candidate.schema_digest
+          AND claude.package_sha256 = candidate.package_lock->>'artifact_sha256'
+          AND claude.archive_sha256 = candidate.archive_lock->>'archive_sha256'
+          AND claude.observed_at > now() - interval '24 hours'
+      ) AND EXISTS (
+        SELECT 1 FROM exomem_client_artifacts AS openai
+        WHERE openai.platform = 'openai' AND openai.state = 'live'
+          AND openai.compatibility_sha256 = candidate.compatibility_digest
+          AND openai.contract_sha256 = candidate.schema_digest
+          AND openai.plugin_version = candidate.package_lock->>'plugin_version'
+          AND openai.observed_at > now() - interval '24 hours'
+      )
     ), retired AS (
       UPDATE exomem_agent_contract_candidates SET state = 'retired', retired_at = now()
-      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live' AND EXISTS (SELECT 1 FROM exact_cells)
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live'
+        AND EXISTS (SELECT 1 FROM exact_cells) AND EXISTS (SELECT 1 FROM evidence)
+      RETURNING id
+    ), retirement_complete AS (
+      SELECT count(*) AS count FROM retired
     ), promoted AS (
       UPDATE exomem_agent_contract_candidates SET state = 'live', promoted_at = now()
+      FROM retirement_complete
       WHERE id = ${input.candidateId}::uuid AND EXISTS (SELECT 1 FROM exact_cells)
+        AND EXISTS (SELECT 1 FROM evidence)
       RETURNING id
     ) SELECT id FROM promoted
   `;

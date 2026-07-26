@@ -16,7 +16,7 @@ CREATE TABLE exomem_agent_contract_candidates (
   created_at timestamptz NOT NULL DEFAULT now(),
   promoted_at timestamptz,
   retired_at timestamptz,
-  CHECK ((state = 'live') = (promoted_at IS NOT NULL)),
+  CHECK ((state IN ('live', 'retired')) = (promoted_at IS NOT NULL)),
   CHECK ((state = 'retired') = (retired_at IS NOT NULL))
 );
 
@@ -30,6 +30,13 @@ CREATE TABLE exomem_routable_cell_contracts (
   routable boolean NOT NULL DEFAULT false,
   observed_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (cell_id, profile_id)
+);
+
+CREATE TABLE exomem_agent_contract_profile_authority (
+  profile_id text PRIMARY KEY,
+  routable_set_digest text NOT NULL CHECK (char_length(routable_set_digest) = 64),
+  observed_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE exomem_client_artifacts (
@@ -49,7 +56,7 @@ CREATE TABLE exomem_client_artifacts (
   created_at timestamptz NOT NULL DEFAULT now(),
   promoted_at timestamptz,
   retired_at timestamptz,
-  CHECK ((state = 'live') = (promoted_at IS NOT NULL)),
+  CHECK ((state IN ('live', 'retired')) = (promoted_at IS NOT NULL)),
   CHECK ((state = 'retired') = (retired_at IS NOT NULL)),
   CHECK (install_url ~ '^https://')
 );

@@ -21,13 +21,20 @@ const sha256 = (value: unknown, label: string): string => {
   return value;
 };
 
+const ALLOWED_INSTALL_TARGETS = {
+  claude: { origin: "https://claude.ai", path: "/plugins/exomem-hosted" },
+  openai: { origin: "https://chatgpt.com", path: "/apps/exomem-hosted" },
+} as const;
+
 export function parseClientArtifact(input: unknown): ClientArtifact {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("client artifact must be an object");
   const raw = input as Record<string, unknown>;
   if (raw.platform !== "claude" && raw.platform !== "openai") throw new Error("unsupported artifact platform");
   if (!(["pending", "live", "failed", "retired"] as string[]).includes(String(raw.state))) throw new Error("unsupported artifact state");
   const installUrl = new URL(String(raw.installUrl));
-  if (installUrl.protocol !== "https:" || installUrl.search || installUrl.hash || /(?:token|tenant|cell|secret|localhost)/i.test(installUrl.toString())) {
+  const allowed = ALLOWED_INSTALL_TARGETS[raw.platform];
+  if (installUrl.username || installUrl.password || installUrl.origin !== allowed.origin || installUrl.pathname !== allowed.path ||
+      installUrl.protocol !== "https:" || installUrl.search || installUrl.hash || /(?:token|tenant|cell|secret|localhost)/i.test(installUrl.toString())) {
     throw new Error("install URL must be tenant-neutral HTTPS without credentials");
   }
   const observedAt = new Date(String(raw.observedAt));

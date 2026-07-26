@@ -14,6 +14,10 @@ describe("Exomem agent-contract artifact migration", () => {
     assert.match(sql, /state IN \('pending', 'live', 'failed', 'retired'\)/i);
     assert.match(sql, /exomem_agent_contract_candidates_one_live_idx/i);
     assert.match(sql, /exomem_client_artifacts_one_live_idx/i);
+    assert.match(sql, /exomem_agent_contract_profile_authority/i);
+    assert.match(sql, /routable_set_digest text NOT NULL/i);
+    assert.match(sql, /state IN \('live', 'retired'\)/i);
+    assert.doesNotMatch(sql, /\bdigest\s*\(/i);
     assert.match(sql, /CHECK \(install_url ~ '\^https:\/\/'\)/i);
     assert.doesNotMatch(sql, /(?:token|tenant_selector|cell_endpoint|prompt|result_text)\s+(?:text|jsonb)/i);
   });

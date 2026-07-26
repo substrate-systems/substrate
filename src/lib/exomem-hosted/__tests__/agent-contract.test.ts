@@ -92,15 +92,20 @@ describe("Exomem Hosted agent contracts", () => {
     assert.match(queries[0], /INSERT INTO exomem_agent_contract_candidates/i);
     assert.match(queries[0], /'pending'/i);
     assert.match(queries[1], /FOR UPDATE/i);
+    assert.match(queries[1], /exomem_agent_contract_profile_authority/i);
     assert.match(queries[1], /exomem_routable_cell_contracts/i);
+    assert.match(queries[1], /platform = 'claude'/i);
+    assert.match(queries[1], /platform = 'openai'/i);
+    assert.match(queries[1], /retired_at = now\(\)/i);
     assert.match(queries[1], /UPDATE exomem_agent_contract_candidates/i);
+    assert.doesNotMatch(queries[1], /digest\(/i);
   });
 
   it("stores only tenant-neutral client artifact evidence", async () => {
     const artifact = parseClientArtifact({
       platform: "claude", state: "pending", packageSha256: sha("a"), archiveSha256: sha("b"),
       compatibilitySha256: sha("c"), contractSha256: sha("d"), pluginVersion: "0.1.0",
-      clientIdentity: "claude-desktop", installUrl: "https://example.com/install/exomem",
+      clientIdentity: "claude-desktop", installUrl: "https://claude.ai/plugins/exomem-hosted",
       evidenceSha256: sha("e"), resultSha256: sha("f"), observedAt: "2026-07-26T00:00:00.000Z",
     });
     let query = "";
@@ -111,7 +116,11 @@ describe("Exomem Hosted agent contracts", () => {
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
     assert.match(query, /INSERT INTO exomem_client_artifacts/i);
     assert.throws(
-      () => parseClientArtifact({ ...artifact, installUrl: "https://example.com/install?tenant=private" }),
+      () => parseClientArtifact({ ...artifact, installUrl: "https://claude.ai/plugins/exomem-hosted?tenant=private" }),
+      /tenant-neutral/i
+    );
+    assert.throws(
+      () => parseClientArtifact({ ...artifact, installUrl: "https://user:pass@claude.ai/plugins/exomem-hosted" }),
       /tenant-neutral/i
     );
   });
