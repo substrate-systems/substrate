@@ -80,6 +80,8 @@ export type OperationalEvent = {
   claimKind?: string;
   clientHash?: string;
   cohortHash?: string;
+  tenantHash?: string;
+  tokenFamilyHash?: string;
   requestClass?: string;
   toolClass?: string;
   retryBucket?: string;
@@ -159,6 +161,12 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalOpaqueHash(input.cohortHash)
       ? { cohortHash: optionalOpaqueHash(input.cohortHash) }
+      : {}),
+    ...(optionalOpaqueHash(input.tenantHash)
+      ? { tenantHash: optionalOpaqueHash(input.tenantHash) }
+      : {}),
+    ...(optionalOpaqueHash(input.tokenFamilyHash)
+      ? { tokenFamilyHash: optionalOpaqueHash(input.tokenFamilyHash) }
       : {}),
     ...(optionalBoundedLabel(input.requestClass)
       ? { requestClass: optionalBoundedLabel(input.requestClass) }

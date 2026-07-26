@@ -29,7 +29,7 @@ const LIVE = {
   contract: exomemHostedContractFixture.compatibility,
 };
 
-function request(body: unknown, headers: HeadersInit = {}): Request {
+function request(body: unknown, headers: HeadersInit = {}, includeProtocol = true): Request {
   return new Request("https://substratesystems.io/api/exomem/mcp/v1", {
     method: "POST",
     body: JSON.stringify(body),
@@ -37,6 +37,7 @@ function request(body: unknown, headers: HeadersInit = {}): Request {
       authorization: `Bearer ${"a".repeat(43)}`,
       accept: "application/json, text/event-stream",
       "content-type": "application/json",
+      ...(includeProtocol ? { "mcp-protocol-version": LIVE.mcpProtocolVersions[0] } : {}),
       ...headers,
     },
   });
@@ -142,7 +143,7 @@ describe("Hosted MCP boundary", () => {
     assert.equal(mcpProtocolSupported("2099-01-01", LIVE.mcpProtocolVersions), false);
   });
 
-  it("negotiates the pinned initialize version and rejects SDK legacy versions", async () => {
+  it("negotiates the pinned initialize version without a protocol header and rejects SDK legacy versions", async () => {
     const dependencies = {
       baseUrl: "https://substratesystems.io",
       findAccessToken: async () => ACCESS,
@@ -150,16 +151,20 @@ describe("Hosted MCP boundary", () => {
       takeRateLimit: async () => true,
     };
     const accepted = await handleHostedMcpRequest(
-      request({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          clientInfo: { name: "test", version: "1" },
+      request(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "test", version: "1" },
+          },
         },
-      }),
+        {},
+        false
+      ),
       dependencies
     );
     assert.equal(accepted.status, 200);
@@ -177,6 +182,98 @@ describe("Hosted MCP boundary", () => {
       dependencies
     );
     assert.equal(rejected.status, 400);
+  });
+
+  it("rejects missing and unsupported protocol headers before lifecycle or gateway work", async () => {
+    let lifecycleCalls = 0;
+    let routes = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => LIVE,
+      statusForTenant: async () => {
+        lifecycleCalls += 1;
+        return { state: "ready", code: "READY", retryable: false };
+      },
+      routeCommand: async () => {
+        routes += 1;
+        return bootstrapResult();
+      },
+      takeRateLimit: async () => true,
+    };
+    const body = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "bootstrap", arguments: {} },
+    };
+    const protocolCases: Array<{ headers: HeadersInit; includeProtocol: boolean }> = [
+      { headers: {}, includeProtocol: false },
+      { headers: { "mcp-protocol-version": "2099-01-01" }, includeProtocol: true },
+    ];
+    for (const { headers, includeProtocol } of protocolCases) {
+      const response = await handleHostedMcpRequest(
+        request(body, headers, includeProtocol),
+        dependencies
+      );
+      assert.equal(response.status, 400);
+    }
+    assert.equal(lifecycleCalls, 0);
+    assert.equal(routes, 0);
+  });
+
+  it("rejects incompatible Streamable HTTP media before loading a contract or dispatching a tool", async () => {
+    let contracts = 0;
+    let lifecycleCalls = 0;
+    let routes = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => {
+        contracts += 1;
+        return LIVE;
+      },
+      statusForTenant: async () => {
+        lifecycleCalls += 1;
+        return { state: "ready", code: "READY", retryable: false };
+      },
+      routeCommand: async () => {
+        routes += 1;
+        return bootstrapResult();
+      },
+      takeRateLimit: async () => true,
+    };
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "bootstrap", arguments: { private: "body-secret-sentinel" } },
+    });
+    const mediaCases = [
+      [{ accept: "application/json, text/event-stream" }, 415],
+      [{ accept: "application/json, text/event-stream", "content-type": "text/plain" }, 415],
+      [{ "content-type": "application/json" }, 406],
+      [{ "content-type": "application/json", accept: "application/json" }, 406],
+    ] as const;
+    for (const [headers, status] of mediaCases) {
+      const response = await handleHostedMcpRequest(
+        new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${"a".repeat(43)}`,
+            "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+            ...headers,
+          },
+          body,
+        }),
+        dependencies
+      );
+      assert.equal(response.status, status);
+      assert.equal((await response.text()).includes("body-secret-sentinel"), false);
+    }
+    assert.equal(contracts, 0);
+    assert.equal(lifecycleCalls, 0);
+    assert.equal(routes, 0);
   });
 
   it("serves imported live tools without resolving a cell", async () => {
@@ -378,7 +475,12 @@ describe("Hosted MCP boundary", () => {
     const malformed = await handleHostedMcpRequest(
       new Request("https://substratesystems.io/api/exomem/mcp/v1", {
         method: "POST",
-        headers: { authorization: `Bearer ${"a".repeat(43)}` },
+        headers: {
+          authorization: `Bearer ${"a".repeat(43)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+        },
         body: "{",
       }),
       dependencies
@@ -505,6 +607,42 @@ describe("Hosted MCP boundary", () => {
       { event: "mcp.request", outcome: "denied", errorCode: "MCP_PROTOCOL_UNSUPPORTED" }
     );
     assert.equal(JSON.stringify(events).includes("client-secret-sentinel"), false);
+    assert.match(events[0].tenantHash as string, /^[0-9a-f]{64}$/);
+    assert.match(events[0].tokenFamilyHash as string, /^[0-9a-f]{64}$/);
+    assert.match(events[0].requestId as string, /^[0-9a-f-]{36}$/);
+  });
+
+  it("buckets the actual public MCP response, including content and structured content", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async () => ({
+          status: 200,
+          requestId: "request",
+          attempts: 2,
+          body: { success: true, data: { wide: "x".repeat(33_000) } },
+        }),
+        takeRateLimit: async () => true,
+        telemetry: (event: Record<string, unknown>) => events.push(event),
+        telemetryKey: Buffer.alloc(32, 6),
+      }
+    );
+    const publicBytes = Buffer.byteLength(await response.clone().text(), "utf8");
+    assert.ok(publicBytes > 65_536);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].byteBucket, "le_1k");
+    assert.equal(events[0].responseByteBucket, "gt_64k");
+    assert.equal(events[0].retryBucket, "retried");
   });
 
   it("keeps unauthenticated denial telemetry free of bearer and body sentinels", async () => {
@@ -610,7 +748,12 @@ describe("Hosted MCP boundary", () => {
       new Request("https://substratesystems.io/api/exomem/mcp/v1", {
         method: "POST",
         signal: controller.signal,
-        headers: { authorization: `Bearer ${"a".repeat(43)}` },
+        headers: {
+          authorization: `Bearer ${"a".repeat(43)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+        },
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -665,7 +808,12 @@ describe("Hosted MCP boundary", () => {
       new Request("https://substratesystems.io/api/exomem/mcp/v1", {
         method: "POST",
         signal: controller.signal,
-        headers: { authorization: `Bearer ${"a".repeat(43)}` },
+        headers: {
+          authorization: `Bearer ${"a".repeat(43)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+        },
         body: JSON.stringify({
           jsonrpc: "2.0",
           id: 1,

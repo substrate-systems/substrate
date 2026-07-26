@@ -43,6 +43,18 @@ const PRIVATE_ERROR_MESSAGES: Record<string, string> = {
 const PRIVATE_REMEDIATIONS = new Set(["retry_later", "contact_support", "deletion_in_progress"]);
 
 type JsonRecord = Record<string, unknown>;
+type McpTelemetryInput = {
+  outcome: "succeeded" | "failed" | "denied";
+  errorCode?: string;
+  access?: ActiveOAuthAccessToken;
+  tool?: LiveTool;
+  startedAt?: number;
+  requestClass?: "request" | "tool";
+  requestBytes?: number;
+  responseBytes?: number;
+  retryBucket?: "none" | "retried";
+  requestId?: string;
+};
 type LiveTool = {
   tool: JsonRecord;
   readOnly: boolean;
@@ -77,24 +89,10 @@ function mcpByteBucket(size: number): string {
   return size <= 1024 ? "le_1k" : size <= 65_536 ? "le_64k" : "gt_64k";
 }
 
-function jsonBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value), "utf8");
-}
-
 function emitMcpTelemetry(
   dependencies: McpDependencies,
   request: Request,
-  input: {
-    outcome: "succeeded" | "failed" | "denied";
-    errorCode?: string;
-    access?: ActiveOAuthAccessToken;
-    tool?: LiveTool;
-    startedAt?: number;
-    requestClass?: "request" | "tool";
-    requestBytes?: number;
-    responseBytes?: number;
-    retryBucket?: "none" | "retried";
-  }
+  input: McpTelemetryInput
 ): void {
   if (!dependencies.telemetry) return;
   try {
@@ -115,10 +113,13 @@ function emitMcpTelemetry(
           ? { durationBucket: Date.now() - input.startedAt < 1000 ? "lt_1s" : "ge_1s" }
           : {}),
         retryBucket: input.retryBucket ?? "none",
+        ...(input.requestId ? { requestId: input.requestId } : {}),
         ...(input.access
           ? {
               clientHash: opaqueMcpIdentifier(input.access.clientId, key),
               cohortHash: opaqueMcpIdentifier("hosted-alpha-agent-v1", key),
+              tenantHash: opaqueMcpIdentifier(input.access.tenantId, key),
+              tokenFamilyHash: opaqueMcpIdentifier(input.access.familyId, key),
             }
           : {}),
         ...(input.errorCode ? { errorCode: input.errorCode } : {}),
@@ -127,6 +128,38 @@ function emitMcpTelemetry(
   } catch {
     // Telemetry is observability-only and cannot change an MCP result.
   }
+}
+
+function mediaType(value: string | null): string | null {
+  const [type] = value?.split(";", 1) ?? [];
+  return type?.trim().toLowerCase() || null;
+}
+
+function acceptsMediaType(value: string | null, expected: string): boolean {
+  return Boolean(
+    value
+      ?.split(",")
+      .map((entry) => entry.trim().split(";"))
+      .some(([type, ...parameters]) => {
+        const excluded = parameters.some((parameter) =>
+          /^\s*q\s*=\s*0(?:\.0*)?\s*$/i.test(parameter)
+        );
+        return type.trim().toLowerCase() === expected && !excluded;
+      })
+  );
+}
+
+function mcpPostMediaStatus(request: Request): 406 | 415 | null {
+  if (mediaType(request.headers.get("content-type")) !== "application/json") return 415;
+  const accept = request.headers.get("accept");
+  return acceptsMediaType(accept, "application/json") &&
+    acceptsMediaType(accept, "text/event-stream")
+    ? null
+    : 406;
+}
+
+async function responseByteLength(response: Response): Promise<number> {
+  return (await response.clone().arrayBuffer()).byteLength;
 }
 
 async function awaitMcpBound<T>(value: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -585,31 +618,42 @@ export async function handleHostedMcpRequest(
     });
     return unauthorized(baseUrl);
   }
-  if (!(await take(EXOMEM_RATE_LIMITS.mcpIdentity, `${access.tenantId}:${access.clientId}`))) {
+  const requestId = randomUUID();
+  const emitAuthenticatedTelemetry = (
+    input: Omit<McpTelemetryInput, "access" | "requestId">
+  ): void =>
     emitMcpTelemetry(dependencies, request, {
+      ...input,
+      access,
+      requestId,
+    });
+  if (!(await take(EXOMEM_RATE_LIMITS.mcpIdentity, `${access.tenantId}:${access.clientId}`))) {
+    emitAuthenticatedTelemetry({
       outcome: "denied",
       errorCode: "RATE_LIMITED",
-      access,
     });
     return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
   }
   try {
     return await withConcurrency(`${access.tenantId}:${access.clientId}`, async () => {
       if (request.method === "GET" || request.method === "DELETE") {
-        emitMcpTelemetry(dependencies, request, {
+        emitAuthenticatedTelemetry({
           outcome: "denied",
           errorCode: "INVALID_REQUEST",
-          access,
         });
         return new Response(null, { status: 405, headers: { allow: "POST" } });
       }
       if (request.method !== "POST") {
-        emitMcpTelemetry(dependencies, request, {
+        emitAuthenticatedTelemetry({
           outcome: "denied",
           errorCode: "INVALID_REQUEST",
-          access,
         });
         return new Response(null, { status: 405, headers: { allow: "POST" } });
+      }
+      const mediaStatus = mcpPostMediaStatus(request);
+      if (mediaStatus) {
+        emitAuthenticatedTelemetry({ outcome: "denied", errorCode: "INVALID_REQUEST" });
+        return Response.json({ error: "INVALID_REQUEST" }, { status: mediaStatus });
       }
       const live = await (dependencies.getLiveContract ?? getLiveExomemAgentContract)();
       if (
@@ -617,24 +661,11 @@ export async function handleHostedMcpRequest(
         live.profile !== EXOMEM_HOSTED_PROFILE ||
         live.endpoint !== EXOMEM_HOSTED_RESOURCE
       ) {
-        emitMcpTelemetry(dependencies, request, {
+        emitAuthenticatedTelemetry({
           outcome: "denied",
           errorCode: "HOSTED_CONTRACT_UNAVAILABLE",
-          access,
         });
         return Response.json({ error: "HOSTED_CONTRACT_UNAVAILABLE" }, { status: 503 });
-      }
-      const protocol = request.headers.get("mcp-protocol-version");
-      if (
-        !live.mcpProtocolVersions ||
-        (protocol && !mcpProtocolSupported(protocol, live.mcpProtocolVersions))
-      ) {
-        emitMcpTelemetry(dependencies, request, {
-          outcome: "denied",
-          errorCode: "MCP_PROTOCOL_UNSUPPORTED",
-          access,
-        });
-        return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
       }
       let body: unknown;
       let requestBytes: number;
@@ -644,10 +675,9 @@ export async function handleHostedMcpRequest(
         requestBytes = parsed.bytes;
       } catch (error) {
         const safe = error instanceof ExomemHostedError ? error : exomemErrors.invalidRequest();
-        emitMcpTelemetry(dependencies, request, {
+        emitAuthenticatedTelemetry({
           outcome: "denied",
           errorCode: safe.code,
-          access,
         });
         return Response.json({ error: safe.code }, { status: safe.status });
       }
@@ -655,18 +685,16 @@ export async function handleHostedMcpRequest(
         boundedJson(body);
       } catch (error) {
         const safe = error instanceof ExomemHostedError ? error : exomemErrors.invalidRequest();
-        emitMcpTelemetry(dependencies, request, {
+        emitAuthenticatedTelemetry({
           outcome: "denied",
           errorCode: safe.code,
-          access,
         });
         return Response.json({ error: safe.code }, { status: safe.status });
       }
       if (Array.isArray(body)) {
-        emitMcpTelemetry(dependencies, request, {
+        emitAuthenticatedTelemetry({
           outcome: "denied",
           errorCode: "INVALID_REQUEST",
-          access,
         });
         return Response.json({ error: "INVALID_REQUEST" }, { status: 400 });
       }
@@ -680,24 +708,30 @@ export async function handleHostedMcpRequest(
             live.mcpProtocolVersions
           )
         ) {
-          emitMcpTelemetry(dependencies, request, {
+          emitAuthenticatedTelemetry({
             outcome: "denied",
             errorCode: "MCP_PROTOCOL_UNSUPPORTED",
-            access,
           });
           return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
         }
+      } else if (
+        !mcpProtocolSupported(request.headers.get("mcp-protocol-version"), live.mcpProtocolVersions)
+      ) {
+        emitAuthenticatedTelemetry({
+          outcome: "denied",
+          errorCode: "MCP_PROTOCOL_UNSUPPORTED",
+        });
+        return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
       }
 
       let tools: Map<string, LiveTool>;
       try {
         tools = importedTools(live);
       } catch (error) {
-        emitMcpTelemetry(dependencies, request, {
+        emitAuthenticatedTelemetry({
           outcome: "denied",
           errorCode:
             error instanceof ExomemHostedError ? error.code : "HOSTED_CONTRACT_UNAVAILABLE",
-          access,
         });
         return Response.json(
           {
@@ -711,6 +745,7 @@ export async function handleHostedMcpRequest(
         { name: "Hosted Exomem", version: live.sourceRelease },
         { capabilities: { tools: {} } }
       );
+      const toolTelemetry: { value: McpTelemetryInput | null } = { value: null };
       server.setRequestHandler(ListToolsRequestSchema, async () => ({
         tools: [...tools.values()].map(({ tool, readOnly }) => ({
           ...tool,
@@ -724,14 +759,12 @@ export async function handleHostedMcpRequest(
         const tool = tools.get(rpc.params.name);
         const args = rpc.params.arguments === undefined ? {} : object(rpc.params.arguments);
         const startedAt = Date.now();
-        const requestId = randomUUID();
         const telemetry = (
           outcome: "succeeded" | "failed" | "denied",
           errorCode?: string,
-          responseBytes?: number,
           retryBucket?: "none" | "retried"
-        ) =>
-          emitMcpTelemetry(dependencies, request, {
+        ) => {
+          toolTelemetry.value = {
             outcome,
             errorCode,
             access,
@@ -739,9 +772,10 @@ export async function handleHostedMcpRequest(
             startedAt,
             requestClass: "tool",
             requestBytes,
-            responseBytes,
             retryBucket,
-          });
+            requestId,
+          };
+        };
         if (!tool) {
           telemetry("denied", "COMMAND_NOT_FOUND");
           return toolFailure(exomemErrors.commandNotFound(), requestId);
@@ -825,7 +859,6 @@ export async function handleHostedMcpRequest(
             telemetry(
               "succeeded",
               undefined,
-              jsonBytes(result.body),
               result.attempts && result.attempts > 1 ? "retried" : "none"
             );
             return {
@@ -850,12 +883,7 @@ export async function handleHostedMcpRequest(
               typeof error.remediation === "string" && PRIVATE_REMEDIATIONS.has(error.remediation)
                 ? error.remediation
                 : undefined;
-            telemetry(
-              "failed",
-              code,
-              jsonBytes(result.body),
-              result.attempts && result.attempts > 1 ? "retried" : "none"
-            );
+            telemetry("failed", code, result.attempts && result.attempts > 1 ? "retried" : "none");
             return toolFailure(
               new ExomemHostedError({
                 code,
@@ -871,7 +899,6 @@ export async function handleHostedMcpRequest(
           telemetry(
             "failed",
             "CELL_RESPONSE_INVALID",
-            jsonBytes(result.body),
             result.attempts && result.attempts > 1 ? "retried" : "none"
           );
           return toolFailure(exomemErrors.cellResponseInvalid(), requestId);
@@ -886,25 +913,21 @@ export async function handleHostedMcpRequest(
       });
       await server.connect(transport);
       const response = await transport.handleRequest(request, { parsedBody: body });
-      if (rpcMethod !== "tools/call") {
-        const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
-        const accept = request.headers.get("accept")?.toLowerCase() ?? "";
+      if (toolTelemetry.value) {
+        emitMcpTelemetry(dependencies, request, {
+          ...toolTelemetry.value,
+          responseBytes: await responseByteLength(response),
+        });
+      } else if (rpcMethod !== "tools/call") {
         const knownMethod =
           rpcMethod === "initialize" ||
           rpcMethod === "tools/list" ||
           rpcMethod?.startsWith("notifications/");
-        const acceptedTransport =
-          contentType.includes("application/json") &&
-          (accept.includes("application/json") || accept.includes("text/event-stream"));
-        const responseBytes = Buffer.byteLength(await response.clone().text(), "utf8");
-        emitMcpTelemetry(dependencies, request, {
-          outcome: knownMethod && acceptedTransport && response.ok ? "succeeded" : "denied",
-          ...(knownMethod && acceptedTransport && response.ok
-            ? {}
-            : { errorCode: "INVALID_REQUEST" }),
-          access,
+        emitAuthenticatedTelemetry({
+          outcome: knownMethod && response.ok ? "succeeded" : "denied",
+          ...(knownMethod && response.ok ? {} : { errorCode: "INVALID_REQUEST" }),
           requestBytes,
-          responseBytes,
+          responseBytes: await responseByteLength(response),
         });
       }
       await server.close();
@@ -912,7 +935,7 @@ export async function handleHostedMcpRequest(
     });
   } catch (error) {
     if (error instanceof ExomemHostedError && error.code === "RATE_LIMITED") {
-      emitMcpTelemetry(dependencies, request, { outcome: "denied", errorCode: error.code, access });
+      emitAuthenticatedTelemetry({ outcome: "denied", errorCode: error.code });
       return Response.json({ error: error.code }, { status: error.status });
     }
     throw error;
