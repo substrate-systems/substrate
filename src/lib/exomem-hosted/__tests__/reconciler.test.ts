@@ -135,6 +135,7 @@ describe("Exomem lifecycle reconciler", () => {
     class DeferredProvisioner extends FakeCellProvisioner {
       readonly started: Promise<void>;
       readonly release: Promise<void>;
+      starts = 0;
       markStarted: () => void;
       releaseProvision: () => void;
 
@@ -151,6 +152,7 @@ describe("Exomem lifecycle reconciler", () => {
       }
 
       override async provision(request: Parameters<FakeCellProvisioner["provision"]>[0]) {
+        this.starts += 1;
         this.markStarted();
         await this.release;
         return super.provision(request);
@@ -164,12 +166,18 @@ describe("Exomem lifecycle reconciler", () => {
     const providerCall = reconciler.reconcileOne({ owner: "provider", tenantId: TENANT });
     await provisioner.started;
 
+    nowState.value = new Date(nowState.value.getTime() + 16_000);
+    const overlap = reconciler.reconcileOne({ owner: "overlap", tenantId: TENANT });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(provisioner.starts, 1);
+    provisioner.releaseProvision();
+    await overlap;
+
     const deletion = await store.enqueue(TENANT, "delete", "delete-during-provision");
     assert.equal(
       (await reconciler.reconcileOne({ owner: "delete-too-early", tenantId: TENANT })).kind,
       "idle"
     );
-    provisioner.releaseProvision();
     await providerCall;
     assert.equal(store.operations.get(provision.id)?.state, "running");
 
