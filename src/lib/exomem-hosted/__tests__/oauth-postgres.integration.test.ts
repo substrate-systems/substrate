@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { randomUUID } from "node:crypto";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
-import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
   admitFirstOAuthInviteAtomic,
   attachExistingOwnerAuthorizationAtomic,
@@ -22,7 +23,7 @@ function digest(value: number): Buffer {
   return Buffer.alloc(32, value);
 }
 
-function taggedSql(client: Pool): ExomemSql {
+function taggedSql(client: Pool | PoolClient): ExomemSql {
   return async (strings, ...values) => {
     let text = strings[0];
     for (let index = 0; index < values.length; index += 1) {
@@ -31,6 +32,21 @@ function taggedSql(client: Pool): ExomemSql {
     const result = await client.query(text, values);
     return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
   };
+}
+
+async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  const client = await pool!.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+    const result = await callback(taggedSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function scalar(query: string, values: unknown[] = []): Promise<number> {
@@ -78,6 +94,40 @@ async function seedInviteAndTransaction(clientInternalId: string, suffix: string
   );
 }
 
+async function seedAdmission(
+  clientInternalId: string,
+  sequence: number,
+  email: string
+): Promise<void> {
+  await pool!.query(
+    `INSERT INTO exomem_invites (
+       token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+       entitlement_limits, created_by_principal_digest, expires_at
+     ) VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, $3, now() + interval '1 hour')`,
+    [digest(sequence), email, digest(sequence + 1)]
+  );
+  await pool!.query(
+    `INSERT INTO exomem_oauth_authorization_transactions (
+       transaction_digest, client_id, redirect_uri, resource, requested_scopes,
+       state_digest, pkce_challenge, expires_at
+     ) VALUES ($1, $2, 'https://client.example.test/callback', $3,
+       ARRAY['exomem.read'], $4, 'challenge', now() + interval '1 hour')`,
+    [digest(sequence + 20), clientInternalId, resource, digest(sequence + 2)]
+  );
+}
+
+function admissionInput(sequence: number) {
+  return {
+    inviteDigest: digest(sequence),
+    transactionDigest: digest(sequence + 20),
+    sessionDigest: digest(sequence + 40),
+    csrfDigest: digest(sequence + 60),
+    sessionExpiresAt: new Date(Date.now() + 60_000),
+    codeDigest: digest(sequence + 80),
+    codeExpiresAt: new Date(Date.now() + 60_000),
+  };
+}
+
 async function seedAuthorizationCode(
   clientInternalId: string,
   sequence: number,
@@ -120,10 +170,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });
     __setExomemSqlForTests(taggedSql(pool));
+    __setExomemTransactionForTests(interactiveTransaction);
   });
 
   after(async () => {
     __setExomemSqlForTests(null);
+    __setExomemTransactionForTests(null);
     if (pool) await pool.end();
     if (schema) {
       const admin = new Pool({ connectionString: databaseUrl });
@@ -188,6 +240,53 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal(attached?.tenantId, tenant.rows[0].id);
     assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
     assert.equal(await scalar("SELECT count(*) FROM exomem_lifecycle_operations"), 0);
+  });
+
+  it("serializes same-email admissions while reserving one final slot and leaves a losing invite reusable", async () => {
+    const internal = await seedClient();
+    await seedPool(EXOMEM_ALPHA_CAPACITY.storageBytes);
+    await seedAdmission(internal, 200, "same-email@example.test");
+    await seedAdmission(internal, 210, "same-email@example.test");
+    const sameEmail = await Promise.all([
+      admitFirstOAuthInviteAtomic(admissionInput(200)),
+      admitFirstOAuthInviteAtomic(admissionInput(210)),
+    ]);
+    assert.equal(sameEmail.filter(Boolean).length, 2);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_tenants WHERE owner_user_id = (SELECT id FROM users WHERE email = 'same-email@example.test')"
+      ),
+      1
+    );
+    assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 1);
+
+    await seedAdmission(internal, 220, "losing-invite@example.test");
+    assert.equal(await admitFirstOAuthInviteAtomic(admissionInput(220)), null);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
+        [digest(220)]
+      ),
+      1
+    );
+  });
+
+  it("rejects a soft-deleted identity without changing capacity or consuming its invite", async () => {
+    const internal = await seedClient();
+    await seedPool();
+    await pool!.query(
+      "INSERT INTO users (email, deleted_at) VALUES ('deleted-owner@example.test', now())"
+    );
+    await seedAdmission(internal, 230, "deleted-owner@example.test");
+    assert.equal(await admitFirstOAuthInviteAtomic(admissionInput(230)), null);
+    assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
+        [digest(230)]
+      ),
+      1
+    );
   });
 
   it("does not consume a code when its resource binding is wrong", async () => {

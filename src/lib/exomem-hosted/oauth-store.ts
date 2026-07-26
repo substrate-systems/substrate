@@ -1,4 +1,4 @@
-import { executeExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction } from "./db";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 
 export type OAuthTokenContext = {
@@ -199,13 +199,228 @@ export async function pruneExpiredOAuthState(): Promise<void> {
   `;
 }
 
+class OAuthAdmissionRejected extends Error {}
+
+type OAuthInviteAdmission = {
+  tenantId: string;
+  sessionId: string;
+  operationId: string | null;
+  grantId: string;
+};
+
 /**
- * The first OAuth invite completion is intentionally one statement: a failed
- * capacity compare-and-increment leaves the invite and authorization
- * transaction reusable, while success binds reservation, operation, session,
- * grant, and one-time code together.
+ * Serializes duplicate identities on the users.email unique key. Capacity is
+ * reserved only after the transaction has observed that no entitled tenant
+ * exists, and every later zero-row anomaly rolls the whole transaction back.
  */
 export async function admitFirstOAuthInviteAtomic(input: {
+  inviteDigest: Buffer;
+  transactionDigest: Buffer;
+  sessionDigest: Buffer;
+  csrfDigest: Buffer;
+  sessionExpiresAt: Date;
+  codeDigest: Buffer;
+  codeExpiresAt: Date;
+}): Promise<OAuthInviteAdmission | null> {
+  try {
+    return await withExomemTransaction(async (tx) => {
+      const inviteResult = await tx`
+        SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits
+        FROM exomem_invites
+        WHERE token_digest = ${input.inviteDigest}
+          AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+        FOR UPDATE
+      `;
+      const invite = inviteResult.rows[0] as
+        | {
+            id: string;
+            email_normalized: string;
+            entitlement_source: "complimentary" | "paddle";
+            entitlement_capabilities: string[];
+            entitlement_limits: Record<string, number>;
+          }
+        | undefined;
+      if (!invite) throw new OAuthAdmissionRejected();
+
+      const authorizationResult = await tx`
+        SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
+               transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
+        FROM exomem_oauth_authorization_transactions AS transaction
+        JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
+        WHERE transaction.transaction_digest = ${input.transactionDigest}
+          AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+        FOR UPDATE OF transaction
+      `;
+      const authorization = authorizationResult.rows[0] as
+        | {
+            id: string;
+            client_id: string;
+            redirect_uri: string;
+            resource: string;
+            requested_scopes: string[];
+            pkce_challenge: string;
+          }
+        | undefined;
+      if (!authorization) throw new OAuthAdmissionRejected();
+
+      const ownerResult = await tx`
+        INSERT INTO users (email, email_verified_at)
+        VALUES (${invite.email_normalized}, now())
+        ON CONFLICT (email) DO UPDATE
+        SET email = EXCLUDED.email,
+            email_verified_at = COALESCE(users.email_verified_at, now())
+        WHERE users.deleted_at IS NULL
+        RETURNING id
+      `;
+      const owner = ownerResult.rows[0] as { id: string } | undefined;
+      if (!owner) throw new OAuthAdmissionRejected();
+
+      const existingResult = await tx`
+        SELECT tenant.id, tenant.owner_user_id
+        FROM exomem_tenants AS tenant
+        JOIN exomem_entitlements AS entitlement
+          ON entitlement.tenant_id = tenant.id
+         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
+        WHERE tenant.owner_user_id = ${owner.id}::uuid
+          AND tenant.status <> 'deleted'
+          AND tenant.deleted_at IS NULL
+        FOR UPDATE OF tenant
+      `;
+      const existing = existingResult.rows[0] as { id: string; owner_user_id: string } | undefined;
+
+      let tenantId: string;
+      let operationId: string | null = null;
+      if (existing) {
+        tenantId = existing.id;
+      } else {
+        const reservationResult = await tx`
+          UPDATE exomem_capacity_pools AS pool
+          SET reserved_storage_bytes = reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes},
+              reserved_runtime_slots = reserved_runtime_slots + ${EXOMEM_ALPHA_CAPACITY.runtimeSlots},
+              reserved_provision_slots = reserved_provision_slots + ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots},
+              updated_at = now()
+          WHERE pool.pool_key = 'exomem-hosted-alpha'
+            AND pool.configured_at IS NOT NULL
+            AND pool.storage_capacity_bytes >= pool.reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes}
+            AND pool.runtime_capacity_slots >= pool.reserved_runtime_slots + ${EXOMEM_ALPHA_CAPACITY.runtimeSlots}
+            AND pool.provision_reservation_capacity >= pool.reserved_provision_slots + ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots}
+          RETURNING id
+        `;
+        const pool = reservationResult.rows[0] as { id: string } | undefined;
+        if (!pool) throw new OAuthAdmissionRejected();
+
+        const tenantResult = await tx`
+          INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
+          VALUES (${owner.id}::uuid, 'provisioning', 'running')
+          RETURNING id, fence_generation
+        `;
+        const tenant = tenantResult.rows[0] as { id: string; fence_generation: number } | undefined;
+        if (!tenant) throw new OAuthAdmissionRejected();
+        tenantId = tenant.id;
+
+        const entitlementResult = await tx`
+          INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state, capabilities, resource_limits)
+          VALUES (
+            ${tenant.id}::uuid,
+            ${invite.entitlement_source},
+            ${invite.entitlement_source === "complimentary" ? "complimentary_active" : "awaiting_checkout"},
+            ${invite.entitlement_source === "complimentary" ? "active" : "provisioning"},
+            ${JSON.stringify(invite.entitlement_capabilities)}::jsonb,
+            ${JSON.stringify(invite.entitlement_limits)}::jsonb
+          )
+          RETURNING tenant_id
+        `;
+        if (!entitlementResult.rows[0]) throw new OAuthAdmissionRejected();
+
+        const operationResult = await tx`
+          INSERT INTO exomem_lifecycle_operations (tenant_id, operation_type, idempotency_key, fence_generation)
+          VALUES (${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation})
+          RETURNING id
+        `;
+        const operation = operationResult.rows[0] as { id: string } | undefined;
+        if (!operation) throw new OAuthAdmissionRejected();
+        operationId = operation.id;
+
+        const allocationResult = await tx`
+          INSERT INTO exomem_capacity_allocations (
+            pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state, operation_id
+          ) VALUES (
+            ${pool.id}::uuid, ${tenant.id}::uuid, ${EXOMEM_ALPHA_CAPACITY.storageBytes},
+            ${EXOMEM_ALPHA_CAPACITY.runtimeSlots}, ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots},
+            'reserved', ${operation.id}::uuid
+          )
+          RETURNING id
+        `;
+        if (!allocationResult.rows[0]) throw new OAuthAdmissionRejected();
+      }
+
+      const sessionResult = await tx`
+        INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+        VALUES (${owner.id}::uuid, ${tenantId}::uuid, ${input.sessionDigest}, ${input.csrfDigest}, ${input.sessionExpiresAt.toISOString()})
+        RETURNING id
+      `;
+      const session = sessionResult.rows[0] as { id: string } | undefined;
+      if (!session) throw new OAuthAdmissionRejected();
+
+      const grantResult = await tx`
+        INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id)
+        VALUES (
+          ${owner.id}::uuid, ${tenantId}::uuid, ${authorization.client_id}::uuid, ${authorization.resource},
+          ${authorization.requested_scopes.filter((scope) => scope !== "offline_access")},
+          ${authorization.requested_scopes.includes("offline_access")}, ${authorization.id}::uuid
+        )
+        ON CONFLICT (user_id, tenant_id, client_id, resource) WHERE revoked_at IS NULL
+        DO UPDATE SET scopes = EXCLUDED.scopes,
+                      refresh_allowed = EXCLUDED.refresh_allowed,
+                      authorization_transaction_id = EXCLUDED.authorization_transaction_id,
+                      updated_at = now()
+        RETURNING id
+      `;
+      const grant = grantResult.rows[0] as { id: string } | undefined;
+      if (!grant) throw new OAuthAdmissionRejected();
+
+      const codeResult = await tx`
+        INSERT INTO exomem_oauth_authorization_codes (
+          code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
+        ) VALUES (
+          ${input.codeDigest}, ${grant.id}::uuid, ${authorization.client_id}::uuid,
+          ${authorization.redirect_uri}, ${authorization.resource}, ${authorization.pkce_challenge},
+          ${authorization.requested_scopes.includes("offline_access")}, ${input.codeExpiresAt.toISOString()}
+        )
+        RETURNING id
+      `;
+      if (!codeResult.rows[0]) throw new OAuthAdmissionRejected();
+
+      const consumedInvite = await tx`
+        UPDATE exomem_invites
+        SET consumed_at = now(), consumed_by_user_id = ${owner.id}::uuid,
+            redeemed_tenant_id = ${tenantId}::uuid, redeemed_session_id = ${session.id}::uuid
+        WHERE id = ${invite.id}::uuid AND consumed_at IS NULL
+        RETURNING id
+      `;
+      const consumedTransaction = await tx`
+        UPDATE exomem_oauth_authorization_transactions
+        SET consumed_at = now(), redeemed_session_id = ${session.id}::uuid
+        WHERE id = ${authorization.id}::uuid AND consumed_at IS NULL
+        RETURNING id
+      `;
+      if (!consumedInvite.rows[0] || !consumedTransaction.rows[0])
+        throw new OAuthAdmissionRejected();
+
+      return { tenantId, sessionId: session.id, operationId, grantId: grant.id };
+    });
+  } catch (error) {
+    if (error instanceof OAuthAdmissionRejected) return null;
+    if (typeof error === "object" && error && "code" in error && error.code === "23505")
+      return null;
+    throw error;
+  }
+}
+
+/** Legacy one-statement implementation retained temporarily for migration review. */
+// Kept solely to make this high-risk SQL rewrite easy to compare during review.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function admitFirstOAuthInviteAtomicLegacy(input: {
   inviteDigest: Buffer;
   transactionDigest: Buffer;
   sessionDigest: Buffer;

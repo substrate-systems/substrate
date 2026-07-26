@@ -1,4 +1,4 @@
-import { executeExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction } from "./db";
 
 export type CapacityAllocationState =
   | "reserved"
@@ -19,11 +19,126 @@ function boundedLeaseSeconds(seconds: number): number {
   return Math.max(1, Math.min(Math.floor(seconds), 3_600));
 }
 
+class CapacityTransitionRejected extends Error {}
+
+function capacityUsage(
+  state: CapacityAllocationState,
+  allocation: {
+    storage_bytes: number;
+    runtime_slots: number;
+    provision_slots: number;
+  }
+) {
+  return {
+    storage: state === "released" ? 0 : Number(allocation.storage_bytes),
+    runtime: ["reserved", "occupied", "uncertain"].includes(state)
+      ? Number(allocation.runtime_slots)
+      : 0,
+    provision: state === "reserved" ? Number(allocation.provision_slots) : 0,
+  };
+}
+
+/**
+ * Transactional authority for allocation state and pool counters. A tenant and
+ * optional lifecycle-operation fence prevent stale workers from changing a
+ * reservation after ownership has moved.
+ */
+export async function transitionCapacityAllocationAtomic(input: {
+  allocationId: string;
+  state: CapacityAllocationState;
+  tenantId?: string;
+  operationId?: string;
+}): Promise<boolean> {
+  if (!allocationStates.has(input.state)) throw new Error("invalid capacity allocation state");
+  try {
+    return await withExomemTransaction(async (tx) => {
+      const lockedResult = await tx`
+        SELECT allocation.id, allocation.pool_id, allocation.storage_bytes, allocation.runtime_slots,
+               allocation.provision_slots, allocation.state AS previous_state,
+               pool.reserved_storage_bytes, pool.reserved_runtime_slots, pool.reserved_provision_slots,
+               pool.storage_capacity_bytes, pool.runtime_capacity_slots, pool.provision_reservation_capacity
+        FROM exomem_capacity_allocations AS allocation
+        JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+        JOIN exomem_tenants AS tenant ON tenant.id = allocation.tenant_id
+        WHERE allocation.id = ${input.allocationId}::uuid
+          AND (${input.tenantId ?? null}::uuid IS NULL OR tenant.id = ${input.tenantId ?? null}::uuid)
+          AND (${input.operationId ?? null}::uuid IS NULL OR allocation.operation_id = ${input.operationId ?? null}::uuid)
+          AND tenant.deleted_at IS NULL AND tenant.status <> 'deleted'
+        FOR UPDATE OF allocation, pool, tenant
+      `;
+      const locked = lockedResult.rows[0] as
+        | {
+            id: string;
+            pool_id: string;
+            storage_bytes: number;
+            runtime_slots: number;
+            provision_slots: number;
+            previous_state: CapacityAllocationState;
+            reserved_storage_bytes: number;
+            reserved_runtime_slots: number;
+            reserved_provision_slots: number;
+            storage_capacity_bytes: number;
+            runtime_capacity_slots: number;
+            provision_reservation_capacity: number;
+          }
+        | undefined;
+      if (!locked) return false;
+      const allowed =
+        (locked.previous_state === "reserved" &&
+          ["occupied", "uncertain", "released"].includes(input.state)) ||
+        (["occupied", "uncertain"].includes(locked.previous_state) &&
+          ["occupied", "uncertain", "retained_storage", "released"].includes(input.state)) ||
+        (locked.previous_state === "retained_storage" &&
+          ["retained_storage", "released"].includes(input.state));
+      if (!allowed) return false;
+      const oldUsage = capacityUsage(locked.previous_state, locked);
+      const nextUsage = capacityUsage(input.state, locked);
+      const next = {
+        storage: Number(locked.reserved_storage_bytes) - oldUsage.storage + nextUsage.storage,
+        runtime: Number(locked.reserved_runtime_slots) - oldUsage.runtime + nextUsage.runtime,
+        provision:
+          Number(locked.reserved_provision_slots) - oldUsage.provision + nextUsage.provision,
+      };
+      if (
+        next.storage > Number(locked.storage_capacity_bytes) ||
+        next.runtime > Number(locked.runtime_capacity_slots) ||
+        next.provision > Number(locked.provision_reservation_capacity)
+      )
+        return false;
+      const poolResult = await tx`
+        UPDATE exomem_capacity_pools
+        SET reserved_storage_bytes = ${next.storage}, reserved_runtime_slots = ${next.runtime},
+            reserved_provision_slots = ${next.provision}, updated_at = now()
+        WHERE id = ${locked.pool_id}::uuid
+        RETURNING id
+      `;
+      if (!poolResult.rows[0]) throw new CapacityTransitionRejected();
+      const allocationResult = await tx`
+        UPDATE exomem_capacity_allocations
+        SET state = ${input.state},
+            provision_slots = CASE WHEN ${input.state} = 'reserved' THEN provision_slots ELSE 0 END,
+            occupied_at = CASE WHEN ${input.state} = 'occupied' THEN COALESCE(occupied_at, now()) ELSE occupied_at END,
+            released_at = CASE WHEN ${input.state} = 'released' THEN now() ELSE NULL END,
+            updated_at = now()
+        WHERE id = ${locked.id}::uuid
+        RETURNING id
+      `;
+      if (!allocationResult.rows[0]) throw new CapacityTransitionRejected();
+      return true;
+    });
+  } catch (error) {
+    if (error instanceof CapacityTransitionRejected) return false;
+    throw error;
+  }
+}
+
 /**
  * Moves one durable allocation through its allowed lifecycle while adjusting
  * the denormalized pool counters under the same row locks.
  */
-export async function transitionCapacityAllocationAtomic(input: {
+// Kept solely to make this high-risk SQL rewrite easy to compare during review.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function transitionCapacityAllocationAtomicLegacy(input: {
   allocationId: string;
   state: CapacityAllocationState;
 }): Promise<boolean> {
@@ -41,6 +156,7 @@ export async function transitionCapacityAllocationAtomic(input: {
     ), updated AS (
       UPDATE exomem_capacity_allocations AS allocation
       SET state = ${input.state},
+          provision_slots = CASE WHEN ${input.state} = 'reserved' THEN allocation.provision_slots ELSE 0 END,
           occupied_at = CASE
             WHEN ${input.state} = 'occupied' THEN COALESCE(allocation.occupied_at, now())
             ELSE allocation.occupied_at
@@ -87,7 +203,164 @@ export async function transitionCapacityAllocationAtomic(input: {
   return rows.length === 1;
 }
 
+/** Reconciles durable occupancy before an operator enables or changes a pool. */
+export async function configureCapacityPoolAtomic(input: {
+  poolKey: string;
+  storageCapacityBytes: number;
+  runtimeCapacitySlots: number;
+  provisionReservationCapacity: number;
+  provisionClaimCapacity: number;
+}): Promise<boolean> {
+  if (
+    [
+      input.storageCapacityBytes,
+      input.runtimeCapacitySlots,
+      input.provisionReservationCapacity,
+      input.provisionClaimCapacity,
+    ].some((value) => !Number.isSafeInteger(value) || value < 0)
+  ) {
+    throw new Error("invalid capacity totals");
+  }
+  return withExomemTransaction(async (tx) => {
+    const poolResult = await tx`
+      SELECT id
+      FROM exomem_capacity_pools
+      WHERE pool_key = ${input.poolKey}
+      FOR UPDATE
+    `;
+    const pool = poolResult.rows[0] as { id: string } | undefined;
+    if (!pool) return false;
+    const occupancyResult = await tx`
+      SELECT
+        COALESCE(SUM(storage_bytes) FILTER (WHERE state <> 'released'), 0)::bigint AS storage_bytes,
+        COALESCE(SUM(runtime_slots) FILTER (WHERE state IN ('reserved', 'occupied', 'uncertain')), 0)::integer AS runtime_slots,
+        COALESCE(SUM(provision_slots) FILTER (WHERE state = 'reserved'), 0)::integer AS provision_slots
+      FROM exomem_capacity_allocations
+      WHERE pool_id = ${pool.id}::uuid
+    `;
+    const occupancy = occupancyResult.rows[0] as
+      | {
+          storage_bytes: number | string;
+          runtime_slots: number | string;
+          provision_slots: number | string;
+        }
+      | undefined;
+    const claimsResult = await tx`
+      SELECT count(*)::integer AS active_claims
+      FROM exomem_capacity_claims
+      WHERE pool_id = ${pool.id}::uuid AND lease_expires_at > now()
+    `;
+    const activeClaims = Number(
+      (claimsResult.rows[0] as { active_claims?: number } | undefined)?.active_claims ?? 0
+    );
+    if (
+      !occupancy ||
+      Number(occupancy.storage_bytes) > input.storageCapacityBytes ||
+      Number(occupancy.runtime_slots) > input.runtimeCapacitySlots ||
+      Number(occupancy.provision_slots) > input.provisionReservationCapacity ||
+      activeClaims > input.provisionClaimCapacity
+    ) {
+      return false;
+    }
+    const updated = await tx`
+      UPDATE exomem_capacity_pools
+      SET storage_capacity_bytes = ${input.storageCapacityBytes},
+          runtime_capacity_slots = ${input.runtimeCapacitySlots},
+          provision_reservation_capacity = ${input.provisionReservationCapacity},
+          provision_claim_capacity = ${input.provisionClaimCapacity},
+          reserved_storage_bytes = ${Number(occupancy.storage_bytes)},
+          reserved_runtime_slots = ${Number(occupancy.runtime_slots)},
+          reserved_provision_slots = ${Number(occupancy.provision_slots)},
+          configured_at = now(), updated_at = now()
+      WHERE id = ${pool.id}::uuid
+      RETURNING id
+    `;
+    return Boolean(updated.rows[0]);
+  });
+}
+
+/** The locked pool row serializes the active-claim count and insertion. */
 export async function acquireCapacityProvisionClaim(input: {
+  allocationId: string;
+  operationId: string;
+  kind: "initial_provision" | "resume";
+  leaseOwner: string;
+  leaseSeconds: number;
+}): Promise<boolean> {
+  const leaseSeconds = boundedLeaseSeconds(input.leaseSeconds);
+  try {
+    return await withExomemTransaction(async (tx) => {
+      const lockedResult = await tx`
+        SELECT allocation.id AS allocation_id, allocation.pool_id, pool.provision_claim_capacity
+        FROM exomem_capacity_allocations AS allocation
+        JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+        WHERE allocation.id = ${input.allocationId}::uuid
+          AND (
+            (${input.kind} = 'initial_provision' AND allocation.state = 'reserved')
+            OR (${input.kind} = 'resume' AND allocation.state = 'uncertain')
+          )
+        FOR UPDATE OF allocation, pool
+      `;
+      const locked = lockedResult.rows[0] as
+        | { allocation_id: string; pool_id: string; provision_claim_capacity: number }
+        | undefined;
+      if (!locked) return false;
+
+      const existingResult = await tx`
+        SELECT id, operation_id, lease_owner, lease_expires_at
+        FROM exomem_capacity_claims
+        WHERE allocation_id = ${locked.allocation_id}::uuid
+        FOR UPDATE
+      `;
+      const existing = existingResult.rows[0] as
+        | { id: string; operation_id: string; lease_owner: string; lease_expires_at: Date | string }
+        | undefined;
+      if (existing) {
+        const renewed = await tx`
+          UPDATE exomem_capacity_claims
+          SET lease_expires_at = now() + (${leaseSeconds} * interval '1 second')
+          WHERE id = ${existing.id}::uuid
+            AND operation_id = ${input.operationId}::uuid
+            AND lease_owner = ${input.leaseOwner}
+            AND lease_expires_at > now()
+          RETURNING id
+        `;
+        if (renewed.rows[0]) return true;
+        await tx`DELETE FROM exomem_capacity_claims WHERE id = ${existing.id}::uuid AND lease_expires_at <= now()`;
+      }
+
+      const activeResult = await tx`
+        SELECT count(*)::integer AS active_claims
+        FROM exomem_capacity_claims
+        WHERE pool_id = ${locked.pool_id}::uuid AND lease_expires_at > now()
+      `;
+      const activeClaims = Number(
+        (activeResult.rows[0] as { active_claims?: number } | undefined)?.active_claims ?? 0
+      );
+      if (activeClaims >= Number(locked.provision_claim_capacity)) return false;
+
+      const inserted = await tx`
+        INSERT INTO exomem_capacity_claims (
+          pool_id, allocation_id, operation_id, claim_kind, lease_owner, lease_expires_at
+        ) VALUES (
+          ${locked.pool_id}::uuid, ${locked.allocation_id}::uuid, ${input.operationId}::uuid,
+          ${input.kind}, ${input.leaseOwner}, now() + (${leaseSeconds} * interval '1 second')
+        )
+        RETURNING id
+      `;
+      return Boolean(inserted.rows[0]);
+    });
+  } catch (error) {
+    if (typeof error === "object" && error && "code" in error && error.code === "23505")
+      return false;
+    throw error;
+  }
+}
+
+/** Legacy CTE implementation retained temporarily for migration review. */
+// Kept solely to make this high-risk SQL rewrite easy to compare during review.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function acquireCapacityProvisionClaimLegacy(input: {
   allocationId: string;
   operationId: string;
   kind: "initial_provision" | "resume";

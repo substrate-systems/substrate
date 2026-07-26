@@ -1,4 +1,5 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import type { SecretEnvelope } from "./security";
@@ -14,6 +15,22 @@ export type ExomemSql = (
 ) => Promise<ExomemSqlResult>;
 
 let sqlClient: ExomemSql | null = null;
+let transactionPool: Pool | null = null;
+
+export type ExomemTransactionRunner = <T>(callback: (tx: ExomemSql) => Promise<T>) => Promise<T>;
+
+let transactionRunner: ExomemTransactionRunner | null = null;
+
+function taggedPgSql(client: PoolClient): ExomemSql {
+  return async (strings, ...values) => {
+    let text = strings[0];
+    for (let index = 0; index < values.length; index += 1) {
+      text += `$${index + 1}${strings[index + 1]}`;
+    }
+    const result = await client.query(text, values);
+    return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+  };
+}
 
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<ExomemSqlResult> {
   if (!sqlClient) {
@@ -32,12 +49,45 @@ export function __setExomemSqlForTests(next: ExomemSql | null): void {
   sqlClient = next;
 }
 
+/** Test seam for one-connection interactive transactions. */
+export function __setExomemTransactionForTests(next: ExomemTransactionRunner | null): void {
+  transactionRunner = next;
+}
+
 /** Shared product-scoped SQL executor for narrowly typed store modules. */
 export function executeExomemSql(
   strings: TemplateStringsArray,
   ...values: unknown[]
 ): Promise<ExomemSqlResult> {
   return sql(strings, ...values);
+}
+
+/**
+ * Execute dependent reads and writes on one PostgreSQL connection. The normal
+ * read/write path remains Neon HTTP; only flows that need row-lock ordering use
+ * this interactive transaction boundary.
+ */
+export async function withExomemTransaction<T>(
+  callback: (tx: ExomemSql) => Promise<T>
+): Promise<T> {
+  if (transactionRunner) return transactionRunner(callback);
+  if (sqlClient) return callback(sqlClient);
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+  transactionPool ??= new Pool({ connectionString: databaseUrl });
+  const client = await transactionPool.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+    const result = await callback(taggedPgSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export type EntitlementSource = "complimentary" | "paddle";
