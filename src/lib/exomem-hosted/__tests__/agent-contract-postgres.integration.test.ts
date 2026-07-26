@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
-import { Pool } from "pg";
-import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { Pool, type PoolClient } from "pg";
+import { applyMigrations } from "../../../../scripts/migrate";
+import {
+  __setExomemSqlForTests,
+  __setExomemTransactionForTests,
+  type ExomemSql,
+  type ExomemTransaction,
+} from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import {
   attachOpenAiContractLocks,
@@ -19,6 +25,7 @@ import {
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
+let schema: string | undefined;
 const sha = (letter: string) => letter.repeat(64);
 
 function canonical(value: unknown): string {
@@ -31,14 +38,61 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function sql(pool: Pool): ExomemSql {
+function sql(client: Pool | PoolClient): ExomemSql {
   return async (strings, ...values) => {
     let text = strings[0];
     for (let index = 0; index < values.length; index += 1)
       text += `$${index + 1}${strings[index + 1]}`;
-    const result = await pool.query(text, values);
+    const result = await client.query(text, values);
     return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
   };
+}
+
+function transactionSql(client: PoolClient): ExomemSql & ExomemTransaction {
+  const tagged = sql(client) as ExomemSql & ExomemTransaction;
+  tagged.query = async (text, values = []) => {
+    const result = await client.query(text, values);
+    return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+  };
+  return tagged;
+}
+
+async function transaction<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  const client = await pool!.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(transactionSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function seedRoutableCells(): Promise<void> {
+  for (const suffix of ["one", "two"]) {
+    const user = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ($1) RETURNING id",
+      [`agent-contract-${suffix}@example.test`]
+    );
+    const tenant = await pool!.query<{ id: string }>(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+      [user.rows[0]!.id]
+    );
+    const cell = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+       ) VALUES ($1, 'active', 'bound', 'running', '1', 'test') RETURNING id`,
+      [tenant.rows[0]!.id]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      cell.rows[0]!.id,
+      tenant.rows[0]!.id,
+    ]);
+  }
 }
 
 const testOnlyOpenAiLocks = {
@@ -119,10 +173,17 @@ function evidence(
 
 describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => {
   before(async () => {
-    pool = new Pool({ connectionString: databaseUrl, max: 3 });
-    await pool.query("SELECT 1");
+    schema = `agent_contract_it_${randomUUID().replaceAll("-", "")}`;
+    const admin = new Pool({ connectionString: databaseUrl });
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    const scoped = new URL(databaseUrl!);
+    scoped.searchParams.set("options", `-c search_path=${schema}`);
+    await applyMigrations({ databaseUrl: scoped.toString() });
+    await admin.end();
+    pool = new Pool({ connectionString: scoped.toString(), max: 3 });
     __setExomemSqlForTests(sql(pool));
-    process.env.DATABASE_URL = databaseUrl;
+    __setExomemTransactionForTests(transaction);
+    await seedRoutableCells();
     process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL = "https://claude.ai/plugins/exomem-hosted";
     process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL = "https://chatgpt.com/plugins/exomem-hosted";
     process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID = "integration-operator";
@@ -133,14 +194,19 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
 
   after(async () => {
     __setExomemSqlForTests(null);
+    __setExomemTransactionForTests(null);
     delete process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL;
     delete process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL;
     delete process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID;
     delete process.env.EXOMEM_HOSTED_PROMOTION_SECRET;
     delete process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID;
     delete process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET;
-    delete process.env.DATABASE_URL;
     await pool?.end();
+    if (schema) {
+      const admin = new Pool({ connectionString: databaseUrl });
+      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await admin.end();
+    }
   });
 
   it("serializes public replacement of a live artifact before promoting its successor", async () => {
