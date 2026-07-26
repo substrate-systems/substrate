@@ -634,8 +634,17 @@ export async function findMcpOAuthAccessToken(
            client.client_id, token.resource, token.scopes
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
-      ON family.id = token.family_id AND family.revoked_at IS NULL AND family.expires_at > now()
-    JOIN exomem_oauth_grants AS grant ON grant.id = token.grant_id AND grant.revoked_at IS NULL
+      ON family.id = token.family_id
+     AND family.grant_id = token.grant_id
+     AND family.client_id = token.client_id
+     AND family.resource = token.resource
+     AND family.revoked_at IS NULL
+     AND family.expires_at > now()
+    JOIN exomem_oauth_grants AS grant
+      ON grant.id = token.grant_id
+     AND grant.client_id = token.client_id
+     AND grant.resource = token.resource
+     AND grant.revoked_at IS NULL
     JOIN exomem_oauth_clients AS client ON client.id = token.client_id AND client.enabled = true
     JOIN exomem_tenants AS tenant
       ON tenant.id = grant.tenant_id
@@ -648,6 +657,7 @@ export async function findMcpOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
+      AND token.scopes <@ grant.scopes
       AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block

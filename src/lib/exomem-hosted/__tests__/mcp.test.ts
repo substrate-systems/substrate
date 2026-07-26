@@ -245,6 +245,10 @@ describe("Hosted MCP boundary", () => {
     assert.equal(payload.result?._meta?.exomem?.retryAfterMs, 1000);
     assert.equal(payload.result?._meta?.exomem?.remediation, "retry_later");
     assert.match(String(payload.result?._meta?.exomem?.requestId), /^[0-9a-f-]{36}$/i);
+    assert.deepEqual(
+      JSON.parse(payload.result?.content?.[0]?.text ?? "{}"),
+      payload.result?._meta?.exomem
+    );
   });
 
   it("keeps overlapping tenant-client calls counted until each call actually finishes", async () => {

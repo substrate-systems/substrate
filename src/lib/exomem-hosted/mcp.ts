@@ -378,17 +378,31 @@ function toolFailure(
   _meta?: Record<string, unknown>;
 } {
   const safe = error instanceof ExomemHostedError ? error : exomemErrors.cellUnavailable();
+  const meta = {
+    code: safe.code,
+    message: safe.message,
+    ...(requestId ? { requestId } : {}),
+    retryable: safe.retryable,
+    ...(safe.retryAfterMs ? { retryAfterMs: safe.retryAfterMs } : {}),
+    ...(safe.remediation ? { remediation: safe.remediation } : {}),
+  };
   return {
-    content: [{ type: "text", text: `${safe.code}: ${safe.message}` }],
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          code: meta.code,
+          message: meta.message,
+          ...(meta.requestId ? { requestId: meta.requestId } : {}),
+          retryable: meta.retryable,
+          ...(meta.retryAfterMs ? { retryAfterMs: meta.retryAfterMs } : {}),
+          ...(meta.remediation ? { remediation: meta.remediation } : {}),
+        }),
+      },
+    ],
     isError: true,
     _meta: {
-      exomem: {
-        code: safe.code,
-        ...(requestId ? { requestId } : {}),
-        retryable: safe.retryable,
-        ...(safe.retryAfterMs ? { retryAfterMs: safe.retryAfterMs } : {}),
-        ...(safe.remediation ? { remediation: safe.remediation } : {}),
-      },
+      exomem: meta,
     },
   };
 }

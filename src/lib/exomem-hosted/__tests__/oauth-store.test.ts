@@ -57,6 +57,12 @@ describe("Exomem OAuth token store", () => {
     assert.match(queries[1] ?? "", /exomem_oauth_account_blocks/i);
     assert.match(queries[1] ?? "", /tenant\.status <> 'deleted'/i);
     assert.doesNotMatch(queries[1] ?? "", /tenant\.status IN \('provisioning', 'active'\)/i);
+    assert.match(queries[1] ?? "", /family\.grant_id = token\.grant_id/i);
+    assert.match(queries[1] ?? "", /family\.client_id = token\.client_id/i);
+    assert.match(queries[1] ?? "", /family\.resource = token\.resource/i);
+    assert.match(queries[1] ?? "", /grant\.client_id = token\.client_id/i);
+    assert.match(queries[1] ?? "", /grant\.resource = token\.resource/i);
+    assert.match(queries[1] ?? "", /token\.scopes <@ grant\.scopes/i);
   });
 
   it("consumes a code and persists a new token family in one statement", async () => {
