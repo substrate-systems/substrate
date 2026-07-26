@@ -12,6 +12,7 @@ let listed = [
   },
 ];
 let updated: Record<string, unknown> | null = null;
+let registered: Record<string, unknown> | null = null;
 
 before(() => {
   process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
@@ -34,6 +35,14 @@ before(() => {
         updated = input;
         return true;
       },
+      registerOperatorOAuthClient: async (input: Record<string, unknown>) => {
+        registered = input;
+        return { id: "018f2d91-7c42-7000-8000-000000000002", enabled: false };
+      },
+      refreshOperatorCimdOAuthClient: async () => ({
+        id: "018f2d91-7c42-7000-8000-000000000002",
+        enabled: false,
+      }),
     },
   });
 });
@@ -53,6 +62,7 @@ beforeEach(() => {
     },
   ];
   updated = null;
+  registered = null;
 });
 
 function request(method: string, input: { authorization?: string; body?: unknown } = {}) {
@@ -61,7 +71,7 @@ function request(method: string, input: { authorization?: string; body?: unknown
   return new Request("https://substratesystems.io/api/exomem/admin/oauth-clients", {
     method,
     headers,
-    ...(method === "PATCH" ? { body: JSON.stringify(input.body) } : {}),
+    ...(method === "PATCH" || method === "POST" ? { body: JSON.stringify(input.body) } : {}),
   }) as unknown as import("next/server").NextRequest;
 }
 
@@ -88,6 +98,32 @@ describe("Exomem operator OAuth client controls", () => {
       clientRecordId: "018f2d91-7c42-7000-8000-000000000001",
       enabled: false,
     });
+  });
+
+  it("registers a disabled client without returning its identity", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          action: "register_pinned",
+          platform: "claude",
+          artifactId: "018f2d91-7c42-7000-8000-000000000001",
+          clientId: "desktop-client-sentinel",
+          redirectUris: ["https://app.example.test/callback"],
+        },
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(registered, {
+      admissionMode: "pinned",
+      platform: "claude",
+      artifactId: "018f2d91-7c42-7000-8000-000000000001",
+      clientId: "desktop-client-sentinel",
+      redirectUris: ["https://app.example.test/callback"],
+      ttlSeconds: undefined,
+    });
+    assert.equal((await response.text()).includes("desktop-client-sentinel"), false);
   });
 
   it("rejects an oversized operator request before it reaches the control store", async () => {

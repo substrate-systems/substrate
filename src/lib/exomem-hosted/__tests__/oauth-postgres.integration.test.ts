@@ -85,11 +85,15 @@ async function scalar(query: string, values: unknown[] = []): Promise<number> {
 
 async function seedClient(): Promise<string> {
   const result = await pool!.query(
-    `INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris)
-     VALUES ($1, 'pinned', true, '["https://client.example.test/callback"]'::jsonb)
+    `INSERT INTO exomem_oauth_clients (
+       client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+       client_platform, oauth_client_config_sha256
+     ) VALUES ($1, 'pinned', true, '["https://client.example.test/callback"]'::jsonb,
+               digest(convert_to('["https://client.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+               'claude', $2)
      ON CONFLICT (client_id) DO UPDATE SET enabled = true
      RETURNING id`,
-    [clientId]
+    [clientId, "f".repeat(64)]
   );
   return result.rows[0].id;
 }
@@ -134,9 +138,10 @@ async function seedLiveCohort(): Promise<void> {
          platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
          plugin_version, client_identity_sha256, paired_run_hmac_sha256,
          exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256,
-         result_sha256, contract_candidate_id, registered_app_id_sha256, observed_at, promoted_at
+         result_sha256, contract_candidate_id, registered_app_id_sha256,
+         oauth_client_config_sha256, observed_at, promoted_at
        ) VALUES ($1, 'live', $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 'https://example.test/install', $11, $12, $13::uuid, $14, now(), now())`,
+                'https://example.test/install', $11, $12, $13::uuid, $14, $15, now(), now())`,
       [
         candidate.platform,
         candidate.artifact_sha256,
@@ -154,6 +159,7 @@ async function seedLiveCohort(): Promise<void> {
         candidate.platform === "openai"
           ? (candidate as unknown as { registered_app_id_sha256: string }).registered_app_id_sha256
           : null,
+        "f".repeat(64),
       ]
     );
   }
@@ -435,9 +441,15 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal((await findMcpOAuthAccessToken(digest(162)))?.grantId, valid.grantId);
 
     const otherClient = await pool!.query(
-      `INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris)
-       VALUES ('https://other-client.example.test/metadata.json', 'pinned', true, '[]'::jsonb)
-       RETURNING id`
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256
+       ) VALUES ('https://other-client.example.test/metadata.json', 'pinned', true,
+                 '["https://other-client.example.test/callback"]'::jsonb,
+                 digest(convert_to('["https://other-client.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                 'claude', $1)
+       RETURNING id`,
+      ["e".repeat(64)]
     );
     const mixedGrant = await pool!.query(
       `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)

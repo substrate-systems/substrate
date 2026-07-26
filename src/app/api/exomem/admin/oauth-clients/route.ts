@@ -9,6 +9,8 @@ import {
 } from "@/lib/exomem-hosted/operator-admin";
 import {
   listOperatorOAuthClients,
+  refreshOperatorCimdOAuthClient,
+  registerOperatorOAuthClient,
   setOperatorOAuthClientEnabled,
 } from "@/lib/exomem-hosted/operator-controls";
 
@@ -44,6 +46,46 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     if (!updated) throw exomemErrors.invalidRequest();
     operatorSuccessEvent(requestId);
     return NextResponse.json({ success: true, id: body.id, enabled: body.enabled, requestId });
+  } catch (error) {
+    return operatorErrorResponse(error, requestId);
+  }
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  const requestId = newRequestId();
+  try {
+    await requireRateLimitedExomemOperator(request);
+    const body = await readOperatorJsonRecord(request);
+    let result: { id: string; enabled: boolean };
+    if (
+      (body.action === "register_pinned" || body.action === "register_cimd") &&
+      (body.platform === "claude" || body.platform === "openai") &&
+      typeof body.artifactId === "string" &&
+      UUID.test(body.artifactId) &&
+      typeof body.clientId === "string" &&
+      Array.isArray(body.redirectUris) &&
+      body.redirectUris.every((redirectUri) => typeof redirectUri === "string") &&
+      (body.ttlSeconds === undefined || typeof body.ttlSeconds === "number")
+    ) {
+      result = await registerOperatorOAuthClient({
+        admissionMode: body.action === "register_pinned" ? "pinned" : "cimd",
+        platform: body.platform,
+        artifactId: body.artifactId,
+        clientId: body.clientId,
+        redirectUris: body.redirectUris,
+        ttlSeconds: body.ttlSeconds as number | undefined,
+      });
+    } else if (
+      body.action === "refresh_cimd" &&
+      typeof body.id === "string" &&
+      UUID.test(body.id)
+    ) {
+      result = await refreshOperatorCimdOAuthClient(body.id);
+    } else {
+      throw exomemErrors.invalidRequest();
+    }
+    operatorSuccessEvent(requestId);
+    return NextResponse.json({ success: true, id: result.id, enabled: result.enabled, requestId });
   } catch (error) {
     return operatorErrorResponse(error, requestId);
   }

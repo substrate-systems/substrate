@@ -141,13 +141,16 @@ async function seedCohort(): Promise<Cohort> {
   const openaiRedirect = "https://openai.example.test/callback";
   const clients = await Promise.all(
     [
-      [claudeClientId, claudeRedirect],
-      [openaiClientId, openaiRedirect],
-    ].map(async ([clientId, redirectUri]) =>
+      [claudeClientId, claudeRedirect, "claude"],
+      [openaiClientId, openaiRedirect, "openai"],
+    ].map(async ([clientId, redirectUri, platform]) =>
       pool!.query(
-        `INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris)
-         VALUES ($1, 'pinned', true, jsonb_build_array($2)) RETURNING id`,
-        [clientId, redirectUri]
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+           client_platform, oauth_client_config_sha256
+         ) VALUES ($1, 'pinned', true, jsonb_build_array($2),
+                   digest(convert_to(jsonb_build_array($2)::text, 'utf8'), 'sha256'), $3, $4) RETURNING id`,
+        [clientId, redirectUri, platform, sha("oauth-client-config")]
       )
     )
   );
@@ -197,10 +200,10 @@ async function seedCohort(): Promise<Cohort> {
         platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
         plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256,
         tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id,
-        registered_app_id_sha256, observed_at, promoted_at
+        registered_app_id_sha256, oauth_client_config_sha256, observed_at, promoted_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-        $15::uuid, $16, now(), now())`,
-      artifact(platform, candidateId, lock)
+        $15::uuid, $16, $17, now(), now())`,
+      [...artifact(platform, candidateId, lock), sha("oauth-client-config")]
     );
   }
   await pool!.query(

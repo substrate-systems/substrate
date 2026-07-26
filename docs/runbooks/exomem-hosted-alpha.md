@@ -14,7 +14,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
-1. migrations `0017` through `0033_exomem_mcp_protocol_compatibility.sql` applied to the production Neon database;
+1. migrations `0017` through `0034_exomem_oauth_client_admission.sql` applied to the production Neon database;
 2. an Exomem `0.33.0` cell image from commit `08f1cee281bd0dbcaf82094421c11d6be04dc5c2` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -175,6 +175,16 @@ keep the resource unavailable rather than widening discovery.
 Archive the signed import, locks, digests, opaque run reference, and
 content-free result digest; never archive client content, OAuth secrets, raw
 tokens, or a tenant identifier.
+
+Each admitted OAuth client is bound to the promoted client evidence by a public,
+canonical SHA-256 configuration digest. Its exact bytes are the UTF-8 domain
+prefix `exomem-oauth-client-config:v1\0` followed by compact stable JSON with
+`platform`, `admission_mode`, `client_id`, sorted exact raw `redirect_uris`, and
+`token_endpoint_auth_method: "none"`. The signed promotion envelope carries
+that digest; no separate environment secret exists and there is nothing to
+rotate. An operator registers the platform and selected pending/live artifact,
+then enables only the matching digest. A missing or mismatched digest is not
+authority for authorize, code exchange, refresh, continuations, or MCP.
 
 The repository's paired fixture composes schema-isolated PostgreSQL admission,
 OAuth issuance, lifecycle, deletion, and the fake provider/MCP seams. It is

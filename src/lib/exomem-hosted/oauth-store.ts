@@ -42,12 +42,21 @@ export async function resolveApprovedOAuthClient(
     const { rows } = await tx`
     /* exomem:resolve-approved-oauth-client */
     SELECT id, client_id, redirect_uris, admission_mode
-    FROM exomem_oauth_clients
-    WHERE client_id = ${clientId}
+    FROM exomem_oauth_clients AS client
+    WHERE client.client_id = ${clientId}
       AND enabled = true
+      AND redirect_uris_digest = digest(convert_to(redirect_uris::text, 'utf8'), 'sha256')
       AND admission_mode IN ('pinned', 'cimd')
-      AND (metadata_expires_at IS NULL OR metadata_expires_at > now())
-      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      AND (admission_mode = 'pinned' OR (
+        metadata_document_digest IS NOT NULL AND metadata_fetched_at IS NOT NULL
+        AND metadata_ttl_seconds BETWEEN 300 AND 604800
+        AND metadata_expires_at > now() AND cimd_host IS NOT NULL
+      ))
+      AND EXISTS (
+        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      )
     LIMIT 1
   `;
     const row = rows[0] as
@@ -107,7 +116,17 @@ export async function createAuthorizationTransaction(input: {
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${input.clientId}
       AND client.enabled = true
-      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+      AND (client.admission_mode = 'pinned' OR (
+        client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+        AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+        AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+      ))
+      AND EXISTS (
+        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      )
       AND (
         SELECT count(*) FROM exomem_oauth_authorization_transactions
         WHERE consumed_at IS NULL AND expires_at > now()
@@ -146,7 +165,17 @@ export async function findPendingOAuthAuthorization(
       AND transaction.consumed_at IS NULL
       AND transaction.expires_at > now()
       AND client.enabled = true
-      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+      AND (client.admission_mode = 'pinned' OR (
+        client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+        AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+        AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+      ))
+      AND EXISTS (
+        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      )
     LIMIT 1
   `;
     const row = rows[0] as
@@ -216,10 +245,21 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
              transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
       FROM exomem_oauth_authorization_transactions AS transaction
-      JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
+      JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
+        AND client.enabled = true
+        AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+        AND (client.admission_mode = 'pinned' OR (
+          client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+          AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+          AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+        ))
       WHERE transaction.transaction_digest = ${input.transactionDigest}
         AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
-        AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+        AND EXISTS (
+          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+        )
       FOR UPDATE OF transaction
     ),
     grant AS (
@@ -369,10 +409,21 @@ export async function admitFirstOAuthInviteAtomic(input: {
         SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
                transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
         FROM exomem_oauth_authorization_transactions AS transaction
-        JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
+        JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
+          AND client.enabled = true
+          AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+          AND (client.admission_mode = 'pinned' OR (
+            client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+            AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+            AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+          ))
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
-          AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+          AND EXISTS (
+            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+          )
         FOR UPDATE OF transaction
       `;
       const authorization = authorizationResult.rows[0] as
@@ -584,6 +635,12 @@ export async function findActiveOAuthAccessToken(
     JOIN exomem_oauth_clients AS client
       ON client.id = token.client_id
      AND client.enabled = true
+     AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+     AND (client.admission_mode = 'pinned' OR (
+       client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+       AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+       AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+     ))
     JOIN exomem_tenants AS tenant
       ON tenant.id = grant.tenant_id
      AND tenant.owner_user_id = grant.user_id
@@ -595,7 +652,11 @@ export async function findActiveOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
-      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      AND EXISTS (
+        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      )
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
         WHERE block.tenant_id = grant.tenant_id AND block.owner_user_id = grant.user_id
@@ -648,7 +709,14 @@ export async function findMcpOAuthAccessToken(
      AND grant.client_id = token.client_id
      AND grant.resource = token.resource
      AND grant.revoked_at IS NULL
-    JOIN exomem_oauth_clients AS client ON client.id = token.client_id AND client.enabled = true
+    JOIN exomem_oauth_clients AS client ON client.id = token.client_id
+      AND client.enabled = true
+      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+      AND (client.admission_mode = 'pinned' OR (
+        client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+        AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+        AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+      ))
     JOIN exomem_tenants AS tenant
       ON tenant.id = grant.tenant_id
      AND tenant.owner_user_id = grant.user_id
@@ -661,7 +729,11 @@ export async function findMcpOAuthAccessToken(
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
       AND token.scopes <@ grant.scopes
-      AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      AND EXISTS (
+        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      )
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
         WHERE block.tenant_id = grant.tenant_id AND block.owner_user_id = grant.user_id
@@ -865,6 +937,12 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         ON client.id = code.client_id
        AND client.client_id = ${input.clientId}
        AND client.enabled = true
+       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+       AND (client.admission_mode = 'pinned' OR (
+         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+       ))
       JOIN exomem_tenants AS tenant
         ON tenant.id = grant.tenant_id
        AND tenant.owner_user_id = grant.user_id
@@ -883,7 +961,11 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND code.consumed_at IS NULL
         AND code.expires_at > now()
         AND grant.revoked_at IS NULL
-        AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+        AND EXISTS (
+          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+        )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
@@ -990,18 +1072,29 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       WHERE token.refresh_digest = ${input.refreshDigest}
         AND client.client_id = ${input.clientId}
         AND client.enabled = true
+        AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+        AND (client.admission_mode = 'pinned' OR (
+          client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+          AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+          AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+        ))
       FOR UPDATE OF token, family
     ),
     current_policy AS (
       SELECT credential.id
       FROM credential
+      JOIN exomem_oauth_clients AS client ON client.id = credential.client_id
       JOIN exomem_oauth_grants AS grant ON grant.id = credential.grant_id AND grant.revoked_at IS NULL
       JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
         AND tenant.owner_user_id = grant.user_id AND tenant.status IN ('provisioning', 'active')
         AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
-      WHERE EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+      WHERE EXISTS (
+        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id

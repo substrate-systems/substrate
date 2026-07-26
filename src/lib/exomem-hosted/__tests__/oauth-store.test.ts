@@ -246,6 +246,10 @@ describe("Exomem OAuth token store", () => {
 
     assert.equal(await resolveApprovedOAuthClient("client-1"), null);
     assert.match(query, /exomem_hosted_alpha_cohort/i);
+    assert.match(
+      query,
+      /redirect_uris_digest = digest\(convert_to\(redirect_uris::text, 'utf8'\), 'sha256'\)/i
+    );
   });
 
   it("locks the cohort before taking the authorization snapshot", async () => {
