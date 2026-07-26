@@ -523,6 +523,52 @@ describe("Exomem OAuth routes", () => {
     assert.equal(response.headers.get("retry-after"), "1");
   });
 
+  it("returns a safe retryable capacity envelope from the UI-facing access redeem path", async () => {
+    admissionError = new (await import("@/lib/exomem-hosted/errors")).ExomemHostedError({
+      code: "CAPACITY_UNAVAILABLE",
+      status: 503,
+      message: "hosted capacity is temporarily unavailable",
+      retryable: true,
+      retryAfterMs: 1000,
+      remediation: "retry_later",
+    });
+    const { GET } = await import("../authorize/route");
+    const { POST } = await import("../../access/redeem/route");
+    const started = await GET(authorizeRequest("capacity-ui-state"));
+    const transaction = cookie(started, "exomem_oauth_tx");
+    const nonce = cookie(started, "exomem_oauth_form_nonce");
+    const response = await POST(
+      new Request(`${BASE_URL}/api/exomem/access/redeem`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: BASE_URL,
+          host: "hosted.example.test",
+          cookie: `exomem_oauth_tx=${transaction}; exomem_oauth_form_nonce=${nonce}`,
+        },
+        body: JSON.stringify({ token: Buffer.alloc(32, 0x46).toString("base64url") }),
+      }) as never
+    );
+    assert.equal(response.status, 503);
+    const body = (await response.json()) as {
+      error: {
+        code: string;
+        requestId?: string;
+        retryable: boolean;
+        message: string;
+        retryAfterMs?: number;
+        remediation?: string;
+      };
+    };
+    assert.equal(body.error.code, "CAPACITY_UNAVAILABLE");
+    assert.equal(body.error.retryable, true);
+    assert.equal(body.error.retryAfterMs, 1000);
+    assert.equal(body.error.remediation, "retry_later");
+    assert.match(body.error.requestId ?? "", /^[0-9a-f-]{36}$/i);
+    assert.equal(JSON.stringify(body).includes("capacity-ui-state"), false);
+    assert.equal(JSON.stringify(body).includes("tenant"), false);
+  });
+
   it("exchanges one authorization code with exact PKCE and resource binding", async () => {
     const { POST } = await import("../token/route");
     const code = Buffer.alloc(32, 0x61).toString("base64url");

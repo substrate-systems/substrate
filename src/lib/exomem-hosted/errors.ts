@@ -7,6 +7,8 @@ export type ExomemHostedErrorEnvelope = {
     message: string;
     requestId?: string;
     retryable: boolean;
+    retryAfterMs?: number;
+    remediation?: string;
   };
 };
 
@@ -39,6 +41,8 @@ export class ExomemHostedError extends Error {
       code: this.code,
       message: this.message,
       retryable: this.retryable,
+      ...(this.retryAfterMs ? { retryAfterMs: this.retryAfterMs } : {}),
+      ...(this.remediation ? { remediation: this.remediation } : {}),
     };
   }
 }
@@ -253,6 +257,8 @@ export function safeErrorEnvelope(error: unknown, requestId?: string): ExomemHos
       message: safe.message,
       ...(requestId ? { requestId } : {}),
       retryable: safe.retryable,
+      ...(safe.retryAfterMs ? { retryAfterMs: safe.retryAfterMs } : {}),
+      ...(safe.remediation ? { remediation: safe.remediation } : {}),
     },
   };
 }
