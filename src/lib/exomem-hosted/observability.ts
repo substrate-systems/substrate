@@ -41,6 +41,8 @@ const ERROR_CODES = new Set([
   "EXOMEM_PROVISIONING_FAILED",
   "EXOMEM_SUSPENDED",
   "HOSTED_SELECTOR_REJECTED",
+  "HOSTED_CONTRACT_UNAVAILABLE",
+  "MCP_PROTOCOL_UNSUPPORTED",
   "TENANT_PREPARING",
   "TOO_LARGE",
 ]);
@@ -166,9 +168,12 @@ export function buildOperationalEvent(
   };
 }
 
-export function emitOperationalEvent(
-  event: OperationalEvent,
-  sink: (line: string) => void = console.info
-): void {
+let operationalEventSink: (line: string) => void = console.info;
+
+export function setOperationalEventSinkForTests(sink: ((line: string) => void) | null): void {
+  operationalEventSink = sink ?? console.info;
+}
+
+export function emitOperationalEvent(event: OperationalEvent, sink = operationalEventSink): void {
   sink(JSON.stringify(event));
 }

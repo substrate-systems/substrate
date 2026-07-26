@@ -252,6 +252,164 @@ describe("Hosted MCP boundary", () => {
     );
   });
 
+  it("overlays the exact discovery order with read/write OAuth scopes", async () => {
+    const response = await handleHostedMcpRequest(
+      request({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        takeRateLimit: async () => true,
+      }
+    );
+    const payload = (await response.json()) as {
+      result?: { tools?: Array<{ name: string; _meta?: { securitySchemes?: unknown } }> };
+    };
+    const tools = payload.result?.tools ?? [];
+    assert.deepEqual(
+      tools.map((tool) => tool.name),
+      LIVE.contract.agent_contract.commands.map((command) => command.mcp_tool.name)
+    );
+    for (const command of LIVE.contract.agent_contract.commands) {
+      const tool = tools.find((candidate) => candidate.name === command.name);
+      assert.deepEqual(tool?._meta?.securitySchemes, [
+        { type: "oauth2", scopes: [command.read_only ? "exomem.read" : "exomem.write"] },
+      ]);
+    }
+  });
+
+  it("accepts every bootstrap profile but rejects nested selectors before routing", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => LIVE,
+      statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+      routeCommand: async (input: { args: Record<string, unknown> }) => {
+        seen.push(input.args);
+        return bootstrapResult();
+      },
+      takeRateLimit: async () => true,
+    };
+    for (const profile of ["compact", "full", "diagnostics"]) {
+      const response = await handleHostedMcpRequest(
+        request({
+          jsonrpc: "2.0",
+          id: profile,
+          method: "tools/call",
+          params: { name: "bootstrap", arguments: { profile, workflow: "test" } },
+        }),
+        dependencies
+      );
+      assert.equal(response.status, 200);
+    }
+    const nested = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: "nested",
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: { nested: { profile: "full" } } },
+      }),
+      dependencies
+    );
+    const result = (await nested.json()) as { result?: { _meta?: { exomem?: { code?: string } } } };
+    assert.equal(result.result?._meta?.exomem?.code, "HOSTED_SELECTOR_REJECTED");
+    assert.deepEqual(seen, [
+      { profile: "compact", workflow: "test" },
+      { profile: "full", workflow: "test" },
+      { profile: "diagnostics", workflow: "test" },
+    ]);
+  });
+
+  it("rejects malformed, oversized, deep, and incompatible hosted requests before a cell route", async () => {
+    let routes = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => LIVE,
+      takeRateLimit: async () => true,
+      routeCommand: async () => {
+        routes += 1;
+        return bootstrapResult();
+      },
+    };
+    const malformed = await handleHostedMcpRequest(
+      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+        method: "POST",
+        headers: { authorization: `Bearer ${"a".repeat(43)}` },
+        body: "{",
+      }),
+      dependencies
+    );
+    assert.equal(malformed.status, 400);
+    const tooLarge = await handleHostedMcpRequest(
+      request({ jsonrpc: "2.0" }, { "content-length": String(1024 * 1024 + 1) }),
+      dependencies
+    );
+    assert.equal(tooLarge.status, 413);
+    let deep: Record<string, unknown> = {};
+    for (let depth = 0; depth < 34; depth += 1) deep = { nested: deep };
+    const excessiveDepth = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: deep },
+      }),
+      dependencies
+    );
+    assert.equal(excessiveDepth.status, 400);
+    const incompatible = await handleHostedMcpRequest(
+      request({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      {
+        ...dependencies,
+        getLiveContract: async () => ({ ...LIVE, profile: "private-profile" }) as never,
+      }
+    );
+    assert.equal(incompatible.status, 503);
+    assert.equal(routes, 0);
+  });
+
+  it("maps every non-ready lifecycle result to the stable JSON and metadata envelope", async () => {
+    const cases = [
+      ["capacity", "CAPACITY_UNAVAILABLE", true, "retry_later"],
+      ["degraded", "CELL_FAILED", false, "contact_support"],
+      ["suspended", "EXOMEM_SUSPENDED", false, "contact_support"],
+      ["deleted", "EXOMEM_DELETED", false, "contact_support"],
+      ["deleting", "DELETION_IN_PROGRESS", false, "deletion_in_progress"],
+    ] as const;
+    for (const [state, code, retryable, remediation] of cases) {
+      const response = await handleHostedMcpRequest(
+        request({
+          jsonrpc: "2.0",
+          id: code,
+          method: "tools/call",
+          params: { name: "bootstrap", arguments: {} },
+        }),
+        {
+          baseUrl: "https://substratesystems.io",
+          findAccessToken: async () => ACCESS,
+          getLiveContract: async () => LIVE,
+          statusForTenant: async () => ({ state, code, retryable }),
+          routeCommand: async () => {
+            throw new Error("must not route a non-ready lifecycle");
+          },
+          takeRateLimit: async () => true,
+        }
+      );
+      const payload = (await response.json()) as {
+        result?: {
+          content?: Array<{ text?: string }>;
+          _meta?: { exomem?: Record<string, unknown> };
+        };
+      };
+      const meta = payload.result?._meta?.exomem;
+      assert.equal(meta?.retryable, retryable, code);
+      assert.equal(meta?.remediation, remediation, code);
+      assert.deepEqual(JSON.parse(payload.result?.content?.[0]?.text ?? "{}"), meta, code);
+    }
+  });
+
   it("emits only opaque allowlisted telemetry for a denied selector containing privacy sentinels", async () => {
     const events: Array<Record<string, unknown>> = [];
     await handleHostedMcpRequest(
@@ -280,6 +438,58 @@ describe("Hosted MCP boundary", () => {
     const serialized = JSON.stringify(events);
     assert.equal(serialized.includes("bearer-secret-sentinel"), false);
     assert.equal(serialized.includes("client-secret-sentinel"), false);
+  });
+
+  it("emits a content-free denial event after authentication for an unsupported protocol", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const response = await handleHostedMcpRequest(
+      request(
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { "mcp-protocol-version": "2099-01-01" }
+      ),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ({ ...ACCESS, clientId: "client-secret-sentinel" }),
+        getLiveContract: async () => LIVE,
+        takeRateLimit: async () => true,
+        telemetry: (event: Record<string, unknown>) => events.push(event),
+        telemetryKey: Buffer.alloc(32, 8),
+      }
+    );
+    assert.equal(response.status, 400);
+    assert.equal(events.length, 1);
+    assert.deepEqual(
+      { event: events[0].event, outcome: events[0].outcome, errorCode: events[0].errorCode },
+      { event: "mcp.request", outcome: "denied", errorCode: "MCP_PROTOCOL_UNSUPPORTED" }
+    );
+    assert.equal(JSON.stringify(events).includes("client-secret-sentinel"), false);
+  });
+
+  it("keeps unauthenticated denial telemetry free of bearer and body sentinels", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const bearer = "bearer-secret-sentinel";
+    const response = await handleHostedMcpRequest(
+      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+        method: "POST",
+        headers: { authorization: `Bearer ${bearer}` },
+        body: JSON.stringify({ private: "body-secret-sentinel" }),
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => null,
+        takeRateLimit: async () => true,
+        telemetry: (event: Record<string, unknown>) => events.push(event),
+        telemetryKey: Buffer.alloc(32, 8),
+      }
+    );
+    assert.equal(response.status, 401);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].outcome, "denied");
+    assert.equal(events[0].errorCode, "ACCESS_TOKEN_INVALID");
+    const serialized = JSON.stringify(events);
+    assert.equal(serialized.includes(bearer), false);
+    assert.equal(serialized.includes("body-secret-sentinel"), false);
+    assert.equal(Object.hasOwn(events[0], "clientHash"), false);
   });
 
   it("keeps overlapping tenant-client calls counted until each call actually finishes", async () => {
@@ -361,6 +571,55 @@ describe("Hosted MCP boundary", () => {
     wait.resolve();
     assert.equal(routes, 0);
     assert.match(payload.result?.content?.[0]?.text ?? "", /CELL_UNAVAILABLE/);
+  });
+
+  it("uses one abort deadline through private routing and releases the tenant-client slot", async () => {
+    const controller = new AbortController();
+    const routeWait = deferred();
+    let routes = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => LIVE,
+      statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+      routeCommand: async (input: { dependencies?: { signal?: AbortSignal } }) => {
+        routes += 1;
+        assert.equal(input.dependencies?.signal?.aborted, false);
+        if (routes === 1) await routeWait.promise;
+        return bootstrapResult();
+      },
+      takeRateLimit: async () => true,
+    };
+    const pending = handleHostedMcpRequest(
+      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+        method: "POST",
+        signal: controller.signal,
+        headers: { authorization: `Bearer ${"a".repeat(43)}` },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "bootstrap", arguments: {} },
+        }),
+      }),
+      dependencies
+    );
+    while (routes !== 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    const first = await pending;
+    assert.equal(first.status, 200);
+    const second = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      dependencies
+    );
+    assert.equal(second.status, 200);
+    assert.equal(routes, 2);
+    routeWait.resolve();
   });
 
   it("uses the official Streamable HTTP client for ordered discovery, calls, and content-free telemetry", async () => {
