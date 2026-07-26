@@ -22,7 +22,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     const preAuthAllowed = await takeExomemRateLimit(
-      EXOMEM_RATE_LIMITS.adminPreAuthIp,
+      EXOMEM_RATE_LIMITS.adminPreAuthMutationIp,
       clientAddressKey(request) ?? "unknown"
     );
     if (!preAuthAllowed) throw exomemErrors.rateLimited();

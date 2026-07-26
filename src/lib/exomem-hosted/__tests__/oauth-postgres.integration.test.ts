@@ -393,6 +393,33 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     );
   });
 
+  it("waits for artifact demotion before taking the cohort authorization snapshot", async () => {
+    await seedClient();
+    const lock = await pool!.connect();
+    try {
+      await lock.query("BEGIN");
+      await lock.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
+      await lock.query(
+        "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'openai'"
+      );
+      let settled = false;
+      const resolution = resolveApprovedOAuthClient(clientId).then((result) => {
+        settled = true;
+        return result;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.equal(settled, false);
+      await lock.query("COMMIT");
+      assert.equal(await resolution, null);
+    } finally {
+      await lock.query("ROLLBACK").catch(() => undefined);
+      lock.release();
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
+      );
+    }
+  });
+
   it("blocks an authoritative account and revokes every usable OAuth credential atomically", async () => {
     const internal = await seedClient();
     const fixture = await seedAuthorizationCode(internal, 140, true);

@@ -1,4 +1,4 @@
-import { executeExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import {
   revokeOAuthAccountForOwnerTenantAtomic,
   revokeOAuthTokenFamilyForOwner,
@@ -10,6 +10,13 @@ export type OperatorOAuthClient = {
   admissionMode: "pinned" | "cimd";
   redirectCount: number;
 };
+
+async function withCohortControlLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    return work(tx);
+  });
+}
 
 export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]> {
   const { rows } = await executeExomemSql`
@@ -48,18 +55,16 @@ export async function setOperatorOAuthClientEnabled(input: {
 }): Promise<boolean> {
   // Alpha rollout has no separate cohort table: invite eligibility, an enabled
   // approved client, and a live client artifact form the existing cohort gate.
-  const { rows } = await executeExomemSql`
+  return withCohortControlLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:set-operator-oauth-client-enabled */
-    WITH cohort_lock AS (
-      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-    )
     UPDATE exomem_oauth_clients
     SET enabled = ${input.enabled}, updated_at = now()
-    FROM cohort_lock
     WHERE id = ${input.clientRecordId}::uuid
     RETURNING id
   `;
-  return rows.length === 1;
+    return rows.length === 1;
+  });
 }
 
 export const revokeOperatorOAuthFamily = revokeOAuthTokenFamilyForOwner;
@@ -118,16 +123,14 @@ export async function listOperatorClientArtifacts(): Promise<OperatorClientArtif
 
 /** Preserve the schema's only valid demotion transition: live to retired. */
 export async function demoteOperatorClientArtifact(artifactId: string): Promise<boolean> {
-  const { rows } = await executeExomemSql`
+  return withCohortControlLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:demote-operator-client-artifact */
-    WITH cohort_lock AS (
-      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-    )
     UPDATE exomem_client_artifacts
     SET state = 'retired', retired_at = now()
-    FROM cohort_lock
     WHERE id = ${artifactId}::uuid AND state = 'live'
     RETURNING id
   `;
-  return rows.length === 1;
+    return rows.length === 1;
+  });
 }

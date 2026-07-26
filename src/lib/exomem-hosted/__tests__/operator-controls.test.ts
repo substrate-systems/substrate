@@ -41,10 +41,12 @@ describe("hosted operator controls", () => {
 
   it("changes exactly one opaque client record", async () => {
     let query = "";
-    __setExomemSqlForTests(async (strings) => {
+    const sql = async (strings: TemplateStringsArray) => {
       query = strings.join("?");
       return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000001" }] };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (callback) => callback(sql));
 
     assert.equal(
       await setOperatorOAuthClientEnabled({
@@ -84,7 +86,7 @@ describe("hosted operator controls", () => {
 
   it("reports artifact digests only and demotes live artifacts to retired", async () => {
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const sql = async (strings: TemplateStringsArray) => {
       const query = strings.join("?");
       queries.push(query);
       if (query.includes("SELECT id, platform")) {
@@ -103,13 +105,17 @@ describe("hosted operator controls", () => {
         };
       }
       return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000020" }] };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (callback) => callback(sql));
 
     const artifacts = await listOperatorClientArtifacts();
     assert.equal(artifacts[0]?.packageSha256, "a".repeat(64));
     assert.equal(JSON.stringify(artifacts).includes("install"), false);
     assert.equal(await demoteOperatorClientArtifact("018f2d91-7c42-7000-8000-000000000020"), true);
-    assert.match(queries[1], /SET state = 'retired', retired_at = now\(\)/i);
-    assert.match(queries[1], /state = 'live'/i);
+    assert.match(queries[1], /pg_advisory_xact_lock\(/i);
+    assert.doesNotMatch(queries[1], /pg_advisory_xact_lock_shared/i);
+    assert.match(queries[2], /SET state = 'retired', retired_at = now\(\)/i);
+    assert.match(queries[2], /state = 'live'/i);
   });
 });

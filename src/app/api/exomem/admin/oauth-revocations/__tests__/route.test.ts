@@ -10,7 +10,13 @@ before(() => {
   process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
   mock.module("@/lib/exomem-hosted/rate-limit", {
     namedExports: {
-      EXOMEM_RATE_LIMITS: { adminInvites: { scope: "operator", limit: 1, windowSeconds: 60 } },
+      EXOMEM_RATE_LIMITS: {
+        adminPreAuthReadIp: { scope: "read-ip", limit: 1, windowSeconds: 60 },
+        adminPreAuthMutationIp: { scope: "mutation-ip", limit: 1, windowSeconds: 60 },
+        adminAuthenticatedRead: { scope: "read", limit: 1, windowSeconds: 60 },
+        adminAuthenticatedMutation: { scope: "mutation", limit: 1, windowSeconds: 60 },
+      },
+      clientAddressKey: () => "test-ip",
       takeExomemRateLimit: async () => true,
     },
   });

@@ -9,8 +9,13 @@ export type ExomemRateLimitRule = {
 };
 
 export const EXOMEM_RATE_LIMITS = {
-  adminPreAuthIp: {
-    scope: "exomem:admin-pre-auth-ip",
+  adminPreAuthReadIp: {
+    scope: "exomem:admin-pre-auth-read-ip",
+    limit: 300,
+    windowSeconds: 60,
+  },
+  adminPreAuthMutationIp: {
+    scope: "exomem:admin-pre-auth-mutation-ip",
     limit: 120,
     windowSeconds: 10 * 60,
   },

@@ -11,7 +11,9 @@ export async function requireRateLimitedExomemOperator(
   operation: "read" | "mutation" = "mutation"
 ) {
   const preAuthAllowed = await takeExomemRateLimit(
-    EXOMEM_RATE_LIMITS.adminPreAuthIp,
+    operation === "read"
+      ? EXOMEM_RATE_LIMITS.adminPreAuthReadIp
+      : EXOMEM_RATE_LIMITS.adminPreAuthMutationIp,
     clientAddressKey(request) ?? "unknown"
   );
   if (!preAuthAllowed) throw exomemErrors.rateLimited();

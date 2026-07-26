@@ -22,12 +22,10 @@ before(() => {
   mock.module("@/lib/exomem-hosted/rate-limit", {
     namedExports: {
       EXOMEM_RATE_LIMITS: {
-        adminInvites: {
-          scope: "exomem:admin-invite",
-          limit: 30,
-          windowSeconds: 3600,
-        },
+        adminPreAuthMutationIp: { scope: "mutation-ip", limit: 1, windowSeconds: 60 },
+        adminAuthenticatedMutation: { scope: "mutation", limit: 1, windowSeconds: 60 },
       },
+      clientAddressKey: () => "test-ip",
       takeExomemRateLimit: async () => rateAllowed,
     },
   });

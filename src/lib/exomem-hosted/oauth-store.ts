@@ -1,4 +1,4 @@
-import { executeExomemSql, withExomemTransaction } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import type { SecretEnvelope } from "./security";
 
@@ -27,14 +27,21 @@ export type ApprovedOAuthClient = {
 
 const MAX_PENDING_OAUTH_AUTHORIZATIONS = 2_000;
 
+async function withCohortLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    return work(tx);
+  });
+}
+
 export async function resolveApprovedOAuthClient(
   clientId: string
 ): Promise<ApprovedOAuthClient | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:resolve-approved-oauth-client */
     SELECT id, client_id, redirect_uris, admission_mode
     FROM exomem_oauth_clients
-    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     WHERE client_id = ${clientId}
       AND enabled = true
       AND admission_mode IN ('pinned', 'cimd')
@@ -42,17 +49,23 @@ export async function resolveApprovedOAuthClient(
       AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
     LIMIT 1
   `;
-  const row = rows[0] as
-    | { id: string; client_id: string; redirect_uris: string[]; admission_mode: "pinned" | "cimd" }
-    | undefined;
-  return row
-    ? {
-        id: row.id,
-        clientId: row.client_id,
-        redirectUris: row.redirect_uris,
-        admissionMode: row.admission_mode,
-      }
-    : null;
+    const row = rows[0] as
+      | {
+          id: string;
+          client_id: string;
+          redirect_uris: string[];
+          admission_mode: "pinned" | "cimd";
+        }
+      | undefined;
+    return row
+      ? {
+          id: row.id,
+          clientId: row.client_id,
+          redirectUris: row.redirect_uris,
+          admissionMode: row.admission_mode,
+        }
+      : null;
+  });
 }
 
 export async function createAuthorizationTransaction(input: {
@@ -68,7 +81,8 @@ export async function createAuthorizationTransaction(input: {
   pkceChallenge: string;
   expiresAt: Date;
 }): Promise<{ id: string } | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:create-oauth-authorization-transaction */
     WITH pruned AS (
       DELETE FROM exomem_oauth_authorization_transactions
@@ -90,7 +104,6 @@ export async function createAuthorizationTransaction(input: {
            ${input.pkceChallenge},
            ${input.expiresAt.toISOString()}
     FROM exomem_oauth_clients AS client
-    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     WHERE client.client_id = ${input.clientId}
       AND client.enabled = true
       AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
@@ -100,8 +113,9 @@ export async function createAuthorizationTransaction(input: {
       ) < ${MAX_PENDING_OAUTH_AUTHORIZATIONS}
     RETURNING id
   `;
-  const row = rows[0] as { id: string } | undefined;
-  return row ? { id: row.id } : null;
+    const row = rows[0] as { id: string } | undefined;
+    return row ? { id: row.id } : null;
+  });
 }
 
 export type PendingOAuthAuthorization = {
@@ -119,13 +133,13 @@ export type PendingOAuthAuthorization = {
 export async function findPendingOAuthAuthorization(
   transactionDigest: Buffer
 ): Promise<PendingOAuthAuthorization | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:find-pending-oauth-authorization */
     SELECT client.client_id, transaction.redirect_uri, transaction.resource,
            transaction.requested_scopes, transaction.state_envelope, transaction.state_digest,
            transaction.form_nonce_digest, transaction.continuation_binding, transaction.pkce_challenge
     FROM exomem_oauth_authorization_transactions AS transaction
-    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
     WHERE transaction.transaction_digest = ${transactionDigest}
       AND transaction.consumed_at IS NULL
@@ -134,32 +148,33 @@ export async function findPendingOAuthAuthorization(
       AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
     LIMIT 1
   `;
-  const row = rows[0] as
-    | {
-        client_id: string;
-        redirect_uri: string;
-        resource: string;
-        requested_scopes: string[];
-        state_envelope: SecretEnvelope;
-        state_digest: Uint8Array;
-        form_nonce_digest: Uint8Array;
-        continuation_binding: Uint8Array;
-        pkce_challenge: string;
-      }
-    | undefined;
-  return row
-    ? {
-        clientId: row.client_id,
-        redirectUri: row.redirect_uri,
-        resource: row.resource,
-        scopes: row.requested_scopes,
-        stateEnvelope: row.state_envelope,
-        stateDigest: Buffer.from(row.state_digest),
-        formNonceDigest: Buffer.from(row.form_nonce_digest),
-        continuationBinding: Buffer.from(row.continuation_binding),
-        pkceChallenge: row.pkce_challenge,
-      }
-    : null;
+    const row = rows[0] as
+      | {
+          client_id: string;
+          redirect_uri: string;
+          resource: string;
+          requested_scopes: string[];
+          state_envelope: SecretEnvelope;
+          state_digest: Uint8Array;
+          form_nonce_digest: Uint8Array;
+          continuation_binding: Uint8Array;
+          pkce_challenge: string;
+        }
+      | undefined;
+    return row
+      ? {
+          clientId: row.client_id,
+          redirectUri: row.redirect_uri,
+          resource: row.resource,
+          scopes: row.requested_scopes,
+          stateEnvelope: row.state_envelope,
+          stateDigest: Buffer.from(row.state_digest),
+          formNonceDigest: Buffer.from(row.form_nonce_digest),
+          continuationBinding: Buffer.from(row.continuation_binding),
+          pkceChallenge: row.pkce_challenge,
+        }
+      : null;
+  });
 }
 
 /** Attaches a client grant/code to an already entitled browser-session owner; no capacity or lifecycle row is touched. */
@@ -169,14 +184,21 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
   codeDigest: Buffer;
   codeExpiresAt: Date;
 }): Promise<{ grantId: string; tenantId: string } | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const locked = await tx`
+    SELECT tenant.id
+    FROM exomem_sessions AS session
+    JOIN exomem_tenants AS tenant ON tenant.id = session.tenant_id AND tenant.owner_user_id = session.user_id
+    WHERE session.id = ${input.sessionId}::uuid
+      AND session.revoked_at IS NULL AND session.expires_at > now()
+    FOR UPDATE OF session, tenant
+  `;
+    if (!locked.rows[0]) return null;
+    const { rows } = await tx`
     /* exomem:attach-existing-owner-oauth */
-    WITH cohort_lock AS (
-      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-    ), session AS (
+    WITH session AS (
       SELECT session.id, session.user_id, session.tenant_id
       FROM exomem_sessions AS session
-      CROSS JOIN cohort_lock
       JOIN exomem_tenants AS tenant ON tenant.id = session.tenant_id AND tenant.owner_user_id = session.user_id
       JOIN exomem_entitlements AS entitlement
         ON entitlement.tenant_id = session.tenant_id
@@ -194,7 +216,6 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
              transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
       FROM exomem_oauth_authorization_transactions AS transaction
       JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
-      CROSS JOIN cohort_lock
       WHERE transaction.transaction_digest = ${input.transactionDigest}
         AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
         AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
@@ -232,8 +253,9 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
     )
     SELECT grant.id AS grant_id, grant.tenant_id FROM grant CROSS JOIN consumed
   `;
-  const row = rows[0] as { grant_id: string; tenant_id: string } | undefined;
-  return row ? { grantId: row.grant_id, tenantId: row.tenant_id } : null;
+    const row = rows[0] as { grant_id: string; tenant_id: string } | undefined;
+    return row ? { grantId: row.grant_id, tenantId: row.tenant_id } : null;
+  });
 }
 
 export async function pruneExpiredOAuthState(): Promise<void> {
@@ -319,6 +341,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
 }): Promise<OAuthInviteAdmission | null> {
   try {
     return await withExomemTransaction(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
       const inviteResult = await tx`
         SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits
         FROM exomem_invites
@@ -338,14 +361,10 @@ export async function admitFirstOAuthInviteAtomic(input: {
       if (!invite) throw new OAuthAdmissionRejected();
 
       const authorizationResult = await tx`
-        WITH cohort_lock AS (
-          SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-        )
         SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
                transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
         FROM exomem_oauth_authorization_transactions AS transaction
         JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
-        CROSS JOIN cohort_lock
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
           AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
@@ -375,13 +394,19 @@ export async function admitFirstOAuthInviteAtomic(input: {
       const owner = ownerResult.rows[0] as { id: string } | undefined;
       if (!owner) throw new OAuthAdmissionRejected();
 
-      const blockedResult = await tx`
+      await tx`
         SELECT tenant.id
         FROM exomem_tenants AS tenant
-        JOIN exomem_oauth_account_blocks AS block
-          ON block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
         WHERE tenant.owner_user_id = ${owner.id}::uuid
-        FOR UPDATE OF tenant
+        FOR UPDATE
+      `;
+      const blockedResult = await tx`
+        SELECT tenant.id
+        FROM exomem_oauth_account_blocks AS block
+        JOIN exomem_tenants AS tenant
+          ON block.owner_user_id = ${owner.id}::uuid
+         AND tenant.id = block.tenant_id
+        WHERE tenant.owner_user_id = ${owner.id}::uuid
       `;
       if (blockedResult.rows[0]) throw new OAuthAdmissionRejected();
 
@@ -531,7 +556,8 @@ export async function admitFirstOAuthInviteAtomic(input: {
 export async function findActiveOAuthAccessToken(
   accessDigest: Buffer
 ): Promise<ActiveOAuthAccessToken | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:find-active-oauth-access-token */
     SELECT token.family_id,
            token.grant_id,
@@ -541,7 +567,6 @@ export async function findActiveOAuthAccessToken(
            token.resource,
            token.scopes
     FROM exomem_oauth_access_tokens AS token
-    CROSS JOIN (SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))) AS cohort_lock
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
      AND family.revoked_at IS NULL
@@ -570,28 +595,29 @@ export async function findActiveOAuthAccessToken(
       )
     LIMIT 1
   `;
-  const row = rows[0] as
-    | {
-        family_id: string;
-        grant_id: string;
-        user_id: string;
-        tenant_id: string;
-        client_id: string;
-        resource: string;
-        scopes: string[];
-      }
-    | undefined;
-  return row
-    ? {
-        familyId: row.family_id,
-        grantId: row.grant_id,
-        userId: row.user_id,
-        tenantId: row.tenant_id,
-        clientId: row.client_id,
-        resource: row.resource,
-        scopes: row.scopes,
-      }
-    : null;
+    const row = rows[0] as
+      | {
+          family_id: string;
+          grant_id: string;
+          user_id: string;
+          tenant_id: string;
+          client_id: string;
+          resource: string;
+          scopes: string[];
+        }
+      | undefined;
+    return row
+      ? {
+          familyId: row.family_id,
+          grantId: row.grant_id,
+          userId: row.user_id,
+          tenantId: row.tenant_id,
+          clientId: row.client_id,
+          resource: row.resource,
+          scopes: row.scopes,
+        }
+      : null;
+  });
 }
 
 /** MCP may report a durable lifecycle state, but token issuance/refresh remains fail-closed above. */
@@ -787,24 +813,20 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
   accessDigest: Buffer;
   accessExpiresAt: Date;
 }): Promise<OAuthTokenContext | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const tenantLock = await tx`
+    SELECT tenant.id
+    FROM exomem_tenants AS tenant
+    JOIN exomem_oauth_grants AS grant ON grant.tenant_id = tenant.id
+    JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant.id
+    WHERE code.code_digest = ${input.codeDigest}
+      AND tenant.owner_user_id = grant.user_id
+    FOR UPDATE OF tenant
+  `;
+    if (!tenantLock.rows[0]) return null;
+    const { rows } = await tx`
     /* exomem:oauth-code-exchange */
-    WITH cohort_lock AS (
-      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-    ), tenant_lock AS (
-      SELECT tenant.id
-      FROM exomem_tenants AS tenant
-      CROSS JOIN cohort_lock
-      JOIN exomem_oauth_grants AS grant ON grant.tenant_id = tenant.id
-      JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant.id
-      WHERE code.code_digest = ${input.codeDigest}
-        AND tenant.owner_user_id = grant.user_id
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_account_blocks AS block
-          WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
-        )
-      FOR UPDATE OF tenant
-    ), consumed_code AS (
+    WITH consumed_code AS (
       UPDATE exomem_oauth_authorization_codes AS code
       SET consumed_at = now()
       FROM exomem_oauth_grants AS grant
@@ -812,9 +834,9 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         ON client.id = code.client_id
        AND client.client_id = ${input.clientId}
        AND client.enabled = true
-      JOIN tenant_lock ON true
       JOIN exomem_tenants AS tenant
-        ON tenant.id = tenant_lock.id
+        ON tenant.id = grant.tenant_id
+       AND tenant.owner_user_id = grant.user_id
        AND tenant.status IN ('provisioning', 'active') AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement
         ON entitlement.tenant_id = tenant.id
@@ -831,6 +853,10 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND code.expires_at > now()
         AND grant.revoked_at IS NULL
         AND EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_account_blocks AS block
+          WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
+        )
       RETURNING code.grant_id, code.client_id, code.resource, code.refresh_allowed
     ),
     family AS (
@@ -867,28 +893,29 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
     LEFT JOIN refresh ON refresh.family_id = family.id
     JOIN access ON true
   `;
-  const row = rows[0] as
-    | {
-        grant_id: string;
-        family_id: string;
-        client_id: string;
-        resource: string;
-        scopes: string[];
-        refresh_allowed: boolean;
-        refresh_inserted: boolean;
-      }
-    | undefined;
-  return row
-    ? {
-        grantId: row.grant_id,
-        familyId: row.family_id,
-        clientId: row.client_id,
-        resource: row.resource,
-        scopes: row.scopes,
-        refreshAllowed: row.refresh_allowed,
-        refreshInserted: row.refresh_inserted,
-      }
-    : null;
+    const row = rows[0] as
+      | {
+          grant_id: string;
+          family_id: string;
+          client_id: string;
+          resource: string;
+          scopes: string[];
+          refresh_allowed: boolean;
+          refresh_inserted: boolean;
+        }
+      | undefined;
+    return row
+      ? {
+          grantId: row.grant_id,
+          familyId: row.family_id,
+          clientId: row.client_id,
+          resource: row.resource,
+          scopes: row.scopes,
+          refreshAllowed: row.refresh_allowed,
+          refreshInserted: row.refresh_inserted,
+        }
+      : null;
+  });
 }
 
 /**
@@ -904,7 +931,21 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
   clientId: string;
   resource: string;
 }): Promise<OAuthTokenContext | null> {
-  const { rows } = await executeExomemSql`
+  return withCohortLock(async (tx) => {
+    const tenantLock = await tx`
+    SELECT tenant.id
+    FROM exomem_oauth_refresh_tokens AS token
+    JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
+    JOIN exomem_oauth_grants AS grant ON grant.id = family.grant_id
+    JOIN exomem_oauth_clients AS client ON client.id = family.client_id
+    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id AND tenant.owner_user_id = grant.user_id
+    WHERE token.refresh_digest = ${input.refreshDigest}
+      AND client.client_id = ${input.clientId}
+      AND grant.resource = ${input.resource}
+    FOR UPDATE OF tenant
+  `;
+    if (!tenantLock.rows[0]) return null;
+    const { rows } = await tx`
     /* exomem:oauth-refresh-rotate */
     WITH credential AS (
       SELECT token.id, token.consumed_at, token.expires_at, token.family_id, family.grant_id, family.client_id,
@@ -920,31 +961,20 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         AND client.enabled = true
       FOR UPDATE OF token, family
     ),
-    cohort_lock AS (
-      SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-    ), tenant_lock AS (
-      SELECT tenant.id
-      FROM credential
-      CROSS JOIN cohort_lock
-      JOIN exomem_oauth_grants AS grant ON grant.id = credential.grant_id
-      JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id AND tenant.owner_user_id = grant.user_id
-      WHERE NOT EXISTS (
-        SELECT 1 FROM exomem_oauth_account_blocks AS block
-        WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
-      )
-      FOR UPDATE OF tenant
-    ),
     current_policy AS (
       SELECT credential.id
       FROM credential
       JOIN exomem_oauth_grants AS grant ON grant.id = credential.grant_id AND grant.revoked_at IS NULL
-      JOIN tenant_lock ON true
-      JOIN exomem_tenants AS tenant ON tenant.id = tenant_lock.id
+      JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
         AND tenant.owner_user_id = grant.user_id AND tenant.status IN ('provisioning', 'active')
         AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_account_blocks AS block
+          WHERE block.tenant_id = tenant.id AND block.owner_user_id = grant.user_id
+        )
     ),
     consumed AS (
       UPDATE exomem_oauth_refresh_tokens AS token
@@ -997,16 +1027,23 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     JOIN exomem_oauth_grants AS grant ON grant.id = consumed.grant_id
     JOIN exomem_oauth_clients AS client ON client.id = consumed.client_id
   `;
-  const row = rows[0] as
-    | { grant_id: string; family_id: string; client_id: string; resource: string; scopes: string[] }
-    | undefined;
-  return row
-    ? {
-        grantId: row.grant_id,
-        familyId: row.family_id,
-        clientId: row.client_id,
-        resource: row.resource,
-        scopes: row.scopes,
-      }
-    : null;
+    const row = rows[0] as
+      | {
+          grant_id: string;
+          family_id: string;
+          client_id: string;
+          resource: string;
+          scopes: string[];
+        }
+      | undefined;
+    return row
+      ? {
+          grantId: row.grant_id,
+          familyId: row.family_id,
+          clientId: row.client_id,
+          resource: row.resource,
+          scopes: row.scopes,
+        }
+      : null;
+  });
 }

@@ -16,8 +16,10 @@ test("rate-limit identifiers are stable only within one secret and scope", () =>
   assert.match(first, /^[0-9a-f]{64}$/);
 });
 
-test("operator pre-auth, reads, and mutations have independent bounded buckets", () => {
+test("operator pre-auth reads, mutations, and authenticated actions have independent buckets", () => {
   const rules = EXOMEM_RATE_LIMITS as Record<string, { scope: string }>;
-  assert.notEqual(rules.adminPreAuthIp?.scope, rules.adminAuthenticatedRead?.scope);
+  assert.notEqual(rules.adminPreAuthReadIp?.scope, rules.adminPreAuthMutationIp?.scope);
+  assert.notEqual(rules.adminPreAuthReadIp?.scope, rules.adminAuthenticatedRead?.scope);
+  assert.notEqual(rules.adminPreAuthMutationIp?.scope, rules.adminAuthenticatedMutation?.scope);
   assert.notEqual(rules.adminAuthenticatedRead?.scope, rules.adminAuthenticatedMutation?.scope);
 });
