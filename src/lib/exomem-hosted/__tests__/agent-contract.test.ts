@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
 import { afterEach, describe, it } from "node:test";
+import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
@@ -9,10 +10,15 @@ import {
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import {
   attachOpenAiContractLocks,
+  promoteExomemAgentContractCandidate,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
-import { promoteClientArtifact, storeClientArtifact } from "../client-artifacts";
+import {
+  demoteClientArtifact,
+  promoteClientArtifact,
+  storeClientArtifact,
+} from "../client-artifacts";
 
 const sha = (character: string) => character.repeat(64);
 
@@ -41,7 +47,7 @@ describe("Exomem Hosted agent contracts", () => {
   it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "23d4a5db2eabd318b0a1f2bf5e9b352bc9852660"
+      "08f1cee281bd0dbcaf82094421c11d6be04dc5c2"
     );
     assert.deepEqual(
       exomemHostedContractFixture.compatibility.agent_contract.commands.map(
@@ -51,6 +57,15 @@ describe("Exomem Hosted agent contracts", () => {
         (command) => command.mcp_tool
       )
     );
+  });
+
+  it("keeps every raw MCP tool and its final tools/list result SDK-valid without normalization", () => {
+    const tools = exomemHostedContractFixture.compatibility.agent_contract.commands.map(
+      (command) => command.mcp_tool
+    );
+    for (const tool of tools) assert.equal(ToolSchema.safeParse(tool).success, true);
+    assert.equal(ListToolsResultSchema.safeParse({ tools }).success, true);
+    assert.equal(ToolSchema.safeParse({ ...tools[0], execution: null }).success, false);
   });
 
   it("uses server-owned install and signing configuration for canonical private evidence", async () => {
@@ -123,6 +138,13 @@ describe("Exomem Hosted agent contracts", () => {
       queries.push(strings.join("?"));
       return { rows: [{ id: "artifact-1" }] };
     });
+    const transactionQueries: string[] = [];
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        transactionQueries.push(strings.join("?"));
+        return { rows: [{ id: "artifact-1" }] };
+      })
+    );
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
     await promoteClientArtifact({
       artifactId: "00000000-0000-0000-0000-000000000001",
@@ -130,7 +152,20 @@ describe("Exomem Hosted agent contracts", () => {
       evidence,
     });
     assert.match(queries[0], /INSERT INTO exomem_client_artifacts/i);
-    assert.match(queries[1], /package_sha256/i);
+    assert.match(
+      transactionQueries[0],
+      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
+    );
+    assert.match(transactionQueries[1], /package_sha256/i);
+    assert.equal(
+      await demoteClientArtifact("00000000-0000-0000-0000-000000000001", sha("9")),
+      true
+    );
+    assert.match(
+      transactionQueries[2],
+      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
+    );
+    assert.match(transactionQueries[3], /UPDATE exomem_client_artifacts/i);
     await assert.rejects(
       () =>
         promoteClientArtifact({
@@ -157,11 +192,12 @@ describe("Exomem Hosted agent contracts", () => {
         ...exomemHostedContractFixture.packageLock,
         platform: "openai",
         artifact_sha256: sha("a"),
+        registered_app_id_sha256: sha("c"),
       },
       archiveLock: {
-        ...exomemHostedContractFixture.archiveLock,
         platform: "openai",
         archive_sha256: sha("b"),
+        registered_app_id_sha256: sha("c"),
       },
     };
     const lockUnsigned = {
@@ -194,6 +230,7 @@ describe("Exomem Hosted agent contracts", () => {
       result_sha256: sha("8"),
       package_artifact_sha256: locks.packageLock.artifact_sha256,
       archive_sha256: locks.archiveLock.archive_sha256,
+      registered_app_id_sha256: locks.packageLock.registered_app_id_sha256,
       compatibility_sha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
       schema_contract_sha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
       command_surface_sha256: exomemHostedContractFixture.compatibility.command_surface_sha256,
@@ -245,6 +282,13 @@ describe("Exomem Hosted agent contracts", () => {
         };
       return { rows: [{ id: "openai-artifact-1" }] };
     });
+    const transactionQueries: string[] = [];
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        transactionQueries.push(strings.join("?"));
+        return { rows: [{ id: "openai-artifact-1" }] };
+      })
+    );
     assert.equal(
       await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature: importSignature }),
       true
@@ -260,6 +304,54 @@ describe("Exomem Hosted agent contracts", () => {
     );
     assert.equal(queries.filter((query) => /load-openai-contract-locks/i.test(query)).length, 2);
     assert.match(queries[0], /openai_package_lock/i);
+    assert.match(
+      transactionQueries[0],
+      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
+    );
+    assert.match(transactionQueries[1], /UPDATE exomem_client_artifacts SET state = 'live'/i);
+    await assert.rejects(
+      () =>
+        attachOpenAiContractLocks({
+          ...lockUnsigned,
+          archiveLock: { ...locks.archiveLock, registered_app_id_sha256: sha("d") },
+          operatorSignature: importSignature,
+        }),
+      /registered app ID digest/i
+    );
+    await assert.rejects(
+      () =>
+        attachOpenAiContractLocks({
+          ...lockUnsigned,
+          archiveLock: { ...locks.archiveLock, registered_app_id: "asdk_test_unbound" },
+          operatorSignature: importSignature,
+        }),
+      /archive lock is invalid/i
+    );
+    const missingDigestEvidence = { ...baseEvidence };
+    delete missingDigestEvidence.registered_app_id_sha256;
+    await assert.rejects(
+      () => storeClientArtifact({ ...artifact, evidence: missingDigestEvidence }),
+      /exact real content-bearing client evidence/i
+    );
+    const mismatchedDigestEvidence = {
+      ...baseEvidence,
+      registered_app_id_sha256: sha("d"),
+    };
+    const mismatchedEvidence = {
+      ...mismatchedDigestEvidence,
+      operator_signature: createHmac("sha256", "test-secret")
+        .update(canonical(mismatchedDigestEvidence))
+        .digest("hex"),
+    };
+    await assert.rejects(
+      () =>
+        storeClientArtifact({
+          ...artifact,
+          evidence: mismatchedEvidence,
+          evidenceSha256: createHash("sha256").update(canonical(mismatchedEvidence)).digest("hex"),
+        }),
+      /registered app ID digest/i
+    );
   });
 
   it("writes routable authority with ordered sequential locks on one transaction", async () => {
@@ -307,7 +399,33 @@ describe("Exomem Hosted agent contracts", () => {
   });
 
   it("stores fixture imports as pending", async () => {
-    __setExomemSqlForTests(async () => ({ rows: [{ id: "contract-1" }] }));
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "contract-1" }] };
+    });
+    const transactionQueries: string[] = [];
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        transactionQueries.push(strings.join("?"));
+        return { rows: [{ id: "contract-1" }] };
+      })
+    );
     assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
+    assert.equal(
+      await promoteExomemAgentContractCandidate({
+        candidateId: "00000000-0000-0000-0000-000000000004",
+        expectedRoutableCellDigest: sha("9"),
+      }),
+      true
+    );
+    assert.match(
+      transactionQueries[0],
+      /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
+    );
+    assert.match(
+      transactionQueries[1],
+      /UPDATE exomem_agent_contract_candidates SET state = 'live'/i
+    );
   });
 });

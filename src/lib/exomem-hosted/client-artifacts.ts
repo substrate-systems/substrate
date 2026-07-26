@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
-import { executeExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction } from "./db";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
 type Platform = "claude" | "openai";
@@ -190,17 +190,31 @@ async function platformLocks(platform: Platform): Promise<PlatformLocks> {
   ];
   if (
     packageLock.platform !== "openai" ||
-    archiveLock.platform !== "openai" ||
     typeof packageLock.artifact_sha256 !== "string" ||
-    typeof archiveLock.archive_sha256 !== "string"
+    "registered_app_id" in packageLock
   ) {
     throw new Error("OpenAI package and archive locks are invalid");
   }
   if (identityFields.some((field) => packageLock[field] !== fixtureLock[field])) {
     throw new Error("OpenAI package lock differs from the checked release fixture");
   }
+  const archiveKeys = ["platform", "archive_sha256", "registered_app_id_sha256"];
+  if (
+    archiveLock.platform !== "openai" ||
+    typeof archiveLock.archive_sha256 !== "string" ||
+    Object.keys(archiveLock).length !== archiveKeys.length ||
+    Object.keys(archiveLock).some((key) => !archiveKeys.includes(key))
+  ) {
+    throw new Error("OpenAI archive lock is invalid");
+  }
   sha256(packageLock.artifact_sha256, "OpenAI package digest");
   sha256(archiveLock.archive_sha256, "OpenAI archive digest");
+  if (
+    sha256(packageLock.registered_app_id_sha256, "OpenAI registered app ID digest") !==
+    sha256(archiveLock.registered_app_id_sha256, "OpenAI registered app ID digest")
+  ) {
+    throw new Error("OpenAI package and archive locks have different registered app ID digests");
+  }
   return { packageLock, archiveLock };
 }
 
@@ -215,6 +229,7 @@ async function validatePromotionEvidence(
     "schema_version",
     "platform",
     ...evidenceStrings,
+    ...(platform === "openai" ? ["registered_app_id_sha256"] : []),
     ...evidenceCounts,
     ...evidenceOperations,
   ]);
@@ -228,7 +243,9 @@ async function validatePromotionEvidence(
   if (
     evidence.schema_version !== 1 ||
     evidence.platform !== platform ||
-    !evidenceStrings.every((key) => typeof evidence[key] === "string" && evidence[key])
+    ![...evidenceStrings, ...(platform === "openai" ? ["registered_app_id_sha256"] : [])].every(
+      (key) => typeof evidence[key] === "string" && evidence[key]
+    )
   ) {
     throw new Error("promotion evidence has invalid identity fields");
   }
@@ -255,7 +272,10 @@ async function validatePromotionEvidence(
   }
   if (
     evidence.package_artifact_sha256 !== locks.packageLock.artifact_sha256 ||
-    evidence.archive_sha256 !== locks.archiveLock.archive_sha256
+    evidence.archive_sha256 !== locks.archiveLock.archive_sha256 ||
+    (platform === "openai" &&
+      (evidence.registered_app_id_sha256 !== locks.packageLock.registered_app_id_sha256 ||
+        evidence.registered_app_id_sha256 !== locks.archiveLock.registered_app_id_sha256))
   ) {
     throw new Error("promotion requires the exact registered package and archive locks");
   }
@@ -272,6 +292,7 @@ async function validatePromotionEvidence(
     "result_sha256",
     "package_artifact_sha256",
     "archive_sha256",
+    ...(platform === "openai" ? ["registered_app_id_sha256"] : []),
     "compatibility_sha256",
     "schema_contract_sha256",
     "command_surface_sha256",
@@ -306,10 +327,12 @@ export async function promoteClientArtifact(input: {
   const evidence = await validatePromotionEvidence(input.evidence, input.platform);
   const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
   const installUrl = trustedInstallTarget(input.platform).href;
-  const { rows } = await executeExomemSql`
-    /* exomem:promote-client-artifact */
-    WITH candidate AS (
-      SELECT * FROM exomem_client_artifacts WHERE id = ${input.artifactId}::uuid AND platform = ${input.platform} AND state = 'pending' FOR UPDATE
+  return withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await transaction`
+      /* exomem:promote-client-artifact */
+      WITH candidate AS (
+        SELECT * FROM exomem_client_artifacts WHERE id = ${input.artifactId}::uuid AND platform = ${input.platform} AND state = 'pending' FOR UPDATE
     ), evidence_match AS (
       SELECT 1 FROM candidate WHERE evidence_sha256 = ${evidenceSha256}
         AND result_sha256 = ${sha256(evidence.result_sha256, "result digest")}
@@ -332,21 +355,25 @@ export async function promoteClientArtifact(input: {
       UPDATE exomem_client_artifacts SET state = 'live', promoted_at = now()
       FROM retirement_complete
       WHERE id = ${input.artifactId}::uuid AND EXISTS (SELECT 1 FROM evidence_match) RETURNING id
-    ) SELECT id FROM promoted
-  `;
-  return rows.length === 1;
+      ) SELECT id FROM promoted
+    `;
+    return rows.length === 1;
+  });
 }
 
 export async function demoteClientArtifact(
   artifactId: string,
   reasonSha256: string
 ): Promise<boolean> {
-  const { rows } = await executeExomemSql`
-    /* exomem:demote-client-artifact */
-    UPDATE exomem_client_artifacts SET state = 'failed', failed_at = now()
-    WHERE id = ${artifactId}::uuid AND state = 'live' AND ${sha256(reasonSha256, "demotion reason")} IS NOT NULL RETURNING id
-  `;
-  return rows.length === 1;
+  return withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await transaction`
+      /* exomem:demote-client-artifact */
+      UPDATE exomem_client_artifacts SET state = 'failed', failed_at = now()
+      WHERE id = ${artifactId}::uuid AND state = 'live' AND ${sha256(reasonSha256, "demotion reason")} IS NOT NULL RETURNING id
+    `;
+    return rows.length === 1;
+  });
 }
 
 /** Persist only a server-validated pending artifact; no parsed-record bypass is exported. */

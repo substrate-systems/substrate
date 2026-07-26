@@ -1,9 +1,18 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { executeExomemSql, executeExomemTransaction } from "./db";
+import { executeExomemSql, executeExomemTransaction, withExomemTransaction } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
+const TRUSTED_SOURCE_COMMIT = "08f1cee281bd0dbcaf82094421c11d6be04dc5c2";
+const TRUSTED_RELEASE = {
+  source_release: "0.33.0",
+  command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+  schema_contract_sha256: "57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3",
+  compatibility_sha256: "aba2095396992240ce9c92ff0f66183362b3db97101442005549a8f8b026eb34",
+  artifact_sha256: "b468f0425e7a021f3d7806991abdf6ae5724298fdd3cb6540cb68e1a4edb4c89",
+  archive_sha256: "cdba2b1b1ca7f165915ff73a27f991228df13b0d6c67c2607f5c34fb4d563057",
+} as const;
 
 type JsonRecord = Record<string, unknown>;
 type ContractState = "pending" | "live" | "failed" | "retired";
@@ -97,25 +106,49 @@ function checkedOpenAiLocks(
   ];
   if (
     packageRecord.platform !== "openai" ||
-    archiveRecord.platform !== "openai" ||
-    expected.some((key) => packageRecord[key] !== claudeLock[key])
+    expected.some((key) => packageRecord[key] !== claudeLock[key]) ||
+    "registered_app_id" in packageRecord
   ) {
     throw new Error("OpenAI locks differ from the checked Exomem release");
   }
+  const archiveKeys = ["platform", "archive_sha256", "registered_app_id_sha256"];
+  if (
+    archiveRecord.platform !== "openai" ||
+    Object.keys(archiveRecord).length !== archiveKeys.length ||
+    Object.keys(archiveRecord).some((key) => !archiveKeys.includes(key))
+  ) {
+    throw new Error("OpenAI archive lock is invalid");
+  }
   sha256(packageRecord.artifact_sha256, "OpenAI package artifact digest");
   sha256(archiveRecord.archive_sha256, "OpenAI archive digest");
+  if (
+    sha256(packageRecord.registered_app_id_sha256, "OpenAI registered app ID digest") !==
+    sha256(archiveRecord.registered_app_id_sha256, "OpenAI registered app ID digest")
+  ) {
+    throw new Error("OpenAI locks have different registered app ID digests");
+  }
   return { packageLock: packageRecord, archiveLock: archiveRecord };
 }
 
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
 function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
   const source = record(exomemHostedContractFixture, "fixture");
-  if (source.sourceCommit !== "23d4a5db2eabd318b0a1f2bf5e9b352bc9852660") {
+  if (source.sourceCommit !== TRUSTED_SOURCE_COMMIT) {
     throw new Error("agent contract fixture has an untrusted source commit");
   }
   const compatibility = record(source.compatibility, "compatibility");
   const packageLock = record(source.packageLock, "Claude package lock");
   const archiveLock = record(source.archiveLock, "Claude archive lock");
+  if (
+    compatibility.source_release !== TRUSTED_RELEASE.source_release ||
+    compatibility.command_surface_sha256 !== TRUSTED_RELEASE.command_surface_sha256 ||
+    compatibility.schema_contract_sha256 !== TRUSTED_RELEASE.schema_contract_sha256 ||
+    compatibility.compatibility_sha256 !== TRUSTED_RELEASE.compatibility_sha256 ||
+    packageLock.artifact_sha256 !== TRUSTED_RELEASE.artifact_sha256 ||
+    archiveLock.archive_sha256 !== TRUSTED_RELEASE.archive_sha256
+  ) {
+    throw new Error("agent contract fixture differs from the trusted Exomem release");
+  }
   if (compatibility.schema_version !== 1) throw new Error("unsupported compatibility schema");
   if (
     compatibility.profile !== EXOMEM_HOSTED_PROFILE ||
@@ -387,9 +420,11 @@ export async function promoteExomemAgentContractCandidate(input: {
   expectedRoutableCellDigest: string;
 }): Promise<boolean> {
   const expected = sha256(input.expectedRoutableCellDigest, "routable cell digest");
-  const { rows } = await executeExomemSql`
-    /* exomem:promote-agent-contract-candidate */
-    WITH authority AS (
+  return withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await transaction`
+      /* exomem:promote-agent-contract-candidate */
+      WITH authority AS (
       SELECT authority.*
       FROM exomem_agent_contract_profile_authority AS authority
       WHERE authority.profile_id = ${EXOMEM_HOSTED_PROFILE}
@@ -444,6 +479,8 @@ export async function promoteExomemAgentContractCandidate(input: {
           -- The checked release currently has no registered OpenAI package/archive lock.
           -- Until one is imported into the candidate, promotion must fail closed.
           AND candidate.openai_package_lock->>'platform' = 'openai'
+          AND candidate.openai_package_lock->>'registered_app_id_sha256' IS NOT NULL
+          AND candidate.openai_package_lock->>'registered_app_id_sha256' = candidate.openai_archive_lock->>'registered_app_id_sha256'
           AND openai.package_sha256 = candidate.openai_package_lock->>'artifact_sha256'
           AND openai.archive_sha256 = candidate.openai_archive_lock->>'archive_sha256'
           AND openai.plugin_version = candidate.openai_package_lock->>'plugin_version'
@@ -469,7 +506,8 @@ export async function promoteExomemAgentContractCandidate(input: {
       WHERE id = ${input.candidateId}::uuid AND EXISTS (SELECT 1 FROM exact_cells)
         AND EXISTS (SELECT 1 FROM evidence)
       RETURNING id
-    ) SELECT id FROM promoted
-  `;
-  return rows.length === 1;
+      ) SELECT id FROM promoted
+    `;
+    return rows.length === 1;
+  });
 }

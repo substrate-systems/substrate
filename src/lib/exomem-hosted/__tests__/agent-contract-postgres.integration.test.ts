@@ -45,11 +45,12 @@ const testOnlyOpenAiLocks = {
     ...exomemHostedContractFixture.packageLock,
     platform: "openai",
     artifact_sha256: sha("a"),
+    registered_app_id_sha256: sha("c"),
   },
   archiveLock: {
-    ...exomemHostedContractFixture.archiveLock,
     platform: "openai",
     archive_sha256: sha("b"),
+    registered_app_id_sha256: sha("c"),
   },
 } as const;
 
@@ -91,6 +92,9 @@ function evidence(
     result_sha256: createHash("sha256").update(suffix).digest("hex"),
     package_artifact_sha256: locks.packageLock.artifact_sha256,
     archive_sha256: locks.archiveLock.archive_sha256,
+    ...(platform === "openai"
+      ? { registered_app_id_sha256: testOnlyOpenAiLocks.packageLock.registered_app_id_sha256 }
+      : {}),
     compatibility_sha256: fixture.compatibility.compatibility_sha256,
     schema_contract_sha256: fixture.compatibility.schema_contract_sha256,
     command_surface_sha256: fixture.compatibility.command_surface_sha256,
