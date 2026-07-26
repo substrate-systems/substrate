@@ -25,6 +25,8 @@ export type ApprovedOAuthClient = {
   admissionMode: "pinned" | "cimd";
 };
 
+const MAX_PENDING_OAUTH_AUTHORIZATIONS = 2_000;
+
 export async function resolveApprovedOAuthClient(
   clientId: string
 ): Promise<ApprovedOAuthClient | null> {
@@ -55,6 +57,8 @@ export async function createAuthorizationTransaction(input: {
   transactionDigest: Buffer;
   stateDigest: Buffer;
   stateEnvelope: SecretEnvelope;
+  formNonceDigest: Buffer;
+  continuationBinding: Buffer;
   clientId: string;
   redirectUri: string;
   resource: string;
@@ -64,17 +68,32 @@ export async function createAuthorizationTransaction(input: {
 }): Promise<{ id: string } | null> {
   const { rows } = await executeExomemSql`
     /* exomem:create-oauth-authorization-transaction */
+    WITH pruned AS (
+      DELETE FROM exomem_oauth_authorization_transactions
+      WHERE id IN (
+        SELECT id FROM exomem_oauth_authorization_transactions
+        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
+        ORDER BY expires_at
+        LIMIT 50
+      )
+      RETURNING id
+    )
     INSERT INTO exomem_oauth_authorization_transactions (
       transaction_digest, client_id, redirect_uri, resource, requested_scopes,
-      state_digest, state_envelope, pkce_challenge, expires_at
+       state_digest, state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
     )
     SELECT ${input.transactionDigest}, client.id, ${input.redirectUri}, ${input.resource},
-           ${input.scopes}, ${input.stateDigest}, ${JSON.stringify(input.stateEnvelope)}::jsonb,
+            ${input.scopes}, ${input.stateDigest}, ${JSON.stringify(input.stateEnvelope)}::jsonb,
+            ${input.formNonceDigest}, ${input.continuationBinding},
            ${input.pkceChallenge},
            ${input.expiresAt.toISOString()}
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${input.clientId}
       AND client.enabled = true
+      AND (
+        SELECT count(*) FROM exomem_oauth_authorization_transactions
+        WHERE consumed_at IS NULL AND expires_at > now()
+      ) < ${MAX_PENDING_OAUTH_AUTHORIZATIONS}
     RETURNING id
   `;
   const row = rows[0] as { id: string } | undefined;
@@ -87,6 +106,9 @@ export type PendingOAuthAuthorization = {
   resource: string;
   scopes: string[];
   stateEnvelope: SecretEnvelope;
+  stateDigest: Buffer;
+  formNonceDigest: Buffer;
+  continuationBinding: Buffer;
 };
 
 export async function findPendingOAuthAuthorization(
@@ -95,7 +117,8 @@ export async function findPendingOAuthAuthorization(
   const { rows } = await executeExomemSql`
     /* exomem:find-pending-oauth-authorization */
     SELECT client.client_id, transaction.redirect_uri, transaction.resource,
-           transaction.requested_scopes, transaction.state_envelope
+           transaction.requested_scopes, transaction.state_envelope, transaction.state_digest,
+           transaction.form_nonce_digest, transaction.continuation_binding
     FROM exomem_oauth_authorization_transactions AS transaction
     JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
     WHERE transaction.transaction_digest = ${transactionDigest}
@@ -111,6 +134,9 @@ export async function findPendingOAuthAuthorization(
         resource: string;
         requested_scopes: string[];
         state_envelope: SecretEnvelope;
+        state_digest: Uint8Array;
+        form_nonce_digest: Uint8Array;
+        continuation_binding: Uint8Array;
       }
     | undefined;
   return row
@@ -120,6 +146,9 @@ export async function findPendingOAuthAuthorization(
         resource: row.resource,
         scopes: row.requested_scopes,
         stateEnvelope: row.state_envelope,
+        stateDigest: Buffer.from(row.state_digest),
+        formNonceDigest: Buffer.from(row.form_nonce_digest),
+        continuationBinding: Buffer.from(row.continuation_binding),
       }
     : null;
 }
@@ -583,6 +612,14 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         ON client.id = code.client_id
        AND client.client_id = ${input.clientId}
        AND client.enabled = true
+      JOIN exomem_tenants AS tenant
+        ON tenant.id = grant.tenant_id
+       AND tenant.owner_user_id = grant.user_id
+       AND tenant.status IN ('provisioning', 'active')
+       AND tenant.desired_state = 'running'
+      JOIN exomem_entitlements AS entitlement
+        ON entitlement.tenant_id = tenant.id
+       AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE code.code_digest = ${input.codeDigest}
         AND code.grant_id = grant.id
         AND code.client_id = client.id
@@ -674,13 +711,21 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       FROM exomem_oauth_refresh_tokens AS token
       JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
       JOIN exomem_oauth_clients AS client ON client.id = family.client_id
+      JOIN exomem_oauth_grants AS grant
+        ON grant.id = family.grant_id
+       AND grant.revoked_at IS NULL
+       AND grant.resource = ${input.resource}
+      JOIN exomem_tenants AS tenant
+        ON tenant.id = grant.tenant_id
+       AND tenant.owner_user_id = grant.user_id
+       AND tenant.status IN ('provisioning', 'active')
+       AND tenant.desired_state = 'running'
+      JOIN exomem_entitlements AS entitlement
+        ON entitlement.tenant_id = tenant.id
+       AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE token.refresh_digest = ${input.refreshDigest}
         AND client.client_id = ${input.clientId}
         AND client.enabled = true
-        AND EXISTS (
-          SELECT 1 FROM exomem_oauth_grants AS grant
-          WHERE grant.id = family.grant_id AND grant.resource = ${input.resource}
-        )
       FOR UPDATE OF token, family
     ),
     consumed AS (

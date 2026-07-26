@@ -37,6 +37,28 @@ export type AuthorizationRequest = {
   codeChallengeMethod: string;
 };
 
+const AUTHORIZE_PARAMETER_NAMES = new Set([
+  "response_type",
+  "client_id",
+  "redirect_uri",
+  "resource",
+  "scope",
+  "state",
+  "code_challenge",
+  "code_challenge_method",
+]);
+
+export function parseAuthorizeParameters(params: URLSearchParams): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [name] of params) {
+    if (!AUTHORIZE_PARAMETER_NAMES.has(name) || params.getAll(name).length !== 1) {
+      return invalidRequest();
+    }
+    result[name] = params.get(name) ?? "";
+  }
+  return result;
+}
+
 export type ValidAuthorizationRequest = {
   clientId: string;
   redirectUri: string;

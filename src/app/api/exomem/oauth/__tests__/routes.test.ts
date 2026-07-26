@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { readOAuthForm } from "@/lib/exomem-hosted/oauth-http";
 
 describe("Exomem OAuth routes", () => {
   it("rejects oversized and non-form token requests without reflecting credentials", async () => {
@@ -29,5 +30,20 @@ describe("Exomem OAuth routes", () => {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.equal(await response.text(), "");
+  });
+
+  it("rejects unexpected and duplicate token form fields before token handling", async () => {
+    await assert.rejects(
+      () =>
+        readOAuthForm(
+          new Request("https://hosted.example.test/api/exomem/oauth/token", {
+            method: "POST",
+            headers: { "content-type": "application/x-www-form-urlencoded" },
+            body: "grant_type=refresh_token&client_id=client&refresh_token=one&scope=exomem.read",
+          }),
+          ["grant_type", "client_id", "refresh_token", "resource"]
+        ),
+      /EXOMEM_INVALID_REQUEST/
+    );
   });
 });

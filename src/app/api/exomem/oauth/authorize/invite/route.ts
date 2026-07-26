@@ -6,8 +6,11 @@ import {
   clearOAuthContinuationCookie,
   mintContinuationCode,
   oauthContinuationDigest,
+  oauthContinuationToken,
   resolveOAuthContinuation,
+  validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
+import { oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import {
   applySessionCookies,
@@ -18,11 +21,25 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function invalidRequest(): NextResponse {
+  return NextResponse.json(
+    { error: "invalid_request" },
+    { status: 400, headers: oauthNoStoreHeaders() }
+  );
+}
+
+function accessDenied(): NextResponse {
+  return NextResponse.json(
+    { error: "access_denied" },
+    { status: 403, headers: oauthNoStoreHeaders() }
+  );
+}
+
 export async function POST(request: Request): Promise<NextResponse> {
   const continuation = await resolveOAuthContinuation(request);
   const transactionDigest = oauthContinuationDigest(request);
-  if (!continuation || !transactionDigest)
-    return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+  const transaction = oauthContinuationToken(request);
+  if (!continuation || !transactionDigest || !transaction) return invalidRequest();
   try {
     validatePublicAccessRequest(request);
     const body = await readBoundedJsonRequest(request, 4096);
@@ -30,13 +47,23 @@ export async function POST(request: Request): Promise<NextResponse> {
       !body ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      Object.keys(body).length !== 1 ||
-      typeof (body as { token?: unknown }).token !== "string"
+      Object.keys(body).length !== 2 ||
+      typeof (body as { token?: unknown }).token !== "string" ||
+      typeof (body as { nonce?: unknown }).nonce !== "string"
     ) {
-      return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+      return invalidRequest();
+    }
+    if (
+      !validateOAuthContinuationNonce({
+        continuation,
+        transaction,
+        formNonce: (body as { nonce: string }).nonce,
+      })
+    ) {
+      return invalidRequest();
     }
     const inviteDigest = tokenDigest((body as { token: string }).token);
-    if (!inviteDigest) return NextResponse.json({ error: "access_denied" }, { status: 403 });
+    if (!inviteDigest) return accessDenied();
     const session = mintSessionMaterial();
     const code = mintContinuationCode(continuation);
     const admitted = await admitFirstOAuthInviteAtomic({
@@ -48,16 +75,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       codeDigest: code.codeDigest,
       codeExpiresAt: code.codeExpiresAt,
     });
-    if (!admitted) return NextResponse.json({ error: "access_denied" }, { status: 403 });
-    const response = NextResponse.redirect(authorizationRedirect(continuation, code.code));
-    response.headers.set("cache-control", "no-store");
+    if (!admitted) return accessDenied();
+    const response = NextResponse.redirect(authorizationRedirect(continuation, code.code), 303);
+    for (const [name, value] of Object.entries(oauthNoStoreHeaders()))
+      response.headers.set(name, value);
     applySessionCookies(response, session);
     clearOAuthContinuationCookie(response);
     return response;
   } catch {
-    return NextResponse.json(
-      { error: "access_denied" },
-      { status: 403, headers: { "cache-control": "no-store" } }
-    );
+    return accessDenied();
   }
 }

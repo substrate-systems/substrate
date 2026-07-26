@@ -2,7 +2,10 @@ import { exomemErrors } from "./errors";
 
 const MAX_OAUTH_FORM_BYTES = 16 * 1024;
 
-export async function readOAuthForm(request: Request): Promise<Record<string, string>> {
+export async function readOAuthForm(
+  request: Request,
+  allowedFields?: readonly string[]
+): Promise<Record<string, string>> {
   if (
     request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() !==
     "application/x-www-form-urlencoded"
@@ -43,12 +46,23 @@ export async function readOAuthForm(request: Request): Promise<Record<string, st
   }
   const form: Record<string, string> = {};
   for (const [key, value] of params) {
-    if (key in form || key.length > 128 || value.length > 4096) throw exomemErrors.invalidRequest();
+    if (
+      key in form ||
+      key.length > 128 ||
+      value.length > 4096 ||
+      (allowedFields && !allowedFields.includes(key))
+    ) {
+      throw exomemErrors.invalidRequest();
+    }
     form[key] = value;
   }
   return form;
 }
 
 export function oauthNoStoreHeaders(): HeadersInit {
-  return { "cache-control": "no-store", pragma: "no-cache" };
+  return {
+    "cache-control": "no-store",
+    pragma: "no-cache",
+    "referrer-policy": "no-referrer",
+  };
 }

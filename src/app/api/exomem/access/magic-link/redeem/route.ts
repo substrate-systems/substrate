@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { redeemMagicLink } from "@/lib/exomem-hosted/access";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
+import { resolveOAuthContinuation } from "@/lib/exomem-hosted/oauth-continuity";
 import {
   applySessionCookies,
   clearMagicLinkChallengeCookie,
@@ -37,7 +38,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       {
         success: true,
         status: "accepted",
-        destination: "/exomem/home",
+        destination: (await resolveOAuthContinuation(request))
+          ? "/exomem/authorize"
+          : "/exomem/home",
         requestId,
       },
       { status: 200 }

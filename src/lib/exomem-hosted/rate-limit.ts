@@ -24,6 +24,16 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 20,
     windowSeconds: 60 * 60,
   },
+  oauthAuthorizeIp: {
+    scope: "exomem:oauth-authorize:ip",
+    limit: 60,
+    windowSeconds: 10 * 60,
+  },
+  oauthAuthorizeClient: {
+    scope: "exomem:oauth-authorize:client",
+    limit: 120,
+    windowSeconds: 10 * 60,
+  },
   deletionConfirmation: {
     scope: "exomem:deletion-confirmation",
     limit: 3,

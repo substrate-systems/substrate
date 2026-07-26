@@ -17,6 +17,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const TOKEN_FIELDS = [
+  "grant_type",
+  "code",
+  "client_id",
+  "redirect_uri",
+  "code_verifier",
+  "resource",
+  "refresh_token",
+] as const;
+
+function hasExactFields(form: Record<string, string>, fields: readonly string[]): boolean {
+  const keys = Object.keys(form);
+  return keys.length === fields.length && keys.every((key) => fields.includes(key));
+}
 
 function invalidGrant(): NextResponse {
   return NextResponse.json(
@@ -51,10 +65,18 @@ function tokenResponse(input: {
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const form = await readOAuthForm(request);
+    const form = await readOAuthForm(request, TOKEN_FIELDS);
     const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
     if (form.grant_type === "authorization_code") {
       if (
+        !hasExactFields(form, [
+          "grant_type",
+          "code",
+          "client_id",
+          "redirect_uri",
+          "code_verifier",
+          "resource",
+        ]) ||
         !form.code ||
         !form.client_id ||
         !form.redirect_uri ||
@@ -84,7 +106,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
     }
     if (form.grant_type === "refresh_token") {
-      if (!form.refresh_token || !form.client_id || form.resource !== resource)
+      if (
+        !hasExactFields(form, ["grant_type", "refresh_token", "client_id", "resource"]) ||
+        !form.refresh_token ||
+        !form.client_id ||
+        form.resource !== resource
+      )
         return invalidRequest();
       const refreshDigest = tokenDigest(form.refresh_token);
       if (!refreshDigest) return invalidGrant();

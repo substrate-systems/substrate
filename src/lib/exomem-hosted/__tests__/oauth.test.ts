@@ -6,6 +6,7 @@ import {
   buildProtectedResourceMetadata,
   exchangeAuthorizationCode,
   mintAuthorizationCode,
+  parseAuthorizeParameters,
   parseBearerAuthorization,
   pkceS256,
   rotateRefreshToken,
@@ -82,6 +83,29 @@ describe("Exomem Hosted OAuth protocol", () => {
         }),
       /OAUTH_INVALID_REQUEST/
     );
+  });
+
+  it("rejects duplicate OAuth security parameters and preserves offline continuity", () => {
+    assert.throws(
+      () =>
+        parseAuthorizeParameters(
+          new URLSearchParams(
+            "response_type=code&client_id=client-a&client_id=client-b&resource=https%3A%2F%2Fhosted.example.test%2Fapi%2Fexomem%2Fmcp%2Fv1"
+          )
+        ),
+      /OAUTH_INVALID_REQUEST/
+    );
+    const request = validateAuthorizationRequest({
+      client,
+      resource,
+      requestedResource: resource,
+      redirectUri: client.redirectUris[0],
+      scope: "exomem.read offline_access",
+      state: "opaque-client-state",
+      codeChallenge: pkceS256("d".repeat(43)),
+      codeChallengeMethod: "S256",
+    });
+    assert.equal(request.offlineAccess, true);
   });
 
   it("accepts CIMD only for an operator-allowlisted HTTPS host with exact identity", () => {

@@ -2,8 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { redeemInvite } from "@/lib/exomem-hosted/access";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
-import { oauthContinuationDigest } from "@/lib/exomem-hosted/oauth-continuity";
-import { applySessionCookies, validatePublicAccessRequest } from "@/lib/exomem-hosted/sessions";
+import {
+  authorizationRedirect,
+  clearOAuthContinuationCookie,
+  mintContinuationCode,
+  oauthContinuationDigest,
+  oauthContinuationToken,
+  oauthFormNonceFromRequest,
+  resolveOAuthContinuation,
+  validateOAuthContinuationNonce,
+} from "@/lib/exomem-hosted/oauth-continuity";
+import { admitFirstOAuthInviteAtomic } from "@/lib/exomem-hosted/oauth-store";
+import { tokenDigest } from "@/lib/exomem-hosted/security";
+import {
+  applySessionCookies,
+  mintSessionMaterial,
+  validatePublicAccessRequest,
+} from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,9 +27,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     validatePublicAccessRequest(request);
-    // OAuth admission has its own all-or-nothing transaction. Never let the
-    // pre-MCP redemption path consume an invite while a continuation is live.
-    if (oauthContinuationDigest(request)) throw exomemErrors.invalidRequest();
     let body: Record<string, unknown>;
     try {
       body = (await request.json()) as Record<string, unknown>;
@@ -27,6 +39,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       Object.keys(body).length !== 1
     ) {
       throw exomemErrors.invalidRequest();
+    }
+    const transactionDigest = oauthContinuationDigest(request);
+    if (transactionDigest) {
+      const continuation = await resolveOAuthContinuation(request);
+      const transaction = oauthContinuationToken(request);
+      const formNonce = oauthFormNonceFromRequest(request);
+      if (
+        !continuation ||
+        !transaction ||
+        !formNonce ||
+        !validateOAuthContinuationNonce({ continuation, transaction, formNonce })
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
+      const inviteDigest = tokenDigest(body.token);
+      if (!inviteDigest) throw exomemErrors.accessTokenInvalid();
+      const session = mintSessionMaterial();
+      const code = mintContinuationCode(continuation);
+      const admitted = await admitFirstOAuthInviteAtomic({
+        inviteDigest,
+        transactionDigest,
+        sessionDigest: session.sessionDigest,
+        csrfDigest: session.csrfDigest,
+        sessionExpiresAt: session.expiresAt,
+        codeDigest: code.codeDigest,
+        codeExpiresAt: code.codeExpiresAt,
+      });
+      if (!admitted) throw exomemErrors.accessTokenInvalid();
+      const response = NextResponse.json(
+        {
+          success: true,
+          status: "accepted",
+          destination: authorizationRedirect(continuation, code.code),
+          requestId,
+        },
+        { status: 200, headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" } }
+      );
+      applySessionCookies(response, session);
+      clearOAuthContinuationCookie(response);
+      return response;
     }
     const redeemed = await redeemInvite(body.token);
     const response = NextResponse.json(

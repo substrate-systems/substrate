@@ -52,6 +52,8 @@ describe("Exomem OAuth token store", () => {
     assert.match(query, /INSERT INTO exomem_oauth_token_families/i);
     assert.match(query, /INSERT INTO exomem_oauth_refresh_tokens/i);
     assert.match(query, /INSERT INTO exomem_oauth_access_tokens/i);
+    assert.match(query, /JOIN exomem_tenants AS tenant/i);
+    assert.match(query, /JOIN exomem_entitlements AS entitlement/i);
   });
 
   it("rotates atomically and revokes the family when the digest was already consumed", async () => {
@@ -72,6 +74,8 @@ describe("Exomem OAuth token store", () => {
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
     assert.match(query, /refresh_replayed/i);
     assert.match(query, /UPDATE exomem_oauth_token_families/i);
+    assert.match(query, /JOIN exomem_tenants AS tenant/i);
+    assert.match(query, /JOIN exomem_entitlements AS entitlement/i);
   });
 
   it("retains refresh lineage and replay evidence until its family expires", async () => {
