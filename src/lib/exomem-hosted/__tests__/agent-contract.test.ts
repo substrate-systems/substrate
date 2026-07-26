@@ -487,7 +487,15 @@ describe("Exomem Hosted agent contracts", () => {
     );
     assert.match(
       transactionQueries[1],
-      /version !~ '\^20\[0-9\]\{2\}-\[0-9\]\{2\}-\[0-9\]\{2\}\$'/i
+      /exomem_mcp_protocol_versions_are_valid\(candidate\.mcp_protocol_versions\)/i
+    );
+    assert.match(
+      transactionQueries[1],
+      /retired AS \([\s\S]*state = 'live'[\s\S]*EXISTS \(SELECT 1 FROM exact_cells\)[\s\S]*EXISTS \(SELECT 1 FROM evidence\)/i
+    );
+    assert.match(
+      transactionQueries[1],
+      /promoted AS \([\s\S]*SET state = 'live'[\s\S]*EXISTS \(SELECT 1 FROM exact_cells\)[\s\S]*EXISTS \(SELECT 1 FROM evidence\)/i
     );
     assert.equal(
       await demoteExomemAgentContractCandidate("00000000-0000-0000-0000-000000000004"),

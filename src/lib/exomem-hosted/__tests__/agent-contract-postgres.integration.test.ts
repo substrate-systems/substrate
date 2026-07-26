@@ -6,6 +6,7 @@ import { __setExomemSqlForTests, type ExomemSql } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import {
   attachOpenAiContractLocks,
+  getLiveExomemAgentContract,
   promoteExomemAgentContractCandidate,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
@@ -297,6 +298,33 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
       }),
       true
+    );
+    assert.deepEqual((await getLiveExomemAgentContract())?.mcpProtocolVersions, [
+      "2025-11-25",
+      "2025-06-18",
+    ]);
+
+    const invalidCandidateId = await storeExomemAgentContractCandidate();
+    for (const versions of [[null], [42], ["2025-11-25", "2025-11-25"], ["not-a-date"]]) {
+      await assert.rejects(
+        pool!.query(
+          "UPDATE exomem_agent_contract_candidates SET mcp_protocol_versions = $1::jsonb WHERE id = $2",
+          [JSON.stringify(versions), invalidCandidateId]
+        ),
+        /exomem_agent_contract_candidates_mcp_protocol_versions_check/i
+      );
+    }
+    assert.deepEqual(
+      (
+        await pool!.query<{ id: string; state: string }>(
+          "SELECT id, state FROM exomem_agent_contract_candidates WHERE id = ANY($1::uuid[]) ORDER BY id",
+          [[candidateId, invalidCandidateId]]
+        )
+      ).rows,
+      [
+        { id: candidateId, state: "live" },
+        { id: invalidCandidateId, state: "pending" },
+      ].sort((left, right) => left.id.localeCompare(right.id))
     );
   });
 
