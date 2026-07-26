@@ -21,9 +21,11 @@ type ClientArtifact = {
   resultSha256: string;
   observedAt: string;
 };
+type PlatformLocks = { packageLock: Record<string, unknown>; archiveLock: Record<string, unknown> };
 
 const sha256 = (value: unknown, label: string): string => {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) throw new Error(`${label} must be SHA-256`);
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))
+    throw new Error(`${label} must be SHA-256`);
   return value;
 };
 
@@ -31,7 +33,10 @@ function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(",")}}`;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`)
+      .join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -40,7 +45,13 @@ function trustedInstallTarget(platform: Platform): URL {
   const configured = process.env[`EXOMEM_HOSTED_${platform.toUpperCase()}_INSTALL_URL`];
   if (!configured) throw new Error("server-owned install target is not configured");
   const target = new URL(configured);
-  if (target.protocol !== "https:" || target.username || target.password || target.search || target.hash) {
+  if (
+    target.protocol !== "https:" ||
+    target.username ||
+    target.password ||
+    target.search ||
+    target.hash
+  ) {
     throw new Error("server-owned install target is invalid");
   }
   return target;
@@ -48,86 +59,251 @@ function trustedInstallTarget(platform: Platform): URL {
 
 /** Candidate URLs are checked against operator configuration, never a caller-supplied target. */
 function parseClientArtifact(input: unknown): ClientArtifact {
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("client artifact must be an object");
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw new Error("client artifact must be an object");
   const raw = input as Record<string, unknown>;
-  if (raw.platform !== "claude" && raw.platform !== "openai") throw new Error("unsupported artifact platform");
+  if (raw.platform !== "claude" && raw.platform !== "openai")
+    throw new Error("unsupported artifact platform");
   if (raw.state !== "pending") throw new Error("candidate artifacts must import as pending");
   const installUrl = new URL(String(raw.installUrl));
   const target = trustedInstallTarget(raw.platform);
-  if (installUrl.href !== target.href || /(?:token|tenant|cell|secret|localhost)/i.test(installUrl.toString())) {
+  if (
+    installUrl.href !== target.href ||
+    /(?:token|tenant|cell|secret|localhost)/i.test(installUrl.toString())
+  ) {
     throw new Error("install URL must be the configured tenant-neutral HTTPS target");
   }
   const observedAt = new Date(String(raw.observedAt));
-  if (Number.isNaN(observedAt.valueOf()) || observedAt.valueOf() > Date.now() + 5 * 60_000 || observedAt.valueOf() < Date.now() - 24 * 60 * 60_000) throw new Error("observedAt is outside the evidence window");
-  if (typeof raw.pluginVersion !== "string" || !raw.pluginVersion) throw new Error("pluginVersion must be non-empty");
-  if ("clientIdentity" in raw) throw new Error("client identity must be supplied only as a privacy-safe hash");
+  if (
+    Number.isNaN(observedAt.valueOf()) ||
+    observedAt.valueOf() > Date.now() + 5 * 60_000 ||
+    observedAt.valueOf() < Date.now() - 24 * 60 * 60_000
+  )
+    throw new Error("observedAt is outside the evidence window");
+  if (typeof raw.pluginVersion !== "string" || !raw.pluginVersion)
+    throw new Error("pluginVersion must be non-empty");
+  if ("clientIdentity" in raw)
+    throw new Error("client identity must be supplied only as a privacy-safe hash");
   return {
-    platform: raw.platform, state: "pending",
-    packageSha256: sha256(raw.packageSha256, "package digest"), archiveSha256: sha256(raw.archiveSha256, "archive digest"),
-    compatibilitySha256: sha256(raw.compatibilitySha256, "compatibility digest"), contractSha256: sha256(raw.contractSha256, "contract digest"),
-    pluginVersion: raw.pluginVersion, clientIdentitySha256: sha256(raw.clientIdentitySha256, "client identity digest"),
+    platform: raw.platform,
+    state: "pending",
+    packageSha256: sha256(raw.packageSha256, "package digest"),
+    archiveSha256: sha256(raw.archiveSha256, "archive digest"),
+    compatibilitySha256: sha256(raw.compatibilitySha256, "compatibility digest"),
+    contractSha256: sha256(raw.contractSha256, "contract digest"),
+    pluginVersion: raw.pluginVersion,
+    clientIdentitySha256: sha256(raw.clientIdentitySha256, "client identity digest"),
     pairedRunHmacSha256: sha256(raw.pairedRunHmacSha256, "paired run digest"),
     exomemIdentityHmacSha256: sha256(raw.exomemIdentityHmacSha256, "Exomem identity digest"),
     tenantHmacSha256: sha256(raw.tenantHmacSha256, "tenant digest"),
-    installUrl: target.href, evidenceSha256: sha256(raw.evidenceSha256, "evidence digest"),
-    resultSha256: sha256(raw.resultSha256, "result digest"), observedAt: observedAt.toISOString(),
+    installUrl: target.href,
+    evidenceSha256: sha256(raw.evidenceSha256, "evidence digest"),
+    resultSha256: sha256(raw.resultSha256, "result digest"),
+    observedAt: observedAt.toISOString(),
   };
 }
 
 const evidenceStrings = [
-  "client_version", "clean_client_identity_hmac_sha256", "timestamp", "paired_run_hmac_sha256", "test_identity",
-  "exomem_identity_hmac_sha256", "tenant_hmac_sha256", "entitlement_hmac_sha256", "provisioning_operation_hmac_sha256",
-  "cell_hmac_sha256", "result_sha256", "package_artifact_sha256", "archive_sha256", "compatibility_sha256",
-  "schema_contract_sha256", "command_surface_sha256", "endpoint", "plugin_version", "profile", "operator_key_id", "operator_signature",
+  "client_version",
+  "clean_client_identity_hmac_sha256",
+  "timestamp",
+  "paired_run_hmac_sha256",
+  "test_identity",
+  "exomem_identity_hmac_sha256",
+  "tenant_hmac_sha256",
+  "entitlement_hmac_sha256",
+  "provisioning_operation_hmac_sha256",
+  "cell_hmac_sha256",
+  "result_sha256",
+  "package_artifact_sha256",
+  "archive_sha256",
+  "compatibility_sha256",
+  "schema_contract_sha256",
+  "command_surface_sha256",
+  "endpoint",
+  "plugin_version",
+  "profile",
+  "operator_key_id",
+  "operator_signature",
 ] as const;
-const evidenceCounts = ["identity_count", "tenant_count", "entitlement_count", "operation_count", "cell_count", "volume_count"] as const;
-const evidenceOperations = ["native_install", "authorization", "tool_discovery", "content_recall", "citation", "durable_capture", "fresh_chat_recall"] as const;
+const evidenceCounts = [
+  "identity_count",
+  "tenant_count",
+  "entitlement_count",
+  "operation_count",
+  "cell_count",
+  "volume_count",
+] as const;
+const evidenceOperations = [
+  "native_install",
+  "authorization",
+  "tool_discovery",
+  "content_recall",
+  "citation",
+  "durable_capture",
+  "fresh_chat_recall",
+] as const;
 
-function validatePromotionEvidence(input: unknown, platform: Platform): Record<string, unknown> {
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("promotion evidence must be an object");
+async function platformLocks(platform: Platform): Promise<PlatformLocks> {
+  if (platform === "claude") {
+    return {
+      packageLock: exomemHostedContractFixture.packageLock,
+      archiveLock: exomemHostedContractFixture.archiveLock,
+    };
+  }
+  const { rows } = await executeExomemSql`
+    /* exomem:load-openai-contract-locks */
+    SELECT openai_package_lock, openai_archive_lock
+    FROM exomem_agent_contract_candidates
+    WHERE profile_id = 'hosted-alpha-agent-v1' AND state IN ('pending', 'live')
+      AND openai_package_lock IS NOT NULL AND openai_archive_lock IS NOT NULL
+    ORDER BY created_at DESC LIMIT 1
+  `;
+  const row = rows[0];
+  if (
+    !row ||
+    !row.openai_package_lock ||
+    !row.openai_archive_lock ||
+    typeof row.openai_package_lock !== "object" ||
+    typeof row.openai_archive_lock !== "object" ||
+    Array.isArray(row.openai_package_lock) ||
+    Array.isArray(row.openai_archive_lock)
+  ) {
+    throw new Error("OpenAI package and archive locks are not yet operator-imported");
+  }
+  const packageLock = row.openai_package_lock as Record<string, unknown>;
+  const archiveLock = row.openai_archive_lock as Record<string, unknown>;
+  const fixtureLock: Record<string, unknown> = exomemHostedContractFixture.packageLock;
+  const identityFields = [
+    "schema_version",
+    "platform_schema_version",
+    "plugin_id",
+    "plugin_version",
+    "endpoint",
+    "profile",
+    "command_surface_sha256",
+    "schema_contract_sha256",
+    "definition_sha256",
+    "skills_sha256",
+    "compatibility_sha256",
+    "oauth_discovery_sha256",
+  ];
+  if (
+    packageLock.platform !== "openai" ||
+    archiveLock.platform !== "openai" ||
+    typeof packageLock.artifact_sha256 !== "string" ||
+    typeof archiveLock.archive_sha256 !== "string"
+  ) {
+    throw new Error("OpenAI package and archive locks are invalid");
+  }
+  if (identityFields.some((field) => packageLock[field] !== fixtureLock[field])) {
+    throw new Error("OpenAI package lock differs from the checked release fixture");
+  }
+  sha256(packageLock.artifact_sha256, "OpenAI package digest");
+  sha256(archiveLock.archive_sha256, "OpenAI archive digest");
+  return { packageLock, archiveLock };
+}
+
+async function validatePromotionEvidence(
+  input: unknown,
+  platform: Platform
+): Promise<Record<string, unknown>> {
+  if (!input || typeof input !== "object" || Array.isArray(input))
+    throw new Error("promotion evidence must be an object");
   const evidence = input as Record<string, unknown>;
-  const required = new Set(["schema_version", "platform", ...evidenceStrings, ...evidenceCounts, ...evidenceOperations]);
-  if (evidence.mocked || Object.keys(evidence).length !== required.size || Object.keys(evidence).some((key) => !required.has(key))) {
+  const required = new Set([
+    "schema_version",
+    "platform",
+    ...evidenceStrings,
+    ...evidenceCounts,
+    ...evidenceOperations,
+  ]);
+  if (
+    evidence.mocked ||
+    Object.keys(evidence).length !== required.size ||
+    Object.keys(evidence).some((key) => !required.has(key))
+  ) {
     throw new Error("live promotion requires exact real content-bearing client evidence");
   }
-  if (evidence.schema_version !== 1 || evidence.platform !== platform || !evidenceStrings.every((key) => typeof evidence[key] === "string" && evidence[key])) {
+  if (
+    evidence.schema_version !== 1 ||
+    evidence.platform !== platform ||
+    !evidenceStrings.every((key) => typeof evidence[key] === "string" && evidence[key])
+  ) {
     throw new Error("promotion evidence has invalid identity fields");
   }
-  if (!evidenceCounts.every((key) => evidence[key] === 1) || !evidenceOperations.every((key) => evidence[key] === true)) {
+  if (
+    !evidenceCounts.every((key) => evidence[key] === 1) ||
+    !evidenceOperations.every((key) => evidence[key] === true)
+  ) {
     throw new Error("promotion evidence has invalid acceptance results");
   }
-  if (evidence.test_identity !== "hosted-client-plugins-v1" ||
-      evidence.endpoint !== exomemHostedContractFixture.compatibility.endpoint ||
-      evidence.profile !== exomemHostedContractFixture.compatibility.profile ||
-      evidence.plugin_version !== exomemHostedContractFixture.packageLock.plugin_version ||
-      evidence.compatibility_sha256 !== exomemHostedContractFixture.compatibility.compatibility_sha256 ||
-      evidence.schema_contract_sha256 !== exomemHostedContractFixture.compatibility.schema_contract_sha256 ||
-      evidence.command_surface_sha256 !== exomemHostedContractFixture.compatibility.command_surface_sha256) {
+  const locks = await platformLocks(platform);
+  if (
+    evidence.test_identity !== "hosted-client-plugins-v1" ||
+    evidence.endpoint !== exomemHostedContractFixture.compatibility.endpoint ||
+    evidence.profile !== exomemHostedContractFixture.compatibility.profile ||
+    evidence.plugin_version !== locks.packageLock.plugin_version ||
+    evidence.compatibility_sha256 !==
+      exomemHostedContractFixture.compatibility.compatibility_sha256 ||
+    evidence.schema_contract_sha256 !==
+      exomemHostedContractFixture.compatibility.schema_contract_sha256 ||
+    evidence.command_surface_sha256 !==
+      exomemHostedContractFixture.compatibility.command_surface_sha256
+  ) {
     throw new Error("promotion evidence differs from the checked release fixture");
   }
-  if (platform !== "claude" || evidence.package_artifact_sha256 !== exomemHostedContractFixture.packageLock.artifact_sha256 ||
-      evidence.archive_sha256 !== exomemHostedContractFixture.archiveLock.archive_sha256) {
+  if (
+    evidence.package_artifact_sha256 !== locks.packageLock.artifact_sha256 ||
+    evidence.archive_sha256 !== locks.archiveLock.archive_sha256
+  ) {
     throw new Error("promotion requires the exact registered package and archive locks");
   }
   const timestamp = new Date(String(evidence.timestamp));
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(String(evidence.timestamp)) || Number.isNaN(timestamp.valueOf()) || timestamp.valueOf() > Date.now() || timestamp.valueOf() < Date.now() - 24 * 60 * 60_000) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(String(evidence.timestamp)) ||
+    Number.isNaN(timestamp.valueOf()) ||
+    timestamp.valueOf() > Date.now() ||
+    timestamp.valueOf() < Date.now() - 24 * 60 * 60_000
+  ) {
     throw new Error("promotion evidence timestamp is stale");
   }
-  for (const key of ["result_sha256", "package_artifact_sha256", "archive_sha256", "compatibility_sha256", "schema_contract_sha256", "command_surface_sha256", "clean_client_identity_hmac_sha256", "paired_run_hmac_sha256", "exomem_identity_hmac_sha256", "tenant_hmac_sha256", "entitlement_hmac_sha256", "provisioning_operation_hmac_sha256", "cell_hmac_sha256"] as const) sha256(evidence[key], key);
+  for (const key of [
+    "result_sha256",
+    "package_artifact_sha256",
+    "archive_sha256",
+    "compatibility_sha256",
+    "schema_contract_sha256",
+    "command_surface_sha256",
+    "clean_client_identity_hmac_sha256",
+    "paired_run_hmac_sha256",
+    "exomem_identity_hmac_sha256",
+    "tenant_hmac_sha256",
+    "entitlement_hmac_sha256",
+    "provisioning_operation_hmac_sha256",
+    "cell_hmac_sha256",
+  ] as const)
+    sha256(evidence[key], key);
   const keyId = process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID;
   const secret = process.env.EXOMEM_HOSTED_PROMOTION_SECRET;
-  if (!keyId || !secret || evidence.operator_key_id !== keyId) throw new Error("promotion requires an operator-trusted signing key");
+  if (!keyId || !secret || evidence.operator_key_id !== keyId)
+    throw new Error("promotion requires an operator-trusted signing key");
   const unsigned = { ...evidence };
   delete unsigned.operator_signature;
   const expected = createHmac("sha256", secret).update(canonical(unsigned)).digest();
   const supplied = Buffer.from(String(evidence.operator_signature), "hex");
-  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new Error("artifact evidence signature is invalid");
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected))
+    throw new Error("artifact evidence signature is invalid");
   return evidence;
 }
 
 /** Verify Exomem's canonical evidence object using only server-owned operator key material. */
-export async function promoteClientArtifact(input: { artifactId: string; platform: Platform; evidence: unknown }): Promise<boolean> {
-  const evidence = validatePromotionEvidence(input.evidence, input.platform);
+export async function promoteClientArtifact(input: {
+  artifactId: string;
+  platform: Platform;
+  evidence: unknown;
+}): Promise<boolean> {
+  const evidence = await validatePromotionEvidence(input.evidence, input.platform);
   const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
   const installUrl = trustedInstallTarget(input.platform).href;
   const { rows } = await executeExomemSql`
@@ -161,7 +337,10 @@ export async function promoteClientArtifact(input: { artifactId: string; platfor
   return rows.length === 1;
 }
 
-export async function demoteClientArtifact(artifactId: string, reasonSha256: string): Promise<boolean> {
+export async function demoteClientArtifact(
+  artifactId: string,
+  reasonSha256: string
+): Promise<boolean> {
   const { rows } = await executeExomemSql`
     /* exomem:demote-client-artifact */
     UPDATE exomem_client_artifacts SET state = 'failed', failed_at = now()
@@ -174,14 +353,21 @@ export async function demoteClientArtifact(artifactId: string, reasonSha256: str
 export async function storeClientArtifact(input: unknown): Promise<string> {
   const artifact = parseClientArtifact(input);
   const source = input as Record<string, unknown>;
-  const evidence = validatePromotionEvidence(source.evidence, artifact.platform);
+  const evidence = await validatePromotionEvidence(source.evidence, artifact.platform);
   const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
-  if (artifact.evidenceSha256 !== evidenceSha256 || artifact.resultSha256 !== evidence.result_sha256 ||
-      artifact.packageSha256 !== evidence.package_artifact_sha256 || artifact.archiveSha256 !== evidence.archive_sha256 ||
-      artifact.compatibilitySha256 !== evidence.compatibility_sha256 || artifact.contractSha256 !== evidence.schema_contract_sha256 ||
-      artifact.pluginVersion !== evidence.plugin_version || artifact.clientIdentitySha256 !== evidence.clean_client_identity_hmac_sha256 ||
-      artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 || artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
-      artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256) {
+  if (
+    artifact.evidenceSha256 !== evidenceSha256 ||
+    artifact.resultSha256 !== evidence.result_sha256 ||
+    artifact.packageSha256 !== evidence.package_artifact_sha256 ||
+    artifact.archiveSha256 !== evidence.archive_sha256 ||
+    artifact.compatibilitySha256 !== evidence.compatibility_sha256 ||
+    artifact.contractSha256 !== evidence.schema_contract_sha256 ||
+    artifact.pluginVersion !== evidence.plugin_version ||
+    artifact.clientIdentitySha256 !== evidence.clean_client_identity_hmac_sha256 ||
+    artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 ||
+    artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
+    artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256
+  ) {
     throw new Error("artifact fields do not match signed evidence");
   }
   const { rows } = await executeExomemSql`

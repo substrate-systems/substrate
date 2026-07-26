@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, executeExomemTransaction } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
 
@@ -36,6 +36,15 @@ export type LiveExomemAgentContract = {
   contract: JsonRecord;
 };
 
+type RoutableCellIdentity = {
+  cell_id: unknown;
+  source_release: unknown;
+  protocol_version: unknown;
+  command_fingerprint: unknown;
+  contract_digest: unknown;
+  compatibility_digest: unknown;
+};
+
 function record(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${label} must be an object`);
@@ -51,6 +60,51 @@ function sha256(value: unknown, label: string): string {
   const candidate = string(value, label);
   if (!/^[a-f0-9]{64}$/.test(candidate)) throw new Error(`${label} must be SHA-256`);
   return candidate;
+}
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function checkedOpenAiLocks(
+  packageLock: unknown,
+  archiveLock: unknown
+): { packageLock: JsonRecord; archiveLock: JsonRecord } {
+  const packageRecord = record(packageLock, "OpenAI package lock");
+  const archiveRecord = record(archiveLock, "OpenAI archive lock");
+  const claudeLock = record(exomemHostedContractFixture.packageLock, "Claude package lock");
+  const expected = [
+    "schema_version",
+    "platform_schema_version",
+    "plugin_id",
+    "plugin_version",
+    "endpoint",
+    "profile",
+    "command_surface_sha256",
+    "schema_contract_sha256",
+    "definition_sha256",
+    "skills_sha256",
+    "compatibility_sha256",
+    "oauth_discovery_sha256",
+  ];
+  if (
+    packageRecord.platform !== "openai" ||
+    archiveRecord.platform !== "openai" ||
+    expected.some((key) => packageRecord[key] !== claudeLock[key])
+  ) {
+    throw new Error("OpenAI locks differ from the checked Exomem release");
+  }
+  sha256(packageRecord.artifact_sha256, "OpenAI package artifact digest");
+  sha256(archiveRecord.archive_sha256, "OpenAI archive digest");
+  return { packageLock: packageRecord, archiveLock: archiveRecord };
 }
 
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
@@ -194,6 +248,42 @@ export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContr
   }
 }
 
+/** Attach operator-signed, exact OpenAI locks after a registered app is rendered from this pinned release. */
+export async function attachOpenAiContractLocks(input: {
+  candidateId: string;
+  packageLock: unknown;
+  archiveLock: unknown;
+  operatorKeyId: string;
+  operatorSignature: string;
+}): Promise<boolean> {
+  const locks = checkedOpenAiLocks(input.packageLock, input.archiveLock);
+  const keyId = process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID;
+  const secret = process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET;
+  const unsigned = {
+    candidateId: input.candidateId,
+    packageLock: locks.packageLock,
+    archiveLock: locks.archiveLock,
+    operatorKeyId: input.operatorKeyId,
+  };
+  if (!keyId || !secret || input.operatorKeyId !== keyId)
+    throw new Error("OpenAI lock import requires an operator-trusted signing key");
+  const expected = createHmac("sha256", secret).update(canonical(unsigned)).digest();
+  const supplied = Buffer.from(input.operatorSignature, "hex");
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+    throw new Error("OpenAI lock import signature is invalid");
+  }
+  const { rows } = await executeExomemSql`
+    /* exomem:attach-openai-contract-locks */
+    UPDATE exomem_agent_contract_candidates
+    SET openai_package_lock = ${JSON.stringify(locks.packageLock)}::jsonb,
+        openai_archive_lock = ${JSON.stringify(locks.archiveLock)}::jsonb
+    WHERE id = ${input.candidateId}::uuid AND profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'pending'
+      AND openai_package_lock IS NULL AND openai_archive_lock IS NULL
+    RETURNING id
+  `;
+  return rows.length === 1;
+}
+
 /** The sole authority writer: one connection serializes the profile, cells, and exact digest. */
 export async function recordRoutableCellObservation(input: {
   cellId: string;
@@ -240,17 +330,42 @@ export async function recordRoutableCellObservation(input: {
       ]
     );
     const cells = await transaction.query(
-      `SELECT cell_id::text AS cell_id, contract_digest FROM exomem_routable_cell_contracts WHERE profile_id = $1 AND routable = true ORDER BY cell_id FOR UPDATE`,
+      `SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest
+       FROM exomem_routable_cell_contracts WHERE profile_id = $1 AND routable = true ORDER BY cell_id FOR UPDATE`,
       [EXOMEM_HOSTED_PROFILE]
     );
-    const entries = cells.rows.map(
-      (row) => `${String(row.cell_id)}:${String(row.contract_digest)}`
+    const identities = cells.rows as RoutableCellIdentity[];
+    const entries = identities.map((row) =>
+      JSON.stringify([
+        EXOMEM_HOSTED_PROFILE,
+        String(row.cell_id),
+        String(row.source_release),
+        String(row.protocol_version),
+        String(row.command_fingerprint),
+        String(row.contract_digest),
+        String(row.compatibility_digest),
+      ])
     );
     const digest = entries.length
       ? createHash("sha256").update(entries.join(",")).digest("hex")
       : "0".repeat(64);
+    const allMatch = identities.every(
+      (row) =>
+        row.source_release === input.sourceRelease &&
+        row.protocol_version === input.protocolVersion &&
+        row.command_fingerprint === fingerprint &&
+        row.contract_digest === contract &&
+        row.compatibility_digest === compatibility
+    );
     await transaction.query(
-      `UPDATE exomem_agent_contract_profile_authority SET routable_set_digest = $2, routable_cell_count = $3, source_release = $4, protocol_version = $5, command_fingerprint = $6, contract_digest = $7, compatibility_digest = $8, observed_at = now(), updated_at = now() WHERE profile_id = $1`,
+      `UPDATE exomem_agent_contract_profile_authority SET
+         routable_set_digest = $2, routable_cell_count = $3,
+         source_release = CASE WHEN $9 THEN $4 ELSE source_release END,
+         protocol_version = CASE WHEN $9 THEN $5 ELSE protocol_version END,
+         command_fingerprint = CASE WHEN $9 THEN $6 ELSE command_fingerprint END,
+         contract_digest = CASE WHEN $9 THEN $7 ELSE contract_digest END,
+         compatibility_digest = CASE WHEN $9 THEN $8 ELSE compatibility_digest END,
+         observed_at = now(), updated_at = now() WHERE profile_id = $1`,
       [
         EXOMEM_HOSTED_PROFILE,
         digest,
@@ -260,6 +375,7 @@ export async function recordRoutableCellObservation(input: {
         fingerprint,
         contract,
         compatibility,
+        allMatch,
       ]
     );
   });
@@ -283,7 +399,7 @@ export async function promoteExomemAgentContractCandidate(input: {
       WHERE id = ${input.candidateId}::uuid AND state = 'pending'
       FOR UPDATE
     ), cells AS (
-      SELECT contract_digest
+      SELECT source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest
       FROM exomem_routable_cell_contracts
       WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
       FOR UPDATE
@@ -298,7 +414,14 @@ export async function promoteExomemAgentContractCandidate(input: {
         AND authority.command_fingerprint = candidate.command_fingerprint
         AND authority.contract_digest = candidate.schema_digest
         AND authority.compatibility_digest = candidate.compatibility_digest
-        AND NOT EXISTS (SELECT 1 FROM cells WHERE contract_digest <> candidate.schema_digest)
+        AND NOT EXISTS (
+          SELECT 1 FROM cells
+          WHERE source_release <> candidate.source_release
+             OR protocol_version <> candidate.protocol_version
+             OR command_fingerprint <> candidate.command_fingerprint
+             OR contract_digest <> candidate.schema_digest
+             OR compatibility_digest <> candidate.compatibility_digest
+        )
     ), artifact_rows AS (
       SELECT * FROM exomem_client_artifacts
       WHERE platform IN ('claude', 'openai') AND state = 'live'
