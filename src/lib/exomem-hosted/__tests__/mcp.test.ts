@@ -252,6 +252,36 @@ describe("Hosted MCP boundary", () => {
     );
   });
 
+  it("emits only opaque allowlisted telemetry for a denied selector containing privacy sentinels", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "bootstrap",
+          arguments: { profile: "compact", nested: { authorization: "bearer-secret-sentinel" } },
+        },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ({ ...ACCESS, clientId: "client-secret-sentinel" }),
+        getLiveContract: async () => LIVE,
+        takeRateLimit: async () => true,
+        telemetry: (event: Record<string, unknown>) => events.push(event),
+        telemetryKey: Buffer.alloc(32, 9),
+      }
+    );
+    assert.equal(events.length, 1);
+    assert.equal(events[0].event, "mcp.request");
+    assert.equal(events[0].outcome, "denied");
+    assert.equal(events[0].errorCode, "HOSTED_SELECTOR_REJECTED");
+    const serialized = JSON.stringify(events);
+    assert.equal(serialized.includes("bearer-secret-sentinel"), false);
+    assert.equal(serialized.includes("client-secret-sentinel"), false);
+  });
+
   it("keeps overlapping tenant-client calls counted until each call actually finishes", async () => {
     const waits: Array<ReturnType<typeof deferred>> = [];
     let started = 0;

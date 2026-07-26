@@ -609,18 +609,28 @@ export async function handleHostedMcpRequest(
         // Telemetry is observability-only and cannot change a tool result.
       }
     };
-    if (!tool) return toolFailure(exomemErrors.commandNotFound(), requestId);
-    if (!args) return toolFailure(exomemErrors.invalidRequest(), requestId);
+    if (!tool) {
+      telemetry("denied", "COMMAND_NOT_FOUND");
+      return toolFailure(exomemErrors.commandNotFound(), requestId);
+    }
+    if (!args) {
+      telemetry("denied", "INVALID_REQUEST");
+      return toolFailure(exomemErrors.invalidRequest(), requestId);
+    }
     if (
       hasMcpSelector(
         args,
         rpc.params.name === "bootstrap",
         new Set(tool.command.params.map((parameter) => normalizedField(parameter.name)))
       )
-    )
+    ) {
+      telemetry("denied", "HOSTED_SELECTOR_REJECTED");
       return toolFailure(exomemErrors.selectorRejected(), requestId);
-    if (!access.scopes.includes(requiredScope(tool.readOnly)))
+    }
+    if (!access.scopes.includes(requiredScope(tool.readOnly))) {
+      telemetry("denied", "EXOMEM_ENTITLEMENT_DENIED");
       return toolFailure(exomemErrors.entitlementDenied(), requestId);
+    }
     try {
       if (extra.signal.aborted) throw exomemErrors.cellUnavailable();
       if (!tool.inputValidator(args).valid) throw exomemErrors.invalidRequest();
