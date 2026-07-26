@@ -42,6 +42,7 @@ export type ValidAuthorizationRequest = {
   redirectUri: string;
   resource: string;
   scopes: Array<"exomem.read" | "exomem.write">;
+  offlineAccess: boolean;
   state: string;
   codeChallenge: string;
 };
@@ -143,6 +144,7 @@ export function validateAuthorizationRequest(
       (scope): scope is "exomem.read" | "exomem.write" =>
         scope === "exomem.read" || scope === "exomem.write"
     ),
+    offlineAccess: scopes.includes("offline_access"),
     state: input.state,
     codeChallenge: input.codeChallenge,
   };
@@ -186,12 +188,14 @@ export type AuthorizationCodeRecord = {
   redirectUri: string;
   resource: string;
   scopes: Array<"exomem.read" | "exomem.write">;
+  offlineAccess: boolean;
   codeChallenge: string;
   expiresAt: Date;
 };
 
 export function mintAuthorizationCode(
-  input: Omit<AuthorizationCodeRecord, "expiresAt"> & {
+  input: Omit<AuthorizationCodeRecord, "expiresAt" | "offlineAccess"> & {
+    offlineAccess?: boolean;
     now?: Date;
     randomBytes?: RandomBytesSource;
   }
@@ -205,6 +209,7 @@ export function mintAuthorizationCode(
       redirectUri: input.redirectUri,
       resource: input.resource,
       scopes: input.scopes,
+      offlineAccess: input.offlineAccess ?? false,
       codeChallenge: input.codeChallenge,
       expiresAt: new Date((input.now ?? new Date()).getTime() + AUTHORIZATION_CODE_TTL_MS),
     },
@@ -215,22 +220,24 @@ export type OpaqueTokenMaterial = {
   accessToken: SensitiveSecret;
   accessTokenDigest: Buffer;
   accessTokenExpiresAt: Date;
-  refreshToken: SensitiveSecret;
-  refreshTokenDigest: Buffer;
+  refreshToken?: SensitiveSecret;
+  refreshTokenDigest?: Buffer;
 };
 
 export function mintOpaqueTokenMaterial(input: {
   now?: Date;
   randomBytes?: RandomBytesSource;
+  refreshAllowed?: boolean;
 }): OpaqueTokenMaterial {
   const accessToken = generateExternalToken(input.randomBytes);
-  const refreshToken = generateExternalToken(input.randomBytes);
+  const refreshToken = input.refreshAllowed === false ? undefined : generateExternalToken(input.randomBytes);
   return {
     accessToken: new SensitiveSecret(accessToken),
     accessTokenDigest: digestSecret(accessToken),
     accessTokenExpiresAt: new Date((input.now ?? new Date()).getTime() + ACCESS_TOKEN_TTL_MS),
-    refreshToken: new SensitiveSecret(refreshToken),
-    refreshTokenDigest: digestSecret(refreshToken),
+    ...(refreshToken
+      ? { refreshToken: new SensitiveSecret(refreshToken), refreshTokenDigest: digestSecret(refreshToken) }
+      : {}),
   };
 }
 
@@ -279,7 +286,11 @@ export async function exchangeAuthorizationCode(
     throw new OAuthProtocolError("OAUTH_INVALID_GRANT");
   }
   return {
-    ...mintOpaqueTokenMaterial({ now, randomBytes: dependencies.randomBytes }),
+    ...mintOpaqueTokenMaterial({
+      now,
+      randomBytes: dependencies.randomBytes,
+      refreshAllowed: record.offlineAccess,
+    }),
     clientId: record.clientId,
     resource: record.resource,
     scopes: record.scopes,
@@ -314,10 +325,14 @@ export async function rotateRefreshToken(
   const refreshDigest = tokenDigest(input.refreshToken);
   if (!refreshDigest) throw new OAuthProtocolError("OAUTH_INVALID_GRANT");
   const now = dependencies.now?.() ?? new Date();
-  const material = mintOpaqueTokenMaterial({ now, randomBytes: dependencies.randomBytes });
+  const material = mintOpaqueTokenMaterial({
+    now,
+    randomBytes: dependencies.randomBytes,
+    refreshAllowed: true,
+  });
   const record = await dependencies.rotate({
     refreshDigest,
-    replacementRefreshDigest: material.refreshTokenDigest,
+    replacementRefreshDigest: material.refreshTokenDigest!,
     accessDigest: material.accessTokenDigest,
     accessExpiresAt: material.accessTokenExpiresAt,
     clientId: input.clientId,

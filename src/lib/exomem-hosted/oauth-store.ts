@@ -75,6 +75,92 @@ export async function createAuthorizationTransaction(input: {
   return row ? { id: row.id } : null;
 }
 
+/** Attaches a client grant/code to an already entitled browser-session owner; no capacity or lifecycle row is touched. */
+export async function attachExistingOwnerAuthorizationAtomic(input: {
+  sessionId: string;
+  transactionDigest: Buffer;
+  codeDigest: Buffer;
+  codeExpiresAt: Date;
+}): Promise<{ grantId: string; tenantId: string } | null> {
+  const { rows } = await executeExomemSql`
+    /* exomem:attach-existing-owner-oauth */
+    WITH session AS (
+      SELECT session.id, session.user_id, session.tenant_id
+      FROM exomem_sessions AS session
+      JOIN exomem_entitlements AS entitlement
+        ON entitlement.tenant_id = session.tenant_id
+       AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
+      WHERE session.id = ${input.sessionId}::uuid
+        AND session.revoked_at IS NULL AND session.expires_at > now()
+      FOR UPDATE OF session
+    ),
+    transaction AS (
+      SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
+             transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
+      FROM exomem_oauth_authorization_transactions AS transaction
+      JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id AND client.enabled = true
+      WHERE transaction.transaction_digest = ${input.transactionDigest}
+        AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+      FOR UPDATE OF transaction
+    ),
+    grant AS (
+      INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id)
+      SELECT session.user_id, session.tenant_id, transaction.client_id, transaction.resource,
+             array_remove(transaction.requested_scopes, 'offline_access'),
+             'offline_access' = ANY(transaction.requested_scopes), transaction.id
+      FROM session CROSS JOIN transaction
+      ON CONFLICT DO NOTHING
+      RETURNING id, tenant_id
+    ),
+    code AS (
+      INSERT INTO exomem_oauth_authorization_codes (
+        code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
+      )
+      SELECT ${input.codeDigest}, grant.id, transaction.client_id, transaction.redirect_uri,
+             transaction.resource, transaction.pkce_challenge,
+             'offline_access' = ANY(transaction.requested_scopes), ${input.codeExpiresAt.toISOString()}
+      FROM grant CROSS JOIN transaction
+      RETURNING grant_id
+    ),
+    consumed AS (
+      UPDATE exomem_oauth_authorization_transactions AS transaction_row
+      SET consumed_at = now(), redeemed_session_id = session.id
+      FROM transaction CROSS JOIN session CROSS JOIN code
+      WHERE transaction_row.id = transaction.id
+      RETURNING transaction_row.id
+    )
+    SELECT grant.id AS grant_id, grant.tenant_id FROM grant CROSS JOIN consumed
+  `;
+  const row = rows[0] as { grant_id: string; tenant_id: string } | undefined;
+  return row ? { grantId: row.grant_id, tenantId: row.tenant_id } : null;
+}
+
+export async function pruneExpiredOAuthState(): Promise<void> {
+  await executeExomemSql`
+    /* exomem:prune-expired-oauth-state */
+    WITH expired_transactions AS (
+      DELETE FROM exomem_oauth_authorization_transactions
+      WHERE expires_at <= now() AND consumed_at IS NULL
+      RETURNING id
+    ), expired_codes AS (
+      DELETE FROM exomem_oauth_authorization_codes
+      WHERE expires_at <= now() OR consumed_at IS NOT NULL
+      RETURNING id
+    ), expired_access AS (
+      DELETE FROM exomem_oauth_access_tokens
+      WHERE expires_at <= now()
+      RETURNING id
+    ), expired_refresh AS (
+      DELETE FROM exomem_oauth_refresh_tokens
+      WHERE expires_at <= now()
+      RETURNING id
+    )
+    UPDATE exomem_oauth_clients
+    SET enabled = false, metadata_expires_at = now()
+    WHERE admission_mode = 'cimd' AND metadata_expires_at <= now()
+  `;
+}
+
 /**
  * The first OAuth invite completion is intentionally one statement: a failed
  * capacity compare-and-increment leaves the invite and authorization
@@ -178,18 +264,20 @@ export async function admitFirstOAuthInviteAtomic(input: {
       RETURNING id, user_id, tenant_id
     ),
     grant AS (
-      INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, authorization_transaction_id)
+      INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id)
       SELECT session.user_id, session.tenant_id, transaction.client_id, transaction.resource,
-             transaction.requested_scopes, transaction.id
+             array_remove(transaction.requested_scopes, 'offline_access'),
+             'offline_access' = ANY(transaction.requested_scopes), transaction.id
       FROM session CROSS JOIN transaction
       RETURNING id, tenant_id
     ),
     code AS (
       INSERT INTO exomem_oauth_authorization_codes (
-        code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, expires_at
+        code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
       )
       SELECT ${input.codeDigest}, grant.id, transaction.client_id, transaction.redirect_uri,
-             transaction.resource, transaction.pkce_challenge, ${input.codeExpiresAt.toISOString()}
+             transaction.resource, transaction.pkce_challenge,
+             'offline_access' = ANY(transaction.requested_scopes), ${input.codeExpiresAt.toISOString()}
       FROM grant CROSS JOIN transaction
       RETURNING grant_id
     ),
@@ -303,6 +391,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
   pkceChallenge: string;
   refreshDigest: Buffer;
   refreshExpiresAt: Date;
+  refreshAllowed: boolean;
   accessDigest: Buffer;
   accessExpiresAt: Date;
 }): Promise<OAuthTokenContext | null> {
@@ -337,25 +426,25 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
       SELECT ${input.refreshDigest}, id, ${input.refreshExpiresAt.toISOString()}
       FROM family
+      WHERE ${input.refreshAllowed}
       RETURNING family_id
     ),
     access AS (
       INSERT INTO exomem_oauth_access_tokens (
         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
       )
-      SELECT ${input.accessDigest}, family.grant_id, family.id, family.client_id,
+      SELECT ${input.accessDigest}, consumed_code.grant_id, family.id, consumed_code.client_id,
              consumed_code.resource, grant.scopes, ${input.accessExpiresAt.toISOString()}
-      FROM family
-      JOIN consumed_code ON consumed_code.grant_id = family.grant_id
-      JOIN exomem_oauth_grants AS grant ON grant.id = family.grant_id
+      FROM consumed_code
+      JOIN family ON family.grant_id = consumed_code.grant_id
+      JOIN exomem_oauth_grants AS grant ON grant.id = consumed_code.grant_id
       RETURNING id
     )
-    SELECT consumed_code.grant_id, family.id AS family_id,
-           client.client_id, consumed_code.resource
+    SELECT consumed_code.grant_id, family.id AS family_id, client.client_id, consumed_code.resource
     FROM consumed_code
     JOIN family ON family.grant_id = consumed_code.grant_id
-    JOIN exomem_oauth_clients AS client ON client.id = family.client_id
-    JOIN refresh ON refresh.family_id = family.id
+    JOIN exomem_oauth_clients AS client ON client.id = consumed_code.client_id
+    LEFT JOIN refresh ON refresh.family_id = family.id
     JOIN access ON true
   `;
   const row = rows[0] as

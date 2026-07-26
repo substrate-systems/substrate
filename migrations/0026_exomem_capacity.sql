@@ -29,7 +29,7 @@ CREATE TABLE exomem_capacity_allocations (
   tenant_id uuid NOT NULL UNIQUE REFERENCES exomem_tenants(id) ON DELETE RESTRICT,
   storage_bytes bigint NOT NULL CHECK (storage_bytes > 0),
   runtime_slots integer NOT NULL CHECK (runtime_slots >= 0),
-  provision_slots integer NOT NULL CHECK (provision_slots > 0),
+  provision_slots integer NOT NULL CHECK (provision_slots >= 0),
   state text NOT NULL CHECK (state IN ('reserved', 'occupied', 'uncertain', 'released', 'retained_storage')),
   reserved_at timestamptz NOT NULL DEFAULT now(),
   occupied_at timestamptz,
@@ -37,7 +37,8 @@ CREATE TABLE exomem_capacity_allocations (
   operation_id uuid REFERENCES exomem_lifecycle_operations(id) ON DELETE RESTRICT,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CHECK ((state = 'released') = (released_at IS NOT NULL))
+  CHECK ((state = 'released') = (released_at IS NOT NULL)),
+  CHECK (state <> 'reserved' OR provision_slots > 0)
 );
 
 CREATE INDEX exomem_capacity_allocations_pool_state_idx

@@ -199,4 +199,27 @@ describe("Exomem Hosted OAuth protocol", () => {
       /OAUTH_INVALID_GRANT/
     );
   });
+
+  it("does not mint refresh material when offline_access was not granted", async () => {
+    const material = mintAuthorizationCode({
+      clientId: client.clientId,
+      redirectUri: client.redirectUris[0],
+      resource,
+      scopes: ["exomem.read"],
+      offlineAccess: false,
+      codeChallenge: pkceS256("c".repeat(43)),
+    });
+    const token = await exchangeAuthorizationCode(
+      {
+        code: material.code,
+        clientId: client.clientId,
+        redirectUri: client.redirectUris[0],
+        resource,
+        codeVerifier: "c".repeat(43),
+      },
+      { consumeAuthorizationCode: async () => material.record }
+    );
+    assert.equal(token.refreshToken, undefined);
+    assert.equal(token.refreshTokenDigest, undefined);
+  });
 });
