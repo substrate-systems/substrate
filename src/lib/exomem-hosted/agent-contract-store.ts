@@ -104,10 +104,12 @@ function checkedOpenAiLocks(
     "compatibility_sha256",
     "oauth_discovery_sha256",
   ];
+  const packageKeys = ["platform", "artifact_sha256", "registered_app_id_sha256", ...expected];
   if (
     packageRecord.platform !== "openai" ||
     expected.some((key) => packageRecord[key] !== claudeLock[key]) ||
-    "registered_app_id" in packageRecord
+    Object.keys(packageRecord).length !== packageKeys.length ||
+    Object.keys(packageRecord).some((key) => !packageKeys.includes(key))
   ) {
     throw new Error("OpenAI locks differ from the checked Exomem release");
   }
@@ -484,6 +486,8 @@ export async function promoteExomemAgentContractCandidate(input: {
           AND openai.package_sha256 = candidate.openai_package_lock->>'artifact_sha256'
           AND openai.archive_sha256 = candidate.openai_archive_lock->>'archive_sha256'
           AND openai.plugin_version = candidate.openai_package_lock->>'plugin_version'
+          AND openai.contract_candidate_id = candidate.id
+          AND openai.registered_app_id_sha256 = candidate.openai_package_lock->>'registered_app_id_sha256'
           AND EXISTS (
             SELECT 1 FROM artifact_rows AS claude_pair
             WHERE claude_pair.platform = 'claude'

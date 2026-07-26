@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
-import { executeExomemSql, withExomemTransaction } from "./db";
+import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
 type Platform = "claude" | "openai";
@@ -21,7 +21,12 @@ type ClientArtifact = {
   resultSha256: string;
   observedAt: string;
 };
-type PlatformLocks = { packageLock: Record<string, unknown>; archiveLock: Record<string, unknown> };
+type PlatformLocks = {
+  packageLock: Record<string, unknown>;
+  archiveLock: Record<string, unknown>;
+  candidateId: string | null;
+  registeredAppIdSha256: string | null;
+};
 
 const sha256 = (value: unknown, label: string): string => {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value))
@@ -84,6 +89,8 @@ function parseClientArtifact(input: unknown): ClientArtifact {
     throw new Error("pluginVersion must be non-empty");
   if ("clientIdentity" in raw)
     throw new Error("client identity must be supplied only as a privacy-safe hash");
+  if (["registered_app_id", "registeredAppId", "app_id"].some((key) => key in raw))
+    throw new Error("raw registered app IDs must never be persisted");
   return {
     platform: raw.platform,
     state: "pending",
@@ -144,20 +151,27 @@ const evidenceOperations = [
   "fresh_chat_recall",
 ] as const;
 
-async function platformLocks(platform: Platform): Promise<PlatformLocks> {
+async function platformLocks(
+  platform: Platform,
+  sql: ExomemSql = executeExomemSql
+): Promise<PlatformLocks> {
   if (platform === "claude") {
     return {
       packageLock: exomemHostedContractFixture.packageLock,
       archiveLock: exomemHostedContractFixture.archiveLock,
+      candidateId: null,
+      registeredAppIdSha256: null,
     };
   }
-  const { rows } = await executeExomemSql`
+  const { rows } = await sql`
     /* exomem:load-openai-contract-locks */
-    SELECT openai_package_lock, openai_archive_lock
+    SELECT id::text AS candidate_id, openai_package_lock, openai_archive_lock
     FROM exomem_agent_contract_candidates
     WHERE profile_id = 'hosted-alpha-agent-v1' AND state IN ('pending', 'live')
       AND openai_package_lock IS NOT NULL AND openai_archive_lock IS NOT NULL
-    ORDER BY created_at DESC LIMIT 1
+    ORDER BY CASE state WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC
+    LIMIT 1
+    FOR UPDATE
   `;
   const row = rows[0];
   if (
@@ -173,6 +187,7 @@ async function platformLocks(platform: Platform): Promise<PlatformLocks> {
   }
   const packageLock = row.openai_package_lock as Record<string, unknown>;
   const archiveLock = row.openai_archive_lock as Record<string, unknown>;
+  const candidateId = typeof row.candidate_id === "string" ? row.candidate_id : null;
   const fixtureLock: Record<string, unknown> = exomemHostedContractFixture.packageLock;
   const identityFields = [
     "schema_version",
@@ -188,10 +203,17 @@ async function platformLocks(platform: Platform): Promise<PlatformLocks> {
     "compatibility_sha256",
     "oauth_discovery_sha256",
   ];
+  const packageKeys = [
+    "platform",
+    "artifact_sha256",
+    "registered_app_id_sha256",
+    ...identityFields,
+  ];
   if (
     packageLock.platform !== "openai" ||
     typeof packageLock.artifact_sha256 !== "string" ||
-    "registered_app_id" in packageLock
+    Object.keys(packageLock).length !== packageKeys.length ||
+    Object.keys(packageLock).some((key) => !packageKeys.includes(key))
   ) {
     throw new Error("OpenAI package and archive locks are invalid");
   }
@@ -215,13 +237,25 @@ async function platformLocks(platform: Platform): Promise<PlatformLocks> {
   ) {
     throw new Error("OpenAI package and archive locks have different registered app ID digests");
   }
-  return { packageLock, archiveLock };
+  if (!candidateId) throw new Error("OpenAI contract candidate identity is invalid");
+  const registeredAppIdSha256 = sha256(
+    packageLock.registered_app_id_sha256,
+    "OpenAI registered app ID digest"
+  );
+  if (
+    registeredAppIdSha256 !==
+    sha256(archiveLock.registered_app_id_sha256, "OpenAI registered app ID digest")
+  ) {
+    throw new Error("OpenAI package and archive locks have different registered app ID digests");
+  }
+  return { packageLock, archiveLock, candidateId, registeredAppIdSha256 };
 }
 
-async function validatePromotionEvidence(
+function validatePromotionEvidence(
   input: unknown,
-  platform: Platform
-): Promise<Record<string, unknown>> {
+  platform: Platform,
+  locks: PlatformLocks
+): Record<string, unknown> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("promotion evidence must be an object");
   const evidence = input as Record<string, unknown>;
@@ -255,7 +289,6 @@ async function validatePromotionEvidence(
   ) {
     throw new Error("promotion evidence has invalid acceptance results");
   }
-  const locks = await platformLocks(platform);
   if (
     evidence.test_identity !== "hosted-client-plugins-v1" ||
     evidence.endpoint !== exomemHostedContractFixture.compatibility.endpoint ||
@@ -324,11 +357,12 @@ export async function promoteClientArtifact(input: {
   platform: Platform;
   evidence: unknown;
 }): Promise<boolean> {
-  const evidence = await validatePromotionEvidence(input.evidence, input.platform);
-  const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
-  const installUrl = trustedInstallTarget(input.platform).href;
   return withExomemTransaction(async (transaction) => {
     await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const locks = await platformLocks(input.platform, transaction);
+    const evidence = validatePromotionEvidence(input.evidence, input.platform, locks);
+    const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
+    const installUrl = trustedInstallTarget(input.platform).href;
     const { rows } = await transaction`
       /* exomem:promote-client-artifact */
       WITH candidate AS (
@@ -346,6 +380,8 @@ export async function promoteClientArtifact(input: {
         AND paired_run_hmac_sha256 = ${sha256(evidence.paired_run_hmac_sha256, "paired run digest")}
         AND exomem_identity_hmac_sha256 = ${sha256(evidence.exomem_identity_hmac_sha256, "Exomem identity digest")}
         AND tenant_hmac_sha256 = ${sha256(evidence.tenant_hmac_sha256, "tenant digest")}
+        AND contract_candidate_id IS NOT DISTINCT FROM ${locks.candidateId}::uuid
+        AND registered_app_id_sha256 IS NOT DISTINCT FROM ${locks.registeredAppIdSha256}
         AND observed_at <= now() AND observed_at > now() - interval '24 hours'
     ), retired AS (
       UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = ${input.platform} AND state = 'live' AND EXISTS (SELECT 1 FROM evidence_match) RETURNING id
@@ -380,7 +416,8 @@ export async function demoteClientArtifact(
 export async function storeClientArtifact(input: unknown): Promise<string> {
   const artifact = parseClientArtifact(input);
   const source = input as Record<string, unknown>;
-  const evidence = await validatePromotionEvidence(source.evidence, artifact.platform);
+  const locks = await platformLocks(artifact.platform);
+  const evidence = validatePromotionEvidence(source.evidence, artifact.platform, locks);
   const evidenceSha256 = createHash("sha256").update(canonical(evidence)).digest("hex");
   if (
     artifact.evidenceSha256 !== evidenceSha256 ||
@@ -399,8 +436,8 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
   }
   const { rows } = await executeExomemSql`
     /* exomem:store-client-artifact */
-    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, observed_at)
-    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${artifact.observedAt}) RETURNING id
+    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id, registered_app_id_sha256, observed_at)
+    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${locks.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.observedAt}) RETURNING id
   `;
   const id = rows[0]?.id;
   if (typeof id !== "string") throw new Error("client artifact insert returned no id");

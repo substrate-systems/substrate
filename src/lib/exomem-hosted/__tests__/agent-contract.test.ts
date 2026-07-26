@@ -49,12 +49,21 @@ describe("Exomem Hosted agent contracts", () => {
       exomemHostedContractFixture.sourceCommit,
       "08f1cee281bd0dbcaf82094421c11d6be04dc5c2"
     );
+    const { digest, ...rawAgentContract } =
+      exomemHostedContractFixture.compatibility.agent_contract;
+    const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
+    assert.equal(
+      createHash("sha256").update(canonical(rawAgentContract)).digest("hex"),
+      digest.value
+    );
+    assert.equal(
+      createHash("sha256").update(canonical(rawCompatibility)).digest("hex"),
+      compatibility_sha256
+    );
     assert.deepEqual(
+      exomemHostedContractFixture.compatibility.commands,
       exomemHostedContractFixture.compatibility.agent_contract.commands.map(
-        (command) => command.mcp_tool
-      ),
-      exomemHostedContractFixture.compatibility.agent_contract.commands.map(
-        (command) => command.mcp_tool
+        (command) => command.name
       )
     );
   });
@@ -277,15 +286,36 @@ describe("Exomem Hosted agent contracts", () => {
       if (/load-openai-contract-locks/i.test(query))
         return {
           rows: [
-            { openai_package_lock: locks.packageLock, openai_archive_lock: locks.archiveLock },
+            {
+              candidate_id: "00000000-0000-0000-0000-000000000002",
+              openai_package_lock: locks.packageLock,
+              openai_archive_lock: locks.archiveLock,
+            },
           ],
         };
       return { rows: [{ id: "openai-artifact-1" }] };
     });
     const transactionQueries: string[] = [];
+    let authoritativeCandidateId = "00000000-0000-0000-0000-000000000002";
     __setExomemTransactionForTests(async (work) =>
       work(async (strings) => {
-        transactionQueries.push(strings.join("?"));
+        const query = strings.join("?");
+        transactionQueries.push(query);
+        if (/load-openai-contract-locks/i.test(query))
+          return {
+            rows: [
+              {
+                candidate_id: authoritativeCandidateId,
+                openai_package_lock: locks.packageLock,
+                openai_archive_lock: locks.archiveLock,
+              },
+            ],
+          };
+        if (
+          /promote-client-artifact/i.test(query) &&
+          authoritativeCandidateId !== "00000000-0000-0000-0000-000000000002"
+        )
+          return { rows: [] };
         return { rows: [{ id: "openai-artifact-1" }] };
       })
     );
@@ -302,13 +332,25 @@ describe("Exomem Hosted agent contracts", () => {
       }),
       true
     );
-    assert.equal(queries.filter((query) => /load-openai-contract-locks/i.test(query)).length, 2);
+    assert.equal(queries.filter((query) => /load-openai-contract-locks/i.test(query)).length, 1);
     assert.match(queries[0], /openai_package_lock/i);
     assert.match(
       transactionQueries[0],
       /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i
     );
-    assert.match(transactionQueries[1], /UPDATE exomem_client_artifacts SET state = 'live'/i);
+    assert.match(transactionQueries[1], /load-openai-contract-locks/i);
+    assert.match(transactionQueries[2], /UPDATE exomem_client_artifacts SET state = 'live'/i);
+    assert.match(transactionQueries[2], /contract_candidate_id/i);
+    assert.match(transactionQueries[2], /registered_app_id_sha256/i);
+    authoritativeCandidateId = "00000000-0000-0000-0000-000000000009";
+    assert.equal(
+      await promoteClientArtifact({
+        artifactId: "00000000-0000-0000-0000-000000000003",
+        platform: "openai",
+        evidence,
+      }),
+      false
+    );
     await assert.rejects(
       () =>
         attachOpenAiContractLocks({
@@ -326,6 +368,15 @@ describe("Exomem Hosted agent contracts", () => {
           operatorSignature: importSignature,
         }),
       /archive lock is invalid/i
+    );
+    await assert.rejects(
+      () =>
+        attachOpenAiContractLocks({
+          ...lockUnsigned,
+          packageLock: { ...locks.packageLock, registeredAppId: "asdk_test_unbound" },
+          operatorSignature: importSignature,
+        }),
+      /locks differ/i
     );
     const missingDigestEvidence = { ...baseEvidence };
     delete missingDigestEvidence.registered_app_id_sha256;

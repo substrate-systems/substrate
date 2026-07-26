@@ -5,12 +5,16 @@ import { describe, it } from "node:test";
 
 describe("Exomem agent-contract artifact migration", () => {
   it("keeps contract candidates and client artifacts additive and tenant-neutral", () => {
-    const sql = readFileSync(resolve(process.cwd(), "migrations/0028_exomem_agent_contract_artifacts.sql"), "utf8");
+    const sql = readFileSync(
+      resolve(process.cwd(), "migrations/0028_exomem_agent_contract_artifacts.sql"),
+      "utf8"
+    );
     for (const table of [
       "exomem_agent_contract_candidates",
       "exomem_routable_cell_contracts",
       "exomem_client_artifacts",
-    ]) assert.match(sql, new RegExp(`CREATE TABLE ${table}\\s*\\(`));
+    ])
+      assert.match(sql, new RegExp(`CREATE TABLE ${table}\\s*\\(`));
     assert.match(sql, /state IN \('pending', 'live', 'failed', 'retired'\)/i);
     assert.match(sql, /exomem_agent_contract_candidates_one_live_idx/i);
     assert.match(sql, /exomem_client_artifacts_one_live_idx/i);
@@ -26,7 +30,27 @@ describe("Exomem agent-contract artifact migration", () => {
     assert.match(sql, /claude_package_lock jsonb NOT NULL/i);
     assert.match(sql, /openai_package_lock jsonb/i);
     assert.doesNotMatch(sql, /client_identity text/i);
-    assert.match(sql, /state = 'failed' AND promoted_at IS NOT NULL AND retired_at IS NULL AND failed_at IS NOT NULL/i);
-    assert.doesNotMatch(sql, /(?:token|tenant_selector|cell_endpoint|prompt|result_text)\s+(?:text|jsonb)/i);
+    assert.match(
+      sql,
+      /state = 'failed' AND promoted_at IS NOT NULL AND retired_at IS NULL AND failed_at IS NOT NULL/i
+    );
+    assert.doesNotMatch(
+      sql,
+      /(?:token|tenant_selector|cell_endpoint|prompt|result_text)\s+(?:text|jsonb)/i
+    );
+  });
+
+  it("binds newly stored OpenAI artifacts to their exact contract candidate and app digest", () => {
+    const sql = readFileSync(
+      resolve(process.cwd(), "migrations/0032_exomem_client_artifact_identity.sql"),
+      "utf8"
+    );
+    assert.match(sql, /ADD COLUMN contract_candidate_id uuid/i);
+    assert.match(sql, /REFERENCES exomem_agent_contract_candidates\s*\(id\)/i);
+    assert.match(sql, /ADD COLUMN registered_app_id_sha256 text/i);
+    assert.match(sql, /registered_app_id_sha256 ~ '\^\[a-f0-9\]\{64\}\$'/i);
+    assert.match(sql, /exomem_client_artifacts_openai_contract_identity_check/i);
+    assert.match(sql, /NOT VALID/i);
+    assert.doesNotMatch(sql, /(?:registered_app_id|registeredAppId|app_id)\s+(?:text|jsonb)/i);
   });
 });
