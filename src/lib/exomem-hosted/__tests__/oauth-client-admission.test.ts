@@ -16,6 +16,7 @@ describe("operator OAuth client admission", () => {
         artifactId: "018f2d91-7c42-7000-8000-000000000001",
         clientId: "desktop-client",
         redirectUris: ["https://app.example.test/callback"],
+        ttlSeconds: 86_400,
       }),
       {
         admissionMode: "pinned",

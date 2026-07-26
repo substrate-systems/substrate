@@ -18,6 +18,8 @@ import {
   revokeOAuthTokenForClient,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
+import { oauthClientConfigSha256 } from "../oauth-client-admission";
+import { registerOperatorOAuthClient, setOperatorOAuthClientEnabled } from "../operator-controls";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const clientId = "https://client.example.test/metadata.json";
@@ -508,6 +510,46 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal(await resolveApprovedOAuthClient(clientId), null);
     await pool!.query(
       "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
+    );
+  });
+
+  it("admits only a client configuration bound to the matching promoted artifact", async () => {
+    const admittedClientId = `https://bound-client.example.test/${randomUUID()}`;
+    const redirectUri = "https://bound-client.example.test/callback";
+    const configDigest = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "pinned",
+      clientId: admittedClientId,
+      redirectUris: [redirectUri],
+    });
+    const artifact = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+    );
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+      [configDigest, artifact.rows[0]!.id]
+    );
+    const registered = await registerOperatorOAuthClient({
+      admissionMode: "pinned",
+      platform: "claude",
+      artifactId: artifact.rows[0]!.id,
+      clientId: admittedClientId,
+      redirectUris: [redirectUri],
+    });
+    assert.equal(registered.enabled, false);
+    assert.equal(
+      await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
+      true
+    );
+    assert.ok(await resolveApprovedOAuthClient(admittedClientId));
+    await pool!.query(
+      "UPDATE exomem_oauth_clients SET oauth_client_config_sha256 = $1 WHERE id = $2",
+      ["0".repeat(64), registered.id]
+    );
+    assert.equal(await resolveApprovedOAuthClient(admittedClientId), null);
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+      ["f".repeat(64), artifact.rows[0]!.id]
     );
   });
 

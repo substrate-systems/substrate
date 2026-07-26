@@ -252,11 +252,11 @@ export async function refreshOperatorCimdOAuthClient(
       WHERE id = ${clientRecordId}::uuid
         AND admission_mode = 'cimd'
         AND authority_version = ${current.authority_version}::uuid
-      RETURNING id
+      RETURNING id, enabled
     `;
-    const row = updated[0] as { id: string } | undefined;
+    const row = updated[0] as { id: string; enabled: boolean } | undefined;
     if (!row) throw exomemErrors.invalidRequest();
-    return { id: row.id, enabled: false };
+    return { id: row.id, enabled: row.enabled };
   });
 }
 
