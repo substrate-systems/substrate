@@ -28,15 +28,60 @@ type StoredContinuation = {
 
 const continuations = new Map<string, StoredContinuation>();
 const attached: Array<{ sessionId: string; transactionDigest: Buffer; codeDigest: Buffer }> = [];
-const tokenIssues: Array<Record<string, unknown>> = [];
-const refreshes: Array<Record<string, unknown>> = [];
-const revoked: Array<Record<string, unknown>> = [];
-let tokenIssueResponses: Array<{ scopes: string[]; refreshInserted: boolean } | null> = [];
-let refreshResponses: Array<{ scopes: string[] } | null> = [];
 let admitCalls: Array<Record<string, unknown>> = [];
+const codes = new Map<
+  string,
+  {
+    clientId: string;
+    redirectUri: string;
+    resource: string;
+    pkceChallenge: string;
+    consumed: boolean;
+  }
+>();
+const refreshCredentials = new Map<
+  string,
+  {
+    familyId: string;
+    clientId: string;
+    resource: string;
+    scopes: string[];
+    consumed: boolean;
+    policy: boolean;
+  }
+>();
+const families = new Map<string, { clientId: string; revoked: boolean; revokedReason?: string }>();
+const revocableCredentialFamilies = new Map<string, string>();
 
 function digestKey(value: Buffer): string {
   return value.toString("base64url");
+}
+
+function tokenKey(value: string): string {
+  return digestKey(digestSecret(value));
+}
+
+function seedCode(code: string): void {
+  codes.set(tokenKey(code), {
+    clientId: CLIENT_ID,
+    redirectUri: REDIRECT_URI,
+    resource: RESOURCE,
+    pkceChallenge: pkceS256(VERIFIER),
+    consumed: false,
+  });
+}
+
+function seedRefreshToken(token: string, input: { familyId: string; policy: boolean }): void {
+  families.set(input.familyId, { clientId: CLIENT_ID, revoked: false });
+  refreshCredentials.set(tokenKey(token), {
+    familyId: input.familyId,
+    clientId: CLIENT_ID,
+    resource: RESOURCE,
+    scopes: ["exomem.read"],
+    consumed: false,
+    policy: input.policy,
+  });
+  revocableCredentialFamilies.set(tokenKey(token), input.familyId);
 }
 
 function storedContinuation(input: StoredContinuation) {
@@ -83,35 +128,97 @@ before(() => {
         attached.push(input);
         return { grantId: "grant-1", tenantId: "tenant-1" };
       },
-      issueOAuthTokensFromCodeAtomic: async (input: Record<string, unknown>) => {
-        tokenIssues.push(input);
-        const next = tokenIssueResponses.shift() ?? null;
-        return next
-          ? {
-              grantId: "grant-1",
-              familyId: "family-1",
-              clientId: CLIENT_ID,
-              resource: RESOURCE,
-              scopes: next.scopes,
-              refreshInserted: next.refreshInserted,
-            }
-          : null;
+      issueOAuthTokensFromCodeAtomic: async (input: {
+        codeDigest: Buffer;
+        clientId: string;
+        redirectUri: string;
+        resource: string;
+        pkceChallenge: string;
+        refreshDigest: Buffer;
+        accessDigest: Buffer;
+      }) => {
+        const code = codes.get(digestKey(input.codeDigest));
+        if (
+          !code ||
+          code.consumed ||
+          code.clientId !== input.clientId ||
+          code.redirectUri !== input.redirectUri ||
+          code.resource !== input.resource ||
+          code.pkceChallenge !== input.pkceChallenge
+        ) {
+          return null;
+        }
+        code.consumed = true;
+        const familyId = `family-${codes.size}`;
+        families.set(familyId, { clientId: code.clientId, revoked: false });
+        refreshCredentials.set(digestKey(input.refreshDigest), {
+          familyId,
+          clientId: code.clientId,
+          resource: code.resource,
+          scopes: ["exomem.read"],
+          consumed: false,
+          policy: true,
+        });
+        revocableCredentialFamilies.set(digestKey(input.refreshDigest), familyId);
+        revocableCredentialFamilies.set(digestKey(input.accessDigest), familyId);
+        return {
+          grantId: "grant-1",
+          familyId,
+          clientId: code.clientId,
+          resource: code.resource,
+          scopes: ["exomem.read"],
+          refreshInserted: true,
+        };
       },
-      rotateOAuthRefreshTokenAtomic: async (input: Record<string, unknown>) => {
-        refreshes.push(input);
-        const next = refreshResponses.shift() ?? null;
-        return next
-          ? {
-              grantId: "grant-1",
-              familyId: "family-1",
-              clientId: CLIENT_ID,
-              resource: RESOURCE,
-              scopes: next.scopes,
-            }
-          : null;
+      rotateOAuthRefreshTokenAtomic: async (input: {
+        refreshDigest: Buffer;
+        replacementRefreshDigest: Buffer;
+        accessDigest: Buffer;
+        clientId: string;
+        resource: string;
+      }) => {
+        const credential = refreshCredentials.get(digestKey(input.refreshDigest));
+        const family = credential ? families.get(credential.familyId) : null;
+        if (
+          !credential ||
+          !family ||
+          family.revoked ||
+          credential.clientId !== input.clientId ||
+          credential.resource !== input.resource
+        ) {
+          return null;
+        }
+        if (credential.consumed) {
+          family.revoked = true;
+          family.revokedReason = "refresh_replayed";
+          return null;
+        }
+        if (!credential.policy) return null;
+        credential.consumed = true;
+        refreshCredentials.set(digestKey(input.replacementRefreshDigest), {
+          ...credential,
+          consumed: false,
+        });
+        revocableCredentialFamilies.set(
+          digestKey(input.replacementRefreshDigest),
+          credential.familyId
+        );
+        revocableCredentialFamilies.set(digestKey(input.accessDigest), credential.familyId);
+        return {
+          grantId: "grant-1",
+          familyId: credential.familyId,
+          clientId: credential.clientId,
+          resource: credential.resource,
+          scopes: credential.scopes,
+        };
       },
-      revokeOAuthTokenForClient: async (input: Record<string, unknown>) => {
-        revoked.push(input);
+      revokeOAuthTokenForClient: async (input: { tokenDigest: Buffer; clientId: string }) => {
+        const familyId = revocableCredentialFamilies.get(digestKey(input.tokenDigest));
+        const family = familyId ? families.get(familyId) : null;
+        if (family && family.clientId === input.clientId) {
+          family.revoked = true;
+          family.revokedReason = "client_revoked";
+        }
       },
       admitFirstOAuthInviteAtomic: async (input: Record<string, unknown>) => {
         admitCalls.push(input);
@@ -149,6 +256,9 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/access", {
     namedExports: {
+      redeemInvite: async () => {
+        throw new Error("the OAuth continuation path must use atomic admission");
+      },
       redeemMagicLink: async () => ({
         sessionToken: SESSION_TOKEN,
         csrfToken: Buffer.alloc(32, 0x32).toString("base64url"),
@@ -163,12 +273,11 @@ after(() => mock.reset());
 beforeEach(() => {
   continuations.clear();
   attached.length = 0;
-  tokenIssues.length = 0;
-  refreshes.length = 0;
-  revoked.length = 0;
   admitCalls = [];
-  tokenIssueResponses = [];
-  refreshResponses = [];
+  codes.clear();
+  refreshCredentials.clear();
+  families.clear();
+  revocableCredentialFamilies.clear();
 });
 
 function authorizeRequest(state = "client-state"): Request {
@@ -304,10 +413,9 @@ describe("Exomem OAuth routes", () => {
     assert.deepEqual(attached[0].transactionDigest, digestSecret(transaction));
   });
 
-  it("continues an authenticated browser, an invite, and a magic-link browser through the same transaction", async () => {
+  it("continues an authenticated browser and a magic-link browser through the same transaction", async () => {
     const { GET } = await import("../authorize/route");
     const { POST: complete } = await import("../authorize/complete/route");
-    const { POST: invite } = await import("../authorize/invite/route");
     const { POST: magic } = await import("../../access/magic-link/redeem/route");
     const started = await GET(authorizeRequest());
     const transaction = cookie(started, "exomem_oauth_tx");
@@ -316,26 +424,6 @@ describe("Exomem OAuth routes", () => {
       completionRequest({ transaction, nonce, confirmation: confirmation(started) })
     );
     assert.equal(existing.status, 303);
-    const inviteStarted = await GET(authorizeRequest("invite-state"));
-    const inviteTransaction = cookie(inviteStarted, "exomem_oauth_tx");
-    const inviteNonce = cookie(inviteStarted, "exomem_oauth_form_nonce");
-    const invited = await invite(
-      new Request(`${BASE_URL}/api/exomem/oauth/authorize/invite`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          origin: BASE_URL,
-          host: "hosted.example.test",
-          cookie: `exomem_oauth_tx=${inviteTransaction}; exomem_oauth_form_nonce=${inviteNonce}`,
-        },
-        body: JSON.stringify({
-          token: Buffer.alloc(32, 0x41).toString("base64url"),
-          nonce: inviteNonce,
-        }),
-      })
-    );
-    assert.equal(invited.status, 303);
-    assert.deepEqual(admitCalls[0].transactionDigest, digestSecret(inviteTransaction));
     const magicStarted = await GET(authorizeRequest("magic-state"));
     const magicTransaction = cookie(magicStarted, "exomem_oauth_tx");
     const magicResult = await magic(
@@ -356,10 +444,45 @@ describe("Exomem OAuth routes", () => {
     );
   });
 
+  it("redeems a first invite through the access route into the bound continuation", async () => {
+    const { GET } = await import("../authorize/route");
+    const { POST } = await import("../../access/redeem/route");
+    const inviteToken = Buffer.alloc(32, 0x41).toString("base64url");
+    const started = await GET(authorizeRequest("invite-state"));
+    const transaction = cookie(started, "exomem_oauth_tx");
+    const nonce = cookie(started, "exomem_oauth_form_nonce");
+    const redeemed = await POST(
+      new Request(`${BASE_URL}/api/exomem/access/redeem`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: BASE_URL,
+          host: "hosted.example.test",
+          cookie: `exomem_oauth_tx=${transaction}; exomem_oauth_form_nonce=${nonce}`,
+        },
+        body: JSON.stringify({ token: inviteToken }),
+      }) as never
+    );
+    assert.equal(redeemed.status, 200);
+    const body = (await redeemed.json()) as { destination: string };
+    const destination = new URL(body.destination);
+    assert.equal(destination.origin + destination.pathname, REDIRECT_URI);
+    assert.equal(destination.searchParams.get("state"), "invite-state");
+    assert.ok(destination.searchParams.get("code"));
+    assert.equal(JSON.stringify(body).includes(inviteToken), false);
+    assert.match(redeemed.headers.getSetCookie().join("\n"), /exomem_session=.*HttpOnly/i);
+    assert.match(redeemed.headers.getSetCookie().join("\n"), /exomem_oauth_tx=.*Max-Age=0/i);
+    assert.equal(admitCalls.length, 1);
+    assert.deepEqual(admitCalls[0].transactionDigest, digestSecret(transaction));
+    assert.deepEqual(admitCalls[0].inviteDigest, digestSecret(inviteToken));
+    assert.ok(Buffer.isBuffer(admitCalls[0].sessionDigest));
+    assert.ok(Buffer.isBuffer(admitCalls[0].codeDigest));
+  });
+
   it("exchanges one authorization code with exact PKCE and resource binding", async () => {
     const { POST } = await import("../token/route");
     const code = Buffer.alloc(32, 0x61).toString("base64url");
-    tokenIssueResponses = [{ scopes: ["exomem.read"], refreshInserted: true }, null];
+    seedCode(code);
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       code,
@@ -368,6 +491,24 @@ describe("Exomem OAuth routes", () => {
       code_verifier: VERIFIER,
       resource: RESOURCE,
     });
+    const wrongVerifier = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ ...Object.fromEntries(body), code_verifier: "w".repeat(43) }),
+      })
+    );
+    assert.equal(wrongVerifier.status, 400);
+    assert.equal(codes.get(tokenKey(code))?.consumed, false);
+    const wrongResource = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ ...Object.fromEntries(body), resource: `${RESOURCE}/other` }),
+      })
+    );
+    assert.equal(wrongResource.status, 400);
+    assert.equal(codes.get(tokenKey(code))?.consumed, false);
     const first = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
         method: "POST",
@@ -377,11 +518,7 @@ describe("Exomem OAuth routes", () => {
     );
     assert.equal(first.status, 200);
     assert.equal((await first.text()).includes(code), false);
-    assert.equal(tokenIssues.length, 1);
-    assert.equal(tokenIssues[0].clientId, CLIENT_ID);
-    assert.equal(tokenIssues[0].redirectUri, REDIRECT_URI);
-    assert.equal(tokenIssues[0].resource, RESOURCE);
-    assert.deepEqual(tokenIssues[0].pkceChallenge, pkceS256(VERIFIER));
+    assert.equal(codes.get(tokenKey(code))?.consumed, true);
     const replay = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
         method: "POST",
@@ -393,16 +530,27 @@ describe("Exomem OAuth routes", () => {
     assert.deepEqual(await replay.json(), { error: "invalid_grant" });
   });
 
-  it("rotates refresh tokens and returns the same invalid-grant result for replay or current-policy denial", async () => {
+  it("rotates a refresh token, revokes its family on replay, and leaves policy denial unconsumed", async () => {
     const { POST } = await import("../token/route");
     const refreshToken = Buffer.alloc(32, 0x71).toString("base64url");
-    refreshResponses = [{ scopes: ["exomem.read"] }, null, null];
+    const policyDeniedToken = Buffer.alloc(32, 0x72).toString("base64url");
+    seedRefreshToken(refreshToken, { familyId: "rotation-family", policy: true });
+    seedRefreshToken(policyDeniedToken, { familyId: "policy-family", policy: false });
     const body = new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
       client_id: CLIENT_ID,
       resource: RESOURCE,
     });
+    const wrongClient = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ ...Object.fromEntries(body), client_id: "other-client" }),
+      })
+    );
+    assert.equal(wrongClient.status, 400);
+    assert.equal(refreshCredentials.get(tokenKey(refreshToken))?.consumed, false);
     const success = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
         method: "POST",
@@ -411,27 +559,53 @@ describe("Exomem OAuth routes", () => {
       })
     );
     assert.equal(success.status, 200);
-    assert.equal(refreshes.length, 1);
-    assert.equal(refreshes[0].clientId, CLIENT_ID);
-    assert.equal(refreshes[0].resource, RESOURCE);
-    assert.equal(JSON.stringify(refreshes[0]).includes(refreshToken), false);
-    for (const scenario of ["replay", "policy-denied"]) {
-      const denied = await POST(
-        new Request(`${BASE_URL}/api/exomem/oauth/token`, {
-          method: "POST",
-          headers: { "content-type": "application/x-www-form-urlencoded" },
-          body,
-        })
-      );
-      assert.equal(denied.status, 400);
-      assert.deepEqual(await denied.json(), { error: "invalid_grant" });
-      assert.ok(scenario);
-    }
+    assert.equal(refreshCredentials.get(tokenKey(refreshToken))?.consumed, true);
+    const replay = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      })
+    );
+    assert.equal(replay.status, 400);
+    assert.deepEqual(await replay.json(), { error: "invalid_grant" });
+    assert.deepEqual(families.get("rotation-family"), {
+      clientId: CLIENT_ID,
+      revoked: true,
+      revokedReason: "refresh_replayed",
+    });
+    const policyDenied = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: policyDeniedToken,
+          client_id: CLIENT_ID,
+          resource: RESOURCE,
+        }),
+      })
+    );
+    assert.equal(policyDenied.status, 400);
+    assert.deepEqual(await policyDenied.json(), { error: "invalid_grant" });
+    assert.equal(refreshCredentials.get(tokenKey(policyDeniedToken))?.consumed, false);
+    assert.equal(families.get("policy-family")?.revoked, false);
   });
 
   it("returns RFC 7009 success for unknown revocation while invoking real-family revocation", async () => {
     const { POST } = await import("../revoke/route");
-    for (const token of ["unknown", Buffer.alloc(32, 0x81).toString("base64url")]) {
+    const knownToken = Buffer.alloc(32, 0x81).toString("base64url");
+    seedRefreshToken(knownToken, { familyId: "revocable-family", policy: true });
+    const wrongClient = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/revoke`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: "other-client", token: knownToken }),
+      })
+    );
+    assert.equal(wrongClient.status, 200);
+    assert.equal(families.get("revocable-family")?.revoked, false);
+    for (const token of ["unknown", knownToken]) {
       const response = await POST(
         new Request(`${BASE_URL}/api/exomem/oauth/revoke`, {
           method: "POST",
@@ -443,8 +617,11 @@ describe("Exomem OAuth routes", () => {
       assert.equal(await response.text(), "");
       assert.equal(response.headers.get("cache-control"), "no-store");
     }
-    assert.equal(revoked.length, 2);
-    assert.equal(revoked[1].clientId, CLIENT_ID);
+    assert.deepEqual(families.get("revocable-family"), {
+      clientId: CLIENT_ID,
+      revoked: true,
+      revokedReason: "client_revoked",
+    });
   });
 
   it("rejects oversized and non-form token requests without reflecting credentials", async () => {
