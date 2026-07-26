@@ -606,6 +606,68 @@ export async function revokeOAuthTokenFamily(familyId: string): Promise<void> {
   `;
 }
 
+/** Operator revocation is always fenced to the authoritative owner and tenant. */
+export async function revokeOAuthTokenFamilyForOwner(input: {
+  ownerUserId: string;
+  tenantId: string;
+  familyId: string;
+}): Promise<boolean> {
+  const { rows } = await executeExomemSql`
+    /* exomem:revoke-oauth-token-family-for-owner */
+    UPDATE exomem_oauth_token_families AS family
+    SET revoked_at = COALESCE(family.revoked_at, now()),
+        revoked_reason = COALESCE(family.revoked_reason, 'operator_revoked')
+    FROM exomem_oauth_grants AS grant
+    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
+    WHERE family.id = ${input.familyId}::uuid
+      AND grant.id = family.grant_id
+      AND grant.user_id = ${input.ownerUserId}::uuid
+      AND grant.tenant_id = ${input.tenantId}::uuid
+      AND tenant.owner_user_id = grant.user_id
+    RETURNING family.id
+  `;
+  return rows.length === 1;
+}
+
+/** Revokes every family for one authoritative owner/tenant pair, including deleted tenants. */
+export async function revokeOAuthTokenFamiliesForOwnerTenant(input: {
+  ownerUserId: string;
+  tenantId: string;
+  reason?: "operator_revoked" | "lifecycle_deleted";
+}): Promise<number> {
+  const { rows } = await executeExomemSql`
+    /* exomem:revoke-oauth-token-families-for-owner-tenant */
+    UPDATE exomem_oauth_token_families AS family
+    SET revoked_at = COALESCE(family.revoked_at, now()),
+        revoked_reason = COALESCE(family.revoked_reason, ${input.reason ?? "operator_revoked"})
+    FROM exomem_oauth_grants AS grant
+    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
+    WHERE grant.id = family.grant_id
+      AND grant.user_id = ${input.ownerUserId}::uuid
+      AND grant.tenant_id = ${input.tenantId}::uuid
+      AND tenant.owner_user_id = grant.user_id
+    RETURNING family.id
+  `;
+  return rows.length;
+}
+
+/** Lifecycle may revoke a tenant only after deletion has started; this is safe to call idempotently. */
+export async function revokeOAuthTokenFamiliesForDeletingTenant(tenantId: string): Promise<number> {
+  const { rows } = await executeExomemSql`
+    /* exomem:revoke-oauth-token-families-for-deleting-tenant */
+    UPDATE exomem_oauth_token_families AS family
+    SET revoked_at = COALESCE(family.revoked_at, now()),
+        revoked_reason = COALESCE(family.revoked_reason, 'lifecycle_deleted')
+    FROM exomem_oauth_grants AS grant
+    JOIN exomem_tenants AS tenant ON tenant.id = grant.tenant_id
+    WHERE grant.id = family.grant_id
+      AND grant.tenant_id = ${tenantId}::uuid
+      AND (tenant.deleted_at IS NOT NULL OR tenant.status = 'deleted' OR tenant.desired_state = 'deleted')
+    RETURNING family.id
+  `;
+  return rows.length;
+}
+
 /** RFC 7009 requires unknown or another client's credential to be indistinguishable. */
 export async function revokeOAuthTokenForClient(input: {
   tokenDigest: Buffer;

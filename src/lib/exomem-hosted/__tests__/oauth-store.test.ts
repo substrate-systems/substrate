@@ -5,7 +5,8 @@ import {
   findActiveOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
-  revokeOAuthTokenFamily,
+  revokeOAuthTokenFamiliesForDeletingTenant,
+  revokeOAuthTokenFamilyForOwner,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
 
@@ -141,8 +142,30 @@ describe("Exomem OAuth token store", () => {
     });
     const access = await findActiveOAuthAccessToken(Buffer.alloc(32, 4));
     assert.equal(access?.tenantId, "tenant-1");
-    await revokeOAuthTokenFamily("family-1");
+    await revokeOAuthTokenFamilyForOwner({
+      familyId: "family-1",
+      ownerUserId: "user-1",
+      tenantId: "tenant-1",
+    });
     assert.match(queries[0], /exomem_entitlements/i);
     assert.match(queries[1], /WHERE id = \?::uuid/i);
+    assert.match(queries[1], /grant\.user_id = \?::uuid/i);
+    assert.match(queries[1], /grant\.tenant_id = \?::uuid/i);
+  });
+
+  it("durably revokes every family once a tenant enters deletion", async () => {
+    let query = "";
+    __setExomemSqlForTests(async (strings) => {
+      query = strings.join("?");
+      return { rows: [{ id: "family-1" }] };
+    });
+
+    assert.equal(
+      await revokeOAuthTokenFamiliesForDeletingTenant("018f2d91-7c42-7000-8000-000000000001"),
+      1
+    );
+    assert.match(query, /tenant\.deleted_at IS NOT NULL/i);
+    assert.match(query, /tenant\.desired_state = 'deleted'/i);
+    assert.match(query, /lifecycle_deleted/i);
   });
 });

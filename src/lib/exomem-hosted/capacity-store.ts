@@ -2,11 +2,7 @@ import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 
 export type CapacityAllocationState =
-  | "reserved"
-  | "occupied"
-  | "uncertain"
-  | "retained_storage"
-  | "released";
+  "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
 
 export type CapacityTransitionReceipt = {
   previous: CapacityAllocationState;
@@ -358,6 +354,48 @@ export async function configureCapacityPoolAtomic(input: {
     `;
     return Boolean(updated.rows[0]);
   });
+}
+
+/** Operator-safe pool accounting: no provider, allocation, or tenant identifiers escape. */
+export async function getCapacityPoolStatus(): Promise<{
+  storageCapacityBytes: number;
+  reservedStorageBytes: number;
+  runtimeCapacitySlots: number;
+  reservedRuntimeSlots: number;
+  provisionReservationCapacity: number;
+  reservedProvisionSlots: number;
+  provisionClaimCapacity: number;
+  activeProvisionClaims: number;
+} | null> {
+  const { rows } = await executeExomemSql`
+    /* exomem:get-capacity-pool-status */
+    SELECT pool.storage_capacity_bytes,
+           pool.reserved_storage_bytes,
+           pool.runtime_capacity_slots,
+           pool.reserved_runtime_slots,
+           pool.provision_reservation_capacity,
+           pool.reserved_provision_slots,
+           pool.provision_claim_capacity,
+           count(claim.id)::integer AS active_claims
+    FROM exomem_capacity_pools AS pool
+    LEFT JOIN exomem_capacity_claims AS claim
+      ON claim.pool_id = pool.id AND claim.lease_expires_at > now()
+    WHERE pool.pool_key = 'exomem-hosted-alpha'
+    GROUP BY pool.id
+    LIMIT 1
+  `;
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    storageCapacityBytes: Number(row.storage_capacity_bytes),
+    reservedStorageBytes: Number(row.reserved_storage_bytes),
+    runtimeCapacitySlots: Number(row.runtime_capacity_slots),
+    reservedRuntimeSlots: Number(row.reserved_runtime_slots),
+    provisionReservationCapacity: Number(row.provision_reservation_capacity),
+    reservedProvisionSlots: Number(row.reserved_provision_slots),
+    provisionClaimCapacity: Number(row.provision_claim_capacity),
+    activeProvisionClaims: Number(row.active_claims),
+  };
 }
 
 /** The locked pool row serializes the active-claim count and insertion. */

@@ -283,6 +283,63 @@ export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContr
   }
 }
 
+export type OperatorExomemAgentContractStatus = {
+  id: string;
+  state: "pending" | "live" | "retired";
+  commandFingerprint: string;
+  schemaDigest: string;
+  compatibilityDigest: string;
+};
+
+/** Operator status exposes only candidate IDs and verification digests, never contract content. */
+export async function listExomemAgentContractStatus(): Promise<
+  OperatorExomemAgentContractStatus[]
+> {
+  const { rows } = await executeExomemSql`
+    /* exomem:list-agent-contract-status */
+    SELECT id, state, command_fingerprint, schema_digest, compatibility_digest
+    FROM exomem_agent_contract_candidates
+    WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+  return rows.flatMap((raw) => {
+    const row = raw as Record<string, unknown>;
+    if (
+      typeof row.id !== "string" ||
+      (row.state !== "pending" && row.state !== "live" && row.state !== "retired") ||
+      typeof row.command_fingerprint !== "string" ||
+      typeof row.schema_digest !== "string" ||
+      typeof row.compatibility_digest !== "string"
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: row.id,
+        state: row.state,
+        commandFingerprint: row.command_fingerprint,
+        schemaDigest: row.schema_digest,
+        compatibilityDigest: row.compatibility_digest,
+      },
+    ];
+  });
+}
+
+/** A rollback retires the live candidate atomically; it never marks it as a failed import. */
+export async function demoteExomemAgentContractCandidate(candidateId: string): Promise<boolean> {
+  const { rows } = await executeExomemSql`
+    /* exomem:demote-agent-contract-candidate */
+    UPDATE exomem_agent_contract_candidates
+    SET state = 'retired', retired_at = now()
+    WHERE id = ${candidateId}::uuid
+      AND profile_id = ${EXOMEM_HOSTED_PROFILE}
+      AND state = 'live'
+    RETURNING id
+  `;
+  return rows.length === 1;
+}
+
 /** Attach operator-signed, exact OpenAI locks after a registered app is rendered from this pinned release. */
 export async function attachOpenAiContractLocks(input: {
   candidateId: string;
