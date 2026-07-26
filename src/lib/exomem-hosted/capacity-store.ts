@@ -459,6 +459,57 @@ export async function acquireCapacityProviderWorkAtomic(input: {
   });
 }
 
+export async function markUnboundCellDestroyedAtomic(input: {
+  operationId: string;
+  leaseOwner: string;
+  cellId: string;
+}): Promise<boolean> {
+  return withExomemTransaction(async (tx) => {
+    const locked = await tx`
+      SELECT operation.operation_type, operation.tenant_id, allocation.id AS allocation_id,
+             allocation.operation_id AS allocation_operation_id, allocation.pool_id,
+             allocation.state, allocation.storage_bytes, allocation.runtime_slots, allocation.provision_slots,
+             pool.reserved_storage_bytes, pool.reserved_runtime_slots, pool.reserved_provision_slots
+      FROM exomem_lifecycle_operations AS operation
+      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+      JOIN exomem_cells AS cell ON cell.id = ${input.cellId}::uuid AND cell.tenant_id = tenant.id
+      LEFT JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
+      LEFT JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+      WHERE operation.id = ${input.operationId}::uuid AND operation.state = 'running'
+        AND operation.lease_owner = ${input.leaseOwner} AND operation.lease_expires_at > now()
+        AND operation.fence_generation = tenant.fence_generation AND cell.routing_state <> 'bound'
+        AND tenant.bound_cell_id IS DISTINCT FROM cell.id
+      FOR UPDATE OF operation, tenant, cell, allocation, pool
+    `;
+    const row = locked.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return false;
+    await tx`
+      UPDATE exomem_cells SET lifecycle_state = 'deleted', routing_state = 'retiring', desired_state = 'deleted',
+        provider_ref = NULL, private_endpoint_ciphertext = NULL, service_credential_ciphertext = NULL,
+        service_credential_digest = NULL, pending_service_credential_ciphertext = NULL,
+        pending_service_credential_digest = NULL, pending_credential_version = NULL,
+        retired_at = COALESCE(retired_at, now()), updated_at = now()
+      WHERE id = ${input.cellId}::uuid
+    `;
+    if (row.operation_type !== "provision" || !row.allocation_id) return true;
+    if (row.allocation_operation_id !== input.operationId || row.state === "released") return false;
+    const old = capacityUsage(row.state as CapacityAllocationState, {
+      storage_bytes: Number(row.storage_bytes),
+      runtime_slots: Number(row.runtime_slots),
+      provision_slots: Number(row.provision_slots),
+    });
+    await tx`
+      UPDATE exomem_capacity_pools SET reserved_storage_bytes = reserved_storage_bytes - ${old.storage},
+        reserved_runtime_slots = reserved_runtime_slots - ${old.runtime},
+        reserved_provision_slots = reserved_provision_slots - ${old.provision}, updated_at = now()
+      WHERE id = ${String(row.pool_id)}::uuid
+    `;
+    await tx`UPDATE exomem_capacity_allocations SET state = 'released', released_at = now(), updated_at = now() WHERE id = ${String(row.allocation_id)}::uuid`;
+    await tx`DELETE FROM exomem_capacity_claims WHERE allocation_id = ${String(row.allocation_id)}::uuid`;
+    return true;
+  });
+}
+
 /** Legacy CTE implementation retained temporarily for migration review. */
 // Kept solely to make this high-risk SQL rewrite easy to compare during review.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

@@ -1,6 +1,7 @@
 import { executeExomemSql } from "./db";
 import {
   acquireCapacityProviderWorkAtomic,
+  markUnboundCellDestroyedAtomic,
   releaseCapacityProvisionClaim,
   transitionCapacityAllocationAtomic,
 } from "./capacity-store";
@@ -1255,7 +1256,13 @@ export class SqlLifecycleStore implements LifecycleStore {
     owner: string,
     cellId: string
   ): Promise<boolean> {
-    const { rows } = await executeExomemSql`
+    return markUnboundCellDestroyedAtomic({
+      operationId,
+      leaseOwner: owner,
+      cellId,
+    });
+    if (false) {
+      const { rows } = await executeExomemSql`
       /* exomem:lifecycle-mark-unbound-cell-destroyed */
       UPDATE exomem_cells AS cell
       SET lifecycle_state = 'deleted',
@@ -1283,12 +1290,13 @@ export class SqlLifecycleStore implements LifecycleStore {
         AND tenant.bound_cell_id IS DISTINCT FROM cell.id
       RETURNING cell.id
     `;
-    if (rows.length !== 1) return false;
-    const operation = await this.#ownedOperationType(operationId, owner);
-    return (
-      operation !== "provision" ||
-      (await this.#transitionCapacityForOwnedOperation(operationId, owner, "released"))
-    );
+      if (rows.length !== 1) return false;
+      const operation = await this.#ownedOperationType(operationId, owner);
+      return (
+        operation !== "provision" ||
+        (await this.#transitionCapacityForOwnedOperation(operationId, owner, "released"))
+      );
+    }
   }
 
   async #ownedOperationType(operationId: string, owner: string): Promise<string | null> {
