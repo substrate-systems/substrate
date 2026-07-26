@@ -25,6 +25,7 @@ const LIVE = {
   schemaDigest: exomemHostedContractFixture.compatibility.schema_contract_sha256,
   compatibilityDigest: exomemHostedContractFixture.compatibility.compatibility_sha256,
   protocolVersion: exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+  mcpProtocolVersions: ["2025-11-25", "2025-06-18"],
   contract: exomemHostedContractFixture.compatibility,
 };
 
@@ -136,8 +137,8 @@ describe("Hosted MCP boundary", () => {
   });
 
   it("accepts only the application-supported MCP protocol versions", () => {
-    assert.equal(mcpProtocolSupported("2025-06-18"), true);
-    assert.equal(mcpProtocolSupported("2099-01-01"), false);
+    assert.equal(mcpProtocolSupported("2025-06-18", LIVE.mcpProtocolVersions), true);
+    assert.equal(mcpProtocolSupported("2099-01-01", LIVE.mcpProtocolVersions), false);
   });
 
   it("negotiates the pinned initialize version and rejects SDK legacy versions", async () => {
@@ -237,7 +238,7 @@ describe("Hosted MCP boundary", () => {
       }
     );
     const payload = (await response.json()) as {
-      result?: { _meta?: { exomem?: Record<string, unknown> } };
+      result?: { _meta?: { exomem?: Record<string, unknown> }; content?: Array<{ text?: string }> };
     };
     assert.equal(routes, 0);
     assert.equal(payload.result?._meta?.exomem?.code, "TENANT_PREPARING");

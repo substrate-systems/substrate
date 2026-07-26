@@ -13,6 +13,7 @@ const TRUSTED_RELEASE = {
   artifact_sha256: "b468f0425e7a021f3d7806991abdf6ae5724298fdd3cb6540cb68e1a4edb4c89",
   archive_sha256: "cdba2b1b1ca7f165915ff73a27f991228df13b0d6c67c2607f5c34fb4d563057",
 } as const;
+const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
 
 type JsonRecord = Record<string, unknown>;
 type ContractState = "pending" | "live" | "failed" | "retired";
@@ -26,6 +27,7 @@ type ExomemAgentContractCandidate = {
   schemaDigest: string;
   compatibilitySha256: string;
   protocolVersion: string;
+  mcpProtocolVersions?: string[];
   tools: unknown[];
   compatibility: JsonRecord;
   claudePackageLock: JsonRecord;
@@ -42,6 +44,7 @@ export type LiveExomemAgentContract = {
   schemaDigest: string;
   compatibilityDigest: string;
   protocolVersion: string;
+  mcpProtocolVersions?: string[];
   contract: JsonRecord;
 };
 
@@ -69,6 +72,18 @@ function sha256(value: unknown, label: string): string {
   const candidate = string(value, label);
   if (!/^[a-f0-9]{64}$/.test(candidate)) throw new Error(`${label} must be SHA-256`);
   return candidate;
+}
+
+function mcpProtocolVersions(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > 8 ||
+    value.some((version) => typeof version !== "string" || !/^20\d\d-\d\d-\d\d$/.test(version)) ||
+    new Set(value).size !== value.length
+  )
+    throw new Error("MCP protocol versions are invalid");
+  return [...value] as string[];
 }
 
 function canonical(value: unknown): string {
@@ -218,6 +233,7 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
     schemaDigest,
     compatibilitySha256: sha256(compatibility.compatibility_sha256, "compatibility digest"),
     protocolVersion: string(agentContract.protocol_version, "protocol version"),
+    mcpProtocolVersions: [...MCP_PROTOCOL_VERSIONS],
     tools,
     compatibility,
     claudePackageLock: packageLock,
@@ -235,12 +251,12 @@ export async function storeExomemAgentContractCandidate(): Promise<string> {
     /* exomem:store-agent-contract-candidate */
     INSERT INTO exomem_agent_contract_candidates (
       state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-      compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+      compatibility_digest, protocol_version, mcp_protocol_versions, contract, claude_package_lock, claude_archive_lock,
       openai_package_lock, openai_archive_lock
     ) VALUES (
       'pending', ${candidate.profile}, ${candidate.endpoint}, ${candidate.sourceRelease},
       ${candidate.commandSurfaceSha256}, ${candidate.schemaDigest}, ${candidate.compatibilitySha256},
-      ${candidate.protocolVersion}, ${JSON.stringify(candidate.compatibility)}::jsonb,
+      ${candidate.protocolVersion}, ${JSON.stringify(candidate.mcpProtocolVersions)}::jsonb, ${JSON.stringify(candidate.compatibility)}::jsonb,
       ${JSON.stringify(candidate.claudePackageLock)}::jsonb, ${JSON.stringify(candidate.claudeArchiveLock)}::jsonb,
       ${candidate.openaiPackageLock === null ? null : JSON.stringify(candidate.openaiPackageLock)}::jsonb,
       ${candidate.openaiArchiveLock === null ? null : JSON.stringify(candidate.openaiArchiveLock)}::jsonb
@@ -256,7 +272,7 @@ export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContr
   const { rows } = await executeExomemSql`
     /* exomem:get-live-agent-contract */
     SELECT profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-           compatibility_digest, protocol_version, contract
+           compatibility_digest, protocol_version, mcp_protocol_versions, contract
     FROM exomem_agent_contract_candidates
     WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
       AND endpoint = ${EXOMEM_HOSTED_RESOURCE}
@@ -276,6 +292,7 @@ export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContr
       schemaDigest: sha256(row.schema_digest, "live schema digest"),
       compatibilityDigest: sha256(row.compatibility_digest, "live compatibility digest"),
       protocolVersion: string(row.protocol_version, "live protocol version"),
+      mcpProtocolVersions: mcpProtocolVersions(row.mcp_protocol_versions),
       contract: record(row.contract, "live contract"),
     };
   } catch {

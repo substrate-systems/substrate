@@ -29,7 +29,6 @@ import { EXOMEM_RATE_LIMITS, clientAddressKey, takeExomemRateLimit } from "./rat
 import { controlPlaneKeyFromEnv, digestSecret } from "./security";
 
 const MAX_MCP_REQUEST_BYTES = 1024 * 1024;
-const MCP_PROTOCOLS = new Set(["2025-11-25", "2025-06-18"]);
 const MAX_MCP_CONCURRENCY = 16;
 let activeMcpCalls = 0;
 const activeMcpCallsByTenantClient = new Map<string, number>();
@@ -214,8 +213,11 @@ export function hasMcpSelector(
   return false;
 }
 
-export function mcpProtocolSupported(value: string | null): boolean {
-  return value !== null && MCP_PROTOCOLS.has(value);
+export function mcpProtocolSupported(
+  value: string | null,
+  supported: readonly string[] | undefined
+): boolean {
+  return value !== null && Boolean(supported?.includes(value));
 }
 
 function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool> {
@@ -520,8 +522,15 @@ export async function handleHostedMcpRequest(
     return new Response(null, { status: 405, headers: { allow: "POST" } });
   if (request.method !== "POST")
     return new Response(null, { status: 405, headers: { allow: "POST" } });
+  const live = await (dependencies.getLiveContract ?? getLiveExomemAgentContract)();
+  if (!live || live.profile !== EXOMEM_HOSTED_PROFILE || live.endpoint !== EXOMEM_HOSTED_RESOURCE) {
+    return Response.json({ error: "HOSTED_CONTRACT_UNAVAILABLE" }, { status: 503 });
+  }
   const protocol = request.headers.get("mcp-protocol-version");
-  if (protocol && !mcpProtocolSupported(protocol))
+  if (
+    !live.mcpProtocolVersions ||
+    (protocol && !mcpProtocolSupported(protocol, live.mcpProtocolVersions))
+  )
     return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
   let body: unknown;
   try {
@@ -542,17 +551,14 @@ export async function handleHostedMcpRequest(
     const params = object(envelope.params);
     if (
       !mcpProtocolSupported(
-        typeof params?.protocolVersion === "string" ? params.protocolVersion : null
+        typeof params?.protocolVersion === "string" ? params.protocolVersion : null,
+        live.mcpProtocolVersions
       )
     ) {
       return Response.json({ error: "MCP_PROTOCOL_UNSUPPORTED" }, { status: 400 });
     }
   }
 
-  const live = await (dependencies.getLiveContract ?? getLiveExomemAgentContract)();
-  if (!live || live.profile !== EXOMEM_HOSTED_PROFILE || live.endpoint !== EXOMEM_HOSTED_RESOURCE) {
-    return Response.json({ error: "HOSTED_CONTRACT_UNAVAILABLE" }, { status: 503 });
-  }
   let tools: Map<string, LiveTool>;
   try {
     tools = importedTools(live);
