@@ -127,6 +127,7 @@ export type GatewayResult = {
   status: number;
   body: Record<string, unknown>;
   requestId: string;
+  attempts?: number;
 };
 
 export type GatewayDependencies = {
@@ -697,6 +698,7 @@ async function forwardCommand(input: {
       status: response.status,
       body: envelope,
       requestId: input.requestId,
+      attempts: attempt + 1,
     };
   }
   throw exomemErrors.cellUnavailable();

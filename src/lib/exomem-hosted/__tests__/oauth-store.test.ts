@@ -59,7 +59,7 @@ describe("Exomem OAuth token store", () => {
     assert.doesNotMatch(queries[1] ?? "", /tenant\.status IN \('provisioning', 'active'\)/i);
     assert.match(queries[1] ?? "", /family\.grant_id = token\.grant_id/i);
     assert.match(queries[1] ?? "", /family\.client_id = token\.client_id/i);
-    assert.match(queries[1] ?? "", /family\.resource = token\.resource/i);
+    assert.doesNotMatch(queries[1] ?? "", /family\.resource = token\.resource/i);
     assert.match(queries[1] ?? "", /grant\.client_id = token\.client_id/i);
     assert.match(queries[1] ?? "", /grant\.resource = token\.resource/i);
     assert.match(queries[1] ?? "", /token\.scopes <@ grant\.scopes/i);

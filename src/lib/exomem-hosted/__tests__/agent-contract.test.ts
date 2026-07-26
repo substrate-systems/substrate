@@ -480,6 +480,15 @@ describe("Exomem Hosted agent contracts", () => {
       transactionQueries[1],
       /UPDATE exomem_agent_contract_candidates SET state = 'live'/i
     );
+    assert.match(transactionQueries[1], /candidate\.mcp_protocol_versions IS NOT NULL/i);
+    assert.match(
+      transactionQueries[1],
+      /jsonb_array_length\(candidate\.mcp_protocol_versions\) BETWEEN 1 AND 8/i
+    );
+    assert.match(
+      transactionQueries[1],
+      /version !~ '\^20\[0-9\]\{2\}-\[0-9\]\{2\}-\[0-9\]\{2\}\$'/i
+    );
     assert.equal(
       await demoteExomemAgentContractCandidate("00000000-0000-0000-0000-000000000004"),
       true

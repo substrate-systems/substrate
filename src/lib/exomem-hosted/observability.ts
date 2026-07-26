@@ -73,6 +73,7 @@ export type OperationalEvent = {
   releaseVersion?: string;
   durationBucket?: string;
   byteBucket?: string;
+  responseByteBucket?: string;
   countBucket?: string;
   capacityBucket?: string;
   transition?: string;
@@ -137,6 +138,9 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalBoundedLabel(input.byteBucket)
       ? { byteBucket: optionalBoundedLabel(input.byteBucket) }
+      : {}),
+    ...(optionalBoundedLabel(input.responseByteBucket)
+      ? { responseByteBucket: optionalBoundedLabel(input.responseByteBucket) }
       : {}),
     ...(optionalBoundedLabel(input.countBucket)
       ? { countBucket: optionalBoundedLabel(input.countBucket) }

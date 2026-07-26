@@ -9,6 +9,7 @@ import {
   admitFirstOAuthInviteAtomic,
   attachExistingOwnerAuthorizationAtomic,
   findActiveOAuthAccessToken,
+  findMcpOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
   resolveApprovedOAuthClient,
@@ -102,16 +103,19 @@ async function seedLiveCohort(): Promise<void> {
     plugin_version: "1.0.0",
   });
   const claude = lock("claude", "a".repeat(64), "b".repeat(64));
-  const openai = lock("openai", "e".repeat(64), "f".repeat(64));
-  await pool!.query(
+  const openai = {
+    ...lock("openai", "e".repeat(64), "f".repeat(64)),
+    registered_app_id_sha256: "9".repeat(64),
+  };
+  const contract = await pool!.query(
     `INSERT INTO exomem_agent_contract_candidates (
        state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-       compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+       compatibility_digest, protocol_version, mcp_protocol_versions, contract, claude_package_lock, claude_archive_lock,
        openai_package_lock, openai_archive_lock, promoted_at
      ) VALUES (
-       'live', 'hosted-alpha-agent-v1', $1, 'test', $2, $3, $4, '1', '{}'::jsonb,
+       'live', 'hosted-alpha-agent-v1', $1, 'test', $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
        $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, now()
-     )`,
+     ) RETURNING id`,
     [
       resource,
       "1".repeat(64),
@@ -129,9 +133,9 @@ async function seedLiveCohort(): Promise<void> {
          platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
          plugin_version, client_identity_sha256, paired_run_hmac_sha256,
          exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256,
-         result_sha256, observed_at, promoted_at
+         result_sha256, contract_candidate_id, registered_app_id_sha256, observed_at, promoted_at
        ) VALUES ($1, 'live', $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 'https://example.test/install', $11, $12, now(), now())`,
+                 'https://example.test/install', $11, $12, $13::uuid, $14, now(), now())`,
       [
         candidate.platform,
         candidate.artifact_sha256,
@@ -145,6 +149,10 @@ async function seedLiveCohort(): Promise<void> {
         "4".repeat(64),
         "5".repeat(64),
         "6".repeat(64),
+        candidate.platform === "openai" ? contract.rows[0].id : null,
+        candidate.platform === "openai"
+          ? (candidate as unknown as { registered_app_id_sha256: string }).registered_app_id_sha256
+          : null,
       ]
     );
   }
@@ -402,6 +410,76 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       ),
       1
     );
+  });
+
+  it("executes the MCP lookup against real coherent authority chains", async () => {
+    const internal = await seedClient();
+    const valid = await seedAuthorizationCode(internal, 160, false);
+    const issued = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: valid.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(161),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(162),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(issued);
+    assert.equal((await findMcpOAuthAccessToken(digest(162)))?.grantId, valid.grantId);
+
+    const otherClient = await pool!.query(
+      `INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris)
+       VALUES ('https://other-client.example.test/metadata.json', 'pinned', true, '[]'::jsonb)
+       RETURNING id`
+    );
+    const mixedGrant = await pool!.query(
+      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+       VALUES ($1, $2, $3, $4, ARRAY['exomem.read']) RETURNING id`,
+      [valid.userId, valid.tenantId, otherClient.rows[0].id, resource]
+    );
+    await pool!.query(
+      `UPDATE exomem_oauth_token_families SET grant_id = $1, client_id = $2 WHERE id = $3`,
+      [mixedGrant.rows[0].id, otherClient.rows[0].id, issued.familyId]
+    );
+    assert.equal(await findMcpOAuthAccessToken(digest(162)), null);
+
+    const resourceMismatch = await seedAuthorizationCode(internal, 170, false);
+    await issueOAuthTokensFromCodeAtomic({
+      codeDigest: resourceMismatch.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(171),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(172),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await pool!.query(
+      `UPDATE exomem_oauth_access_tokens SET resource = $1 WHERE access_digest = $2`,
+      [`${resource}/wrong`, digest(172)]
+    );
+    assert.equal(await findMcpOAuthAccessToken(digest(172)), null);
+
+    const elevatedScope = await seedAuthorizationCode(internal, 180, false);
+    await issueOAuthTokensFromCodeAtomic({
+      codeDigest: elevatedScope.codeDigest,
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(181),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(182),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await pool!.query(
+      `UPDATE exomem_oauth_access_tokens SET scopes = ARRAY['exomem.write'] WHERE access_digest = $1`,
+      [digest(182)]
+    );
+    assert.equal(await findMcpOAuthAccessToken(digest(182)), null);
   });
 
   it("fails authorization client resolution closed when either live artifact no longer matches", async () => {

@@ -634,10 +634,9 @@ export async function findMcpOAuthAccessToken(
            client.client_id, token.resource, token.scopes
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
-      ON family.id = token.family_id
+     ON family.id = token.family_id
      AND family.grant_id = token.grant_id
      AND family.client_id = token.client_id
-     AND family.resource = token.resource
      AND family.revoked_at IS NULL
      AND family.expires_at > now()
     JOIN exomem_oauth_grants AS grant

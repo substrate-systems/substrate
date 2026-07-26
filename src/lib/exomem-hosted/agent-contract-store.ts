@@ -521,6 +521,13 @@ export async function promoteExomemAgentContractCandidate(input: {
       SELECT 1 FROM candidate
       JOIN authority ON authority.profile_id = candidate.profile_id
       WHERE EXISTS (SELECT 1 FROM cells)
+        AND candidate.mcp_protocol_versions IS NOT NULL
+        AND jsonb_typeof(candidate.mcp_protocol_versions) = 'array'
+        AND jsonb_array_length(candidate.mcp_protocol_versions) BETWEEN 1 AND 8
+        AND NOT EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(candidate.mcp_protocol_versions) AS version
+          WHERE version !~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}$'
+        )
         AND authority.routable_set_digest = ${expected}
         AND authority.observed_at > now() - interval '5 minutes'
         AND authority.source_release = candidate.source_release

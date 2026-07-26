@@ -36,6 +36,7 @@ function request(body: unknown, headers: HeadersInit = {}): Request {
     headers: {
       authorization: `Bearer ${"a".repeat(43)}`,
       accept: "application/json, text/event-stream",
+      "content-type": "application/json",
       ...headers,
     },
   });
@@ -229,6 +230,7 @@ describe("Hosted MCP boundary", () => {
           state: "preparing",
           code: "TENANT_PREPARING",
           retryable: true,
+          requestId: "018f2d91-7c42-7000-8000-000000000101",
         }),
         routeCommand: async () => {
           routes += 1;
@@ -245,11 +247,51 @@ describe("Hosted MCP boundary", () => {
     assert.equal(payload.result?._meta?.exomem?.retryable, true);
     assert.equal(payload.result?._meta?.exomem?.retryAfterMs, 1000);
     assert.equal(payload.result?._meta?.exomem?.remediation, "retry_later");
-    assert.match(String(payload.result?._meta?.exomem?.requestId), /^[0-9a-f-]{36}$/i);
+    assert.equal(payload.result?._meta?.exomem?.requestId, "018f2d91-7c42-7000-8000-000000000101");
     assert.deepEqual(
       JSON.parse(payload.result?.content?.[0]?.text ?? "{}"),
       payload.result?._meta?.exomem
     );
+  });
+
+  it("preserves only bounded private retry metadata while redacting the private error text", async () => {
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async () => ({
+          status: 503,
+          requestId: "request",
+          body: {
+            success: false,
+            error: {
+              code: "CELL_UNAVAILABLE",
+              message: "private-cell-error-sentinel",
+              retryable: true,
+              retryAfterMs: 2000,
+              remediation: "retry_later",
+            },
+          },
+        }),
+        takeRateLimit: async () => true,
+      }
+    );
+    const payload = (await response.json()) as {
+      result?: { content?: Array<{ text?: string }>; _meta?: { exomem?: Record<string, unknown> } };
+    };
+    const meta = payload.result?._meta?.exomem;
+    assert.equal(meta?.retryAfterMs, 2000);
+    assert.equal(meta?.remediation, "retry_later");
+    assert.equal(JSON.stringify(payload).includes("private-cell-error-sentinel"), false);
+    assert.deepEqual(JSON.parse(payload.result?.content?.[0]?.text ?? "{}"), meta);
   });
 
   it("overlays the exact discovery order with read/write OAuth scopes", async () => {
@@ -530,6 +572,35 @@ describe("Hosted MCP boundary", () => {
     await Promise.all([...first.slice(1), ...overlap]);
   });
 
+  it("rejects excess authenticated requests before live-contract loading", async () => {
+    const waits: Array<ReturnType<typeof deferred>> = [];
+    let liveReads = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => {
+        liveReads += 1;
+        const wait = deferred();
+        waits.push(wait);
+        await wait.promise;
+        return LIVE;
+      },
+      takeRateLimit: async () => true,
+    };
+    const call = () =>
+      handleHostedMcpRequest(
+        request({ jsonrpc: "2.0", id: Math.random(), method: "tools/list" }),
+        dependencies
+      );
+    const first = [call(), call(), call(), call()];
+    while (liveReads < 4) await new Promise((resolve) => setTimeout(resolve, 0));
+    const excess = await call();
+    assert.equal(excess.status, 429);
+    assert.equal(liveReads, 4);
+    for (const wait of waits) wait.resolve();
+    await Promise.all(first);
+  });
+
   it("turns an aborted HTTP request into a stable MCP tool error before routing", async () => {
     const controller = new AbortController();
     const wait = deferred();
@@ -670,7 +741,9 @@ describe("Hosted MCP boundary", () => {
       assert.ok(result.structuredContent, tool.name);
     }
     await transport.close();
-    assert.equal(telemetry.length, 13);
+    assert.equal(telemetry.length, 16);
+    assert.equal(telemetry.filter((event) => event.requestClass === "tool").length, 13);
+    assert.equal(telemetry.filter((event) => event.requestClass === "request").length, 3);
     const serialized = JSON.stringify(telemetry);
     assert.equal(serialized.includes("client-secret-sentinel"), false);
     assert.equal(serialized.includes("https://substratesystems.io/api/exomem/mcp/v1"), false);
