@@ -62,7 +62,7 @@ CREATE INDEX exomem_capacity_claims_expiry_idx
 INSERT INTO exomem_capacity_allocations (
   pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state, occupied_at
 )
-SELECT pool.id, tenant.id, 5368709120, 1, 1, 'occupied', now()
+SELECT pool.id, tenant.id, 5368709120, 1, 0, 'occupied', now()
 FROM exomem_tenants AS tenant
 CROSS JOIN exomem_capacity_pools AS pool
 WHERE pool.pool_key = 'exomem-hosted-alpha'

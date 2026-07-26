@@ -34,7 +34,6 @@ describe("Exomem OAuth token store", () => {
       pkceChallenge: "challenge",
       refreshDigest: Buffer.alloc(32, 2),
       refreshExpiresAt: new Date("2026-08-01T00:00:00.000Z"),
-      refreshAllowed: true,
       accessDigest: Buffer.alloc(32, 3),
       accessExpiresAt: new Date("2026-07-26T01:00:00.000Z"),
     });

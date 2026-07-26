@@ -109,7 +109,11 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
              array_remove(transaction.requested_scopes, 'offline_access'),
              'offline_access' = ANY(transaction.requested_scopes), transaction.id
       FROM session CROSS JOIN transaction
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (user_id, tenant_id, client_id, resource) WHERE revoked_at IS NULL
+      DO UPDATE SET scopes = EXCLUDED.scopes,
+                    refresh_allowed = EXCLUDED.refresh_allowed,
+                    authorization_transaction_id = EXCLUDED.authorization_transaction_id,
+                    updated_at = now()
       RETURNING id, tenant_id
     ),
     code AS (
@@ -140,19 +144,46 @@ export async function pruneExpiredOAuthState(): Promise<void> {
     /* exomem:prune-expired-oauth-state */
     WITH expired_transactions AS (
       DELETE FROM exomem_oauth_authorization_transactions
-      WHERE expires_at <= now() AND consumed_at IS NULL
+      WHERE id IN (
+        SELECT id FROM exomem_oauth_authorization_transactions
+        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
+        ORDER BY expires_at LIMIT 500
+      )
       RETURNING id
     ), expired_codes AS (
       DELETE FROM exomem_oauth_authorization_codes
-      WHERE expires_at <= now() OR consumed_at IS NOT NULL
+      WHERE id IN (
+        SELECT id FROM exomem_oauth_authorization_codes
+        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
+        ORDER BY expires_at LIMIT 500
+      )
       RETURNING id
     ), expired_access AS (
       DELETE FROM exomem_oauth_access_tokens
-      WHERE expires_at <= now()
+      WHERE id IN (
+        SELECT id FROM exomem_oauth_access_tokens
+        WHERE expires_at <= now() OR revoked_at < now() - interval '1 day'
+        ORDER BY expires_at LIMIT 500
+      )
       RETURNING id
     ), expired_refresh AS (
       DELETE FROM exomem_oauth_refresh_tokens
-      WHERE expires_at <= now()
+      WHERE id IN (
+        SELECT id FROM exomem_oauth_refresh_tokens
+        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
+        ORDER BY expires_at LIMIT 500
+      )
+      RETURNING family_id
+    ), expired_families AS (
+      DELETE FROM exomem_oauth_token_families
+      WHERE id IN (
+        SELECT family.id FROM exomem_oauth_token_families AS family
+        WHERE (family.expires_at <= now() OR family.revoked_at < now() - interval '1 day')
+          AND NOT EXISTS (
+            SELECT 1 FROM exomem_oauth_refresh_tokens AS token WHERE token.family_id = family.id
+          )
+        ORDER BY family.expires_at LIMIT 500
+      )
       RETURNING id
     )
     UPDATE exomem_oauth_clients
@@ -391,7 +422,6 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
   pkceChallenge: string;
   refreshDigest: Buffer;
   refreshExpiresAt: Date;
-  refreshAllowed: boolean;
   accessDigest: Buffer;
   accessExpiresAt: Date;
 }): Promise<OAuthTokenContext | null> {
@@ -408,13 +438,15 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       WHERE code.code_digest = ${input.codeDigest}
         AND code.grant_id = grant.id
         AND code.client_id = client.id
+        AND grant.client_id = code.client_id
+        AND grant.resource = code.resource
         AND code.redirect_uri = ${input.redirectUri}
         AND code.resource = ${input.resource}
         AND code.pkce_challenge = ${input.pkceChallenge}
         AND code.consumed_at IS NULL
         AND code.expires_at > now()
         AND grant.revoked_at IS NULL
-      RETURNING code.grant_id, code.client_id, code.resource
+      RETURNING code.grant_id, code.client_id, code.resource, code.refresh_allowed
     ),
     family AS (
       INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
@@ -426,7 +458,8 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
       SELECT ${input.refreshDigest}, id, ${input.refreshExpiresAt.toISOString()}
       FROM family
-      WHERE ${input.refreshAllowed}
+      JOIN consumed_code ON consumed_code.grant_id = family.grant_id
+      WHERE consumed_code.refresh_allowed
       RETURNING family_id
     ),
     access AS (
