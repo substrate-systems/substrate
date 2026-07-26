@@ -33,6 +33,7 @@ const MAX_MCP_CONCURRENCY = 16;
 let activeMcpCalls = 0;
 const activeMcpCallsByTenantClient = new Map<string, number>();
 const MAX_MCP_TENANT_CLIENT_CONCURRENCY = 4;
+const MCP_BODY_TIMEOUT_MS = 10_000;
 const PRIVATE_ERROR_MESSAGES: Record<string, string> = {
   CELL_UNAVAILABLE: "your Exomem is temporarily unavailable",
   COMMAND_NOT_FOUND: "that Exomem action is not available",
@@ -75,6 +76,7 @@ export type McpDependencies = {
   baseUrl?: string;
   telemetry?: (event: OperationalEvent) => void;
   telemetryKey?: Buffer;
+  bodyTimeoutMs?: number;
 };
 
 function object(value: unknown): JsonRecord | null {
@@ -495,7 +497,8 @@ function toolFailure(
 }
 
 async function boundedBody(
-  request: Request
+  request: Request,
+  signal: AbortSignal
 ): Promise<{ value: unknown; bytes: number } | { error: ExomemHostedError; bytes?: number }> {
   const length = request.headers.get("content-length");
   if (length && (!/^\d+$/.test(length) || Number(length) > MAX_MCP_REQUEST_BYTES))
@@ -503,10 +506,24 @@ async function boundedBody(
   const reader = request.body?.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let interrupted = false;
   if (reader) {
     try {
       while (true) {
-        const { done, value } = await reader.read();
+        const { done, value } = await new Promise<ReadableStreamReadResult<Uint8Array>>(
+          (resolve, reject) => {
+            if (signal.aborted) {
+              reject(exomemErrors.cellUnavailable());
+              return;
+            }
+            const onAbort = () => reject(exomemErrors.cellUnavailable());
+            signal.addEventListener("abort", onAbort, { once: true });
+            void reader
+              .read()
+              .then(resolve, reject)
+              .finally(() => signal.removeEventListener("abort", onAbort));
+          }
+        );
         if (done) break;
         total += value.byteLength;
         if (total > MAX_MCP_REQUEST_BYTES) {
@@ -515,10 +532,32 @@ async function boundedBody(
         }
         chunks.push(value);
       }
+    } catch (error) {
+      if (signal.aborted || error instanceof ExomemHostedError) {
+        interrupted = true;
+        return { error: exomemErrors.cellUnavailable(), bytes: total || undefined };
+      }
+      throw error;
     } finally {
-      reader.releaseLock();
+      if (interrupted) {
+        void reader.cancel().then(
+          () => {
+            try {
+              reader.releaseLock();
+            } catch {}
+          },
+          () => {
+            try {
+              reader.releaseLock();
+            } catch {}
+          }
+        );
+      } else {
+        reader.releaseLock();
+      }
     }
   }
+  if (signal.aborted) return { error: exomemErrors.cellUnavailable(), bytes: total || undefined };
   const bytes = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
@@ -676,7 +715,17 @@ export async function handleHostedMcpRequest(
       let body: unknown;
       let requestBytes: number;
       try {
-        const parsed = await boundedBody(request);
+        const bodyTimeoutMs =
+          typeof dependencies.bodyTimeoutMs === "number" &&
+          Number.isInteger(dependencies.bodyTimeoutMs) &&
+          dependencies.bodyTimeoutMs > 0 &&
+          dependencies.bodyTimeoutMs <= MCP_BODY_TIMEOUT_MS
+            ? dependencies.bodyTimeoutMs
+            : MCP_BODY_TIMEOUT_MS;
+        const parsed = await boundedBody(
+          request,
+          AbortSignal.any([request.signal, AbortSignal.timeout(bodyTimeoutMs)])
+        );
         if ("error" in parsed)
           return authenticatedDenial(
             parsed.error.code,

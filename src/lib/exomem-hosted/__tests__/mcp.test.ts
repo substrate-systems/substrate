@@ -838,6 +838,60 @@ describe("Hosted MCP boundary", () => {
     await Promise.all(first);
   });
 
+  it("times out stalled authenticated bodies and releases their tenant-client capacity", async () => {
+    let cancellations = 0;
+    const stalledRequest = () =>
+      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${"a".repeat(43)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-protocol-version": LIVE.mcpProtocolVersions[0],
+        },
+        body: new ReadableStream<Uint8Array>({
+          pull() {},
+          cancel() {
+            cancellations += 1;
+          },
+        }),
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      bodyTimeoutMs: 20,
+      findAccessToken: async () => ACCESS,
+      getLiveContract: async () => LIVE,
+      takeRateLimit: async () => true,
+    };
+
+    const stalled = [
+      handleHostedMcpRequest(stalledRequest(), dependencies),
+      handleHostedMcpRequest(stalledRequest(), dependencies),
+      handleHostedMcpRequest(stalledRequest(), dependencies),
+      handleHostedMcpRequest(stalledRequest(), dependencies),
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const whileStalled = await handleHostedMcpRequest(
+      request({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      dependencies
+    );
+    assert.equal(whileStalled.status, 429);
+
+    for (const response of await Promise.all(stalled)) {
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), { error: "CELL_UNAVAILABLE" });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(cancellations, 4);
+
+    const afterTimeout = await handleHostedMcpRequest(
+      request({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+      dependencies
+    );
+    assert.equal(afterTimeout.status, 200);
+  });
+
   it("turns an aborted HTTP request into a stable MCP tool error before routing", async () => {
     const controller = new AbortController();
     const wait = deferred();
