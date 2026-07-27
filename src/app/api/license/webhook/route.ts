@@ -11,6 +11,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Paddle still targets this compatibility URL. The handler itself is for the
+// recognition-only supporter purchase; the retired licence model is not
+// reintroduced by keeping an externally configured route stable.
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const secret = process.env.PADDLE_WEBHOOK_SECRET;
   if (!secret) {
@@ -68,21 +72,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Supporter tier: recognition only — NO license key. Thank the buyer (and
+  // Supporter tier: recognition only — no entitlement key. Thank the buyer (and
   // invite opt-in public listing) + notify founder@ so the name can be added to
-  // SUPPORTERS.md. Reuses the existing Brevo infra; no license key is issued.
+  // SUPPORTERS.md. Reuses the existing Brevo infra; no key is issued.
   if (eventPriceIds.includes(supporterPriceId)) {
     return handleSupporterPurchase(event);
   }
 
-  // No other one-time SKU is handled (the lifetime license SKU was retired).
+  // No other one-time SKU is handled (the lifetime product was retired).
   return NextResponse.json(
     { ignored: true, reason: "no handler for transaction" },
     { status: 200 }
   );
 }
 
-// Supporter tier handler (recognition only, NO license key). Thanks the buyer,
+// Supporter tier handler (recognition only, no entitlement key). Thanks the buyer,
 // invites opt-in public listing, and notifies founder@ to update SUPPORTERS.md.
 // v1: no persistent idempotency (low-volume goodwill tier) — always returns 200
 // so Paddle does not retry; a rare double-delivery could send a duplicate email.
@@ -121,8 +125,8 @@ async function handleSupporterPurchase(event: unknown): Promise<NextResponse> {
   await sendTransactionalEmail({
     to: "founder@substratesystems.io",
     subject: `New Endstate supporter: ${email ?? "unknown email"}`,
-    htmlContent: `<p>New Supporter License purchase.</p><p>Email: ${esc(email ?? "unknown")}<br/>Transaction: ${esc(transactionId)}</p><p>If they reply opting in, add their name to SUPPORTERS.md.</p>`,
-    textContent: `New Supporter License purchase.\nEmail: ${email ?? "unknown"}\nTransaction: ${transactionId}\nIf they reply opting in, add their name to SUPPORTERS.md.`,
+    htmlContent: `<p>New Endstate supporter purchase.</p><p>Email: ${esc(email ?? "unknown")}<br/>Transaction: ${esc(transactionId)}</p><p>If they reply opting in, add their name to SUPPORTERS.md.</p>`,
+    textContent: `New Endstate supporter purchase.\nEmail: ${email ?? "unknown"}\nTransaction: ${transactionId}\nIf they reply opting in, add their name to SUPPORTERS.md.`,
   }).catch((err) => console.error("[supporter webhook] founder notification failed:", err));
 
   if (email) {
@@ -136,12 +140,16 @@ async function handleSupporterPurchase(event: unknown): Promise<NextResponse> {
 
   // Captured before acknowledgement, after the notifications that carry the
   // actual obligation. Deliberately carries no email and no transaction id: a
-  // supporter purchase is a revenue count here, and the buyer's identity already
-  // lives in Paddle and in the founder notification. captureServer swallows its
-  // own failures, so this cannot cost the 200 and trigger a redelivery.
+  // supporter purchase is joined only to the browser's anonymous session. No
+  // customer id, email, person profile, or machine identity enters PostHog.
+  // captureServer swallows its own failures, so this cannot cost the 200 and
+  // trigger a redelivery.
+  const rawDistinctId = (event as { data?: { custom_data?: { ph_distinct_id?: unknown } } })?.data
+    ?.custom_data?.ph_distinct_id;
   await captureServer({
-    event: ServerEvent.LicensePurchased,
-    distinctId: null,
+    event: ServerEvent.SupporterPurchased,
+    distinctId:
+      typeof rawDistinctId === "string" && rawDistinctId.length > 0 ? rawDistinctId : null,
     properties: { product: "supporter" },
   });
 

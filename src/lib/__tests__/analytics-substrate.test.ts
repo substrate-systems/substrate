@@ -25,13 +25,7 @@ before(() => {
       capture: () => {
         throw new Error("posthog-js called before init");
       },
-      identify: () => {
-        throw new Error("posthog-js called before init");
-      },
       get_distinct_id: () => {
-        throw new Error("posthog-js called before init");
-      },
-      reset: () => {
         throw new Error("posthog-js called before init");
       },
     },
@@ -59,19 +53,19 @@ describe("client analytics degrade to no-ops before init", () => {
     assert.doesNotThrow(() => capture(AnalyticsEvent.CheckoutStarted, { product: "supporter" }));
   });
 
-  it("identify does not throw when the SDK never initialised", async () => {
-    const { identify } = await import("../analytics");
-    assert.doesNotThrow(() => identify("user-1"));
+  it("does not expose an identification lifecycle without a safe identity model", async () => {
+    const analytics = await import("../analytics");
+    assert.equal("identify" in analytics, false);
+    assert.equal("resetIdentity" in analytics, false);
   });
+});
 
-  it("identify ignores an empty id rather than creating a blank person", async () => {
-    const { identify } = await import("../analytics");
-    assert.doesNotThrow(() => identify(""));
-  });
-
-  it("resetIdentity does not throw when the SDK never initialised", async () => {
-    const { resetIdentity } = await import("../analytics");
-    assert.doesNotThrow(() => resetIdentity());
+describe("server event taxonomy", () => {
+  it("names supporter revenue without the retired licence model", async () => {
+    const { ServerEvent } = await import("../analytics-events");
+    assert.equal(ServerEvent.SupporterPurchased, "supporter_purchased");
+    assert.equal("LicensePurchased" in ServerEvent, false);
+    assert.equal("LicenseActivated" in ServerEvent, false);
   });
 });
 
