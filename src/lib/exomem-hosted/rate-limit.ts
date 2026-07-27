@@ -9,10 +9,25 @@ export type ExomemRateLimitRule = {
 };
 
 export const EXOMEM_RATE_LIMITS = {
-  adminInvites: {
-    scope: "exomem:admin-invite",
-    limit: 30,
-    windowSeconds: 60 * 60,
+  adminPreAuthReadIp: {
+    scope: "exomem:admin-pre-auth-read-ip",
+    limit: 300,
+    windowSeconds: 60,
+  },
+  adminPreAuthMutationIp: {
+    scope: "exomem:admin-pre-auth-mutation-ip",
+    limit: 120,
+    windowSeconds: 10 * 60,
+  },
+  adminAuthenticatedRead: {
+    scope: "exomem:admin-authenticated-read",
+    limit: 600,
+    windowSeconds: 60,
+  },
+  adminAuthenticatedMutation: {
+    scope: "exomem:admin-authenticated-mutation",
+    limit: 60,
+    windowSeconds: 60,
   },
   magicLinkAccount: {
     scope: "exomem:magic-link:account",
@@ -23,6 +38,36 @@ export const EXOMEM_RATE_LIMITS = {
     scope: "exomem:magic-link:ip",
     limit: 20,
     windowSeconds: 60 * 60,
+  },
+  oauthAuthorizeIp: {
+    scope: "exomem:oauth-authorize:ip",
+    limit: 60,
+    windowSeconds: 10 * 60,
+  },
+  oauthAuthorizeClient: {
+    scope: "exomem:oauth-authorize:client",
+    limit: 120,
+    windowSeconds: 10 * 60,
+  },
+  oauthTokenIp: {
+    scope: "exomem:oauth-token:ip",
+    limit: 30,
+    windowSeconds: 60,
+  },
+  oauthRevokeIp: {
+    scope: "exomem:oauth-revoke:ip",
+    limit: 30,
+    windowSeconds: 60,
+  },
+  mcpIp: {
+    scope: "exomem:mcp:ip",
+    limit: 120,
+    windowSeconds: 60,
+  },
+  mcpIdentity: {
+    scope: "exomem:mcp:identity",
+    limit: 300,
+    windowSeconds: 60,
   },
   deletionConfirmation: {
     scope: "exomem:deletion-confirmation",

@@ -15,3 +15,25 @@ test("rate-limit identifiers are stable only within one secret and scope", () =>
   assert.equal(first.includes(EMAIL), false);
   assert.match(first, /^[0-9a-f]{64}$/);
 });
+
+test("operator pre-auth reads, mutations, and authenticated actions have independent buckets", () => {
+  const rules = EXOMEM_RATE_LIMITS as Record<string, { scope: string }>;
+  assert.notEqual(rules.adminPreAuthReadIp?.scope, rules.adminPreAuthMutationIp?.scope);
+  assert.notEqual(rules.adminPreAuthReadIp?.scope, rules.adminAuthenticatedRead?.scope);
+  assert.notEqual(rules.adminPreAuthMutationIp?.scope, rules.adminAuthenticatedMutation?.scope);
+  assert.notEqual(rules.adminAuthenticatedRead?.scope, rules.adminAuthenticatedMutation?.scope);
+});
+
+test("OAuth token exchanges use a dedicated bounded IP rule", () => {
+  const rule = EXOMEM_RATE_LIMITS.oauthTokenIp;
+  assert.equal(rule.scope, "exomem:oauth-token:ip");
+  assert.ok(rule.limit > 0);
+  assert.ok(rule.windowSeconds > 0);
+});
+
+test("OAuth revocation uses a dedicated bounded IP rule", () => {
+  const rule = EXOMEM_RATE_LIMITS.oauthRevokeIp;
+  assert.equal(rule.scope, "exomem:oauth-revoke:ip");
+  assert.ok(rule.limit > 0);
+  assert.ok(rule.windowSeconds > 0);
+});

@@ -1,4 +1,5 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import type { SecretEnvelope } from "./security";
@@ -14,8 +15,34 @@ export type ExomemSql = (
 ) => Promise<ExomemSqlResult>;
 
 let sqlClient: ExomemSql | null = null;
+let injectedSqlClient: ExomemSql | null = null;
+let transactionPool: Pool | null = null;
+
+export type ExomemTransactionRunner = <T>(callback: (tx: ExomemSql) => Promise<T>) => Promise<T>;
+
+let transactionRunner: ExomemTransactionRunner | null = null;
+
+function taggedPgSql(client: PoolClient): ExomemSql {
+  return async (strings, ...values) => {
+    let text = strings[0];
+    for (let index = 0; index < values.length; index += 1) {
+      text += `$${index + 1}${strings[index + 1]}`;
+    }
+    const result = await client.query(text, values);
+    return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+  };
+}
+
+export type ExomemTransaction = {
+  query: (text: string, values?: unknown[]) => Promise<ExomemSqlResult>;
+};
+
+let transactionClient:
+  | ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>)
+  | null = null;
 
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<ExomemSqlResult> {
+  if (injectedSqlClient) return injectedSqlClient(strings, ...values);
   if (!sqlClient) {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) throw new Error("DATABASE_URL is not set");
@@ -29,7 +56,53 @@ function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Exome
 }
 
 export function __setExomemSqlForTests(next: ExomemSql | null): void {
-  sqlClient = next;
+  injectedSqlClient = next;
+}
+
+/** Test seam for one-connection interactive transactions. */
+export function __setExomemTransactionForTests(next: ExomemTransactionRunner | null): void;
+export function __setExomemTransactionForTests(
+  next: ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>) | null
+): void;
+export function __setExomemTransactionForTests(
+  next:
+    | ExomemTransactionRunner
+    | ((work: (transaction: ExomemTransaction) => Promise<void>) => Promise<void>)
+    | null
+): void {
+  transactionRunner = next as ExomemTransactionRunner | null;
+  transactionClient = next as typeof transactionClient;
+}
+
+/** Run sequential authority writes over one PostgreSQL connection. */
+export async function executeExomemTransaction(
+  work: (transaction: ExomemTransaction) => Promise<void>
+): Promise<void> {
+  if (transactionClient) return transactionClient(work);
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  let client: PoolClient | undefined;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await work({
+      query: async (text, values = []) => {
+        const result = await client!.query(text, values);
+        return {
+          rows: result.rows as Array<Record<string, unknown>>,
+          rowCount: result.rowCount ?? 0,
+        };
+      },
+    });
+    await client.query("COMMIT");
+  } catch (error) {
+    if (client) await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client?.release();
+    await pool.end();
+  }
 }
 
 /** Shared product-scoped SQL executor for narrowly typed store modules. */
@@ -38,6 +111,36 @@ export function executeExomemSql(
   ...values: unknown[]
 ): Promise<ExomemSqlResult> {
   return sql(strings, ...values);
+}
+
+/**
+ * Execute dependent reads and writes on one PostgreSQL connection. The normal
+ * read/write path remains Neon HTTP; only flows that need row-lock ordering use
+ * this interactive transaction boundary.
+ */
+export async function withExomemTransaction<T>(
+  callback: (tx: ExomemSql) => Promise<T>
+): Promise<T> {
+  if (transactionRunner) return transactionRunner(callback);
+  if (injectedSqlClient) {
+    throw new Error("interactive Exomem transaction runner is not configured");
+  }
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error("DATABASE_URL is not set");
+  transactionPool ??= new Pool({ connectionString: databaseUrl });
+  const client = await transactionPool.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+    const result = await callback(taggedPgSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export type EntitlementSource = "complimentary" | "paddle";
@@ -142,9 +245,9 @@ export type RedeemedAccess = {
 };
 
 /**
- * Consume an invite and create every product-scoped row in one SQL statement.
- * The locked invite is the dependency root for all data-modifying CTEs, so a
- * replay or concurrent caller returns no row and cannot create a second tenant.
+ * Pre-MCP compatibility only: consume an invite through the legacy unmetered
+ * path. OAuth/MCP first-owner admission never calls this function; it uses the
+ * capacity-aware transaction in oauth-store instead.
  */
 export async function redeemInviteAtomic(
   input: RedeemInviteAtomicInput
@@ -172,8 +275,8 @@ export async function redeemInviteAtomic(
       RETURNING id
     ),
     tenant AS (
-      INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
-      SELECT id, 'provisioning', 'running'
+      INSERT INTO exomem_tenants (owner_user_id, status, desired_state, legacy_unmetered)
+      SELECT id, 'provisioning', 'running', true
       FROM owner
       ON CONFLICT (owner_user_id) DO UPDATE
       SET updated_at = exomem_tenants.updated_at
@@ -1015,6 +1118,12 @@ export type GatewayTarget = ActiveCellBinding & {
   capabilities: string[];
   resourceLimits: Record<string, number>;
   manuallySuspended: boolean;
+  hostedProfile?: string | null;
+  hostedSourceRelease?: string | null;
+  hostedProtocolVersion?: string | null;
+  hostedCommandFingerprint?: string | null;
+  hostedContractDigest?: string | null;
+  hostedCompatibilityDigest?: string | null;
 };
 
 /** Resolve all routing and authorization state from one authoritative snapshot. */
@@ -1041,13 +1150,23 @@ export async function resolveGatewayTarget(input: {
            entitlement.effective_state AS entitlement_effective_state,
            entitlement.capabilities,
            entitlement.resource_limits,
-           entitlement.manual_suspended_at
+           entitlement.manual_suspended_at,
+           hosted_contract.profile_id AS hosted_profile,
+           hosted_contract.source_release AS hosted_source_release,
+           hosted_contract.protocol_version AS hosted_protocol_version,
+           hosted_contract.command_fingerprint AS hosted_command_fingerprint,
+           hosted_contract.contract_digest AS hosted_contract_digest,
+           hosted_contract.compatibility_digest AS hosted_compatibility_digest
     FROM exomem_tenants AS tenant
     JOIN exomem_cells AS cell
       ON cell.id = tenant.bound_cell_id
      AND cell.tenant_id = tenant.id
     JOIN exomem_entitlements AS entitlement
       ON entitlement.tenant_id = tenant.id
+    LEFT JOIN exomem_routable_cell_contracts AS hosted_contract
+      ON hosted_contract.cell_id = cell.id
+     AND hosted_contract.profile_id = 'hosted-alpha-agent-v1'
+     AND hosted_contract.routable = true
     WHERE tenant.id = ${input.tenantId}
       AND tenant.owner_user_id = ${input.userId}
     LIMIT 2
@@ -1093,6 +1212,17 @@ export async function resolveGatewayTarget(input: {
     capabilities,
     resourceLimits,
     manuallySuspended: row.manual_suspended_at != null,
+    hostedProfile: row.hosted_profile == null ? null : String(row.hosted_profile),
+    hostedSourceRelease:
+      row.hosted_source_release == null ? null : String(row.hosted_source_release),
+    hostedProtocolVersion:
+      row.hosted_protocol_version == null ? null : String(row.hosted_protocol_version),
+    hostedCommandFingerprint:
+      row.hosted_command_fingerprint == null ? null : String(row.hosted_command_fingerprint),
+    hostedContractDigest:
+      row.hosted_contract_digest == null ? null : String(row.hosted_contract_digest),
+    hostedCompatibilityDigest:
+      row.hosted_compatibility_digest == null ? null : String(row.hosted_compatibility_digest),
   };
 }
 

@@ -1,4 +1,11 @@
-import { executeExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import {
+  acquireCapacityProviderWorkAtomic,
+  emitCapacityTransitionAfterCommit,
+  markUnboundCellDestroyedAtomic,
+  releaseCapacityProvisionClaim,
+  transitionCapacityAllocationAtomic,
+} from "./capacity-store";
 import { exomemErrors } from "./errors";
 import type {
   CandidateSecret,
@@ -15,6 +22,11 @@ import type { SecretEnvelope } from "./security";
 import type { BillingDeletionTarget } from "./billing-deletion";
 
 type Row = Record<string, unknown>;
+
+type LifecycleCapacityTransition = {
+  succeeded: boolean;
+  previous?: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
+};
 
 function asDate(value: unknown): Date {
   return value instanceof Date ? value : new Date(String(value));
@@ -107,6 +119,59 @@ function cellFromRow(row: Row): CellControlRecord {
 }
 
 export class SqlLifecycleStore implements LifecycleStore {
+  async #transitionCapacityForOwnedOperation(
+    operationId: string,
+    owner: string,
+    state: "occupied" | "retained_storage" | "released",
+    transaction?: ExomemSql
+  ): Promise<LifecycleCapacityTransition> {
+    const sql = transaction ?? executeExomemSql;
+    const legacy = await sql`
+      SELECT tenant.legacy_unmetered
+      FROM exomem_lifecycle_operations AS operation
+      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+      WHERE operation.id = ${operationId}::uuid
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.fence_generation = tenant.fence_generation
+      FOR UPDATE OF operation, tenant
+    `;
+    if (!legacy.rows[0]) return { succeeded: false };
+    if ((legacy.rows[0] as { legacy_unmetered?: boolean }).legacy_unmetered === true) {
+      return { succeeded: true };
+    }
+    const { rows } = await sql`
+      /* exomem:lifecycle-capacity-transition */
+      SELECT allocation.id AS allocation_id
+      FROM exomem_lifecycle_operations AS operation
+      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+      JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
+      JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+      WHERE operation.id = ${operationId}::uuid
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.fence_generation = tenant.fence_generation
+        AND allocation.state <> 'released'
+      FOR UPDATE OF operation, tenant, allocation, pool
+    `;
+    const allocation = rows[0] as { allocation_id?: string } | undefined;
+    if (!allocation?.allocation_id) return { succeeded: false };
+    const receipt: {
+      value?: {
+        previous: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
+      };
+    } = {};
+    const succeeded = await transitionCapacityAllocationAtomic({
+      allocationId: allocation.allocation_id,
+      state,
+      transaction,
+      receipt,
+    });
+    return { succeeded, previous: receipt.value?.previous };
+  }
+
   async enqueue(
     tenantId: string,
     operationType: LifecycleOperationType,
@@ -294,6 +359,7 @@ export class SqlLifecycleStore implements LifecycleStore {
         WHERE operation.next_attempt_at <= now()
           AND (
             operation.attempts <= ${input.maxAttempts}
+            OR operation.error_code = 'CAPACITY_UNAVAILABLE'
             OR operation.checkpoint IN (
               'candidate-cleanup', 'export-failure-resume',
               'export-requested',
@@ -564,6 +630,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       /* exomem:lifecycle-retry */
       UPDATE exomem_lifecycle_operations AS operation
       SET state = 'failed_retryable',
+          attempts = CASE WHEN ${errorCode} = 'CAPACITY_UNAVAILABLE' THEN GREATEST(attempts - 1, 0) ELSE attempts END,
           error_code = CASE
             WHEN operation.checkpoint IN ('candidate-cleanup', 'export-failure-resume')
               THEN operation.error_code
@@ -1065,7 +1132,9 @@ export class SqlLifecycleStore implements LifecycleStore {
   }
 
   async bindCandidate(operationId: string, owner: string): Promise<boolean> {
-    const { rows } = await executeExomemSql`
+    let transition: LifecycleCapacityTransition | undefined;
+    const succeeded = await withExomemTransaction(async (tx) => {
+      const { rows } = await tx`
       /* exomem:lifecycle-bind-candidate */
       WITH owned AS (
         SELECT operation.id,
@@ -1141,7 +1210,26 @@ export class SqlLifecycleStore implements LifecycleStore {
       FROM already_bound
       LIMIT 1
     `;
-    return rows.length === 1;
+      if (rows.length !== 1) return false;
+      transition = await this.#transitionCapacityForOwnedOperation(
+        operationId,
+        owner,
+        "occupied",
+        tx
+      );
+      if (!transition.succeeded) {
+        throw new Error("capacity transition rejected");
+      }
+      return true;
+    });
+    if (transition?.previous) {
+      emitCapacityTransitionAfterCommit({
+        operationId,
+        previous: transition.previous,
+        next: "occupied",
+      });
+    }
+    return succeeded;
   }
 
   async prepareCandidateCleanup(
@@ -1215,35 +1303,11 @@ export class SqlLifecycleStore implements LifecycleStore {
     owner: string,
     cellId: string
   ): Promise<boolean> {
-    const { rows } = await executeExomemSql`
-      /* exomem:lifecycle-mark-unbound-cell-destroyed */
-      UPDATE exomem_cells AS cell
-      SET lifecycle_state = 'deleted',
-          routing_state = 'retiring',
-          desired_state = 'deleted',
-          provider_ref = NULL,
-          private_endpoint_ciphertext = NULL,
-          service_credential_ciphertext = NULL,
-          service_credential_digest = NULL,
-          pending_service_credential_ciphertext = NULL,
-          pending_service_credential_digest = NULL,
-          pending_credential_version = NULL,
-          retired_at = COALESCE(retired_at, now()),
-          updated_at = now()
-      FROM exomem_lifecycle_operations AS operation
-      JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
-      WHERE operation.id = ${operationId}
-        AND operation.state = 'running'
-        AND operation.lease_owner = ${owner}
-        AND operation.lease_expires_at > now()
-        AND operation.fence_generation = tenant.fence_generation
-        AND cell.id = ${cellId}
-        AND cell.tenant_id = operation.tenant_id
-        AND cell.routing_state <> 'bound'
-        AND tenant.bound_cell_id IS DISTINCT FROM cell.id
-      RETURNING cell.id
-    `;
-    return rows.length === 1;
+    return markUnboundCellDestroyedAtomic({
+      operationId,
+      leaseOwner: owner,
+      cellId,
+    });
   }
 
   async applyLocalGate(
@@ -1281,6 +1345,65 @@ export class SqlLifecycleStore implements LifecycleStore {
         FROM owned
         WHERE tenant.id = owned.tenant_id
         RETURNING tenant.id
+      ),
+      oauth_blocked AS (
+        INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason)
+        SELECT tenant.id, tenant.owner_user_id, 'lifecycle_deleted'
+        FROM exomem_tenants AS tenant
+        JOIN tenant_gated ON tenant_gated.id = tenant.id
+        WHERE ${desired}::text = 'deleted'
+        ON CONFLICT (tenant_id) DO UPDATE
+        SET owner_user_id = EXCLUDED.owner_user_id
+        RETURNING tenant_id
+      ),
+      oauth_grants_revoked AS (
+        UPDATE exomem_oauth_grants AS oauth_grant
+        SET revoked_at = COALESCE(oauth_grant.revoked_at, now()), updated_at = now()
+        FROM tenant_gated
+        WHERE ${desired}::text = 'deleted' AND oauth_grant.tenant_id = tenant_gated.id
+        RETURNING oauth_grant.id, oauth_grant.authorization_transaction_id
+      ),
+      oauth_codes_revoked AS (
+        UPDATE exomem_oauth_authorization_codes AS code
+        SET consumed_at = COALESCE(code.consumed_at, now())
+        WHERE ${desired}::text = 'deleted'
+          AND code.grant_id IN (SELECT id FROM oauth_grants_revoked)
+        RETURNING code.id
+      ),
+      oauth_transactions_revoked AS (
+        UPDATE exomem_oauth_authorization_transactions AS transaction
+        SET consumed_at = COALESCE(transaction.consumed_at, now())
+        WHERE ${desired}::text = 'deleted'
+          AND (
+            transaction.id IN (
+              SELECT authorization_transaction_id FROM oauth_grants_revoked
+              WHERE authorization_transaction_id IS NOT NULL
+            )
+            OR EXISTS (
+              SELECT 1 FROM exomem_sessions AS session
+              JOIN tenant_gated ON tenant_gated.id = session.tenant_id
+              WHERE session.id = transaction.redeemed_session_id
+            )
+          )
+        RETURNING transaction.id
+      ),
+      oauth_families_revoked AS (
+        UPDATE exomem_oauth_token_families AS family
+        SET revoked_at = COALESCE(family.revoked_at, now()),
+            revoked_reason = COALESCE(family.revoked_reason, 'lifecycle_deleted')
+        WHERE ${desired}::text = 'deleted'
+          AND family.grant_id IN (SELECT id FROM oauth_grants_revoked)
+        RETURNING family.id
+      ),
+      oauth_access_revoked AS (
+        UPDATE exomem_oauth_access_tokens AS token
+        SET revoked_at = COALESCE(token.revoked_at, now())
+        WHERE ${desired}::text = 'deleted'
+          AND (
+            token.grant_id IN (SELECT id FROM oauth_grants_revoked)
+            OR token.family_id IN (SELECT id FROM oauth_families_revoked)
+          )
+        RETURNING token.id
       ),
       cell_gated AS (
         UPDATE exomem_cells AS cell
@@ -1364,7 +1487,9 @@ export class SqlLifecycleStore implements LifecycleStore {
     state: CellControlRecord["lifecycleState"]
   ): Promise<boolean> {
     const deleting = state === "deleted";
-    const { rows } = await executeExomemSql`
+    let transition: LifecycleCapacityTransition | undefined;
+    const succeeded = await withExomemTransaction(async (tx) => {
+      const { rows } = await tx`
       /* exomem:lifecycle-mark-cell-state */
       WITH owned AS (
         SELECT operation.tenant_id, operation.cell_id
@@ -1507,11 +1632,47 @@ export class SqlLifecycleStore implements LifecycleStore {
       )
       SELECT id FROM tenant_updated
     `;
-    return rows.length === 1;
+      if (rows.length !== 1) return false;
+      if (state === "quiesced" || state === "stopped") {
+        transition = await this.#transitionCapacityForOwnedOperation(
+          operationId,
+          owner,
+          "retained_storage",
+          tx
+        );
+        if (!transition.succeeded) {
+          throw new Error("capacity transition rejected");
+        }
+        return true;
+      }
+      if (state === "deleted") {
+        transition = await this.#transitionCapacityForOwnedOperation(
+          operationId,
+          owner,
+          "released",
+          tx
+        );
+        if (!transition.succeeded) {
+          throw new Error("capacity transition rejected");
+        }
+        return true;
+      }
+      return true;
+    });
+    const next = state === "deleted" ? "released" : "retained_storage";
+    if (
+      transition?.previous &&
+      (state === "quiesced" || state === "stopped" || state === "deleted")
+    ) {
+      emitCapacityTransitionAfterCommit({ operationId, previous: transition.previous, next });
+    }
+    return succeeded;
   }
 
   async activateAfterReadiness(operationId: string, owner: string): Promise<boolean> {
-    const { rows } = await executeExomemSql`
+    let transition: LifecycleCapacityTransition | undefined;
+    const succeeded = await withExomemTransaction(async (tx) => {
+      const { rows } = await tx`
       /* exomem:lifecycle-activate-after-readiness */
       WITH owned AS (
         SELECT operation.tenant_id, operation.cell_id
@@ -1547,7 +1708,26 @@ export class SqlLifecycleStore implements LifecycleStore {
       )
       SELECT id FROM tenant_active
     `;
-    return rows.length === 1;
+      if (rows.length !== 1) return false;
+      transition = await this.#transitionCapacityForOwnedOperation(
+        operationId,
+        owner,
+        "occupied",
+        tx
+      );
+      if (!transition.succeeded) {
+        throw new Error("capacity transition rejected");
+      }
+      return true;
+    });
+    if (transition?.previous) {
+      emitCapacityTransitionAfterCommit({
+        operationId,
+        previous: transition.previous,
+        next: "occupied",
+      });
+    }
+    return succeeded;
   }
 
   async prepareCredentialRotation(
@@ -1619,6 +1799,39 @@ export class SqlLifecycleStore implements LifecycleStore {
     return rows.length === 1;
   }
 
+  async prepareCapacityProviderWork(
+    operationId: string,
+    owner: string,
+    kind: "initial_provision" | "resume",
+    leaseSeconds: number
+  ): Promise<"acquired" | "exhausted" | "conflict" | "legacy"> {
+    return acquireCapacityProviderWorkAtomic({
+      operationId,
+      leaseOwner: owner,
+      kind,
+      leaseSeconds,
+    });
+  }
+
+  async releaseCapacityProviderWork(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-capacity-provider-work-release */
+      SELECT allocation.id AS allocation_id
+      FROM exomem_lifecycle_operations AS operation
+      JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = operation.tenant_id
+      WHERE operation.id = ${operationId}::uuid
+        AND operation.lease_owner = ${owner}
+      LIMIT 1
+    `;
+    const allocation = rows[0] as { allocation_id?: string } | undefined;
+    if (!allocation?.allocation_id) return false;
+    return releaseCapacityProvisionClaim({
+      allocationId: allocation.allocation_id,
+      operationId,
+      leaseOwner: owner,
+    });
+  }
+
   async statusForTenant(tenantId: string): Promise<LifecycleStatus> {
     const { rows } = await executeExomemSql`
       /* exomem:lifecycle-owner-status */
@@ -1654,6 +1867,14 @@ export class SqlLifecycleStore implements LifecycleStore {
       return {
         state: "deletion_pending",
         code: "DELETION_IN_PROGRESS",
+        ...(requestId ? { requestId } : {}),
+        retryable: true,
+      };
+    }
+    if (row.error_code === "CAPACITY_UNAVAILABLE") {
+      return {
+        state: "degraded",
+        code: "CAPACITY_UNAVAILABLE",
         ...(requestId ? { requestId } : {}),
         retryable: true,
       };

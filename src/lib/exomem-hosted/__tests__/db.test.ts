@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import {
   __setExomemSqlForTests,
+  __setExomemTransactionForTests,
   createMagicAccessToken,
   createTransferGrantRecord,
   recordExomemCheckoutTransaction,
@@ -11,12 +12,38 @@ import {
   redeemInviteAtomic,
   resolveActiveCellBinding,
   takeRateLimit,
+  withExomemTransaction,
   type ExomemSql,
 } from "../db";
 
-afterEach(() => __setExomemSqlForTests(null));
+afterEach(() => {
+  __setExomemSqlForTests(null);
+  __setExomemTransactionForTests(null);
+});
 
 describe("Exomem hosted database boundary", () => {
+  it("keeps OAuth first-owner admission outside legacy-unmetered redemption", () => {
+    const oauthStore = readFileSync(
+      resolve(process.cwd(), "src/lib/exomem-hosted/oauth-store.ts"),
+      "utf8"
+    );
+    assert.doesNotMatch(oauthStore, /redeemInviteAtomic/);
+    assert.doesNotMatch(oauthStore, /admitFirstOAuthInviteAtomicLegacy/);
+    assert.match(oauthStore, /withExomemTransaction/);
+  });
+
+  it("never treats an injected HTTP SQL client as an interactive transaction", async () => {
+    let called = false;
+    __setExomemSqlForTests(async () => ({ rows: [] }));
+    await assert.rejects(
+      withExomemTransaction(async () => {
+        called = true;
+      }),
+      /interactive Exomem transaction runner is not configured/
+    );
+    assert.equal(called, false);
+  });
+
   it("prunes expired tenant transfer audit rows while issuing a replacement", async () => {
     let statement = "";
     __setExomemSqlForTests(async (strings) => {
@@ -44,7 +71,7 @@ describe("Exomem hosted database boundary", () => {
     assert.match(statement, /INSERT INTO exomem_transfer_grants/i);
   });
 
-  it("redeems through one atomic statement and concurrent replay creates no second tenant", async () => {
+  it("keeps the explicitly documented legacy-unmetered redemption branch separate from OAuth admission", async () => {
     let consumed = false;
     let queryCount = 0;
     let capturedSql = "";
@@ -82,6 +109,11 @@ describe("Exomem hosted database boundary", () => {
     assert.match(capturedSql, /FOR UPDATE/i);
     assert.match(capturedSql, /INSERT INTO users/i);
     assert.match(capturedSql, /INSERT INTO exomem_tenants/i);
+    assert.match(capturedSql, /legacy_unmetered\)\s*SELECT[^;]*true/i);
+    assert.doesNotMatch(
+      capturedSql,
+      /ON CONFLICT \(owner_user_id\) DO UPDATE[\s\S]{0,240}legacy_unmetered/i
+    );
     assert.match(capturedSql, /INSERT INTO exomem_entitlements/i);
     assert.match(capturedSql, /ON CONFLICT \(tenant_id\) DO NOTHING/i);
     assert.doesNotMatch(

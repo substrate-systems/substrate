@@ -14,6 +14,12 @@ export type Lifecycle = {
   requestId?: string;
 };
 
+export type InstallAction = {
+  platform: "claude" | "openai";
+  version: string;
+  installUrl: string;
+};
+
 export function createSingleFlight<T>(): (load: () => Promise<T>) => Promise<T> {
   let pending: Promise<T> | null = null;
   return (load) => {
@@ -60,6 +66,46 @@ export function parseLifecycleResponse(value: unknown): Lifecycle | null {
     retryable: candidate.retryable === true,
     ...(requestId ? { requestId } : {}),
   };
+}
+
+export function parseInstallActions(value: unknown): InstallAction[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const actions = (value as Record<string, unknown>).installActions;
+  if (!Array.isArray(actions)) return [];
+  return actions.flatMap((action) => {
+    if (!action || typeof action !== "object" || Array.isArray(action)) return [];
+    const candidate = action as Record<string, unknown>;
+    if (
+      (candidate.platform !== "claude" && candidate.platform !== "openai") ||
+      typeof candidate.version !== "string" ||
+      !candidate.version ||
+      typeof candidate.installUrl !== "string"
+    ) {
+      return [];
+    }
+    try {
+      const installUrl = new URL(candidate.installUrl);
+      if (
+        installUrl.protocol !== "https:" ||
+        installUrl.username ||
+        installUrl.password ||
+        installUrl.search ||
+        installUrl.hash ||
+        /(?:bearer|cell|mcp|secret|tenant|token)/i.test(installUrl.toString())
+      ) {
+        return [];
+      }
+      return [
+        {
+          platform: candidate.platform,
+          version: candidate.version,
+          installUrl: installUrl.href,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
 }
 
 export function nextStatusPollDelayMs(lifecycle: Lifecycle, attempt: number): number | null {

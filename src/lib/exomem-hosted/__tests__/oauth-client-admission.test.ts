@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { describe, it } from "node:test";
+import {
+  normalizeOperatorOAuthClientRegistration,
+  isCimdNetworkAddressAllowed,
+  oauthClientConfigSha256,
+  operatorOAuthClientFingerprint,
+} from "../oauth-client-admission";
+
+function isInvalidRequest(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "INVALID_REQUEST";
+}
+
+describe("operator OAuth client admission", () => {
+  it("keeps a pinned registration bounded and preserves exact redirect values", () => {
+    assert.deepEqual(
+      normalizeOperatorOAuthClientRegistration({
+        admissionMode: "pinned",
+        platform: "claude",
+        artifactId: "018f2d91-7c42-7000-8000-000000000001",
+        clientId: "desktop-client",
+        redirectUris: ["https://app.example.test/callback"],
+        ttlSeconds: 86_400,
+      }),
+      {
+        admissionMode: "pinned",
+        platform: "claude",
+        artifactId: "018f2d91-7c42-7000-8000-000000000001",
+        clientId: "desktop-client",
+        redirectUris: ["https://app.example.test/callback"],
+        ttlSeconds: 86_400,
+      }
+    );
+  });
+
+  it("requires CIMD client identifiers to be exact HTTPS URLs on an allowlisted host", () => {
+    assert.throws(
+      () =>
+        normalizeOperatorOAuthClientRegistration(
+          {
+            admissionMode: "cimd",
+            platform: "openai",
+            artifactId: "018f2d91-7c42-7000-8000-000000000001",
+            clientId: "https://untrusted.example.test/client.json",
+            redirectUris: ["https://app.example.test/callback"],
+          },
+          { cimdHosts: ["trusted.example.test"] }
+        ),
+      isInvalidRequest
+    );
+    assert.equal(
+      normalizeOperatorOAuthClientRegistration(
+        {
+          admissionMode: "cimd",
+          platform: "openai",
+          artifactId: "018f2d91-7c42-7000-8000-000000000001",
+          clientId: "https://trusted.example.test/client.json",
+          redirectUris: ["https://app.example.test/callback"],
+        },
+        { cimdHosts: ["trusted.example.test"] }
+      ).clientId,
+      "https://trusted.example.test/client.json"
+    );
+    assert.equal(isCimdNetworkAddressAllowed("fec0::1"), false);
+    assert.equal(isCimdNetworkAddressAllowed("2001:0::1"), false);
+    assert.equal(isCimdNetworkAddressAllowed("64:ff9b:1::1"), false);
+    assert.equal(isCimdNetworkAddressAllowed("2001:4860:4860::8888"), true);
+  });
+
+  it("rejects unsafe redirects and makes the client fingerprint non-reversible", () => {
+    assert.throws(
+      () =>
+        normalizeOperatorOAuthClientRegistration({
+          admissionMode: "pinned",
+          platform: "claude",
+          artifactId: "018f2d91-7c42-7000-8000-000000000001",
+          clientId: "desktop-client",
+          redirectUris: ["http://evil.example.test/callback"],
+        }),
+      isInvalidRequest
+    );
+    const fingerprint = operatorOAuthClientFingerprint("desktop-client", Buffer.alloc(32, 9));
+    assert.match(fingerprint, /^[a-f0-9]{64}$/);
+    assert.doesNotMatch(fingerprint, /desktop-client/);
+    assert.equal(
+      oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "pinned",
+        clientId: "desktop-client",
+        redirectUris: ["https://b.example.test/callback", "https://a.example.test/callback"],
+      }),
+      oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "pinned",
+        clientId: "desktop-client",
+        redirectUris: ["https://a.example.test/callback", "https://b.example.test/callback"],
+      })
+    );
+    assert.equal(
+      oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "cimd",
+        clientId: "https://claude.example.com/oauth/client",
+        redirectUris: [
+          "https://claude.example.com/oauth/return",
+          "https://claude.example.com/oauth/callback",
+        ],
+      }),
+      "3c8bbd83906d29816f59d21b48a7e5a859379b124108b2abb1aa9a309ec3a339"
+    );
+  });
+
+  it("anchors initial CIMD expiry to the database clock rather than app-clock skew", () => {
+    const source = readFileSync("src/lib/exomem-hosted/operator-controls.ts", "utf8");
+    assert.match(source, /CASE WHEN \$\{fetched !== null\} THEN now\(\) ELSE NULL END/);
+    assert.match(
+      source,
+      /now\(\) \+ \(\$\{fetched \? registration\.ttlSeconds : 0\} \* interval '1 second'\)/
+    );
+    assert.doesNotMatch(source, /new Date\(Date\.now\(\) \+ registration\.ttlSeconds/);
+  });
+});

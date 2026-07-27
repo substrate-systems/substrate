@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { getLiveExomemAgentContract } from "../agent-contract-store";
+import { __setExomemSqlForTests } from "../db";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const MIGRATION_0017 = resolve(process.cwd(), "migrations/0017_exomem_hosted_service.sql");
@@ -13,6 +16,14 @@ const MIGRATION_0021 = resolve(
   "migrations/0021_exomem_paddle_provider_provenance.sql"
 );
 const MIGRATION_0022 = resolve(process.cwd(), "migrations/0022_exomem_export_request_intent.sql");
+const MIGRATION_0028 = resolve(
+  process.cwd(),
+  "migrations/0028_exomem_agent_contract_artifacts.sql"
+);
+const MIGRATION_0033 = resolve(
+  process.cwd(),
+  "migrations/0033_exomem_mcp_protocol_compatibility.sql"
+);
 
 const USER = "11111111-1111-4111-8111-111111111191";
 const TENANT = "22222222-2222-4222-8222-222222222291";
@@ -53,6 +64,7 @@ async function applyMigration(client: PoolClient, path: string): Promise<void> {
 }
 
 async function create0017Schema(client: PoolClient, schema: string): Promise<void> {
+  await ensureExomemPostgresTestExtensions(DATABASE_URL!);
   await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
   await client.query(`CREATE SCHEMA ${schema}`);
   await client.query(`SET search_path TO ${schema}, public`);
@@ -512,6 +524,69 @@ describe("migration 0022 export request intent", { skip: !DATABASE_URL }, () => 
         ),
         /exomem_lifecycle_export_request_intent_check/i
       );
+    });
+  });
+});
+
+describe("migration 0033 MCP protocol compatibility", { skip: !DATABASE_URL }, () => {
+  it("backfills the pinned protocol identity for a pre-0033 live contract and rejects invalid values", async () => {
+    await with0017Schema("exomem_upgrade_0033_mcp_protocols", async (client) => {
+      await applyMigration(client, MIGRATION_0028);
+      await client.query(
+        `INSERT INTO exomem_agent_contract_candidates (
+           state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+           compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+           promoted_at
+         ) VALUES (
+           'live', 'hosted-alpha-agent-v1', 'https://substratesystems.io/api/exomem/mcp/v1',
+           '0.33.0', $1, $2, $3, '1', '{}', '{}', '{}', now()
+         )`,
+        ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
+      );
+
+      await applyMigration(client, MIGRATION_0033);
+
+      const legacyLive = await client.query<{
+        state: string;
+        mcp_protocol_versions: string[];
+      }>(
+        `SELECT state, mcp_protocol_versions
+           FROM exomem_agent_contract_candidates
+          WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'`
+      );
+      assert.deepEqual(legacyLive.rows, [
+        { state: "live", mcp_protocol_versions: ["2025-11-25", "2025-06-18"] },
+      ]);
+      __setExomemSqlForTests(async (strings, ...values) => {
+        let text = strings[0];
+        for (let index = 0; index < values.length; index += 1)
+          text += `$${index + 1}${strings[index + 1]}`;
+        const result = await client.query(text, values);
+        return {
+          rows: result.rows as Array<Record<string, unknown>>,
+          rowCount: result.rowCount ?? 0,
+        };
+      });
+      try {
+        assert.deepEqual((await getLiveExomemAgentContract())?.mcpProtocolVersions, [
+          "2025-11-25",
+          "2025-06-18",
+        ]);
+      } finally {
+        __setExomemSqlForTests(null);
+      }
+
+      for (const value of [[null], [42], ["2025-11-25", "2025-11-25"], ["not-a-date"]]) {
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_agent_contract_candidates
+                SET mcp_protocol_versions = $1::jsonb
+              WHERE profile_id = 'hosted-alpha-agent-v1'`,
+            [JSON.stringify(value)]
+          ),
+          /exomem_agent_contract_candidates_mcp_protocol_versions_check/i
+        );
+      }
     });
   });
 });

@@ -14,8 +14,8 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
-1. migrations `0017` through `0022` applied to the production Neon database;
-2. an Exomem `0.24.0` cell image from commit `049d83c13e94102482a0f939c3baf065ee630fd1` exposing private protocol `1`;
+1. migrations `0017` through `0034_exomem_oauth_client_admission.sql` applied to the production Neon database;
+2. an Exomem `0.33.0` cell image from commit `08f1cee281bd0dbcaf82094421c11d6be04dc5c2` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
@@ -27,20 +27,20 @@ The friends-tier sandbox lifecycle is approved and drilled. Live paid launch
 remains deliberately disabled until the public price, checkout domain,
 terms/tax review, and live webhook are approved and configured.
 
-The pinned gateway contract digest is
-`b760214e79b4f9819757609ec7c6a6be74762e7b675680aa91e8386dd71ee32d`.
+The pinned compatibility, schema-contract, and command-surface digests are
+`aba2095396992240ce9c92ff0f66183362b3db97101442005549a8f8b026eb34`,
+`57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3`, and
+`eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f`.
 Regenerate both checked-in fixtures only from a clean checkout at the selected
 commit:
 
 ```bash
 node scripts/generate-exomem-hosted-contract.mjs \
   --exomem-repo /path/to/exomem \
-  --output src/lib/exomem-hosted/gateway-contract-0-24-0.ts \
-  --json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-24-0.json \
-  --expected-commit 049d83c13e94102482a0f939c3baf065ee630fd1
+  --output src/lib/exomem-hosted/agent-contract-fixture.ts \
+  --expected-commit 08f1cee281bd0dbcaf82094421c11d6be04dc5c2
 npx prettier --write \
-  src/lib/exomem-hosted/gateway-contract-0-24-0.ts \
-  src/lib/exomem-hosted/__tests__/gateway-contract-0-24-0.json
+  src/lib/exomem-hosted/agent-contract-fixture.ts
 ```
 
 ## Substrate configuration
@@ -62,7 +62,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.             |
 | `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                  |
 | `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                      |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.24.0` for this release unit. Readiness must echo it.                                                                                         |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.33.0` for this release unit. Readiness must echo it.                                                                                         |
 | `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                           |
 | `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                       |
 | `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                       |
@@ -93,6 +93,110 @@ is a five-minute capability: it can remain usable only until cell quiescence is
 observed or that TTL expires, whichever happens first. This bounded window is
 accepted for the private beta; suspected credential compromise still requires
 immediate cell quiescence and credential rotation.
+
+## MCP OAuth, capacity, and client promotion
+
+The canonical protected resource is
+`https://substratesystems.io/api/exomem/mcp/v1`. Its only supported discovery
+paths are:
+
+- `/.well-known/oauth-protected-resource/api/exomem/mcp/v1`;
+- `/.well-known/oauth-authorization-server/api/exomem/oauth`; and
+- `/api/exomem/oauth/authorize`, `/token`, and `/revoke`.
+
+Do not publish a tenant-specific connector URL, alternate resource origin, or
+manual package configuration. MCP bearer credentials belong only in the
+`Authorization` header; never put them in a URL, cookie, tool argument, log,
+or cell header. Discovery, failed authentication, and `initialize`/`tools/list`
+must not create or wake a tenant cell.
+
+`EXOMEM_CONTROL_PLANE_KEY` protects the OAuth continuation and control-plane
+secrets. Alpha has one envelope key and no key ID: it is immutable during this
+alpha. Do not rotate it in place. If it is changed accidentally, restore the
+exact old key before serving traffic. Never rotate by deleting token, grant, or
+family rows. Revoke a compromised client family first; use account-wide
+revocation only when every client must re-authorize.
+
+The operator-held contract and promotion keys are separate from OAuth and cell
+credentials:
+
+| Variable                                                                       | Purpose                                                                                         |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID`, `EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET` | Verify the signed import of the exact Exomem compatibility contract and supported client locks. |
+| `EXOMEM_HOSTED_PROMOTION_KEY_ID`, `EXOMEM_HOSTED_PROMOTION_SECRET`             | Verify clean-client promotion evidence.                                                         |
+| `EXOMEM_HOSTED_CLAUDE_INSTALL_URL`, `EXOMEM_HOSTED_OPENAI_INSTALL_URL`         | Server-owned promoted install locations only.                                                   |
+
+The evidence-signing verifier has no overlapping-key support. Rotate a signing
+key only when there are no pending candidates or evidence records; old signed
+evidence becomes invalid and must be recollected. Do not reuse any of these
+values as an OAuth, scheduler, provisioner, or cell credential.
+
+Capacity is an authoritative database ledger, not a provider inventory. One
+first authorization reserves exactly 5 GiB storage, one runtime slot, and one
+initial-provision reservation before it creates the tenant, entitlement, grant,
+or operation. `reserved`, `occupied`, and `uncertain` retain storage/runtime;
+only verified destruction moves an allocation to `released`. `retained_storage`
+keeps storage without runtime. The globally bounded provision claim limits
+in-flight provider work independently of queued reservations. Inspect the pool,
+allocation, claim lease, operation checkpoint, and stable error code together;
+never free capacity because a provider response timed out or an operator cannot
+find a cell by hand.
+
+For `TENANT_PREPARING`, `CELL_PREPARING`, capacity, or terminal provisioning
+failures, return only the stable MCP error and opaque request/support reference.
+Inspect the tenant/operation/claim IDs, expected release and protocol, and
+readiness proof privately. A failed or stale candidate is discarded; it is never
+bound or used as fallback. A same-owner second Claude/OpenAI authorization adds
+its own grant/token family to the existing tenant and must not reserve capacity
+or create a second cell or volume.
+
+Suspend closes the routing gate before the provider call and retains the same
+tenant/cell mapping. Resume reacquires runtime capacity as needed and reopens
+routing only after exact readiness. Deletion closes routing and durably revokes
+all OAuth grants, access tokens, refresh families, browser sessions, invites,
+and transfers before destruction; keep it pending until compute, storage, and
+keys are all proven destroyed.
+
+### Contract and artifact control
+
+Import the exact `hosted-alpha-agent-v1` compatibility artifact as `pending`.
+Compare profile, endpoint, source release, command-surface digest,
+schema-contract digest, compatibility digest, protocol range, and both client
+package/archive locks. Before promotion, prove every routable cell exposes that
+same private profile. Promotion is atomic: live discovery stays on the current
+contract until the candidate and real clean-client evidence both verify.
+
+Demotion is fail-closed: it stops new installs/authorizations for the affected
+artifact and does not restore a previous artifact automatically. Operators must
+import and re-promote the prior exact package, then re-enable admission only
+after compatibility checks. Existing token families remain subject to their
+normal entitlement and lifecycle checks. If no compatible live contract exists,
+keep the resource unavailable rather than widening discovery.
+Archive the signed import, locks, digests, opaque run reference, and
+content-free result digest; never archive client content, OAuth secrets, raw
+tokens, or a tenant identifier.
+
+Each admitted OAuth client is bound to the promoted client evidence by a public,
+canonical SHA-256 configuration digest. Its exact bytes are the UTF-8 domain
+prefix `exomem-oauth-client-config:v1\0` followed by compact stable JSON with
+sorted keys `admission_mode`, `client_id`, `platform`, sorted exact raw `redirect_uris`, and
+`token_endpoint_auth_method: "none"`. The signed promotion envelope carries
+that digest; no separate environment secret exists and there is nothing to
+rotate. An operator registers the platform and selected pending/live artifact,
+then enables only the matching digest. A missing or mismatched digest is not
+authority for authorize, code exchange, refresh, continuations, or MCP.
+
+The repository's paired fixture composes schema-isolated PostgreSQL admission,
+OAuth issuance, lifecycle, deletion, and the fake provider/MCP seams. It is
+local seam proof only and is never sufficient to promote a client artifact. A
+real registered OpenAI `asdk_app_*` artifact and a clean-client,
+content-bearing cross-client run remain external release gates. Promotion requires separately
+recorded, signed evidence from a clean real Claude client and a clean real
+OpenAI client: native install, one OAuth
+authorization, static discovery without infrastructure creation, seeded recall,
+citation, governed capture, fresh-chat recall, lifecycle/revocation handling,
+and same-owner attachment to one tenant/cell/volume. Do not represent a mocked
+route or a test fixture as a client run.
 
 ### External hosted scheduler
 
@@ -389,8 +493,9 @@ requests, then wait until no active export has `export_request_started = true`
 at checkpoint `quiesced`; the current release must finish those compatibility
 replays before an older release can safely run. Keep affected tenant routing
 closed, deploy the prior Substrate release, and pin cells to its compatible
-protocol/release. Leave the additive schema in place; never roll back by copying
-or rewriting live vault content.
+protocol/release. Preserve durable account blocks and revoke affected OAuth
+token families. Leave the additive schema in place; never down-migrate, copy,
+or rewrite live vault content.
 
 Before a cell release rollback, quiesce and verify an export. Start a replacement
 cell on the prior compatible image, restore into an empty volume, require full

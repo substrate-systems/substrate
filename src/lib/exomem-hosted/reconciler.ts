@@ -32,7 +32,12 @@ export type LifecycleOperationType =
   | "delete";
 
 export type LifecycleOperationState =
-  "pending" | "running" | "waiting" | "succeeded" | "failed_retryable" | "failed_terminal";
+  | "pending"
+  | "running"
+  | "waiting"
+  | "succeeded"
+  | "failed_retryable"
+  | "failed_terminal";
 
 export type LifecycleOperation = {
   id: string;
@@ -245,6 +250,13 @@ export interface LifecycleStore {
     credential: CandidateSecret
   ): Promise<boolean>;
   promoteCredential(operationId: string, owner: string): Promise<boolean>;
+  prepareCapacityProviderWork(
+    operationId: string,
+    owner: string,
+    kind: "initial_provision" | "resume",
+    leaseSeconds: number
+  ): Promise<"acquired" | "exhausted" | "conflict" | "legacy">;
+  releaseCapacityProviderWork(operationId: string, owner: string): Promise<boolean>;
   statusForTenant(tenantId: string): Promise<LifecycleStatus> | LifecycleStatus;
 }
 
@@ -776,6 +788,27 @@ export class LifecycleReconciler {
     if (operation.checkpoint === "candidate-created") {
       const cell = await this.#store.getCell(operation.cellId ?? "");
       if (!cell) return this.#terminal(operation, owner, "CELL_CANDIDATE_MISSING");
+      const capacity = await this.#store.prepareCapacityProviderWork(
+        operation.id,
+        owner,
+        "initial_provision",
+        Math.max(660, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
+      );
+      if (capacity === "exhausted") {
+        const retried = await this.#store.retry(
+          operation.id,
+          owner,
+          "CAPACITY_UNAVAILABLE",
+          this.#backoff(operation.attempts)
+        );
+        return retried
+          ? { kind: "retry_scheduled", operationId: operation.id, code: "CAPACITY_UNAVAILABLE" }
+          : { kind: "idle" };
+      }
+      if (capacity !== "acquired" && capacity !== "legacy") {
+        throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
+      }
+      this.#requireStored(await this.#store.renewLease(operation.id, owner, 45_000));
       const request: ProvisionCellRequest = {
         context: this.#context(operation),
         tenantId: operation.tenantId,
@@ -798,6 +831,9 @@ export class LifecycleReconciler {
           }),
         })
       );
+      if (capacity === "acquired") {
+        this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
+      }
       return this.#advance(operation, owner, "provider-converged");
     }
     if (operation.checkpoint === "provider-converged") {
@@ -950,7 +986,31 @@ export class LifecycleReconciler {
     }
     if (operation.checkpoint === "local-gated") {
       const cell = await this.#cell(operation);
+      const capacity = await this.#store.prepareCapacityProviderWork(
+        operation.id,
+        owner,
+        "resume",
+        Math.max(660, Math.ceil((this.#config.leaseMs + 30_000) / 1_000))
+      );
+      if (capacity === "exhausted") {
+        const retried = await this.#store.retry(
+          operation.id,
+          owner,
+          "CAPACITY_UNAVAILABLE",
+          this.#backoff(operation.attempts)
+        );
+        return retried
+          ? { kind: "retry_scheduled", operationId: operation.id, code: "CAPACITY_UNAVAILABLE" }
+          : { kind: "idle" };
+      }
+      if (capacity !== "acquired" && capacity !== "legacy") {
+        throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
+      }
+      this.#requireStored(await this.#store.renewLease(operation.id, owner, 45_000));
       await this.#provisioner.resume(this.#target(operation, cell));
+      if (capacity === "acquired") {
+        this.#requireStored(await this.#store.releaseCapacityProviderWork(operation.id, owner));
+      }
       return this.#advance(operation, owner, "resumed");
     }
     if (operation.checkpoint === "resumed") {
@@ -1342,7 +1402,11 @@ export class LifecycleReconciler {
     });
     if (!operation) return { kind: "idle" };
     const initialRecoveryCode = mandatoryRecoveryCode(operation);
-    if (operation.attempts > this.#config.maxAttempts && !initialRecoveryCode) {
+    if (
+      operation.attempts > this.#config.maxAttempts &&
+      !initialRecoveryCode &&
+      operation.errorCode !== "CAPACITY_UNAVAILABLE"
+    ) {
       return this.#terminal(operation, input.owner, "LIFECYCLE_MAX_ATTEMPTS");
     }
     try {
@@ -1492,6 +1556,27 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     }
   >();
   readonly checkpointHistory: Array<{ operationId: string; checkpoint: string }> = [];
+  readonly capacityAllocations = new Map<
+    string,
+    {
+      id: string;
+      tenantId: string;
+      operationId: string;
+      state: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
+      storageBytes: number;
+      runtimeSlots: number;
+      provisionSlots: number;
+    }
+  >();
+  readonly capacityClaims = new Map<
+    string,
+    { allocationId: string; operationId: string; owner: string; expiresAt: Date }
+  >();
+  readonly legacyUnmeteredTenants = new Set<string>();
+  storageCapacityBytes = Number.MAX_SAFE_INTEGER;
+  runtimeCapacitySlots = Number.MAX_SAFE_INTEGER;
+  provisionReservationCapacity = Number.MAX_SAFE_INTEGER;
+  provisionClaimCapacity = Number.MAX_SAFE_INTEGER;
   readonly #now: () => Date;
 
   constructor(input: { now?: () => Date } = {}) {
@@ -1619,6 +1704,17 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       updatedAt: now,
     };
     this.operations.set(operation.id, operation);
+    if (operationType === "provision") {
+      this.capacityAllocations.set(operation.id, {
+        id: operation.id,
+        tenantId,
+        operationId: operation.id,
+        state: "reserved",
+        storageBytes: 5 * 1024 ** 3,
+        runtimeSlots: 1,
+        provisionSlots: 1,
+      });
+    }
     return copyOperation(operation);
   }
 
@@ -1650,6 +1746,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
           (!input.tenantId || operation.tenantId === input.tenantId) &&
           operation.fenceGeneration === this.tenants.get(operation.tenantId)?.fenceGeneration &&
           (operation.attempts <= input.maxAttempts ||
+            operation.errorCode === "CAPACITY_UNAVAILABLE" ||
             [
               "candidate-cleanup",
               "export-failure-resume",
@@ -1802,6 +1899,9 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     const operation = this.#owned(operationId, owner);
     if (!operation) return false;
     operation.state = "failed_retryable";
+    if (errorCode === "CAPACITY_UNAVAILABLE") {
+      operation.attempts = Math.max(0, operation.attempts - 1);
+    }
     if (!["candidate-cleanup", "export-failure-resume"].includes(operation.checkpoint)) {
       operation.errorCode = errorCode;
     }
@@ -1958,6 +2058,10 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     tenant.boundCellId = candidate.id;
     tenant.status = "active";
     tenant.desiredState = "running";
+    const allocation = this.#allocationForTenant(operation.tenantId);
+    if (operation.operationType === "provision" && allocation && allocation.state === "uncertain") {
+      allocation.state = "occupied";
+    }
     return true;
   }
 
@@ -2031,7 +2135,13 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       !cell ||
       cell.tenantId !== operation.tenantId ||
       cell.routingState === "bound" ||
-      tenant.boundCellId === cell.id
+      tenant.boundCellId === cell.id ||
+      !(
+        (operation.checkpoint === "candidate-cleanup" && operation.cellId === cell.id) ||
+        (operation.operationType === "restore" &&
+          operation.checkpoint === "prior-retirement" &&
+          operation.expectedPreviousCellId === cell.id)
+      )
     ) {
       return false;
     }
@@ -2045,6 +2155,11 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     cell.pendingCredentialEnvelope = null;
     cell.pendingCredentialDigest = null;
     cell.pendingCredentialVersion = null;
+    if (operation.operationType === "provision") {
+      const allocation = this.#allocationForTenant(operation.tenantId);
+      if (allocation) allocation.state = "released";
+      this.#removeClaimsForTenant(operation.tenantId);
+    }
     return true;
   }
 
@@ -2259,7 +2374,19 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     const cell = operation?.cellId ? this.cells.get(operation.cellId) : null;
     if (!operation || !tenant || (!cell && state !== "deleted")) return false;
     if (cell) cell.lifecycleState = state;
+    const allocation = this.#allocationForTenant(operation.tenantId);
+    if (
+      allocation &&
+      ["suspend", "stop"].includes(operation.operationType) &&
+      ["quiesced", "stopped"].includes(state) &&
+      ["occupied", "uncertain"].includes(allocation.state)
+    ) {
+      allocation.state = "retained_storage";
+      this.#removeClaimsForTenant(operation.tenantId);
+    }
     if (state === "deleted") {
+      if (allocation) allocation.state = "released";
+      this.#removeClaimsForTenant(operation.tenantId);
       for (const tenantCell of this.cells.values()) {
         if (tenantCell.tenantId !== operation.tenantId) continue;
         tenantCell.lifecycleState = "deleted";
@@ -2311,6 +2438,107 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     cell.desiredState = "running";
     tenant.status = "active";
     tenant.desiredState = "running";
+    const allocation = this.#allocationForTenant(operation.tenantId);
+    if (operation.operationType === "resume" && allocation?.state === "uncertain") {
+      allocation.state = "occupied";
+    }
+    return true;
+  }
+
+  #allocationForTenant(tenantId: string) {
+    return [...this.capacityAllocations.values()].find(
+      (allocation) => allocation.tenantId === tenantId && allocation.state !== "released"
+    );
+  }
+
+  #usage(
+    state: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released",
+    allocation: {
+      storageBytes: number;
+      runtimeSlots: number;
+      provisionSlots: number;
+    }
+  ) {
+    return {
+      storage: state === "released" ? 0 : allocation.storageBytes,
+      runtime: ["reserved", "occupied", "uncertain"].includes(state) ? allocation.runtimeSlots : 0,
+      provision: state === "reserved" ? allocation.provisionSlots : 0,
+    };
+  }
+
+  #totals(nextAllocation?: {
+    id: string;
+    state: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
+  }) {
+    return [...this.capacityAllocations.values()].reduce(
+      (totals, allocation) => {
+        const usage = this.#usage(
+          nextAllocation?.id === allocation.id ? nextAllocation.state : allocation.state,
+          allocation
+        );
+        return {
+          storage: totals.storage + usage.storage,
+          runtime: totals.runtime + usage.runtime,
+          provision: totals.provision + usage.provision,
+        };
+      },
+      { storage: 0, runtime: 0, provision: 0 }
+    );
+  }
+
+  #removeClaimsForTenant(tenantId: string): void {
+    for (const [operationId, claim] of this.capacityClaims) {
+      if (this.capacityAllocations.get(claim.allocationId)?.tenantId === tenantId) {
+        this.capacityClaims.delete(operationId);
+      }
+    }
+  }
+
+  async prepareCapacityProviderWork(
+    operationId: string,
+    owner: string,
+    kind: "initial_provision" | "resume",
+    leaseSeconds: number
+  ): Promise<"acquired" | "exhausted" | "conflict" | "legacy"> {
+    const operation = this.#owned(operationId, owner);
+    const allocation = operation ? this.#allocationForTenant(operation.tenantId) : undefined;
+    if (!operation) return "conflict";
+    if (this.legacyUnmeteredTenants.has(operation.tenantId)) return "legacy";
+    if (!allocation) return "conflict";
+    const expectedState = kind === "initial_provision" ? "reserved" : "retained_storage";
+    if (allocation.state !== expectedState && allocation.state !== "uncertain") return "conflict";
+    const existing = this.capacityClaims.get(operationId);
+    const now = this.#now();
+    for (const [claimOperationId, claim] of this.capacityClaims) {
+      if (claim.expiresAt <= now) this.capacityClaims.delete(claimOperationId);
+    }
+    if (existing && existing.owner === owner && existing.expiresAt > now) {
+      existing.expiresAt = new Date(now.getTime() + leaseSeconds * 1_000);
+      return "acquired";
+    }
+    if (!existing && this.capacityClaims.size >= this.provisionClaimCapacity) return "exhausted";
+    const totals = this.#totals({ id: allocation.id, state: "uncertain" });
+    if (
+      totals.storage > this.storageCapacityBytes ||
+      totals.runtime > this.runtimeCapacitySlots ||
+      totals.provision > this.provisionReservationCapacity
+    ) {
+      return "exhausted";
+    }
+    allocation.state = "uncertain";
+    this.capacityClaims.set(operationId, {
+      allocationId: allocation.id,
+      operationId,
+      owner,
+      expiresAt: new Date(now.getTime() + leaseSeconds * 1_000),
+    });
+    return "acquired";
+  }
+
+  async releaseCapacityProviderWork(operationId: string, owner: string): Promise<boolean> {
+    const claim = this.capacityClaims.get(operationId);
+    if (!claim || claim.owner !== owner) return false;
+    this.capacityClaims.delete(operationId);
     return true;
   }
 
@@ -2365,6 +2593,20 @@ export class InMemoryLifecycleStore implements LifecycleStore {
         state: "deletion_pending",
         code: "DELETION_IN_PROGRESS",
         ...(requestId ? { requestId } : {}),
+        retryable: true,
+      };
+    }
+    const capacityOperation = [...this.operations.values()].find(
+      (operation) =>
+        operation.tenantId === tenantId &&
+        operation.errorCode === "CAPACITY_UNAVAILABLE" &&
+        operation.state === "failed_retryable"
+    );
+    if (capacityOperation) {
+      return {
+        state: "degraded",
+        code: "CAPACITY_UNAVAILABLE",
+        requestId: capacityOperation.requestId,
         retryable: true,
       };
     }

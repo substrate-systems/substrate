@@ -135,6 +135,7 @@ describe("Exomem lifecycle reconciler", () => {
     class DeferredProvisioner extends FakeCellProvisioner {
       readonly started: Promise<void>;
       readonly release: Promise<void>;
+      starts = 0;
       markStarted: () => void;
       releaseProvision: () => void;
 
@@ -151,6 +152,7 @@ describe("Exomem lifecycle reconciler", () => {
       }
 
       override async provision(request: Parameters<FakeCellProvisioner["provision"]>[0]) {
+        this.starts += 1;
         this.markStarted();
         await this.release;
         return super.provision(request);
@@ -164,12 +166,18 @@ describe("Exomem lifecycle reconciler", () => {
     const providerCall = reconciler.reconcileOne({ owner: "provider", tenantId: TENANT });
     await provisioner.started;
 
+    nowState.value = new Date(nowState.value.getTime() + 16_000);
+    const overlap = reconciler.reconcileOne({ owner: "overlap", tenantId: TENANT });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(provisioner.starts, 1);
+    provisioner.releaseProvision();
+    await overlap;
+
     const deletion = await store.enqueue(TENANT, "delete", "delete-during-provision");
     assert.equal(
       (await reconciler.reconcileOne({ owner: "delete-too-early", tenantId: TENANT })).kind,
       "idle"
     );
-    provisioner.releaseProvision();
     await providerCall;
     assert.equal(store.operations.get(provision.id)?.state, "running");
 
@@ -197,16 +205,102 @@ describe("Exomem lifecycle reconciler", () => {
 
   it("adopts a provisioned resource after a lost acknowledgement", async () => {
     const { store, reconciler, provisioner } = harness();
-    await store.enqueue(TENANT, "provision", "initial-provision");
+    const operation = await store.enqueue(TENANT, "provision", "initial-provision");
     await reconciler.reconcileOne({ owner: "worker-a", tenantId: TENANT });
     provisioner.loseNextAcknowledgement("provision");
     await reconciler.reconcileOne({ owner: "worker-a", tenantId: TENANT });
+
+    assert.equal(store.capacityAllocations.get(operation.id)?.state, "uncertain");
+    assert.equal(store.capacityClaims.size, 1);
 
     await store.makeRunnable(TENANT);
     await convergeProvision(reconciler);
 
     assert.equal(provisioner.resources.size, 1);
     assert.equal(store.statusForTenant(TENANT).state, "ready");
+    assert.equal(store.capacityAllocations.get(operation.id)?.state, "occupied");
+  });
+
+  it("waits for resume capacity before contacting the provider and retains storage on suspension", async () => {
+    const { store, reconciler, provisioner, nowState } = harness();
+    const initial = await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    await store.enqueue(TENANT, "suspend", "capacity-suspend", cellId);
+    await convergeProvision(reconciler);
+    assert.equal(store.capacityAllocations.get(initial.id)?.state, "retained_storage");
+
+    store.runtimeCapacitySlots = 0;
+    const resume = await store.enqueue(TENANT, "resume", "capacity-resume", cellId);
+    await reconciler.reconcileOne({ owner: "resume-gate", tenantId: TENANT });
+    const blocked = await reconciler.reconcileOne({ owner: "resume-capacity", tenantId: TENANT });
+    assert.deepEqual(blocked, {
+      kind: "retry_scheduled",
+      operationId: resume.id,
+      code: "CAPACITY_UNAVAILABLE",
+    });
+    assert.equal(
+      provisioner.calls.some(
+        (call) => call.action === "resume" && call.idempotencyKey.startsWith(resume.id)
+      ),
+      false
+    );
+    assert.equal(store.statusForTenant(TENANT).code, "CAPACITY_UNAVAILABLE");
+
+    store.runtimeCapacitySlots = 1;
+    nowState.value = new Date(nowState.value.getTime() + 2_001);
+    await convergeProvision(reconciler);
+    assert.equal(store.capacityAllocations.get(initial.id)?.state, "occupied");
+  });
+
+  it("admits an allocation-less provision only for an explicitly marked legacy tenant", async () => {
+    const { store, reconciler, provisioner } = harness();
+    const operation = await store.enqueue(TENANT, "provision", "legacy-unmetered");
+    store.legacyUnmeteredTenants.add(TENANT);
+    store.capacityAllocations.delete(operation.id);
+
+    await convergeProvision(reconciler);
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(provisioner.resources.size, 1);
+    assert.equal(store.capacityClaims.size, 0);
+  });
+
+  it("releases a candidate allocation only at its exact cleanup checkpoint and target", async () => {
+    const { store, reconciler } = harness();
+    const operation = await store.enqueue(TENANT, "provision", "cleanup-target-fence");
+    await reconciler.reconcileOne({ owner: "candidate", tenantId: TENANT });
+    const running = await store.claim({
+      owner: "cleanup",
+      leaseMs: 15_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(running?.id, operation.id);
+    assert.ok(running?.cellId);
+    assert.equal(
+      await store.markUnboundCellDestroyed(operation.id, "cleanup", running.cellId!),
+      false
+    );
+    assert.notEqual(store.capacityAllocations.get(operation.id)?.state, "released");
+    assert.equal(
+      await store.prepareCandidateCleanup(operation.id, "cleanup", "TEST_CLEANUP"),
+      true
+    );
+    const claimedCleanup = await store.claim({
+      owner: "cleanup",
+      leaseMs: 15_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(claimedCleanup?.checkpoint, "candidate-cleanup");
+    assert.equal(
+      await store.markUnboundCellDestroyed(operation.id, "cleanup", claimedCleanup?.cellId ?? ""),
+      true
+    );
+    assert.equal(store.capacityAllocations.get(operation.id)?.state, "released");
   });
 
   it("waits through more than six provider-pending polls without consuming attempts", async () => {

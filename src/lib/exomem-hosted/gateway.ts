@@ -24,21 +24,44 @@ const COMMAND_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 class CellResponseBodyReadError extends Error {}
 
+function privateDeadlineSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const deadline = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, deadline]) : deadline;
+}
+
+async function awaitPrivateBound<T>(
+  value: Promise<T>,
+  signal: AbortSignal | undefined
+): Promise<T> {
+  if (!signal) return value;
+  if (signal.aborted) throw exomemErrors.cellUnavailable();
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(exomemErrors.cellUnavailable());
+    signal.addEventListener("abort", onAbort, { once: true });
+    void value.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 const RESERVED_FIELDS = new Set([
   "tenant",
   "tenant_id",
   "tenant_scope",
   "account",
   "account_id",
+  "user",
+  "user_id",
+  "resource",
   "cell",
   "cell_id",
   "cell_endpoint",
   "vault",
   "vault_path",
   "vault_root",
+  "path",
   "principal",
   "principal_scope",
   "request_id",
+  "request",
   "protocol",
   "protocol_version",
   "service_credential",
@@ -49,7 +72,15 @@ const RESERVED_FIELDS = new Set([
   "storage_root",
   "subject",
   "idempotency_scope",
+  "idempotency",
   "retry_scope",
+  "retry",
+  "profile",
+  "profile_id",
+  "auth",
+  "authorization",
+  "session",
+  "session_id",
 ]);
 
 const INTERCEPTED_COMMANDS = new Set(["transfer_artifact", "adopt_vault"]);
@@ -96,6 +127,7 @@ export type GatewayResult = {
   status: number;
   body: Record<string, unknown>;
   requestId: string;
+  attempts?: number;
 };
 
 export type GatewayDependencies = {
@@ -106,6 +138,16 @@ export type GatewayDependencies = {
   decrypt?: typeof decryptSecret;
   principalScope?: typeof opaquePrincipalScope;
   access?: CloudflareAccessConfig | null;
+  signal?: AbortSignal;
+};
+
+export type ExpectedHostedContract = {
+  profile: string;
+  sourceRelease: string;
+  protocolVersion: string;
+  commandFingerprint: string;
+  schemaDigest: string;
+  compatibilityDigest: string;
 };
 
 type CachedContract = {
@@ -120,14 +162,26 @@ export function clearContractCacheForTests(): void {
 }
 
 function normalizeField(value: string): string {
-  return value.trim().toLowerCase().replaceAll("-", "_");
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replaceAll("-", "_");
 }
 
-export function hasReservedSelector(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(hasReservedSelector);
+export function hasReservedSelector(
+  value: unknown,
+  allowedTopLevelFields = new Set<string>(),
+  depth = 0
+): boolean {
+  if (Array.isArray(value))
+    return value.some((nested) => hasReservedSelector(nested, allowedTopLevelFields, depth + 1));
   if (!value || typeof value !== "object") return false;
   return Object.entries(value as Record<string, unknown>).some(
-    ([key, nested]) => RESERVED_FIELDS.has(normalizeField(key)) || hasReservedSelector(nested)
+    ([key, nested]) =>
+      (RESERVED_FIELDS.has(normalizeField(key)) &&
+        !(depth === 0 && allowedTopLevelFields.has(normalizeField(key)))) ||
+      hasReservedSelector(nested, allowedTopLevelFields, depth + 1)
   );
 }
 
@@ -426,7 +480,10 @@ export async function resolveGatewayPrivateTarget(
   session: { userId: string; tenantId: string },
   dependencies: GatewayDependencies
 ): Promise<ResolvedPrivateTarget> {
-  const target = await (dependencies.resolveTarget ?? resolveGatewayTarget)(session);
+  const target = await awaitPrivateBound(
+    (dependencies.resolveTarget ?? resolveGatewayTarget)(session),
+    dependencies.signal
+  );
   if (!target) throw exomemErrors.cellMappingMissing();
   const expectedProtocol =
     dependencies.expectedProtocol ?? process.env.EXOMEM_CELL_PROTOCOL_VERSION;
@@ -461,7 +518,7 @@ async function fetchContract(
     `${target.endpoint.toString().replace(/\/$/, "")}/`
   );
   let response: Response;
-  const signal = AbortSignal.timeout(PRIVATE_TIMEOUT_MS);
+  const signal = privateDeadlineSignal(dependencies.signal, PRIVATE_TIMEOUT_MS);
   try {
     response = await fetchImpl(url, {
       method: "GET",
@@ -495,9 +552,58 @@ async function fetchContract(
   return contract;
 }
 
+async function verifyHostedPrivateContract(
+  target: ResolvedPrivateTarget,
+  expected: ExpectedHostedContract,
+  dependencies: GatewayDependencies,
+  requestId: string
+): Promise<void> {
+  const fetchImpl = dependencies.fetch ?? fetch;
+  const url = new URL(
+    "private/exomem/v1/agent/hosted-alpha-agent-v1/contract",
+    `${target.endpoint.toString().replace(/\/$/, "")}/`
+  );
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: "GET",
+      headers: privateGatewayHeaders(target, requestId, dependencies.access),
+      cache: "no-store",
+      redirect: "error",
+      signal: privateDeadlineSignal(dependencies.signal, PRIVATE_TIMEOUT_MS),
+    });
+  } catch {
+    throw exomemErrors.cellUnavailable();
+  }
+  if (!response.ok) {
+    cancelResponseBody(response);
+    throw exomemErrors.cellUnavailable();
+  }
+  const body = await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES, dependencies.signal);
+  const profile = safeJsonObject(body.agent_profile);
+  const digest = safeJsonObject(body.digest);
+  if (
+    profile?.profile !== expected.profile ||
+    profile.active_capability_sha256 !== expected.commandFingerprint ||
+    body.exomem_release !== expected.sourceRelease ||
+    body.protocol_version !== expected.protocolVersion ||
+    digest?.value !== expected.schemaDigest
+  ) {
+    throw exomemErrors.protocolMismatch();
+  }
+}
+
 function validateArguments(command: HostedContractCommand, args: Record<string, unknown>): void {
-  if (hasReservedSelector(args)) throw exomemErrors.selectorRejected();
+  const selectorChecked = command.name === "bootstrap" ? { ...args } : args;
+  if (command.name === "bootstrap") delete selectorChecked.profile;
   const known = new Set(command.params.map((parameter) => parameter.name));
+  if (
+    hasReservedSelector(
+      selectorChecked,
+      new Set([...known].map((parameter) => normalizeField(parameter)))
+    )
+  )
+    throw exomemErrors.selectorRejected();
   if (Object.keys(args).some((key) => !known.has(key))) {
     throw exomemErrors.invalidRequest();
   }
@@ -537,10 +643,11 @@ async function forwardCommand(input: {
   idempotencyKey: string | null;
   requestId: string;
   dependencies: GatewayDependencies;
+  hosted: boolean;
 }): Promise<GatewayResult> {
   const fetchImpl = input.dependencies.fetch ?? fetch;
   const url = new URL(
-    `private/exomem/v1/command/${encodeURIComponent(input.command.name)}`,
+    `${input.hosted ? "private/exomem/v1/agent/hosted-alpha-agent-v1" : "private/exomem/v1"}/command/${encodeURIComponent(input.command.name)}`,
     `${input.target.endpoint.toString().replace(/\/$/, "")}/`
   );
   const headers: Record<string, string> = {
@@ -557,7 +664,7 @@ async function forwardCommand(input: {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const remainingMs = Math.floor(deadline - now());
     if (remainingMs <= 0) throw exomemErrors.cellUnavailable();
-    const signal = AbortSignal.timeout(Math.max(1, remainingMs));
+    const signal = privateDeadlineSignal(input.dependencies.signal, Math.max(1, remainingMs));
     let response: Response;
     try {
       response = await fetchImpl(url, {
@@ -591,6 +698,7 @@ async function forwardCommand(input: {
       status: response.status,
       body: envelope,
       requestId: input.requestId,
+      attempts: attempt + 1,
     };
   }
   throw exomemErrors.cellUnavailable();
@@ -602,22 +710,42 @@ export async function routeExomemCommand(input: {
   args: Record<string, unknown>;
   idempotencyKey?: string | null;
   requestId?: string;
+  hostedContract?: ExpectedHostedContract;
+  command?: HostedContractCommand;
   dependencies?: GatewayDependencies;
 }): Promise<GatewayResult> {
   const requestId = input.requestId ?? randomUUID();
   if (!COMMAND_NAME.test(input.commandName)) throw exomemErrors.commandNotFound();
-  if (hasReservedSelector(input.args)) throw exomemErrors.selectorRejected();
+  if (input.command) validateArguments(input.command, input.args);
+  else if (hasReservedSelector(input.args)) throw exomemErrors.selectorRejected();
   if (INTERCEPTED_COMMANDS.has(input.commandName)) {
     throw exomemErrors.commandInterceptRequired();
   }
   const serialized = Buffer.byteLength(JSON.stringify(input.args), "utf8");
   if (serialized > MAX_COMMAND_BYTES) throw exomemErrors.requestTooLarge();
   const dependencies = input.dependencies ?? {};
+  if (dependencies.signal?.aborted) throw exomemErrors.cellUnavailable();
   const target = await resolveGatewayPrivateTarget(input.session, dependencies);
-  const contract = await fetchContract(target, dependencies, requestId);
-  const command = contract.commands.find((candidate) => candidate.name === input.commandName);
+  if (dependencies.signal?.aborted) throw exomemErrors.cellUnavailable();
+  if (input.hostedContract) {
+    const expected = input.hostedContract;
+    if (
+      target.row.hostedProfile !== expected.profile ||
+      target.row.hostedSourceRelease !== expected.sourceRelease ||
+      target.row.hostedProtocolVersion !== expected.protocolVersion ||
+      target.row.hostedCommandFingerprint !== expected.commandFingerprint ||
+      target.row.hostedContractDigest !== expected.schemaDigest ||
+      target.row.hostedCompatibilityDigest !== expected.compatibilityDigest
+    ) {
+      throw exomemErrors.protocolMismatch();
+    }
+    await verifyHostedPrivateContract(target, expected, dependencies, requestId);
+  }
+  const contract = input.command ? null : await fetchContract(target, dependencies, requestId);
+  const command =
+    input.command ?? contract?.commands.find((candidate) => candidate.name === input.commandName);
   if (!command) throw exomemErrors.commandNotFound();
-  validateArguments(command, input.args);
+  if (!input.command) validateArguments(command, input.args);
   assertEntitled(target.row, command);
 
   const idempotencyKey = command.read_only
@@ -631,6 +759,7 @@ export async function routeExomemCommand(input: {
     idempotencyKey,
     requestId,
     dependencies,
+    hosted: Boolean(input.hostedContract),
   });
 }
 

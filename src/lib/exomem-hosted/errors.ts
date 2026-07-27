@@ -7,6 +7,8 @@ export type ExomemHostedErrorEnvelope = {
     message: string;
     requestId?: string;
     retryable: boolean;
+    retryAfterMs?: number;
+    remediation?: string;
   };
 };
 
@@ -14,13 +16,24 @@ export class ExomemHostedError extends Error {
   readonly code: string;
   readonly status: number;
   readonly retryable: boolean;
+  readonly retryAfterMs?: number;
+  readonly remediation?: string;
 
-  constructor(params: { code: string; status: number; message: string; retryable?: boolean }) {
+  constructor(params: {
+    code: string;
+    status: number;
+    message: string;
+    retryable?: boolean;
+    retryAfterMs?: number;
+    remediation?: string;
+  }) {
     super(params.message);
     this.name = "ExomemHostedError";
     this.code = params.code;
     this.status = params.status;
     this.retryable = params.retryable ?? false;
+    this.retryAfterMs = params.retryAfterMs;
+    this.remediation = params.remediation;
   }
 
   toJSON(): ExomemHostedErrorEnvelope["error"] {
@@ -28,6 +41,8 @@ export class ExomemHostedError extends Error {
       code: this.code,
       message: this.message,
       retryable: this.retryable,
+      ...(this.retryAfterMs ? { retryAfterMs: this.retryAfterMs } : {}),
+      ...(this.remediation ? { remediation: this.remediation } : {}),
     };
   }
 }
@@ -94,6 +109,15 @@ export const exomemErrors = {
       status: 429,
       message: "too many requests",
       retryable: true,
+    }),
+  capacityUnavailable: () =>
+    new ExomemHostedError({
+      code: "CAPACITY_UNAVAILABLE",
+      status: 503,
+      message: "hosted capacity is temporarily unavailable",
+      retryable: true,
+      retryAfterMs: 1000,
+      remediation: "retry_later",
     }),
   emailDeliveryUnavailable: () =>
     new ExomemHostedError({
@@ -233,6 +257,8 @@ export function safeErrorEnvelope(error: unknown, requestId?: string): ExomemHos
       message: safe.message,
       ...(requestId ? { requestId } : {}),
       retryable: safe.retryable,
+      ...(safe.retryAfterMs ? { retryAfterMs: safe.retryAfterMs } : {}),
+      ...(safe.remediation ? { remediation: safe.remediation } : {}),
     },
   };
 }

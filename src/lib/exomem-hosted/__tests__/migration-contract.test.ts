@@ -18,6 +18,10 @@ const paddleProvenancePath = resolve(
   "migrations/0021_exomem_paddle_provider_provenance.sql"
 );
 const exportIntentPath = resolve(process.cwd(), "migrations/0022_exomem_export_request_intent.sql");
+const legacyCapacityPath = resolve(
+  process.cwd(),
+  "migrations/0030_exomem_capacity_legacy_mode.sql"
+);
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -197,5 +201,10 @@ describe("Exomem hosted migration contract", () => {
     }
     assert.doesNotMatch(sql, /DO\s+\$\$/i);
     assert.doesNotMatch(sql, /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
+  });
+
+  it("requires an explicit marker before admitting legacy unmetered capacity", () => {
+    const sql = readFileSync(legacyCapacityPath, "utf8");
+    assert.match(sql, /ADD COLUMN legacy_unmetered boolean NOT NULL DEFAULT false/i);
   });
 });

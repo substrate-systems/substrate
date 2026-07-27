@@ -12,6 +12,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: substrate_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d substrate_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -20,3 +34,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Hosted Exomem PostgreSQL authority and paired acceptance
+        env:
+          EXOMEM_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/substrate_test
+        run: >-
+          node --import tsx --experimental-test-module-mocks --test
+          src/lib/exomem-hosted/__tests__/oauth-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/agent-contract-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/capacity-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/migration-upgrade.integration.test.ts
+          src/lib/exomem-hosted/__tests__/hosted-paired-acceptance.test.ts

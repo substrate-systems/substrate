@@ -1149,9 +1149,38 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        )`,
       [deletion, TENANT, CELL]
     );
+    const capacityPool = await pool.query<{ id: string }>(
+      "SELECT id FROM exomem_capacity_pools WHERE pool_key = 'exomem-hosted-alpha'"
+    );
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+       SET storage_capacity_bytes = 5, runtime_capacity_slots = 1,
+           provision_reservation_capacity = 1, provision_claim_capacity = 1,
+           reserved_storage_bytes = 5, reserved_runtime_slots = 1, reserved_provision_slots = 0
+       WHERE id = $1`,
+      [capacityPool.rows[0]!.id]
+    );
+    await pool.query(
+      `INSERT INTO exomem_capacity_allocations (
+         pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state
+       ) VALUES ($1, $2, 5, 1, 0, 'occupied')`,
+      [capacityPool.rows[0]!.id, TENANT]
+    );
 
     const store = new SqlLifecycleStore();
     assert.equal(await store.markCellState(deletion, "worker-delete", "deleted"), true);
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT allocation.state, pool.reserved_storage_bytes, pool.reserved_runtime_slots
+           FROM exomem_capacity_allocations AS allocation
+           JOIN exomem_capacity_pools AS pool ON pool.id = allocation.pool_id
+           WHERE allocation.tenant_id = $1`,
+          [TENANT]
+        )
+      ).rows[0],
+      { state: "released", reserved_storage_bytes: "0", reserved_runtime_slots: 0 }
+    );
 
     const counts = await pool.query<{ sessions: string; invites: string }>(
       `SELECT
@@ -1260,6 +1289,11 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.equal(operation?.cellId, null);
     assert.equal(operation?.fenceGeneration, 2);
     assert.equal(await store.applyLocalGate(operation!.id, "delete-worker", "deleted"), true);
+    const oauthBlock = await pool.query<{ blocked_reason: string }>(
+      "SELECT blocked_reason FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+      [TENANT]
+    );
+    assert.deepEqual(oauthBlock.rows, [{ blocked_reason: "lifecycle_deleted" }]);
   });
 
   it("runs lifecycle advance and persists a non-attempt-consuming provider wait", async () => {

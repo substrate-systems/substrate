@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createSingleFlight, nextStatusPollDelayMs, parseLifecycleResponse } from "../home-state";
+import {
+  createSingleFlight,
+  nextStatusPollDelayMs,
+  parseInstallActions,
+  parseLifecycleResponse,
+} from "../home-state";
 
 describe("hosted Home lifecycle state", () => {
   it("keeps the content-free support reference from status responses", () => {
@@ -26,6 +31,32 @@ describe("hosted Home lifecycle state", () => {
     assert.equal(parseLifecycleResponse({}), null);
     assert.equal(parseLifecycleResponse({ status: { state: "invented" } }), null);
     assert.equal(parseLifecycleResponse({ status: [] }), null);
+  });
+
+  it("accepts only tenant-neutral HTTPS install actions", () => {
+    assert.deepEqual(
+      parseInstallActions({
+        installActions: [
+          {
+            platform: "claude",
+            version: "0.34.0",
+            installUrl: "https://claude.ai/plugins/exomem-hosted",
+          },
+          {
+            platform: "openai",
+            version: "0.34.0",
+            installUrl: "https://chatgpt.com/plugins/exomem-hosted?tenant=private",
+          },
+        ],
+      }),
+      [
+        {
+          platform: "claude",
+          version: "0.34.0",
+          installUrl: "https://claude.ai/plugins/exomem-hosted",
+        },
+      ]
+    );
   });
 
   it("backs off status polling to a finite ceiling and stops once ready", () => {

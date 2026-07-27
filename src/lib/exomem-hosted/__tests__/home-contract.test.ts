@@ -59,6 +59,17 @@ describe("private Exomem Home contract", () => {
     assert.doesNotMatch(home, /tenantId|cellId|vaultRoot|privateEndpoint/);
   });
 
+  it("renders only server-provided native install actions", () => {
+    const home = source("src/app/exomem/home/home-client.tsx");
+    const state = source("src/app/exomem/home/home-state.ts");
+    assert.match(home, /setInstallActions\(parseInstallActions\(response\)\)/);
+    assert.match(home, /installActions\.map/);
+    assert.match(home, /Install in/);
+    assert.doesNotMatch(home, /mcpUrl|manual connector|tenantId/);
+    assert.match(state, /platform !== "claude" && candidate\.platform !== "openai"/);
+    assert.match(state, /installUrl\.protocol !== "https:"/);
+  });
+
   it("opens a server-created Paddle transaction on the private Exomem return page", () => {
     const page = source("src/app/exomem/home/page.tsx");
     const opener = source("src/components/PaddleTransactionOpener.tsx");
