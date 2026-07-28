@@ -30,10 +30,10 @@
 
 ## 6. Verification and Delivery
 
-- [ ] 6.1 Run strict OpenSpec validation, focused tests, full unit tests, TypeScript checking, lint/format checks, and the production build
+- [x] 6.1 Run strict OpenSpec validation, focused tests, full unit tests, TypeScript checking, lint/format checks, and the production build
 - [x] 6.2 Obtain an independent security/code review and address actionable findings
-- [ ] 6.3 Obtain an independent verifier pass over the public pages, challenge route, OAuth/MCP front door, and redacted probe
-- [ ] 6.4 Commit the intended Substrate scope, integrate current remote main, push the feature branch, and open a ready pull request with verification evidence
+- [x] 6.3 Obtain an independent verifier pass over the public pages, challenge route, OAuth/MCP front door, and redacted probe
+- [x] 6.4 Commit the intended Substrate scope, integrate current remote main, push the feature branch, and open a ready pull request with verification evidence
 
 ## 7. External Launch Handoff
 
