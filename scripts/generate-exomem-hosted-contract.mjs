@@ -9,8 +9,8 @@ import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/typ
 
 const PROFILE = "hosted-alpha-agent-v1";
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
-const RELEASE_COMMIT = "08f1cee281bd0dbcaf82094421c11d6be04dc5c2";
-const RELEASE_ARCHIVE_SHA256 = "dc931d7459634ca4c2f0b4cefd3eaa54abc9d8d7b2f053f1fba5e0547378aecf";
+const RELEASE_COMMIT = "253c9aa365d7afd8829dc7843f1cac53353ac825";
+const RELEASE_ARCHIVE_SHA256 = "ca5cac5ada03c02642b64906acb2dfad2faeda3d25eb7110446c55b213cd32c9";
 
 function fail(message) {
   process.stderr.write(`${message}\n`);

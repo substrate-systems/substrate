@@ -1,7 +1,7 @@
-// Generated from Exomem compatibility.json at commit 08f1cee281bd0dbcaf82094421c11d6be04dc5c2 for cell release 0.33.0. Do not edit.
+// Generated from Exomem compatibility.json at commit 253c9aa365d7afd8829dc7843f1cac53353ac825 for cell release 0.34.0. Do not edit.
 export const exomemHostedContractFixture = {
-  "sourceCommit": "08f1cee281bd0dbcaf82094421c11d6be04dc5c2",
-  "sourceRelease": "0.33.0",
+  "sourceCommit": "253c9aa365d7afd8829dc7843f1cac53353ac825",
+  "sourceRelease": "0.34.0",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -45,7 +45,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": true,
-              "title": "bootstrap"
+              "title": "Bootstrap"
             },
             "description": "Return Exomem's versioned operating contract for generic MCP clients.\n\nCall this once at the start of a session when the client does not have the\nExomem Claude Skill loaded. It teaches the agent how to use the tools: when\nto search, when to save, how to interpret scoped misses, which `find` knobs\nare cheap vs diagnostic, how compiled notes differ from raw sources/evidence,\nand how Exomem differs from built-in AI memory. The payload is deterministic\ninstruction plus local compute policy and product-surface metadata; it does\nnot inspect or summarize vault content.",
             "inputSchema": {
@@ -76,7 +76,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "bootstrap"
+            "title": "Bootstrap"
           },
           "mode": "read",
           "name": "bootstrap",
@@ -119,7 +119,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": true,
-              "title": "ask_memory"
+              "title": "Ask Memory"
             },
             "description": "Recall durable knowledge from Exomem with product defaults.\n\nThis is the normal first read: search compiled knowledge, sources,\nevidence, media sidecars, and curated vault files without making the\ncaller choose internal primitives. Set `deep=true` to return a packed\nreasoning context instead of only hits. Heavy behavior stays explicit:\nrerank is only forced when `rerank=true`, and graph enrichment is only\nrequested when `graph_enrich=true`.",
             "inputSchema": {
@@ -1123,7 +1123,7 @@ export const exomemHostedContractFixture = {
               "type": "object",
               "x-fastmcp-wrap-result": true
             },
-            "title": "ask_memory"
+            "title": "Ask Memory"
           },
           "mode": "read",
           "name": "ask_memory",
@@ -1329,7 +1329,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": true,
-              "title": "read_memory"
+              "title": "Read Memory"
             },
             "description": "Read one memory page or one exact semantic unit by reference.\n\nUse after `ask_memory` chooses a hit, or when a caller already knows the\npath. With `unit_ref`, returns that exact current semantic unit, its parent\ncitation/lifecycle, and at most 2,400 characters of surrounding Markdown.\nMissing, stale, ambiguous, and superseded references are reported through\nthe response `status`; no nearby unit is silently substituted. Without\n`unit_ref`, this preserves the existing page-read response exactly.",
             "inputSchema": {
@@ -1394,7 +1394,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "read_memory"
+            "title": "Read Memory"
           },
           "mode": "read",
           "name": "read_memory",
@@ -1469,7 +1469,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": true,
-              "title": "browse_memory"
+              "title": "Browse Memory"
             },
             "description": "Browse vault structure without reading many files.\n\n`mode=\"overview\"` returns a bounded product adoption/structure report.\n`mode=\"list\"` returns entries for a folder. Both are read-only.",
             "inputSchema": {
@@ -1513,7 +1513,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "browse_memory"
+            "title": "Browse Memory"
           },
           "mode": "read",
           "name": "browse_memory",
@@ -1584,7 +1584,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": false,
-              "title": "remember"
+              "title": "Remember"
             },
             "description": "Remember a durable conclusion as compiled governed knowledge.\n\nThis is for distilled thinking, decisions, findings, failures, patterns,\nexperiments, and production logs. Raw material belongs in `capture_source`;\nproof artifacts belong in `preserve_evidence`.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
             "inputSchema": {
@@ -1956,7 +1956,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "remember"
+            "title": "Remember"
           },
           "mode": "write",
           "name": "remember",
@@ -2182,7 +2182,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": false,
-              "title": "observe_memory"
+              "title": "Observe Memory"
             },
             "description": "Validate or mutate one semantic unit on a compiled memory page.\n\nCompact observation is the default form. Supply an explicit governed\nnon-observation `kind` for rich semantic-block form and typed relations.\nUse `validate` before a guarded commit when semantic review is required.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
             "inputSchema": {
@@ -2381,7 +2381,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "observe_memory"
+            "title": "Observe Memory"
           },
           "mode": "write",
           "name": "observe_memory",
@@ -2510,7 +2510,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": false,
-              "title": "capture_source"
+              "title": "Capture Source"
             },
             "description": "Capture raw source material and optionally return compile guidance.\n\nThe raw source is preserved first. If `compile_guidance=true`, Exomem then\nreturns a proposal for a future compiled note, without silently converting\nraw provenance into a conclusion.",
             "inputSchema": {
@@ -2619,7 +2619,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "capture_source"
+            "title": "Capture Source"
           },
           "mode": "write",
           "name": "capture_source",
@@ -2712,7 +2712,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": true,
-              "title": "compile_source"
+              "title": "Compile Source"
             },
             "description": "Plan a compiled note from one or more raw sources.\n\nThis is read-only: it returns a note skeleton, suggested source links, and\nadjacent compiled pages. The agent or user still writes the conclusion via\n`remember`.",
             "inputSchema": {
@@ -2748,7 +2748,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "compile_source"
+            "title": "Compile Source"
           },
           "mode": "read",
           "name": "compile_source",
@@ -2794,7 +2794,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": false,
-              "title": "preserve_evidence"
+              "title": "Preserve Evidence"
             },
             "description": "Preserve text evidence as append-only proof material.\n\nUse for receipts, letters, transcripts, warranty records, legal/dispute\nmaterial, and other factual artifacts. Binary files use `transfer_artifact`\nplus the `/upload` endpoint so bytes do not pass through the model.",
             "inputSchema": {
@@ -2852,7 +2852,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "preserve_evidence"
+            "title": "Preserve Evidence"
           },
           "mode": "write",
           "name": "preserve_evidence",
@@ -2921,7 +2921,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": true,
-              "title": "review_memory"
+              "title": "Review Memory"
             },
             "description": "Review memory health, provenance, drift, or source backlog.\n\nDefault mode is read-only attention review. Write-capable repairs are in\n`maintain_memory`, not here.",
             "inputSchema": {
@@ -3073,7 +3073,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "review_memory"
+            "title": "Review Memory"
           },
           "mode": "read",
           "name": "review_memory",
@@ -3193,7 +3193,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": true,
-              "title": "review_item_context"
+              "title": "Review Item Context"
             },
             "description": "Inspect one stable review item with bounded recorded context.\n\nResolves an Inbox or corpus-activation item by `exomem://review/<id>` and\ncomposes its target, related summaries, provenance/evidence, graph, history,\nand path-specific supersession evolution. This is deterministic read-only\nassembly: it runs no model, makes no epistemic judgment, and never writes.",
             "inputSchema": {
@@ -3256,7 +3256,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "review_item_context"
+            "title": "Review Item Context"
           },
           "mode": "read",
           "name": "review_item_context",
@@ -3336,7 +3336,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": false,
-              "title": "triage_memory"
+              "title": "Triage Memory"
             },
             "description": "Triage one Epistemic Inbox item explicitly.\n\nThis is the write-capable companion to read-only `review_memory`. Decisions\nbind to the current signal fingerprint, so materially changed knowledge\nresurfaces automatically.",
             "inputSchema": {
@@ -3408,7 +3408,7 @@ export const exomemHostedContractFixture = {
               "additionalProperties": true,
               "type": "object"
             },
-            "title": "triage_memory"
+            "title": "Triage Memory"
           },
           "mode": "write",
           "name": "triage_memory",
@@ -3477,7 +3477,7 @@ export const exomemHostedContractFixture = {
               "idempotentHint": false,
               "openWorldHint": false,
               "readOnlyHint": false,
-              "title": "connect_memory"
+              "title": "Connect Memory"
             },
             "description": "Connect memory through links, typed graph context, or entities.\n\nProposal modes are read-only. `operation=\"create-entity\"` is an explicit\nadditive write that creates a typed graph node through the canonical entity\nwriter. `operation=\"accept-relation\"` is a governed additive write that\nauthors one reviewed relation-queue candidate.",
             "inputSchema": {
@@ -3973,7 +3973,7 @@ export const exomemHostedContractFixture = {
               "type": "object",
               "x-fastmcp-wrap-result": true
             },
-            "title": "connect_memory"
+            "title": "Connect Memory"
           },
           "mode": "write",
           "name": "connect_memory",
@@ -4250,7 +4250,7 @@ export const exomemHostedContractFixture = {
       },
       "digest": {
         "algorithm": "sha256",
-        "value": "57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3"
+        "value": "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853"
       },
       "envelopes": {
         "error": {
@@ -4283,7 +4283,6 @@ export const exomemHostedContractFixture = {
           }
         }
       },
-      "exomem_release": "0.33.0",
       "protocol_version": "1",
       "schema_version": 1,
       "trusted_headers": {
@@ -4310,8 +4309,8 @@ export const exomemHostedContractFixture = {
       "triage_memory",
       "connect_memory"
     ],
-    "compatibility_sha256": "aba2095396992240ce9c92ff0f66183362b3db97101442005549a8f8b026eb34",
-    "definition_sha256": "a1528d037060587db425c2bbca0f1231a9247dccf30c1467514e02a30e740fe9",
+    "compatibility_sha256": "6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c",
+    "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery": {
       "authorization_server_metadata": "https://substratesystems.io/.well-known/oauth-authorization-server/api/exomem/oauth",
@@ -4470,7 +4469,7 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3",
+    "schema_contract_sha256": "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853",
     "schema_version": 1,
     "skills": {
       "exomem": [
@@ -4507,14 +4506,13 @@ export const exomemHostedContractFixture = {
         "read_memory"
       ]
     },
-    "skills_sha256": "c897d335438f686b1c323a1fe080372df34092d9b009292a470a3f9bd1da69e7",
-    "source_release": "0.33.0"
+    "skills_sha256": "c897d335438f686b1c323a1fe080372df34092d9b009292a470a3f9bd1da69e7"
   },
   "packageLock": {
-    "artifact_sha256": "b468f0425e7a021f3d7806991abdf6ae5724298fdd3cb6540cb68e1a4edb4c89",
+    "artifact_sha256": "b99ac90d97c7ae25463f434fb02fe87a36842aa82373cd5c4c449b17f512b95a",
     "command_surface_sha256": "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
-    "compatibility_sha256": "aba2095396992240ce9c92ff0f66183362b3db97101442005549a8f8b026eb34",
-    "definition_sha256": "a1528d037060587db425c2bbca0f1231a9247dccf30c1467514e02a30e740fe9",
+    "compatibility_sha256": "6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c",
+    "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery_sha256": "103fefcef3f994cf09aa067f65ad8beb369907b382ea41bb9a49af2a2c446e7b",
     "platform": "claude",
@@ -4522,12 +4520,12 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3",
+    "schema_contract_sha256": "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853",
     "schema_version": 1,
     "skills_sha256": "c897d335438f686b1c323a1fe080372df34092d9b009292a470a3f9bd1da69e7"
   },
   "archiveLock": {
-    "archive_sha256": "cdba2b1b1ca7f165915ff73a27f991228df13b0d6c67c2607f5c34fb4d563057",
+    "archive_sha256": "dc55e52e36c4b533a0179f19e8856a3414016ad536d0f85370fe5a765661858b",
     "platform": "claude"
   }
 } as const;

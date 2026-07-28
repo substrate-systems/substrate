@@ -46,9 +46,9 @@ describe("Exomem Hosted agent contracts", () => {
   it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "08f1cee281bd0dbcaf82094421c11d6be04dc5c2"
+      "253c9aa365d7afd8829dc7843f1cac53353ac825"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.33.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.34.0");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -82,9 +82,9 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.33.0");
+      assert.equal(fixture.sourceRelease, "0.34.0");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
-      fixture.sourceRelease = "0.33.1";
+      fixture.sourceRelease = "0.34.1";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
     } finally {
       fixture.sourceRelease = originalSourceRelease;

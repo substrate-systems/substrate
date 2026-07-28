@@ -306,9 +306,9 @@ describe("Hosted Exomem paired acceptance fixture", () => {
   it("pins the released contract and requires two native client identities", () => {
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "08f1cee281bd0dbcaf82094421c11d6be04dc5c2"
+      "253c9aa365d7afd8829dc7843f1cac53353ac825"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.33.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.34.0");
     assert.equal(fixture.local_provenance, "mock");
     assert.deepEqual(fixture.external_release_gates, [
       "registered_openai_asdk_app",
@@ -391,7 +391,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       provisioner: provider,
       config: expectedCellConfiguration({
         protocolVersion: "1",
-        releaseVersion: "0.33.0",
+        releaseVersion: "0.34.0",
         workerPolicy: { workerCount: 0, semantic: false, media: false },
       }),
       envelopeKey: Buffer.alloc(32, 9),

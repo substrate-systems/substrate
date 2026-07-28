@@ -15,7 +15,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
 1. migrations `0017` through `0034_exomem_oauth_client_admission.sql` applied to the production Neon database;
-2. an Exomem `0.33.0` cell image from commit `08f1cee281bd0dbcaf82094421c11d6be04dc5c2` exposing private protocol `1`;
+2. an Exomem `0.34.0` cell image from commit `253c9aa365d7afd8829dc7843f1cac53353ac825` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
@@ -28,8 +28,8 @@ remains deliberately disabled until the public price, checkout domain,
 terms/tax review, and live webhook are approved and configured.
 
 The pinned compatibility, schema-contract, and command-surface digests are
-`aba2095396992240ce9c92ff0f66183362b3db97101442005549a8f8b026eb34`,
-`57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3`, and
+`6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c`,
+`c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853`, and
 `eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f`.
 Regenerate both checked-in fixtures only from a clean checkout at the selected
 commit:
@@ -39,11 +39,12 @@ node scripts/generate-exomem-hosted-contract.mjs \
   --exomem-repo /path/to/exomem \
   --output src/lib/exomem-hosted/agent-contract-fixture.ts \
   --json-output src/lib/exomem-hosted/__tests__/agent-contract-fixture.json \
-  --expected-commit 08f1cee281bd0dbcaf82094421c11d6be04dc5c2 \
-  --source-release 0.33.0
-npx prettier --write \
-  src/lib/exomem-hosted/agent-contract-fixture.ts
+  --expected-commit 253c9aa365d7afd8829dc7843f1cac53353ac825 \
+  --source-release 0.34.0
 ```
+
+Keep both generated outputs byte-identical to the generator; do not reformat
+either fixture independently.
 
 The fixture's top-level `sourceRelease` is the trusted cell-runtime release;
 it is intentionally separate from the compatibility descriptor. When the
@@ -72,7 +73,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                         |
 | `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                                                                                                                                              |
 | `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                                                                                                                                                  |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.33.0` for this release unit. Readiness must echo it.                                                                                                                                                                                                                     |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.34.0` for this release unit. Readiness must echo it.                                                                                                                                                                                                                     |
 | `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                                                                                                                                                       |
 | `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
 | `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
