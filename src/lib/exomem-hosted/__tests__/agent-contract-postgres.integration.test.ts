@@ -221,7 +221,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     );
     await recordRoutableCellObservation({
       cellId: routableCell.rows[0]!.id,
-      sourceRelease: fixture.source_release,
+      sourceRelease: exomemHostedContractFixture.sourceRelease,
       protocolVersion: fixture.agent_contract.protocol_version,
       commandSurfaceSha256: fixture.command_surface_sha256,
       schemaDigest: fixture.schema_contract_sha256,
@@ -559,7 +559,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     );
     const fixture = exomemHostedContractFixture.compatibility;
     const observation = {
-      sourceRelease: fixture.source_release,
+      sourceRelease: exomemHostedContractFixture.sourceRelease,
       protocolVersion: fixture.agent_contract.protocol_version,
       commandSurfaceSha256: fixture.command_surface_sha256,
       schemaDigest: fixture.schema_contract_sha256,
@@ -574,7 +574,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         JSON.stringify([
           fixture.profile,
           cell.id,
-          fixture.source_release,
+          exomemHostedContractFixture.sourceRelease,
           fixture.agent_contract.protocol_version,
           fixture.command_surface_sha256,
           fixture.schema_contract_sha256,
@@ -598,7 +598,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     assert.deepEqual(authority.rows[0], {
       routable_cell_count: 2,
       routable_set_digest: expectedDigest,
-      source_release: fixture.source_release,
+      source_release: exomemHostedContractFixture.sourceRelease,
       protocol_version: fixture.agent_contract.protocol_version,
       command_fingerprint: fixture.command_surface_sha256,
       contract_digest: fixture.schema_contract_sha256,

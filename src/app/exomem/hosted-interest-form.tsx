@@ -6,21 +6,19 @@ const MONO = "var(--font-mono-exo)";
 const STD_EASE = "cubic-bezier(0.33,1,0.68,1)";
 
 const TIERS = [
-  { value: "", label: "worth to you? (optional)" },
-  { value: "none", label: "nothing — I'd self-host" },
-  { value: "5", label: "~€5 / month" },
-  { value: "10", label: "~€10 / month" },
-  { value: "20", label: "€20+ / month" },
+  { value: "", label: "friends cohort preference (optional)" },
+  { value: "complimentary", label: "complimentary private alpha" },
+  { value: "5", label: "~€5 / month if paid access opens" },
+  { value: "10", label: "~€10 / month if paid access opens" },
+  { value: "20", label: "€20+ / month if paid access opens" },
 ];
 
-const isValidEmail = (v: string) =>
-  v.indexOf("@") >= 1 && v.indexOf(".") > v.indexOf("@");
+const isValidEmail = (v: string) => v.indexOf("@") >= 1 && v.indexOf(".") > v.indexOf("@");
 
 /**
- * Hosted-tier demand capture. This is a signal counter, not a signup: it POSTs
- * the email + optional price tier to /api/exomem/interest (Brevo-backed) and
- * swaps to a confirmation. Validation is intentionally minimal — the point is to
- * count interest, not gate it.
+ * Friends-cohort access request. It POSTs the email and optional preference to
+ * /api/exomem/interest (Brevo-backed) and confirms the request without promising
+ * an invite. Validation is intentionally minimal for this private alpha flow.
  */
 export default function HostedInterestForm() {
   const [email, setEmail] = useState("");
@@ -39,24 +37,27 @@ export default function HostedInterestForm() {
   const register = async () => {
     const value = email.trim();
     if (!isValidEmail(value)) {
-      setHint("Enter a valid email — it's only used to count demand.");
+      setHint("Enter a valid email so we can follow up about private alpha access.");
       return;
     }
     setPending(true);
     setHint("");
-    // Optimistic: this exists to measure demand, so a delivery hiccup shouldn't
-    // punish the visitor. The POST is fire-and-log; the UI confirms regardless.
     try {
-      await fetch("/api/exomem/interest", {
+      const response = await fetch("/api/exomem/interest", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: value, tier }),
       });
+      if (!response.ok) {
+        setHint("We couldn’t submit your request. Please try again.");
+        return;
+      }
+      setSubmitted(true);
     } catch {
-      /* swallow — the signal is best-effort */
+      setHint("We couldn’t submit your request. Please try again.");
+    } finally {
+      setPending(false);
     }
-    setPending(false);
-    setSubmitted(true);
   };
 
   if (submitted) {
@@ -75,9 +76,7 @@ export default function HostedInterestForm() {
           ✓
         </span>
         <div>
-          <p style={{ margin: 0, color: "var(--fg-primary)" }}>
-            Noted — thank you.
-          </p>
+          <p style={{ margin: 0, color: "var(--fg-primary)" }}>Request received — thank you.</p>
           <p
             style={{
               margin: "6px 0 0",
@@ -87,8 +86,7 @@ export default function HostedInterestForm() {
               fontWeight: 300,
             }}
           >
-            This exists to measure demand. Nothing gets built until it clears a
-            threshold.
+            We&rsquo;ll follow up if there is room in the private alpha friends cohort.
           </p>
         </div>
       </div>
@@ -133,7 +131,7 @@ export default function HostedInterestForm() {
           }}
         />
         <select
-          aria-label="If a hosted tier existed, what would it be worth to you? Optional."
+          aria-label="Friends cohort preference. Optional."
           value={tier}
           onChange={(e) => setTier(e.target.value)}
           onFocus={focusAmber}
@@ -182,7 +180,7 @@ export default function HostedInterestForm() {
             if (!pending) e.currentTarget.style.opacity = "1";
           }}
         >
-          Register interest
+          Request an invite
         </button>
       </div>
       <p

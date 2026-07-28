@@ -9,7 +9,7 @@ declare module "react-dom" {
 }
 
 declare module "react-dom/client" {
-  import type { ReactNode } from "react";
+  import type { ErrorInfo, ReactNode } from "react";
 
   export type Root = {
     render(children: ReactNode): void;
@@ -17,4 +17,17 @@ declare module "react-dom/client" {
   };
 
   export function createRoot(container: Element | DocumentFragment): Root;
+
+  export type HydrateRootOptions = {
+    identifierPrefix?: string;
+    onCaughtError?: (error: unknown, errorInfo: ErrorInfo) => void;
+    onUncaughtError?: (error: unknown, errorInfo: ErrorInfo) => void;
+    onRecoverableError?: (error: unknown, errorInfo: ErrorInfo) => void;
+  };
+
+  export function hydrateRoot(
+    container: Document | Element,
+    initialChildren: ReactNode,
+    options?: HydrateRootOptions
+  ): Root;
 }

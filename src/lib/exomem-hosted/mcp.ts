@@ -612,18 +612,40 @@ function unauthorized(baseUrl: string): Response {
   );
 }
 
+function exactWebOrigin(value: string): string | null {
+  try {
+    const origin = new URL(value);
+    if ((origin.protocol !== "https:" && origin.protocol !== "http:") || value !== origin.origin) {
+      return null;
+    }
+    return origin.origin;
+  } catch {
+    return null;
+  }
+}
+
+function mcpOriginAllowed(origin: string | null, baseUrl: string): boolean {
+  if (origin === null) return true;
+  const exact = exactWebOrigin(origin);
+  if (!exact) return false;
+  if (exact === baseUrl) return true;
+  const configured = process.env.EXOMEM_MCP_ALLOWED_ORIGINS;
+  if (!configured) return false;
+  const allowed = configured.split(",").map(exactWebOrigin);
+  return allowed.every((candidate) => candidate !== null) && allowed.includes(exact);
+}
+
+function originRejected(): Response {
+  return new Response(null, { status: 403, headers: { "cache-control": "no-store" } });
+}
+
 /** A stateless, OAuth-bound MCP resource. Authentication material never enters the SDK or private cell. */
 export async function handleHostedMcpRequest(
   request: Request,
   dependencies: McpDependencies = {}
 ): Promise<Response> {
   const baseUrl = dependencies.baseUrl ?? exomemPublicBaseUrlFromEnv();
-  const take = dependencies.takeRateLimit ?? takeExomemRateLimit;
-  const ip = clientAddressKey(request);
-  if (ip && !(await take(EXOMEM_RATE_LIMITS.mcpIp, ip))) {
-    emitMcpTelemetry(dependencies, request, { outcome: "denied", errorCode: "RATE_LIMITED" });
-    return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
-  }
+  if (!mcpOriginAllowed(request.headers.get("origin"), baseUrl)) return originRejected();
   if (
     hasForbiddenGatewayHeaders(request.headers) ||
     hasMcpSelector(Object.fromEntries(new URL(request.url).searchParams))
@@ -641,6 +663,12 @@ export async function handleHostedMcpRequest(
       errorCode: "ACCESS_TOKEN_INVALID",
     });
     return unauthorized(baseUrl);
+  }
+  const take = dependencies.takeRateLimit ?? takeExomemRateLimit;
+  const ip = clientAddressKey(request);
+  if (ip && !(await take(EXOMEM_RATE_LIMITS.mcpIp, ip))) {
+    emitMcpTelemetry(dependencies, request, { outcome: "denied", errorCode: "RATE_LIMITED" });
+    return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
   }
   const access = await (dependencies.findAccessToken ?? findMcpOAuthAccessToken)(
     digestSecret(bearer)

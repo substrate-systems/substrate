@@ -29,29 +29,66 @@ function renderServerHtml(): string {
 }
 
 class MotionQuery implements MediaQueryList {
-  media = "(prefers-reduced-motion: reduce)";
-  onchange = null;
-  private listeners = new Set<(event: MediaQueryListEvent) => void>();
+  readonly media = "(prefers-reduced-motion: reduce)";
+  onchange: ((this: MediaQueryList, event: MediaQueryListEvent) => void) | null = null;
+  private listeners = new Set<
+    | EventListenerOrEventListenerObject
+    | ((this: MediaQueryList, event: MediaQueryListEvent) => void)
+  >();
   constructor(public matches: boolean) {}
-  addEventListener(_type: "change", listener: (event: MediaQueryListEvent) => void) {
+  addEventListener<K extends keyof MediaQueryListEventMap>(
+    _type: K,
+    listener: (this: MediaQueryList, event: MediaQueryListEventMap[K]) => void,
+    _options?: boolean | AddEventListenerOptions
+  ): void;
+  addEventListener(
+    _type: string,
+    listener: EventListenerOrEventListenerObject,
+    _options?: boolean | AddEventListenerOptions
+  ): void;
+  addEventListener(
+    _type: string,
+    listener:
+      | EventListenerOrEventListenerObject
+      | ((this: MediaQueryList, event: MediaQueryListEvent) => void)
+  ) {
     this.listeners.add(listener);
   }
-  removeEventListener(_type: "change", listener: (event: MediaQueryListEvent) => void) {
+  removeEventListener<K extends keyof MediaQueryListEventMap>(
+    _type: K,
+    listener: (this: MediaQueryList, event: MediaQueryListEventMap[K]) => void,
+    _options?: boolean | EventListenerOptions
+  ): void;
+  removeEventListener(
+    _type: string,
+    listener: EventListenerOrEventListenerObject,
+    _options?: boolean | EventListenerOptions
+  ): void;
+  removeEventListener(
+    _type: string,
+    listener:
+      | EventListenerOrEventListenerObject
+      | ((this: MediaQueryList, event: MediaQueryListEvent) => void)
+  ) {
     this.listeners.delete(listener);
   }
-  addListener(listener: (event: MediaQueryListEvent) => void) {
-    this.listeners.add(listener);
+  addListener(listener: ((this: MediaQueryList, event: MediaQueryListEvent) => void) | null) {
+    if (listener) this.listeners.add(listener);
   }
-  removeListener(listener: (event: MediaQueryListEvent) => void) {
-    this.listeners.delete(listener);
+  removeListener(listener: ((this: MediaQueryList, event: MediaQueryListEvent) => void) | null) {
+    if (listener) this.listeners.delete(listener);
   }
-  dispatchEvent() {
+  dispatchEvent(event: Event) {
+    void event;
     return true;
   }
   setMatches(matches: boolean) {
     this.matches = matches;
     const event = { matches, media: this.media } as MediaQueryListEvent;
-    this.listeners.forEach((listener) => listener(event));
+    this.listeners.forEach((listener) => {
+      if (typeof listener === "function") listener.call(this, event);
+      else listener.handleEvent(event);
+    });
   }
   get listenerCount() {
     return this.listeners.size;

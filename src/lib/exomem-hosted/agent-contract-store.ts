@@ -9,14 +9,14 @@ import {
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
-const TRUSTED_SOURCE_COMMIT = "08f1cee281bd0dbcaf82094421c11d6be04dc5c2";
+const TRUSTED_SOURCE_COMMIT = "253c9aa365d7afd8829dc7843f1cac53353ac825";
 const TRUSTED_RELEASE = {
-  source_release: "0.33.0",
+  sourceRelease: "0.34.0",
   command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
-  schema_contract_sha256: "57ea9633fc1ccd6bb365ae8e70d42b29dc75e41e3e24b043e333b875a0c66dd3",
-  compatibility_sha256: "aba2095396992240ce9c92ff0f66183362b3db97101442005549a8f8b026eb34",
-  artifact_sha256: "b468f0425e7a021f3d7806991abdf6ae5724298fdd3cb6540cb68e1a4edb4c89",
-  archive_sha256: "cdba2b1b1ca7f165915ff73a27f991228df13b0d6c67c2607f5c34fb4d563057",
+  schema_contract_sha256: "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853",
+  compatibility_sha256: "6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c",
+  artifact_sha256: "b99ac90d97c7ae25463f434fb02fe87a36842aa82373cd5c4c449b17f512b95a",
+  archive_sha256: "dc55e52e36c4b533a0179f19e8856a3414016ad536d0f85370fe5a765661858b",
 } as const;
 const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
 
@@ -161,8 +161,10 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
   const compatibility = record(source.compatibility, "compatibility");
   const packageLock = record(source.packageLock, "Claude package lock");
   const archiveLock = record(source.archiveLock, "Claude archive lock");
+  if (source.sourceRelease !== TRUSTED_RELEASE.sourceRelease) {
+    throw new Error("agent contract fixture has an untrusted source release");
+  }
   if (
-    compatibility.source_release !== TRUSTED_RELEASE.source_release ||
     compatibility.command_surface_sha256 !== TRUSTED_RELEASE.command_surface_sha256 ||
     compatibility.schema_contract_sha256 !== TRUSTED_RELEASE.schema_contract_sha256 ||
     compatibility.compatibility_sha256 !== TRUSTED_RELEASE.compatibility_sha256 ||
@@ -233,7 +235,7 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
     state: "pending",
     profile: EXOMEM_HOSTED_PROFILE,
     endpoint: EXOMEM_HOSTED_RESOURCE,
-    sourceRelease: string(compatibility.source_release, "source release"),
+    sourceRelease: string(source.sourceRelease, "source release"),
     commandSurfaceSha256,
     schemaDigest,
     compatibilitySha256: sha256(compatibility.compatibility_sha256, "compatibility digest"),

@@ -74,6 +74,16 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 3,
     windowSeconds: 60 * 60,
   },
+  interestIp: {
+    scope: "exomem:interest:ip",
+    limit: 10,
+    windowSeconds: 60 * 60,
+  },
+  interestEmail: {
+    scope: "exomem:interest:email",
+    limit: 3,
+    windowSeconds: 24 * 60 * 60,
+  },
 } as const satisfies Record<string, ExomemRateLimitRule>;
 
 const MAX_RATE_LIMIT_WINDOW_SECONDS = Math.max(
@@ -116,4 +126,8 @@ export function clientAddressKey(request: Request): string | null {
   const forwarded = request.headers.get("x-forwarded-for");
   const first = forwarded?.split(",")[0]?.trim();
   return first || null;
+}
+
+export function normalizedEmailRateLimitKey(value: string): string {
+  return value.trim().toLowerCase();
 }

@@ -23,23 +23,27 @@ describe("SEO crawl signals", () => {
     for (const [slug, updated] of Object.entries(expectedUpdates)) {
       assert.equal(posts.find((post) => post.slug === slug)?.updated, updated);
     }
-    assert.equal(posts.find((post) => post.slug === "governance-as-compression")?.updated, undefined);
+    assert.equal(
+      posts.find((post) => post.slug === "governance-as-compression")?.updated,
+      undefined
+    );
   });
 
   it("uses updated dates in the sitemap and filters consolidated URLs from public discovery", () => {
     const entries = sitemap();
     const updatedEntry = entries.find(
-      (entry) => entry.url === "https://substratesystems.io/blog/new-windows-pc-setup-guide",
+      (entry) => entry.url === "https://substratesystems.io/blog/new-windows-pc-setup-guide"
     );
 
-    assert.equal(updatedEntry?.lastModified?.toISOString().slice(0, 10), "2026-07-22");
+    assert.ok(updatedEntry?.lastModified instanceof Date);
+    assert.equal(updatedEntry.lastModified.toISOString().slice(0, 10), "2026-07-22");
     assert.equal(
       entries.some((entry) => entry.url.endsWith("/blog/set-up-new-windows-pc-fast")),
-      false,
+      false
     );
     assert.equal(
       getPublishedPostsMeta().some((post) => post.slug === "set-up-new-windows-pc-fast"),
-      false,
+      false
     );
     assert.equal(getPostSlugs().includes("set-up-new-windows-pc-fast"), true);
   });
@@ -77,8 +81,16 @@ describe("SEO crawl signals", () => {
     assert.equal(updatedArticle.datePublished, "2026-05-24");
     assert.equal(updatedArticle.dateModified, "2026-07-22");
     assert.equal(unchangedArticle.dateModified, undefined);
-    assert.equal(updatedMetadata.openGraph?.modifiedTime, "2026-07-22");
-    assert.equal(unchangedMetadata.openGraph?.modifiedTime, undefined);
+    const updatedOpenGraph = updatedMetadata.openGraph;
+    const unchangedOpenGraph = unchangedMetadata.openGraph;
+    assert.ok(
+      updatedOpenGraph && "type" in updatedOpenGraph && updatedOpenGraph.type === "article"
+    );
+    assert.ok(
+      unchangedOpenGraph && "type" in unchangedOpenGraph && unchangedOpenGraph.type === "article"
+    );
+    assert.equal(updatedOpenGraph.modifiedTime, "2026-07-22");
+    assert.equal(unchangedOpenGraph.modifiedTime, undefined);
   });
 
   it("keeps the redirect and structured data scoped to their canonical pages", () => {
@@ -106,7 +118,7 @@ describe("SEO crawl signals", () => {
     assert.match(guide, /winget export -o apps\.json/);
     assert.match(
       guide,
-      /winget import -i apps\.json --accept-package-agreements --accept-source-agreements/,
+      /winget import -i apps\.json --accept-package-agreements --accept-source-agreements/
     );
     assert.match(guide, /USB stick|USB drive/);
     assert.doesNotMatch(guide, /\/blog\/set-up-new-windows-pc-fast/);
