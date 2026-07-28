@@ -175,8 +175,17 @@ const outputArg = args.get("output");
 const jsonOutputArg = args.get("json-output");
 const archiveArg = args.get("archive-file");
 const expectedCommit = args.get("expected-commit") ?? "";
-if (!repoArg || !outputArg || !jsonOutputArg || !/^[0-9a-f]{40}$/.test(expectedCommit)) {
-  fail("required: --exomem-repo PATH --output PATH --json-output PATH --expected-commit FULL_SHA");
+const sourceRelease = args.get("source-release") ?? "";
+if (
+  !repoArg ||
+  !outputArg ||
+  !jsonOutputArg ||
+  !/^[0-9a-f]{40}$/.test(expectedCommit) ||
+  !/^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/.test(sourceRelease)
+) {
+  fail(
+    "required: --exomem-repo PATH --output PATH --json-output PATH --expected-commit FULL_SHA --source-release VERSION"
+  );
 }
 if (expectedCommit !== RELEASE_COMMIT)
   fail("generator only accepts the pinned Exomem release commit");
@@ -340,8 +349,14 @@ if (
   fail("generated ZIP entries differ from the committed package tree");
 }
 
-const fixture = { sourceCommit: expectedCommit, compatibility, packageLock, archiveLock };
+const fixture = {
+  sourceCommit: expectedCommit,
+  sourceRelease,
+  compatibility,
+  packageLock,
+  archiveLock,
+};
 const json = `${JSON.stringify(fixture, null, 2)}\n`;
-const source = `// Generated from Exomem compatibility.json at commit ${expectedCommit}. Do not edit.\nexport const exomemHostedContractFixture = ${JSON.stringify(fixture, null, 2)} as const;\n`;
+const source = `// Generated from Exomem compatibility.json at commit ${expectedCommit} for cell release ${sourceRelease}. Do not edit.\nexport const exomemHostedContractFixture = ${JSON.stringify(fixture, null, 2)} as const;\n`;
 writeFileSync(output, source, { encoding: "utf8", mode: 0o644 });
 writeFileSync(jsonOutput, json, { encoding: "utf8", mode: 0o644 });

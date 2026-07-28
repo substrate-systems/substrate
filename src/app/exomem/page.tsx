@@ -996,7 +996,7 @@ export default function ExomemPage() {
           </div>
         </section>
 
-        {/* ============ 06 — HOSTED INTEREST ============ */}
+        {/* ============ 06 — HOSTED ============ */}
         <section style={sectionBorder}>
           <div style={shell}>
             <div
@@ -1010,7 +1010,7 @@ export default function ExomemPage() {
                 background: "#0e0c0a",
               }}
             >
-              <p style={label}>06 — A question</p>
+              <p style={label}>06 — Hosted private alpha</p>
               <h2
                 style={{
                   ...h2,
@@ -1020,7 +1020,7 @@ export default function ExomemPage() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                Interested in a hosted version?
+                Hosted Exomem is live for invited people.
               </h2>
               <p
                 style={{
@@ -1031,9 +1031,10 @@ export default function ExomemPage() {
                   color: "var(--fg-secondary)",
                 }}
               >
-                Exomem is free and self-hosted forever. If you&rsquo;d rather not run it yourself, a
-                managed tier is on the table. Register interest and help decide whether it gets
-                built.
+                Self-hosted Exomem stays the full open-source product you run yourself. Hosted is an
+                invite-only private alpha: install an approved client entry, sign in once, and use
+                it naturally. Tenant cells process plaintext for search; storage and transport are
+                encrypted.
               </p>
               <p
                 style={{
@@ -1047,11 +1048,13 @@ export default function ExomemPage() {
                   color: "var(--fg-tertiary)",
                 }}
               >
-                <span>end-to-end encrypted</span>
+                <span>invite-only private alpha</span>
                 <span aria-hidden="true">·</span>
                 <span>your data exportable any time</span>
                 <span aria-hidden="true">·</span>
-                <span>self-host or leave whenever</span>
+                <Link href="/exomem/setup" className="exo-link-ts">
+                  Hosted setup →
+                </Link>
               </p>
               <HostedInterestForm />
             </div>
@@ -1130,6 +1133,15 @@ export default function ExomemPage() {
             <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-ts">
               PyPI
             </a>
+            <Link href="/exomem/privacy" className="exo-link-ts">
+              Privacy
+            </Link>
+            <Link href="/exomem/terms" className="exo-link-ts">
+              Terms
+            </Link>
+            <Link href="/exomem/support" className="exo-link-ts">
+              Support
+            </Link>
           </nav>
         </div>
       </footer>

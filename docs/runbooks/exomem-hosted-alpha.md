@@ -38,45 +38,65 @@ commit:
 node scripts/generate-exomem-hosted-contract.mjs \
   --exomem-repo /path/to/exomem \
   --output src/lib/exomem-hosted/agent-contract-fixture.ts \
-  --expected-commit 08f1cee281bd0dbcaf82094421c11d6be04dc5c2
+  --json-output src/lib/exomem-hosted/__tests__/agent-contract-fixture.json \
+  --expected-commit 08f1cee281bd0dbcaf82094421c11d6be04dc5c2 \
+  --source-release 0.33.0
 npx prettier --write \
   src/lib/exomem-hosted/agent-contract-fixture.ts
 ```
+
+The fixture's top-level `sourceRelease` is the trusted cell-runtime release;
+it is intentionally separate from the compatibility descriptor. When the
+Exomem marketplace change squash-merges, choose the resulting `main` commit
+(never a temporary pull-request SHA), review the archive and compatibility
+digests, set the matching cell release, regenerate both fixtures, and then
+repeat promotion evidence before publishing an install action.
 
 ## Substrate configuration
 
 Set secrets in every Vercel environment that can execute an Exomem route, then
 redeploy. Never reuse a cell credential as any control-plane secret.
 
-| Variable                                                                         | Requirement                                                                                                                                                                              |
-| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                                   | Neon/Postgres connection used by migrations and product-scoped rows.                                                                                                                     |
-| `EXOMEM_PUBLIC_BASE_URL`                                                         | Required production HTTPS origin used in invite, magic-link, and deletion email links. Credentials, query, fragment, and non-root paths are rejected. Development HTTP is loopback-only. |
-| `EXOMEM_ADMIN_TOKEN`                                                             | At least 32 random bytes, known only to operators; protects invite issuance.                                                                                                             |
-| `EXOMEM_CONTROL_PLANE_KEY`                                                       | Exactly 32 random bytes encoded as unpadded base64url; encrypts private endpoints, cell credentials, and export references.                                                              |
-| `EXOMEM_PROVISIONER_ENDPOINT`                                                    | Private HTTPS base URL implementing the provisioner contract. URLs containing credentials or using HTTP are rejected.                                                                    |
-| `EXOMEM_PROVISIONER_CREDENTIAL`                                                  | At least 32 characters; authenticates Substrate to the provisioner.                                                                                                                      |
-| `EXOMEM_PROVISIONER_TIMEOUT_MS`                                                  | Optional `100..30000`; default `5000`.                                                                                                                                                   |
-| `EXOMEM_CF_ACCESS_CLIENT_ID`, `EXOMEM_CF_ACCESS_CLIENT_SECRET`                   | Active Cloudflare Access service-token pair used only by Vercel for the private provisioner and cell-control hostname. Production fails closed if either half is absent.                 |
-| `EXOMEM_CF_ACCESS_CLIENT_ID_PREVIOUS`, `EXOMEM_CF_ACCESS_CLIENT_SECRET_PREVIOUS` | Optional complete previous Access pair during a bounded receiver overlap. Never configure only one half.                                                                                 |
-| `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.             |
-| `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                  |
-| `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                      |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.33.0` for this release unit. Readiness must echo it.                                                                                         |
-| `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                           |
-| `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                       |
-| `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                       |
-| `EXOMEM_EXPORT_TTL_HOURS`                                                        | Positive integer; default `24`. Provider download URLs are separately capped at 15 minutes.                                                                                              |
-| `CRON_SECRET`                                                                    | Existing Vercel-only bearer for unrelated daily/weekly jobs. Never install it in the hosted K3s scheduler.                                                                               |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                                 | Dedicated active bearer shared only by the three Exomem hosted cron routes and K3s scheduler.                                                                                            |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                                        | Optional Vercel receiver-only overlap during rotation; absent in steady state and never installed in K3s.                                                                                |
-| `BREVO_API_KEY`                                                                  | Delivers invite, magic-link, and deletion-confirmation email.                                                                                                                            |
-| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                                        | Optional verified sender overrides.                                                                                                                                                      |
+| Variable                                                                         | Requirement                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                                   | Neon/Postgres connection used by migrations and product-scoped rows.                                                                                                                                                                                                                                                 |
+| `EXOMEM_PUBLIC_BASE_URL`                                                         | Required production HTTPS origin. Set it exactly to `https://substratesystems.io`; credentials, query, fragment, and non-root paths are rejected. A missing or malformed value fails discovery and MCP closed as `PUBLIC_BASE_URL_INVALID`; there is no request-derived fallback. Development HTTP is loopback-only. |
+| `EXOMEM_MCP_ALLOWED_ORIGINS`                                                     | Optional comma-separated exact browser origins for MCP. Each entry must be a complete origin with no wildcard, credentials, path, query, or fragment. Do not add guessed provider origins.                                                                                                                           |
+| `EXOMEM_ADMIN_TOKEN`                                                             | At least 32 random bytes, known only to operators; protects invite issuance.                                                                                                                                                                                                                                         |
+| `EXOMEM_CONTROL_PLANE_KEY`                                                       | Exactly 32 random bytes encoded as unpadded base64url; encrypts private endpoints, cell credentials, and export references.                                                                                                                                                                                          |
+| `EXOMEM_PROVISIONER_ENDPOINT`                                                    | Private HTTPS base URL implementing the provisioner contract. URLs containing credentials or using HTTP are rejected.                                                                                                                                                                                                |
+| `EXOMEM_PROVISIONER_CREDENTIAL`                                                  | At least 32 characters; authenticates Substrate to the provisioner.                                                                                                                                                                                                                                                  |
+| `EXOMEM_PROVISIONER_TIMEOUT_MS`                                                  | Optional `100..30000`; default `5000`.                                                                                                                                                                                                                                                                               |
+| `EXOMEM_CF_ACCESS_CLIENT_ID`, `EXOMEM_CF_ACCESS_CLIENT_SECRET`                   | Active Cloudflare Access service-token pair used only by Vercel for the private provisioner and cell-control hostname. Production fails closed if either half is absent.                                                                                                                                             |
+| `EXOMEM_CF_ACCESS_CLIENT_ID_PREVIOUS`, `EXOMEM_CF_ACCESS_CLIENT_SECRET_PREVIOUS` | Optional complete previous Access pair during a bounded receiver overlap. Never configure only one half.                                                                                                                                                                                                             |
+| `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                         |
+| `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                                                                                                                                              |
+| `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                                                                                                                                                  |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.33.0` for this release unit. Readiness must echo it.                                                                                                                                                                                                                     |
+| `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                                                                                                                                                       |
+| `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
+| `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
+| `EXOMEM_EXPORT_TTL_HOURS`                                                        | Positive integer; default `24`. Provider download URLs are separately capped at 15 minutes.                                                                                                                                                                                                                          |
+| `CRON_SECRET`                                                                    | Existing Vercel-only bearer for unrelated daily/weekly jobs. Never install it in the hosted K3s scheduler.                                                                                                                                                                                                           |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                                 | Dedicated active bearer shared only by the three Exomem hosted cron routes and K3s scheduler.                                                                                                                                                                                                                        |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                                        | Optional Vercel receiver-only overlap during rotation; absent in steady state and never installed in K3s.                                                                                                                                                                                                            |
+| `BREVO_API_KEY`                                                                  | Delivers invite, magic-link, and deletion-confirmation email.                                                                                                                                                                                                                                                        |
+| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                                        | Optional verified sender overrides.                                                                                                                                                                                                                                                                                  |
+| `OPENAI_APPS_CHALLENGE`                                                          | Provider-issued single-line domain proof. Set only in deployment configuration; never commit, log, or place it in a request.                                                                                                                                                                                         |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. Buckets older than the longest
 configured window plus a one-hour margin are pruned in bounded batches by the
 access-delivery cron.
+
+The anonymous friends-cohort invite-request endpoint takes durable, HMAC-keyed
+IP and normalized-email buckets before it calls Brevo. A denied bucket returns a
+content-safe `429` with `Retry-After`; an unavailable durable limiter fails
+closed with a content-safe `503` and `Retry-After`, so it cannot spend the shared
+email quota. Configure complementary Vercel edge/WAF rate limiting for
+`/api/exomem/interest` to absorb request floods before they reach the application.
+The edge rule is a burst-control layer, not a replacement for the durable
+application buckets, and must not log raw request email addresses or IPs.
 
 Uploads and downloads use two steps. The authenticated same-origin route receives
 only bounded metadata and returns a five-minute signed ticket. The browser then
@@ -110,6 +130,19 @@ manual package configuration. MCP bearer credentials belong only in the
 or cell header. Discovery, failed authentication, and `initialize`/`tools/list`
 must not create or wake a tenant cell.
 
+The MCP public front door resolves `EXOMEM_PUBLIC_BASE_URL` first, then rejects
+a present unlisted or malformed browser `Origin` with a content-free 403 before
+any database work. Missing `Origin` remains valid for server-to-server clients.
+The canonical Substrate origin and only exact entries in
+`EXOMEM_MCP_ALLOWED_ORIGINS` are allowed; `null`, wildcards, credentials,
+paths, queries, fragments, neighboring domains, and wrong ports are not. After
+the cheap selector/header checks, a missing or malformed bearer receives the
+static OAuth 401 challenge without a database-backed rate-limit or token lookup.
+A structurally valid bearer enters the durable IP rate limiter before its token,
+tenant, entitlement, or cell is consulted. Protect the static unauthenticated
+challenge with the Vercel edge/WAF rule rather than adding an anonymous database
+write back into this path.
+
 `EXOMEM_CONTROL_PLANE_KEY` protects the OAuth continuation and control-plane
 secrets. Alpha has one envelope key and no key ID: it is immutable during this
 alpha. Do not rotate it in place. If it is changed accidentally, restore the
@@ -130,6 +163,52 @@ The evidence-signing verifier has no overlapping-key support. Rotate a signing
 key only when there are no pending candidates or evidence records; old signed
 evidence becomes invalid and must be recollected. Do not reuse any of these
 values as an OAuth, scheduler, provisioner, or cell credential.
+
+## Marketplace readiness and domain proof
+
+Do not submit a directory listing or claim a public install channel before the
+matching client artifact is live and the public origin has passed the checks
+below. The public page may describe the invite-only private alpha, but it must
+not use a guessed provider URL.
+
+OpenAI issues the value for `OPENAI_APPS_CHALLENGE`. Store the exact single-line
+value in each deployment environment that serves the canonical origin, redeploy,
+then request `/.well-known/openai-apps-challenge`. A configured route returns
+only that plain-text value with `Cache-Control: no-store`; an absent or unsafe
+value returns 404. Do not put the value in a shell command, ticket, screenshot,
+test fixture, or application log.
+
+For rotation, replace the deployment value with the newly issued proof and
+redeploy before asking the provider to verify it. Confirm the new proof through
+the provider workflow, then remove the retired value from operator notes and
+password stores. To remove the proof, delete `OPENAI_APPS_CHALLENGE`, redeploy,
+and confirm the well-known route returns 404. This route has no fallback and
+must never accept a query parameter or request header as a proof.
+
+Before deployment, verify the canonical alias, `EXOMEM_PUBLIC_BASE_URL`,
+additive migrations, and route logs. Do not restart private Exomem cells as a
+generic response to a discovery failure; inspect the public route status first.
+After deploy, run the redacted preflight with private environment values only:
+
+```bash
+EXOMEM_PUBLIC_BASE_URL=https://substratesystems.io \
+OPENAI_APPS_CHALLENGE="$OPENAI_APPS_CHALLENGE" \
+npx tsx scripts/exomem-marketplace-preflight.ts
+```
+
+For controlled reviewer checks, additionally set
+`EXOMEM_MARKETPLACE_REVIEWER_TOKEN` in the operator environment. The output
+contains route statuses, digests, and safe tool names only; it must not contain
+the challenge, reviewer token, tenant IDs, or knowledge content. A redirect,
+timeout, metadata mismatch, or 5xx is stop-ship. Hand the resulting redacted
+JSON evidence to Exomem's marketplace release gate, with the deployed commit
+and alias recorded separately from user data.
+
+If the release regresses public pages, discovery, or the authorization
+challenge, roll back the application deployment while preserving additive
+migrations and the existing tenant-routing safety controls. Re-run the public
+preflight after rollback; do not use a production restart as a substitute for a
+healthy front door.
 
 Capacity is an authoritative database ledger, not a provider inventory. One
 first authorization reserves exactly 5 GiB storage, one runtime slot, and one

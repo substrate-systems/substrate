@@ -48,6 +48,7 @@ describe("Exomem Hosted agent contracts", () => {
       exomemHostedContractFixture.sourceCommit,
       "08f1cee281bd0dbcaf82094421c11d6be04dc5c2"
     );
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.33.0");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -65,6 +66,31 @@ describe("Exomem Hosted agent contracts", () => {
         (command) => command.name
       )
     );
+  });
+
+  it("trusts the fixture source release independently of descriptor source_release", async () => {
+    const fixture = exomemHostedContractFixture as unknown as {
+      sourceRelease: string;
+      compatibility: Record<string, unknown>;
+    };
+    const originalSourceRelease = fixture.sourceRelease;
+    const originalDescriptorRelease = fixture.compatibility.source_release;
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "contract-1" }] };
+    });
+    try {
+      delete fixture.compatibility.source_release;
+      assert.equal(fixture.sourceRelease, "0.33.0");
+      assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
+      fixture.sourceRelease = "0.33.1";
+      await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
+    } finally {
+      fixture.sourceRelease = originalSourceRelease;
+      fixture.compatibility.source_release = originalDescriptorRelease;
+    }
+    assert.equal(queries.length, 1);
   });
 
   it("keeps every raw MCP tool and its final tools/list result SDK-valid without normalization", () => {

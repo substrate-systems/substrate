@@ -1,6 +1,7 @@
-// Generated from Exomem compatibility.json at commit 08f1cee281bd0dbcaf82094421c11d6be04dc5c2. Do not edit.
+// Generated from Exomem compatibility.json at commit 08f1cee281bd0dbcaf82094421c11d6be04dc5c2 for cell release 0.33.0. Do not edit.
 export const exomemHostedContractFixture = {
   "sourceCommit": "08f1cee281bd0dbcaf82094421c11d6be04dc5c2",
+  "sourceRelease": "0.33.0",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {

@@ -181,7 +181,7 @@ async function seedCohort(): Promise<Cohort> {
     [
       exomemHostedContractFixture.compatibility.profile,
       resource,
-      exomemHostedContractFixture.compatibility.source_release,
+      exomemHostedContractFixture.sourceRelease,
       exomemHostedContractFixture.compatibility.command_surface_sha256,
       exomemHostedContractFixture.compatibility.schema_contract_sha256,
       exomemHostedContractFixture.compatibility.compatibility_sha256,
@@ -308,7 +308,7 @@ describe("Hosted Exomem paired acceptance fixture", () => {
       exomemHostedContractFixture.sourceCommit,
       "08f1cee281bd0dbcaf82094421c11d6be04dc5c2"
     );
-    assert.equal(exomemHostedContractFixture.compatibility.source_release, "0.33.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.33.0");
     assert.equal(fixture.local_provenance, "mock");
     assert.deepEqual(fixture.external_release_gates, [
       "registered_openai_asdk_app",

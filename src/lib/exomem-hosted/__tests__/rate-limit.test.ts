@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EXOMEM_RATE_LIMITS, hashRateLimitKey } from "../rate-limit";
+import { EXOMEM_RATE_LIMITS, hashRateLimitKey, normalizedEmailRateLimitKey } from "../rate-limit";
 
 const EMAIL = "owner@example.com";
 const FIRST_KEY = Buffer.alloc(32, 0x11);
@@ -36,4 +36,20 @@ test("OAuth revocation uses a dedicated bounded IP rule", () => {
   assert.equal(rule.scope, "exomem:oauth-revoke:ip");
   assert.ok(rule.limit > 0);
   assert.ok(rule.windowSeconds > 0);
+});
+
+test("invite requests use separate durable IP and normalized-email buckets", () => {
+  const ip = EXOMEM_RATE_LIMITS.interestIp;
+  const email = EXOMEM_RATE_LIMITS.interestEmail;
+
+  assert.notEqual(ip.scope, email.scope);
+  assert.ok(ip.limit > 0);
+  assert.ok(ip.windowSeconds > 0);
+  assert.ok(email.limit > 0);
+  assert.ok(email.windowSeconds > 0);
+  assert.equal(normalizedEmailRateLimitKey(" Friend@Example.COM "), "friend@example.com");
+  assert.equal(
+    hashRateLimitKey(email, normalizedEmailRateLimitKey("Friend@Example.com"), FIRST_KEY),
+    hashRateLimitKey(email, normalizedEmailRateLimitKey("friend@example.com"), FIRST_KEY)
+  );
 });

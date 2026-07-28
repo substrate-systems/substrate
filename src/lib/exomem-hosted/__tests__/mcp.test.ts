@@ -20,7 +20,7 @@ const ACCESS: ActiveOAuthAccessToken = {
 const LIVE = {
   profile: "hosted-alpha-agent-v1" as const,
   endpoint: "https://substratesystems.io/api/exomem/mcp/v1" as const,
-  sourceRelease: exomemHostedContractFixture.compatibility.source_release,
+  sourceRelease: exomemHostedContractFixture.sourceRelease,
   commandFingerprint: exomemHostedContractFixture.compatibility.command_surface_sha256,
   schemaDigest: exomemHostedContractFixture.compatibility.schema_contract_sha256,
   compatibilityDigest: exomemHostedContractFixture.compatibility.compatibility_sha256,
@@ -353,6 +353,121 @@ describe("Hosted MCP boundary", () => {
     );
     assert.equal(response.status, 401);
     assert.match(response.headers.get("www-authenticate") ?? "", /resource_metadata/);
+  });
+
+  it("returns static OAuth challenges without database configuration for missing or malformed bearers", async () => {
+    const previousBaseUrl = process.env.EXOMEM_PUBLIC_BASE_URL;
+    const previousControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.EXOMEM_PUBLIC_BASE_URL = "https://substratesystems.io";
+    delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+    delete process.env.DATABASE_URL;
+    try {
+      for (const authorization of [undefined, "Basic invalid", "Bearer too-short"]) {
+        const response = await handleHostedMcpRequest(
+          new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+            method: "POST",
+            headers: {
+              "x-forwarded-for": "203.0.113.24",
+              ...(authorization ? { authorization } : {}),
+            },
+          })
+        );
+        assert.equal(response.status, 401);
+        assert.match(response.headers.get("www-authenticate") ?? "", /resource_metadata/);
+      }
+    } finally {
+      if (previousBaseUrl === undefined) delete process.env.EXOMEM_PUBLIC_BASE_URL;
+      else process.env.EXOMEM_PUBLIC_BASE_URL = previousBaseUrl;
+      if (previousControlPlaneKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousControlPlaneKey;
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  });
+
+  it("rejects unsafe browser origins before durable MCP checks while accepting exact configured origins", async () => {
+    const previousAllowedOrigins = process.env.EXOMEM_MCP_ALLOWED_ORIGINS;
+    process.env.EXOMEM_MCP_ALLOWED_ORIGINS = "https://client.example.test";
+    let rateLimitCalls = 0;
+    let tokenLookups = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      takeRateLimit: async () => {
+        rateLimitCalls += 1;
+        return true;
+      },
+      findAccessToken: async () => {
+        tokenLookups += 1;
+        return null;
+      },
+    };
+    try {
+      for (const origin of ["https://substratesystems.io", "https://client.example.test"]) {
+        const response = await handleHostedMcpRequest(
+          new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+            method: "POST",
+            headers: { origin },
+          }),
+          dependencies
+        );
+        assert.equal(response.status, 401);
+      }
+      for (const origin of [
+        "null",
+        "*",
+        "https://user:password@client.example.test",
+        "https://client.example.test/path",
+        "https://client.example.test?query=1",
+        "https://client.example.test#fragment",
+        "https://client.example.test:444",
+        "https://near-client.example.test",
+        "not an origin",
+      ]) {
+        const response = await handleHostedMcpRequest(
+          new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+            method: "POST",
+            headers: { origin, authorization: `Bearer ${"a".repeat(43)}` },
+          }),
+          dependencies
+        );
+        assert.equal(response.status, 403, origin);
+        assert.equal(await response.text(), "", origin);
+      }
+      assert.equal(rateLimitCalls, 0);
+      assert.equal(tokenLookups, 0);
+    } finally {
+      if (previousAllowedOrigins === undefined) delete process.env.EXOMEM_MCP_ALLOWED_ORIGINS;
+      else process.env.EXOMEM_MCP_ALLOWED_ORIGINS = previousAllowedOrigins;
+    }
+  });
+
+  it("takes the durable IP limit before looking up a structurally valid unknown bearer", async () => {
+    const rateLimitScopes: string[] = [];
+    let tokenLookups = 0;
+    const response = await handleHostedMcpRequest(
+      new Request("https://substratesystems.io/api/exomem/mcp/v1", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${"a".repeat(43)}`,
+          "x-forwarded-for": "203.0.113.24",
+        },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        takeRateLimit: async (rule) => {
+          rateLimitScopes.push(rule.scope);
+          return false;
+        },
+        findAccessToken: async () => {
+          tokenLookups += 1;
+          return null;
+        },
+      }
+    );
+    assert.equal(response.status, 429);
+    assert.deepEqual(rateLimitScopes, ["exomem:mcp:ip"]);
+    assert.equal(tokenLookups, 0);
   });
 
   it("returns stable preparing metadata without routing a tool to a cell", async () => {
