@@ -91,6 +91,176 @@ async function withCohortLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T
   });
 }
 
+export type CanaryOAuthLineage = {
+  tenantId: string;
+  candidateId: string;
+  assignmentId: string;
+  assignmentGeneration: number;
+  stagedClientReleaseId: string;
+  revokedByPrincipalDigest?: Buffer;
+};
+
+function validatedCanaryOAuthLineage(input: CanaryOAuthLineage): CanaryOAuthLineage {
+  return {
+    tenantId: uuid(input.tenantId, "tenant ID"),
+    candidateId: uuid(input.candidateId, "candidate ID"),
+    assignmentId: uuid(input.assignmentId, "assignment ID"),
+    assignmentGeneration: integer(input.assignmentGeneration, "assignment generation"),
+    stagedClientReleaseId: uuid(input.stagedClientReleaseId, "staged client release ID"),
+  };
+}
+
+/** Caller holds the cohort lock; only internal-canary descendants may be terminated. */
+export async function revokeCanaryOAuthLineageInTransaction(
+  tx: ExomemSql,
+  input: CanaryOAuthLineage
+): Promise<number> {
+  const lineage = validatedCanaryOAuthLineage(input);
+  const { rows } = await tx`
+    /* exomem:revoke-canary-oauth-lineage */
+    WITH credentials AS (
+      SELECT credential.id
+      FROM exomem_marketplace_reviewer_credentials AS credential
+      WHERE credential.tenant_id = ${lineage.tenantId}::uuid
+        AND credential.credential_kind = 'internal_canary'
+        AND credential.candidate_id = ${lineage.candidateId}::uuid
+        AND credential.assignment_id = ${lineage.assignmentId}::uuid
+        AND credential.assignment_generation = ${lineage.assignmentGeneration}::bigint
+        AND credential.staged_client_release_id = ${lineage.stagedClientReleaseId}::uuid
+        AND credential.revoked_at IS NULL
+      FOR UPDATE
+    ), revoked_credentials AS (
+      UPDATE exomem_marketplace_reviewer_credentials AS credential
+      SET revoked_at = now(),
+          revoked_by_principal_digest = COALESCE(
+            ${input.revokedByPrincipalDigest ?? null}, credential.revoked_by_principal_digest
+          )
+      WHERE credential.id IN (SELECT id FROM credentials)
+      RETURNING credential.id
+    ), sessions_revoked AS (
+      UPDATE exomem_sessions AS session
+      SET revoked_at = COALESCE(session.revoked_at, now())
+      WHERE session.reviewer_credential_id IN (SELECT id FROM revoked_credentials)
+        AND session.revoked_at IS NULL
+      RETURNING session.id
+    ), transactions_revoked AS (
+      UPDATE exomem_oauth_authorization_transactions AS transaction
+      SET consumed_at = COALESCE(transaction.consumed_at, now())
+      WHERE transaction.reviewer_credential_id IN (SELECT id FROM revoked_credentials)
+         OR transaction.redeemed_session_id IN (SELECT id FROM sessions_revoked)
+      RETURNING transaction.id
+    ), grants_revoked AS (
+      UPDATE exomem_oauth_grants AS grant_row
+      SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
+      WHERE grant_row.reviewer_credential_id IN (SELECT id FROM revoked_credentials)
+         OR grant_row.authorization_transaction_id IN (SELECT id FROM transactions_revoked)
+      RETURNING grant_row.id
+    ), codes_consumed AS (
+      UPDATE exomem_oauth_authorization_codes AS code
+      SET consumed_at = COALESCE(code.consumed_at, now())
+      WHERE code.grant_id IN (SELECT id FROM grants_revoked)
+        AND code.consumed_at IS NULL
+      RETURNING code.id
+    ), families_revoked AS (
+      UPDATE exomem_oauth_token_families AS family
+      SET revoked_at = COALESCE(family.revoked_at, now()),
+          revoked_reason = COALESCE(family.revoked_reason, 'canary_authority_revoked')
+      WHERE family.grant_id IN (SELECT id FROM grants_revoked)
+        AND family.revoked_at IS NULL
+      RETURNING family.id
+    ), refresh_consumed AS (
+      UPDATE exomem_oauth_refresh_tokens AS token
+      SET consumed_at = COALESCE(token.consumed_at, now())
+      WHERE token.family_id IN (SELECT id FROM families_revoked)
+        AND token.consumed_at IS NULL
+      RETURNING token.id
+    ), access_revoked AS (
+      UPDATE exomem_oauth_access_tokens AS token
+      SET revoked_at = COALESCE(token.revoked_at, now())
+      WHERE token.grant_id IN (SELECT id FROM grants_revoked)
+         OR token.family_id IN (SELECT id FROM families_revoked)
+      RETURNING token.id
+    )
+    SELECT count(*)::integer AS revoked_credentials FROM revoked_credentials
+  `;
+  return Number(rows[0]?.revoked_credentials ?? 0);
+}
+
+/** Caller holds the cohort lock; retain only the exact lineage becoming active. */
+export async function revokeConflictingCanaryOAuthLineageInTransaction(
+  tx: ExomemSql,
+  input: CanaryOAuthLineage
+): Promise<number> {
+  const lineage = validatedCanaryOAuthLineage(input);
+  const { rows } = await tx`
+    /* exomem:revoke-conflicting-canary-oauth-lineage */
+    WITH conflicting_credentials AS (
+      SELECT credential.id
+      FROM exomem_marketplace_reviewer_credentials AS credential
+      WHERE credential.tenant_id = ${lineage.tenantId}::uuid
+        AND credential.credential_kind = 'internal_canary'
+        AND credential.revoked_at IS NULL
+        AND (
+          credential.candidate_id IS DISTINCT FROM ${lineage.candidateId}::uuid
+          OR credential.assignment_id IS DISTINCT FROM ${lineage.assignmentId}::uuid
+          OR credential.assignment_generation IS DISTINCT FROM ${lineage.assignmentGeneration}::bigint
+          OR credential.staged_client_release_id IS DISTINCT FROM ${lineage.stagedClientReleaseId}::uuid
+        )
+      FOR UPDATE
+    ), revoked_credentials AS (
+      UPDATE exomem_marketplace_reviewer_credentials AS credential
+      SET revoked_at = now()
+      WHERE credential.id IN (SELECT id FROM conflicting_credentials)
+      RETURNING credential.id
+    ), sessions_revoked AS (
+      UPDATE exomem_sessions AS session
+      SET revoked_at = COALESCE(session.revoked_at, now())
+      WHERE session.reviewer_credential_id IN (SELECT id FROM revoked_credentials)
+        AND session.revoked_at IS NULL
+      RETURNING session.id
+    ), transactions_revoked AS (
+      UPDATE exomem_oauth_authorization_transactions AS transaction
+      SET consumed_at = COALESCE(transaction.consumed_at, now())
+      WHERE transaction.reviewer_credential_id IN (SELECT id FROM conflicting_credentials)
+         OR transaction.redeemed_session_id IN (SELECT id FROM sessions_revoked)
+      RETURNING transaction.id
+    ), grants_revoked AS (
+      UPDATE exomem_oauth_grants AS grant_row
+      SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
+      WHERE grant_row.reviewer_credential_id IN (SELECT id FROM conflicting_credentials)
+         OR grant_row.authorization_transaction_id IN (SELECT id FROM transactions_revoked)
+      RETURNING grant_row.id
+    ), codes_consumed AS (
+      UPDATE exomem_oauth_authorization_codes AS code
+      SET consumed_at = COALESCE(code.consumed_at, now())
+      WHERE code.grant_id IN (SELECT id FROM grants_revoked)
+        AND code.consumed_at IS NULL
+      RETURNING code.id
+    ), families_revoked AS (
+      UPDATE exomem_oauth_token_families AS family
+      SET revoked_at = COALESCE(family.revoked_at, now()),
+          revoked_reason = COALESCE(family.revoked_reason, 'canary_authority_replaced')
+      WHERE family.grant_id IN (SELECT id FROM grants_revoked)
+        AND family.revoked_at IS NULL
+      RETURNING family.id
+    ), refresh_consumed AS (
+      UPDATE exomem_oauth_refresh_tokens AS token
+      SET consumed_at = COALESCE(token.consumed_at, now())
+      WHERE token.family_id IN (SELECT id FROM families_revoked)
+        AND token.consumed_at IS NULL
+      RETURNING token.id
+    ), access_revoked AS (
+      UPDATE exomem_oauth_access_tokens AS token
+      SET revoked_at = COALESCE(token.revoked_at, now())
+      WHERE token.grant_id IN (SELECT id FROM grants_revoked)
+         OR token.family_id IN (SELECT id FROM families_revoked)
+      RETURNING token.id
+    )
+    SELECT count(*)::integer AS revoked_credentials FROM revoked_credentials
+  `;
+  return Number(rows[0]?.revoked_credentials ?? 0);
+}
+
 export type CreatedCanaryAssignment = {
   id: string;
   generation: number;
@@ -373,14 +543,36 @@ export async function expireCanaryAuthority(limit = 20): Promise<number> {
         FROM assignments WHERE assignment.id = assignments.id RETURNING assignment.id
       ), declarations AS (
         SELECT id FROM exomem_staged_client_releases
-        WHERE state = 'staged' AND expires_at <= now()
+        WHERE state IN ('staged', 'evidenced') AND expires_at <= now()
         ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT ${bounded}
+      ), expired_declarations AS (
+        UPDATE exomem_staged_client_releases AS declaration
+        SET state = 'expired', ended_at = now(), version = version + 1, updated_at = now()
+        FROM declarations WHERE declaration.id = declarations.id
+        RETURNING declaration.id
       )
-      UPDATE exomem_staged_client_releases AS declaration
-      SET state = 'expired', ended_at = now(), version = version + 1, updated_at = now()
-      FROM declarations WHERE declaration.id = declarations.id
-      RETURNING declaration.id
+      SELECT DISTINCT credential.tenant_id::text AS tenant_id,
+             credential.candidate_id::text AS candidate_id,
+             credential.assignment_id::text AS assignment_id,
+             credential.assignment_generation,
+             credential.staged_client_release_id::text AS staged_client_release_id
+      FROM exomem_marketplace_reviewer_credentials AS credential
+      WHERE credential.credential_kind = 'internal_canary'
+        AND credential.revoked_at IS NULL
+        AND (
+          credential.assignment_id IN (SELECT id FROM expired_assignments)
+          OR credential.staged_client_release_id IN (SELECT id FROM expired_declarations)
+        )
     `;
+    for (const row of rows) {
+      await revokeCanaryOAuthLineageInTransaction(tx, {
+        tenantId: String(row.tenant_id),
+        candidateId: String(row.candidate_id),
+        assignmentId: String(row.assignment_id),
+        assignmentGeneration: integer(row.assignment_generation, "assignment generation"),
+        stagedClientReleaseId: String(row.staged_client_release_id),
+      });
+    }
     return rows.length;
   });
 }

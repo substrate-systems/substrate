@@ -9,6 +9,7 @@ const OWNER_ID = "018f2d91-7c42-7000-8000-000000000011";
 const TENANT_ID = "018f2d91-7c42-7000-8000-000000000012";
 let created: Record<string, unknown> | null = null;
 let revoked: Record<string, unknown> | null = null;
+let createdInternal: Record<string, unknown> | null = null;
 
 before(() => {
   process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
@@ -28,6 +29,10 @@ before(() => {
         created = input;
         return { credentialId: "credential-1", ownerUserId: "owner-1", tenantId: "tenant-1" };
       },
+      createInternalCanaryReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
+        createdInternal = input;
+        return { credentialId: "credential-2", ownerUserId: "owner-1", tenantId: "tenant-1" };
+      },
       getMarketplaceReviewerCredentialStatus: async () => ({
         provider: "openai",
         fixtureVersion: "review-fixture-v1",
@@ -37,6 +42,9 @@ before(() => {
       }),
       revokeMarketplaceReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
         revoked = input;
+        return 1;
+      },
+      revokeInternalCanaryReviewerCredentialAtomic: async () => {
         return 1;
       },
     },
@@ -63,6 +71,7 @@ after(() => {
 beforeEach(() => {
   created = null;
   revoked = null;
+  createdInternal = null;
 });
 
 function request(
@@ -132,6 +141,38 @@ describe("Exomem operator reviewer access", () => {
       assert.equal(response.status, 400);
       assert.equal(created, null);
     }
+  });
+
+  it("issues an exact internal-canary credential without exposing its stored selectors", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          credentialKind: "internal_canary",
+          platform: "claude",
+          tenantId: TENANT_ID,
+          candidateId: "018f2d91-7c42-7000-8000-000000000021",
+          assignmentId: "018f2d91-7c42-7000-8000-000000000022",
+          assignmentGeneration: 2,
+          stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000023",
+          oauthClientId: "018f2d91-7c42-7000-8000-000000000024",
+          fixtureVersion: "internal-canary-v1",
+          fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
+          expiresAt: "2026-08-01T00:00:00.000Z",
+        },
+      })
+    );
+
+    assert.equal(response.status, 201);
+    const body = (await response.json()) as Record<string, unknown>;
+    assert.deepEqual(body.credentials, { username: USERNAME, password: PASSWORD });
+    assert.equal(createdInternal?.platform, "claude");
+    assert.equal(createdInternal?.tenantId, TENANT_ID);
+    assert.equal(createdInternal?.assignmentGeneration, 2);
+    assert.equal(created, null);
+    assert.equal(JSON.stringify(body).includes("000000000021"), false);
+    assert.equal(JSON.stringify(body).includes("passwordHash"), false);
   });
 
   it("returns only sanitized status and revokes idempotently", async () => {

@@ -134,12 +134,18 @@ export async function registerOperatorOAuthClient(
           AND state IN ('pending', 'live')
           AND oauth_client_config_sha256 = ${configSha256}
       ), stage AS (
-        SELECT id FROM exomem_staged_client_releases
-        WHERE id = ${stagedClientReleaseId ?? "00000000-0000-0000-0000-000000000000"}::uuid
-          AND platform = ${registration.platform}
-          AND state IN ('staged', 'evidenced')
-          AND expires_at > now()
-          AND oauth_client_config_sha256 = ${configSha256}
+        SELECT stage.id
+        FROM exomem_staged_client_releases AS stage
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = stage.candidate_id
+         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.state IN ('pending', 'live')
+        WHERE stage.id = ${stagedClientReleaseId ?? "00000000-0000-0000-0000-000000000000"}::uuid
+          AND stage.platform = ${registration.platform}
+          AND stage.state IN ('staged', 'evidenced')
+          AND stage.expires_at > now()
+          AND stage.oauth_client_config_sha256 = ${configSha256}
+          AND stage.registered_app_id_sha256 IS NOT DISTINCT FROM ${registration.registeredAppIdSha256 ?? null}
       ), authority AS (
         SELECT id FROM artifact
         UNION ALL

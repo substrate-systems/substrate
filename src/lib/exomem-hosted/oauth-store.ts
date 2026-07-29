@@ -17,6 +17,12 @@ export type ActiveOAuthAccessToken = OAuthTokenContext & {
   userId: string;
   tenantId: string;
   scopes: string[];
+  candidateId?: string;
+  assignmentId?: string;
+  assignmentGeneration?: bigint;
+  stagedClientReleaseId?: string;
+  oauthClientRecordId?: string;
+  reviewerCredentialId?: string;
 };
 
 export type ApprovedOAuthClient = {
@@ -44,7 +50,6 @@ export async function resolveApprovedOAuthClient(
     SELECT id, client_id, redirect_uris, admission_mode
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
-      AND enabled = true
       AND redirect_uris_digest = digest(convert_to(redirect_uris::text, 'utf8'), 'sha256')
       AND admission_mode IN ('pinned', 'cimd')
       AND (admission_mode = 'pinned' OR (
@@ -52,10 +57,40 @@ export async function resolveApprovedOAuthClient(
         AND metadata_ttl_seconds BETWEEN 300 AND 604800
         AND metadata_expires_at > now() AND cimd_host IS NOT NULL
       ))
-      AND EXISTS (
-        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      AND (
+        (client.enabled = true AND EXISTS (
+          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+        )) OR EXISTS (
+          SELECT 1
+          FROM exomem_marketplace_reviewer_credentials AS credential
+          JOIN exomem_agent_contract_rollout_assignments AS assignment
+            ON assignment.id = credential.assignment_id
+           AND assignment.tenant_id = credential.tenant_id
+           AND assignment.candidate_id = credential.candidate_id
+           AND assignment.generation = credential.assignment_generation
+           AND assignment.marketplace_reviewer_purpose = true
+           AND assignment.state IN ('preparing', 'active')
+           AND assignment.expires_at > now()
+          JOIN exomem_staged_client_releases AS stage
+            ON stage.id = credential.staged_client_release_id
+           AND stage.candidate_id = credential.candidate_id
+           AND stage.platform = client.client_platform
+           AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+           AND stage.state IN ('staged', 'evidenced')
+           AND stage.expires_at > now()
+          JOIN exomem_agent_contract_candidates AS candidate
+            ON candidate.id = credential.candidate_id
+           AND candidate.profile_id = 'hosted-alpha-agent-v1'
+           AND candidate.state IN ('pending', 'live')
+          WHERE credential.credential_kind = 'internal_canary'
+            AND credential.oauth_client_id = client.id
+            AND credential.revoked_at IS NULL
+            AND credential.expires_at > now()
+          GROUP BY credential.oauth_client_id
+          HAVING count(*) = 1
+        )
       )
     LIMIT 1
   `;
@@ -115,17 +150,37 @@ export async function createAuthorizationTransaction(input: {
            ${input.expiresAt.toISOString()}
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${input.clientId}
-      AND client.enabled = true
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
       AND (client.admission_mode = 'pinned' OR (
         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
       ))
-      AND EXISTS (
-        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      AND (
+        (client.enabled = true AND EXISTS (
+          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+        )) OR EXISTS (
+          SELECT 1
+          FROM exomem_marketplace_reviewer_credentials AS credential
+          JOIN exomem_agent_contract_rollout_assignments AS assignment
+            ON assignment.id = credential.assignment_id
+           AND assignment.tenant_id = credential.tenant_id
+           AND assignment.candidate_id = credential.candidate_id
+           AND assignment.generation = credential.assignment_generation
+           AND assignment.marketplace_reviewer_purpose = true
+           AND assignment.state IN ('preparing', 'active') AND assignment.expires_at > now()
+          JOIN exomem_staged_client_releases AS stage
+            ON stage.id = credential.staged_client_release_id
+           AND stage.candidate_id = credential.candidate_id
+           AND stage.platform = client.client_platform
+           AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+           AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now()
+          WHERE credential.credential_kind = 'internal_canary'
+            AND credential.oauth_client_id = client.id
+            AND credential.revoked_at IS NULL AND credential.expires_at > now()
+        )
       )
       AND (
         SELECT count(*) FROM exomem_oauth_authorization_transactions
@@ -164,17 +219,61 @@ export async function findPendingOAuthAuthorization(
     WHERE transaction.transaction_digest = ${transactionDigest}
       AND transaction.consumed_at IS NULL
       AND transaction.expires_at > now()
-      AND client.enabled = true
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
       AND (client.admission_mode = 'pinned' OR (
         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
       ))
-      AND EXISTS (
-        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      AND (
+        (transaction.candidate_id IS NULL AND (
+          (client.enabled = true AND EXISTS (
+          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+          )) OR EXISTS (
+            SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
+            JOIN exomem_staged_client_releases AS stage
+              ON stage.id = credential.staged_client_release_id
+             AND stage.candidate_id = credential.candidate_id
+             AND stage.platform = client.client_platform
+             AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+             AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now()
+            JOIN exomem_agent_contract_rollout_assignments AS assignment
+              ON assignment.id = credential.assignment_id
+             AND assignment.candidate_id = credential.candidate_id
+             AND assignment.generation = credential.assignment_generation
+             AND assignment.tenant_id = credential.tenant_id
+             AND assignment.state IN ('preparing', 'active') AND assignment.expires_at > now()
+            WHERE credential.credential_kind = 'internal_canary'
+              AND credential.oauth_client_id = client.id
+              AND credential.revoked_at IS NULL AND credential.expires_at > now()
+          )
+        )) OR EXISTS (
+          SELECT 1
+          FROM exomem_marketplace_reviewer_credentials AS credential
+          JOIN exomem_agent_contract_rollout_assignments AS assignment
+            ON assignment.id = credential.assignment_id
+           AND assignment.tenant_id = credential.tenant_id
+           AND assignment.candidate_id = credential.candidate_id
+           AND assignment.generation = credential.assignment_generation
+           AND assignment.marketplace_reviewer_purpose = true
+           AND assignment.state IN ('preparing', 'active') AND assignment.expires_at > now()
+          JOIN exomem_staged_client_releases AS stage
+            ON stage.id = credential.staged_client_release_id
+           AND stage.candidate_id = credential.candidate_id
+           AND stage.platform = client.client_platform
+           AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+           AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now()
+          WHERE transaction.candidate_id = credential.candidate_id
+            AND transaction.assignment_id = credential.assignment_id
+            AND transaction.assignment_generation = credential.assignment_generation
+            AND transaction.staged_client_release_id = credential.staged_client_release_id
+            AND transaction.reviewer_credential_id = credential.id
+            AND credential.oauth_client_id = client.id
+            AND credential.credential_kind = 'internal_canary'
+            AND credential.revoked_at IS NULL AND credential.expires_at > now()
+        )
       )
     LIMIT 1
   `;
@@ -227,7 +326,9 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
     const { rows } = await tx`
     /* exomem:attach-existing-owner-oauth */
     WITH session AS (
-      SELECT session.id, session.user_id, session.tenant_id, session.reviewer_credential_id
+      SELECT session.id, session.user_id, session.tenant_id, session.reviewer_credential_id,
+             session.candidate_id, session.assignment_id, session.assignment_generation,
+             session.staged_client_release_id, session.oauth_client_id
       FROM exomem_sessions AS session
       JOIN exomem_tenants AS tenant ON tenant.id = session.tenant_id AND tenant.owner_user_id = session.user_id
       LEFT JOIN exomem_marketplace_reviewer_credentials AS credential
@@ -258,16 +359,17 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
     transaction AS (
       SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
              transaction.resource, transaction.requested_scopes, transaction.pkce_challenge,
-             transaction.reviewer_credential_id
+             transaction.reviewer_credential_id, transaction.candidate_id, transaction.assignment_id,
+             transaction.assignment_generation, transaction.staged_client_release_id
       FROM exomem_oauth_authorization_transactions AS transaction
       JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
-        AND client.enabled = true
         AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
         AND (client.admission_mode = 'pinned' OR (
           client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
           AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
           AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
         ))
+      CROSS JOIN session
       LEFT JOIN exomem_marketplace_reviewer_credentials AS credential
         ON credential.id = transaction.reviewer_credential_id
        AND credential.revoked_at IS NULL
@@ -280,41 +382,96 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
           OR (credential.provider = 'anthropic' AND client.client_platform = 'claude')
           OR (credential.provider = 'openai' AND client.client_platform = 'openai')
         )
-        AND EXISTS (
+        AND (
+          (transaction.candidate_id IS NULL AND client.enabled = true AND EXISTS (
           SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
           WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
              OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+          )) OR (
+            transaction.candidate_id IS NOT NULL
+            AND credential.credential_kind = 'internal_canary'
+            AND credential.id = transaction.reviewer_credential_id
+            AND credential.id = session.reviewer_credential_id
+            AND credential.candidate_id = transaction.candidate_id
+            AND credential.assignment_id = transaction.assignment_id
+            AND credential.assignment_generation = transaction.assignment_generation
+            AND credential.staged_client_release_id = transaction.staged_client_release_id
+            AND credential.oauth_client_id = client.id
+            AND session.candidate_id = credential.candidate_id
+            AND session.assignment_id = credential.assignment_id
+            AND session.assignment_generation = credential.assignment_generation
+            AND session.staged_client_release_id = credential.staged_client_release_id
+            AND session.oauth_client_id = credential.oauth_client_id
+            AND EXISTS (
+              SELECT 1
+              FROM exomem_agent_contract_rollout_assignments AS assignment
+              JOIN exomem_staged_client_releases AS stage
+                ON stage.id = credential.staged_client_release_id
+               AND stage.candidate_id = credential.candidate_id
+               AND stage.platform = client.client_platform
+               AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+               AND (
+                 (stage.state IN ('staged', 'evidenced') AND stage.expires_at > now())
+                 OR EXISTS (
+                   SELECT 1 FROM exomem_client_artifacts AS artifact
+                   WHERE artifact.staged_client_release_id = stage.id AND artifact.contract_candidate_id = credential.candidate_id
+                 )
+               )
+              JOIN exomem_agent_contract_candidates AS candidate
+                ON candidate.id = credential.candidate_id
+               AND candidate.profile_id = 'hosted-alpha-agent-v1'
+              WHERE assignment.id = credential.assignment_id
+                AND assignment.tenant_id = credential.tenant_id
+                AND assignment.candidate_id = credential.candidate_id
+                AND assignment.generation = credential.assignment_generation
+                AND assignment.marketplace_reviewer_purpose = true
+                AND ((assignment.state = 'active' AND assignment.expires_at > now()) OR candidate.state = 'live')
+            )
+          )
         )
       FOR UPDATE OF transaction
     ),
     oauth_grant AS (
       INSERT INTO exomem_oauth_grants (
         user_id, tenant_id, client_id, resource, scopes, refresh_allowed,
-        authorization_transaction_id, reviewer_credential_id
+        authorization_transaction_id, reviewer_credential_id, candidate_id, assignment_id,
+        assignment_generation, staged_client_release_id
       )
       SELECT session.user_id, session.tenant_id, transaction.client_id, transaction.resource,
              array_remove(transaction.requested_scopes, 'offline_access'),
              'offline_access' = ANY(transaction.requested_scopes), transaction.id,
-             transaction.reviewer_credential_id
+             transaction.reviewer_credential_id, transaction.candidate_id, transaction.assignment_id,
+             transaction.assignment_generation, transaction.staged_client_release_id
       FROM session CROSS JOIN transaction
       WHERE session.reviewer_credential_id IS NOT DISTINCT FROM transaction.reviewer_credential_id
       ON CONFLICT (user_id, tenant_id, client_id, resource) WHERE revoked_at IS NULL
       DO UPDATE SET scopes = EXCLUDED.scopes,
                     refresh_allowed = EXCLUDED.refresh_allowed,
                     authorization_transaction_id = EXCLUDED.authorization_transaction_id,
+                    candidate_id = EXCLUDED.candidate_id,
+                    assignment_id = EXCLUDED.assignment_id,
+                    assignment_generation = EXCLUDED.assignment_generation,
+                    staged_client_release_id = EXCLUDED.staged_client_release_id,
                     updated_at = now()
       WHERE exomem_oauth_grants.reviewer_credential_id
             IS NOT DISTINCT FROM EXCLUDED.reviewer_credential_id
+        AND exomem_oauth_grants.candidate_id IS NOT DISTINCT FROM EXCLUDED.candidate_id
+        AND exomem_oauth_grants.assignment_id IS NOT DISTINCT FROM EXCLUDED.assignment_id
+        AND exomem_oauth_grants.assignment_generation IS NOT DISTINCT FROM EXCLUDED.assignment_generation
+        AND exomem_oauth_grants.staged_client_release_id IS NOT DISTINCT FROM EXCLUDED.staged_client_release_id
       RETURNING id, tenant_id, reviewer_credential_id
     ),
     code AS (
       INSERT INTO exomem_oauth_authorization_codes (
-        code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
+        code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at,
+        candidate_id, assignment_id, assignment_generation, staged_client_release_id, reviewer_credential_id
       )
       SELECT ${input.codeDigest}, oauth_grant.id, transaction.client_id, transaction.redirect_uri,
              transaction.resource, transaction.pkce_challenge,
              'offline_access' = ANY(transaction.requested_scopes),
-             LEAST(${input.codeExpiresAt.toISOString()}, credential.expires_at)
+             LEAST(${input.codeExpiresAt.toISOString()}, credential.expires_at),
+             transaction.candidate_id, transaction.assignment_id, transaction.assignment_generation,
+             transaction.staged_client_release_id, transaction.reviewer_credential_id
       FROM oauth_grant CROSS JOIN transaction
       LEFT JOIN exomem_marketplace_reviewer_credentials AS credential
         ON credential.id = oauth_grant.reviewer_credential_id
@@ -667,7 +824,10 @@ export async function findActiveOAuthAccessToken(
            oauth_grant.tenant_id,
            client.client_id,
            token.resource,
-           token.scopes
+           token.scopes,
+           token.candidate_id, token.assignment_id, token.assignment_generation,
+           token.staged_client_release_id, token.client_id AS oauth_client_record_id,
+           token.reviewer_credential_id
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
@@ -677,12 +837,11 @@ export async function findActiveOAuthAccessToken(
       ON oauth_grant.id = token.grant_id
      AND oauth_grant.revoked_at IS NULL
     LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
-      ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+      ON reviewer_credential.id = COALESCE(token.reviewer_credential_id, oauth_grant.reviewer_credential_id)
      AND reviewer_credential.revoked_at IS NULL
      AND reviewer_credential.expires_at > now()
     JOIN exomem_oauth_clients AS client
       ON client.id = token.client_id
-     AND client.enabled = true
      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
      AND (client.admission_mode = 'pinned' OR (
        client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
@@ -700,11 +859,54 @@ export async function findActiveOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
-      AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
-      AND EXISTS (
-        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      AND (
+        (token.candidate_id IS NULL
+          AND client.enabled = true
+          AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
+          AND EXISTS (
+            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+          )
+        ) OR (
+          token.candidate_id IS NOT NULL
+          AND token.candidate_id = family.candidate_id AND token.candidate_id = oauth_grant.candidate_id
+          AND token.assignment_id = family.assignment_id AND token.assignment_id = oauth_grant.assignment_id
+          AND token.assignment_generation = family.assignment_generation AND token.assignment_generation = oauth_grant.assignment_generation
+          AND token.staged_client_release_id = family.staged_client_release_id AND token.staged_client_release_id = oauth_grant.staged_client_release_id
+          AND token.reviewer_credential_id = family.reviewer_credential_id AND token.reviewer_credential_id = oauth_grant.reviewer_credential_id
+          AND reviewer_credential.id = token.reviewer_credential_id
+          AND reviewer_credential.credential_kind = 'internal_canary'
+          AND reviewer_credential.candidate_id = token.candidate_id
+          AND reviewer_credential.assignment_id = token.assignment_id
+          AND reviewer_credential.assignment_generation = token.assignment_generation
+          AND reviewer_credential.staged_client_release_id = token.staged_client_release_id
+          AND reviewer_credential.oauth_client_id = token.client_id
+          AND EXISTS (
+            SELECT 1
+            FROM exomem_agent_contract_rollout_assignments AS assignment
+            JOIN exomem_staged_client_releases AS stage
+              ON stage.id = token.staged_client_release_id
+             AND stage.candidate_id = token.candidate_id
+             AND stage.platform = client.client_platform
+             AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+            JOIN exomem_agent_contract_candidates AS candidate
+              ON candidate.id = token.candidate_id AND candidate.profile_id = 'hosted-alpha-agent-v1'
+            WHERE assignment.id = token.assignment_id
+              AND assignment.tenant_id = oauth_grant.tenant_id
+              AND assignment.candidate_id = token.candidate_id
+              AND assignment.generation = token.assignment_generation
+              AND assignment.marketplace_reviewer_purpose = true
+              AND ((assignment.state = 'active' AND assignment.expires_at > now()
+                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                OR (candidate.state = 'live' AND EXISTS (
+                  SELECT 1 FROM exomem_client_artifacts AS artifact
+                  WHERE artifact.staged_client_release_id = stage.id
+                    AND artifact.contract_candidate_id = token.candidate_id
+                    AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
+                )))
+          )
+        )
       )
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
@@ -721,6 +923,12 @@ export async function findActiveOAuthAccessToken(
           client_id: string;
           resource: string;
           scopes: string[];
+          candidate_id: string | null;
+          assignment_id: string | null;
+          assignment_generation: string | number | null;
+          staged_client_release_id: string | null;
+          oauth_client_record_id: string | null;
+          reviewer_credential_id: string | null;
         }
       | undefined;
     return row
@@ -732,6 +940,17 @@ export async function findActiveOAuthAccessToken(
           clientId: row.client_id,
           resource: row.resource,
           scopes: row.scopes,
+          ...(row.candidate_id
+            ? {
+                candidateId: row.candidate_id,
+                assignmentId: row.assignment_id ?? undefined,
+                assignmentGeneration:
+                  row.assignment_generation === null ? undefined : BigInt(row.assignment_generation),
+                stagedClientReleaseId: row.staged_client_release_id ?? undefined,
+                oauthClientRecordId: row.oauth_client_record_id ?? undefined,
+                reviewerCredentialId: row.reviewer_credential_id ?? undefined,
+              }
+            : {}),
         }
       : null;
   });
@@ -745,7 +964,10 @@ export async function findMcpOAuthAccessToken(
     const { rows } = await tx`
     /* exomem:find-mcp-oauth-access-token */
     SELECT token.family_id, token.grant_id, oauth_grant.user_id, oauth_grant.tenant_id,
-           client.client_id, token.resource, token.scopes
+           client.client_id, token.resource, token.scopes,
+           token.candidate_id, token.assignment_id, token.assignment_generation,
+           token.staged_client_release_id, token.client_id AS oauth_client_record_id,
+           token.reviewer_credential_id
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
      ON family.id = token.family_id
@@ -759,11 +981,10 @@ export async function findMcpOAuthAccessToken(
      AND oauth_grant.resource = token.resource
      AND oauth_grant.revoked_at IS NULL
     LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
-      ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+      ON reviewer_credential.id = COALESCE(token.reviewer_credential_id, oauth_grant.reviewer_credential_id)
      AND reviewer_credential.revoked_at IS NULL
      AND reviewer_credential.expires_at > now()
     JOIN exomem_oauth_clients AS client ON client.id = token.client_id
-      AND client.enabled = true
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
       AND (client.admission_mode = 'pinned' OR (
         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
@@ -781,12 +1002,55 @@ export async function findMcpOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
-      AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
       AND token.scopes <@ oauth_grant.scopes
-      AND EXISTS (
-        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      AND (
+        (token.candidate_id IS NULL
+          AND client.enabled = true
+          AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
+          AND EXISTS (
+            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+          )
+        ) OR (
+          token.candidate_id IS NOT NULL
+          AND token.candidate_id = family.candidate_id AND token.candidate_id = oauth_grant.candidate_id
+          AND token.assignment_id = family.assignment_id AND token.assignment_id = oauth_grant.assignment_id
+          AND token.assignment_generation = family.assignment_generation AND token.assignment_generation = oauth_grant.assignment_generation
+          AND token.staged_client_release_id = family.staged_client_release_id AND token.staged_client_release_id = oauth_grant.staged_client_release_id
+          AND token.reviewer_credential_id = family.reviewer_credential_id AND token.reviewer_credential_id = oauth_grant.reviewer_credential_id
+          AND reviewer_credential.id = token.reviewer_credential_id
+          AND reviewer_credential.credential_kind = 'internal_canary'
+          AND reviewer_credential.candidate_id = token.candidate_id
+          AND reviewer_credential.assignment_id = token.assignment_id
+          AND reviewer_credential.assignment_generation = token.assignment_generation
+          AND reviewer_credential.staged_client_release_id = token.staged_client_release_id
+          AND reviewer_credential.oauth_client_id = token.client_id
+          AND EXISTS (
+            SELECT 1
+            FROM exomem_agent_contract_rollout_assignments AS assignment
+            JOIN exomem_staged_client_releases AS stage
+              ON stage.id = token.staged_client_release_id
+             AND stage.candidate_id = token.candidate_id
+             AND stage.platform = client.client_platform
+             AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+            JOIN exomem_agent_contract_candidates AS candidate
+              ON candidate.id = token.candidate_id AND candidate.profile_id = 'hosted-alpha-agent-v1'
+            WHERE assignment.id = token.assignment_id
+              AND assignment.tenant_id = oauth_grant.tenant_id
+              AND assignment.candidate_id = token.candidate_id
+              AND assignment.generation = token.assignment_generation
+              AND assignment.marketplace_reviewer_purpose = true
+              AND ((assignment.state = 'active' AND assignment.expires_at > now()
+                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                OR (candidate.state = 'live' AND EXISTS (
+                  SELECT 1 FROM exomem_client_artifacts AS artifact
+                  WHERE artifact.staged_client_release_id = stage.id
+                    AND artifact.contract_candidate_id = token.candidate_id
+                    AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
+                )))
+          )
+        )
       )
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
@@ -811,6 +1075,30 @@ export async function findMcpOAuthAccessToken(
           clientId: row.client_id,
           resource: row.resource,
           scopes: row.scopes.filter((scope): scope is string => typeof scope === "string"),
+          ...(typeof row.candidate_id === "string"
+            ? {
+                candidateId: row.candidate_id,
+                assignmentId:
+                  typeof row.assignment_id === "string" ? row.assignment_id : undefined,
+                assignmentGeneration:
+                  typeof row.assignment_generation === "string" ||
+                  typeof row.assignment_generation === "number"
+                    ? BigInt(row.assignment_generation)
+                    : undefined,
+                stagedClientReleaseId:
+                  typeof row.staged_client_release_id === "string"
+                    ? row.staged_client_release_id
+                    : undefined,
+                oauthClientRecordId:
+                  typeof row.oauth_client_record_id === "string"
+                    ? row.oauth_client_record_id
+                    : undefined,
+                reviewerCredentialId:
+                  typeof row.reviewer_credential_id === "string"
+                    ? row.reviewer_credential_id
+                    : undefined,
+              }
+            : {}),
         }
       : null;
   });
@@ -989,7 +1277,6 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       FROM exomem_oauth_grants AS oauth_grant
       JOIN exomem_oauth_clients AS client
         ON client.client_id = ${input.clientId}
-       AND client.enabled = true
        AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
        AND (client.admission_mode = 'pinned' OR (
          client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
@@ -1012,34 +1299,94 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND code.client_id = client.id
         AND oauth_grant.client_id = code.client_id
         AND oauth_grant.resource = code.resource
+        AND code.candidate_id IS NOT DISTINCT FROM oauth_grant.candidate_id
+        AND code.assignment_id IS NOT DISTINCT FROM oauth_grant.assignment_id
+        AND code.assignment_generation IS NOT DISTINCT FROM oauth_grant.assignment_generation
+        AND code.staged_client_release_id IS NOT DISTINCT FROM oauth_grant.staged_client_release_id
+        AND code.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
         AND code.redirect_uri = ${input.redirectUri}
         AND code.resource = ${input.resource}
         AND code.pkce_challenge = ${input.pkceChallenge}
         AND code.consumed_at IS NULL
         AND code.expires_at > now()
         AND oauth_grant.revoked_at IS NULL
-        AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
-        AND EXISTS (
-          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+        AND (
+          (code.candidate_id IS NULL
+            AND client.enabled = true
+            AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
+            AND EXISTS (
+              SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+              WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+                 OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+            )
+          ) OR (
+            code.candidate_id IS NOT NULL
+            AND reviewer_credential.id IS NOT NULL
+            AND reviewer_credential.credential_kind = 'internal_canary'
+            AND reviewer_credential.candidate_id = code.candidate_id
+            AND reviewer_credential.assignment_id = code.assignment_id
+            AND reviewer_credential.assignment_generation = code.assignment_generation
+            AND reviewer_credential.staged_client_release_id = code.staged_client_release_id
+            AND reviewer_credential.oauth_client_id = client.id
+            AND EXISTS (
+              SELECT 1
+              FROM exomem_agent_contract_rollout_assignments AS assignment
+              JOIN exomem_staged_client_releases AS stage
+                ON stage.id = code.staged_client_release_id
+               AND stage.candidate_id = code.candidate_id
+               AND stage.platform = client.client_platform
+               AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+              JOIN exomem_agent_contract_candidates AS candidate
+                ON candidate.id = code.candidate_id
+               AND candidate.profile_id = 'hosted-alpha-agent-v1'
+              WHERE assignment.id = code.assignment_id
+                AND assignment.tenant_id = oauth_grant.tenant_id
+                AND assignment.candidate_id = code.candidate_id
+                AND assignment.generation = code.assignment_generation
+                AND assignment.marketplace_reviewer_purpose = true
+                AND (
+                  (assignment.state = 'active' AND assignment.expires_at > now()
+                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                  OR (candidate.state = 'live' AND EXISTS (
+                    SELECT 1 FROM exomem_client_artifacts AS artifact
+                    WHERE artifact.staged_client_release_id = stage.id
+                      AND artifact.contract_candidate_id = code.candidate_id
+                      AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
+                  ))
+                )
+            )
+          )
         )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id
         )
       RETURNING code.grant_id, code.client_id, code.resource, code.refresh_allowed,
+                code.candidate_id, code.assignment_id, code.assignment_generation,
+                code.staged_client_release_id, code.reviewer_credential_id,
                 reviewer_credential.expires_at AS reviewer_expires_at
     ),
     family AS (
-      INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
-      SELECT grant_id, client_id, LEAST(now() + interval '30 days', reviewer_expires_at)
+      INSERT INTO exomem_oauth_token_families (
+        grant_id, client_id, expires_at, candidate_id, assignment_id, assignment_generation,
+        staged_client_release_id, reviewer_credential_id
+      )
+      SELECT grant_id, client_id, LEAST(now() + interval '30 days', reviewer_expires_at),
+             candidate_id, assignment_id, assignment_generation, staged_client_release_id,
+             reviewer_credential_id
       FROM consumed_code
       RETURNING id, grant_id, client_id, expires_at
     ),
     refresh AS (
-      INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
-      SELECT ${input.refreshDigest}, id, LEAST(${input.refreshExpiresAt.toISOString()}, family.expires_at)
+      INSERT INTO exomem_oauth_refresh_tokens (
+        refresh_digest, family_id, expires_at, candidate_id, assignment_id, assignment_generation,
+        staged_client_release_id, oauth_client_id, reviewer_credential_id
+      )
+      SELECT ${input.refreshDigest}, id, LEAST(${input.refreshExpiresAt.toISOString()}, family.expires_at),
+             consumed_code.candidate_id, consumed_code.assignment_id,
+             consumed_code.assignment_generation, consumed_code.staged_client_release_id,
+             CASE WHEN consumed_code.candidate_id IS NULL THEN NULL ELSE family.client_id END,
+             consumed_code.reviewer_credential_id
       FROM family
       JOIN consumed_code ON consumed_code.grant_id = family.grant_id
       WHERE consumed_code.refresh_allowed
@@ -1047,11 +1394,16 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
     ),
     access AS (
       INSERT INTO exomem_oauth_access_tokens (
-        access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
+        access_digest, grant_id, family_id, client_id, resource, scopes, expires_at,
+        candidate_id, assignment_id, assignment_generation, staged_client_release_id,
+        reviewer_credential_id
       )
       SELECT ${input.accessDigest}, consumed_code.grant_id, family.id, consumed_code.client_id,
              consumed_code.resource, oauth_grant.scopes,
-             LEAST(${input.accessExpiresAt.toISOString()}, family.expires_at)
+             LEAST(${input.accessExpiresAt.toISOString()}, family.expires_at),
+             consumed_code.candidate_id, consumed_code.assignment_id,
+             consumed_code.assignment_generation, consumed_code.staged_client_release_id,
+             consumed_code.reviewer_credential_id
       FROM consumed_code
       JOIN family ON family.grant_id = consumed_code.grant_id
       JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed_code.grant_id
@@ -1123,7 +1475,9 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     /* exomem:oauth-refresh-rotate */
     WITH credential AS (
       SELECT token.id, token.consumed_at, token.expires_at, token.family_id, family.grant_id, family.client_id,
-             family.revoked_at, family.expires_at AS family_expires_at
+             family.revoked_at, family.expires_at AS family_expires_at,
+             token.candidate_id, token.assignment_id, token.assignment_generation,
+             token.staged_client_release_id, token.oauth_client_id, token.reviewer_credential_id
       FROM exomem_oauth_refresh_tokens AS token
       JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
       JOIN exomem_oauth_clients AS client ON client.id = family.client_id
@@ -1131,24 +1485,38 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         ON oauth_grant.id = family.grant_id
        AND oauth_grant.resource = ${input.resource}
       LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
-        ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+        ON reviewer_credential.id = COALESCE(token.reviewer_credential_id, oauth_grant.reviewer_credential_id)
        AND reviewer_credential.revoked_at IS NULL
        AND reviewer_credential.expires_at > now()
       WHERE token.refresh_digest = ${input.refreshDigest}
         AND client.client_id = ${input.clientId}
-        AND client.enabled = true
         AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
         AND (client.admission_mode = 'pinned' OR (
           client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
           AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
           AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
         ))
-        AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
       FOR UPDATE OF token, family
+    ),
+    lineage_matches AS (
+      SELECT credential.id
+      FROM credential
+      JOIN exomem_oauth_token_families AS family ON family.id = credential.family_id
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = credential.grant_id
+      WHERE credential.candidate_id IS NULL
+        OR (
+          credential.candidate_id = family.candidate_id AND credential.candidate_id = oauth_grant.candidate_id
+          AND credential.assignment_id = family.assignment_id AND credential.assignment_id = oauth_grant.assignment_id
+          AND credential.assignment_generation = family.assignment_generation AND credential.assignment_generation = oauth_grant.assignment_generation
+          AND credential.staged_client_release_id = family.staged_client_release_id AND credential.staged_client_release_id = oauth_grant.staged_client_release_id
+          AND credential.reviewer_credential_id = family.reviewer_credential_id AND credential.reviewer_credential_id = oauth_grant.reviewer_credential_id
+          AND credential.oauth_client_id = family.client_id
+        )
     ),
     current_policy AS (
       SELECT credential.id
       FROM credential
+      JOIN lineage_matches ON lineage_matches.id = credential.id
       JOIN exomem_oauth_clients AS client ON client.id = credential.client_id
       JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = credential.grant_id AND oauth_grant.revoked_at IS NULL
       LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
@@ -1160,12 +1528,50 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         AND tenant.desired_state = 'running'
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
-      WHERE EXISTS (
-        SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-        WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-           OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+      WHERE (
+        (credential.candidate_id IS NULL
+          AND client.enabled = true
+          AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
+          AND EXISTS (
+            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+          )
+        ) OR (
+          credential.candidate_id IS NOT NULL
+          AND reviewer_credential.id = credential.reviewer_credential_id
+          AND reviewer_credential.credential_kind = 'internal_canary'
+          AND reviewer_credential.candidate_id = credential.candidate_id
+          AND reviewer_credential.assignment_id = credential.assignment_id
+          AND reviewer_credential.assignment_generation = credential.assignment_generation
+          AND reviewer_credential.staged_client_release_id = credential.staged_client_release_id
+          AND reviewer_credential.oauth_client_id = credential.client_id
+          AND EXISTS (
+            SELECT 1
+            FROM exomem_agent_contract_rollout_assignments AS assignment
+            JOIN exomem_staged_client_releases AS stage
+              ON stage.id = credential.staged_client_release_id
+             AND stage.candidate_id = credential.candidate_id
+             AND stage.platform = client.client_platform
+             AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
+            JOIN exomem_agent_contract_candidates AS candidate
+              ON candidate.id = credential.candidate_id AND candidate.profile_id = 'hosted-alpha-agent-v1'
+            WHERE assignment.id = credential.assignment_id
+              AND assignment.tenant_id = oauth_grant.tenant_id
+              AND assignment.candidate_id = credential.candidate_id
+              AND assignment.generation = credential.assignment_generation
+              AND assignment.marketplace_reviewer_purpose = true
+              AND ((assignment.state = 'active' AND assignment.expires_at > now()
+                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                OR (candidate.state = 'live' AND EXISTS (
+                  SELECT 1 FROM exomem_client_artifacts AS artifact
+                  WHERE artifact.staged_client_release_id = stage.id
+                    AND artifact.contract_candidate_id = credential.candidate_id
+                    AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
+                )))
+          )
+        )
       )
-        AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id
@@ -1189,16 +1595,27 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
           revoked_reason = 'refresh_replayed'
       FROM credential
       WHERE family.id = credential.family_id
-        AND credential.consumed_at IS NOT NULL
+        AND (
+          credential.consumed_at IS NOT NULL
+          OR (credential.candidate_id IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM lineage_matches WHERE lineage_matches.id = credential.id
+          ))
+        )
         AND family.revoked_at IS NULL
       RETURNING family.id
     ),
     replacement AS (
       INSERT INTO exomem_oauth_refresh_tokens (
-        refresh_digest, family_id, parent_refresh_token_id, expires_at
+        refresh_digest, family_id, parent_refresh_token_id, expires_at,
+        candidate_id, assignment_id, assignment_generation, staged_client_release_id,
+        oauth_client_id, reviewer_credential_id
       )
       SELECT ${input.replacementRefreshDigest}, consumed.family_id, credential.id,
-             LEAST(family.expires_at, reviewer_credential.expires_at)
+             LEAST(family.expires_at, reviewer_credential.expires_at),
+             credential.candidate_id, credential.assignment_id,
+             credential.assignment_generation, credential.staged_client_release_id,
+             CASE WHEN credential.candidate_id IS NULL THEN NULL ELSE credential.client_id END,
+             credential.reviewer_credential_id
       FROM consumed
       JOIN credential ON credential.family_id = consumed.family_id
       JOIN exomem_oauth_token_families AS family ON family.id = consumed.family_id
@@ -1212,12 +1629,18 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
     ),
     access AS (
       INSERT INTO exomem_oauth_access_tokens (
-        access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
+        access_digest, grant_id, family_id, client_id, resource, scopes, expires_at,
+        candidate_id, assignment_id, assignment_generation, staged_client_release_id,
+        reviewer_credential_id
       )
       SELECT ${input.accessDigest}, consumed.grant_id, consumed.family_id,
              consumed.client_id, oauth_grant.resource, oauth_grant.scopes,
-             LEAST(${input.accessExpiresAt.toISOString()}, family.expires_at)
+             LEAST(${input.accessExpiresAt.toISOString()}, family.expires_at),
+             credential.candidate_id, credential.assignment_id,
+             credential.assignment_generation, credential.staged_client_release_id,
+             credential.reviewer_credential_id
       FROM consumed
+      JOIN credential ON credential.family_id = consumed.family_id
       JOIN exomem_oauth_token_families AS family ON family.id = consumed.family_id
       JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
       RETURNING id

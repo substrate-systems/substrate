@@ -4,6 +4,8 @@ import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 import {
   createCanaryAssignment,
   createStagedClientRelease,
+  expireCanaryAuthority,
+  revokeConflictingCanaryOAuthLineageInTransaction,
   resolveActiveCanaryAssignment,
   resolveReviewerCanaryAuthority,
   resolveStagedClientRelease,
@@ -21,6 +23,31 @@ afterEach(() => {
 });
 
 describe("Hosted canary assignments", () => {
+  it("revokes only conflicting internal-canary lineage during exact activation", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ revoked_credentials: 1 }] };
+    };
+
+    const revoked = await revokeConflictingCanaryOAuthLineageInTransaction(sql, {
+      tenantId,
+      candidateId,
+      assignmentId,
+      assignmentGeneration: 2,
+      stagedClientReleaseId: declarationId,
+    });
+
+    assert.equal(revoked, 1);
+    const query = queries.join("\n");
+    assert.match(query, /credential_kind = 'internal_canary'/i);
+    assert.match(query, /assignment_generation IS DISTINCT FROM \?::bigint/i);
+    assert.match(query, /reviewer_credential_id IN \(SELECT id FROM conflicting_credentials\)/i);
+    assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
+    assert.match(query, /UPDATE exomem_oauth_access_tokens/i);
+    assert.doesNotMatch(query, /credential_kind = 'provider_review'/i);
+  });
+
   it("creates immutable assignment generations under the cohort lock", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {
@@ -102,6 +129,36 @@ describe("Hosted canary assignments", () => {
     assert.match(queries[0]!, /expires_at > now\(\)/i);
     assert.match(queries[0]!, /LIMIT 2/i);
     assert.match(queries[1]!, /marketplace_reviewer_purpose = true/i);
+  });
+
+  it("expires authority before atomically revoking its exact internal credential lineage", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      queries.push(query);
+      if (query.includes("expire-canary-authority")) {
+        return {
+          rows: [
+            {
+              tenant_id: tenantId,
+              candidate_id: candidateId,
+              assignment_id: assignmentId,
+              assignment_generation: 2,
+              staged_client_release_id: declarationId,
+            },
+          ],
+        };
+      }
+      return { rows: [{ revoked_credentials: 1 }] };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.equal(await expireCanaryAuthority(), 1);
+    const query = queries.join("\n");
+    assert.match(query, /UPDATE exomem_agent_contract_rollout_assignments/i);
+    assert.match(query, /UPDATE exomem_staged_client_releases/i);
+    assert.match(query, /exomem:revoke-canary-oauth-lineage/i);
+    assert.match(query, /credential_kind = 'internal_canary'/i);
   });
 });
 

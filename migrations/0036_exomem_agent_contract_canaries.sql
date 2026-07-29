@@ -128,3 +128,204 @@ ALTER TABLE exomem_client_artifacts
 CREATE UNIQUE INDEX exomem_client_artifacts_staged_client_release_idx
   ON exomem_client_artifacts (staged_client_release_id)
   WHERE staged_client_release_id IS NOT NULL;
+
+-- Legacy OAuth state remains live-only. Candidate lineage is present only on
+-- rows created from the exact reviewer assignment and staged declaration.
+ALTER TABLE exomem_oauth_authorization_transactions
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT;
+
+ALTER TABLE exomem_oauth_grants
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT;
+
+ALTER TABLE exomem_oauth_authorization_codes
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT,
+  ADD COLUMN reviewer_credential_id uuid REFERENCES exomem_marketplace_reviewer_credentials(id) ON DELETE RESTRICT;
+
+ALTER TABLE exomem_oauth_token_families
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT,
+  ADD COLUMN reviewer_credential_id uuid REFERENCES exomem_marketplace_reviewer_credentials(id) ON DELETE RESTRICT;
+
+ALTER TABLE exomem_oauth_access_tokens
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT,
+  ADD COLUMN reviewer_credential_id uuid REFERENCES exomem_marketplace_reviewer_credentials(id) ON DELETE RESTRICT;
+
+ALTER TABLE exomem_oauth_refresh_tokens
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT,
+  ADD COLUMN oauth_client_id uuid REFERENCES exomem_oauth_clients(id) ON DELETE RESTRICT,
+  ADD COLUMN reviewer_credential_id uuid REFERENCES exomem_marketplace_reviewer_credentials(id) ON DELETE RESTRICT;
+
+ALTER TABLE exomem_sessions
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT,
+  ADD COLUMN oauth_client_id uuid REFERENCES exomem_oauth_clients(id) ON DELETE RESTRICT;
+
+ALTER TABLE exomem_marketplace_reviewer_credentials
+  ADD COLUMN credential_kind text NOT NULL DEFAULT 'provider_review'
+    CHECK (credential_kind IN ('provider_review', 'internal_canary')),
+  ADD COLUMN candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN assignment_generation bigint,
+  ADD COLUMN staged_client_release_id uuid REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT,
+  ADD COLUMN oauth_client_id uuid REFERENCES exomem_oauth_clients(id) ON DELETE RESTRICT;
+
+DROP INDEX exomem_marketplace_reviewer_credentials_active_provider_idx;
+CREATE UNIQUE INDEX exomem_marketplace_reviewer_credentials_active_provider_idx
+  ON exomem_marketplace_reviewer_credentials (provider)
+  WHERE revoked_at IS NULL AND credential_kind = 'provider_review';
+
+CREATE INDEX exomem_oauth_authorization_transactions_candidate_active_idx
+  ON exomem_oauth_authorization_transactions (assignment_id, assignment_generation, staged_client_release_id)
+  WHERE candidate_id IS NOT NULL AND consumed_at IS NULL;
+CREATE INDEX exomem_oauth_grants_candidate_active_idx
+  ON exomem_oauth_grants (assignment_id, assignment_generation, staged_client_release_id)
+  WHERE candidate_id IS NOT NULL AND revoked_at IS NULL;
+CREATE INDEX exomem_oauth_token_families_candidate_active_idx
+  ON exomem_oauth_token_families (assignment_id, assignment_generation, staged_client_release_id)
+  WHERE candidate_id IS NOT NULL AND revoked_at IS NULL;
+CREATE INDEX exomem_marketplace_reviewer_credentials_internal_canary_idx
+  ON exomem_marketplace_reviewer_credentials (assignment_id, assignment_generation, staged_client_release_id)
+  WHERE credential_kind = 'internal_canary' AND revoked_at IS NULL;
+
+CREATE FUNCTION exomem_marketplace_reviewer_credential_lineage_is_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NEW.credential_kind IS DISTINCT FROM OLD.credential_kind
+     OR NEW.candidate_id IS DISTINCT FROM OLD.candidate_id
+     OR NEW.assignment_id IS DISTINCT FROM OLD.assignment_id
+     OR NEW.assignment_generation IS DISTINCT FROM OLD.assignment_generation
+     OR NEW.staged_client_release_id IS DISTINCT FROM OLD.staged_client_release_id
+     OR NEW.oauth_client_id IS DISTINCT FROM OLD.oauth_client_id THEN
+    RAISE EXCEPTION 'reviewer credential lineage is immutable';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+CREATE TRIGGER exomem_marketplace_reviewer_credential_lineage_immutable
+BEFORE UPDATE ON exomem_marketplace_reviewer_credentials
+FOR EACH ROW EXECUTE FUNCTION exomem_marketplace_reviewer_credential_lineage_is_immutable();
+
+ALTER TABLE exomem_oauth_authorization_transactions
+  ADD CONSTRAINT exomem_oauth_transactions_candidate_lineage_complete CHECK (
+    (candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL)
+    OR (candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND reviewer_credential_id IS NOT NULL)
+  );
+ALTER TABLE exomem_oauth_grants
+  ADD CONSTRAINT exomem_oauth_grants_candidate_lineage_complete CHECK (
+    (candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL)
+    OR (candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND reviewer_credential_id IS NOT NULL)
+  );
+ALTER TABLE exomem_oauth_authorization_codes
+  ADD CONSTRAINT exomem_oauth_codes_candidate_lineage_complete CHECK (
+    (candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL)
+    OR (candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND reviewer_credential_id IS NOT NULL)
+  );
+ALTER TABLE exomem_oauth_token_families
+  ADD CONSTRAINT exomem_oauth_families_candidate_lineage_complete CHECK (
+    (candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL)
+    OR (candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND reviewer_credential_id IS NOT NULL)
+  );
+ALTER TABLE exomem_oauth_access_tokens
+  ADD CONSTRAINT exomem_oauth_access_candidate_lineage_complete CHECK (
+    (candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL)
+    OR (candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND reviewer_credential_id IS NOT NULL)
+  );
+ALTER TABLE exomem_oauth_refresh_tokens
+  ADD CONSTRAINT exomem_oauth_refresh_candidate_lineage_complete CHECK (
+    (candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL AND oauth_client_id IS NULL)
+    OR (candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND oauth_client_id IS NOT NULL AND reviewer_credential_id IS NOT NULL)
+  );
+ALTER TABLE exomem_sessions
+  ADD CONSTRAINT exomem_sessions_candidate_lineage_complete CHECK (
+    (candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL AND oauth_client_id IS NULL)
+    OR (candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND oauth_client_id IS NOT NULL)
+  );
+ALTER TABLE exomem_marketplace_reviewer_credentials
+  ADD CONSTRAINT exomem_reviewer_credentials_candidate_lineage_complete CHECK (
+    (credential_kind = 'provider_review' AND candidate_id IS NULL AND assignment_id IS NULL AND assignment_generation IS NULL AND staged_client_release_id IS NULL AND oauth_client_id IS NULL)
+    OR (credential_kind = 'internal_canary' AND candidate_id IS NOT NULL AND assignment_id IS NOT NULL AND assignment_generation IS NOT NULL AND staged_client_release_id IS NOT NULL AND oauth_client_id IS NOT NULL)
+  );
+
+CREATE FUNCTION exomem_oauth_authorization_transaction_candidate_lineage_is_write_once()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF OLD.candidate_id IS NOT NULL AND (
+    NEW.candidate_id IS DISTINCT FROM OLD.candidate_id
+    OR NEW.assignment_id IS DISTINCT FROM OLD.assignment_id
+    OR NEW.assignment_generation IS DISTINCT FROM OLD.assignment_generation
+    OR NEW.staged_client_release_id IS DISTINCT FROM OLD.staged_client_release_id
+    OR NEW.reviewer_credential_id IS DISTINCT FROM OLD.reviewer_credential_id
+  ) THEN
+    RAISE EXCEPTION 'candidate authorization lineage is write-once';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+CREATE TRIGGER exomem_oauth_authorization_transaction_candidate_lineage_write_once
+BEFORE UPDATE ON exomem_oauth_authorization_transactions
+FOR EACH ROW EXECUTE FUNCTION exomem_oauth_authorization_transaction_candidate_lineage_is_write_once();
+
+CREATE FUNCTION exomem_oauth_candidate_lineage_is_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF (OLD.candidate_id IS NOT NULL OR NEW.candidate_id IS NOT NULL) AND (
+    NEW.candidate_id IS DISTINCT FROM OLD.candidate_id
+    OR NEW.assignment_id IS DISTINCT FROM OLD.assignment_id
+    OR NEW.assignment_generation IS DISTINCT FROM OLD.assignment_generation
+    OR NEW.staged_client_release_id IS DISTINCT FROM OLD.staged_client_release_id
+    OR NEW.reviewer_credential_id IS DISTINCT FROM OLD.reviewer_credential_id
+    OR COALESCE(to_jsonb(NEW)->>'oauth_client_id', '')
+       IS DISTINCT FROM COALESCE(to_jsonb(OLD)->>'oauth_client_id', '')
+  ) THEN
+    RAISE EXCEPTION 'candidate OAuth lineage is immutable';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+CREATE TRIGGER exomem_oauth_grant_candidate_lineage_immutable
+BEFORE UPDATE ON exomem_oauth_grants
+FOR EACH ROW EXECUTE FUNCTION exomem_oauth_candidate_lineage_is_immutable();
+
+CREATE TRIGGER exomem_oauth_code_candidate_lineage_immutable
+BEFORE UPDATE ON exomem_oauth_authorization_codes
+FOR EACH ROW EXECUTE FUNCTION exomem_oauth_candidate_lineage_is_immutable();
+
+CREATE TRIGGER exomem_oauth_family_candidate_lineage_immutable
+BEFORE UPDATE ON exomem_oauth_token_families
+FOR EACH ROW EXECUTE FUNCTION exomem_oauth_candidate_lineage_is_immutable();
+
+CREATE TRIGGER exomem_oauth_access_candidate_lineage_immutable
+BEFORE UPDATE ON exomem_oauth_access_tokens
+FOR EACH ROW EXECUTE FUNCTION exomem_oauth_candidate_lineage_is_immutable();
+
+CREATE TRIGGER exomem_oauth_refresh_candidate_lineage_immutable
+BEFORE UPDATE ON exomem_oauth_refresh_tokens
+FOR EACH ROW EXECUTE FUNCTION exomem_oauth_candidate_lineage_is_immutable();

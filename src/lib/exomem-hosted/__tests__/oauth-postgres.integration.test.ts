@@ -1785,4 +1785,147 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       [internal]
     );
   });
+
+  it("preserves one candidate lineage through code exchange and promoted refresh", async () => {
+    const candidateClientId = `candidate-${randomUUID()}`;
+    const configDigest = "7".repeat(64);
+    const client = await pool!.query(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', false, '["https://candidate.example.test/callback"]'::jsonb,
+                 digest(convert_to('["https://candidate.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                 'claude', $2)
+       RETURNING id`,
+      [candidateClientId, configDigest]
+    );
+    const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+      `candidate-lineage-${randomUUID()}@example.test`,
+    ]);
+    const tenant = await pool!.query(
+      "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
+      [user.rows[0].id]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+      [tenant.rows[0].id]
+    );
+    const candidate = await pool!.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, mcp_protocol_versions, contract,
+         claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
+       ) VALUES (
+         'pending', 'hosted-alpha-agent-v1', $1, 'candidate-test', $2, $3, $4, '1',
+         '["2025-11-25"]'::jsonb, '{}'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
+       ) RETURNING id`,
+      [
+        resource,
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
+        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
+        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
+        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
+      ]
+    );
+    const assignment = await pool!.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+       ) VALUES ($1, $2, 1, 'active', 'candidate-test', '1', $3, $4, $5, $6, true, $7,
+                 now() + interval '1 hour', now()) RETURNING id`,
+      [tenant.rows[0].id, candidate.rows[0].id, "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64), "e".repeat(64)]
+    );
+    const stage = await pool!.query(
+      `INSERT INTO exomem_staged_client_releases (
+         candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest,
+         expires_at, evidenced_at
+       ) VALUES ($1, 'claude', 'evidenced', $2, $3, $4, $5, '1.0.0', $6, $7,
+                 now() + interval '1 hour', now()) RETURNING id`,
+      [candidate.rows[0].id, "d".repeat(64), "e".repeat(64), "f".repeat(64), "1".repeat(64), configDigest, "e".repeat(64)]
+    );
+    const candidatePassword = await hashMarketplaceReviewerPassword("candidate-lineage-password");
+    const credential = await pool!.query(
+      `INSERT INTO exomem_marketplace_reviewer_credentials (
+         provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id,
+         fixture_version, fixture_payload_digest, created_by_principal_digest, created_at, expires_at
+       ) VALUES ('anthropic', 'internal_canary', $1, $2, $3, $4, $5, $6, 1, $7, $8,
+                 'candidate-test', $9, $10, now() - interval '1 hour', now() + interval '1 hour') RETURNING id`,
+      [digest(331), candidatePassword, user.rows[0].id, tenant.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id, client.rows[0].id, "8".repeat(64), digest(332)]
+    );
+    const grant = await pool!.query(
+      `INSERT INTO exomem_oauth_grants (
+         user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id
+       ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true, $5, $6, $7, 1, $8) RETURNING id`,
+      [user.rows[0].id, tenant.rows[0].id, client.rows[0].id, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_oauth_authorization_codes (
+         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at,
+         reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
+       ) VALUES ($1, $2, $3, 'https://candidate.example.test/callback', $4, 'candidate-challenge', true,
+                 now() + interval '1 hour', $5, $6, $7, 1, $8)`,
+      [digest(333), grant.rows[0].id, client.rows[0].id, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+    );
+
+    const issued = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: digest(333), clientId: candidateClientId,
+      redirectUri: "https://candidate.example.test/callback", resource, pkceChallenge: "candidate-challenge",
+      refreshDigest: digest(334), refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(335), accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(issued);
+    const lineage = await pool!.query(
+      `SELECT token.candidate_id, token.assignment_id, token.assignment_generation,
+              token.staged_client_release_id, token.reviewer_credential_id, refresh.oauth_client_id
+       FROM exomem_oauth_access_tokens AS token
+       JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = token.family_id
+       WHERE token.access_digest = $1`,
+      [digest(335)]
+    );
+    assert.deepEqual(lineage.rows[0], {
+      candidate_id: candidate.rows[0].id,
+      assignment_id: assignment.rows[0].id,
+      assignment_generation: "1",
+      staged_client_release_id: stage.rows[0].id,
+      reviewer_credential_id: credential.rows[0].id,
+      oauth_client_id: client.rows[0].id,
+    });
+    await assert.rejects(
+      pool!.query(
+        "UPDATE exomem_oauth_access_tokens SET assignment_generation = 2 WHERE access_digest = $1",
+        [digest(335)]
+      ),
+      /candidate OAuth lineage is immutable/i
+    );
+    assert.equal((await findMcpOAuthAccessToken(digest(335)))?.candidateId, candidate.rows[0].id);
+
+    await pool!.query("UPDATE exomem_agent_contract_rollout_assignments SET state = 'retired', activated_at = NULL, ended_at = now() WHERE id = $1", [assignment.rows[0].id]);
+    await pool!.query("UPDATE exomem_agent_contract_candidates SET state = 'retired', retired_at = now() WHERE state = 'live' AND profile_id = 'hosted-alpha-agent-v1'");
+    await pool!.query("UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE state = 'live' AND platform = 'claude'");
+    await pool!.query("UPDATE exomem_agent_contract_candidates SET state = 'live', promoted_at = now() WHERE id = $1", [candidate.rows[0].id]);
+    await pool!.query(
+      `INSERT INTO exomem_client_artifacts (
+         platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
+         plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256,
+         tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id,
+         oauth_client_config_sha256, staged_client_release_id, observed_at, promoted_at
+       ) VALUES ('claude', 'live', $1, $2, $3, $4, '1.0.0', $5, $6, $7, $8,
+                 'https://candidate.example.test/install', $9, $10, $11, $12, $13, now(), now())`,
+      ["d".repeat(64), "e".repeat(64), "f".repeat(64), "1".repeat(64), "2".repeat(64), "3".repeat(64), "4".repeat(64), "5".repeat(64), "6".repeat(64), "7".repeat(64), candidate.rows[0].id, configDigest, stage.rows[0].id]
+    );
+    const rotated = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: digest(334), replacementRefreshDigest: digest(336), accessDigest: digest(337),
+      accessExpiresAt: new Date(Date.now() + 60_000), clientId: candidateClientId, resource,
+    });
+    assert.equal(rotated?.familyId, issued!.familyId);
+    await pool!.query("UPDATE exomem_marketplace_reviewer_credentials SET expires_at = now() - interval '1 second' WHERE id = $1", [credential.rows[0].id]);
+    assert.equal(await findMcpOAuthAccessToken(digest(337)), null);
+  });
 });

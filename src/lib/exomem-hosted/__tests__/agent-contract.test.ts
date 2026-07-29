@@ -199,7 +199,10 @@ describe("Exomem Hosted agent contracts", () => {
         rows: [
           {
             id: "artifact-1",
+            tenant_id: "018f2d91-7c42-7000-8000-000000000001",
             candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+            assignment_id: "018f2d91-7c42-7000-8000-000000000004",
+            assignment_generation: 1,
             claude_package_lock: exomemHostedContractFixture.packageLock,
             claude_archive_lock: exomemHostedContractFixture.archiveLock,
           },
@@ -219,7 +222,9 @@ describe("Exomem Hosted agent contracts", () => {
     assert.match(queries[2], /assignment\.state = 'active'/i);
     assert.match(queries[2], /FOR UPDATE OF stage, candidate, assignment/i);
     assert.match(queries[3], /INSERT INTO exomem_client_artifacts/i);
-    assert.match(queries[4], /SET state = 'evidenced'/i);
+    assert.match(queries[4], /revoke-conflicting-canary-oauth-lineage/i);
+    assert.match(queries[4], /credential_kind = 'internal_canary'/i);
+    assert.match(queries[5], /SET state = 'evidenced'/i);
     assert.equal(
       await demoteClientArtifact("00000000-0000-0000-0000-000000000001", sha("9")),
       true
@@ -357,6 +362,17 @@ describe("Exomem Hosted agent contracts", () => {
               candidate_id: "018f2d91-7c42-7000-8000-000000000002",
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,
+            },
+          ],
+        };
+      if (/lock-staged-client-release-for-artifact/i.test(query))
+        return {
+          rows: [
+            {
+              id: artifact.stagedClientReleaseId,
+              tenant_id: "018f2d91-7c42-7000-8000-000000000001",
+              assignment_id: artifact.assignmentId,
+              assignment_generation: artifact.assignmentGeneration,
             },
           ],
         };
