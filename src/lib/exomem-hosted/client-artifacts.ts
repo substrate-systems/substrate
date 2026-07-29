@@ -426,6 +426,7 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
   const artifact = parseClientArtifact(input);
   const source = input as Record<string, unknown>;
   return withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
     const locks = await loadClientArtifactLocks(
       artifact.platform,
       artifact.candidateId,
@@ -480,7 +481,7 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
         AND assignment.marketplace_reviewer_purpose = true
         AND assignment.state = 'active' AND assignment.expires_at > now()
       LIMIT 2
-      FOR UPDATE OF stage, candidate
+      FOR UPDATE OF stage, candidate, assignment
     `;
     if (stageRows.length !== 1 || typeof stageRows[0]?.id !== "string")
       throw new Error("artifact stage precondition failed");

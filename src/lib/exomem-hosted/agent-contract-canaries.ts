@@ -368,7 +368,8 @@ export async function expireCanaryAuthority(limit = 20): Promise<number> {
         ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT ${bounded}
       ), expired_assignments AS (
         UPDATE exomem_agent_contract_rollout_assignments AS assignment
-        SET state = 'expired', ended_at = now(), version = version + 1, updated_at = now()
+        SET state = 'expired', activated_at = NULL, ended_at = now(),
+            version = version + 1, updated_at = now()
         FROM assignments WHERE assignment.id = assignments.id RETURNING assignment.id
       ), declarations AS (
         SELECT id FROM exomem_staged_client_releases

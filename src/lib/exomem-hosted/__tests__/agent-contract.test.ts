@@ -209,15 +209,17 @@ describe("Exomem Hosted agent contracts", () => {
     __setExomemSqlForTests(sql);
     __setExomemTransactionForTests(async (callback) => callback(sql));
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
-    assert.match(queries[0], /load-client-artifact-contract-locks/i);
-    assert.match(queries[1], /FROM exomem_staged_client_releases/i);
-    assert.match(queries[1], /candidate\.created_at < \?::timestamptz/i);
-    assert.match(queries[1], /stage\.created_at < \?::timestamptz/i);
-    assert.match(queries[1], /stage\.id = \?::uuid/i);
-    assert.match(queries[1], /assignment\.marketplace_reviewer_purpose = true/i);
-    assert.match(queries[1], /assignment\.state = 'active'/i);
-    assert.match(queries[2], /INSERT INTO exomem_client_artifacts/i);
-    assert.match(queries[3], /SET state = 'evidenced'/i);
+    assert.match(queries[0], /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    assert.match(queries[1], /load-client-artifact-contract-locks/i);
+    assert.match(queries[2], /FROM exomem_staged_client_releases/i);
+    assert.match(queries[2], /candidate\.created_at < \?::timestamptz/i);
+    assert.match(queries[2], /stage\.created_at < \?::timestamptz/i);
+    assert.match(queries[2], /stage\.id = \?::uuid/i);
+    assert.match(queries[2], /assignment\.marketplace_reviewer_purpose = true/i);
+    assert.match(queries[2], /assignment\.state = 'active'/i);
+    assert.match(queries[2], /FOR UPDATE OF stage, candidate, assignment/i);
+    assert.match(queries[3], /INSERT INTO exomem_client_artifacts/i);
+    assert.match(queries[4], /SET state = 'evidenced'/i);
     assert.equal(
       await demoteClientArtifact("00000000-0000-0000-0000-000000000001", sha("9")),
       true

@@ -23,6 +23,7 @@ import { storeClientArtifact } from "../client-artifacts";
 import {
   createCanaryAssignment,
   createStagedClientRelease,
+  expireCanaryAuthority,
   resolveActiveCanaryAssignment,
 } from "../agent-contract-canaries";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -74,6 +75,17 @@ async function transaction<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   } finally {
     client.release();
   }
+}
+
+async function waitForCohortLockWaiter(): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const { rows } = await pool!.query<{ waiting: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted) AS waiting"
+    );
+    if (rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("artifact import did not wait for the cohort lock");
 }
 
 async function seedRoutableCells(): Promise<void> {
@@ -785,6 +797,79 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     });
   });
 
+  it("rejects evidence after a serially prior reviewer assignment termination", async () => {
+    const candidateId = await storeExomemAgentContractCandidate();
+    const stage = await createStagedClientRelease({
+      candidateId,
+      platform: "claude",
+      packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+      archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: null,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    const assignment = await seedActiveReviewerAssignment(candidateId);
+    const signed = evidence("claude", "integration-secret", randomUUID(), {
+      candidateId,
+      stageId: stage.id,
+      assignmentId: assignment.id,
+      assignmentGeneration: assignment.generation,
+    });
+    const artifact = {
+      platform: "claude",
+      state: "pending",
+      packageSha256: signed.package_artifact_sha256,
+      archiveSha256: signed.archive_sha256,
+      compatibilitySha256: signed.compatibility_sha256,
+      contractSha256: signed.schema_contract_sha256,
+      pluginVersion: signed.plugin_version,
+      clientIdentitySha256: signed.clean_client_identity_hmac_sha256,
+      pairedRunHmacSha256: signed.paired_run_hmac_sha256,
+      exomemIdentityHmacSha256: signed.exomem_identity_hmac_sha256,
+      tenantHmacSha256: signed.tenant_hmac_sha256,
+      installUrl: process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL,
+      evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
+      resultSha256: signed.result_sha256,
+      oauthClientConfigSha256: signed.oauth_client_config_sha256,
+      observedAt: signed.timestamp,
+      candidateId: signed.contract_candidate_id,
+      stagedClientReleaseId: signed.staged_client_release_id,
+      assignmentId: signed.assignment_id,
+      assignmentGeneration: signed.assignment_generation,
+      evidence: signed,
+    };
+    const terminator = await pool!.connect();
+    try {
+      await terminator.query("BEGIN");
+      await terminator.query(
+        "SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))"
+      );
+      await terminator.query(
+        `UPDATE exomem_agent_contract_rollout_assignments
+         SET state = 'failed', activated_at = NULL, ended_at = now(),
+             version = version + 1, updated_at = now()
+         WHERE id = $1`,
+        [assignment.id]
+      );
+      const importing = storeClientArtifact(artifact);
+      await waitForCohortLockWaiter();
+      await terminator.query("COMMIT");
+      await assert.rejects(() => importing, /artifact stage precondition failed/);
+    } finally {
+      await terminator.query("ROLLBACK").catch(() => undefined);
+      terminator.release();
+    }
+    const artifacts = await pool!.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM exomem_client_artifacts WHERE staged_client_release_id = $1",
+      [stage.id]
+    );
+    assert.equal(artifacts.rows[0]?.count, "0");
+  });
+
   it("permits a fresh stage after a terminal declaration but rejects two current stages", async () => {
     const candidateId = await storeExomemAgentContractCandidate();
     const input = {
@@ -815,7 +900,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     assert.notEqual(replacement.id, first.id);
   });
 
-  it("enforces one current reviewer assignment and decodes its PostgreSQL bigint generation", async () => {
+  it("serializes two concurrent reviewer assignment creators and decodes PostgreSQL bigint generations", async () => {
     const candidateId = await storeExomemAgentContractCandidate();
     const tenant = await pool!.query<{ id: string }>(
       `SELECT tenant.id
@@ -828,28 +913,45 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
        LIMIT 1`
     );
     assert.ok(tenant.rows[0]?.id);
-    const created = await createCanaryAssignment({
-      tenantId: tenant.rows[0]!.id,
-      candidateId,
-      expiresAt: new Date(Date.now() + 60 * 60_000),
-      operatorPrincipalDigest: sha("9"),
-    });
-    assert.equal(created.generation, 1);
-    await assert.rejects(
-      () =>
-        createCanaryAssignment({
-          tenantId: tenant.rows[0]!.id,
-          candidateId,
-          expiresAt: new Date(Date.now() + 60 * 60_000),
-          operatorPrincipalDigest: sha("9"),
-        }),
-      /canary assignment precondition failed/
+    const attempts = await Promise.allSettled([
+      createCanaryAssignment({
+        tenantId: tenant.rows[0]!.id,
+        candidateId,
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+        operatorPrincipalDigest: sha("9"),
+      }),
+      createCanaryAssignment({
+        tenantId: tenant.rows[0]!.id,
+        candidateId,
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+        operatorPrincipalDigest: sha("9"),
+      }),
+    ]);
+    const created = attempts.find(
+      (
+        attempt
+      ): attempt is PromiseFulfilledResult<Awaited<ReturnType<typeof createCanaryAssignment>>> =>
+        attempt.status === "fulfilled"
     );
+    assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+    assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+    assert.ok(created);
+    assert.equal(created.value.generation, 2);
     await pool!.query(
       "UPDATE exomem_agent_contract_rollout_assignments SET state = 'active', activated_at = now() WHERE id = $1",
-      [created.id]
+      [created.value.id]
     );
     const resolved = await resolveActiveCanaryAssignment(tenant.rows[0]!.id);
-    assert.equal(resolved?.generation, 1);
+    assert.equal(resolved?.generation, created.value.generation);
+    await pool!.query(
+      "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = created_at + interval '1 microsecond' WHERE id = $1",
+      [created.value.id]
+    );
+    await expireCanaryAuthority();
+    const expired = await pool!.query<{ state: string; activated_cleared: boolean }>(
+      "SELECT state, activated_at IS NULL AS activated_cleared FROM exomem_agent_contract_rollout_assignments WHERE id = $1",
+      [created.value.id]
+    );
+    assert.deepEqual(expired.rows, [{ state: "expired", activated_cleared: true }]);
   });
 });
