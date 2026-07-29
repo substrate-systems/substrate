@@ -20,7 +20,11 @@ import {
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { storeClientArtifact } from "../client-artifacts";
-import { createStagedClientRelease } from "../agent-contract-canaries";
+import {
+  createCanaryAssignment,
+  createStagedClientRelease,
+  resolveActiveCanaryAssignment,
+} from "../agent-contract-canaries";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
@@ -73,14 +77,16 @@ async function transaction<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
 }
 
 async function seedRoutableCells(): Promise<void> {
-  for (const suffix of ["one", "two"]) {
+  for (const suffix of ["one", "two", "three"]) {
     const user = await pool!.query<{ id: string }>(
       "INSERT INTO users (email) VALUES ($1) RETURNING id",
       [`agent-contract-${suffix}@example.test`]
     );
     const tenant = await pool!.query<{ id: string }>(
-      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
-      [user.rows[0]!.id]
+      `INSERT INTO exomem_tenants (
+         owner_user_id, status, desired_state, marketplace_reviewer_purpose
+       ) VALUES ($1, 'active', 'running', $2) RETURNING id`,
+      [user.rows[0]!.id, true]
     );
     const cell = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_cells (
@@ -93,6 +99,34 @@ async function seedRoutableCells(): Promise<void> {
       tenant.rows[0]!.id,
     ]);
   }
+}
+
+async function seedActiveReviewerAssignment(candidateId: string): Promise<{
+  id: string;
+  generation: number;
+}> {
+  const { rows } = await pool!.query<{ id: string; generation: string }>(
+    `INSERT INTO exomem_agent_contract_rollout_assignments (
+       tenant_id, candidate_id, generation, state, source_release, protocol_version,
+       command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+       marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+     )
+     SELECT tenant.id, candidate.id, 1, 'active', candidate.source_release, candidate.protocol_version,
+            candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest, $2,
+            true, $3, now() + interval '1 hour', now()
+     FROM exomem_tenants AS tenant
+     JOIN exomem_agent_contract_candidates AS candidate ON candidate.id = $1::uuid
+     WHERE tenant.marketplace_reviewer_purpose = true
+       AND NOT EXISTS (
+         SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
+         WHERE assignment.tenant_id = tenant.id AND assignment.state IN ('preparing', 'active')
+       )
+     LIMIT 1
+     RETURNING id::text AS id, generation`,
+    [candidateId, sha("e"), sha("9")]
+  );
+  assert.equal(rows.length, 1);
+  return { id: rows[0]!.id, generation: Number(rows[0]!.generation) };
 }
 
 const testOnlyOpenAiLocks = {
@@ -121,7 +155,13 @@ function locksFor(platform: "claude" | "openai") {
 function evidence(
   platform: "claude" | "openai",
   secret: string,
-  suffix: string
+  suffix: string,
+  binding: {
+    candidateId: string;
+    stageId: string;
+    assignmentId: string;
+    assignmentGeneration: number;
+  }
 ): Record<string, unknown> {
   const fixture = exomemHostedContractFixture;
   const locks = locksFor(platform);
@@ -139,6 +179,10 @@ function evidence(
     provisioning_operation_hmac_sha256: sha("6"),
     cell_hmac_sha256: sha("7"),
     oauth_client_config_sha256: sha("a"),
+    contract_candidate_id: binding.candidateId,
+    staged_client_release_id: binding.stageId,
+    assignment_id: binding.assignmentId,
+    assignment_generation: binding.assignmentGeneration,
     identity_count: 1,
     tenant_count: 1,
     entitlement_count: 1,
@@ -299,7 +343,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       },
     ]);
     const stageExpiry = new Date(Date.now() + 60 * 60_000);
-    await createStagedClientRelease({
+    const claudeStage = await createStagedClientRelease({
       candidateId,
       platform: "claude",
       packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
@@ -312,7 +356,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       operatorPrincipalDigest: sha("9"),
       expiresAt: stageExpiry,
     });
-    await createStagedClientRelease({
+    const openAiStage = await createStagedClientRelease({
       candidateId,
       platform: "openai",
       packageSha256: testOnlyOpenAiLocks.packageLock.artifact_sha256,
@@ -325,12 +369,9 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       operatorPrincipalDigest: sha("9"),
       expiresAt: stageExpiry,
     });
+    const assignment = await seedActiveReviewerAssignment(candidateId);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const makeArtifact = (
-      platform: "claude" | "openai",
-      signed: Record<string, unknown>,
-      artifactCandidateId: string
-    ) => ({
+    const makeArtifact = (platform: "claude" | "openai", signed: Record<string, unknown>) => ({
       platform,
       state: "pending",
       packageSha256: signed.package_artifact_sha256,
@@ -349,14 +390,27 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
       resultSha256: signed.result_sha256,
       oauthClientConfigSha256: signed.oauth_client_config_sha256,
-      observedAt: new Date().toISOString(),
-      candidateId: artifactCandidateId,
+      observedAt: signed.timestamp,
+      candidateId: signed.contract_candidate_id,
+      stagedClientReleaseId: signed.staged_client_release_id,
+      assignmentId: signed.assignment_id,
+      assignmentGeneration: signed.assignment_generation,
       evidence: signed,
     });
-    const claudeEvidence = evidence("claude", "integration-secret", randomUUID());
-    const openAiEvidence = evidence("openai", "integration-secret", randomUUID());
-    const claudeId = await storeClientArtifact(makeArtifact("claude", claudeEvidence, candidateId));
-    const openAiId = await storeClientArtifact(makeArtifact("openai", openAiEvidence, candidateId));
+    const claudeEvidence = evidence("claude", "integration-secret", randomUUID(), {
+      candidateId,
+      stageId: claudeStage.id,
+      assignmentId: assignment.id,
+      assignmentGeneration: assignment.generation,
+    });
+    const openAiEvidence = evidence("openai", "integration-secret", randomUUID(), {
+      candidateId,
+      stageId: openAiStage.id,
+      assignmentId: assignment.id,
+      assignmentGeneration: assignment.generation,
+    });
+    const claudeId = await storeClientArtifact(makeArtifact("claude", claudeEvidence));
+    const openAiId = await storeClientArtifact(makeArtifact("openai", openAiEvidence));
     const claudeClientId = `claude-${randomUUID()}`;
     const openAiClientId = `openai-${randomUUID()}`;
     await pool!.query(
@@ -423,7 +477,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       }),
       true
     );
-    await createStagedClientRelease({
+    const replacementClaudeStage = await createStagedClientRelease({
       candidateId: replacementCandidateId,
       platform: "claude",
       packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
@@ -436,7 +490,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       operatorPrincipalDigest: sha("9"),
       expiresAt: new Date(Date.now() + 60 * 60_000),
     });
-    await createStagedClientRelease({
+    const replacementOpenAiStage = await createStagedClientRelease({
       candidateId: replacementCandidateId,
       platform: "openai",
       packageSha256: testOnlyOpenAiLocks.packageLock.artifact_sha256,
@@ -449,14 +503,25 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       operatorPrincipalDigest: sha("9"),
       expiresAt: new Date(Date.now() + 60 * 60_000),
     });
+    const replacementAssignment = await seedActiveReviewerAssignment(replacementCandidateId);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const replacementClaudeEvidence = evidence("claude", "integration-secret", randomUUID());
-    const replacementOpenAiEvidence = evidence("openai", "integration-secret", randomUUID());
+    const replacementClaudeEvidence = evidence("claude", "integration-secret", randomUUID(), {
+      candidateId: replacementCandidateId,
+      stageId: replacementClaudeStage.id,
+      assignmentId: replacementAssignment.id,
+      assignmentGeneration: replacementAssignment.generation,
+    });
+    const replacementOpenAiEvidence = evidence("openai", "integration-secret", randomUUID(), {
+      candidateId: replacementCandidateId,
+      stageId: replacementOpenAiStage.id,
+      assignmentId: replacementAssignment.id,
+      assignmentGeneration: replacementAssignment.generation,
+    });
     const replacementClaudeId = await storeClientArtifact(
-      makeArtifact("claude", replacementClaudeEvidence, replacementCandidateId)
+      makeArtifact("claude", replacementClaudeEvidence)
     );
     const replacementOpenAiId = await storeClientArtifact(
-      makeArtifact("openai", replacementOpenAiEvidence, replacementCandidateId)
+      makeArtifact("openai", replacementOpenAiEvidence)
     );
     const mismatchedOpenAiUnsigned: Record<string, unknown> = {
       ...replacementOpenAiEvidence,
@@ -718,5 +783,73 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       contract_digest: fixture.schema_contract_sha256,
       compatibility_digest: fixture.compatibility_sha256,
     });
+  });
+
+  it("permits a fresh stage after a terminal declaration but rejects two current stages", async () => {
+    const candidateId = await storeExomemAgentContractCandidate();
+    const input = {
+      candidateId,
+      platform: "claude" as const,
+      packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+      archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: null,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    };
+    const first = await createStagedClientRelease(input);
+    await assert.rejects(
+      () => createStagedClientRelease(input),
+      /exomem_staged_client_releases_candidate_platform_current_idx/
+    );
+    await pool!.query(
+      `UPDATE exomem_staged_client_releases
+       SET state = 'failed', ended_at = now(), version = version + 1, updated_at = now()
+       WHERE id = $1`,
+      [first.id]
+    );
+    const replacement = await createStagedClientRelease(input);
+    assert.notEqual(replacement.id, first.id);
+  });
+
+  it("enforces one current reviewer assignment and decodes its PostgreSQL bigint generation", async () => {
+    const candidateId = await storeExomemAgentContractCandidate();
+    const tenant = await pool!.query<{ id: string }>(
+      `SELECT tenant.id
+       FROM exomem_tenants AS tenant
+       WHERE tenant.marketplace_reviewer_purpose = true
+         AND NOT EXISTS (
+           SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
+           WHERE assignment.tenant_id = tenant.id AND assignment.state IN ('preparing', 'active')
+         )
+       LIMIT 1`
+    );
+    assert.ok(tenant.rows[0]?.id);
+    const created = await createCanaryAssignment({
+      tenantId: tenant.rows[0]!.id,
+      candidateId,
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      operatorPrincipalDigest: sha("9"),
+    });
+    assert.equal(created.generation, 1);
+    await assert.rejects(
+      () =>
+        createCanaryAssignment({
+          tenantId: tenant.rows[0]!.id,
+          candidateId,
+          expiresAt: new Date(Date.now() + 60 * 60_000),
+          operatorPrincipalDigest: sha("9"),
+        }),
+      /canary assignment precondition failed/
+    );
+    await pool!.query(
+      "UPDATE exomem_agent_contract_rollout_assignments SET state = 'active', activated_at = now() WHERE id = $1",
+      [created.id]
+    );
+    const resolved = await resolveActiveCanaryAssignment(tenant.rows[0]!.id);
+    assert.equal(resolved?.generation, 1);
   });
 });

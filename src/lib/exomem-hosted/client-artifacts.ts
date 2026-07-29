@@ -23,6 +23,9 @@ type ClientArtifact = {
   oauthClientConfigSha256: string;
   observedAt: string;
   candidateId: string;
+  stagedClientReleaseId: string;
+  assignmentId: string;
+  assignmentGeneration: number;
 };
 export type PlatformLocks = {
   packageLock: Record<string, unknown>;
@@ -49,6 +52,17 @@ function canonical(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function uuid(value: unknown, label: string): string {
+  if (typeof value !== "string" || !UUID.test(value)) throw new Error(`${label} is invalid`);
+  return value;
+}
+
+function positiveInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
+    throw new Error(`${label} is invalid`);
+  return value;
 }
 
 function trustedInstallTarget(platform: Platform): URL {
@@ -118,7 +132,13 @@ function parseClientArtifact(input: unknown): ClientArtifact {
       "OAuth client configuration digest"
     ),
     observedAt: observedAt.toISOString(),
-    candidateId: raw.candidateId,
+    candidateId: uuid(raw.candidateId, "artifact contract candidate identity"),
+    stagedClientReleaseId: uuid(raw.stagedClientReleaseId, "staged client release identity"),
+    assignmentId: uuid(raw.assignmentId, "rollout assignment identity"),
+    assignmentGeneration: positiveInteger(
+      raw.assignmentGeneration,
+      "rollout assignment generation"
+    ),
   };
 }
 
@@ -145,6 +165,10 @@ const evidenceStrings = [
   "operator_key_id",
   "operator_signature",
   "oauth_client_config_sha256",
+  "contract_candidate_id",
+  "staged_client_release_id",
+  "assignment_id",
+  "assignment_generation",
 ] as const;
 const evidenceCounts = [
   "identity_count",
@@ -298,12 +322,17 @@ export function validatePromotionEvidence(
   if (
     evidence.schema_version !== 1 ||
     evidence.platform !== platform ||
-    ![...evidenceStrings, ...(platform === "openai" ? ["registered_app_id_sha256"] : [])].every(
-      (key) => typeof evidence[key] === "string" && evidence[key]
-    )
+    ![
+      ...evidenceStrings.filter((key) => key !== "assignment_generation"),
+      ...(platform === "openai" ? ["registered_app_id_sha256"] : []),
+    ].every((key) => typeof evidence[key] === "string" && evidence[key])
   ) {
     throw new Error("promotion evidence has invalid identity fields");
   }
+  uuid(evidence.contract_candidate_id, "evidence candidate identity");
+  uuid(evidence.staged_client_release_id, "evidence staged release identity");
+  uuid(evidence.assignment_id, "evidence assignment identity");
+  positiveInteger(evidence.assignment_generation, "evidence assignment generation");
   if (
     !evidenceCounts.every((key) => evidence[key] === 1) ||
     !evidenceOperations.every((key) => evidence[key] === true)
@@ -416,7 +445,12 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
       artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 ||
       artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
       artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256 ||
-      artifact.oauthClientConfigSha256 !== evidence.oauth_client_config_sha256
+      artifact.oauthClientConfigSha256 !== evidence.oauth_client_config_sha256 ||
+      artifact.candidateId !== evidence.contract_candidate_id ||
+      artifact.stagedClientReleaseId !== evidence.staged_client_release_id ||
+      artifact.assignmentId !== evidence.assignment_id ||
+      artifact.assignmentGeneration !== evidence.assignment_generation ||
+      artifact.observedAt !== evidence.timestamp
     ) {
       throw new Error("artifact fields do not match signed evidence");
     }
@@ -425,11 +459,14 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
       SELECT stage.id::text AS id
       FROM exomem_staged_client_releases AS stage
       JOIN exomem_agent_contract_candidates AS candidate ON candidate.id = stage.candidate_id
+      JOIN exomem_agent_contract_rollout_assignments AS assignment
+        ON assignment.candidate_id = candidate.id
       WHERE candidate.id = ${artifact.candidateId}::uuid
         AND candidate.profile_id = 'hosted-alpha-agent-v1'
         AND candidate.state = 'pending'
         AND candidate.created_at < ${artifact.observedAt}::timestamptz
         AND stage.platform = ${artifact.platform} AND stage.state = 'staged'
+        AND stage.id = ${artifact.stagedClientReleaseId}::uuid
         AND stage.expires_at > now() AND stage.created_at < ${artifact.observedAt}::timestamptz
         AND stage.package_sha256 = ${artifact.packageSha256}
         AND stage.archive_sha256 = ${artifact.archiveSha256}
@@ -438,6 +475,10 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
         AND stage.plugin_version = ${artifact.pluginVersion}
         AND stage.oauth_client_config_sha256 = ${artifact.oauthClientConfigSha256}
         AND stage.registered_app_id_sha256 IS NOT DISTINCT FROM ${locks.registeredAppIdSha256}
+        AND assignment.id = ${artifact.assignmentId}::uuid
+        AND assignment.generation = ${artifact.assignmentGeneration}::bigint
+        AND assignment.marketplace_reviewer_purpose = true
+        AND assignment.state = 'active' AND assignment.expires_at > now()
       LIMIT 2
       FOR UPDATE OF stage, candidate
     `;

@@ -135,6 +135,10 @@ describe("Exomem Hosted agent contracts", () => {
       provisioning_operation_hmac_sha256: sha("6"),
       cell_hmac_sha256: sha("7"),
       oauth_client_config_sha256: sha("a"),
+      contract_candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+      staged_client_release_id: "018f2d91-7c42-7000-8000-000000000003",
+      assignment_id: "018f2d91-7c42-7000-8000-000000000004",
+      assignment_generation: 1,
       identity_count: 1,
       tenant_count: 1,
       entitlement_count: 1,
@@ -181,8 +185,11 @@ describe("Exomem Hosted agent contracts", () => {
       evidenceSha256: createHash("sha256").update(canonical(evidence)).digest("hex"),
       resultSha256: sha("8"),
       oauthClientConfigSha256: sha("a"),
-      observedAt: new Date().toISOString(),
+      observedAt: baseEvidence.timestamp,
       candidateId: "018f2d91-7c42-7000-8000-000000000002",
+      stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000003",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000004",
+      assignmentGeneration: 1,
       evidence,
     };
     const queries: string[] = [];
@@ -206,6 +213,9 @@ describe("Exomem Hosted agent contracts", () => {
     assert.match(queries[1], /FROM exomem_staged_client_releases/i);
     assert.match(queries[1], /candidate\.created_at < \?::timestamptz/i);
     assert.match(queries[1], /stage\.created_at < \?::timestamptz/i);
+    assert.match(queries[1], /stage\.id = \?::uuid/i);
+    assert.match(queries[1], /assignment\.marketplace_reviewer_purpose = true/i);
+    assert.match(queries[1], /assignment\.state = 'active'/i);
     assert.match(queries[2], /INSERT INTO exomem_client_artifacts/i);
     assert.match(queries[3], /SET state = 'evidenced'/i);
     assert.equal(
@@ -215,6 +225,23 @@ describe("Exomem Hosted agent contracts", () => {
     await assert.rejects(
       () => storeClientArtifact({ ...artifact, clientIdentity: "private" }),
       /privacy-safe hash/i
+    );
+    await assert.rejects(
+      () =>
+        storeClientArtifact({ ...artifact, candidateId: "018f2d91-7c42-7000-8000-000000000005" }),
+      /artifact contract candidate is not pending or live|artifact fields do not match signed evidence/i
+    );
+    await assert.rejects(
+      () => storeClientArtifact({ ...artifact, assignmentGeneration: 2 }),
+      /artifact fields do not match signed evidence/i
+    );
+    await assert.rejects(
+      () =>
+        storeClientArtifact({
+          ...artifact,
+          observedAt: new Date(Date.parse(String(baseEvidence.timestamp)) + 1_000).toISOString(),
+        }),
+      /artifact fields do not match signed evidence/i
     );
   });
 
@@ -259,6 +286,10 @@ describe("Exomem Hosted agent contracts", () => {
       provisioning_operation_hmac_sha256: sha("6"),
       cell_hmac_sha256: sha("7"),
       oauth_client_config_sha256: sha("a"),
+      contract_candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+      staged_client_release_id: "018f2d91-7c42-7000-8000-000000000003",
+      assignment_id: "018f2d91-7c42-7000-8000-000000000004",
+      assignment_generation: 1,
       identity_count: 1,
       tenant_count: 1,
       entitlement_count: 1,
@@ -306,8 +337,11 @@ describe("Exomem Hosted agent contracts", () => {
       evidenceSha256: createHash("sha256").update(canonical(evidence)).digest("hex"),
       resultSha256: sha("8"),
       oauthClientConfigSha256: sha("a"),
-      observedAt: new Date().toISOString(),
+      observedAt: baseEvidence.timestamp,
       candidateId: "018f2d91-7c42-7000-8000-000000000002",
+      stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000003",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000004",
+      assignmentGeneration: 1,
       evidence,
     };
     const queries: string[] = [];

@@ -195,26 +195,6 @@ export async function createCanaryAssignment(input: {
   });
 }
 
-export async function activateCanaryAssignment(input: {
-  assignmentId: string;
-  expectedVersion: number;
-}): Promise<boolean> {
-  if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
-    throw new Error("assignment version is invalid");
-  return withCohortLock(async (tx) => {
-    const { rows } = await tx`
-      /* exomem:activate-canary-assignment */
-      UPDATE exomem_agent_contract_rollout_assignments
-      SET state = 'active', activated_at = now(), version = version + 1, updated_at = now()
-      WHERE id = ${uuid(input.assignmentId, "assignment ID")}::uuid
-        AND state = 'preparing' AND version = ${input.expectedVersion}::bigint
-        AND expires_at > now()
-      RETURNING id
-    `;
-    return rows.length === 1;
-  });
-}
-
 /** Routing must use an authenticated tenant ID; there is no public selector path. */
 export async function resolveActiveCanaryAssignment(
   tenantId: string,

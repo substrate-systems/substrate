@@ -97,6 +97,26 @@ describe("hosted operator controls", () => {
     assert.match(query, /WHERE client\.id = \?::uuid/i);
   });
 
+  it("does not enable a client from staged authority alone", async () => {
+    let query = "";
+    const sql = async (strings: TemplateStringsArray) => {
+      query = strings.join("?");
+      return { rows: [] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.equal(
+      await setOperatorOAuthClientEnabled({
+        clientRecordId: "018f2d91-7c42-7000-8000-000000000001",
+        enabled: true,
+      }),
+      false
+    );
+    assert.doesNotMatch(query, /exomem_staged_client_releases/i);
+    assert.match(query, /exomem_client_artifacts/i);
+  });
+
   it("fences family and account revocation to the named owner and tenant", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {

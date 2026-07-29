@@ -81,7 +81,6 @@ CREATE TABLE exomem_staged_client_releases (
   ended_at timestamptz,
   version bigint NOT NULL DEFAULT 1 CHECK (version > 0),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (candidate_id, platform),
   CHECK (expires_at > created_at),
   CHECK (expires_at <= created_at + interval '7 days'),
   CHECK ((platform = 'openai') = (registered_app_id_sha256 IS NOT NULL)),

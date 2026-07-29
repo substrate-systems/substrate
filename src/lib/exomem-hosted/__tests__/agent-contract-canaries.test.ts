@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 import {
-  activateCanaryAssignment,
   createCanaryAssignment,
   createStagedClientRelease,
   resolveActiveCanaryAssignment,
@@ -99,14 +98,10 @@ describe("Hosted canary assignments", () => {
 
     assert.equal((await resolveActiveCanaryAssignment(tenantId))?.candidateId, candidateId);
     assert.equal(await resolveReviewerCanaryAuthority({ tenantId, candidateId }), null);
-    assert.equal(await activateCanaryAssignment({ assignmentId, expectedVersion: 1 }), true);
     assert.match(queries[0]!, /state = 'active'/i);
     assert.match(queries[0]!, /expires_at > now\(\)/i);
     assert.match(queries[0]!, /LIMIT 2/i);
     assert.match(queries[1]!, /marketplace_reviewer_purpose = true/i);
-    assert.match(queries[2]!, /pg_advisory_xact_lock/i);
-    assert.match(queries[3]!, /version = \?::bigint/i);
-    assert.match(queries[3]!, /state = 'preparing'/i);
   });
 });
 

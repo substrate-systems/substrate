@@ -301,12 +301,6 @@ export async function setOperatorOAuthClientEnabled(input: {
           WHERE artifact.platform = client.client_platform
             AND artifact.state IN ('pending', 'live')
             AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
-        ) OR EXISTS (
-          SELECT 1 FROM exomem_staged_client_releases AS stage
-          WHERE stage.platform = client.client_platform
-            AND stage.state IN ('staged', 'evidenced')
-            AND stage.expires_at > now()
-            AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
         )
       )
     RETURNING id
