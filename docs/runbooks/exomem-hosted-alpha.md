@@ -631,8 +631,13 @@ ship incident: keep routing closed and preserve only content-free audit evidence
 ### Hosted contract cohort rollback
 
 Use the authenticated `/api/exomem/admin/contracts` control only. Its status
-view is content-free: candidate state, observed contract identity, routable
-count, and the latest lifecycle target. Create stages and assignments only for
+view is content-free: candidate state, observed contract identity, the exact
+`routableSetDigest` required as `expectedRoutableCellDigest` for promotion,
+routable count, `routableObservationFresh`, and the latest lifecycle target.
+Promote only with a fresh observation; a stale observation requires a new cell
+observation before retrying, never a guessed digest. `expire-canary-authority`
+reports expired assignment and stage counts, revoked credential count, and
+whether the bounded sweep is drained. Create stages and assignments only for
 the reviewer-purpose tenant; expiry and versioned failure are terminal and
 revoke dependent internal-canary lineage. `begin-export` and `begin-restore`
 pin server-selected lifecycle targets under the cohort lock; restore accepts an

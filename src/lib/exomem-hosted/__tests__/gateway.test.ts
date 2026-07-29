@@ -401,7 +401,19 @@ describe("registry-derived Exomem gateway", () => {
       true
     );
     assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ authorization: "Bearer opaque", "source-release": "0.35.0" })
+      ),
+      true
+    );
+    assert.equal(
       hasForbiddenGatewayHeaders(new Headers({ cookie: "session=safe; assignment_generation=7" })),
+      true
+    );
+    assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ cookie: `session=safe; contractDigest=${"a".repeat(64)}` })
+      ),
       true
     );
     assert.equal(
@@ -544,6 +556,11 @@ describe("registry-derived Exomem gateway", () => {
     assert.equal(hasReservedSelector({ releaseVersion: "0.35.0" }), true);
     assert.equal(hasReservedSelector({ schemaDigest: "a".repeat(64) }), true);
     assert.equal(hasReservedSelector({ compatibilityDigest: "b".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ sourceRelease: "0.35.0" }), true);
+    assert.equal(hasReservedSelector({ boundCellId: "cell-b" }), true);
+    assert.equal(hasReservedSelector({ targetCandidateId: "candidate-b" }), true);
+    assert.equal(hasReservedSelector({ contractDigest: "a".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ commandFingerprint: "b".repeat(64) }), true);
   });
 
   it("retries a lost mutation acknowledgement only against the same cell", async () => {

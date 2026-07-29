@@ -146,6 +146,8 @@ describe("Hosted canary assignments", () => {
         return {
           rows: [
             {
+              expired_assignment_count: 1,
+              expired_stage_count: 1,
               tenant_id: tenantId,
               candidate_id: candidateId,
               assignment_id: assignmentId,
@@ -160,13 +162,81 @@ describe("Hosted canary assignments", () => {
     };
     __setExomemTransactionForTests(async (work) => work(sql));
 
-    assert.equal(await expireCanaryAuthority(), 1);
+    assert.deepEqual(await expireCanaryAuthority(), {
+      expiredAssignments: 1,
+      expiredStages: 1,
+      revokedCredentials: 1,
+      drained: true,
+    });
     const query = queries.join("\n");
     assert.match(query, /UPDATE exomem_agent_contract_rollout_assignments/i);
     assert.match(query, /UPDATE exomem_staged_client_releases/i);
     assert.match(query, /SET state = 'expired', evidenced_at = NULL, ended_at = now\(\)/i);
     assert.match(query, /exomem:revoke-canary-oauth-lineage/i);
     assert.match(query, /credential_kind = 'internal_canary'/i);
+  });
+
+  it("reports expired authority work even when no credential needs revocation", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      queries.push(query);
+      if (query.includes("expire-canary-authority"))
+        return {
+          rows: [
+            {
+              expired_assignment_count: 1,
+              expired_stage_count: 0,
+              tenant_id: null,
+              candidate_id: null,
+              assignment_id: null,
+              assignment_generation: null,
+              staged_client_release_id: null,
+              oauth_client_id: null,
+            },
+          ],
+        };
+      return { rows: [{ remaining: true }] };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.deepEqual(await expireCanaryAuthority(20), {
+      expiredAssignments: 1,
+      expiredStages: 0,
+      revokedCredentials: 0,
+      drained: false,
+    });
+    assert.match(queries.join("\n"), /remaining-expired-canary-authority/i);
+  });
+
+  it("marks a full expiry batch as not drained when more authority remains", async () => {
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      if (query.includes("expire-canary-authority"))
+        return {
+          rows: [
+            {
+              expired_assignment_count: 20,
+              expired_stage_count: 20,
+              tenant_id: null,
+              candidate_id: null,
+              assignment_id: null,
+              assignment_generation: null,
+              staged_client_release_id: null,
+              oauth_client_id: null,
+            },
+          ],
+        };
+      return { rows: [{ remaining: true }] };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.deepEqual(await expireCanaryAuthority(), {
+      expiredAssignments: 20,
+      expiredStages: 20,
+      revokedCredentials: 0,
+      drained: false,
+    });
   });
 
   it("fails only an exact current assignment or stage under the cohort lock", async () => {

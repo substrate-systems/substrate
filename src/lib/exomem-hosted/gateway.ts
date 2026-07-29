@@ -104,6 +104,11 @@ const RESERVED_FIELDS = new Set([
   "compatibility",
   "compatibility_digest",
   "gateway_contract_digest",
+  "source_release",
+  "bound_cell_id",
+  "target_candidate_id",
+  "contract_digest",
+  "command_fingerprint",
 ]);
 
 const INTERCEPTED_COMMANDS = new Set(["transfer_artifact", "adopt_vault"]);
@@ -131,6 +136,11 @@ const RELEASE_SELECTOR_FIELDS = new Set([
   "compatibility",
   "compatibility_digest",
   "gateway_contract_digest",
+  "source_release",
+  "bound_cell_id",
+  "target_candidate_id",
+  "contract_digest",
+  "command_fingerprint",
 ]);
 
 export function normalizeIdempotencyKey(value: string | null | undefined): string {

@@ -20,6 +20,8 @@ before(() => {
           state: "pending",
           sourceRelease: "0.35.0",
           routableCellCount: 1,
+          routableSetDigest: "a".repeat(64),
+          routableObservationFresh: true,
           observedSourceRelease: "0.35.0",
           observedProtocolVersion: "1",
           currentTargetSourceRelease: "0.35.0",
@@ -49,7 +51,12 @@ before(() => {
         };
       },
       createStagedClientRelease: async () => ({ id: "stage-1", version: 1, state: "staged" }),
-      expireCanaryAuthority: async () => 0,
+      expireCanaryAuthority: async () => ({
+        expiredAssignments: 0,
+        expiredStages: 0,
+        revokedCredentials: 0,
+        drained: true,
+      }),
       failCanaryAssignment: async () => true,
       failStagedClientRelease: async () => true,
     },
@@ -130,6 +137,8 @@ describe("Exomem operator contract controls", () => {
         state: "pending",
         sourceRelease: "0.35.0",
         routableCellCount: 1,
+        routableSetDigest: "a".repeat(64),
+        routableObservationFresh: true,
         observedSourceRelease: "0.35.0",
         observedProtocolVersion: "1",
         currentTargetSourceRelease: "0.35.0",
@@ -153,6 +162,20 @@ describe("Exomem operator contract controls", () => {
     assert.equal(response.status, 200);
     assert.equal(createdAssignment?.tenantId, "018f2d91-7c42-7000-8000-000000000011");
     assert.equal(typeof createdAssignment?.operatorPrincipalDigest, "string");
+  });
+
+  it("reports expired authority counts and whether another expiry batch remains", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request({ action: "expire-canary-authority" }, `Bearer ${ADMIN_TOKEN}`)
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).expired, {
+      expiredAssignments: 0,
+      expiredStages: 0,
+      revokedCredentials: 0,
+      drained: true,
+    });
   });
 
   it("initiates content-free export and restore operations through the pinned lifecycle target", async () => {

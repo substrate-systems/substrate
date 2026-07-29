@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
@@ -200,7 +201,7 @@ export async function loadClientArtifactLocks(
 ): Promise<PlatformLocks> {
   const { rows } = await sql`
     /* exomem:load-client-artifact-contract-locks */
-    SELECT id::text AS candidate_id, claude_package_lock, claude_archive_lock,
+    SELECT id::text AS candidate_id, source_release, claude_package_lock, claude_archive_lock,
            openai_package_lock, openai_archive_lock
     FROM exomem_agent_contract_candidates
     WHERE id = ${candidateId}::uuid AND profile_id = 'hosted-alpha-agent-v1'
@@ -210,18 +211,25 @@ export async function loadClientArtifactLocks(
   const row = rows[0];
   if (!row || row.candidate_id !== candidateId)
     throw new Error("artifact contract candidate is not pending or live");
+  const fixture =
+    row.source_release === "0.34.0"
+      ? exomemHostedContractFixture
+      : row.source_release === "0.35.0"
+        ? exomemHostedContractFixture0350
+        : null;
   if (platform === "claude") {
     if (
+      !fixture ||
       !row.claude_package_lock ||
       !row.claude_archive_lock ||
-      canonical(row.claude_package_lock) !== canonical(exomemHostedContractFixture.packageLock) ||
-      canonical(row.claude_archive_lock) !== canonical(exomemHostedContractFixture.archiveLock)
+      canonical(row.claude_package_lock) !== canonical(fixture.packageLock) ||
+      canonical(row.claude_archive_lock) !== canonical(fixture.archiveLock)
     ) {
       throw new Error("Claude locks differ from the checked Exomem release");
     }
     return {
-      packageLock: exomemHostedContractFixture.packageLock,
-      archiveLock: exomemHostedContractFixture.archiveLock,
+      packageLock: fixture.packageLock,
+      archiveLock: fixture.archiveLock,
       candidateId,
       registeredAppIdSha256: null,
     };
@@ -239,7 +247,8 @@ export async function loadClientArtifactLocks(
   }
   const packageLock = row.openai_package_lock as Record<string, unknown>;
   const archiveLock = row.openai_archive_lock as Record<string, unknown>;
-  const fixtureLock: Record<string, unknown> = exomemHostedContractFixture.packageLock;
+  if (!fixture) throw new Error("OpenAI package lock differs from the checked release fixture");
+  const fixtureLock: Record<string, unknown> = fixture.packageLock;
   const identityFields = [
     "schema_version",
     "platform_schema_version",
@@ -346,15 +355,12 @@ export function validatePromotionEvidence(
   }
   if (
     evidence.test_identity !== "hosted-client-plugins-v1" ||
-    evidence.endpoint !== exomemHostedContractFixture.compatibility.endpoint ||
-    evidence.profile !== exomemHostedContractFixture.compatibility.profile ||
+    evidence.endpoint !== locks.packageLock.endpoint ||
+    evidence.profile !== locks.packageLock.profile ||
     evidence.plugin_version !== locks.packageLock.plugin_version ||
-    evidence.compatibility_sha256 !==
-      exomemHostedContractFixture.compatibility.compatibility_sha256 ||
-    evidence.schema_contract_sha256 !==
-      exomemHostedContractFixture.compatibility.schema_contract_sha256 ||
-    evidence.command_surface_sha256 !==
-      exomemHostedContractFixture.compatibility.command_surface_sha256
+    evidence.compatibility_sha256 !== locks.packageLock.compatibility_sha256 ||
+    evidence.schema_contract_sha256 !== locks.packageLock.schema_contract_sha256 ||
+    evidence.command_surface_sha256 !== locks.packageLock.command_surface_sha256
   ) {
     throw new Error("promotion evidence differs from the checked release fixture");
   }

@@ -80,6 +80,23 @@ type RoutableCellIdentity = {
   compatibility_digest: unknown;
 };
 
+function routableSetDigest(identities: RoutableCellIdentity[]): string {
+  const entries = identities.map((row) =>
+    JSON.stringify([
+      EXOMEM_HOSTED_PROFILE,
+      String(row.cell_id),
+      String(row.source_release),
+      String(row.protocol_version),
+      String(row.command_fingerprint),
+      String(row.contract_digest),
+      String(row.compatibility_digest),
+    ])
+  );
+  return entries.length
+    ? createHash("sha256").update(entries.join(",")).digest("hex")
+    : "0".repeat(64);
+}
+
 function record(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error(`${label} must be an object`);
@@ -127,7 +144,10 @@ function checkedOpenAiLocks(
 ): { packageLock: JsonRecord; archiveLock: JsonRecord } {
   const packageRecord = record(packageLock, "OpenAI package lock");
   const archiveRecord = record(archiveLock, "OpenAI archive lock");
-  const claudeLock = record(exomemHostedContractFixture.packageLock, "Claude package lock");
+  const claudeLocks = [
+    record(exomemHostedContractFixture.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0350.packageLock, "Claude package lock"),
+  ];
   const expected = [
     "schema_version",
     "platform_schema_version",
@@ -145,7 +165,9 @@ function checkedOpenAiLocks(
   const packageKeys = ["platform", "artifact_sha256", "registered_app_id_sha256", ...expected];
   if (
     packageRecord.platform !== "openai" ||
-    expected.some((key) => packageRecord[key] !== claudeLock[key]) ||
+    !claudeLocks.some((claudeLock) =>
+      expected.every((key) => packageRecord[key] === claudeLock[key])
+    ) ||
     Object.keys(packageRecord).length !== packageKeys.length ||
     Object.keys(packageRecord).some((key) => !packageKeys.includes(key))
   ) {
@@ -476,6 +498,8 @@ export type OperatorExomemHostedRolloutStatus = {
   state: "pending" | "live" | "retired";
   sourceRelease: string;
   routableCellCount: number;
+  routableSetDigest: string | null;
+  routableObservationFresh: boolean;
   observedSourceRelease: string | null;
   observedProtocolVersion: string | null;
   currentTargetSourceRelease: string | null;
@@ -488,7 +512,12 @@ export async function listExomemHostedRolloutStatus(): Promise<
   const { rows } = await executeExomemSql`
     /* exomem:list-hosted-rollout-status */
     SELECT candidate.id::text AS candidate_id, candidate.state, candidate.source_release,
-           COALESCE(authority.routable_cell_count, 0)::integer AS routable_cell_count,
+           routable.routable_cell_count, routable.routable_set_digest,
+           COALESCE(
+             authority.routable_set_digest = routable.routable_set_digest
+             AND authority.observed_at > now() - interval '5 minutes',
+             false
+           ) AS routable_observation_fresh,
            authority.source_release AS observed_source_release,
            authority.protocol_version AS observed_protocol_version,
            latest.target_source_release AS current_target_source_release
@@ -500,6 +529,31 @@ export async function listExomemHostedRolloutStatus(): Promise<
      AND authority.command_fingerprint = candidate.command_fingerprint
      AND authority.contract_digest = candidate.schema_digest
      AND authority.compatibility_digest = candidate.compatibility_digest
+    LEFT JOIN LATERAL (
+      SELECT count(*)::integer AS routable_cell_count,
+             CASE WHEN count(*) = 0 THEN repeat('0', 64)
+                  ELSE encode(
+                    digest(
+                      string_agg(
+                        json_build_array(
+                          candidate.profile_id,
+                          cell.cell_id::text,
+                          cell.source_release,
+                          cell.protocol_version,
+                          cell.command_fingerprint,
+                          cell.contract_digest,
+                          cell.compatibility_digest
+                        )::text,
+                        ',' ORDER BY cell.cell_id
+                      ),
+                      'sha256'
+                    ),
+                    'hex'
+                  )
+             END AS routable_set_digest
+      FROM exomem_routable_cell_contracts AS cell
+      WHERE cell.profile_id = candidate.profile_id AND cell.routable = true
+    ) AS routable ON TRUE
     LEFT JOIN LATERAL (
       SELECT operation.target_source_release
       FROM exomem_lifecycle_operations AS operation
@@ -518,6 +572,9 @@ export async function listExomemHostedRolloutStatus(): Promise<
       (row.state !== "pending" && row.state !== "live" && row.state !== "retired") ||
       typeof row.source_release !== "string" ||
       !Number.isSafeInteger(Number(row.routable_cell_count)) ||
+      (row.routable_set_digest !== null &&
+        !/^[a-f0-9]{64}$/.test(String(row.routable_set_digest))) ||
+      typeof row.routable_observation_fresh !== "boolean" ||
       (row.observed_source_release !== null && typeof row.observed_source_release !== "string") ||
       (row.observed_protocol_version !== null &&
         typeof row.observed_protocol_version !== "string") ||
@@ -531,6 +588,9 @@ export async function listExomemHostedRolloutStatus(): Promise<
         state: row.state,
         sourceRelease: row.source_release,
         routableCellCount: Number(row.routable_cell_count),
+        routableSetDigest:
+          row.routable_set_digest === null ? null : String(row.routable_set_digest),
+        routableObservationFresh: row.routable_observation_fresh,
         observedSourceRelease: row.observed_source_release,
         observedProtocolVersion: row.observed_protocol_version,
         currentTargetSourceRelease: row.current_target_source_release,
@@ -622,6 +682,9 @@ export async function attachOpenAiContractLocks(input: {
         openai_archive_lock = ${JSON.stringify(locks.archiveLock)}::jsonb
     WHERE id = ${input.candidateId}::uuid AND profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'pending'
       AND openai_package_lock IS NULL AND openai_archive_lock IS NULL
+      AND command_fingerprint = ${String(locks.packageLock.command_surface_sha256)}
+      AND schema_digest = ${String(locks.packageLock.schema_contract_sha256)}
+      AND compatibility_digest = ${String(locks.packageLock.compatibility_sha256)}
     RETURNING id
   `;
   return rows.length === 1;
@@ -678,20 +741,7 @@ export async function recordRoutableCellObservation(input: {
       [EXOMEM_HOSTED_PROFILE]
     );
     const identities = cells.rows as RoutableCellIdentity[];
-    const entries = identities.map((row) =>
-      JSON.stringify([
-        EXOMEM_HOSTED_PROFILE,
-        String(row.cell_id),
-        String(row.source_release),
-        String(row.protocol_version),
-        String(row.command_fingerprint),
-        String(row.contract_digest),
-        String(row.compatibility_digest),
-      ])
-    );
-    const digest = entries.length
-      ? createHash("sha256").update(entries.join(",")).digest("hex")
-      : "0".repeat(64);
+    const digest = routableSetDigest(identities);
     const allMatch = identities.every(
       (row) =>
         row.source_release === input.sourceRelease &&
@@ -712,7 +762,7 @@ export async function recordRoutableCellObservation(input: {
       [
         EXOMEM_HOSTED_PROFILE,
         digest,
-        entries.length,
+        identities.length,
         input.sourceRelease,
         input.protocolVersion,
         fingerprint,
@@ -739,6 +789,23 @@ export async function promoteExomemHostedCohort(input: {
   const expected = sha256(input.expectedRoutableCellDigest, "routable cell digest");
   return withExomemTransaction(async (transaction) => {
     await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    await transaction`
+      /* exomem:lock-routable-hosted-authority */
+      SELECT profile_id FROM exomem_agent_contract_profile_authority
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
+      FOR UPDATE
+    `;
+    const { rows: routableRows } = await transaction`
+      /* exomem:lock-current-routable-hosted-cells */
+      SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint,
+             contract_digest, compatibility_digest
+      FROM exomem_routable_cell_contracts
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
+      ORDER BY cell_id
+      FOR UPDATE
+    `;
+    if (routableSetDigest(routableRows as RoutableCellIdentity[]) !== expected)
+      return "precondition_failed";
     const claudeLocks = await loadClientArtifactLocks("claude", input.candidateId, transaction);
     const openaiLocks = await loadClientArtifactLocks("openai", input.candidateId, transaction);
     const claudeEvidence = validatePromotionEvidence(input.claudeEvidence, "claude", claudeLocks);

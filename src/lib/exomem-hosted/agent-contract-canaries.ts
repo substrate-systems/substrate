@@ -651,7 +651,14 @@ export async function resolveStagedClientRelease(
   return rows.length === 1 ? stagedReleaseFromRow(rows[0]!) : null;
 }
 
-export async function expireCanaryAuthority(limit = 20): Promise<number> {
+export type CanaryAuthorityExpiryResult = {
+  expiredAssignments: number;
+  expiredStages: number;
+  revokedCredentials: number;
+  drained: boolean;
+};
+
+export async function expireCanaryAuthority(limit = 20): Promise<CanaryAuthorityExpiryResult> {
   const bounded = Math.min(100, Math.max(1, Math.floor(limit)));
   return withCohortLock(async (tx) => {
     const { rows } = await tx`
@@ -674,32 +681,74 @@ export async function expireCanaryAuthority(limit = 20): Promise<number> {
         SET state = 'expired', evidenced_at = NULL, ended_at = now(), version = version + 1, updated_at = now()
         FROM declarations WHERE declaration.id = declarations.id
         RETURNING declaration.id
+      ), counts AS (
+        SELECT (SELECT count(*)::integer FROM expired_assignments) AS expired_assignment_count,
+               (SELECT count(*)::integer FROM expired_declarations) AS expired_stage_count
       )
-      SELECT DISTINCT credential.tenant_id::text AS tenant_id,
-             credential.candidate_id::text AS candidate_id,
-             credential.assignment_id::text AS assignment_id,
-             credential.assignment_generation,
+      SELECT counts.expired_assignment_count, counts.expired_stage_count,
+             credential.tenant_id::text AS tenant_id, credential.candidate_id::text AS candidate_id,
+             credential.assignment_id::text AS assignment_id, credential.assignment_generation,
              credential.staged_client_release_id::text AS staged_client_release_id,
              credential.oauth_client_id::text AS oauth_client_id
-      FROM exomem_marketplace_reviewer_credentials AS credential
-      WHERE credential.credential_kind = 'internal_canary'
-        AND credential.revoked_at IS NULL
-        AND (
-          credential.assignment_id IN (SELECT id FROM expired_assignments)
-          OR credential.staged_client_release_id IN (SELECT id FROM expired_declarations)
-        )
+      FROM counts
+      LEFT JOIN LATERAL (
+        SELECT DISTINCT credential.tenant_id, credential.candidate_id, credential.assignment_id,
+               credential.assignment_generation, credential.staged_client_release_id,
+               credential.oauth_client_id
+        FROM exomem_marketplace_reviewer_credentials AS credential
+        WHERE credential.credential_kind = 'internal_canary'
+          AND credential.revoked_at IS NULL
+          AND (
+            credential.assignment_id IN (SELECT id FROM expired_assignments)
+            OR credential.staged_client_release_id IN (SELECT id FROM expired_declarations)
+          )
+      ) AS credential ON TRUE
     `;
+    const expiredAssignments = Number(rows[0]?.expired_assignment_count ?? 0);
+    const expiredStages = Number(rows[0]?.expired_stage_count ?? 0);
+    if (
+      !Number.isSafeInteger(expiredAssignments) ||
+      expiredAssignments < 0 ||
+      !Number.isSafeInteger(expiredStages) ||
+      expiredStages < 0
+    )
+      throw new Error("invalid expired canary authority count");
+    let revokedCredentials = 0;
     for (const row of rows) {
+      if (
+        typeof row.tenant_id !== "string" ||
+        typeof row.candidate_id !== "string" ||
+        typeof row.assignment_id !== "string" ||
+        typeof row.staged_client_release_id !== "string" ||
+        typeof row.oauth_client_id !== "string"
+      )
+        continue;
       await revokeCanaryOAuthLineageInTransaction(tx, {
-        tenantId: String(row.tenant_id),
-        candidateId: String(row.candidate_id),
-        assignmentId: String(row.assignment_id),
+        tenantId: row.tenant_id,
+        candidateId: row.candidate_id,
+        assignmentId: row.assignment_id,
         assignmentGeneration: integer(row.assignment_generation, "assignment generation"),
-        stagedClientReleaseId: String(row.staged_client_release_id),
-        oauthClientId: String(row.oauth_client_id),
+        stagedClientReleaseId: row.staged_client_release_id,
+        oauthClientId: row.oauth_client_id,
       });
+      revokedCredentials += 1;
     }
-    return rows.length;
+    const { rows: remainingRows } = await tx`
+      /* exomem:remaining-expired-canary-authority */
+      SELECT EXISTS (
+        SELECT 1 FROM exomem_agent_contract_rollout_assignments
+        WHERE state IN ('preparing', 'active') AND expires_at <= now()
+        UNION ALL
+        SELECT 1 FROM exomem_staged_client_releases
+        WHERE state IN ('staged', 'evidenced') AND expires_at <= now()
+      ) AS remaining
+    `;
+    return {
+      expiredAssignments,
+      expiredStages,
+      revokedCredentials,
+      drained: remainingRows[0]?.remaining !== true,
+    };
   });
 }
 

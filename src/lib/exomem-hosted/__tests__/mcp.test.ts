@@ -142,6 +142,11 @@ describe("Hosted MCP boundary", () => {
       { releaseVersion: "other" },
       { schemaDigest: "other" },
       { compatibilityDigest: "other" },
+      { sourceRelease: "0.35.0" },
+      { boundCellId: "other" },
+      { targetCandidateId: "other" },
+      { contractDigest: "a".repeat(64) },
+      { commandFingerprint: "b".repeat(64) },
     ]) {
       assert.equal(hasMcpSelector(value), true);
     }
@@ -219,8 +224,15 @@ describe("Hosted MCP boundary", () => {
         headers: request(body).headers,
         body: JSON.stringify(body),
       }),
+      new Request("https://substratesystems.io/api/exomem/mcp/v1?sourceRelease=0.35.0", {
+        method: "POST",
+        headers: request(body).headers,
+        body: JSON.stringify(body),
+      }),
       request(body, { "assignment-generation": "7" }),
+      request(body, { "command-fingerprint": "a".repeat(64) }),
       request(body, { cookie: "session=safe; staged_client_release_id=stage-b" }),
+      request(body, { cookie: `session=safe; boundCellId=cell-b` }),
     ]) {
       const response = await handleHostedMcpRequest(requestCase, dependencies);
       assert.equal(response.status, 400);

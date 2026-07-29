@@ -30,21 +30,17 @@ import {
   resolveActiveCanaryAssignment,
 } from "../agent-contract-canaries";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
+import {
+  canonicalPromotionJson as canonical,
+  evidence,
+  pendingArtifactFromEvidence,
+  testOnlyOpenAiLocks,
+} from "./agent-contract-promotion-fixture";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
 let schema: string | undefined;
 const sha = (letter: string) => letter.repeat(64);
-
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
 
 function sql(client: Pool | PoolClient): ExomemSql {
   return async (strings, ...values) => {
@@ -146,93 +142,6 @@ async function seedActiveReviewerAssignment(candidateId: string): Promise<{
   );
   assert.equal(rows.length, 1);
   return { id: rows[0]!.id, generation: Number(rows[0]!.generation) };
-}
-
-const testOnlyOpenAiLocks = {
-  packageLock: {
-    ...exomemHostedContractFixture.packageLock,
-    platform: "openai",
-    artifact_sha256: sha("a"),
-    registered_app_id_sha256: sha("c"),
-  },
-  archiveLock: {
-    platform: "openai",
-    archive_sha256: sha("b"),
-    registered_app_id_sha256: sha("c"),
-  },
-} as const;
-
-function locksFor(platform: "claude" | "openai") {
-  return platform === "claude"
-    ? {
-        packageLock: exomemHostedContractFixture.packageLock,
-        archiveLock: exomemHostedContractFixture.archiveLock,
-      }
-    : testOnlyOpenAiLocks;
-}
-
-function evidence(
-  platform: "claude" | "openai",
-  secret: string,
-  suffix: string,
-  binding: {
-    candidateId: string;
-    stageId: string;
-    assignmentId: string;
-    assignmentGeneration: number;
-  }
-): Record<string, unknown> {
-  const fixture = exomemHostedContractFixture;
-  const locks = locksFor(platform);
-  const unsigned: Record<string, unknown> = {
-    schema_version: 1,
-    platform,
-    client_version: "1.0.0",
-    clean_client_identity_hmac_sha256: sha("1"),
-    timestamp: new Date().toISOString(),
-    paired_run_hmac_sha256: sha("2"),
-    test_identity: "hosted-client-plugins-v1",
-    exomem_identity_hmac_sha256: sha("3"),
-    tenant_hmac_sha256: sha("4"),
-    entitlement_hmac_sha256: sha("5"),
-    provisioning_operation_hmac_sha256: sha("6"),
-    cell_hmac_sha256: sha("7"),
-    oauth_client_config_sha256: sha("a"),
-    contract_candidate_id: binding.candidateId,
-    staged_client_release_id: binding.stageId,
-    assignment_id: binding.assignmentId,
-    assignment_generation: binding.assignmentGeneration,
-    identity_count: 1,
-    tenant_count: 1,
-    entitlement_count: 1,
-    operation_count: 1,
-    cell_count: 1,
-    volume_count: 1,
-    result_sha256: createHash("sha256").update(suffix).digest("hex"),
-    package_artifact_sha256: locks.packageLock.artifact_sha256,
-    archive_sha256: locks.archiveLock.archive_sha256,
-    ...(platform === "openai"
-      ? { registered_app_id_sha256: testOnlyOpenAiLocks.packageLock.registered_app_id_sha256 }
-      : {}),
-    compatibility_sha256: fixture.compatibility.compatibility_sha256,
-    schema_contract_sha256: fixture.compatibility.schema_contract_sha256,
-    command_surface_sha256: fixture.compatibility.command_surface_sha256,
-    endpoint: fixture.compatibility.endpoint,
-    plugin_version: locks.packageLock.plugin_version,
-    profile: fixture.compatibility.profile,
-    operator_key_id: "integration-operator",
-    native_install: true,
-    authorization: true,
-    tool_discovery: true,
-    content_recall: true,
-    citation: true,
-    durable_capture: true,
-    fresh_chat_recall: true,
-  };
-  return {
-    ...unsigned,
-    operator_signature: createHmac("sha256", secret).update(canonical(unsigned)).digest("hex"),
-  };
 }
 
 describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => {
@@ -524,32 +433,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       ]
     );
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const makeArtifact = (platform: "claude" | "openai", signed: Record<string, unknown>) => ({
-      platform,
-      state: "pending",
-      packageSha256: signed.package_artifact_sha256,
-      archiveSha256: signed.archive_sha256,
-      compatibilitySha256: signed.compatibility_sha256,
-      contractSha256: signed.schema_contract_sha256,
-      pluginVersion: signed.plugin_version,
-      clientIdentitySha256: signed.clean_client_identity_hmac_sha256,
-      pairedRunHmacSha256: signed.paired_run_hmac_sha256,
-      exomemIdentityHmacSha256: signed.exomem_identity_hmac_sha256,
-      tenantHmacSha256: signed.tenant_hmac_sha256,
-      installUrl:
-        platform === "claude"
-          ? process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL
-          : process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL,
-      evidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
-      resultSha256: signed.result_sha256,
-      oauthClientConfigSha256: signed.oauth_client_config_sha256,
-      observedAt: signed.timestamp,
-      candidateId: signed.contract_candidate_id,
-      stagedClientReleaseId: signed.staged_client_release_id,
-      assignmentId: signed.assignment_id,
-      assignmentGeneration: signed.assignment_generation,
-      evidence: signed,
-    });
+    const makeArtifact = pendingArtifactFromEvidence;
     const claudeEvidence = evidence("claude", "integration-secret", randomUUID(), {
       candidateId,
       stageId: claudeStage.id,

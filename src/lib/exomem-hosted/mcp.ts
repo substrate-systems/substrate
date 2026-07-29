@@ -235,6 +235,11 @@ const TOOL_SELECTOR_FIELDS = new Set([
   "compatibility",
   "compatibility_digest",
   "gateway_contract_digest",
+  "source_release",
+  "bound_cell_id",
+  "target_candidate_id",
+  "contract_digest",
+  "command_fingerprint",
 ]);
 
 function normalizedField(value: string): string {

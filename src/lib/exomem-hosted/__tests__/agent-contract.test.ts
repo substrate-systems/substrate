@@ -261,6 +261,7 @@ describe("Exomem Hosted agent contracts", () => {
             id: "artifact-1",
             tenant_id: "018f2d91-7c42-7000-8000-000000000001",
             candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+            source_release: "0.34.0",
             assignment_id: "018f2d91-7c42-7000-8000-000000000004",
             assignment_generation: 1,
             claude_package_lock: exomemHostedContractFixture.packageLock,
@@ -419,6 +420,7 @@ describe("Exomem Hosted agent contracts", () => {
           rows: [
             {
               candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+              source_release: "0.34.0",
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,
             },
