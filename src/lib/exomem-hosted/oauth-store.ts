@@ -295,7 +295,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
                     authorization_transaction_id = EXCLUDED.authorization_transaction_id,
                     reviewer_credential_id = EXCLUDED.reviewer_credential_id,
                     updated_at = now()
-      RETURNING id, tenant_id
+      RETURNING id, tenant_id, reviewer_credential_id
     ),
     code AS (
       INSERT INTO exomem_oauth_authorization_codes (
@@ -1025,7 +1025,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
       SELECT grant_id, client_id, LEAST(now() + interval '30 days', reviewer_expires_at)
       FROM consumed_code
-      RETURNING id, grant_id, client_id
+      RETURNING id, grant_id, client_id, expires_at
     ),
     refresh AS (
       INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)

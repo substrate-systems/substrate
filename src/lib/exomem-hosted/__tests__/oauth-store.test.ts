@@ -73,6 +73,23 @@ describe("Exomem OAuth token store", () => {
     assert.match(source, /INSERT INTO exomem_oauth_access_tokens[\s\S]*LEAST\(/i);
   });
 
+  it("returns CTE fields consumed by reviewer authorization and code exchange", async () => {
+    const source = await import("node:fs").then(({ readFileSync }) =>
+      readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
+    );
+    const attach = source.slice(
+      source.indexOf("exomem:attach-existing-owner-oauth"),
+      source.indexOf("exomem:prune-expired-oauth-state")
+    );
+    const codeExchange = source.slice(
+      source.indexOf("exomem:oauth-code-exchange"),
+      source.indexOf("exomem:oauth-refresh-rotate")
+    );
+
+    assert.match(attach, /RETURNING id, tenant_id, reviewer_credential_id/i);
+    assert.match(codeExchange, /RETURNING id, grant_id, client_id, expires_at/i);
+  });
+
   it("rejects expired reviewer grants during active and MCP token lookup while retaining null attribution", async () => {
     const source = await import("node:fs").then(({ readFileSync }) =>
       readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
