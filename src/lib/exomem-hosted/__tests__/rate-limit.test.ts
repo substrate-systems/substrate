@@ -53,3 +53,15 @@ test("invite requests use separate durable IP and normalized-email buckets", () 
     hashRateLimitKey(email, normalizedEmailRateLimitKey("friend@example.com"), FIRST_KEY)
   );
 });
+
+test("marketplace reviewer authentication uses independent pre-KDF IP and username buckets", () => {
+  const ip = EXOMEM_RATE_LIMITS.marketplaceReviewerIp;
+  const username = EXOMEM_RATE_LIMITS.marketplaceReviewerUsername;
+
+  assert.notEqual(ip.scope, username.scope);
+  assert.ok(ip.limit > 0);
+  assert.ok(ip.windowSeconds > 0);
+  assert.ok(username.limit > 0);
+  assert.ok(username.windowSeconds > 0);
+  assert.notEqual(hashRateLimitKey(ip, "203.0.113.1", FIRST_KEY), hashRateLimitKey(username, "reviewer", FIRST_KEY));
+});
