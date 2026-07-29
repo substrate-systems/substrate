@@ -81,7 +81,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
       { headers }
     );
-    applySessionCookies(response, session);
+    const credentialExpiresAt = new Date(credential.expiresAt);
+    applySessionCookies(response, {
+      ...session,
+      expiresAt:
+        credentialExpiresAt.getTime() < session.expiresAt.getTime()
+          ? credentialExpiresAt
+          : session.expiresAt,
+    });
     return response;
   } catch {
     return authenticationFailed();

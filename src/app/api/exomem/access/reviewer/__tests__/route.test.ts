@@ -8,6 +8,7 @@ const PASSWORD = "reviewer-route-password-sentinel";
 let continuation: { clientId: string } | null = { clientId: "client-openai" };
 let authenticated = true;
 let bindCalls: Array<Record<string, unknown>> = [];
+let cookieExpiresAt: Date | undefined;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/reviewer-access", {
@@ -22,6 +23,7 @@ before(() => {
               ownerUserId: "owner-sentinel",
               tenantId: "tenant-sentinel",
               fixtureVersion: "review-fixture-v1",
+              expiresAt: "2026-07-30T00:00:00.000Z",
             }
           : null,
     },
@@ -56,7 +58,11 @@ before(() => {
         csrfDigest: Buffer.alloc(32, 0x52),
         expiresAt: new Date("2026-08-01T00:00:00.000Z"),
       }),
-      applySessionCookies: (response: import("next/server").NextResponse) => {
+      applySessionCookies: (
+        response: import("next/server").NextResponse,
+        material: { expiresAt: Date }
+      ) => {
+        cookieExpiresAt = material.expiresAt;
         response.cookies.set("exomem_session", SESSION_TOKEN, { httpOnly: true, path: "/" });
       },
     },
@@ -70,6 +76,7 @@ beforeEach(() => {
   continuation = { clientId: "client-openai" };
   authenticated = true;
   bindCalls = [];
+  cookieExpiresAt = undefined;
 });
 
 function request(body: unknown = { username: USERNAME, password: PASSWORD }): Request {
@@ -102,6 +109,10 @@ describe("POST /api/exomem/access/reviewer", () => {
     assert.equal(bindCalls[0].transactionDigest instanceof Buffer, true);
     assert.equal(JSON.stringify(bindCalls[0]).includes(USERNAME), false);
     assert.equal(JSON.stringify(bindCalls[0]).includes(PASSWORD), false);
+    assert.equal(cookieExpiresAt?.toISOString(), "2026-07-30T00:00:00.000Z");
+    assert.equal(JSON.stringify(body).includes("owner-sentinel"), false);
+    assert.equal(JSON.stringify(body).includes("tenant-sentinel"), false);
+    assert.equal(JSON.stringify(body).includes("review-fixture-v1"), false);
   });
 
   it("uses one generic no-store failure for disabled, missing continuation, invalid credentials, and malformed credentials", async () => {

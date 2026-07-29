@@ -227,14 +227,19 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
     const { rows } = await tx`
     /* exomem:attach-existing-owner-oauth */
     WITH session AS (
-      SELECT session.id, session.user_id, session.tenant_id
+      SELECT session.id, session.user_id, session.tenant_id, session.reviewer_credential_id
       FROM exomem_sessions AS session
       JOIN exomem_tenants AS tenant ON tenant.id = session.tenant_id AND tenant.owner_user_id = session.user_id
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS credential
+        ON credential.id = session.reviewer_credential_id
+       AND credential.revoked_at IS NULL
+       AND credential.expires_at > now()
       JOIN exomem_entitlements AS entitlement
         ON entitlement.tenant_id = session.tenant_id
        AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE session.id = ${input.sessionId}::uuid
         AND session.revoked_at IS NULL AND session.expires_at > now()
+        AND (session.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = session.tenant_id AND block.owner_user_id = session.user_id
@@ -243,7 +248,8 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
     ),
     transaction AS (
       SELECT transaction.id, transaction.client_id, transaction.redirect_uri,
-             transaction.resource, transaction.requested_scopes, transaction.pkce_challenge
+             transaction.resource, transaction.requested_scopes, transaction.pkce_challenge,
+             transaction.reviewer_credential_id
       FROM exomem_oauth_authorization_transactions AS transaction
       JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
         AND client.enabled = true
@@ -253,8 +259,18 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
           AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
           AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
         ))
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS credential
+        ON credential.id = transaction.reviewer_credential_id
+       AND credential.revoked_at IS NULL
+       AND credential.expires_at > now()
       WHERE transaction.transaction_digest = ${input.transactionDigest}
         AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+        AND (transaction.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)
+        AND (
+          transaction.reviewer_credential_id IS NULL
+          OR (credential.provider = 'anthropic' AND client.client_platform = 'claude')
+          OR (credential.provider = 'openai' AND client.client_platform = 'openai')
+        )
         AND EXISTS (
           SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
           WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
@@ -263,15 +279,21 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       FOR UPDATE OF transaction
     ),
     oauth_grant AS (
-      INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id)
+      INSERT INTO exomem_oauth_grants (
+        user_id, tenant_id, client_id, resource, scopes, refresh_allowed,
+        authorization_transaction_id, reviewer_credential_id
+      )
       SELECT session.user_id, session.tenant_id, transaction.client_id, transaction.resource,
              array_remove(transaction.requested_scopes, 'offline_access'),
-             'offline_access' = ANY(transaction.requested_scopes), transaction.id
+             'offline_access' = ANY(transaction.requested_scopes), transaction.id,
+             transaction.reviewer_credential_id
       FROM session CROSS JOIN transaction
+      WHERE session.reviewer_credential_id IS NOT DISTINCT FROM transaction.reviewer_credential_id
       ON CONFLICT (user_id, tenant_id, client_id, resource) WHERE revoked_at IS NULL
       DO UPDATE SET scopes = EXCLUDED.scopes,
                     refresh_allowed = EXCLUDED.refresh_allowed,
                     authorization_transaction_id = EXCLUDED.authorization_transaction_id,
+                    reviewer_credential_id = EXCLUDED.reviewer_credential_id,
                     updated_at = now()
       RETURNING id, tenant_id
     ),
@@ -281,8 +303,14 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       )
       SELECT ${input.codeDigest}, oauth_grant.id, transaction.client_id, transaction.redirect_uri,
              transaction.resource, transaction.pkce_challenge,
-             'offline_access' = ANY(transaction.requested_scopes), ${input.codeExpiresAt.toISOString()}
+             'offline_access' = ANY(transaction.requested_scopes),
+             LEAST(${input.codeExpiresAt.toISOString()}, credential.expires_at)
       FROM oauth_grant CROSS JOIN transaction
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS credential
+        ON credential.id = oauth_grant.reviewer_credential_id
+       AND credential.revoked_at IS NULL
+       AND credential.expires_at > now()
+      WHERE oauth_grant.reviewer_credential_id IS NULL OR credential.id IS NOT NULL
       RETURNING grant_id
     ),
     consumed AS (
@@ -388,7 +416,8 @@ export async function admitFirstOAuthInviteAtomic(input: {
     return await withExomemTransaction(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
       const inviteResult = await tx`
-        SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits
+        SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits,
+               marketplace_reviewer_purpose
         FROM exomem_invites
         WHERE token_digest = ${input.inviteDigest}
           AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
@@ -401,6 +430,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
             entitlement_source: "complimentary" | "paddle";
             entitlement_capabilities: string[];
             entitlement_limits: Record<string, number>;
+            marketplace_reviewer_purpose: boolean;
           }
         | undefined;
       if (!invite) throw new OAuthAdmissionRejected();
@@ -475,6 +505,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
         WHERE tenant.owner_user_id = ${owner.id}::uuid
           AND tenant.status <> 'deleted'
           AND tenant.deleted_at IS NULL
+          AND tenant.marketplace_reviewer_purpose = ${invite.marketplace_reviewer_purpose}
         FOR UPDATE OF tenant
       `;
       const existing = existingResult.rows[0] as { id: string; owner_user_id: string } | undefined;
@@ -501,8 +532,11 @@ export async function admitFirstOAuthInviteAtomic(input: {
         if (!pool) throw new OAuthAdmissionCapacityUnavailable();
 
         const tenantResult = await tx`
-          INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
-          VALUES (${owner.id}::uuid, 'provisioning', 'running')
+          INSERT INTO exomem_tenants (
+            owner_user_id, status, desired_state, marketplace_reviewer_purpose
+          ) VALUES (
+            ${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}
+          )
           RETURNING id, fence_generation
         `;
         const tenant = tenantResult.rows[0] as { id: string; fence_generation: number } | undefined;
@@ -632,6 +666,10 @@ export async function findActiveOAuthAccessToken(
     JOIN exomem_oauth_grants AS oauth_grant
       ON oauth_grant.id = token.grant_id
      AND oauth_grant.revoked_at IS NULL
+    LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
+      ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+     AND reviewer_credential.revoked_at IS NULL
+     AND reviewer_credential.expires_at > now()
     JOIN exomem_oauth_clients AS client
       ON client.id = token.client_id
      AND client.enabled = true
@@ -652,6 +690,7 @@ export async function findActiveOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
+      AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
       AND EXISTS (
         SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
         WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
@@ -709,6 +748,10 @@ export async function findMcpOAuthAccessToken(
      AND oauth_grant.client_id = token.client_id
      AND oauth_grant.resource = token.resource
      AND oauth_grant.revoked_at IS NULL
+    LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
+      ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+     AND reviewer_credential.revoked_at IS NULL
+     AND reviewer_credential.expires_at > now()
     JOIN exomem_oauth_clients AS client ON client.id = token.client_id
       AND client.enabled = true
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
@@ -728,6 +771,7 @@ export async function findMcpOAuthAccessToken(
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
+      AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
       AND token.scopes <@ oauth_grant.scopes
       AND EXISTS (
         SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
@@ -942,6 +986,10 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
          AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
          AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
        ))
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
+        ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+       AND reviewer_credential.revoked_at IS NULL
+       AND reviewer_credential.expires_at > now()
       JOIN exomem_tenants AS tenant
         ON tenant.id = oauth_grant.tenant_id
        AND tenant.owner_user_id = oauth_grant.user_id
@@ -960,6 +1008,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND code.consumed_at IS NULL
         AND code.expires_at > now()
         AND oauth_grant.revoked_at IS NULL
+        AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
         AND EXISTS (
           SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
           WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
@@ -969,17 +1018,18 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id
         )
-      RETURNING code.grant_id, code.client_id, code.resource, code.refresh_allowed
+      RETURNING code.grant_id, code.client_id, code.resource, code.refresh_allowed,
+                reviewer_credential.expires_at AS reviewer_expires_at
     ),
     family AS (
       INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
-      SELECT grant_id, client_id, now() + interval '30 days'
+      SELECT grant_id, client_id, LEAST(now() + interval '30 days', reviewer_expires_at)
       FROM consumed_code
       RETURNING id, grant_id, client_id
     ),
     refresh AS (
       INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
-      SELECT ${input.refreshDigest}, id, ${input.refreshExpiresAt.toISOString()}
+      SELECT ${input.refreshDigest}, id, LEAST(${input.refreshExpiresAt.toISOString()}, family.expires_at)
       FROM family
       JOIN consumed_code ON consumed_code.grant_id = family.grant_id
       WHERE consumed_code.refresh_allowed
@@ -990,7 +1040,8 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
       )
       SELECT ${input.accessDigest}, consumed_code.grant_id, family.id, consumed_code.client_id,
-             consumed_code.resource, oauth_grant.scopes, ${input.accessExpiresAt.toISOString()}
+             consumed_code.resource, oauth_grant.scopes,
+             LEAST(${input.accessExpiresAt.toISOString()}, family.expires_at)
       FROM consumed_code
       JOIN family ON family.grant_id = consumed_code.grant_id
       JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed_code.grant_id
@@ -1069,6 +1120,10 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       JOIN exomem_oauth_grants AS oauth_grant
         ON oauth_grant.id = family.grant_id
        AND oauth_grant.resource = ${input.resource}
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
+        ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+       AND reviewer_credential.revoked_at IS NULL
+       AND reviewer_credential.expires_at > now()
       WHERE token.refresh_digest = ${input.refreshDigest}
         AND client.client_id = ${input.clientId}
         AND client.enabled = true
@@ -1078,6 +1133,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
           AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
           AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
         ))
+        AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
       FOR UPDATE OF token, family
     ),
     current_policy AS (
@@ -1085,6 +1141,10 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       FROM credential
       JOIN exomem_oauth_clients AS client ON client.id = credential.client_id
       JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = credential.grant_id AND oauth_grant.revoked_at IS NULL
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
+        ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+       AND reviewer_credential.revoked_at IS NULL
+       AND reviewer_credential.expires_at > now()
       JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id
         AND tenant.owner_user_id = oauth_grant.user_id AND tenant.status IN ('provisioning', 'active')
         AND tenant.desired_state = 'running'
@@ -1095,6 +1155,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
            OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
       )
+        AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id
@@ -1127,10 +1188,16 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         refresh_digest, family_id, parent_refresh_token_id, expires_at
       )
       SELECT ${input.replacementRefreshDigest}, consumed.family_id, credential.id,
-             family.expires_at
+             LEAST(family.expires_at, reviewer_credential.expires_at)
       FROM consumed
       JOIN credential ON credential.family_id = consumed.family_id
       JOIN exomem_oauth_token_families AS family ON family.id = consumed.family_id
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
+        ON reviewer_credential.id = oauth_grant.reviewer_credential_id
+       AND reviewer_credential.revoked_at IS NULL
+       AND reviewer_credential.expires_at > now()
+      WHERE oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL
       RETURNING family_id
     ),
     access AS (
@@ -1139,8 +1206,9 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       )
       SELECT ${input.accessDigest}, consumed.grant_id, consumed.family_id,
              consumed.client_id, oauth_grant.resource, oauth_grant.scopes,
-             ${input.accessExpiresAt.toISOString()}
+             LEAST(${input.accessExpiresAt.toISOString()}, family.expires_at)
       FROM consumed
+      JOIN exomem_oauth_token_families AS family ON family.id = consumed.family_id
       JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = consumed.grant_id
       RETURNING id
     )

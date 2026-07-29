@@ -95,6 +95,26 @@ describe("Exomem hosted access", () => {
     assert.doesNotMatch(rendered, /[?&]token=/);
   });
 
+  it("passes reviewer purpose only when the authenticated operator explicitly requests it", async () => {
+    let dbInput: Record<string, unknown> | undefined;
+    await issueOperatorInvite(
+      {
+        email: SENTINEL,
+        source: "complimentary",
+        marketplaceReviewerPurpose: true,
+        expiresAt: new Date("2026-07-14T12:00:00.000Z"),
+        operatorPrincipalDigest: Buffer.alloc(32, 7),
+      },
+      dependencies({
+        createInvite: async (input) => {
+          dbInput = input;
+          return { inviteId: "invite-1" };
+        },
+      })
+    );
+    assert.equal(dbInput?.marketplaceReviewerPurpose, true);
+  });
+
   it("rejects unsafe public origins before sending an invite", async () => {
     let sends = 0;
     await assert.rejects(

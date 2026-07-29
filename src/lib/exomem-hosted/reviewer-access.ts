@@ -18,6 +18,7 @@ export type MarketplaceReviewerAuthentication = {
   ownerUserId: string;
   tenantId: string;
   fixtureVersion: string;
+  expiresAt: string;
 };
 
 export type MarketplaceReviewerAuthenticationRecord = MarketplaceReviewerAuthentication & {
@@ -93,10 +94,7 @@ export function validateMarketplaceReviewerExpiry(expiresAt: Date, now = new Dat
   }
 }
 
-type ReviewerRateLimit = (
-  rule: ExomemRateLimitRule,
-  value: string
-) => Promise<boolean>;
+type ReviewerRateLimit = (rule: ExomemRateLimitRule, value: string) => Promise<boolean>;
 
 export async function authenticateMarketplaceReviewerCredential(
   input: { username: string; password: string; clientAddress: string },
@@ -132,7 +130,12 @@ export async function authenticateMarketplaceReviewerCredential(
     record?.passwordHash ?? DUMMY_REVIEWER_PASSWORD_HASH,
     input.password
   );
-  if (!record || !passwordMatches || record.revokedAt || new Date(record.expiresAt) <= (dependencies.now ?? new Date())) {
+  if (
+    !record ||
+    !passwordMatches ||
+    record.revokedAt ||
+    new Date(record.expiresAt) <= (dependencies.now ?? new Date())
+  ) {
     return null;
   }
   return {
@@ -141,5 +144,6 @@ export async function authenticateMarketplaceReviewerCredential(
     ownerUserId: record.ownerUserId,
     tenantId: record.tenantId,
     fixtureVersion: record.fixtureVersion,
+    expiresAt: record.expiresAt,
   };
 }

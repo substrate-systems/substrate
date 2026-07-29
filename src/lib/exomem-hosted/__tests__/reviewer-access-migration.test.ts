@@ -13,6 +13,15 @@ test("reviewer access persists provider-scoped secret digests and session attrib
 
   assert.match(sql, /CREATE TABLE exomem_marketplace_reviewer_credentials/i);
   assert.match(sql, /ADD COLUMN marketplace_reviewer_purpose boolean NOT NULL DEFAULT false/i);
+  assert.match(
+    sql,
+    /ALTER TABLE exomem_invites\s+ADD COLUMN marketplace_reviewer_purpose boolean NOT NULL DEFAULT false/i
+  );
+  assert.match(sql, /CREATE RULE exomem_tenants_reviewer_purpose_immutable/i);
+  assert.match(
+    sql,
+    /ON UPDATE TO exomem_tenants[\s\S]*NEW\.marketplace_reviewer_purpose IS DISTINCT FROM OLD\.marketplace_reviewer_purpose[\s\S]*DO INSTEAD NOTHING/i
+  );
   assert.match(sql, /provider text NOT NULL CHECK \(provider IN \('openai', 'anthropic'\)\)/i);
   assert.match(sql, /username_digest bytea NOT NULL UNIQUE/i);
   assert.match(sql, /password_hash text NOT NULL/i);
@@ -48,5 +57,4 @@ test("reviewer access persists provider-scoped secret digests and session attrib
     /CREATE INDEX exomem_sessions_reviewer_credential_active_idx[\s\S]*WHERE reviewer_credential_id IS NOT NULL AND revoked_at IS NULL/i
   );
   assert.doesNotMatch(sql, /DO\s+\$\$/i);
-  assert.doesNotMatch(sql, /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
 });

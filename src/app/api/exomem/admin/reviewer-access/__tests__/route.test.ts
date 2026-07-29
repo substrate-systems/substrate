@@ -5,6 +5,8 @@ const ADMIN_TOKEN = Buffer.alloc(32, 0x71).toString("base64url");
 const USERNAME = "exr_operator-reviewer-username-sentinel";
 const PASSWORD = "operator-reviewer-password-sentinel";
 const FIXTURE_PAYLOAD_DIGEST = "a".repeat(64);
+const OWNER_ID = "018f2d91-7c42-7000-8000-000000000011";
+const TENANT_ID = "018f2d91-7c42-7000-8000-000000000012";
 let created: Record<string, unknown> | null = null;
 let revoked: Record<string, unknown> | null = null;
 
@@ -90,8 +92,8 @@ describe("Exomem operator reviewer access", () => {
         authorization: `Bearer ${ADMIN_TOKEN}`,
         body: {
           provider: "openai",
-          ownerUserId: "018f2d91-7c42-7000-8000-000000000011",
-          tenantId: "018f2d91-7c42-7000-8000-000000000012",
+          ownerUserId: OWNER_ID,
+          tenantId: TENANT_ID,
           fixtureVersion: "review-fixture-v1",
           fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
           expiresAt: "2026-08-01T00:00:00.000Z",
@@ -107,6 +109,8 @@ describe("Exomem operator reviewer access", () => {
     assert.equal(created?.fixturePayloadDigest, FIXTURE_PAYLOAD_DIGEST);
     assert.equal(JSON.stringify(body).includes("owner-1"), false);
     assert.equal(JSON.stringify(body).includes("tenant-1"), false);
+    assert.equal(JSON.stringify(body).includes(OWNER_ID), false);
+    assert.equal(JSON.stringify(body).includes(TENANT_ID), false);
   });
 
   it("rejects missing or malformed fixture payload digests before credential persistence", async () => {

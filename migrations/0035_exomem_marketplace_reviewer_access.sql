@@ -4,6 +4,14 @@
 ALTER TABLE exomem_tenants
   ADD COLUMN marketplace_reviewer_purpose boolean NOT NULL DEFAULT false;
 
+ALTER TABLE exomem_invites
+  ADD COLUMN marketplace_reviewer_purpose boolean NOT NULL DEFAULT false;
+
+CREATE RULE exomem_tenants_reviewer_purpose_immutable AS
+  ON UPDATE TO exomem_tenants
+  WHERE NEW.marketplace_reviewer_purpose IS DISTINCT FROM OLD.marketplace_reviewer_purpose
+  DO INSTEAD NOTHING;
+
 CREATE TABLE exomem_marketplace_reviewer_credentials (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   provider text NOT NULL CHECK (provider IN ('openai', 'anthropic')),

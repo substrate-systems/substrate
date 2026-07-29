@@ -108,6 +108,7 @@ export async function issueOperatorInvite(
   input: {
     email: string;
     source: "complimentary" | "paid";
+    marketplaceReviewerPurpose?: boolean;
     expiresAt: Date;
     operatorPrincipalDigest: Buffer;
   },
@@ -137,6 +138,7 @@ export async function issueOperatorInvite(
     entitlementSource: input.source === "complimentary" ? "complimentary" : "paddle",
     capabilities: ALPHA_CAPABILITIES,
     resourceLimits: ALPHA_LIMITS,
+    marketplaceReviewerPurpose: input.marketplaceReviewerPurpose === true,
     operatorPrincipalDigest: input.operatorPrincipalDigest,
     expiresAt: input.expiresAt,
   });

@@ -26,10 +26,7 @@ test("reviewer credentials use opaque generated entropy and do not expose storag
 
 test("reviewer usernames normalize before their SHA-256 lookup digest", () => {
   assert.equal(normalizeMarketplaceReviewerUsername(" ExR_ABC "), "exr_abc");
-  assert.deepEqual(
-    reviewerUsernameDigest(" ExR_ABC "),
-    reviewerUsernameDigest("exr_abc")
-  );
+  assert.deepEqual(reviewerUsernameDigest(" ExR_ABC "), reviewerUsernameDigest("exr_abc"));
 });
 
 test("reviewer passwords are stored as bounded Argon2id hashes", async () => {
@@ -86,12 +83,42 @@ test("reviewer authentication defaults off and fails closed when either pre-KDF 
   );
   assert.equal(lookups, 0);
   assert.equal(marketplaceReviewerAccessEnabled({}), false);
-  assert.equal(marketplaceReviewerAccessEnabled({ EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true" }), true);
+  assert.equal(
+    marketplaceReviewerAccessEnabled({ EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true" }),
+    true
+  );
 });
 
 test("reviewer credential expiry must be a bounded future instant", () => {
   const now = new Date("2026-07-29T00:00:00.000Z");
   assert.throws(() => validateMarketplaceReviewerExpiry(new Date("2026-07-28T23:59:59.000Z"), now));
   assert.throws(() => validateMarketplaceReviewerExpiry(new Date("2026-10-28T00:00:00.001Z"), now));
-  assert.doesNotThrow(() => validateMarketplaceReviewerExpiry(new Date("2026-08-28T00:00:00.000Z"), now));
+  assert.doesNotThrow(() =>
+    validateMarketplaceReviewerExpiry(new Date("2026-08-28T00:00:00.000Z"), now)
+  );
+});
+
+test("successful reviewer authentication retains the credential expiry for derived session capping", async () => {
+  const passwordHash = await hashMarketplaceReviewerPassword("reviewer-password");
+  const authenticated = await authenticateMarketplaceReviewerCredential(
+    { username: "reviewer", password: "reviewer-password", clientAddress: "203.0.113.1" },
+    {
+      enabled: true,
+      takeRateLimit: async () => true,
+      lookup: async () => ({
+        credentialId: "credential-1",
+        provider: "openai",
+        ownerUserId: "owner-1",
+        tenantId: "tenant-1",
+        fixtureVersion: "review-fixture-v1",
+        passwordHash,
+        expiresAt: "2026-08-01T00:00:00.000Z",
+        revokedAt: null,
+      }),
+    }
+  );
+  assert.equal(
+    (authenticated as { expiresAt?: string } | null)?.expiresAt,
+    "2026-08-01T00:00:00.000Z"
+  );
 });
