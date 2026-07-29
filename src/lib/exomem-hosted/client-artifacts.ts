@@ -396,31 +396,80 @@ export async function demoteClientArtifact(
 export async function storeClientArtifact(input: unknown): Promise<string> {
   const artifact = parseClientArtifact(input);
   const source = input as Record<string, unknown>;
-  const locks = await loadClientArtifactLocks(artifact.platform, artifact.candidateId);
-  const evidence = validatePromotionEvidence(source.evidence, artifact.platform, locks);
-  const evidenceSha256 = promotionEvidenceDigest(evidence);
-  if (
-    artifact.evidenceSha256 !== evidenceSha256 ||
-    artifact.resultSha256 !== evidence.result_sha256 ||
-    artifact.packageSha256 !== evidence.package_artifact_sha256 ||
-    artifact.archiveSha256 !== evidence.archive_sha256 ||
-    artifact.compatibilitySha256 !== evidence.compatibility_sha256 ||
-    artifact.contractSha256 !== evidence.schema_contract_sha256 ||
-    artifact.pluginVersion !== evidence.plugin_version ||
-    artifact.clientIdentitySha256 !== evidence.clean_client_identity_hmac_sha256 ||
-    artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 ||
-    artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
-    artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256 ||
-    artifact.oauthClientConfigSha256 !== evidence.oauth_client_config_sha256
-  ) {
-    throw new Error("artifact fields do not match signed evidence");
-  }
-  const { rows } = await executeExomemSql`
-    /* exomem:store-client-artifact */
-    INSERT INTO exomem_client_artifacts (platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256, plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id, registered_app_id_sha256, oauth_client_config_sha256, observed_at)
-    VALUES (${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256}, ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion}, ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256}, ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256}, ${artifact.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.oauthClientConfigSha256}, ${artifact.observedAt}) RETURNING id
-  `;
-  const id = rows[0]?.id;
-  if (typeof id !== "string") throw new Error("client artifact insert returned no id");
-  return id;
+  return withExomemTransaction(async (transaction) => {
+    const locks = await loadClientArtifactLocks(
+      artifact.platform,
+      artifact.candidateId,
+      transaction
+    );
+    const evidence = validatePromotionEvidence(source.evidence, artifact.platform, locks);
+    const evidenceSha256 = promotionEvidenceDigest(evidence);
+    if (
+      artifact.evidenceSha256 !== evidenceSha256 ||
+      artifact.resultSha256 !== evidence.result_sha256 ||
+      artifact.packageSha256 !== evidence.package_artifact_sha256 ||
+      artifact.archiveSha256 !== evidence.archive_sha256 ||
+      artifact.compatibilitySha256 !== evidence.compatibility_sha256 ||
+      artifact.contractSha256 !== evidence.schema_contract_sha256 ||
+      artifact.pluginVersion !== evidence.plugin_version ||
+      artifact.clientIdentitySha256 !== evidence.clean_client_identity_hmac_sha256 ||
+      artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 ||
+      artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
+      artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256 ||
+      artifact.oauthClientConfigSha256 !== evidence.oauth_client_config_sha256
+    ) {
+      throw new Error("artifact fields do not match signed evidence");
+    }
+    const { rows: stageRows } = await transaction`
+      /* exomem:lock-staged-client-release-for-artifact */
+      SELECT stage.id::text AS id
+      FROM exomem_staged_client_releases AS stage
+      JOIN exomem_agent_contract_candidates AS candidate ON candidate.id = stage.candidate_id
+      WHERE candidate.id = ${artifact.candidateId}::uuid
+        AND candidate.profile_id = 'hosted-alpha-agent-v1'
+        AND candidate.state = 'pending'
+        AND candidate.created_at < ${artifact.observedAt}::timestamptz
+        AND stage.platform = ${artifact.platform} AND stage.state = 'staged'
+        AND stage.expires_at > now() AND stage.created_at < ${artifact.observedAt}::timestamptz
+        AND stage.package_sha256 = ${artifact.packageSha256}
+        AND stage.archive_sha256 = ${artifact.archiveSha256}
+        AND stage.compatibility_sha256 = ${artifact.compatibilitySha256}
+        AND stage.contract_sha256 = ${artifact.contractSha256}
+        AND stage.plugin_version = ${artifact.pluginVersion}
+        AND stage.oauth_client_config_sha256 = ${artifact.oauthClientConfigSha256}
+        AND stage.registered_app_id_sha256 IS NOT DISTINCT FROM ${locks.registeredAppIdSha256}
+      LIMIT 2
+      FOR UPDATE OF stage, candidate
+    `;
+    if (stageRows.length !== 1 || typeof stageRows[0]?.id !== "string")
+      throw new Error("artifact stage precondition failed");
+    const stageId = stageRows[0].id;
+    const { rows } = await transaction`
+      /* exomem:store-client-artifact */
+      INSERT INTO exomem_client_artifacts (
+        platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
+        plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256,
+        tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id,
+        registered_app_id_sha256, oauth_client_config_sha256, observed_at, staged_client_release_id
+      ) VALUES (
+        ${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256},
+        ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion},
+        ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256},
+        ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256},
+        ${artifact.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.oauthClientConfigSha256},
+        ${artifact.observedAt}, ${stageId}::uuid
+      ) RETURNING id
+    `;
+    const id = rows[0]?.id;
+    if (typeof id !== "string") throw new Error("client artifact insert returned no id");
+    const { rows: evidenced } = await transaction`
+      /* exomem:evidence-staged-client-release */
+      UPDATE exomem_staged_client_releases
+      SET state = 'evidenced', evidenced_at = now(), version = version + 1, updated_at = now()
+      WHERE id = ${stageId}::uuid AND state = 'staged'
+      RETURNING id
+    `;
+    if (evidenced.length !== 1) throw new Error("artifact stage precondition failed");
+    return id;
+  });
 }

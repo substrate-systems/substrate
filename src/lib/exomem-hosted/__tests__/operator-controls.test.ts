@@ -5,6 +5,7 @@ import {
   demoteOperatorClientArtifact,
   listOperatorClientArtifacts,
   listOperatorOAuthClients,
+  registerOperatorOAuthClient,
   revokeOperatorOAuthAccount,
   revokeOperatorOAuthFamily,
   setOperatorOAuthClientEnabled,
@@ -21,6 +22,29 @@ afterEach(() => {
 });
 
 describe("hosted operator controls", () => {
+  it("permits pending client registration only through an exact current staged declaration", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000091", enabled: false }] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    await registerOperatorOAuthClient({
+      admissionMode: "pinned",
+      platform: "claude",
+      clientId: "desktop-client",
+      redirectUris: ["https://app.example.test/callback"],
+      stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000090",
+    });
+
+    assert.match(queries[1]!, /exomem_staged_client_releases/i);
+    assert.match(queries[1]!, /state IN \('staged', 'evidenced'\)/i);
+    assert.match(queries[1]!, /expires_at > now\(\)/i);
+    assert.match(queries[1]!, /oauth_client_config_sha256/i);
+  });
+
   it("lists approved clients without returning their raw client identity or redirects", async () => {
     const controlPlaneKey = Buffer.alloc(32, 0x51);
     process.env.EXOMEM_CONTROL_PLANE_KEY = controlPlaneKey.toString("base64url");

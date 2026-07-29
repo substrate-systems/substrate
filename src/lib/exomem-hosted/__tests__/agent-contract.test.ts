@@ -203,7 +203,11 @@ describe("Exomem Hosted agent contracts", () => {
     __setExomemTransactionForTests(async (callback) => callback(sql));
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
     assert.match(queries[0], /load-client-artifact-contract-locks/i);
-    assert.match(queries[1], /INSERT INTO exomem_client_artifacts/i);
+    assert.match(queries[1], /FROM exomem_staged_client_releases/i);
+    assert.match(queries[1], /candidate\.created_at < \?::timestamptz/i);
+    assert.match(queries[1], /stage\.created_at < \?::timestamptz/i);
+    assert.match(queries[2], /INSERT INTO exomem_client_artifacts/i);
+    assert.match(queries[3], /SET state = 'evidenced'/i);
     assert.equal(
       await demoteClientArtifact("00000000-0000-0000-0000-000000000001", sha("9")),
       true
@@ -307,7 +311,7 @@ describe("Exomem Hosted agent contracts", () => {
       evidence,
     };
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const sql = async (strings: TemplateStringsArray) => {
       const query = strings.join("?");
       queries.push(query);
       if (/load-client-artifact-contract-locks/i.test(query))
@@ -321,7 +325,9 @@ describe("Exomem Hosted agent contracts", () => {
           ],
         };
       return { rows: [{ id: "openai-artifact-1" }] };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (callback) => callback(sql));
     assert.equal(
       await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature: importSignature }),
       true

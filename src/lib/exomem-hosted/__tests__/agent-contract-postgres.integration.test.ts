@@ -20,6 +20,7 @@ import {
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { storeClientArtifact } from "../client-artifacts";
+import { createStagedClientRelease } from "../agent-contract-canaries";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
@@ -229,6 +230,30 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       routable: true,
     });
     const candidateId = await storeExomemAgentContractCandidate();
+    const pendingCandidate = await pool!.query<{
+      state: string;
+      package_sha256: string;
+      archive_sha256: string;
+      compatibility_digest: string;
+      schema_digest: string;
+      plugin_version: string;
+    }>(
+      `SELECT state, claude_package_lock->>'artifact_sha256' AS package_sha256,
+              claude_archive_lock->>'archive_sha256' AS archive_sha256,
+              compatibility_digest, schema_digest, claude_package_lock->>'plugin_version' AS plugin_version
+       FROM exomem_agent_contract_candidates WHERE id = $1`,
+      [candidateId]
+    );
+    assert.deepEqual(pendingCandidate.rows, [
+      {
+        state: "pending",
+        package_sha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+        archive_sha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+        compatibility_digest: exomemHostedContractFixture.compatibility.compatibility_sha256,
+        schema_digest: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+        plugin_version: exomemHostedContractFixture.packageLock.plugin_version,
+      },
+    ]);
     const lockUnsigned = {
       candidateId,
       packageLock: testOnlyOpenAiLocks.packageLock,
@@ -239,6 +264,68 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       .update(canonical(lockUnsigned))
       .digest("hex");
     assert.equal(await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature }), true);
+    const stageCandidate = await pool!.query<{
+      pending: boolean;
+      compatibility: boolean;
+      contract: boolean;
+      package: boolean;
+      archive: boolean;
+      version: boolean;
+    }>(
+      `SELECT state = 'pending' AS pending,
+              compatibility_digest = $2 AS compatibility,
+              schema_digest = $3 AS contract,
+              claude_package_lock->>'artifact_sha256' = $4 AS package,
+              claude_archive_lock->>'archive_sha256' = $5 AS archive,
+              claude_package_lock->>'plugin_version' = $6 AS version
+       FROM exomem_agent_contract_candidates WHERE id = $1`,
+      [
+        candidateId,
+        exomemHostedContractFixture.compatibility.compatibility_sha256,
+        exomemHostedContractFixture.compatibility.schema_contract_sha256,
+        exomemHostedContractFixture.packageLock.artifact_sha256,
+        exomemHostedContractFixture.archiveLock.archive_sha256,
+        exomemHostedContractFixture.packageLock.plugin_version,
+      ]
+    );
+    assert.deepEqual(stageCandidate.rows, [
+      {
+        pending: true,
+        compatibility: true,
+        contract: true,
+        package: true,
+        archive: true,
+        version: true,
+      },
+    ]);
+    const stageExpiry = new Date(Date.now() + 60 * 60_000);
+    await createStagedClientRelease({
+      candidateId,
+      platform: "claude",
+      packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+      archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: null,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: stageExpiry,
+    });
+    await createStagedClientRelease({
+      candidateId,
+      platform: "openai",
+      packageSha256: testOnlyOpenAiLocks.packageLock.artifact_sha256,
+      archiveSha256: testOnlyOpenAiLocks.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: testOnlyOpenAiLocks.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: testOnlyOpenAiLocks.packageLock.registered_app_id_sha256,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: stageExpiry,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
     const makeArtifact = (
       platform: "claude" | "openai",
       signed: Record<string, unknown>,
@@ -336,6 +423,33 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       }),
       true
     );
+    await createStagedClientRelease({
+      candidateId: replacementCandidateId,
+      platform: "claude",
+      packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+      archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: null,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    await createStagedClientRelease({
+      candidateId: replacementCandidateId,
+      platform: "openai",
+      packageSha256: testOnlyOpenAiLocks.packageLock.artifact_sha256,
+      archiveSha256: testOnlyOpenAiLocks.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: testOnlyOpenAiLocks.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: testOnlyOpenAiLocks.packageLock.registered_app_id_sha256,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
     const replacementClaudeEvidence = evidence("claude", "integration-secret", randomUUID());
     const replacementOpenAiEvidence = evidence("openai", "integration-secret", randomUUID());
     const replacementClaudeId = await storeClientArtifact(
