@@ -12,6 +12,7 @@ CREATE TABLE exomem_marketplace_reviewer_credentials (
   owner_user_id uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   tenant_id uuid NOT NULL REFERENCES exomem_tenants(id) ON DELETE RESTRICT,
   fixture_version text NOT NULL,
+  fixture_payload_digest text NOT NULL CHECK (fixture_payload_digest ~ '^[0-9a-f]{64}$'),
   created_by_principal_digest bytea NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,

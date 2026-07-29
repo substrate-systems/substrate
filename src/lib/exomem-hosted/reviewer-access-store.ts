@@ -12,6 +12,7 @@ export type CreateMarketplaceReviewerCredentialInput = {
   ownerUserId: string;
   tenantId: string;
   fixtureVersion: string;
+  fixturePayloadDigest: string;
   expiresAt: Date;
   operatorPrincipalDigest: Buffer;
 };
@@ -19,6 +20,7 @@ export type CreateMarketplaceReviewerCredentialInput = {
 export type MarketplaceReviewerCredentialStatus = {
   provider: MarketplaceReviewerProvider;
   fixtureVersion: string;
+  fixturePayloadDigest: string;
   expiresAt: string;
   revokedAt: string | null;
 };
@@ -123,7 +125,7 @@ export async function createOrRotateMarketplaceReviewerCredentialAtomic(
       ), created AS (
         INSERT INTO exomem_marketplace_reviewer_credentials (
           provider, username_digest, password_hash, owner_user_id, tenant_id,
-          fixture_version, created_by_principal_digest, expires_at
+          fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
         )
         SELECT ${input.provider},
                ${input.usernameDigest},
@@ -131,6 +133,7 @@ export async function createOrRotateMarketplaceReviewerCredentialAtomic(
                target.owner_user_id,
                target.tenant_id,
                ${input.fixtureVersion},
+               ${input.fixturePayloadDigest},
                ${input.operatorPrincipalDigest},
                ${input.expiresAt.toISOString()}
         FROM target CROSS JOIN revocation_complete
@@ -270,7 +273,9 @@ export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
   csrfDigest: Buffer;
   expiresAt: Date;
 }): Promise<{ sessionId: string } | null> {
-  const { rows } = await executeExomemSql`
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await tx`
     /* exomem:create-marketplace-reviewer-oauth-session */
     WITH credential AS (
       SELECT credential.id, credential.owner_user_id, credential.tenant_id, credential.expires_at
@@ -307,14 +312,22 @@ export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
        AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
        AND (client.admission_mode = 'pinned' OR (
          client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
-         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
-         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+        AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+        AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
        ))
       CROSS JOIN credential
       WHERE transaction.transaction_digest = ${input.transactionDigest}
         AND transaction.consumed_at IS NULL
         AND transaction.expires_at > now()
-        AND client.client_platform = credential.provider
+        AND EXISTS (
+          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
+          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
+             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+        )
+        AND (
+          (credential.provider = 'anthropic' AND client.client_platform = 'claude')
+          OR (credential.provider = 'openai' AND client.client_platform = 'openai')
+        )
       FOR UPDATE OF transaction
     ), session AS (
       INSERT INTO exomem_sessions (
@@ -336,9 +349,10 @@ export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
       RETURNING transaction_row.id
     )
     SELECT session.id FROM session CROSS JOIN bound
-  `;
-  const row = rows[0] as { id?: string } | undefined;
-  return row?.id ? { sessionId: row.id } : null;
+    `;
+    const row = rows[0] as { id?: string } | undefined;
+    return row?.id ? { sessionId: row.id } : null;
+  });
 }
 
 export async function getMarketplaceReviewerCredentialStatus(
@@ -346,7 +360,7 @@ export async function getMarketplaceReviewerCredentialStatus(
 ): Promise<MarketplaceReviewerCredentialStatus | null> {
   const { rows } = await executeExomemSql`
     /* exomem:reviewer-credential-status */
-    SELECT provider, fixture_version, expires_at, revoked_at
+    SELECT provider, fixture_version, fixture_payload_digest, expires_at, revoked_at
     FROM exomem_marketplace_reviewer_credentials
     WHERE provider = ${provider}
     ORDER BY created_at DESC
@@ -356,10 +370,12 @@ export async function getMarketplaceReviewerCredentialStatus(
   return row &&
     (row.provider === "openai" || row.provider === "anthropic") &&
     typeof row.fixture_version === "string" &&
+    typeof row.fixture_payload_digest === "string" &&
     typeof row.expires_at === "string"
     ? {
         provider: row.provider,
         fixtureVersion: row.fixture_version,
+        fixturePayloadDigest: row.fixture_payload_digest,
         expiresAt: row.expires_at,
         revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : null,
       }
@@ -392,7 +408,10 @@ export async function bindMarketplaceReviewerCredentialToOAuthTransactionAtomic(
       AND session.revoked_at IS NULL
       AND session.expires_at > now()
       AND client.id = transaction.client_id
-      AND client.client_platform = credential.provider
+      AND (
+        (credential.provider = 'anthropic' AND client.client_platform = 'claude')
+        OR (credential.provider = 'openai' AND client.client_platform = 'openai')
+      )
       AND tenant.id = credential.tenant_id
       AND tenant.owner_user_id = credential.owner_user_id
       AND tenant.marketplace_reviewer_purpose = true

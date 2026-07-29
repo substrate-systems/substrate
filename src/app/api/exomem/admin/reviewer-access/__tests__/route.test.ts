@@ -4,6 +4,7 @@ import { after, before, beforeEach, describe, it, mock } from "node:test";
 const ADMIN_TOKEN = Buffer.alloc(32, 0x71).toString("base64url");
 const USERNAME = "exr_operator-reviewer-username-sentinel";
 const PASSWORD = "operator-reviewer-password-sentinel";
+const FIXTURE_PAYLOAD_DIGEST = "a".repeat(64);
 let created: Record<string, unknown> | null = null;
 let revoked: Record<string, unknown> | null = null;
 
@@ -28,6 +29,7 @@ before(() => {
       getMarketplaceReviewerCredentialStatus: async () => ({
         provider: "openai",
         fixtureVersion: "review-fixture-v1",
+        fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
         expiresAt: "2026-08-01T00:00:00.000Z",
         revokedAt: null,
       }),
@@ -91,6 +93,7 @@ describe("Exomem operator reviewer access", () => {
           ownerUserId: "018f2d91-7c42-7000-8000-000000000011",
           tenantId: "018f2d91-7c42-7000-8000-000000000012",
           fixtureVersion: "review-fixture-v1",
+          fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
           expiresAt: "2026-08-01T00:00:00.000Z",
         },
       })
@@ -101,8 +104,30 @@ describe("Exomem operator reviewer access", () => {
     assert.deepEqual(body.credentials, { username: USERNAME, password: PASSWORD });
     assert.equal(created?.passwordHash, "$argon2id$operator-test");
     assert.equal(created?.usernameDigest instanceof Buffer, true);
+    assert.equal(created?.fixturePayloadDigest, FIXTURE_PAYLOAD_DIGEST);
     assert.equal(JSON.stringify(body).includes("owner-1"), false);
     assert.equal(JSON.stringify(body).includes("tenant-1"), false);
+  });
+
+  it("rejects missing or malformed fixture payload digests before credential persistence", async () => {
+    const { POST } = await import("../route");
+    for (const fixturePayloadDigest of [undefined, "A".repeat(64), "a".repeat(63)]) {
+      const response = await POST(
+        request("POST", {
+          authorization: `Bearer ${ADMIN_TOKEN}`,
+          body: {
+            provider: "openai",
+            ownerUserId: "018f2d91-7c42-7000-8000-000000000011",
+            tenantId: "018f2d91-7c42-7000-8000-000000000012",
+            fixtureVersion: "review-fixture-v1",
+            ...(fixturePayloadDigest === undefined ? {} : { fixturePayloadDigest }),
+            expiresAt: "2026-08-01T00:00:00.000Z",
+          },
+        })
+      );
+      assert.equal(response.status, 400);
+      assert.equal(created, null);
+    }
   });
 
   it("returns only sanitized status and revokes idempotently", async () => {
@@ -114,6 +139,7 @@ describe("Exomem operator reviewer access", () => {
     assert.deepEqual((await status.json()).status, {
       provider: "openai",
       fixtureVersion: "review-fixture-v1",
+      fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
       expiresAt: "2026-08-01T00:00:00.000Z",
       revokedAt: null,
     });

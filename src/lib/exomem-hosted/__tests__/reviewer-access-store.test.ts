@@ -35,6 +35,7 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
     ownerUserId: "owner-1",
     tenantId: "tenant-1",
     fixtureVersion: "review-fixture-v1",
+    fixturePayloadDigest: "a".repeat(64),
     expiresAt: new Date("2026-08-01T00:00:00.000Z"),
     operatorPrincipalDigest: Buffer.alloc(32, 2),
   });
@@ -53,6 +54,7 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
   assert.match(query, /exomem_oauth_account_blocks/i);
   assert.match(query, /UPDATE exomem_marketplace_reviewer_credentials/i);
   assert.match(query, /INSERT INTO exomem_marketplace_reviewer_credentials/i);
+  assert.match(query, /fixture_payload_digest/i);
   assert.match(query, /UPDATE exomem_oauth_grants/i);
   assert.match(query, /grants_revoked[\s\S]*reviewer_transactions/i);
   assert.match(query, /revocation_complete[\s\S]*access_revoked/i);
@@ -79,6 +81,7 @@ test("an unusable rotation target cannot revoke the current provider credential"
       ownerUserId: "unusable-owner",
       tenantId: "unusable-tenant",
       fixtureVersion: "review-fixture-v1",
+      fixturePayloadDigest: "a".repeat(64),
       expiresAt: new Date("2026-08-01T00:00:00.000Z"),
       operatorPrincipalDigest: Buffer.alloc(32, 2),
     }),
@@ -91,7 +94,7 @@ test("an unusable rotation target cannot revoke the current provider credential"
   assert.match(query, /credential_revoked AS \([\s\S]*?FROM prior/i);
 });
 
-test("reviewer OAuth binding requires the matching trusted client platform", async () => {
+test("reviewer OAuth binding maps Anthropic to Claude and excludes cross-provider clients", async () => {
   let query = "";
   setSql(async (strings) => {
     query = strings.join("?");
@@ -107,7 +110,10 @@ test("reviewer OAuth binding requires the matching trusted client platform", asy
     true
   );
   assert.match(query, /transaction\.transaction_digest = \?/i);
-  assert.match(query, /client\.client_platform = credential\.provider/i);
+  assert.match(
+    query,
+    /\(credential\.provider = 'anthropic' AND client\.client_platform = 'claude'\)[\s\S]*\(credential\.provider = 'openai' AND client\.client_platform = 'openai'\)/i
+  );
   assert.match(query, /session\.reviewer_credential_id = credential\.id/i);
   assert.match(query, /transaction\.consumed_at IS NULL/i);
 });
@@ -138,9 +144,9 @@ test("reviewer sessions are tagged to the credential without provisioning", asyn
 });
 
 test("reviewer OAuth session creation atomically binds the matching provider transaction", async () => {
-  let query = "";
+  const queries: string[] = [];
   setSql(async (strings) => {
-    query = strings.join("?");
+    queries.push(strings.join("?"));
     return { rows: [{ id: "session-1" }] };
   });
 
@@ -154,10 +160,24 @@ test("reviewer OAuth session creation atomically binds the matching provider tra
     }),
     { sessionId: "session-1" }
   );
+  const query = queries.join("\n");
   assert.match(query, /INSERT INTO exomem_sessions/i);
   assert.match(query, /UPDATE exomem_oauth_authorization_transactions/i);
-  assert.match(query, /client\.client_platform = credential\.provider/i);
+  assert.match(
+    query,
+    /\(credential\.provider = 'anthropic' AND client\.client_platform = 'claude'\)[\s\S]*\(credential\.provider = 'openai' AND client\.client_platform = 'openai'\)/i
+  );
   assert.match(query, /reviewer_credential_id = credential\.id/i);
+  assert.match(query, /pg_advisory_xact_lock_shared\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+  assert.match(query, /exomem_hosted_alpha_cohort/i);
+  assert.match(
+    query,
+    /client\.oauth_client_config_sha256 = cohort\.claude_oauth_client_config_sha256/i
+  );
+  assert.match(
+    query,
+    /client\.oauth_client_config_sha256 = cohort\.openai_oauth_client_config_sha256/i
+  );
   assert.doesNotMatch(
     query,
     /INSERT INTO users|INSERT INTO exomem_tenants|INSERT INTO exomem_entitlements|INSERT INTO exomem_cells/i
@@ -179,6 +199,7 @@ test("credential creation rejects an unbounded expiry before mutating reviewer s
       ownerUserId: "owner-1",
       tenantId: "tenant-1",
       fixtureVersion: "review-fixture-v1",
+      fixturePayloadDigest: "a".repeat(64),
       expiresAt: new Date("2099-01-01T00:00:00.000Z"),
       operatorPrincipalDigest: Buffer.alloc(32, 2),
     })
@@ -197,6 +218,7 @@ test("status is sanitized and revocation is idempotent without an account block"
           {
             provider: "openai",
             fixture_version: "review-fixture-v1",
+            fixture_payload_digest: "a".repeat(64),
             expires_at: "2026-08-01T00:00:00.000Z",
             revoked_at: null,
           },
@@ -210,10 +232,11 @@ test("status is sanitized and revocation is idempotent without an account block"
   assert.deepEqual(status, {
     provider: "openai",
     fixtureVersion: "review-fixture-v1",
+    fixturePayloadDigest: "a".repeat(64),
     expiresAt: "2026-08-01T00:00:00.000Z",
     revokedAt: null,
   });
-  assert.equal(JSON.stringify(status).includes("digest"), false);
+  assert.equal(JSON.stringify(status).includes("password"), false);
   assert.equal(
     await revokeMarketplaceReviewerCredentialAtomic({
       provider: "openai",

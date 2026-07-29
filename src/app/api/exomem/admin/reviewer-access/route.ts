@@ -22,6 +22,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 function provider(value: unknown): MarketplaceReviewerProvider | null {
   return value === "openai" || value === "anthropic" ? value : null;
@@ -56,6 +57,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       typeof body.fixtureVersion !== "string" ||
       !body.fixtureVersion.trim() ||
       body.fixtureVersion.length > 128 ||
+      typeof body.fixturePayloadDigest !== "string" ||
+      !SHA256_HEX.test(body.fixturePayloadDigest) ||
       typeof body.expiresAt !== "string"
     ) {
       throw exomemErrors.invalidRequest();
@@ -69,6 +72,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ownerUserId: body.ownerUserId,
       tenantId: body.tenantId,
       fixtureVersion: body.fixtureVersion.trim(),
+      fixturePayloadDigest: body.fixturePayloadDigest,
       expiresAt,
       operatorPrincipalDigest: operator.principalDigest,
     });
@@ -79,6 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         success: true,
         provider: selected,
         fixtureVersion: body.fixtureVersion.trim(),
+        fixturePayloadDigest: body.fixturePayloadDigest,
         expiresAt: expiresAt.toISOString(),
         credentials: { username: credential.username, password: credential.password },
         requestId,
