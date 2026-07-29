@@ -623,7 +623,9 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.ok(await findMcpOAuthAccessToken(digest(270)));
 
     await pool!.query(
-      "UPDATE exomem_marketplace_reviewer_credentials SET expires_at = now() - interval '1 second' WHERE id = $1",
+      `UPDATE exomem_marketplace_reviewer_credentials
+       SET created_at = now() - interval '2 seconds', expires_at = now() - interval '1 second'
+       WHERE id = $1`,
       [reviewerId]
     );
     assert.equal(await findActiveOAuthAccessToken(digest(270)), null);
