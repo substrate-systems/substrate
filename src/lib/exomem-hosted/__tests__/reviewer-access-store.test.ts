@@ -161,6 +161,10 @@ test("reviewer OAuth session creation atomically binds the matching provider tra
     { sessionId: "session-1" }
   );
   const query = queries.join("\n");
+  assert.match(
+    query,
+    /SELECT credential\.id, credential\.owner_user_id, credential\.tenant_id, credential\.expires_at, credential\.provider/i
+  );
   assert.match(query, /INSERT INTO exomem_sessions/i);
   assert.match(query, /UPDATE exomem_oauth_authorization_transactions/i);
   assert.match(

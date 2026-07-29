@@ -278,7 +278,7 @@ export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
     const { rows } = await tx`
     /* exomem:create-marketplace-reviewer-oauth-session */
     WITH credential AS (
-      SELECT credential.id, credential.owner_user_id, credential.tenant_id, credential.expires_at
+      SELECT credential.id, credential.owner_user_id, credential.tenant_id, credential.expires_at, credential.provider
       FROM exomem_marketplace_reviewer_credentials AS credential
       JOIN users ON users.id = credential.owner_user_id AND users.deleted_at IS NULL
       JOIN exomem_tenants AS tenant
