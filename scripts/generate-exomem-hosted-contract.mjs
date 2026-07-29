@@ -2,15 +2,22 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
 
 const PROFILE = "hosted-alpha-agent-v1";
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
-const RELEASE_COMMIT = "253c9aa365d7afd8829dc7843f1cac53353ac825";
-const RELEASE_ARCHIVE_SHA256 = "ca5cac5ada03c02642b64906acb2dfad2faeda3d25eb7110446c55b213cd32c9";
+const RELEASES = {
+  "253c9aa365d7afd8829dc7843f1cac53353ac825": {
+    sourceRelease: "0.34.0",
+    archiveSha256: "ca5cac5ada03c02642b64906acb2dfad2faeda3d25eb7110446c55b213cd32c9",
+  },
+  d4c5614e5f65d8bcbddee90e9e374846c5a2c22f: {
+    sourceRelease: "0.35.0",
+  },
+};
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -173,6 +180,8 @@ const args = argumentsFrom(process.argv.slice(2));
 const repoArg = args.get("exomem-repo");
 const outputArg = args.get("output");
 const jsonOutputArg = args.get("json-output");
+const gatewayOutputArg = args.get("gateway-output");
+const gatewayJsonOutputArg = args.get("gateway-json-output");
 const archiveArg = args.get("archive-file");
 const expectedCommit = args.get("expected-commit") ?? "";
 const sourceRelease = args.get("source-release") ?? "";
@@ -187,15 +196,21 @@ if (
     "required: --exomem-repo PATH --output PATH --json-output PATH --expected-commit FULL_SHA --source-release VERSION"
   );
 }
-if (expectedCommit !== RELEASE_COMMIT)
-  fail("generator only accepts the pinned Exomem release commit");
+const release = RELEASES[expectedCommit];
+if (!release || release.sourceRelease !== sourceRelease)
+  fail("generator only accepts a pinned Exomem release and its exact source release");
+if (Boolean(gatewayOutputArg) !== Boolean(gatewayJsonOutputArg))
+  fail("full gateway output requires both --gateway-output and --gateway-json-output");
 const repo = resolve(repoArg);
 const output = resolve(outputArg);
 const jsonOutput = resolve(jsonOutputArg);
+const gatewayOutput = gatewayOutputArg ? resolve(gatewayOutputArg) : null;
+const gatewayJsonOutput = gatewayJsonOutputArg ? resolve(gatewayJsonOutputArg) : null;
 const archiveBytes = archiveArg ? readFileSync(resolve(archiveArg)) : null;
 if (
   archiveBytes &&
-  createHash("sha256").update(archiveBytes).digest("hex") !== RELEASE_ARCHIVE_SHA256
+  (!release.archiveSha256 ||
+    createHash("sha256").update(archiveBytes).digest("hex") !== release.archiveSha256)
 ) {
   fail("archive does not match the reviewed pinned SHA-256");
 }
@@ -218,6 +233,94 @@ const sourceBlob = (path) =>
   archive
     ? (archive.files.get(path) ?? fail(`archive is missing ${path}`))
     : gitBlob(repo, expectedCommit, path);
+
+function pythonExecutable(sourceRepo) {
+  const candidates =
+    process.platform === "win32"
+      ? [join(sourceRepo, ".venv", "Scripts", "python.exe"), "python"]
+      : [join(sourceRepo, ".venv", "bin", "python"), "python3", "python"];
+  return candidates.find(
+    (candidate) => candidate === "python" || candidate === "python3" || existsSync(candidate)
+  );
+}
+
+function generatedFullGatewayContract() {
+  if (archive) fail("full gateway fixture generation requires a clean Exomem checkout");
+  const python = pythonExecutable(repo);
+  if (!python) fail("Exomem checkout has no Python executable for full gateway generation");
+  let bytes;
+  try {
+    bytes = execFileSync(
+      python,
+      [
+        "-c",
+        "import json; from exomem.hosted_gateway import build_gateway_contract; print(json.dumps(build_gateway_contract(), sort_keys=True))",
+      ],
+      { cwd: repo, env: { ...process.env, PYTHONPATH: join(repo, "src") } }
+    );
+  } catch {
+    fail("could not build the full private gateway contract from the pinned Exomem checkout");
+  }
+  return object(readJson(bytes, "full gateway contract"), "full gateway contract");
+}
+
+function gatewayFixture(value) {
+  const digest = object(value.digest, "full gateway contract digest");
+  if (
+    value.schema_version !== 1 ||
+    value.exomem_release !== sourceRelease ||
+    typeof value.protocol_version !== "string" ||
+    digest.algorithm !== "sha256" ||
+    !Array.isArray(value.commands)
+  ) {
+    fail("full gateway contract has an invalid release identity");
+  }
+  const unsigned = { ...value };
+  delete unsigned.digest;
+  if (canonicalSha256(unsigned) !== sha256(digest.value, "full gateway contract digest"))
+    fail("full gateway contract digest does not match committed content");
+  const commands = value.commands.map((raw) => {
+    const command = object(raw, "full gateway command");
+    if (
+      typeof command.name !== "string" ||
+      typeof command.read_only !== "boolean" ||
+      (command.mode !== "read" && command.mode !== "write") ||
+      command.read_only !== (command.mode === "read") ||
+      !Number.isInteger(command.tier) ||
+      typeof command.capability !== "string" ||
+      !Array.isArray(command.params) ||
+      !Array.isArray(command.guarded_fields)
+    ) {
+      fail("full gateway contract has an invalid semantic command");
+    }
+    return [
+      command.name,
+      command.read_only,
+      command.mode,
+      command.tier,
+      command.capability,
+      command.params.map((rawParameter) => {
+        const parameter = object(rawParameter, "full gateway parameter");
+        if (
+          typeof parameter.name !== "string" ||
+          typeof parameter.type !== "string" ||
+          typeof parameter.required !== "boolean"
+        ) {
+          fail("full gateway contract has an invalid semantic parameter");
+        }
+        return [parameter.name, parameter.type, parameter.required];
+      }),
+      command.guarded_fields,
+    ];
+  });
+  return {
+    sourceCommit: expectedCommit,
+    release: sourceRelease,
+    protocol: value.protocol_version,
+    digest: digest.value,
+    commands,
+  };
+}
 
 const generated = "plugins/hosted/generated";
 const compatibility = object(
@@ -295,10 +398,12 @@ if (
 ) {
   fail("agent profile fingerprint does not match committed profile metadata");
 }
-const { digest: _contractDigest, ...contractBase } = agentContract;
+const contractBase = { ...agentContract };
+delete contractBase.digest;
 if (canonicalSha256(contractBase) !== digest.value)
   fail("agent contract schema digest does not match its raw schema");
-const { compatibility_sha256: _compatibilityDigest, ...compatibilityBase } = compatibility;
+const compatibilityBase = { ...compatibility };
+delete compatibilityBase.compatibility_sha256;
 if (canonicalSha256(compatibilityBase) !== compatibility.compatibility_sha256)
   fail("compatibility digest does not match committed content");
 for (const [key, expected] of Object.entries({
@@ -360,3 +465,13 @@ const json = `${JSON.stringify(fixture, null, 2)}\n`;
 const source = `// Generated from Exomem compatibility.json at commit ${expectedCommit} for cell release ${sourceRelease}. Do not edit.\nexport const exomemHostedContractFixture = ${JSON.stringify(fixture, null, 2)} as const;\n`;
 writeFileSync(output, source, { encoding: "utf8", mode: 0o644 });
 writeFileSync(jsonOutput, json, { encoding: "utf8", mode: 0o644 });
+if (gatewayOutput && gatewayJsonOutput) {
+  const fullContract = generatedFullGatewayContract();
+  const fullFixture = gatewayFixture(fullContract);
+  const gatewaySource = `// Generated from Exomem ${sourceRelease} commit ${expectedCommit} build_gateway_contract(); semantic fields only. Do not edit.\nexport type ExomemContractCommandFixture = readonly [\n  name: string,\n  readOnly: boolean,\n  mode: "read" | "write",\n  tier: number,\n  capability: string,\n  params: readonly (readonly [name: string, type: string, required: boolean])[],\n  guardedFields: readonly string[],\n];\n\nconst commands = ${JSON.stringify(fullFixture.commands, null, 2)} as const satisfies readonly ExomemContractCommandFixture[];\n\nexport const exomemContractFixture${sourceRelease.replaceAll(".", "")} = {\n  sourceCommit: ${JSON.stringify(fullFixture.sourceCommit)},\n  release: ${JSON.stringify(fullFixture.release)},\n  protocol: ${JSON.stringify(fullFixture.protocol)},\n  digest: ${JSON.stringify(fullFixture.digest)},\n  commands,\n} as const;\n`;
+  writeFileSync(gatewayOutput, gatewaySource, { encoding: "utf8", mode: 0o644 });
+  writeFileSync(gatewayJsonOutput, `${JSON.stringify(fullContract, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o644,
+  });
+}

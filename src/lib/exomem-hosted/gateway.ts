@@ -6,7 +6,10 @@ import {
 } from "./cloudflare-access";
 import { resolveGatewayTarget, type GatewayTarget } from "./db";
 import { exomemErrors } from "./errors";
-import { exomemContractFixture0240 } from "./gateway-contract-0-24-0";
+import { exomemHostedContractFixture as agentFixture0340 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0350 } from "./agent-contract-fixture-0-35-0";
+import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
+import { exomemContractFixture0350 } from "./gateway-contract-0-35-0";
 import {
   decryptSecret,
   opaquePrincipalScope,
@@ -226,14 +229,30 @@ function safeJsonObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function contractFixture(target: GatewayTarget): typeof exomemContractFixture0240 {
-  if (
-    target.releaseVersion !== exomemContractFixture0240.release ||
-    target.protocolVersion !== exomemContractFixture0240.protocol
-  ) {
-    throw exomemErrors.protocolMismatch();
-  }
-  return exomemContractFixture0240;
+const gatewayContractCatalog = Object.freeze([
+  Object.freeze({ full: exomemContractFixture0340, agent: agentFixture0340 }),
+  Object.freeze({ full: exomemContractFixture0350, agent: agentFixture0350 }),
+]);
+
+function contractFixture(
+  target: GatewayTarget,
+  expected?: ExpectedHostedContract
+): (typeof gatewayContractCatalog)[number]["full"] {
+  const matches = gatewayContractCatalog.filter(
+    ({ full, agent }) =>
+      target.releaseVersion === full.release &&
+      target.protocolVersion === full.protocol &&
+      (!expected ||
+        (expected.sourceRelease === full.release &&
+          expected.protocolVersion === full.protocol &&
+          agent.sourceRelease === full.release &&
+          agent.compatibility.agent_contract.protocol_version === full.protocol &&
+          agent.compatibility.command_surface_sha256 === expected.commandFingerprint &&
+          agent.compatibility.schema_contract_sha256 === expected.schemaDigest &&
+          agent.compatibility.compatibility_sha256 === expected.compatibilityDigest))
+  );
+  if (matches.length !== 1) throw exomemErrors.protocolMismatch();
+  return matches[0]!.full;
 }
 
 function semanticProjection(commands: HostedContractCommand[]): unknown {
@@ -306,10 +325,7 @@ function parseContract(value: unknown, target: GatewayTarget): HostedContract {
     });
     const guardedFields = command.guarded_fields;
     if (
-      guardedFields.some(
-        (field) =>
-          typeof field !== "string" || !COMMAND_NAME.test(field) || !parameterNames.has(field)
-      ) ||
+      guardedFields.some((field) => typeof field !== "string" || !COMMAND_NAME.test(field)) ||
       new Set(guardedFields).size !== guardedFields.length
     ) {
       throw exomemErrors.cellResponseInvalid();
@@ -729,6 +745,7 @@ export async function routeExomemCommand(input: {
   if (dependencies.signal?.aborted) throw exomemErrors.cellUnavailable();
   if (input.hostedContract) {
     const expected = input.hostedContract;
+    contractFixture(target.row, expected);
     if (
       target.row.hostedProfile !== expected.profile ||
       target.row.hostedSourceRelease !== expected.sourceRelease ||

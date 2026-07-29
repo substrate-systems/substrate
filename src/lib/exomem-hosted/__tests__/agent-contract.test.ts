@@ -8,6 +8,7 @@ import {
   type ExomemTransaction,
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import {
   attachOpenAiContractLocks,
   promoteExomemHostedCohort,
@@ -65,6 +66,20 @@ describe("Exomem Hosted agent contracts", () => {
       exomemHostedContractFixture.compatibility.agent_contract.commands.map(
         (command) => command.name
       )
+    );
+  });
+
+  it("keeps the 0.35 candidate fixture as a distinct exact release unit", () => {
+    assert.equal(candidateFixture0350.sourceCommit, "d4c5614e5f65d8bcbddee90e9e374846c5a2c22f");
+    assert.equal(candidateFixture0350.sourceRelease, "0.35.0");
+    assert.notEqual(
+      candidateFixture0350.compatibility.schema_contract_sha256,
+      exomemHostedContractFixture.compatibility.schema_contract_sha256
+    );
+    const { digest, ...rawAgentContract } = candidateFixture0350.compatibility.agent_contract;
+    assert.equal(
+      createHash("sha256").update(canonical(rawAgentContract)).digest("hex"),
+      digest.value
     );
   });
 
