@@ -293,6 +293,54 @@ describe("registry-derived Exomem gateway", () => {
     );
   });
 
+  it("rejects an unsupported profile with otherwise exact live 0.34 locks", async () => {
+    const hosted = { ...LIVE_HOSTED_CONTRACT, profile: "unsupported-agent-profile" };
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-profile-split",
+      endpoint: "https://cell-profile-split.internal/",
+      hosted,
+    });
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "profile split" },
+        command: {
+          name: "ask_memory",
+          params: [{ name: "query", type: "str", required: false }],
+          read_only: true,
+          mode: "read",
+          tier: 1,
+          capability: "core",
+          guarded_fields: [],
+        },
+        hostedContract: hosted,
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) =>
+            String(input).endsWith("/contract")
+              ? Response.json({
+                  agent_profile: {
+                    profile: hosted.profile,
+                    active_capability_sha256: hosted.commandFingerprint,
+                  },
+                  exomem_release: hosted.sourceRelease,
+                  protocol_version: hosted.protocolVersion,
+                  digest: { value: hosted.schemaDigest },
+                })
+              : Response.json({ success: true, data: {} }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_PROTOCOL_MISMATCH"
+    );
+  });
+
   it("accepts the exact hosted private profile-contract response shape", async () => {
     const hosted = LIVE_HOSTED_CONTRACT;
     const row = target({

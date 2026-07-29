@@ -246,6 +246,7 @@ function contractFixture(
         (expected.sourceRelease === full.release &&
           expected.protocolVersion === full.protocol &&
           agent.sourceRelease === full.release &&
+          agent.compatibility.agent_contract.agent_profile.profile === expected.profile &&
           agent.compatibility.agent_contract.protocol_version === full.protocol &&
           agent.compatibility.command_surface_sha256 === expected.commandFingerprint &&
           agent.compatibility.schema_contract_sha256 === expected.schemaDigest &&
