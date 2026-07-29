@@ -368,6 +368,23 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       operatorPrincipalDigest: sha("9"),
       expiresAt: stageExpiry,
     });
+    const staleOpenAiStage = await createStagedClientRelease({
+      candidateId,
+      platform: "openai",
+      packageSha256: testOnlyOpenAiLocks.packageLock.artifact_sha256,
+      archiveSha256: testOnlyOpenAiLocks.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: testOnlyOpenAiLocks.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: testOnlyOpenAiLocks.packageLock.registered_app_id_sha256,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: stageExpiry,
+    });
+    await pool!.query(
+      "UPDATE exomem_staged_client_releases SET state = 'failed', ended_at = now(), version = version + 1 WHERE id = $1",
+      [staleOpenAiStage.id]
+    );
     const openAiStage = await createStagedClientRelease({
       candidateId,
       platform: "openai",
@@ -424,6 +441,44 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       [authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
         openAiCanaryClient.rows[0]!.id, openAiCanaryCredential.rows[0]!.id, candidateId,
         assignment.id, assignment.generation, openAiStage.id]
+    );
+    const staleCanaryCredential = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_marketplace_reviewer_credentials (
+         provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id,
+         fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
+       ) VALUES ('openai', 'internal_canary', decode($1, 'hex'), '$argon2id$integration', $2, $3,
+                 $4, $5, $6, $7, $8, 'stale-stage', $9, decode($10, 'hex'),
+                 now() + interval '1 hour') RETURNING id`,
+      [sha("e"), authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
+        candidateId, assignment.id, assignment.generation, staleOpenAiStage.id, (await pool!.query<{ id: string }>(
+          `INSERT INTO exomem_oauth_clients (
+             client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+             client_platform, oauth_client_config_sha256
+           ) VALUES ($1, 'pinned', false, '["https://stale.example.test/callback"]'::jsonb,
+                     digest(convert_to('["https://stale.example.test/callback"]', 'utf8'), 'sha256'),
+                     'openai', $2) RETURNING id`,
+          [`stale-openai-${randomUUID()}`, sha("a")]
+        )).rows[0]!.id,
+        sha("f"), sha("1")]
+    );
+    const staleCanaryFamily = await pool!.query<{ id: string; grant_id: string }>(
+      `WITH grant_row AS (
+         INSERT INTO exomem_oauth_grants (
+           user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
+           candidate_id, assignment_id, assignment_generation, staged_client_release_id
+         ) VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1',
+                   ARRAY['exomem.read'], true, $4, $5, $6, $7, $8) RETURNING id
+       ) INSERT INTO exomem_oauth_token_families (
+         grant_id, client_id, expires_at, candidate_id, assignment_id, assignment_generation,
+         staged_client_release_id, reviewer_credential_id
+       ) SELECT id, $3, now() + interval '1 hour', $5, $6, $7, $8, $4 FROM grant_row RETURNING id, grant_id`,
+      [authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
+        (await pool!.query<{ oauth_client_id: string }>(
+          "SELECT oauth_client_id FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+          [staleCanaryCredential.rows[0]!.id]
+        )).rows[0]!.oauth_client_id, staleCanaryCredential.rows[0]!.id, candidateId,
+        assignment.id, assignment.generation, staleOpenAiStage.id]
     );
     await new Promise((resolve) => setTimeout(resolve, 10));
     const makeArtifact = (platform: "claude" | "openai", signed: Record<string, unknown>) => ({
@@ -511,6 +566,23 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         openaiEvidence: openAiEvidence,
       }),
       "promoted"
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT grant_row.revoked_at IS NOT NULL AS grant_revoked,
+                  family.revoked_at IS NOT NULL AS family_revoked
+           FROM exomem_oauth_grants AS grant_row
+           JOIN exomem_oauth_token_families AS family ON family.id = $2
+           WHERE grant_row.id = $1`,
+          [staleCanaryFamily.rows[0]!.grant_id, staleCanaryFamily.rows[0]!.id]
+        )
+      ).rows[0],
+      { grant_revoked: true, family_revoked: true }
+    );
+    assert.equal(
+      (await pool!.query("SELECT revoked_at FROM exomem_oauth_token_families WHERE id = $1", [openAiCanaryFamily.rows[0]!.id])).rows[0]?.revoked_at,
+      null
     );
     assert.deepEqual((await getLiveExomemAgentContract())?.mcpProtocolVersions, [
       "2025-11-25",

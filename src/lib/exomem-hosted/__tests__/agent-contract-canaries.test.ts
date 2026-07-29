@@ -15,6 +15,7 @@ const tenantId = "018f2d91-7c42-7000-8000-000000000071";
 const candidateId = "018f2d91-7c42-7000-8000-000000000072";
 const assignmentId = "018f2d91-7c42-7000-8000-000000000073";
 const declarationId = "018f2d91-7c42-7000-8000-000000000074";
+const oauthClientId = "018f2d91-7c42-7000-8000-000000000075";
 const sha = (character: string) => character.repeat(64);
 
 afterEach(() => {
@@ -36,6 +37,7 @@ describe("Hosted canary assignments", () => {
       assignmentId,
       assignmentGeneration: 2,
       stagedClientReleaseId: declarationId,
+      oauthClientId,
     });
 
     assert.equal(revoked, 1);
@@ -43,6 +45,7 @@ describe("Hosted canary assignments", () => {
     assert.match(query, /grant_row\.tenant_id = \?::uuid/i);
     assert.match(query, /grant_row\.candidate_id IS DISTINCT FROM \?::uuid/i);
     assert.match(query, /assignment_generation IS DISTINCT FROM \?::bigint/i);
+    assert.match(query, /grant_row\.client_id IS DISTINCT FROM \?::uuid/i);
     assert.match(query, /reviewer_credential_id IN \(SELECT id FROM conflicting_credentials\)/i);
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
     assert.match(query, /UPDATE exomem_oauth_access_tokens/i);
@@ -146,6 +149,7 @@ describe("Hosted canary assignments", () => {
               assignment_id: assignmentId,
               assignment_generation: 2,
               staged_client_release_id: declarationId,
+              oauth_client_id: oauthClientId,
             },
           ],
         };

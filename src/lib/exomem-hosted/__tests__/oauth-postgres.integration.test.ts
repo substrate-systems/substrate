@@ -1945,6 +1945,22 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
        VALUES ($1, $2, $3, $4, ARRAY['exomem.read']) RETURNING id`,
       [unrelatedUser.rows[0].id, unrelatedTenant.rows[0].id, legacyClient.rows[0].id, resource]
     );
+    const mismatchedClientGrant = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_grants (
+         user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id
+       ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5, $6, $7, 1, $8) RETURNING id`,
+      [user.rows[0].id, tenant.rows[0].id, (await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
+           oauth_client_config_sha256
+         ) VALUES ($1, 'pinned', false, '["https://mismatch.example.test/callback"]'::jsonb,
+                   digest(convert_to('["https://mismatch.example.test/callback"]', 'utf8'), 'sha256'),
+                   'claude', $2) RETURNING id`,
+        [`mismatch-${randomUUID()}`, "e".repeat(64)]
+      )).rows[0].id, resource, credential.rows[0].id,
+        candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+    );
     await interactiveTransaction((tx) =>
       revokeConflictingCanaryOAuthLineageInTransaction(tx, {
         tenantId: tenant.rows[0].id,
@@ -1952,6 +1968,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
         assignmentId: assignment.rows[0].id,
         assignmentGeneration: 1,
         stagedClientReleaseId: stage.rows[0].id,
+        oauthClientId: client.rows[0].id,
       })
     );
     assert.deepEqual(
@@ -1973,6 +1990,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     );
     assert.equal((await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [unrelated.rows[0].id])).rows[0]?.revoked_at, null);
     assert.equal((await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [grant.rows[0].id])).rows[0]?.revoked_at, null);
+    assert.ok((await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [mismatchedClientGrant.rows[0].id])).rows[0]?.revoked_at);
 
     const providerReview = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_marketplace_reviewer_credentials (

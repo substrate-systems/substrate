@@ -796,6 +796,7 @@ export async function revokeInternalCanaryReviewerCredentialAtomic(input: {
       assignmentId: input.assignmentId,
       assignmentGeneration: input.assignmentGeneration,
       stagedClientReleaseId: input.stagedClientReleaseId,
+      oauthClientId: input.oauthClientId,
       revokedByPrincipalDigest: input.operatorPrincipalDigest,
     });
   });

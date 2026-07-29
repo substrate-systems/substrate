@@ -415,6 +415,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
                  OR EXISTS (
                    SELECT 1 FROM exomem_client_artifacts AS artifact
                    WHERE artifact.staged_client_release_id = stage.id AND artifact.contract_candidate_id = credential.candidate_id
+                     AND artifact.state = 'live'
                  )
                )
               JOIN exomem_agent_contract_candidates AS candidate
@@ -903,6 +904,7 @@ export async function findActiveOAuthAccessToken(
                   SELECT 1 FROM exomem_client_artifacts AS artifact
                   WHERE artifact.staged_client_release_id = stage.id
                     AND artifact.contract_candidate_id = token.candidate_id
+                    AND artifact.state = 'live'
                     AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
                 )))
           )
@@ -1047,6 +1049,7 @@ export async function findMcpOAuthAccessToken(
                   SELECT 1 FROM exomem_client_artifacts AS artifact
                   WHERE artifact.staged_client_release_id = stage.id
                     AND artifact.contract_candidate_id = token.candidate_id
+                    AND artifact.state = 'live'
                     AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
                 )))
           )
@@ -1351,6 +1354,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
                     SELECT 1 FROM exomem_client_artifacts AS artifact
                     WHERE artifact.staged_client_release_id = stage.id
                       AND artifact.contract_candidate_id = code.candidate_id
+                      AND artifact.state = 'live'
                       AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
                   ))
                 )
@@ -1567,6 +1571,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
                   SELECT 1 FROM exomem_client_artifacts AS artifact
                   WHERE artifact.staged_client_release_id = stage.id
                     AND artifact.contract_candidate_id = credential.candidate_id
+                    AND artifact.state = 'live'
                     AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
                 )))
           )

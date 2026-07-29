@@ -97,6 +97,7 @@ export type CanaryOAuthLineage = {
   assignmentId: string;
   assignmentGeneration: number;
   stagedClientReleaseId: string;
+  oauthClientId: string;
   revokedByPrincipalDigest?: Buffer;
 };
 
@@ -107,6 +108,7 @@ function validatedCanaryOAuthLineage(input: CanaryOAuthLineage): CanaryOAuthLine
     assignmentId: uuid(input.assignmentId, "assignment ID"),
     assignmentGeneration: integer(input.assignmentGeneration, "assignment generation"),
     stagedClientReleaseId: uuid(input.stagedClientReleaseId, "staged client release ID"),
+    oauthClientId: uuid(input.oauthClientId, "OAuth client ID"),
   };
 }
 
@@ -127,6 +129,7 @@ export async function revokeCanaryOAuthLineageInTransaction(
         AND credential.assignment_id = ${lineage.assignmentId}::uuid
         AND credential.assignment_generation = ${lineage.assignmentGeneration}::bigint
         AND credential.staged_client_release_id = ${lineage.stagedClientReleaseId}::uuid
+        AND credential.oauth_client_id = ${lineage.oauthClientId}::uuid
         AND credential.revoked_at IS NULL
       FOR UPDATE
     ), revoked_credentials AS (
@@ -194,7 +197,7 @@ export async function terminateCanaryOAuthLineageInTransaction(
   return revokeCanaryOAuthLineageInTransaction(tx, input);
 }
 
-/** Caller holds the cohort lock; promotion retains one candidate across every platform stage. */
+/** Caller holds the cohort lock; promotion retains only the candidate's exact live artifact lineages. */
 export async function revokeConflictingCandidateOAuthLineageInTransaction(
   tx: ExomemSql,
   candidateId: string
@@ -206,7 +209,16 @@ export async function revokeConflictingCandidateOAuthLineageInTransaction(
       UPDATE exomem_oauth_grants AS grant_row
       SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
       WHERE grant_row.candidate_id IS NOT NULL
-        AND grant_row.candidate_id IS DISTINCT FROM ${preservedCandidateId}::uuid
+        AND NOT EXISTS (
+          SELECT 1
+          FROM exomem_client_artifacts AS artifact
+          JOIN exomem_oauth_clients AS client ON client.id = grant_row.client_id
+          WHERE artifact.state = 'live'
+            AND artifact.contract_candidate_id = ${preservedCandidateId}::uuid
+            AND artifact.staged_client_release_id = grant_row.staged_client_release_id
+            AND artifact.platform = client.client_platform
+            AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
+        )
         AND grant_row.revoked_at IS NULL
       RETURNING grant_row.id
     ), codes_consumed AS (
@@ -256,6 +268,7 @@ export async function revokeConflictingCanaryOAuthLineageInTransaction(
           OR credential.assignment_id IS DISTINCT FROM ${lineage.assignmentId}::uuid
           OR credential.assignment_generation IS DISTINCT FROM ${lineage.assignmentGeneration}::bigint
           OR credential.staged_client_release_id IS DISTINCT FROM ${lineage.stagedClientReleaseId}::uuid
+          OR credential.oauth_client_id IS DISTINCT FROM ${lineage.oauthClientId}::uuid
         )
       FOR UPDATE
     ), revoked_credentials AS (
@@ -285,6 +298,7 @@ export async function revokeConflictingCanaryOAuthLineageInTransaction(
           OR grant_row.assignment_id IS DISTINCT FROM ${lineage.assignmentId}::uuid
           OR grant_row.assignment_generation IS DISTINCT FROM ${lineage.assignmentGeneration}::bigint
           OR grant_row.staged_client_release_id IS DISTINCT FROM ${lineage.stagedClientReleaseId}::uuid
+          OR grant_row.client_id IS DISTINCT FROM ${lineage.oauthClientId}::uuid
         )
       RETURNING grant_row.id
     ), codes_consumed AS (
@@ -612,7 +626,8 @@ export async function expireCanaryAuthority(limit = 20): Promise<number> {
              credential.candidate_id::text AS candidate_id,
              credential.assignment_id::text AS assignment_id,
              credential.assignment_generation,
-             credential.staged_client_release_id::text AS staged_client_release_id
+             credential.staged_client_release_id::text AS staged_client_release_id,
+             credential.oauth_client_id::text AS oauth_client_id
       FROM exomem_marketplace_reviewer_credentials AS credential
       WHERE credential.credential_kind = 'internal_canary'
         AND credential.revoked_at IS NULL
@@ -628,6 +643,7 @@ export async function expireCanaryAuthority(limit = 20): Promise<number> {
         assignmentId: String(row.assignment_id),
         assignmentGeneration: integer(row.assignment_generation, "assignment generation"),
         stagedClientReleaseId: String(row.staged_client_release_id),
+        oauthClientId: String(row.oauth_client_id),
       });
     }
     return rows.length;
