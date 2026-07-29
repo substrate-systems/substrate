@@ -126,8 +126,63 @@ export async function createOrRotateMarketplaceReviewerCredentialAtomic(
         WHERE token.grant_id IN (SELECT id FROM grants_revoked)
            OR token.family_id IN (SELECT id FROM families_revoked)
         RETURNING token.id
+      ), setup_sessions_revoked AS (
+        UPDATE exomem_sessions AS session
+        SET revoked_at = COALESCE(session.revoked_at, now())
+        WHERE session.tenant_id IN (SELECT tenant_id FROM target)
+          AND session.reviewer_credential_id IS NULL
+          AND session.revoked_at IS NULL
+        RETURNING session.id
+      ), setup_transactions AS (
+        SELECT transaction.id
+        FROM exomem_oauth_authorization_transactions AS transaction
+        WHERE transaction.redeemed_session_id IN (SELECT id FROM setup_sessions_revoked)
+      ), setup_transactions_consumed AS (
+        UPDATE exomem_oauth_authorization_transactions AS transaction
+        SET consumed_at = COALESCE(transaction.consumed_at, now())
+        WHERE transaction.id IN (SELECT id FROM setup_transactions)
+          AND transaction.consumed_at IS NULL
+        RETURNING transaction.id
+      ), setup_grants_revoked AS (
+        UPDATE exomem_oauth_grants AS grant_row
+        SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
+        WHERE grant_row.tenant_id IN (SELECT tenant_id FROM target)
+          AND grant_row.reviewer_credential_id IS NULL
+          AND grant_row.revoked_at IS NULL
+        RETURNING grant_row.id
+      ), setup_codes_consumed AS (
+        UPDATE exomem_oauth_authorization_codes AS code
+        SET consumed_at = COALESCE(code.consumed_at, now())
+        WHERE code.grant_id IN (SELECT id FROM setup_grants_revoked)
+          AND code.consumed_at IS NULL
+        RETURNING code.id
+      ), setup_families_revoked AS (
+        UPDATE exomem_oauth_token_families AS family
+        SET revoked_at = COALESCE(family.revoked_at, now()),
+            revoked_reason = COALESCE(family.revoked_reason, 'reviewer_setup_sealed')
+        WHERE family.grant_id IN (SELECT id FROM setup_grants_revoked)
+          AND family.revoked_at IS NULL
+        RETURNING family.id
+      ), setup_refresh_consumed AS (
+        UPDATE exomem_oauth_refresh_tokens AS token
+        SET consumed_at = COALESCE(token.consumed_at, now())
+        WHERE token.family_id IN (SELECT id FROM setup_families_revoked)
+          AND token.consumed_at IS NULL
+        RETURNING token.id
+      ), setup_access_revoked AS (
+        UPDATE exomem_oauth_access_tokens AS token
+        SET revoked_at = COALESCE(token.revoked_at, now())
+        WHERE token.grant_id IN (SELECT id FROM setup_grants_revoked)
+           OR token.family_id IN (SELECT id FROM setup_families_revoked)
+        RETURNING token.id
       ), revocation_complete AS (
-        SELECT count(*) AS count FROM access_revoked
+        SELECT (
+          (SELECT count(*) FROM access_revoked)
+          + (SELECT count(*) FROM setup_transactions_consumed)
+          + (SELECT count(*) FROM setup_codes_consumed)
+          + (SELECT count(*) FROM setup_refresh_consumed)
+          + (SELECT count(*) FROM setup_access_revoked)
+        ) AS count
       ), created AS (
         INSERT INTO exomem_marketplace_reviewer_credentials (
           provider, username_digest, password_hash, owner_user_id, tenant_id,

@@ -632,6 +632,207 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     );
   });
 
+  it("seals temporary reviewer setup access before issuing a credential", async () => {
+    const internal = await seedClient();
+    await seedPool();
+    await seedInviteAndTransaction(internal, "310", true);
+
+    const admitted = await admitFirstOAuthInviteAtomic({
+      inviteDigest: digest(310),
+      transactionDigest: digest(330),
+      sessionDigest: digest(311),
+      csrfDigest: digest(312),
+      sessionExpiresAt: new Date(Date.now() + 60_000),
+      codeDigest: digest(313),
+      codeExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(admitted);
+
+    const setupTokens = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: digest(313),
+      clientId,
+      redirectUri: "https://client.example.test/callback",
+      resource,
+      pkceChallenge: "challenge",
+      refreshDigest: digest(314),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(315),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(setupTokens);
+    assert.ok(await findActiveOAuthAccessToken(digest(315)));
+
+    await pool!.query(
+      `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge,
+         redeemed_session_id, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
+                 '{}'::jsonb, $5, $6, 'challenge', $7, now() + interval '1 hour')`,
+      [digest(316), internal, resource, digest(317), digest(318), digest(319), admitted!.sessionId]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_oauth_authorization_codes (
+         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, expires_at
+       ) VALUES ($1, $2, $3, 'https://client.example.test/callback', $4, 'challenge',
+                 now() + interval '1 hour')`,
+      [digest(320), admitted!.grantId, internal, resource]
+    );
+    const cell = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, protocol_version, release_version
+       ) VALUES ($1, 'active', 'bound', '2025-11-25', 'setup-sealed') RETURNING id`,
+      [admitted!.tenantId]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      cell.rows[0]!.id,
+      admitted!.tenantId,
+    ]);
+    const beforeSeal = await hostedProvisioningSnapshot();
+
+    const credential = await createOrRotateMarketplaceReviewerCredentialAtomic({
+      provider: "anthropic",
+      usernameDigest: digest(321),
+      passwordHash: await hashMarketplaceReviewerPassword("setup-reviewer-password"),
+      ownerUserId: (
+        await pool!.query<{ owner_user_id: string }>(
+          "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+          [admitted!.tenantId]
+        )
+      ).rows[0]!.owner_user_id,
+      tenantId: admitted!.tenantId,
+      fixtureVersion: "review-fixture-v1",
+      fixturePayloadDigest: "a".repeat(64),
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+      operatorPrincipalDigest: digest(322),
+    });
+    assert.ok(credential);
+    assert.deepEqual(await hostedProvisioningSnapshot(), beforeSeal);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_sessions WHERE id = $1 AND revoked_at IS NOT NULL",
+        [admitted!.sessionId]
+      ),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NOT NULL",
+        [digest(316)]
+      ),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND revoked_at IS NOT NULL",
+        [admitted!.grantId]
+      ),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NOT NULL",
+        [digest(320)]
+      ),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
+        [setupTokens!.familyId]
+      ),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE refresh_digest = $1 AND consumed_at IS NOT NULL",
+        [digest(314)]
+      ),
+      1
+    );
+    assert.equal(await findActiveOAuthAccessToken(digest(315)), null);
+    assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_account_blocks"), 0);
+    assert.equal(
+      await scalar("SELECT count(*) FROM exomem_tenants WHERE id = $1 AND status <> 'deleted'", [
+        admitted!.tenantId,
+      ]),
+      1
+    );
+
+    const ordinarySession = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+       SELECT owner_user_id, id, $1, $2, now() + interval '1 hour'
+       FROM exomem_tenants WHERE id = $3 RETURNING id`,
+      [digest(323), digest(324), admitted!.tenantId]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
+                 '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
+      [digest(325), internal, resource, digest(326), digest(327), digest(328)]
+    );
+    assert.equal(
+      await attachExistingOwnerAuthorizationAtomic({
+        sessionId: ordinarySession.rows[0]!.id,
+        transactionDigest: digest(325),
+        codeDigest: digest(329),
+        codeExpiresAt: new Date(Date.now() + 60_000),
+      }),
+      null
+    );
+
+    await pool!.query(
+      `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3,
+                 ARRAY['exomem.read', 'offline_access'], $4, '{}'::jsonb, $5, $6,
+                 'challenge', now() + interval '1 hour')`,
+      [digest(340), internal, resource, digest(341), digest(342), digest(343)]
+    );
+    const reviewerSession = await createMarketplaceReviewerOAuthSessionAtomic({
+      credentialId: credential!.credentialId,
+      transactionDigest: digest(340),
+      sessionDigest: digest(344),
+      csrfDigest: digest(345),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(reviewerSession);
+    const reviewerGrant = await attachExistingOwnerAuthorizationAtomic({
+      sessionId: reviewerSession!.sessionId,
+      transactionDigest: digest(340),
+      codeDigest: digest(346),
+      codeExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(reviewerGrant);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND reviewer_credential_id = $2",
+        [reviewerGrant!.grantId, credential!.credentialId]
+      ),
+      1
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND grant_id = $2 AND consumed_at IS NULL",
+        [digest(346), reviewerGrant!.grantId]
+      ),
+      1
+    );
+    assert.equal(
+      await revokeMarketplaceReviewerCredentialAtomic({
+        provider: "anthropic",
+        operatorPrincipalDigest: digest(347),
+      }),
+      1
+    );
+    await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
+      admitted!.tenantId,
+    ]);
+  });
+
   it("serializes same-email admissions while reserving one final slot and leaves a losing invite reusable", async () => {
     const internal = await seedClient();
     await seedPool(EXOMEM_ALPHA_CAPACITY.storageBytes);

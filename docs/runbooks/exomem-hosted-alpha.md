@@ -476,18 +476,22 @@ history, or an application log.
    invite cannot reuse an ordinary tenant, and an ordinary invite cannot reuse a
    reviewer-purpose tenant; do not attempt to relabel an existing customer.
 2. Wait for the dedicated tenant's ordinary entitlement and cell readiness.
-   Seed the versioned, generic marketplace fixture through the normal governed
-   Exomem MCP/write flow, never by writing directly to the control-plane
-   database. Record the fixture version and SHA-256 payload digest in the
-   operator secret record; retain content-bearing proof only in the native
-   client acceptance workflow.
+   The invite redemption creates temporary ordinary setup access; use it only
+   to seed the versioned, generic marketplace fixture through the normal
+   governed Exomem MCP/write flow, never by writing directly to the
+   control-plane database. Record the fixture version and SHA-256 payload
+   digest in the operator secret record; retain content-bearing proof only in
+   the native client acceptance workflow.
 3. With the operator bearer, create a provider-specific credential through
    `POST /api/exomem/admin/reviewer-access`. Supply the prepared owner and
    tenant IDs, `openai` or `anthropic`, the fixture version/digest, and a bounded
    future expiry from secure operator state. The response returns generated
    username/password plaintext once with `no-store`; copy it directly into the
-   approved provider handoff or secret manager. Status reads never return either
-   plaintext value.
+   approved provider handoff or secret manager. Issuing the credential
+   atomically seals the dedicated reviewer tenant by revoking its temporary
+   ordinary setup sessions, pending authorization state, grants, codes, and
+   token graph. Status reads never return either plaintext value. Do not share
+   the credential before this sealing step completes.
 4. Set `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED=true`, redeploy, and use a
    clean provider client to begin the normal authorization flow. The reviewer
    form is valid only inside that OAuth continuation; its credential provider

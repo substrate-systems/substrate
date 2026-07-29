@@ -58,6 +58,20 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
   assert.match(query, /fixture_payload_digest/i);
   assert.match(query, /UPDATE exomem_oauth_grants/i);
   assert.match(query, /grants_revoked[\s\S]*reviewer_transactions/i);
+  assert.match(
+    query,
+    /setup_sessions_revoked[\s\S]*tenant_id IN \(SELECT tenant_id FROM target\)/i
+  );
+  assert.match(query, /setup_sessions_revoked[\s\S]*reviewer_credential_id IS NULL/i);
+  assert.match(
+    query,
+    /setup_transactions AS \([\s\S]*redeemed_session_id IN \(SELECT id FROM setup_sessions_revoked\)/i
+  );
+  assert.match(query, /setup_grants_revoked[\s\S]*reviewer_credential_id IS NULL/i);
+  assert.match(query, /setup_codes_consumed[\s\S]*setup_grants_revoked/i);
+  assert.match(query, /setup_families_revoked[\s\S]*reviewer_setup_sealed/i);
+  assert.match(query, /setup_refresh_consumed[\s\S]*setup_families_revoked/i);
+  assert.match(query, /setup_access_revoked[\s\S]*setup_grants_revoked/i);
   assert.match(query, /revocation_complete[\s\S]*access_revoked/i);
   assert.match(query, /FROM target CROSS JOIN revocation_complete/i);
   assert.doesNotMatch(
