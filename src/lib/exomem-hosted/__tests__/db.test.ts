@@ -151,7 +151,7 @@ describe("Exomem hosted database boundary", () => {
     );
     assert.match(
       statement,
-      /exomem_tenants\.marketplace_reviewer_purpose = locked_invite\.marketplace_reviewer_purpose/i
+      /exomem_tenants\.marketplace_reviewer_purpose = EXCLUDED\.marketplace_reviewer_purpose/i
     );
   });
 

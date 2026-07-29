@@ -42,4 +42,43 @@ describe("migration runner PostgreSQL integration", { skip: !databaseUrl }, () =
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it("applies a dollar-quoted trigger function as one migration statement", async () => {
+    const schema = `migration_function_${process.pid}_${Date.now()}`;
+    const admin = new Client({ connectionString: databaseUrl });
+    const directory = mkdtempSync(join(tmpdir(), "exomem-migrations-"));
+    await admin.connect();
+    try {
+      await admin.query(`CREATE SCHEMA "${schema}"`);
+      writeFileSync(
+        join(directory, "0001_trigger.sql"),
+        `-- one migration comment; 7-day probe\n` +
+          `CREATE TABLE immutable_probe (value boolean NOT NULL DEFAULT false);\n` +
+          `CREATE FUNCTION immutable_probe_value() RETURNS trigger LANGUAGE plpgsql AS $$\n` +
+          `BEGIN\n` +
+          `  IF NEW.value IS DISTINCT FROM OLD.value THEN\n` +
+          `    RAISE EXCEPTION 'immutable value';\n` +
+          `  END IF;\n` +
+          `  RETURN NEW;\n` +
+          `END\n` +
+          `$$;\n` +
+          `CREATE TRIGGER immutable_probe_value_trigger BEFORE UPDATE ON immutable_probe\n` +
+          `FOR EACH ROW EXECUTE FUNCTION immutable_probe_value();\n`,
+        "utf8"
+      );
+      const scopedUrl = new URL(databaseUrl!);
+      scopedUrl.searchParams.set("options", `-c search_path=${schema}`);
+
+      await applyMigrations({ databaseUrl: scopedUrl.toString(), migrationsDir: directory });
+      await admin.query(`INSERT INTO "${schema}".immutable_probe DEFAULT VALUES`);
+      await assert.rejects(
+        admin.query(`UPDATE "${schema}".immutable_probe SET value = true`),
+        /immutable value/
+      );
+    } finally {
+      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await admin.end();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

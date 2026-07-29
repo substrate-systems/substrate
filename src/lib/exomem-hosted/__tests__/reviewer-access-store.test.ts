@@ -6,6 +6,7 @@ import {
   createMarketplaceReviewerOAuthSessionAtomic,
   createOrRotateMarketplaceReviewerCredentialAtomic,
   bindMarketplaceReviewerCredentialToOAuthTransactionAtomic,
+  findMarketplaceReviewerCredentialForAuthentication,
   getMarketplaceReviewerCredentialStatus,
   revokeMarketplaceReviewerCredentialAtomic,
 } from "../reviewer-access-store";
@@ -257,4 +258,48 @@ test("status is sanitized and revocation is idempotent without an account block"
   assert.match(query, /UPDATE exomem_oauth_access_tokens/i);
   assert.match(query, /grants_revoked[\s\S]*reviewer_transactions/i);
   assert.doesNotMatch(query, /INSERT INTO exomem_oauth_account_blocks/i);
+});
+
+test("normalizes PostgreSQL Date timestamps for reviewer lookup and status", async () => {
+  const expiresAt = new Date("2026-08-01T00:00:00.000Z");
+  const revokedAt = new Date("2026-07-31T00:00:00.000Z");
+  setSql(async (strings) => {
+    const query = strings.join("?");
+    if (query.includes("find-marketplace-reviewer-credential")) {
+      return {
+        rows: [
+          {
+            id: "credential-1",
+            provider: "openai",
+            owner_user_id: "owner-1",
+            tenant_id: "tenant-1",
+            fixture_version: "review-fixture-v1",
+            password_hash: "$argon2id$test",
+            expires_at: expiresAt,
+            revoked_at: null,
+          },
+        ],
+      };
+    }
+    return {
+      rows: [
+        {
+          provider: "openai",
+          fixture_version: "review-fixture-v1",
+          fixture_payload_digest: "a".repeat(64),
+          expires_at: expiresAt,
+          revoked_at: revokedAt,
+        },
+      ],
+    };
+  });
+
+  const authentication = await findMarketplaceReviewerCredentialForAuthentication(
+    Buffer.alloc(32, 9)
+  );
+  assert.deepEqual(authentication?.expiresAt, "2026-08-01T00:00:00.000Z");
+  assert.deepEqual(authentication?.revokedAt, null);
+  const status = await getMarketplaceReviewerCredentialStatus("openai");
+  assert.deepEqual(status?.expiresAt, "2026-08-01T00:00:00.000Z");
+  assert.deepEqual(status?.revokedAt, "2026-07-31T00:00:00.000Z");
 });

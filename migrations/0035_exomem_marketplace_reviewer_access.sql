@@ -7,10 +7,25 @@ ALTER TABLE exomem_tenants
 ALTER TABLE exomem_invites
   ADD COLUMN marketplace_reviewer_purpose boolean NOT NULL DEFAULT false;
 
-CREATE RULE exomem_tenants_reviewer_purpose_immutable AS
-  ON UPDATE TO exomem_tenants
-  WHERE NEW.marketplace_reviewer_purpose IS DISTINCT FROM OLD.marketplace_reviewer_purpose
-  DO INSTEAD NOTHING;
+CREATE FUNCTION exomem_marketplace_reviewer_purpose_is_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NEW.marketplace_reviewer_purpose IS DISTINCT FROM OLD.marketplace_reviewer_purpose THEN
+    RAISE EXCEPTION 'marketplace reviewer purpose is immutable';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+CREATE TRIGGER exomem_tenants_reviewer_purpose_immutable
+BEFORE UPDATE ON exomem_tenants
+FOR EACH ROW EXECUTE FUNCTION exomem_marketplace_reviewer_purpose_is_immutable();
+
+CREATE TRIGGER exomem_invites_reviewer_purpose_immutable
+BEFORE UPDATE ON exomem_invites
+FOR EACH ROW EXECUTE FUNCTION exomem_marketplace_reviewer_purpose_is_immutable();
 
 CREATE TABLE exomem_marketplace_reviewer_credentials (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

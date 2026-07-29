@@ -25,6 +25,12 @@ export type MarketplaceReviewerCredentialStatus = {
   revokedAt: string | null;
 };
 
+function canonicalTimestamp(value: unknown): string | null {
+  const timestamp =
+    value instanceof Date ? value : typeof value === "string" ? new Date(value) : null;
+  return timestamp && Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : null;
+}
+
 async function withReviewerAccessLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-marketplace-reviewer-access'))`;
@@ -188,6 +194,8 @@ export async function findMarketplaceReviewerCredentialForAuthentication(
     LIMIT 1
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
+  const expiresAt = canonicalTimestamp(row?.expires_at);
+  const revokedAt = row?.revoked_at === null ? null : canonicalTimestamp(row?.revoked_at);
   return row &&
     typeof row.id === "string" &&
     (row.provider === "openai" || row.provider === "anthropic") &&
@@ -195,7 +203,8 @@ export async function findMarketplaceReviewerCredentialForAuthentication(
     typeof row.tenant_id === "string" &&
     typeof row.fixture_version === "string" &&
     typeof row.password_hash === "string" &&
-    typeof row.expires_at === "string"
+    expiresAt &&
+    (row.revoked_at === null || revokedAt)
     ? {
         credentialId: row.id,
         provider: row.provider,
@@ -203,8 +212,8 @@ export async function findMarketplaceReviewerCredentialForAuthentication(
         tenantId: row.tenant_id,
         fixtureVersion: row.fixture_version,
         passwordHash: row.password_hash,
-        expiresAt: row.expires_at,
-        revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : null,
+        expiresAt,
+        revokedAt,
       }
     : null;
 }
@@ -367,17 +376,20 @@ export async function getMarketplaceReviewerCredentialStatus(
     LIMIT 1
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
+  const expiresAt = canonicalTimestamp(row?.expires_at);
+  const revokedAt = row?.revoked_at === null ? null : canonicalTimestamp(row?.revoked_at);
   return row &&
     (row.provider === "openai" || row.provider === "anthropic") &&
     typeof row.fixture_version === "string" &&
     typeof row.fixture_payload_digest === "string" &&
-    typeof row.expires_at === "string"
+    expiresAt &&
+    (row.revoked_at === null || revokedAt)
     ? {
         provider: row.provider,
         fixtureVersion: row.fixture_version,
         fixturePayloadDigest: row.fixture_payload_digest,
-        expiresAt: row.expires_at,
-        revokedAt: typeof row.revoked_at === "string" ? row.revoked_at : null,
+        expiresAt,
+        revokedAt,
       }
     : null;
 }

@@ -240,6 +240,15 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       WHERE session.id = ${input.sessionId}::uuid
         AND session.revoked_at IS NULL AND session.expires_at > now()
         AND (session.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)
+        AND (
+          (tenant.marketplace_reviewer_purpose = false AND session.reviewer_credential_id IS NULL)
+          OR (
+            tenant.marketplace_reviewer_purpose = true
+            AND credential.id IS NOT NULL
+            AND credential.owner_user_id = session.user_id
+            AND credential.tenant_id = session.tenant_id
+          )
+        )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = session.tenant_id AND block.owner_user_id = session.user_id
@@ -293,8 +302,9 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       DO UPDATE SET scopes = EXCLUDED.scopes,
                     refresh_allowed = EXCLUDED.refresh_allowed,
                     authorization_transaction_id = EXCLUDED.authorization_transaction_id,
-                    reviewer_credential_id = EXCLUDED.reviewer_credential_id,
                     updated_at = now()
+      WHERE exomem_oauth_grants.reviewer_credential_id
+            IS NOT DISTINCT FROM EXCLUDED.reviewer_credential_id
       RETURNING id, tenant_id, reviewer_credential_id
     ),
     code AS (

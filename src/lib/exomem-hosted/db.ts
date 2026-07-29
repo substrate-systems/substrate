@@ -286,8 +286,8 @@ export async function redeemInviteAtomic(
       ON CONFLICT (owner_user_id) DO UPDATE
       SET updated_at = exomem_tenants.updated_at
       WHERE exomem_tenants.status <> 'deleted'
-        AND exomem_tenants.marketplace_reviewer_purpose = locked_invite.marketplace_reviewer_purpose
-      RETURNING id, owner_user_id
+        AND exomem_tenants.marketplace_reviewer_purpose = EXCLUDED.marketplace_reviewer_purpose
+      RETURNING id, owner_user_id, fence_generation
     ),
     existing_entitlement AS (
       SELECT entitlement.tenant_id

@@ -50,7 +50,11 @@ describe("Exomem OAuth token store", () => {
     assert.match(query, /session\.reviewer_credential_id/i);
     assert.match(query, /transaction\.reviewer_credential_id/i);
     assert.match(query, /INSERT INTO exomem_oauth_grants \([\s\S]*reviewer_credential_id/i);
-    assert.match(query, /reviewer_credential_id = EXCLUDED\.reviewer_credential_id/i);
+    assert.match(
+      query,
+      /exomem_oauth_grants\.reviewer_credential_id\s+IS NOT DISTINCT FROM EXCLUDED\.reviewer_credential_id/i
+    );
+    assert.doesNotMatch(query, /reviewer_credential_id = EXCLUDED\.reviewer_credential_id/i);
     assert.match(query, /credential\.revoked_at IS NULL/i);
     assert.match(query, /credential\.expires_at > now\(\)/i);
     assert.match(

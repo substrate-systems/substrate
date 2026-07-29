@@ -17,11 +17,13 @@ test("reviewer access persists provider-scoped secret digests and session attrib
     sql,
     /ALTER TABLE exomem_invites\s+ADD COLUMN marketplace_reviewer_purpose boolean NOT NULL DEFAULT false/i
   );
-  assert.match(sql, /CREATE RULE exomem_tenants_reviewer_purpose_immutable/i);
+  assert.doesNotMatch(sql, /CREATE RULE exomem_tenants_reviewer_purpose_immutable/i);
   assert.match(
     sql,
-    /ON UPDATE TO exomem_tenants[\s\S]*NEW\.marketplace_reviewer_purpose IS DISTINCT FROM OLD\.marketplace_reviewer_purpose[\s\S]*DO INSTEAD NOTHING/i
+    /CREATE FUNCTION exomem_marketplace_reviewer_purpose_is_immutable\(\)[\s\S]*NEW\.marketplace_reviewer_purpose IS DISTINCT FROM OLD\.marketplace_reviewer_purpose/i
   );
+  assert.match(sql, /CREATE TRIGGER exomem_tenants_reviewer_purpose_immutable/i);
+  assert.match(sql, /CREATE TRIGGER exomem_invites_reviewer_purpose_immutable/i);
   assert.match(sql, /provider text NOT NULL CHECK \(provider IN \('openai', 'anthropic'\)\)/i);
   assert.match(sql, /username_digest bytea NOT NULL UNIQUE/i);
   assert.match(sql, /password_hash text NOT NULL/i);
@@ -56,5 +58,5 @@ test("reviewer access persists provider-scoped secret digests and session attrib
     sql,
     /CREATE INDEX exomem_sessions_reviewer_credential_active_idx[\s\S]*WHERE reviewer_credential_id IS NOT NULL AND revoked_at IS NULL/i
   );
-  assert.doesNotMatch(sql, /DO\s+\$\$/i);
+  assert.match(sql, /LANGUAGE plpgsql/i);
 });
