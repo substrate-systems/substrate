@@ -8,6 +8,7 @@ import {
   oauthFormNonceFromCookie,
   resolveOAuthContinuationToken,
 } from "@/lib/exomem-hosted/oauth-continuity";
+import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
 import AuthorizeClient from "./authorize-client";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +59,13 @@ export default async function ExomemAuthorizePage({
             connect.
           </p>
         )}
-        {canContinue ? <AuthorizeClient confirmation={query.confirmation!} nonce={nonce} /> : null}
+        {canContinue ? (
+          <AuthorizeClient
+            confirmation={query.confirmation!}
+            nonce={nonce}
+            reviewerEnabled={marketplaceReviewerAccessEnabled()}
+          />
+        ) : null}
       </main>
     </PrivateShell>
   );

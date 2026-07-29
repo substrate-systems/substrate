@@ -84,6 +84,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `BREVO_API_KEY`                                                                  | Delivers invite, magic-link, and deletion-confirmation email.                                                                                                                                                                                                                                                        |
 | `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                                        | Optional verified sender overrides.                                                                                                                                                                                                                                                                                  |
 | `OPENAI_APPS_CHALLENGE`                                                          | Provider-issued single-line domain proof. Set only in deployment configuration; never commit, log, or place it in a request.                                                                                                                                                                                         |
+| `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                                     | Leave unset or `false` by default. Set exactly `true` only after a dedicated reviewer-purpose tenant, governed fixture, and provider credential have been prepared. Disable first during rollback or incident response.                                                                                              |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. Buckets older than the longest
@@ -458,6 +459,66 @@ After acceptance, the owner sees `preparing` while status polling and the
 external scheduler advance the durable operation. `ready` is shown only after
 full private readiness proof. Do not manually mark a tenant active.
 
+## Marketplace reviewer access
+
+Reviewer access is a temporary, operator-controlled OAuth path for a provider
+reviewer. It is not public provisioning, ordinary username/password sign-in, or
+an alternative customer admission path. Keep
+`EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED` unset until every preparation step
+below is complete. Never put a real reviewer email, owner ID, tenant ID,
+credential, fixture content, or provider handoff in this repository, a command
+history, or an application log.
+
+1. Create a **new** dedicated owner through the authenticated invite endpoint
+   with `marketplaceReviewerPurpose: true`. Use a controlled delivery address
+   and redeem it through the ordinary Hosted OAuth path. The purpose marker is
+   written only when that first tenant is created and is immutable. A reviewer
+   invite cannot reuse an ordinary tenant, and an ordinary invite cannot reuse a
+   reviewer-purpose tenant; do not attempt to relabel an existing customer.
+2. Wait for the dedicated tenant's ordinary entitlement and cell readiness.
+   The invite redemption creates temporary ordinary setup access; use it only
+   to seed the versioned, generic marketplace fixture through the normal
+   governed Exomem MCP/write flow, never by writing directly to the
+   control-plane database. Record the fixture version and SHA-256 payload
+   digest in the operator secret record; retain content-bearing proof only in
+   the native client acceptance workflow.
+3. With the operator bearer, create a provider-specific credential through
+   `POST /api/exomem/admin/reviewer-access`. Supply the prepared owner and
+   tenant IDs, `openai` or `anthropic`, the fixture version/digest, and a bounded
+   future expiry from secure operator state. The response returns generated
+   username/password plaintext once with `no-store`; copy it directly into the
+   approved provider handoff or secret manager. Issuing the credential
+   atomically seals the dedicated reviewer tenant by revoking its temporary
+   ordinary setup sessions, pending authorization state, grants, codes, and
+   token graph. Status reads never return either plaintext value. Do not share
+   the credential before this sealing step completes.
+4. Set `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED=true`, redeploy, and use a
+   clean provider client to begin the normal authorization flow. The reviewer
+   form is valid only inside that OAuth continuation; its credential provider
+   must match the trusted provider client. Confirm the explicit consent step,
+   code exchange, refresh, and MCP read/write review cases against the seeded
+   generic fixture. Capture only protocol metadata, request IDs, fixture digest,
+   and pass/fail evidence.
+
+To rotate, repeat the authenticated create request for the same provider with a
+new bounded expiry. Rotation atomically revokes the old credential and its
+tagged browser sessions, pending authorizations, codes, grants, token families,
+refresh tokens, and access tokens; it does not block the account, delete the
+tenant, or provision anything. To revoke without replacement, call
+`DELETE /api/exomem/admin/reviewer-access` with only the provider selector and
+the operator bearer. Repeating either revocation is safe. Credential expiry is
+also enforced at session resolution, authorization confirmation, token exchange,
+refresh, and MCP token lookup, so do not rely on a browser cookie remaining
+present as evidence of access.
+
+For a suspected reviewer credential disclosure, first disable the feature flag
+and redeploy, then revoke that provider credential. Preserve only the request
+ID, provider class, fixture digest, and stable outcome code for incident
+evidence. Do not paste submitted credentials, username digests, user/tenant
+identifiers, fixture content, or detailed authentication failures into tickets
+or logs. Reissue a credential only after checking the dedicated tenant's
+purpose, readiness, fixture digest, and clean-client review state.
+
 ## Recovery and routine operations
 
 Lifecycle operations are durable and idempotent. Enqueue one operation with a
@@ -576,6 +637,14 @@ closed, deploy the prior Substrate release, and pin cells to its compatible
 protocol/release. Preserve durable account blocks and revoke affected OAuth
 token families. Leave the additive schema in place; never down-migrate, copy,
 or rewrite live vault content.
+
+For marketplace reviewer rollback, disable
+`EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED` first and redeploy, then revoke
+each active provider reviewer credential through the authenticated operator
+endpoint. Verify that the reviewer session, pending authorization, code, grant,
+family, refresh-token, and access-token lookups are rejected. Leave the
+dedicated reviewer-purpose tenant and additive schema intact; rollback never
+deletes the tenant, blocks its owner, or converts it into a customer tenant.
 
 Before a cell release rollback, quiesce and verify an export. Start a replacement
 cell on the prior compatible image, restore into an empty volume, require full

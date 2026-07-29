@@ -57,20 +57,67 @@ function listMigrationFiles(migrationsDir: string): string[] {
 }
 
 function splitStatements(sqlText: string): string[] {
-  // Strip line comments. Multi-line comments not used in our migrations.
-  const stripped = sqlText
-    .split("\n")
-    .map((line) => {
-      const idx = line.indexOf("--");
-      return idx >= 0 ? line.slice(0, idx) : line;
-    })
-    .join("\n");
-  // Split on semicolons. Our migrations contain no semicolons inside strings
-  // or identifiers; if that ever changes, swap this for a real parser.
-  return stripped
-    .split(";")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  const statements: string[] = [];
+  let statement = "";
+  let inSingleQuote = false;
+  let dollarQuote: string | null = null;
+
+  for (let index = 0; index < sqlText.length; index += 1) {
+    const character = sqlText[index];
+    if (dollarQuote) {
+      if (sqlText.startsWith(dollarQuote, index)) {
+        statement += dollarQuote;
+        index += dollarQuote.length - 1;
+        dollarQuote = null;
+      } else {
+        statement += character;
+      }
+      continue;
+    }
+    if (inSingleQuote) {
+      statement += character;
+      if (character === "'") {
+        if (sqlText[index + 1] === "'") {
+          statement += sqlText[index + 1];
+          index += 1;
+        } else {
+          inSingleQuote = false;
+        }
+      }
+      continue;
+    }
+    if (character === "'") {
+      inSingleQuote = true;
+      statement += character;
+      continue;
+    }
+    if (character === "-" && sqlText[index + 1] === "-") {
+      const newline = sqlText.indexOf("\n", index + 2);
+      if (newline < 0) break;
+      statement += "\n";
+      index = newline;
+      continue;
+    }
+    if (character === "$") {
+      const opening = sqlText.slice(index).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/)?.[0];
+      if (opening) {
+        dollarQuote = opening;
+        statement += opening;
+        index += opening.length - 1;
+        continue;
+      }
+    }
+    if (character === ";") {
+      const trimmed = statement.trim();
+      if (trimmed) statements.push(trimmed);
+      statement = "";
+      continue;
+    }
+    statement += character;
+  }
+  const trimmed = statement.trim();
+  if (trimmed) statements.push(trimmed);
+  return statements;
 }
 
 async function applyFile(sql: Sql, migrationsDir: string, filename: string): Promise<void> {

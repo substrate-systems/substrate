@@ -151,6 +151,7 @@ export type CreateInviteRecordInput = {
   entitlementSource: EntitlementSource;
   capabilities: string[];
   resourceLimits: Record<string, number>;
+  marketplaceReviewerPurpose?: boolean;
   operatorPrincipalDigest: Buffer;
   expiresAt: Date;
 };
@@ -166,6 +167,7 @@ export async function createInviteRecord(
       entitlement_source,
       entitlement_capabilities,
       entitlement_limits,
+      marketplace_reviewer_purpose,
       created_by_principal_digest,
       expires_at
     ) VALUES (
@@ -174,6 +176,7 @@ export async function createInviteRecord(
       ${input.entitlementSource},
       ${JSON.stringify(input.capabilities)}::jsonb,
       ${JSON.stringify(input.resourceLimits)}::jsonb,
+      ${input.marketplaceReviewerPurpose === true},
       ${input.operatorPrincipalDigest},
       ${input.expiresAt.toISOString()}
     )
@@ -256,7 +259,7 @@ export async function redeemInviteAtomic(
     /* exomem:redeem-invite */
     WITH locked_invite AS (
       SELECT id, email_normalized, entitlement_source,
-             entitlement_capabilities, entitlement_limits
+             entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose
       FROM exomem_invites
       WHERE token_digest = ${input.tokenDigest}
         AND consumed_at IS NULL
@@ -275,13 +278,16 @@ export async function redeemInviteAtomic(
       RETURNING id
     ),
     tenant AS (
-      INSERT INTO exomem_tenants (owner_user_id, status, desired_state, legacy_unmetered)
-      SELECT id, 'provisioning', 'running', true
-      FROM owner
+      INSERT INTO exomem_tenants (
+        owner_user_id, status, desired_state, legacy_unmetered, marketplace_reviewer_purpose
+      )
+      SELECT owner.id, 'provisioning', 'running', true, locked_invite.marketplace_reviewer_purpose
+      FROM owner CROSS JOIN locked_invite
       ON CONFLICT (owner_user_id) DO UPDATE
       SET updated_at = exomem_tenants.updated_at
       WHERE exomem_tenants.status <> 'deleted'
-      RETURNING id, owner_user_id
+        AND exomem_tenants.marketplace_reviewer_purpose = EXCLUDED.marketplace_reviewer_purpose
+      RETURNING id, owner_user_id, fence_generation
     ),
     existing_entitlement AS (
       SELECT entitlement.tenant_id
@@ -817,9 +823,14 @@ export async function findExomemSessionByDigest(
       ON tenant.id = session.tenant_id
      AND tenant.owner_user_id = session.user_id
      AND tenant.status <> 'deleted'
+    LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
+      ON reviewer_credential.id = session.reviewer_credential_id
+     AND reviewer_credential.revoked_at IS NULL
+     AND reviewer_credential.expires_at > now()
     WHERE session.session_digest = ${sessionDigest}
       AND session.revoked_at IS NULL
       AND session.expires_at > now()
+      AND (session.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
     LIMIT 1
   `;
   const row = rows[0] as

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
+  attachExistingOwnerAuthorizationAtomic,
   findActiveOAuthAccessToken,
   findMcpOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
@@ -29,6 +30,87 @@ function setSqlForTests(sql: ExomemSql): void {
 }
 
 describe("Exomem OAuth token store", () => {
+  it("carries only a matching active reviewer credential from session and transaction into the grant", async () => {
+    const queries: string[] = [];
+    setSqlForTests(async (strings) => {
+      const query = strings.join("?");
+      queries.push(query);
+      if (query.includes("SELECT tenant.id")) return { rows: [{ id: "tenant-1" }] };
+      return { rows: [{ grant_id: "grant-1", tenant_id: "tenant-1" }] };
+    });
+
+    await attachExistingOwnerAuthorizationAtomic({
+      sessionId: "session-1",
+      transactionDigest: Buffer.alloc(32, 1),
+      codeDigest: Buffer.alloc(32, 2),
+      codeExpiresAt: new Date("2026-08-01T00:00:00.000Z"),
+    });
+
+    const query = queries.join("\n");
+    assert.match(query, /session\.reviewer_credential_id/i);
+    assert.match(query, /transaction\.reviewer_credential_id/i);
+    assert.match(query, /INSERT INTO exomem_oauth_grants \([\s\S]*reviewer_credential_id/i);
+    assert.match(
+      query,
+      /exomem_oauth_grants\.reviewer_credential_id\s+IS NOT DISTINCT FROM EXCLUDED\.reviewer_credential_id/i
+    );
+    assert.doesNotMatch(query, /reviewer_credential_id = EXCLUDED\.reviewer_credential_id/i);
+    assert.match(query, /credential\.revoked_at IS NULL/i);
+    assert.match(query, /credential\.expires_at > now\(\)/i);
+    assert.match(
+      query,
+      /credential\.provider = 'anthropic' AND client\.client_platform = 'claude'[\s\S]*credential\.provider = 'openai' AND client\.client_platform = 'openai'/i
+    );
+    assert.match(query, /LEAST\(\?, credential\.expires_at\)/i);
+  });
+
+  it("caps reviewer-derived token families and rejects expired reviewer grants on code and refresh", async () => {
+    const source = await import("node:fs").then(({ readFileSync }) =>
+      readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
+    );
+    assert.match(
+      source,
+      /oauth_grant\.reviewer_credential_id IS NULL[\s\S]*credential\.expires_at > now\(\)/i
+    );
+    assert.match(source, /INSERT INTO exomem_oauth_token_families[\s\S]*LEAST\(/i);
+    assert.match(source, /INSERT INTO exomem_oauth_refresh_tokens[\s\S]*LEAST\(/i);
+    assert.match(source, /INSERT INTO exomem_oauth_access_tokens[\s\S]*LEAST\(/i);
+  });
+
+  it("returns CTE fields consumed by reviewer authorization and code exchange", async () => {
+    const source = await import("node:fs").then(({ readFileSync }) =>
+      readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
+    );
+    const attach = source.slice(
+      source.indexOf("exomem:attach-existing-owner-oauth"),
+      source.indexOf("exomem:prune-expired-oauth-state")
+    );
+    const codeExchange = source.slice(
+      source.indexOf("exomem:oauth-code-exchange"),
+      source.indexOf("exomem:oauth-refresh-rotate")
+    );
+
+    assert.match(attach, /RETURNING id, tenant_id, reviewer_credential_id/i);
+    assert.match(codeExchange, /RETURNING id, grant_id, client_id, expires_at/i);
+  });
+
+  it("rejects expired reviewer grants during active and MCP token lookup while retaining null attribution", async () => {
+    const source = await import("node:fs").then(({ readFileSync }) =>
+      readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
+    );
+    const active = source.slice(
+      source.indexOf("exomem:find-active-oauth-access-token"),
+      source.indexOf("exomem:find-mcp-oauth-access-token")
+    );
+    const mcp = source.slice(source.indexOf("exomem:find-mcp-oauth-access-token"));
+    for (const query of [active, mcp]) {
+      assert.match(query, /LEFT JOIN exomem_marketplace_reviewer_credentials/i);
+      assert.match(query, /oauth_grant\.reviewer_credential_id IS NULL/i);
+      assert.match(query, /reviewer_credential\.revoked_at IS NULL/i);
+      assert.match(query, /reviewer_credential\.expires_at > now\(\)/i);
+    }
+  });
+
   it("fences MCP access under the shared cohort lock and accepts non-ready token context", async () => {
     const queries: string[] = [];
     setSqlForTests(async (strings) => {

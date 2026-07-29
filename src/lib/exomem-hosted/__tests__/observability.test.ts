@@ -25,4 +25,21 @@ describe("capacity observability", () => {
     });
     assert.equal(JSON.stringify(event).includes(sentinel), false);
   });
+
+  it("drops reviewer credential submissions and reviewer-only identifiers from operational events", () => {
+    const sentinel = "reviewer-submission-sensitive-sentinel";
+    const event = buildOperationalEvent({
+      event: "access.request.denied",
+      outcome: "denied",
+      username: sentinel,
+      password: sentinel,
+      usernameDigest: sentinel,
+      ownerUserId: sentinel,
+      reviewerTenantId: sentinel,
+      fixtureContent: sentinel,
+      failureDetail: sentinel,
+    });
+
+    assert.equal(JSON.stringify(event).includes(sentinel), false);
+  });
 });

@@ -6,6 +6,7 @@ import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
   createMagicAccessToken,
+  findExomemSessionByDigest,
   createTransferGrantRecord,
   recordExomemCheckoutTransaction,
   consumeDeletionConfirmationAtomic,
@@ -109,7 +110,10 @@ describe("Exomem hosted database boundary", () => {
     assert.match(capturedSql, /FOR UPDATE/i);
     assert.match(capturedSql, /INSERT INTO users/i);
     assert.match(capturedSql, /INSERT INTO exomem_tenants/i);
-    assert.match(capturedSql, /legacy_unmetered\)\s*SELECT[^;]*true/i);
+    assert.match(
+      capturedSql,
+      /legacy_unmetered, marketplace_reviewer_purpose\s*\)\s*SELECT[\s\S]*true/i
+    );
     assert.doesNotMatch(
       capturedSql,
       /ON CONFLICT \(owner_user_id\) DO UPDATE[\s\S]{0,240}legacy_unmetered/i
@@ -124,6 +128,60 @@ describe("Exomem hosted database boundary", () => {
     assert.match(capturedSql, /INSERT INTO exomem_lifecycle_operations/i);
     assert.match(capturedSql, /UPDATE exomem_invites/i);
     assert.match(capturedSql, /expires_at > now\(\)/i);
+  });
+
+  it("propagates immutable invitation purpose into new tenants and refuses mismatched reuse", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [], rowCount: 0 };
+    });
+
+    await redeemInviteAtomic({
+      tokenDigest: Buffer.alloc(32, 1),
+      sessionDigest: Buffer.alloc(32, 2),
+      csrfDigest: Buffer.alloc(32, 3),
+      sessionExpiresAt: new Date("2026-07-13T00:00:00.000Z"),
+    });
+
+    assert.match(statement, /locked_invite[\s\S]*marketplace_reviewer_purpose/i);
+    assert.match(
+      statement,
+      /INSERT INTO exomem_tenants \(\s*owner_user_id, status, desired_state, legacy_unmetered, marketplace_reviewer_purpose\s*\)/i
+    );
+    assert.match(
+      statement,
+      /exomem_tenants\.marketplace_reviewer_purpose = EXCLUDED\.marketplace_reviewer_purpose/i
+    );
+  });
+
+  it("uses the same invitation purpose guard for capacity-aware OAuth admission", () => {
+    const oauthStore = readFileSync(
+      resolve(process.cwd(), "src/lib/exomem-hosted/oauth-store.ts"),
+      "utf8"
+    );
+    assert.match(oauthStore, /entitlement_limits,\s*marketplace_reviewer_purpose/i);
+    assert.match(
+      oauthStore,
+      /tenant\.marketplace_reviewer_purpose = \$\{invite\.marketplace_reviewer_purpose\}/i
+    );
+    assert.match(
+      oauthStore,
+      /INSERT INTO exomem_tenants \(\s*owner_user_id, status, desired_state, marketplace_reviewer_purpose\s*\)/i
+    );
+  });
+
+  it("rejects expired or revoked reviewer-attributed sessions without changing ordinary session lookup", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [] };
+    });
+    await findExomemSessionByDigest(Buffer.alloc(32, 9));
+    assert.match(statement, /LEFT JOIN exomem_marketplace_reviewer_credentials/i);
+    assert.match(statement, /session\.reviewer_credential_id IS NULL/i);
+    assert.match(statement, /reviewer_credential\.revoked_at IS NULL/i);
+    assert.match(statement, /reviewer_credential\.expires_at > now\(\)/i);
   });
 
   it("allows magic-link authentication before deletion begins", async () => {

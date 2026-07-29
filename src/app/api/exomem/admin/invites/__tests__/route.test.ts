@@ -76,6 +76,18 @@ describe("POST /api/exomem/admin/invites", () => {
     assert.equal(issueCalls.length, 1);
   });
 
+  it("threads reviewer purpose only from the authenticated operator input", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request({
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: { email: SENTINEL, source: "complimentary", marketplaceReviewerPurpose: true },
+      })
+    );
+    assert.equal(response.status, 201);
+    assert.equal(issueCalls[0]?.marketplaceReviewerPurpose, true);
+  });
+
   it("returns content-free delivery failures and logs no sentinels", async () => {
     issueError = new ExomemHostedError({
       code: "EMAIL_DELIVERY_UNAVAILABLE",

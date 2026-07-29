@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 type InviteBody = {
   email?: unknown;
   source?: unknown;
+  marketplaceReviewerPurpose?: unknown;
   expiresAt?: unknown;
 };
 
@@ -41,7 +42,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (
       typeof body.email !== "string" ||
-      (body.source !== "complimentary" && body.source !== "paid")
+      (body.source !== "complimentary" && body.source !== "paid") ||
+      (body.marketplaceReviewerPurpose !== undefined &&
+        typeof body.marketplaceReviewerPurpose !== "boolean")
     ) {
       throw exomemErrors.invalidRequest();
     }
@@ -53,6 +56,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const result = await issueOperatorInvite({
       email: body.email,
       source: body.source,
+      marketplaceReviewerPurpose: body.marketplaceReviewerPurpose === true,
       expiresAt,
       operatorPrincipalDigest: operator.principalDigest,
     });

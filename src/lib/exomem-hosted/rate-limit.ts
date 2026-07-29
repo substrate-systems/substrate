@@ -84,6 +84,16 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 3,
     windowSeconds: 24 * 60 * 60,
   },
+  marketplaceReviewerIp: {
+    scope: "exomem:marketplace-reviewer:ip",
+    limit: 20,
+    windowSeconds: 10 * 60,
+  },
+  marketplaceReviewerUsername: {
+    scope: "exomem:marketplace-reviewer:username",
+    limit: 10,
+    windowSeconds: 10 * 60,
+  },
 } as const satisfies Record<string, ExomemRateLimitRule>;
 
 const MAX_RATE_LIMIT_WINDOW_SECONDS = Math.max(
