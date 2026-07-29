@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 import {
   demoteExomemAgentContractCandidate,
   listExomemAgentContractStatus,
+  listExomemHostedRolloutStatus,
 } from "../agent-contract-store";
 import { getCapacityPoolStatus } from "../capacity-store";
 import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
@@ -81,5 +82,32 @@ describe("operator status getters", () => {
     assert.doesNotMatch(queries[1], /pg_advisory_xact_lock_shared/i);
     assert.match(queries[2], /SET state = 'retired', retired_at = now\(\)/i);
     assert.match(queries[2], /AND state = 'live'/i);
+  });
+
+  it("reports rollout readiness and latest lifecycle target without contract content", async () => {
+    __setExomemSqlForTests(async () => ({
+      rows: [
+        {
+          candidate_id: "018f2d91-7c42-7000-8000-000000000021",
+          state: "pending",
+          source_release: "0.35.0",
+          routable_cell_count: 1,
+          observed_source_release: "0.35.0",
+          observed_protocol_version: "1",
+          current_target_source_release: "0.35.0",
+        },
+      ],
+    }));
+    assert.deepEqual(await listExomemHostedRolloutStatus(), [
+      {
+        candidateId: "018f2d91-7c42-7000-8000-000000000021",
+        state: "pending",
+        sourceRelease: "0.35.0",
+        routableCellCount: 1,
+        observedSourceRelease: "0.35.0",
+        observedProtocolVersion: "1",
+        currentTargetSourceRelease: "0.35.0",
+      },
+    ]);
   });
 });

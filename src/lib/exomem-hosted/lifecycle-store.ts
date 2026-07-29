@@ -231,9 +231,11 @@ export class SqlLifecycleStore implements LifecycleStore {
       if (!exportId) throw exomemErrors.invalidRequest();
       const { rows } = await executeExomemSql`
         /* exomem:lifecycle-enqueue-restore */
-        WITH tenant AS (
+        WITH cohort_lock AS MATERIALIZED (
+          SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+        ), tenant AS (
           SELECT tenant.*
-          FROM exomem_tenants AS tenant
+          FROM exomem_tenants AS tenant CROSS JOIN cohort_lock
           WHERE tenant.id = ${tenantId}
             AND tenant.status <> 'deleted'
             AND tenant.desired_state <> 'deleted'
@@ -336,9 +338,11 @@ export class SqlLifecycleStore implements LifecycleStore {
     }
     const { rows } = await executeExomemSql`
       /* exomem:lifecycle-enqueue */
-      WITH tenant AS (
+      WITH cohort_lock AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
+      ), tenant AS (
         SELECT tenant.*
-        FROM exomem_tenants AS tenant
+        FROM exomem_tenants AS tenant CROSS JOIN cohort_lock
         WHERE tenant.id = ${tenantId}
           AND tenant.status <> 'deleted'
         FOR UPDATE OF tenant
@@ -451,6 +455,40 @@ export class SqlLifecycleStore implements LifecycleStore {
     const row = rows[0];
     if (!row) throw exomemErrors.idempotencyConflict();
     return operationFromRow(row);
+  }
+
+  async getAvailableRestoreBinding(
+    tenantId: string,
+    exportId: string
+  ): Promise<import("./reconciler").RestoreBinding | null> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-available-restore-binding */
+      SELECT export_row.id::text AS export_id, export_row.cell_id::text AS source_cell_id,
+             export_row.archive_sha256, export_row.manifest_sha256, export_row.archive_size
+      FROM exomem_exports AS export_row
+      WHERE export_row.id = ${exportId}::uuid
+        AND export_row.tenant_id = ${tenantId}::uuid
+        AND export_row.state = 'available'
+        AND export_row.expires_at > now()
+      LIMIT 1
+    `;
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (
+      !row ||
+      typeof row.export_id !== "string" ||
+      typeof row.source_cell_id !== "string" ||
+      typeof row.archive_sha256 !== "string" ||
+      typeof row.manifest_sha256 !== "string" ||
+      !Number.isSafeInteger(Number(row.archive_size))
+    )
+      return null;
+    return {
+      exportId: row.export_id,
+      sourceCellId: row.source_cell_id,
+      archiveSha256: row.archive_sha256,
+      manifestSha256: row.manifest_sha256,
+      archiveSize: Number(row.archive_size),
+    };
   }
 
   async claim(input: {

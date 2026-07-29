@@ -334,6 +334,7 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /FOR UPDATE OF export_row/);
     assert.match(statement, /input_export_id/);
     assert.match(statement, /source_export\.storage_reference_ciphertext/);
+    assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
   });
 
   it("snapshots the complete server-selected release target when provision is enqueued", async () => {
@@ -360,6 +361,7 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /target_compatibility_digest/i);
     assert.match(statement, /state = 'preparing'/i);
     assert.match(statement, /state = 'live'/i);
+    assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
   });
 
   it("attests every rollout lock under the cohort lock before it makes a replacement routable", async () => {

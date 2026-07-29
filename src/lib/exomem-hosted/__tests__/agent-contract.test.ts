@@ -11,9 +11,11 @@ import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import {
   attachOpenAiContractLocks,
+  getExomemAgentContractForOAuthAccess,
   promoteExomemHostedCohort,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
+  storeRetainedExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { demoteClientArtifact, storeClientArtifact } from "../client-artifacts";
 
@@ -41,6 +43,49 @@ afterEach(() => {
 });
 
 describe("Exomem Hosted agent contracts", () => {
+  it("selects a pending contract only through the exact bearer assignment generation and bound cell", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return {
+        rows: [
+          {
+            source_release: candidateFixture0350.sourceRelease,
+            command_fingerprint: candidateFixture0350.compatibility.command_surface_sha256,
+            schema_digest: candidateFixture0350.compatibility.schema_contract_sha256,
+            compatibility_digest: candidateFixture0350.compatibility.compatibility_sha256,
+            protocol_version: candidateFixture0350.compatibility.agent_contract.protocol_version,
+            mcp_protocol_versions: ["2025-11-25", "2025-06-18"],
+            contract: candidateFixture0350.compatibility,
+          },
+        ],
+      };
+    });
+    const selected = await getExomemAgentContractForOAuthAccess({
+      tenantId: "018f2d91-7c42-7000-8000-000000000011",
+      candidateId: "018f2d91-7c42-7000-8000-000000000012",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000013",
+      assignmentGeneration: BigInt(7),
+    });
+    assert.equal(selected?.sourceRelease, "0.35.0");
+    assert.equal(queries.length, 1);
+    assert.match(queries[0]!, /assignment\.id = \?::uuid/i);
+    assert.match(queries[0]!, /assignment\.generation = \?::bigint/i);
+    assert.match(queries[0]!, /assignment\.marketplace_reviewer_purpose = true/i);
+    assert.match(queries[0]!, /binding\.source_release = candidate\.source_release/i);
+    assert.doesNotMatch(queries[0]!, /candidate\.id = .* OR /i);
+
+    assert.equal(
+      await getExomemAgentContractForOAuthAccess({
+        tenantId: "018f2d91-7c42-7000-8000-000000000011",
+        candidateId: "018f2d91-7c42-7000-8000-000000000012",
+        assignmentId: "018f2d91-7c42-7000-8000-000000000013",
+      }),
+      null
+    );
+    assert.equal(queries.length, 1, "invalid candidate lineage must not query or fall back");
+  });
+
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
@@ -81,6 +126,21 @@ describe("Exomem Hosted agent contracts", () => {
       createHash("sha256").update(canonical(rawAgentContract)).digest("hex"),
       digest.value
     );
+  });
+
+  it("re-imports a retained release only as a fresh pending candidate", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000099" }] };
+    });
+    assert.equal(
+      await storeRetainedExomemAgentContractCandidate("0.35.0"),
+      "018f2d91-7c42-7000-8000-000000000099"
+    );
+    assert.match(queries[0]!, /'pending'/i);
+    assert.match(queries[0]!, /INSERT INTO exomem_agent_contract_candidates/i);
+    assert.doesNotMatch(queries[0]!, /UPDATE exomem_agent_contract_candidates/i);
   });
 
   it("trusts the fixture source release independently of descriptor source_release", async () => {

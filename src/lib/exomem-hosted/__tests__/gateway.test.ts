@@ -393,6 +393,25 @@ describe("registry-derived Exomem gateway", () => {
     }
   });
 
+  it("rejects release selectors in public headers and cookies without rejecting the bearer", () => {
+    assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ authorization: "Bearer opaque", "candidate-id": "candidate-b" })
+      ),
+      true
+    );
+    assert.equal(
+      hasForbiddenGatewayHeaders(new Headers({ cookie: "session=safe; assignment_generation=7" })),
+      true
+    );
+    assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ authorization: "Bearer opaque", cookie: "session=safe" })
+      ),
+      false
+    );
+  });
+
   it("keeps identical paths and idempotency keys isolated to the mapped cell", async () => {
     const targets = new Map([
       [
@@ -518,6 +537,13 @@ describe("registry-derived Exomem gateway", () => {
     assert.equal(hasReservedSelector({ tenantId: TENANT_A }), true);
     assert.equal(hasReservedSelector({ nested: { cellId: "cell-a" } }), true);
     assert.equal(hasReservedSelector({ auth: { sessionId: "other" } }), true);
+    assert.equal(hasReservedSelector({ nested: { candidateId: "candidate-b" } }), true);
+    assert.equal(hasReservedSelector({ assignmentGeneration: 2 }), true);
+    assert.equal(hasReservedSelector({ stagedClientReleaseId: "stage-b" }), true);
+    assert.equal(hasReservedSelector({ artifactSha256: "a".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ releaseVersion: "0.35.0" }), true);
+    assert.equal(hasReservedSelector({ schemaDigest: "a".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ compatibilityDigest: "b".repeat(64) }), true);
   });
 
   it("retries a lost mutation acknowledgement only against the same cell", async () => {

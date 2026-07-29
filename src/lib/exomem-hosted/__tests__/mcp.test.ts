@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { canonicalMcpArguments, hasMcpSelector, mcpProtocolSupported } from "../mcp";
+import {
+  canonicalMcpArguments,
+  hasMcpSelector,
+  mcpProtocolSupported,
+  type McpDependencies,
+} from "../mcp";
 import { handleHostedMcpRequest } from "../mcp";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "../agent-contract-fixture-0-35-0";
 import type { ActiveOAuthAccessToken } from "../oauth-store";
 
 const ACCESS: ActiveOAuthAccessToken = {
@@ -27,6 +33,16 @@ const LIVE = {
   protocolVersion: exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
   mcpProtocolVersions: ["2025-11-25", "2025-06-18"],
   contract: exomemHostedContractFixture.compatibility,
+};
+
+const PENDING = {
+  ...LIVE,
+  sourceRelease: exomemHostedContractFixture0350.sourceRelease,
+  commandFingerprint: exomemHostedContractFixture0350.compatibility.command_surface_sha256,
+  schemaDigest: exomemHostedContractFixture0350.compatibility.schema_contract_sha256,
+  compatibilityDigest: exomemHostedContractFixture0350.compatibility.compatibility_sha256,
+  protocolVersion: exomemHostedContractFixture0350.compatibility.agent_contract.protocol_version,
+  contract: exomemHostedContractFixture0350.compatibility,
 };
 
 function request(body: unknown, headers: HeadersInit = {}, includeProtocol = true): Request {
@@ -119,9 +135,98 @@ describe("Hosted MCP boundary", () => {
       { nested: { cellId: "other" } },
       { auth: { token: "other" } },
       { session: "other" },
+      { candidateId: "other" },
+      { assignmentGeneration: 2 },
+      { stagedClientReleaseId: "other" },
+      { artifactSha256: "other" },
+      { releaseVersion: "other" },
+      { schemaDigest: "other" },
+      { compatibilityDigest: "other" },
     ]) {
       assert.equal(hasMcpSelector(value), true);
     }
+  });
+
+  it("uses only bearer-bound candidate lineage for discovery and calls", async () => {
+    const access: ActiveOAuthAccessToken = {
+      ...ACCESS,
+      candidateId: "candidate-b",
+      assignmentId: "assignment-b",
+      assignmentGeneration: BigInt(7),
+      stagedClientReleaseId: "stage-b",
+    };
+    let selections = 0;
+    let routes = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => access,
+      getContractForAccess: async (received: ActiveOAuthAccessToken) => {
+        selections += 1;
+        assert.equal(received, access);
+        return PENDING;
+      },
+      statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+      routeCommand: async (input: Parameters<NonNullable<McpDependencies["routeCommand"]>>[0]) => {
+        routes += 1;
+        assert.deepEqual(input.hostedContract, {
+          profile: PENDING.profile,
+          sourceRelease: PENDING.sourceRelease,
+          protocolVersion: PENDING.protocolVersion,
+          commandFingerprint: PENDING.commandFingerprint,
+          schemaDigest: PENDING.schemaDigest,
+          compatibilityDigest: PENDING.compatibilityDigest,
+        });
+        return bootstrapResult();
+      },
+      takeRateLimit: async () => true,
+    };
+    for (const body of [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: PENDING.mcpProtocolVersions[0],
+          capabilities: {},
+          clientInfo: { name: "test", version: "1" },
+        },
+      },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "bootstrap", arguments: {} } },
+    ]) {
+      const response = await handleHostedMcpRequest(request(body), dependencies);
+      assert.equal(response.status, 200);
+    }
+    assert.equal(selections, 3);
+    assert.equal(routes, 1);
+  });
+
+  it("rejects release selectors from query, headers, and cookies before bearer-derived routing", async () => {
+    let selections = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      getContractForAccess: async () => {
+        selections += 1;
+        return LIVE;
+      },
+      takeRateLimit: async () => true,
+    };
+    const body = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    for (const requestCase of [
+      new Request("https://substratesystems.io/api/exomem/mcp/v1?candidateId=candidate-b", {
+        method: "POST",
+        headers: request(body).headers,
+        body: JSON.stringify(body),
+      }),
+      request(body, { "assignment-generation": "7" }),
+      request(body, { cookie: "session=safe; staged_client_release_id=stage-b" }),
+    ]) {
+      const response = await handleHostedMcpRequest(requestCase, dependencies);
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { error: "HOSTED_SELECTOR_REJECTED" });
+    }
+    assert.equal(selections, 0);
   });
 
   it("rejects JSON-RPC batches before dispatching an MCP method", async () => {

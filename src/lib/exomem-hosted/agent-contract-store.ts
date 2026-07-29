@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, executeExomemTransaction, withExomemTransaction } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -10,16 +11,32 @@ import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-con
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
-const TRUSTED_SOURCE_COMMIT = "253c9aa365d7afd8829dc7843f1cac53353ac825";
-const TRUSTED_RELEASE = {
-  sourceRelease: "0.34.0",
-  command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
-  schema_contract_sha256: "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853",
-  compatibility_sha256: "6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c",
-  artifact_sha256: "b99ac90d97c7ae25463f434fb02fe87a36842aa82373cd5c4c449b17f512b95a",
-  archive_sha256: "dc55e52e36c4b533a0179f19e8856a3414016ad536d0f85370fe5a765661858b",
-} as const;
+const TRUSTED_RELEASES = new Map([
+  [
+    "0.34.0",
+    {
+      sourceCommit: "253c9aa365d7afd8829dc7843f1cac53353ac825",
+      command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+      schema_contract_sha256: "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853",
+      compatibility_sha256: "6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c",
+      artifact_sha256: "b99ac90d97c7ae25463f434fb02fe87a36842aa82373cd5c4c449b17f512b95a",
+      archive_sha256: "dc55e52e36c4b533a0179f19e8856a3414016ad536d0f85370fe5a765661858b",
+    },
+  ],
+  [
+    "0.35.0",
+    {
+      sourceCommit: "d4c5614e5f65d8bcbddee90e9e374846c5a2c22f",
+      command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+      schema_contract_sha256: "22fac274c147a5e0ff4096e70a500d9fbb5489a6a8731687fa162dd5e224a7b1",
+      compatibility_sha256: "bacca49e553f6d50fabb735164ae613238177bd9f0d9cffeafdae9fa4fc91840",
+      artifact_sha256: "b99ac90d97c7ae25463f434fb02fe87a36842aa82373cd5c4c449b17f512b95a",
+      archive_sha256: "dc55e52e36c4b533a0179f19e8856a3414016ad536d0f85370fe5a765661858b",
+    },
+  ],
+] as const);
 const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type JsonRecord = Record<string, unknown>;
 type ContractState = "pending" | "live" | "failed" | "retired";
@@ -154,23 +171,22 @@ function checkedOpenAiLocks(
 }
 
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
-function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
-  const source = record(exomemHostedContractFixture, "fixture");
-  if (source.sourceCommit !== TRUSTED_SOURCE_COMMIT) {
+function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContractCandidate {
+  const source = record(fixture, "fixture");
+  const sourceRelease = string(source.sourceRelease, "fixture source release");
+  const trusted = TRUSTED_RELEASES.get(sourceRelease as "0.34.0" | "0.35.0");
+  if (!trusted) throw new Error("agent contract fixture has an untrusted source release");
+  if (source.sourceCommit !== trusted.sourceCommit)
     throw new Error("agent contract fixture has an untrusted source commit");
-  }
   const compatibility = record(source.compatibility, "compatibility");
   const packageLock = record(source.packageLock, "Claude package lock");
   const archiveLock = record(source.archiveLock, "Claude archive lock");
-  if (source.sourceRelease !== TRUSTED_RELEASE.sourceRelease) {
-    throw new Error("agent contract fixture has an untrusted source release");
-  }
   if (
-    compatibility.command_surface_sha256 !== TRUSTED_RELEASE.command_surface_sha256 ||
-    compatibility.schema_contract_sha256 !== TRUSTED_RELEASE.schema_contract_sha256 ||
-    compatibility.compatibility_sha256 !== TRUSTED_RELEASE.compatibility_sha256 ||
-    packageLock.artifact_sha256 !== TRUSTED_RELEASE.artifact_sha256 ||
-    archiveLock.archive_sha256 !== TRUSTED_RELEASE.archive_sha256
+    compatibility.command_surface_sha256 !== trusted.command_surface_sha256 ||
+    compatibility.schema_contract_sha256 !== trusted.schema_contract_sha256 ||
+    compatibility.compatibility_sha256 !== trusted.compatibility_sha256 ||
+    packageLock.artifact_sha256 !== trusted.artifact_sha256 ||
+    archiveLock.archive_sha256 !== trusted.archive_sha256
   ) {
     throw new Error("agent contract fixture differs from the trusted Exomem release");
   }
@@ -236,7 +252,7 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
     state: "pending",
     profile: EXOMEM_HOSTED_PROFILE,
     endpoint: EXOMEM_HOSTED_RESOURCE,
-    sourceRelease: string(source.sourceRelease, "source release"),
+    sourceRelease,
     commandSurfaceSha256,
     schemaDigest,
     compatibilitySha256: sha256(compatibility.compatibility_sha256, "compatibility digest"),
@@ -254,7 +270,23 @@ function checkedExomemAgentContractCandidate(): ExomemAgentContractCandidate {
 
 /** Store the sole checked Exomem fixture; no caller-supplied contract is accepted. */
 export async function storeExomemAgentContractCandidate(): Promise<string> {
-  const candidate = checkedExomemAgentContractCandidate();
+  return storeCheckedExomemAgentContractCandidate(
+    checkedExomemAgentContractCandidate(exomemHostedContractFixture)
+  );
+}
+
+/** A rollback begins with a fresh pending UUID from an immutable retained release fixture. */
+export async function storeRetainedExomemAgentContractCandidate(
+  sourceRelease: "0.34.0" | "0.35.0"
+): Promise<string> {
+  const fixture =
+    sourceRelease === "0.34.0" ? exomemHostedContractFixture : exomemHostedContractFixture0350;
+  return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
+}
+
+async function storeCheckedExomemAgentContractCandidate(
+  candidate: ExomemAgentContractCandidate
+): Promise<string> {
   const { rows } = await executeExomemSql`
     /* exomem:store-agent-contract-candidate */
     INSERT INTO exomem_agent_contract_candidates (
@@ -308,6 +340,120 @@ export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContr
   }
 }
 
+/**
+ * MCP contract selection is derived solely from the access-token lineage and
+ * the tenant's attested binding. Candidate lineage never falls back to live.
+ */
+export async function getExomemAgentContractForOAuthAccess(input: {
+  tenantId: string;
+  candidateId?: string;
+  assignmentId?: string;
+  assignmentGeneration?: bigint;
+}): Promise<LiveExomemAgentContract | null> {
+  const candidateId = input.candidateId;
+  const candidateLineage = candidateId !== undefined;
+  if (
+    (candidateLineage &&
+      (!input.assignmentId ||
+        !input.assignmentGeneration ||
+        input.assignmentGeneration < BigInt(1))) ||
+    !UUID.test(input.tenantId) ||
+    (candidateId !== undefined && !UUID.test(candidateId)) ||
+    (input.assignmentId !== undefined && !UUID.test(input.assignmentId))
+  ) {
+    return null;
+  }
+  const { rows } = await executeExomemSql`
+    /* exomem:get-agent-contract-for-oauth-access */
+    WITH access_tenant AS (
+      SELECT tenant.id, tenant.bound_cell_id
+      FROM exomem_tenants AS tenant
+      WHERE tenant.id = ${input.tenantId}::uuid
+    ), selected AS (
+      SELECT candidate.profile_id, candidate.endpoint, candidate.source_release,
+             candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest,
+             candidate.protocol_version, candidate.mcp_protocol_versions, candidate.contract
+      FROM exomem_agent_contract_candidates AS candidate
+      JOIN access_tenant ON true
+      LEFT JOIN exomem_hosted_alpha_cohort AS cohort ON cohort.id = candidate.id
+      LEFT JOIN exomem_agent_contract_rollout_assignments AS assignment
+        ON assignment.id = ${input.assignmentId ?? null}::uuid
+       AND assignment.tenant_id = access_tenant.id
+       AND assignment.candidate_id = candidate.id
+       AND assignment.generation = ${input.assignmentGeneration?.toString() ?? null}::bigint
+      LEFT JOIN exomem_routable_cell_contracts AS binding
+        ON binding.cell_id = access_tenant.bound_cell_id
+       AND binding.profile_id = ${EXOMEM_HOSTED_PROFILE}
+       AND binding.routable = true
+      WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
+        AND candidate.endpoint = ${EXOMEM_HOSTED_RESOURCE}
+        AND (
+          (
+            ${candidateLineage} = false
+            AND candidate.state = 'live'
+            AND cohort.id = candidate.id
+            AND (
+              access_tenant.bound_cell_id IS NULL OR (
+                binding.source_release = candidate.source_release
+                AND binding.protocol_version = candidate.protocol_version
+                AND binding.command_fingerprint = candidate.command_fingerprint
+                AND binding.contract_digest = candidate.schema_digest
+                AND binding.compatibility_digest = candidate.compatibility_digest
+              )
+            )
+          ) OR (
+            ${candidateLineage} = true
+            AND candidate.id = ${candidateId ?? null}::uuid
+            AND (
+              (
+                candidate.state = 'live'
+                AND cohort.id = candidate.id
+                AND (
+                  access_tenant.bound_cell_id IS NULL OR (
+                    binding.source_release = candidate.source_release
+                    AND binding.protocol_version = candidate.protocol_version
+                    AND binding.command_fingerprint = candidate.command_fingerprint
+                    AND binding.contract_digest = candidate.schema_digest
+                    AND binding.compatibility_digest = candidate.compatibility_digest
+                  )
+                )
+              ) OR (
+                candidate.state = 'pending'
+                AND assignment.id IS NOT NULL
+                AND assignment.marketplace_reviewer_purpose = true
+                AND assignment.state = 'active'
+                AND assignment.expires_at > now()
+                AND binding.source_release = candidate.source_release
+                AND binding.protocol_version = candidate.protocol_version
+                AND binding.command_fingerprint = candidate.command_fingerprint
+                AND binding.contract_digest = candidate.schema_digest
+                AND binding.compatibility_digest = candidate.compatibility_digest
+              )
+            )
+          )
+        )
+      LIMIT 2
+    ) SELECT * FROM selected
+  `;
+  if (rows.length !== 1) return null;
+  const row = rows[0] as Record<string, unknown>;
+  try {
+    return {
+      profile: EXOMEM_HOSTED_PROFILE,
+      endpoint: EXOMEM_HOSTED_RESOURCE,
+      sourceRelease: string(row.source_release, "selected source release"),
+      commandFingerprint: sha256(row.command_fingerprint, "selected command fingerprint"),
+      schemaDigest: sha256(row.schema_digest, "selected schema digest"),
+      compatibilityDigest: sha256(row.compatibility_digest, "selected compatibility digest"),
+      protocolVersion: string(row.protocol_version, "selected protocol version"),
+      mcpProtocolVersions: mcpProtocolVersions(row.mcp_protocol_versions),
+      contract: record(row.contract, "selected contract"),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** The operator uses this opaque identifier as the cohort promotion compare-and-swap value. */
 export async function getLiveExomemHostedCohortCandidateId(): Promise<string | null> {
   const { rows } = await executeExomemSql`
@@ -324,6 +470,74 @@ export type OperatorExomemAgentContractStatus = {
   schemaDigest: string;
   compatibilityDigest: string;
 };
+
+export type OperatorExomemHostedRolloutStatus = {
+  candidateId: string;
+  state: "pending" | "live" | "retired";
+  sourceRelease: string;
+  routableCellCount: number;
+  observedSourceRelease: string | null;
+  observedProtocolVersion: string | null;
+  currentTargetSourceRelease: string | null;
+};
+
+/** Content-free operator view of candidate readiness, observed authority, and latest lifecycle target. */
+export async function listExomemHostedRolloutStatus(): Promise<
+  OperatorExomemHostedRolloutStatus[]
+> {
+  const { rows } = await executeExomemSql`
+    /* exomem:list-hosted-rollout-status */
+    SELECT candidate.id::text AS candidate_id, candidate.state, candidate.source_release,
+           COALESCE(authority.routable_cell_count, 0)::integer AS routable_cell_count,
+           authority.source_release AS observed_source_release,
+           authority.protocol_version AS observed_protocol_version,
+           latest.target_source_release AS current_target_source_release
+    FROM exomem_agent_contract_candidates AS candidate
+    LEFT JOIN exomem_agent_contract_profile_authority AS authority
+      ON authority.profile_id = candidate.profile_id
+     AND authority.source_release = candidate.source_release
+     AND authority.protocol_version = candidate.protocol_version
+     AND authority.command_fingerprint = candidate.command_fingerprint
+     AND authority.contract_digest = candidate.schema_digest
+     AND authority.compatibility_digest = candidate.compatibility_digest
+    LEFT JOIN LATERAL (
+      SELECT operation.target_source_release
+      FROM exomem_lifecycle_operations AS operation
+      WHERE operation.target_candidate_id = candidate.id
+      ORDER BY operation.updated_at DESC
+      LIMIT 1
+    ) AS latest ON TRUE
+    WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
+    ORDER BY candidate.created_at DESC
+    LIMIT 50
+  `;
+  return rows.flatMap((raw) => {
+    const row = raw as Record<string, unknown>;
+    if (
+      typeof row.candidate_id !== "string" ||
+      (row.state !== "pending" && row.state !== "live" && row.state !== "retired") ||
+      typeof row.source_release !== "string" ||
+      !Number.isSafeInteger(Number(row.routable_cell_count)) ||
+      (row.observed_source_release !== null && typeof row.observed_source_release !== "string") ||
+      (row.observed_protocol_version !== null &&
+        typeof row.observed_protocol_version !== "string") ||
+      (row.current_target_source_release !== null &&
+        typeof row.current_target_source_release !== "string")
+    )
+      return [];
+    return [
+      {
+        candidateId: row.candidate_id,
+        state: row.state,
+        sourceRelease: row.source_release,
+        routableCellCount: Number(row.routable_cell_count),
+        observedSourceRelease: row.observed_source_release,
+        observedProtocolVersion: row.observed_protocol_version,
+        currentTargetSourceRelease: row.current_target_source_release,
+      },
+    ];
+  });
+}
 
 /** Operator status exposes only candidate IDs and verification digests, never contract content. */
 export async function listExomemAgentContractStatus(): Promise<
@@ -588,6 +802,20 @@ export async function promoteExomemHostedCohort(input: {
       WHERE EXISTS (SELECT 1 FROM cells)
         AND candidate.mcp_protocol_versions IS NOT NULL
         AND exomem_mcp_protocol_versions_are_valid(candidate.mcp_protocol_versions)
+        AND (
+          (candidate.source_release = '0.34.0'
+            AND candidate.command_fingerprint = ${TRUSTED_RELEASES.get("0.34.0")!.command_surface_sha256}
+            AND candidate.schema_digest = ${TRUSTED_RELEASES.get("0.34.0")!.schema_contract_sha256}
+            AND candidate.compatibility_digest = ${TRUSTED_RELEASES.get("0.34.0")!.compatibility_sha256}
+            AND candidate.claude_package_lock->>'artifact_sha256' = ${TRUSTED_RELEASES.get("0.34.0")!.artifact_sha256}
+            AND candidate.claude_archive_lock->>'archive_sha256' = ${TRUSTED_RELEASES.get("0.34.0")!.archive_sha256})
+          OR (candidate.source_release = '0.35.0'
+            AND candidate.command_fingerprint = ${TRUSTED_RELEASES.get("0.35.0")!.command_surface_sha256}
+            AND candidate.schema_digest = ${TRUSTED_RELEASES.get("0.35.0")!.schema_contract_sha256}
+            AND candidate.compatibility_digest = ${TRUSTED_RELEASES.get("0.35.0")!.compatibility_sha256}
+            AND candidate.claude_package_lock->>'artifact_sha256' = ${TRUSTED_RELEASES.get("0.35.0")!.artifact_sha256}
+            AND candidate.claude_archive_lock->>'archive_sha256' = ${TRUSTED_RELEASES.get("0.35.0")!.archive_sha256})
+        )
         AND authority.routable_set_digest = ${expected}
         AND authority.observed_at > now() - interval '5 minutes'
         AND authority.source_release = candidate.source_release

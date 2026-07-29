@@ -5,6 +5,8 @@ import {
   createCanaryAssignment,
   createStagedClientRelease,
   expireCanaryAuthority,
+  failCanaryAssignment,
+  failStagedClientRelease,
   revokeConflictingCanaryOAuthLineageInTransaction,
   resolveActiveCanaryAssignment,
   resolveReviewerCanaryAuthority,
@@ -165,6 +167,31 @@ describe("Hosted canary assignments", () => {
     assert.match(query, /SET state = 'expired', evidenced_at = NULL, ended_at = now\(\)/i);
     assert.match(query, /exomem:revoke-canary-oauth-lineage/i);
     assert.match(query, /credential_kind = 'internal_canary'/i);
+  });
+
+  it("fails only an exact current assignment or stage under the cohort lock", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      queries.push(query);
+      if (query.includes("fail-canary-assignment") || query.includes("fail-staged-client-release"))
+        return { rows: [{ id: assignmentId }] };
+      return { rows: [] };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.equal(await failCanaryAssignment({ assignmentId, expectedVersion: 3 }), true);
+    assert.equal(
+      await failStagedClientRelease({ stagedClientReleaseId: declarationId, expectedVersion: 4 }),
+      true
+    );
+    const query = queries.join("\n");
+    assert.match(query, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    assert.match(query, /SET state = 'failed', activated_at = NULL, ended_at = now\(\)/i);
+    assert.match(query, /SET state = 'failed', evidenced_at = NULL, ended_at = now\(\)/i);
+    assert.match(query, /AND version = \?::bigint/i);
+    assert.match(query, /state IN \('preparing', 'active'\)/i);
+    assert.match(query, /state IN \('staged', 'evidenced'\)/i);
   });
 });
 

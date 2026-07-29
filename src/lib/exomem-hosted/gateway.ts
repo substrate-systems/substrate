@@ -84,9 +84,54 @@ const RESERVED_FIELDS = new Set([
   "authorization",
   "session",
   "session_id",
+  "candidate",
+  "candidate_id",
+  "assignment",
+  "assignment_id",
+  "assignment_generation",
+  "generation",
+  "stage",
+  "stage_id",
+  "staged_client_release",
+  "staged_client_release_id",
+  "artifact",
+  "artifact_id",
+  "artifact_sha256",
+  "release",
+  "release_version",
+  "schema",
+  "schema_digest",
+  "compatibility",
+  "compatibility_digest",
+  "gateway_contract_digest",
 ]);
 
 const INTERCEPTED_COMMANDS = new Set(["transfer_artifact", "adopt_vault"]);
+const PUBLIC_MCP_HEADER_EXCEPTIONS = new Set(["authorization", "cookie"]);
+const RELEASE_SELECTOR_FIELDS = new Set([
+  "candidate",
+  "candidate_id",
+  "assignment",
+  "assignment_id",
+  "assignment_generation",
+  "generation",
+  "stage",
+  "stage_id",
+  "staged_client_release",
+  "staged_client_release_id",
+  "artifact",
+  "artifact_id",
+  "artifact_sha256",
+  "release",
+  "release_version",
+  "protocol",
+  "protocol_version",
+  "schema",
+  "schema_digest",
+  "compatibility",
+  "compatibility_digest",
+  "gateway_contract_digest",
+]);
 
 export function normalizeIdempotencyKey(value: string | null | undefined): string {
   const key = value?.trim() ?? "";
@@ -189,8 +234,9 @@ export function hasReservedSelector(
 }
 
 export function hasForbiddenGatewayHeaders(headers: Headers): boolean {
-  for (const [name] of headers) {
+  for (const [name, value] of headers) {
     const normalized = name.toLowerCase();
+    const selector = normalizeField(normalized);
     if (
       (normalized.startsWith("x-exomem-") && normalized !== "x-exomem-csrf") ||
       normalized.startsWith("x-tenant") ||
@@ -201,7 +247,13 @@ export function hasForbiddenGatewayHeaders(headers: Headers): boolean {
       normalized === "x-protocol-version" ||
       normalized === "x-internal-endpoint" ||
       normalized === "cf-access-client-id" ||
-      normalized === "cf-access-client-secret"
+      normalized === "cf-access-client-secret" ||
+      (RESERVED_FIELDS.has(selector) && !PUBLIC_MCP_HEADER_EXCEPTIONS.has(selector)) ||
+      (normalized === "cookie" &&
+        value.split(";").some((cookie) => {
+          const [name] = cookie.split("=", 1);
+          return RELEASE_SELECTOR_FIELDS.has(normalizeField(name ?? ""));
+        }))
     ) {
       return true;
     }

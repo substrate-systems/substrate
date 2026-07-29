@@ -10,10 +10,12 @@ import {
   type ExomemTransaction,
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
   attachOpenAiContractLocks,
+  getExomemAgentContractForOAuthAccess,
   getLiveExomemAgentContract,
   promoteExomemHostedCohort,
   recordRoutableCellObservation,
@@ -994,6 +996,144 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       contract_digest: fixture.schema_contract_sha256,
       compatibility_digest: fixture.compatibility_sha256,
     });
+  });
+
+  it("keeps ordinary discovery on live A while exact reviewer bearer lineage selects pending B", async () => {
+    const userId = randomUUID();
+    const tenantId = randomUUID();
+    const cellId = randomUUID();
+    const ordinaryUserId = randomUUID();
+    const ordinaryTenantId = randomUUID();
+    const ordinaryCellId = randomUUID();
+    const candidateId = randomUUID();
+    const assignmentId = randomUUID();
+    const fixture = candidateFixture0350.compatibility;
+    await pool!.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      userId,
+      `selection-${randomUUID()}@example.test`,
+    ]);
+    await pool!.query(
+      `INSERT INTO exomem_tenants (
+         id, owner_user_id, status, desired_state, marketplace_reviewer_purpose
+       ) VALUES ($1, $2, 'active', 'running', true)`,
+      [tenantId, userId]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '0.35.0')`,
+      [cellId, tenantId]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      cellId,
+      tenantId,
+    ]);
+    await pool!.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      ordinaryUserId,
+      `ordinary-selection-${randomUUID()}@example.test`,
+    ]);
+    await pool!.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [ordinaryTenantId, ordinaryUserId]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '0.34.0')`,
+      [ordinaryCellId, ordinaryTenantId]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      ordinaryCellId,
+      ordinaryTenantId,
+    ]);
+    await pool!.query(
+      `INSERT INTO exomem_routable_cell_contracts (
+         cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+         contract_digest, compatibility_digest, routable
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
+      [
+        ordinaryCellId,
+        exomemHostedContractFixture.compatibility.profile,
+        exomemHostedContractFixture.sourceRelease,
+        exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+        exomemHostedContractFixture.compatibility.command_surface_sha256,
+        exomemHostedContractFixture.compatibility.schema_contract_sha256,
+        exomemHostedContractFixture.compatibility.compatibility_sha256,
+      ]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, mcp_protocol_versions, contract,
+         claude_package_lock, claude_archive_lock
+       ) VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb)`,
+      [
+        candidateId,
+        fixture.profile,
+        fixture.endpoint,
+        candidateFixture0350.sourceRelease,
+        fixture.command_surface_sha256,
+        fixture.schema_contract_sha256,
+        fixture.compatibility_sha256,
+        fixture.agent_contract.protocol_version,
+        JSON.stringify(["2025-11-25", "2025-06-18"]),
+        JSON.stringify(fixture),
+        JSON.stringify(candidateFixture0350.packageLock),
+        JSON.stringify(candidateFixture0350.archiveLock),
+      ]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+       ) VALUES ($1, $2, $3, 7, 'active', $4, $5, $6, $7, $8, $9,
+                 true, $10, now() + interval '1 hour', now())`,
+      [
+        assignmentId,
+        tenantId,
+        candidateId,
+        candidateFixture0350.sourceRelease,
+        fixture.agent_contract.protocol_version,
+        fixture.command_surface_sha256,
+        fixture.schema_contract_sha256,
+        fixture.compatibility_sha256,
+        sha("e"),
+        sha("f"),
+      ]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_routable_cell_contracts (
+         cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+         contract_digest, compatibility_digest, routable
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
+      [
+        cellId,
+        fixture.profile,
+        candidateFixture0350.sourceRelease,
+        fixture.agent_contract.protocol_version,
+        fixture.command_surface_sha256,
+        fixture.schema_contract_sha256,
+        fixture.compatibility_sha256,
+      ]
+    );
+
+    const lineage = { tenantId, candidateId, assignmentId, assignmentGeneration: BigInt(7) };
+    assert.equal(
+      (await getExomemAgentContractForOAuthAccess({ tenantId: ordinaryTenantId }))?.sourceRelease,
+      "0.34.0"
+    );
+    assert.equal((await getExomemAgentContractForOAuthAccess(lineage))?.sourceRelease, "0.35.0");
+    assert.equal(
+      await getExomemAgentContractForOAuthAccess({ ...lineage, assignmentGeneration: BigInt(8) }),
+      null
+    );
+    await pool!.query(
+      "UPDATE exomem_routable_cell_contracts SET source_release = '0.24.0' WHERE cell_id = $1",
+      [cellId]
+    );
+    assert.equal(await getExomemAgentContractForOAuthAccess(lineage), null);
   });
 
   it("activates a preparing assignment atomically and rolls back every published effect on descendant revocation failure", async () => {

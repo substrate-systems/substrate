@@ -703,6 +703,96 @@ export async function expireCanaryAuthority(limit = 20): Promise<number> {
   });
 }
 
+/** An operator may end, but never retarget or revive, one exact assignment generation. */
+export async function failCanaryAssignment(input: {
+  assignmentId: string;
+  expectedVersion: number;
+}): Promise<boolean> {
+  const assignmentId = uuid(input.assignmentId, "assignment ID");
+  const expectedVersion = integer(input.expectedVersion, "assignment version");
+  return withCohortLock(async (tx) => {
+    const { rows: ended } = await tx`
+      /* exomem:fail-canary-assignment */
+      UPDATE exomem_agent_contract_rollout_assignments
+      SET state = 'failed', activated_at = NULL, ended_at = now(),
+          version = version + 1, updated_at = now()
+      WHERE id = ${assignmentId}::uuid
+        AND version = ${expectedVersion}::bigint
+        AND state IN ('preparing', 'active')
+      RETURNING id
+    `;
+    if (ended.length !== 1) return false;
+    const { rows } = await tx`
+      SELECT DISTINCT credential.tenant_id::text AS tenant_id,
+             credential.candidate_id::text AS candidate_id,
+             credential.assignment_id::text AS assignment_id,
+             credential.assignment_generation,
+             credential.staged_client_release_id::text AS staged_client_release_id,
+             credential.oauth_client_id::text AS oauth_client_id
+      FROM exomem_marketplace_reviewer_credentials AS credential
+      WHERE credential.credential_kind = 'internal_canary'
+        AND credential.revoked_at IS NULL
+        AND credential.assignment_id = ${assignmentId}::uuid
+    `;
+    for (const row of rows) {
+      await revokeCanaryOAuthLineageInTransaction(tx, {
+        tenantId: String(row.tenant_id),
+        candidateId: String(row.candidate_id),
+        assignmentId: String(row.assignment_id),
+        assignmentGeneration: integer(row.assignment_generation, "assignment generation"),
+        stagedClientReleaseId: String(row.staged_client_release_id),
+        oauthClientId: String(row.oauth_client_id),
+      });
+    }
+    return true;
+  });
+}
+
+/** A staged declaration can terminate only by immutable state transition and exact version. */
+export async function failStagedClientRelease(input: {
+  stagedClientReleaseId: string;
+  expectedVersion: number;
+}): Promise<boolean> {
+  const stagedClientReleaseId = uuid(input.stagedClientReleaseId, "staged client release ID");
+  const expectedVersion = integer(input.expectedVersion, "stage version");
+  return withCohortLock(async (tx) => {
+    const { rows: ended } = await tx`
+      /* exomem:fail-staged-client-release */
+      UPDATE exomem_staged_client_releases
+      SET state = 'failed', evidenced_at = NULL, ended_at = now(),
+          version = version + 1, updated_at = now()
+      WHERE id = ${stagedClientReleaseId}::uuid
+        AND version = ${expectedVersion}::bigint
+        AND state IN ('staged', 'evidenced')
+      RETURNING id
+    `;
+    if (ended.length !== 1) return false;
+    const { rows } = await tx`
+      SELECT DISTINCT credential.tenant_id::text AS tenant_id,
+             credential.candidate_id::text AS candidate_id,
+             credential.assignment_id::text AS assignment_id,
+             credential.assignment_generation,
+             credential.staged_client_release_id::text AS staged_client_release_id,
+             credential.oauth_client_id::text AS oauth_client_id
+      FROM exomem_marketplace_reviewer_credentials AS credential
+      WHERE credential.credential_kind = 'internal_canary'
+        AND credential.revoked_at IS NULL
+        AND credential.staged_client_release_id = ${stagedClientReleaseId}::uuid
+    `;
+    for (const row of rows) {
+      await revokeCanaryOAuthLineageInTransaction(tx, {
+        tenantId: String(row.tenant_id),
+        candidateId: String(row.candidate_id),
+        assignmentId: String(row.assignment_id),
+        assignmentGeneration: integer(row.assignment_generation, "assignment generation"),
+        stagedClientReleaseId: String(row.staged_client_release_id),
+        oauthClientId: String(row.oauth_client_id),
+      });
+    }
+    return true;
+  });
+}
+
 export function isCanaryAssignmentState(value: unknown): value is AssignmentState {
   return (
     value === "preparing" ||
