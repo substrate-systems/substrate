@@ -332,6 +332,59 @@ export async function revokeConflictingCanaryOAuthLineageInTransaction(
   return Number(rows[0]?.revoked_credentials ?? 0);
 }
 
+/** Caller holds the cohort lock; activation retains only one tenant assignment generation. */
+export async function revokeTenantOAuthOutsideAssignmentInTransaction(
+  tx: ExomemSql,
+  input: Pick<
+    CanaryOAuthLineage,
+    "tenantId" | "candidateId" | "assignmentId" | "assignmentGeneration"
+  >
+): Promise<number> {
+  const tenantId = uuid(input.tenantId, "tenant ID");
+  const candidateId = uuid(input.candidateId, "candidate ID");
+  const assignmentId = uuid(input.assignmentId, "assignment ID");
+  const assignmentGeneration = integer(input.assignmentGeneration, "assignment generation");
+  const { rows } = await tx`
+    /* exomem:revoke-tenant-oauth-outside-assignment */
+    WITH grants_revoked AS (
+      UPDATE exomem_oauth_grants AS grant_row
+      SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
+      WHERE grant_row.tenant_id = ${tenantId}::uuid
+        AND grant_row.revoked_at IS NULL
+        AND (
+          grant_row.candidate_id IS DISTINCT FROM ${candidateId}::uuid
+          OR grant_row.assignment_id IS DISTINCT FROM ${assignmentId}::uuid
+          OR grant_row.assignment_generation IS DISTINCT FROM ${assignmentGeneration}::bigint
+        )
+      RETURNING grant_row.id
+    ), codes_consumed AS (
+      UPDATE exomem_oauth_authorization_codes AS code
+      SET consumed_at = COALESCE(code.consumed_at, now())
+      WHERE code.grant_id IN (SELECT id FROM grants_revoked) AND code.consumed_at IS NULL
+      RETURNING code.id
+    ), families_revoked AS (
+      UPDATE exomem_oauth_token_families AS family
+      SET revoked_at = COALESCE(family.revoked_at, now()),
+          revoked_reason = COALESCE(family.revoked_reason, 'assignment_activated')
+      WHERE family.grant_id IN (SELECT id FROM grants_revoked) AND family.revoked_at IS NULL
+      RETURNING family.id
+    ), refresh_consumed AS (
+      UPDATE exomem_oauth_refresh_tokens AS token
+      SET consumed_at = COALESCE(token.consumed_at, now())
+      WHERE token.family_id IN (SELECT id FROM families_revoked) AND token.consumed_at IS NULL
+      RETURNING token.id
+    ), access_revoked AS (
+      UPDATE exomem_oauth_access_tokens AS token
+      SET revoked_at = COALESCE(token.revoked_at, now())
+      WHERE token.grant_id IN (SELECT id FROM grants_revoked)
+         OR token.family_id IN (SELECT id FROM families_revoked)
+      RETURNING token.id
+    )
+    SELECT count(*)::integer AS revoked_grants FROM grants_revoked
+  `;
+  return Number(rows[0]?.revoked_grants ?? 0);
+}
+
 export type CreatedCanaryAssignment = {
   id: string;
   generation: number;

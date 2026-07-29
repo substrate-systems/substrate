@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { SqlLifecycleStore } from "../lifecycle-store";
 
-afterEach(() => __setExomemSqlForTests(null));
+afterEach(() => {
+  __setExomemSqlForTests(null);
+  __setExomemTransactionForTests(null);
+});
 
 describe("SQL lifecycle operation store", () => {
   it("claims pending work or a stale running lease with row locking and an attempt bound", async () => {
@@ -357,5 +360,43 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /target_compatibility_digest/i);
     assert.match(statement, /state = 'preparing'/i);
     assert.match(statement, /state = 'live'/i);
+  });
+
+  it("attests every rollout lock under the cohort lock before it makes a replacement routable", async () => {
+    const statements: string[] = [];
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        statements.push(strings.join("?"));
+        return { rows: [], rowCount: 0 };
+      })
+    );
+
+    assert.equal(
+      await new SqlLifecycleStore().bindCandidate(
+        "018f2d91-7c42-7000-8000-000000000070",
+        "worker-a"
+      ),
+      false
+    );
+
+    const statement = statements.join("\n");
+    assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    assert.match(statement, /target_candidate_id/i);
+    assert.match(statement, /target_assignment_id/i);
+    assert.match(statement, /target_assignment_generation/i);
+    assert.match(statement, /target_gateway_contract_digest/i);
+    assert.match(statement, /target_command_fingerprint/i);
+    assert.match(statement, /target_schema_digest/i);
+    assert.match(statement, /target_compatibility_digest/i);
+    assert.match(statement, /assignment\.state = 'preparing'/i);
+    assert.match(statement, /assignment\.expires_at > now\(\)/i);
+    assert.match(
+      statement,
+      /prior_observation_unrouted[\s\S]*EXISTS \(SELECT 1 FROM activated_assignment\)/i
+    );
+    assert.match(
+      statement,
+      /replacement_observation[\s\S]*EXISTS \(SELECT 1 FROM activated_assignment\)/i
+    );
   });
 });

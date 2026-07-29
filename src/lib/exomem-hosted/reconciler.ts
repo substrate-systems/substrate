@@ -1,6 +1,7 @@
 import { randomBytes as nodeRandomBytes, randomUUID } from "node:crypto";
 import {
   type CellProvisioner,
+  type CellContractIdentity,
   type CellReadiness,
   type CellTargetRequest,
   type CellWorkerPolicy,
@@ -216,7 +217,12 @@ export interface LifecycleStore {
     providerRef: string;
     endpointEnvelope: SecretEnvelope;
   }): Promise<boolean>;
-  recordReadiness(input: { operationId: string; owner: string; code: string }): Promise<boolean>;
+  recordReadiness(input: {
+    operationId: string;
+    owner: string;
+    code: string;
+    contractIdentity?: CellContractIdentity;
+  }): Promise<boolean>;
   recordOperationReference(
     operationId: string,
     owner: string,
@@ -763,6 +769,7 @@ export class LifecycleReconciler {
         operationId: operation.id,
         owner,
         code: readiness.code,
+        contractIdentity: readiness.contractIdentity,
       })
     );
     const activated = await this.#store.activateAfterReadiness(operation.id, owner);
@@ -800,6 +807,7 @@ export class LifecycleReconciler {
         operationId: operation.id,
         owner,
         code: readiness.code,
+        contractIdentity: readiness.contractIdentity,
       })
     );
     return this.#advance(operation, owner, nextCheckpoint);

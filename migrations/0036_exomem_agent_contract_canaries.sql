@@ -390,3 +390,20 @@ $function$;
 CREATE TRIGGER exomem_lifecycle_target_immutable
 BEFORE UPDATE ON exomem_lifecycle_operations
 FOR EACH ROW EXECUTE FUNCTION exomem_lifecycle_target_is_immutable();
+
+ALTER TABLE exomem_cells
+  ADD COLUMN observed_gateway_contract_digest text,
+  ADD COLUMN observed_command_fingerprint text,
+  ADD COLUMN observed_schema_digest text,
+  ADD COLUMN observed_compatibility_digest text,
+  ADD CONSTRAINT exomem_cells_observed_contract_identity_check CHECK (
+    (observed_gateway_contract_digest IS NULL
+      AND observed_command_fingerprint IS NULL
+      AND observed_schema_digest IS NULL
+      AND observed_compatibility_digest IS NULL)
+    OR
+    (observed_gateway_contract_digest ~ '^[a-f0-9]{64}$'
+      AND observed_command_fingerprint ~ '^[a-f0-9]{64}$'
+      AND observed_schema_digest ~ '^[a-f0-9]{64}$'
+      AND observed_compatibility_digest ~ '^[a-f0-9]{64}$')
+  );

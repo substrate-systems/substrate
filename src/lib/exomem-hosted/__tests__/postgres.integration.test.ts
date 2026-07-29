@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it } from "node:test";
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import {
   __setExomemSqlForTests,
+  __setExomemTransactionForTests,
   claimMagicLinkDelivery,
   clearExomemCheckoutTransaction,
   consumeDeletionConfirmationAtomic,
@@ -52,20 +53,39 @@ async function waitForBlockedQuery(pool: Pool, marker: string): Promise<void> {
   throw new Error(`query did not block on ${marker}`);
 }
 
+function taggedSql(client: Pool | PoolClient): ExomemSql {
+  return async (strings, ...values) => {
+    const text = strings.reduce(
+      (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
+      ""
+    );
+    const result = await client.query(text, values);
+    return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+  };
+}
+
 describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   let pool: Pool;
 
+  async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+      const result = await callback(taggedSql(client));
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   before(() => {
     pool = new Pool({ connectionString: DATABASE_URL, max: 12 });
-    const adapter: ExomemSql = async (strings, ...values) => {
-      const text = strings.reduce(
-        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
-        ""
-      );
-      const result = await pool.query(text, values);
-      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
-    };
-    __setExomemSqlForTests(adapter);
+    __setExomemSqlForTests(taggedSql(pool));
+    __setExomemTransactionForTests(interactiveTransaction);
   });
 
   beforeEach(async () => {
@@ -76,6 +96,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
   after(async () => {
     __setExomemSqlForTests(null);
+    __setExomemTransactionForTests(null);
     await pool.end();
   });
 
@@ -1429,8 +1450,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants
-         (id, owner_user_id, status, desired_state, fence_generation)
-       VALUES ($1, $2, 'suspended', 'suspended', 4)`,
+         (id, owner_user_id, status, desired_state, fence_generation, legacy_unmetered)
+       VALUES ($1, $2, 'suspended', 'suspended', 4, true)`,
       [TENANT, USER]
     );
     await pool.query(
