@@ -26,9 +26,9 @@
 
 ## 5. Verification and Delivery
 
-- [ ] 5.1 Run migration dry-run and disposable-Postgres upgrade/integration coverage plus focused reviewer, OAuth, session, rate-limit, observability, and marketplace tests
-- [ ] 5.2 Run strict OpenSpec validation, full tests, TypeScript checking, lint, format, and production build
-- [ ] 5.3 Obtain independent security review and end-to-end verification, then address actionable findings
+- [x] 5.1 Run migration dry-run and disposable-Postgres upgrade/integration coverage plus focused reviewer, OAuth, session, rate-limit, observability, and marketplace tests
+- [x] 5.2 Run strict OpenSpec validation, full tests, TypeScript checking, lint, format, and production build
+- [x] 5.3 Obtain independent security review and end-to-end verification, then address actionable findings
 - [ ] 5.4 Commit only the intended Substrate scope, integrate current remote main, push, and open a ready pull request with verification evidence
 
 Provisioning/seeding the live reviewer tenant, configuring the feature flag, sharing credentials in provider portals, and completing clean provider-client evidence remain operator-controlled deployment work; repository tests never mark those live actions complete.
