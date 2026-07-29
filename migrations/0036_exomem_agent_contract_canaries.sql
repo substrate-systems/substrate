@@ -329,3 +329,64 @@ FOR EACH ROW EXECUTE FUNCTION exomem_oauth_candidate_lineage_is_immutable();
 CREATE TRIGGER exomem_oauth_refresh_candidate_lineage_immutable
 BEFORE UPDATE ON exomem_oauth_refresh_tokens
 FOR EACH ROW EXECUTE FUNCTION exomem_oauth_candidate_lineage_is_immutable();
+
+-- A provision/restore target is selected only by the control plane.  These
+-- nullable columns leave all pre-rollout operations unchanged while making a
+-- new target self-contained and immutable once it exists.
+ALTER TABLE exomem_lifecycle_operations
+  ADD COLUMN target_candidate_id uuid REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
+  ADD COLUMN target_assignment_id uuid REFERENCES exomem_agent_contract_rollout_assignments(id) ON DELETE RESTRICT,
+  ADD COLUMN target_assignment_generation bigint,
+  ADD COLUMN target_source_release text,
+  ADD COLUMN target_protocol_version text,
+  ADD COLUMN target_gateway_contract_digest text,
+  ADD COLUMN target_command_fingerprint text,
+  ADD COLUMN target_schema_digest text,
+  ADD COLUMN target_compatibility_digest text,
+  ADD CONSTRAINT exomem_lifecycle_target_complete_check CHECK (
+    (target_candidate_id IS NULL
+      AND target_assignment_id IS NULL
+      AND target_assignment_generation IS NULL
+      AND target_source_release IS NULL
+      AND target_protocol_version IS NULL
+      AND target_gateway_contract_digest IS NULL
+      AND target_command_fingerprint IS NULL
+      AND target_schema_digest IS NULL
+      AND target_compatibility_digest IS NULL)
+    OR
+    (target_candidate_id IS NOT NULL
+      AND target_source_release IS NOT NULL
+      AND target_protocol_version IS NOT NULL
+      AND target_gateway_contract_digest ~ '^[a-f0-9]{64}$'
+      AND target_command_fingerprint ~ '^[a-f0-9]{64}$'
+      AND target_schema_digest ~ '^[a-f0-9]{64}$'
+      AND target_compatibility_digest ~ '^[a-f0-9]{64}$'
+      AND ((target_assignment_id IS NULL AND target_assignment_generation IS NULL)
+        OR (target_assignment_id IS NOT NULL AND target_assignment_generation > 0)))
+  );
+
+CREATE FUNCTION exomem_lifecycle_target_is_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF OLD.target_candidate_id IS NOT NULL AND (
+    NEW.target_candidate_id IS DISTINCT FROM OLD.target_candidate_id
+    OR NEW.target_assignment_id IS DISTINCT FROM OLD.target_assignment_id
+    OR NEW.target_assignment_generation IS DISTINCT FROM OLD.target_assignment_generation
+    OR NEW.target_source_release IS DISTINCT FROM OLD.target_source_release
+    OR NEW.target_protocol_version IS DISTINCT FROM OLD.target_protocol_version
+    OR NEW.target_gateway_contract_digest IS DISTINCT FROM OLD.target_gateway_contract_digest
+    OR NEW.target_command_fingerprint IS DISTINCT FROM OLD.target_command_fingerprint
+    OR NEW.target_schema_digest IS DISTINCT FROM OLD.target_schema_digest
+    OR NEW.target_compatibility_digest IS DISTINCT FROM OLD.target_compatibility_digest
+  ) THEN
+    RAISE EXCEPTION 'lifecycle target is immutable';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+CREATE TRIGGER exomem_lifecycle_target_immutable
+BEFORE UPDATE ON exomem_lifecycle_operations
+FOR EACH ROW EXECUTE FUNCTION exomem_lifecycle_target_is_immutable();

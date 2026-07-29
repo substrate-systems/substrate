@@ -332,4 +332,30 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /input_export_id/);
     assert.match(statement, /source_export\.storage_reference_ciphertext/);
   });
+
+  it("snapshots the complete server-selected release target when provision is enqueued", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [], rowCount: 0 };
+    });
+
+    await assert.rejects(
+      new SqlLifecycleStore().enqueue(
+        "018f2d91-7c42-7000-8000-000000000071",
+        "provision",
+        "target-snapshot"
+      )
+    );
+
+    assert.match(statement, /target_candidate_id/i);
+    assert.match(statement, /target_assignment_id/i);
+    assert.match(statement, /target_assignment_generation/i);
+    assert.match(statement, /target_gateway_contract_digest/i);
+    assert.match(statement, /target_command_fingerprint/i);
+    assert.match(statement, /target_schema_digest/i);
+    assert.match(statement, /target_compatibility_digest/i);
+    assert.match(statement, /state = 'preparing'/i);
+    assert.match(statement, /state = 'live'/i);
+  });
 });

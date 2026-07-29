@@ -16,10 +16,13 @@ import type {
   LifecycleEnqueueOptions,
   LifecycleStatus,
   LifecycleStore,
+  LifecycleTarget,
 } from "./reconciler";
 import type { CellWorkerPolicy } from "./provisioner";
 import type { SecretEnvelope } from "./security";
 import type { BillingDeletionTarget } from "./billing-deletion";
+import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
+import { exomemContractFixture0350 } from "./gateway-contract-0-35-0";
 
 type Row = Record<string, unknown>;
 
@@ -39,6 +42,32 @@ function asBuffer(value: unknown): Buffer {
 function asObject(value: unknown): Record<string, unknown> {
   if (typeof value === "string") return JSON.parse(value) as Record<string, unknown>;
   return (value ?? {}) as Record<string, unknown>;
+}
+
+function targetFromRow(row: Row): LifecycleTarget | null {
+  if (!row.target_candidate_id) return null;
+  if (
+    !row.target_source_release ||
+    !row.target_protocol_version ||
+    !row.target_gateway_contract_digest ||
+    !row.target_command_fingerprint ||
+    !row.target_schema_digest ||
+    !row.target_compatibility_digest
+  ) {
+    throw new Error("lifecycle target is incomplete");
+  }
+  return {
+    candidateId: String(row.target_candidate_id),
+    assignmentId: row.target_assignment_id ? String(row.target_assignment_id) : null,
+    assignmentGeneration:
+      row.target_assignment_generation == null ? null : Number(row.target_assignment_generation),
+    sourceRelease: String(row.target_source_release),
+    protocolVersion: String(row.target_protocol_version),
+    gatewayContractDigest: String(row.target_gateway_contract_digest),
+    commandFingerprint: String(row.target_command_fingerprint),
+    schemaDigest: String(row.target_schema_digest),
+    compatibilityDigest: String(row.target_compatibility_digest),
+  };
 }
 
 function operationFromRow(row: Row): LifecycleOperation {
@@ -79,6 +108,7 @@ function operationFromRow(row: Row): LifecycleOperation {
     expectedPreviousCellId: row.expected_previous_cell_id
       ? String(row.expected_previous_cell_id)
       : null,
+    target: targetFromRow(row),
     createdAt: asDate(row.created_at),
     updatedAt: asDate(row.updated_at),
   };
@@ -224,6 +254,38 @@ export class SqlLifecycleStore implements LifecycleStore {
             AND export_row.expires_at > now()
             AND NOT EXISTS (SELECT 1 FROM existing)
           FOR UPDATE OF export_row
+        ), assignment_target AS MATERIALIZED (
+          SELECT assignment.candidate_id, assignment.id AS assignment_id,
+                 assignment.generation AS assignment_generation, assignment.source_release,
+                 assignment.protocol_version, assignment.gateway_contract_digest,
+                 assignment.command_fingerprint, assignment.schema_digest,
+                 assignment.compatibility_digest
+          FROM exomem_agent_contract_rollout_assignments AS assignment
+          JOIN tenant ON tenant.id = assignment.tenant_id
+          WHERE assignment.state = 'preparing' AND assignment.expires_at > now()
+          FOR SHARE OF assignment
+        ), live_target AS MATERIALIZED (
+          SELECT candidate.id AS candidate_id, NULL::uuid AS assignment_id,
+                 NULL::bigint AS assignment_generation, candidate.source_release,
+                 candidate.protocol_version,
+                 CASE candidate.source_release || ':' || candidate.protocol_version
+                   WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
+                     THEN ${exomemContractFixture0340.digest}
+                   WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
+                     THEN ${exomemContractFixture0350.digest}
+                   ELSE NULL
+                 END AS gateway_contract_digest,
+                 candidate.command_fingerprint, candidate.schema_digest,
+                 candidate.compatibility_digest
+          FROM exomem_agent_contract_candidates AS candidate
+          WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+            AND candidate.state = 'live'
+            AND NOT EXISTS (SELECT 1 FROM assignment_target)
+          FOR SHARE OF candidate
+        ), target AS MATERIALIZED (
+          SELECT * FROM assignment_target
+          UNION ALL
+          SELECT * FROM live_target WHERE gateway_contract_digest IS NOT NULL
         ), inserted AS (
           INSERT INTO exomem_lifecycle_operations (
             tenant_id, cell_id, operation_type, idempotency_key,
@@ -231,7 +293,10 @@ export class SqlLifecycleStore implements LifecycleStore {
             input_reference_ciphertext, input_reference_digest,
             input_export_id, input_source_cell_id,
             input_archive_sha256, input_manifest_sha256, input_archive_size,
-            resume_after_operation
+            resume_after_operation,
+            target_candidate_id, target_assignment_id, target_assignment_generation,
+            target_source_release, target_protocol_version, target_gateway_contract_digest,
+            target_command_fingerprint, target_schema_digest, target_compatibility_digest
           )
           SELECT source_export.tenant_id,
                  NULL,
@@ -245,8 +310,17 @@ export class SqlLifecycleStore implements LifecycleStore {
                  source_export.archive_sha256,
                  source_export.manifest_sha256,
                  source_export.archive_size,
-                 true
-          FROM source_export
+                 true,
+                 target.candidate_id,
+                 target.assignment_id,
+                 target.assignment_generation,
+                 target.source_release,
+                 target.protocol_version,
+                 target.gateway_contract_digest,
+                 target.command_fingerprint,
+                 target.schema_digest,
+                 target.compatibility_digest
+          FROM source_export LEFT JOIN target ON TRUE
           ON CONFLICT (tenant_id, operation_type, idempotency_key) DO NOTHING
           RETURNING *
         )
@@ -267,13 +341,55 @@ export class SqlLifecycleStore implements LifecycleStore {
         WHERE tenant.id = ${tenantId}
           AND tenant.status <> 'deleted'
         FOR UPDATE OF tenant
+      ), assignment_target AS MATERIALIZED (
+        SELECT assignment.candidate_id,
+               assignment.id AS assignment_id,
+               assignment.generation AS assignment_generation,
+               assignment.source_release,
+               assignment.protocol_version,
+               assignment.gateway_contract_digest,
+               assignment.command_fingerprint,
+               assignment.schema_digest,
+               assignment.compatibility_digest
+        FROM exomem_agent_contract_rollout_assignments AS assignment
+        JOIN tenant ON tenant.id = assignment.tenant_id
+        WHERE assignment.state = 'preparing' AND assignment.expires_at > now()
+        FOR SHARE OF assignment
+      ), live_target AS MATERIALIZED (
+        SELECT candidate.id AS candidate_id,
+               NULL::uuid AS assignment_id,
+               NULL::bigint AS assignment_generation,
+               candidate.source_release,
+               candidate.protocol_version,
+               CASE candidate.source_release || ':' || candidate.protocol_version
+                 WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
+                   THEN ${exomemContractFixture0340.digest}
+                 WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
+                   THEN ${exomemContractFixture0350.digest}
+                 ELSE NULL
+               END AS gateway_contract_digest,
+               candidate.command_fingerprint,
+               candidate.schema_digest,
+               candidate.compatibility_digest
+        FROM exomem_agent_contract_candidates AS candidate
+        WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+          AND candidate.state = 'live'
+          AND NOT EXISTS (SELECT 1 FROM assignment_target)
+        FOR SHARE OF candidate
+      ), target AS MATERIALIZED (
+        SELECT * FROM assignment_target
+        UNION ALL
+        SELECT * FROM live_target WHERE gateway_contract_digest IS NOT NULL
       )
       INSERT INTO exomem_lifecycle_operations (
         tenant_id, cell_id, operation_type, idempotency_key,
         fence_generation,
         input_reference_ciphertext, input_reference_digest,
         input_export_id, input_source_cell_id, input_archive_sha256, input_manifest_sha256,
-        input_archive_size, resume_after_operation, export_expires_at
+        input_archive_size, resume_after_operation, export_expires_at,
+        target_candidate_id, target_assignment_id, target_assignment_generation,
+        target_source_release, target_protocol_version, target_gateway_contract_digest,
+        target_command_fingerprint, target_schema_digest, target_compatibility_digest
       )
       SELECT tenant.id,
              CASE
@@ -303,8 +419,18 @@ export class SqlLifecycleStore implements LifecycleStore {
                THEN date_trunc('milliseconds', now())
                     + (${exportTtlMs} * interval '1 millisecond')
                ELSE NULL
-             END
+             END,
+             target.candidate_id,
+             target.assignment_id,
+             target.assignment_generation,
+             target.source_release,
+             target.protocol_version,
+             target.gateway_contract_digest,
+             target.command_fingerprint,
+             target.schema_digest,
+             target.compatibility_digest
       FROM tenant
+      LEFT JOIN target ON ${operationType}::text IN ('provision', 'restore')
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       WHERE exomem_lifecycle_operations.input_reference_digest
@@ -1134,6 +1260,7 @@ export class SqlLifecycleStore implements LifecycleStore {
   async bindCandidate(operationId: string, owner: string): Promise<boolean> {
     let transition: LifecycleCapacityTransition | undefined;
     const succeeded = await withExomemTransaction(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
       const { rows } = await tx`
       /* exomem:lifecycle-bind-candidate */
       WITH owned AS (
@@ -1141,6 +1268,15 @@ export class SqlLifecycleStore implements LifecycleStore {
                operation.tenant_id,
                operation.cell_id,
                operation.expected_previous_cell_id,
+               operation.target_candidate_id,
+               operation.target_assignment_id,
+               operation.target_assignment_generation,
+               operation.target_source_release,
+               operation.target_protocol_version,
+               operation.target_gateway_contract_digest,
+               operation.target_command_fingerprint,
+               operation.target_schema_digest,
+               operation.target_compatibility_digest,
                tenant.bound_cell_id,
                candidate.routing_state,
                candidate.lifecycle_state
@@ -1156,6 +1292,25 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND operation.fence_generation = tenant.fence_generation
           AND candidate.readiness_code = 'CELL_READY'
           AND tenant.desired_state <> 'deleted'
+          AND (
+            operation.target_assignment_id IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM exomem_agent_contract_rollout_assignments AS assignment
+              WHERE assignment.id = operation.target_assignment_id
+                AND assignment.tenant_id = operation.tenant_id
+                AND assignment.candidate_id = operation.target_candidate_id
+                AND assignment.generation = operation.target_assignment_generation
+                AND assignment.state = 'preparing'
+                AND assignment.expires_at > now()
+                AND assignment.source_release = operation.target_source_release
+                AND assignment.protocol_version = operation.target_protocol_version
+                AND assignment.gateway_contract_digest = operation.target_gateway_contract_digest
+                AND assignment.command_fingerprint = operation.target_command_fingerprint
+                AND assignment.schema_digest = operation.target_schema_digest
+                AND assignment.compatibility_digest = operation.target_compatibility_digest
+            )
+          )
         FOR UPDATE OF operation, tenant, candidate
       ),
       already_bound AS (
@@ -1175,6 +1330,28 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND owned.routing_state = 'unbound'
         RETURNING prior.id
       ),
+      activated_assignment AS (
+        UPDATE exomem_agent_contract_rollout_assignments AS assignment
+        SET state = 'active',
+            activated_at = now(),
+            ended_at = NULL,
+            version = version + 1,
+            updated_at = now()
+        FROM owned
+        WHERE assignment.id = owned.target_assignment_id
+          AND assignment.tenant_id = owned.tenant_id
+          AND assignment.candidate_id = owned.target_candidate_id
+          AND assignment.generation = owned.target_assignment_generation
+          AND assignment.state = 'preparing'
+          AND assignment.expires_at > now()
+          AND assignment.source_release = owned.target_source_release
+          AND assignment.protocol_version = owned.target_protocol_version
+          AND assignment.gateway_contract_digest = owned.target_gateway_contract_digest
+          AND assignment.command_fingerprint = owned.target_command_fingerprint
+          AND assignment.schema_digest = owned.target_schema_digest
+          AND assignment.compatibility_digest = owned.target_compatibility_digest
+        RETURNING assignment.id
+      ),
       published AS (
         UPDATE exomem_cells AS candidate
         SET routing_state = 'bound',
@@ -1189,6 +1366,10 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND (
             owned.expected_previous_cell_id IS NULL
             OR EXISTS (SELECT 1 FROM retired)
+          )
+          AND (
+            owned.target_assignment_id IS NULL
+            OR EXISTS (SELECT 1 FROM activated_assignment)
           )
         RETURNING candidate.id, candidate.tenant_id
       ),

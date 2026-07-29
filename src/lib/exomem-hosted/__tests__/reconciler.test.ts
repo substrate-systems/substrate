@@ -118,6 +118,38 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(provisioner.provisionModes.at(-1), "restore-candidate");
   });
 
+  it("refuses to bind a targeted replacement whose health omits its contract locks", async () => {
+    const provisioner = new FakeCellProvisioner();
+    provisioner.readinessOverride.contractIdentity = undefined;
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    const operation = await store.enqueue(TENANT, "provision", "targeted-health");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.target = {
+      candidateId: "018f2d91-7c42-7000-8000-000000000060",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000061",
+      assignmentGeneration: 1,
+      sourceRelease: "2026.07.12",
+      protocolVersion: "1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+
+    await reconciler.reconcileOne({ owner: "targeted-create", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "targeted-provision", tenantId: TENANT });
+    const result = await reconciler.reconcileOne({ owner: "targeted-health", tenantId: TENANT });
+
+    assert.deepEqual(result, {
+      kind: "advanced",
+      operationId: operation.id,
+      checkpoint: "candidate-cleanup",
+    });
+    assert.equal(store.operations.get(operation.id)?.errorCode, "CELL_READINESS_MISMATCH");
+    assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
+  });
+
   it("allows only one concurrent reconciler to advance a leased checkpoint", async () => {
     const { store, reconciler } = harness();
     await store.enqueue(TENANT, "provision", "initial-provision");

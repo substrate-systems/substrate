@@ -39,6 +39,18 @@ export type LifecycleOperationState =
   | "failed_retryable"
   | "failed_terminal";
 
+export type LifecycleTarget = {
+  candidateId: string;
+  assignmentId: string | null;
+  assignmentGeneration: number | null;
+  sourceRelease: string;
+  protocolVersion: string;
+  gatewayContractDigest: string;
+  commandFingerprint: string;
+  schemaDigest: string;
+  compatibilityDigest: string;
+};
+
 export type LifecycleOperation = {
   id: string;
   tenantId: string;
@@ -68,6 +80,7 @@ export type LifecycleOperation = {
   inputArchiveSize: number | null;
   resumeAfterOperation: boolean;
   expectedPreviousCellId: string | null;
+  target: LifecycleTarget | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -366,7 +379,8 @@ function sameWorkerPolicy(left: CellWorkerPolicy, right: CellWorkerPolicy): bool
 function readinessMismatch(
   readiness: CellReadiness,
   cell: CellControlRecord,
-  config: ExpectedCellConfiguration
+  config: ExpectedCellConfiguration,
+  target: LifecycleTarget | null = null
 ): boolean {
   return (
     readiness.cellId !== cell.id ||
@@ -377,7 +391,13 @@ function readinessMismatch(
     !readiness.mutationAuthority ||
     !readiness.readAdmission ||
     !readiness.writeAdmission ||
-    !sameWorkerPolicy(readiness.workerPolicy, config.workerPolicy)
+    !sameWorkerPolicy(readiness.workerPolicy, config.workerPolicy) ||
+    (target !== null &&
+      (!readiness.contractIdentity ||
+        readiness.contractIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
+        readiness.contractIdentity.commandFingerprint !== target.commandFingerprint ||
+        readiness.contractIdentity.schemaDigest !== target.schemaDigest ||
+        readiness.contractIdentity.compatibilityDigest !== target.compatibilityDigest))
   );
 }
 
@@ -556,6 +576,23 @@ export class LifecycleReconciler {
     };
   }
 
+  #configuration(operation: LifecycleOperation) {
+    return {
+      protocolVersion: operation.target?.protocolVersion ?? this.#config.protocolVersion,
+      releaseVersion: operation.target?.sourceRelease ?? this.#config.releaseVersion,
+    };
+  }
+
+  #contractIdentity(operation: LifecycleOperation) {
+    if (!operation.target) return undefined;
+    return {
+      gatewayContractDigest: operation.target.gatewayContractDigest,
+      commandFingerprint: operation.target.commandFingerprint,
+      schemaDigest: operation.target.schemaDigest,
+      compatibilityDigest: operation.target.compatibilityDigest,
+    };
+  }
+
   async #cell(operation: LifecycleOperation): Promise<CellControlRecord> {
     if (!operation.cellId) {
       throw new ProvisionerFailure({
@@ -588,6 +625,7 @@ export class LifecycleReconciler {
       releaseVersion: cell.releaseVersion,
       serviceCredential: this.#cellCredential(cell),
       workerPolicy: cell.workerPolicy,
+      contractIdentity: this.#contractIdentity(operation),
       providerRef: cell.providerRef,
     };
   }
@@ -742,7 +780,7 @@ export class LifecycleReconciler {
   ): Promise<ReconcileResult> {
     const cell = await this.#cell(operation);
     const readiness = await this.#provisioner.health(this.#target(operation, cell));
-    if (readinessMismatch(readiness, cell, this.#config)) {
+    if (readinessMismatch(readiness, cell, this.#config, operation.target)) {
       return this.#terminal(operation, owner, "CELL_READINESS_MISMATCH");
     }
     if (!readiness.live || !readiness.ready) {
@@ -772,11 +810,12 @@ export class LifecycleReconciler {
       return this.#cleanupCandidate(operation, owner);
     }
     if (operation.checkpoint === "created") {
+      const configuration = this.#configuration(operation);
       const candidate = await this.#store.ensureCandidate({
         operationId: operation.id,
         owner,
-        protocolVersion: this.#config.protocolVersion,
-        releaseVersion: this.#config.releaseVersion,
+        protocolVersion: configuration.protocolVersion,
+        releaseVersion: configuration.releaseVersion,
         workerPolicy: this.#config.workerPolicy,
         credential: this.#credential(),
         lifecycleState: "provisioning",
@@ -817,6 +856,7 @@ export class LifecycleReconciler {
         releaseVersion: cell.releaseVersion,
         serviceCredential: this.#cellCredential(cell),
         workerPolicy: cell.workerPolicy,
+        contractIdentity: this.#contractIdentity(operation),
         provisionMode: "serve",
       };
       const result = await this.#provisioner.provision(request);
@@ -857,11 +897,12 @@ export class LifecycleReconciler {
       return this.#cleanupCandidate(operation, owner);
     }
     if (operation.checkpoint === "created") {
+      const configuration = this.#configuration(operation);
       const candidate = await this.#store.ensureCandidate({
         operationId: operation.id,
         owner,
-        protocolVersion: this.#config.protocolVersion,
-        releaseVersion: this.#config.releaseVersion,
+        protocolVersion: configuration.protocolVersion,
+        releaseVersion: configuration.releaseVersion,
         workerPolicy: this.#config.workerPolicy,
         credential: this.#credential(),
         lifecycleState: "restoring",
@@ -881,6 +922,7 @@ export class LifecycleReconciler {
         releaseVersion: cell.releaseVersion,
         serviceCredential: this.#cellCredential(cell),
         workerPolicy: cell.workerPolicy,
+        contractIdentity: this.#contractIdentity(operation),
         provisionMode: "restore-candidate",
       });
       this.#requireStored(
@@ -1517,6 +1559,7 @@ export class LifecycleReconciler {
 function copyOperation(operation: LifecycleOperation): LifecycleOperation {
   return {
     ...operation,
+    target: operation.target ? { ...operation.target } : null,
     inputReferenceEnvelope: operation.inputReferenceEnvelope
       ? structuredClone(operation.inputReferenceEnvelope)
       : null,
@@ -1700,6 +1743,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       inputArchiveSize: options.restoreBinding?.archiveSize ?? null,
       resumeAfterOperation: operationType === "export" ? tenant.desiredState === "running" : true,
       expectedPreviousCellId: null,
+      target: null,
       createdAt: now,
       updatedAt: now,
     };
