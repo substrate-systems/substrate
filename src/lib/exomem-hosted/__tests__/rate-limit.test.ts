@@ -63,5 +63,8 @@ test("marketplace reviewer authentication uses independent pre-KDF IP and userna
   assert.ok(ip.windowSeconds > 0);
   assert.ok(username.limit > 0);
   assert.ok(username.windowSeconds > 0);
-  assert.notEqual(hashRateLimitKey(ip, "203.0.113.1", FIRST_KEY), hashRateLimitKey(username, "reviewer", FIRST_KEY));
+  assert.notEqual(
+    hashRateLimitKey(ip, "203.0.113.1", FIRST_KEY),
+    hashRateLimitKey(username, "reviewer", FIRST_KEY)
+  );
 });
