@@ -62,9 +62,10 @@ export async function createOrRotateMarketplaceReviewerCredentialAtomic(
         FOR UPDATE OF tenant
       ), prior AS (
         SELECT credential.id, credential.owner_user_id, credential.tenant_id
-        FROM exomem_marketplace_reviewer_credentials AS credential
-        WHERE credential.provider = ${input.provider}
-          AND credential.revoked_at IS NULL
+        FROM target
+        JOIN exomem_marketplace_reviewer_credentials AS credential
+          ON credential.provider = ${input.provider}
+         AND credential.revoked_at IS NULL
         FOR UPDATE
       ), credential_revoked AS (
         UPDATE exomem_marketplace_reviewer_credentials AS credential
@@ -214,7 +215,7 @@ export async function createMarketplaceReviewerSessionAtomic(input: {
   const { rows } = await executeExomemSql`
     /* exomem:create-marketplace-reviewer-session */
     WITH credential AS (
-      SELECT credential.id, credential.owner_user_id, credential.tenant_id
+      SELECT credential.id, credential.owner_user_id, credential.tenant_id, credential.expires_at
       FROM exomem_marketplace_reviewer_credentials AS credential
       JOIN users ON users.id = credential.owner_user_id AND users.deleted_at IS NULL
       JOIN exomem_tenants AS tenant
@@ -235,6 +236,7 @@ export async function createMarketplaceReviewerSessionAtomic(input: {
       WHERE credential.id = ${input.credentialId}::uuid
         AND credential.revoked_at IS NULL
         AND credential.expires_at > now()
+        AND ${input.expiresAt.toISOString()}::timestamptz > now()
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
@@ -249,7 +251,7 @@ export async function createMarketplaceReviewerSessionAtomic(input: {
              id,
              ${input.sessionDigest},
              ${input.csrfDigest},
-             ${input.expiresAt.toISOString()}
+             LEAST(${input.expiresAt.toISOString()}, credential.expires_at)
       FROM credential
       RETURNING id, user_id, tenant_id
     )

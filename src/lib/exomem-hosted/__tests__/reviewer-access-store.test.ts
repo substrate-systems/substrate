@@ -56,6 +56,30 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
   assert.doesNotMatch(query, /exomem_oauth_account_blocks\s*\(/i);
 });
 
+test("an unusable rotation target cannot revoke the current provider credential", async () => {
+  let query = "";
+  setSql(async (strings) => {
+    query = strings.join("?");
+    return { rows: [] };
+  });
+
+  assert.equal(
+    await createOrRotateMarketplaceReviewerCredentialAtomic({
+      provider: "openai",
+      usernameDigest: Buffer.alloc(32, 1),
+      passwordHash: "$argon2id$test",
+      ownerUserId: "unusable-owner",
+      tenantId: "unusable-tenant",
+      fixtureVersion: "review-fixture-v1",
+      expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+      operatorPrincipalDigest: Buffer.alloc(32, 2),
+    }),
+    null
+  );
+  assert.match(query, /prior AS \([\s\S]*?FROM target[\s\S]*?exomem_marketplace_reviewer_credentials/i);
+  assert.match(query, /credential_revoked AS \([\s\S]*?FROM prior/i);
+});
+
 test("reviewer OAuth binding requires the matching trusted client platform", async () => {
   let query = "";
   setSql(async (strings) => {
@@ -95,6 +119,7 @@ test("reviewer sessions are tagged to the credential without provisioning", asyn
   );
   assert.match(query, /reviewer_credential_id/i);
   assert.match(query, /INSERT INTO exomem_sessions/i);
+  assert.match(query, /LEAST\(\?, credential\.expires_at\)/i);
   assert.doesNotMatch(query, /INSERT INTO users|INSERT INTO exomem_tenants|INSERT INTO exomem_entitlements|INSERT INTO exomem_cells/i);
 });
 
