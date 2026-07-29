@@ -88,8 +88,6 @@ export async function resolveApprovedOAuthClient(
             AND credential.oauth_client_id = client.id
             AND credential.revoked_at IS NULL
             AND credential.expires_at > now()
-          GROUP BY credential.oauth_client_id
-          HAVING count(*) = 1
         )
       )
     LIMIT 1

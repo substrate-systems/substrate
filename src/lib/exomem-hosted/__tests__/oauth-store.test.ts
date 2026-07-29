@@ -367,7 +367,7 @@ describe("Exomem OAuth token store", () => {
     );
     assert.match(query, /exomem_staged_client_releases/i);
     assert.match(query, /credential\.credential_kind = 'internal_canary'/i);
-    assert.match(query, /HAVING count\(\*\) = 1/i);
+    assert.doesNotMatch(query, /HAVING count\(\*\) = 1/i);
   });
 
   it("locks the cohort before taking the authorization snapshot", async () => {
