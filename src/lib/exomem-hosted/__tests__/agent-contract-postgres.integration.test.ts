@@ -382,6 +382,49 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       expiresAt: stageExpiry,
     });
     const assignment = await seedActiveReviewerAssignment(candidateId);
+    const authorityOwner = await pool!.query<{ tenant_id: string; owner_user_id: string }>(
+      `SELECT assignment.tenant_id, tenant.owner_user_id
+       FROM exomem_agent_contract_rollout_assignments AS assignment
+       JOIN exomem_tenants AS tenant ON tenant.id = assignment.tenant_id
+       WHERE assignment.id = $1`,
+      [assignment.id]
+    );
+    const openAiCanaryClient = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', false, '["https://canary.example.test/callback"]'::jsonb,
+                 digest(convert_to('["https://canary.example.test/callback"]', 'utf8'), 'sha256'),
+                 'openai', $2) RETURNING id`,
+      [`canary-openai-${randomUUID()}`, sha("a")]
+    );
+    const openAiCanaryCredential = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_marketplace_reviewer_credentials (
+         provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id,
+         fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
+       ) VALUES ('openai', 'internal_canary', decode($1, 'hex'), '$argon2id$integration', $2, $3,
+                 $4, $5, $6, $7, $8, 'two-platform-evidence', $9, decode($10, 'hex'),
+                 now() + interval '1 hour') RETURNING id`,
+      [sha("b"), authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
+        candidateId, assignment.id, assignment.generation, openAiStage.id, openAiCanaryClient.rows[0]!.id,
+        sha("c"), sha("d")]
+    );
+    const openAiCanaryFamily = await pool!.query<{ id: string }>(
+      `WITH grant_row AS (
+         INSERT INTO exomem_oauth_grants (
+           user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
+           candidate_id, assignment_id, assignment_generation, staged_client_release_id
+         ) VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1',
+                   ARRAY['exomem.read'], true, $4, $5, $6, $7, $8) RETURNING id
+       ) INSERT INTO exomem_oauth_token_families (
+         grant_id, client_id, expires_at, candidate_id, assignment_id, assignment_generation,
+         staged_client_release_id, reviewer_credential_id
+       ) SELECT id, $3, now() + interval '1 hour', $5, $6, $7, $8, $4 FROM grant_row RETURNING id`,
+      [authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
+        openAiCanaryClient.rows[0]!.id, openAiCanaryCredential.rows[0]!.id, candidateId,
+        assignment.id, assignment.generation, openAiStage.id]
+    );
     await new Promise((resolve) => setTimeout(resolve, 10));
     const makeArtifact = (platform: "claude" | "openai", signed: Record<string, unknown>) => ({
       platform,
@@ -422,6 +465,19 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       assignmentGeneration: assignment.generation,
     });
     const claudeId = await storeClientArtifact(makeArtifact("claude", claudeEvidence));
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT credential.revoked_at IS NULL AS credential_active,
+                  family.revoked_at IS NULL AS family_active
+           FROM exomem_marketplace_reviewer_credentials AS credential
+           JOIN exomem_oauth_token_families AS family ON family.reviewer_credential_id = credential.id
+           WHERE credential.id = $1 AND family.id = $2`,
+          [openAiCanaryCredential.rows[0]!.id, openAiCanaryFamily.rows[0]!.id]
+        )
+      ).rows[0],
+      { credential_active: true, family_active: true }
+    );
     const openAiId = await storeClientArtifact(makeArtifact("openai", openAiEvidence));
     const claudeClientId = `claude-${randomUUID()}`;
     const openAiClientId = `openai-${randomUUID()}`;
