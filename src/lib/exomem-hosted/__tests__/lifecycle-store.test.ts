@@ -399,4 +399,44 @@ describe("SQL lifecycle operation store", () => {
       /replacement_observation[\s\S]*EXISTS \(SELECT 1 FROM activated_assignment\)/i
     );
   });
+
+  it("recognizes only the exact active assignment when a bind acknowledgement was lost", async () => {
+    const statements: string[] = [];
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        statements.push(strings.join("?"));
+        return { rows: [], rowCount: 0 };
+      })
+    );
+
+    await new SqlLifecycleStore().bindCandidate("018f2d91-7c42-7000-8000-000000000070", "worker-a");
+
+    const statement = statements.join("\n");
+    assert.match(statement, /target_assignment\.state IN \('preparing', 'active'\)/i);
+    assert.match(statement, /target_assignment\.expires_at > now\(\)/i);
+    assert.match(statement, /already_bound AS \([\s\S]*routing_state = 'bound'/i);
+    assert.match(statement, /retired AS \([\s\S]*EXISTS \(SELECT 1 FROM activated_assignment\)/i);
+  });
+
+  it("locks and revalidates the exact candidate state before making a target routable", async () => {
+    const statements: string[] = [];
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        statements.push(strings.join("?"));
+        return { rows: [], rowCount: 0 };
+      })
+    );
+
+    await new SqlLifecycleStore().bindCandidate("018f2d91-7c42-7000-8000-000000000070", "worker-a");
+
+    const statement = statements.join("\n");
+    assert.match(statement, /target_candidate_locked AS MATERIALIZED/i);
+    assert.match(statement, /FOR UPDATE OF contract_candidate/i);
+    assert.match(statement, /contract_candidate\.state = 'live'/i);
+    assert.match(statement, /contract_candidate\.state IN \('pending', 'live'\)/i);
+    assert.match(
+      statement,
+      /contract_candidate\.command_fingerprint = operation\.target_command_fingerprint/i
+    );
+  });
 });

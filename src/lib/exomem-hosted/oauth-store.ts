@@ -342,7 +342,18 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
         AND session.revoked_at IS NULL AND session.expires_at > now()
         AND (session.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)
         AND (
-          (tenant.marketplace_reviewer_purpose = false AND session.reviewer_credential_id IS NULL)
+          (
+            tenant.marketplace_reviewer_purpose = false
+            AND session.reviewer_credential_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM exomem_agent_contract_rollout_assignments AS assignment
+              WHERE assignment.tenant_id = session.tenant_id
+                AND assignment.marketplace_reviewer_purpose = false
+                AND assignment.state = 'active'
+                AND assignment.expires_at > now()
+            )
+          )
           OR (
             tenant.marketplace_reviewer_purpose = true
             AND credential.id IS NOT NULL
@@ -947,7 +958,9 @@ export async function findActiveOAuthAccessToken(
                 candidateId: row.candidate_id,
                 assignmentId: row.assignment_id ?? undefined,
                 assignmentGeneration:
-                  row.assignment_generation === null ? undefined : BigInt(row.assignment_generation),
+                  row.assignment_generation === null
+                    ? undefined
+                    : BigInt(row.assignment_generation),
                 stagedClientReleaseId: row.staged_client_release_id ?? undefined,
                 oauthClientRecordId: row.oauth_client_record_id ?? undefined,
                 reviewerCredentialId: row.reviewer_credential_id ?? undefined,
@@ -1081,8 +1094,7 @@ export async function findMcpOAuthAccessToken(
           ...(typeof row.candidate_id === "string"
             ? {
                 candidateId: row.candidate_id,
-                assignmentId:
-                  typeof row.assignment_id === "string" ? row.assignment_id : undefined,
+                assignmentId: typeof row.assignment_id === "string" ? row.assignment_id : undefined,
                 assignmentGeneration:
                   typeof row.assignment_generation === "string" ||
                   typeof row.assignment_generation === "number"

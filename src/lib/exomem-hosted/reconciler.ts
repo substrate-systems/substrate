@@ -388,10 +388,12 @@ function readinessMismatch(
   config: ExpectedCellConfiguration,
   target: LifecycleTarget | null = null
 ): boolean {
+  const expectedProtocolVersion = target?.protocolVersion ?? config.protocolVersion;
+  const expectedReleaseVersion = target?.sourceRelease ?? config.releaseVersion;
   return (
     readiness.cellId !== cell.id ||
-    readiness.protocolVersion !== config.protocolVersion ||
-    readiness.releaseVersion !== config.releaseVersion ||
+    readiness.protocolVersion !== expectedProtocolVersion ||
+    readiness.releaseVersion !== expectedReleaseVersion ||
     (readiness.live && readiness.ready && readiness.code !== "CELL_READY") ||
     !readiness.serviceAuthenticated ||
     !readiness.mutationAuthority ||

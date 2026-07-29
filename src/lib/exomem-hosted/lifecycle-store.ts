@@ -1479,7 +1479,23 @@ export class SqlLifecycleStore implements LifecycleStore {
       await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
       const { rows } = await tx`
       /* exomem:lifecycle-bind-candidate */
-      WITH owned AS (
+      WITH target_candidate_locked AS MATERIALIZED (
+        SELECT contract_candidate.id
+        FROM exomem_lifecycle_operations AS operation
+        JOIN exomem_agent_contract_candidates AS contract_candidate
+          ON contract_candidate.id = operation.target_candidate_id
+        WHERE operation.id = ${operationId}
+        FOR UPDATE OF contract_candidate
+      ),
+      target_assignment_locked AS MATERIALIZED (
+        SELECT assignment.id
+        FROM exomem_lifecycle_operations AS operation
+        JOIN exomem_agent_contract_rollout_assignments AS assignment
+          ON assignment.id = operation.target_assignment_id
+        WHERE operation.id = ${operationId}
+        FOR UPDATE OF assignment
+      ),
+      owned AS (
         SELECT operation.id,
                operation.tenant_id,
                operation.cell_id,
@@ -1501,6 +1517,10 @@ export class SqlLifecycleStore implements LifecycleStore {
         JOIN exomem_cells AS candidate
           ON candidate.id = operation.cell_id
          AND candidate.tenant_id = operation.tenant_id
+        LEFT JOIN exomem_agent_contract_candidates AS contract_candidate
+          ON contract_candidate.id = operation.target_candidate_id
+        LEFT JOIN exomem_agent_contract_rollout_assignments AS target_assignment
+          ON target_assignment.id = operation.target_assignment_id
         WHERE operation.id = ${operationId}
           AND operation.state = 'running'
           AND operation.lease_owner = ${owner}
@@ -1511,6 +1531,20 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND (
             operation.target_candidate_id IS NULL
             OR (
+              EXISTS (SELECT 1 FROM target_candidate_locked)
+              AND contract_candidate.source_release = operation.target_source_release
+              AND contract_candidate.protocol_version = operation.target_protocol_version
+              AND contract_candidate.command_fingerprint = operation.target_command_fingerprint
+              AND contract_candidate.schema_digest = operation.target_schema_digest
+              AND contract_candidate.compatibility_digest = operation.target_compatibility_digest
+              AND (
+                (operation.target_assignment_id IS NULL AND contract_candidate.state = 'live')
+                OR (
+                  operation.target_assignment_id IS NOT NULL
+                  AND contract_candidate.state IN ('pending', 'live')
+                )
+              )
+              AND
               candidate.observed_gateway_contract_digest = operation.target_gateway_contract_digest
               AND candidate.observed_command_fingerprint = operation.target_command_fingerprint
               AND candidate.observed_schema_digest = operation.target_schema_digest
@@ -1520,40 +1554,21 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND (
             operation.target_assignment_id IS NULL
             OR EXISTS (
-              SELECT 1
-              FROM exomem_agent_contract_rollout_assignments AS assignment
-              WHERE assignment.id = operation.target_assignment_id
-                AND assignment.tenant_id = operation.tenant_id
-                AND assignment.candidate_id = operation.target_candidate_id
-                AND assignment.generation = operation.target_assignment_generation
-                AND assignment.state = 'preparing'
-                AND assignment.expires_at > now()
-                AND assignment.source_release = operation.target_source_release
-                AND assignment.protocol_version = operation.target_protocol_version
-                AND assignment.gateway_contract_digest = operation.target_gateway_contract_digest
-                AND assignment.command_fingerprint = operation.target_command_fingerprint
-                AND assignment.schema_digest = operation.target_schema_digest
-                AND assignment.compatibility_digest = operation.target_compatibility_digest
+              SELECT 1 FROM target_assignment_locked
+              WHERE target_assignment.tenant_id = operation.tenant_id
+                AND target_assignment.candidate_id = operation.target_candidate_id
+                AND target_assignment.generation = operation.target_assignment_generation
+                AND target_assignment.state IN ('preparing', 'active')
+                AND target_assignment.expires_at > now()
+                AND target_assignment.source_release = operation.target_source_release
+                AND target_assignment.protocol_version = operation.target_protocol_version
+                AND target_assignment.gateway_contract_digest = operation.target_gateway_contract_digest
+                AND target_assignment.command_fingerprint = operation.target_command_fingerprint
+                AND target_assignment.schema_digest = operation.target_schema_digest
+                AND target_assignment.compatibility_digest = operation.target_compatibility_digest
             )
           )
         FOR UPDATE OF operation, tenant, candidate
-      ),
-      already_bound AS (
-        SELECT owned.cell_id AS id, owned.tenant_id
-        FROM owned
-        WHERE owned.bound_cell_id = owned.cell_id
-          AND owned.routing_state = 'bound'
-          AND owned.lifecycle_state = 'active'
-      ),
-      retired AS (
-        UPDATE exomem_cells AS prior
-        SET routing_state = 'retiring', updated_at = now()
-        FROM owned
-        WHERE prior.id = owned.expected_previous_cell_id
-          AND prior.tenant_id = owned.tenant_id
-          AND owned.bound_cell_id IS NOT DISTINCT FROM owned.expected_previous_cell_id
-          AND owned.routing_state = 'unbound'
-        RETURNING prior.id
       ),
       activated_assignment AS (
         UPDATE exomem_agent_contract_rollout_assignments AS assignment
@@ -1576,6 +1591,27 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND assignment.schema_digest = owned.target_schema_digest
           AND assignment.compatibility_digest = owned.target_compatibility_digest
         RETURNING assignment.id
+      ),
+      already_bound AS (
+        SELECT owned.cell_id AS id, owned.tenant_id
+        FROM owned
+        WHERE owned.bound_cell_id = owned.cell_id
+          AND owned.routing_state = 'bound'
+          AND owned.lifecycle_state = 'active'
+      ),
+      retired AS (
+        UPDATE exomem_cells AS prior
+        SET routing_state = 'retiring', updated_at = now()
+        FROM owned
+        WHERE prior.id = owned.expected_previous_cell_id
+          AND prior.tenant_id = owned.tenant_id
+          AND owned.bound_cell_id IS NOT DISTINCT FROM owned.expected_previous_cell_id
+          AND owned.routing_state = 'unbound'
+          AND (
+            owned.target_assignment_id IS NULL
+            OR EXISTS (SELECT 1 FROM activated_assignment)
+          )
+        RETURNING prior.id
       ),
       prior_observation_unrouted AS (
         UPDATE exomem_routable_cell_contracts AS observation
