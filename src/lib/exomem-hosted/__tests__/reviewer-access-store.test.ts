@@ -29,7 +29,16 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
   setSql(async (strings) => {
     const query = strings.join("?");
     queries.push(query);
-    return { rows: [{ id: "credential-1", owner_user_id: "owner-1", tenant_id: "tenant-1" }] };
+    return {
+      rows: [
+        {
+          id: "credential-1",
+          owner_user_id: "owner-1",
+          tenant_id: "tenant-1",
+          expires_at: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    };
   });
 
   const created = await createOrRotateMarketplaceReviewerCredentialAtomic({
@@ -142,7 +151,16 @@ test("internal canary issuance seals invite setup state and binds exact staged a
   const queries: string[] = [];
   setSql(async (strings) => {
     queries.push(strings.join("?"));
-    return { rows: [{ id: "credential-1", owner_user_id: "owner-1", tenant_id: "tenant-1" }] };
+    return {
+      rows: [
+        {
+          id: "credential-1",
+          owner_user_id: "owner-1",
+          tenant_id: "tenant-1",
+          expires_at: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    };
   });
 
   assert.deepEqual(
@@ -161,11 +179,19 @@ test("internal canary issuance seals invite setup state and binds exact staged a
       expiresAt: new Date("2026-08-01T00:00:00.000Z"),
       operatorPrincipalDigest: Buffer.alloc(32, 2),
     }),
-    { credentialId: "credential-1", ownerUserId: "owner-1", tenantId: "tenant-1" }
+    {
+      credentialId: "credential-1",
+      ownerUserId: "owner-1",
+      tenantId: "tenant-1",
+      expiresAt: "2026-08-01T00:00:00.000Z",
+    }
   );
   const query = queries.join("\n");
   assert.match(query, /provider, credential_kind[\s\S]*candidate_id, assignment_id, assignment_generation/i);
   assert.match(query, /credential_kind = 'internal_canary'/i);
+  assert.match(query, /SELECT id, owner_user_id, tenant_id, expires_at FROM created/i);
+  assert.match(query, /prior_sessions_revoked[\s\S]*reviewer_credential_id IN \(SELECT id FROM prior_revoked\)/i);
+  assert.match(query, /prior_refresh_consumed[\s\S]*prior_families_revoked/i);
   assert.match(query, /assignment\.state IN \('preparing', 'active'\)/i);
   assert.match(query, /stage\.candidate_id = assignment\.candidate_id/i);
   assert.match(query, /setup_sessions_revoked[\s\S]*exomem_invites AS invite/i);

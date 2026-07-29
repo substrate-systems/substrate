@@ -31,7 +31,12 @@ before(() => {
       },
       createInternalCanaryReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
         createdInternal = input;
-        return { credentialId: "credential-2", ownerUserId: "owner-1", tenantId: "tenant-1" };
+        return {
+          credentialId: "credential-2",
+          ownerUserId: "owner-1",
+          tenantId: "tenant-1",
+          expiresAt: "2026-07-31T00:00:00.000Z",
+        };
       },
       getMarketplaceReviewerCredentialStatus: async () => ({
         provider: "openai",
@@ -171,6 +176,7 @@ describe("Exomem operator reviewer access", () => {
     assert.equal(createdInternal?.tenantId, TENANT_ID);
     assert.equal(createdInternal?.assignmentGeneration, 2);
     assert.equal(created, null);
+    assert.equal(body.expiresAt, "2026-07-31T00:00:00.000Z");
     assert.equal(JSON.stringify(body).includes("000000000021"), false);
     assert.equal(JSON.stringify(body).includes("passwordHash"), false);
   });

@@ -1604,6 +1604,30 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
         AND family.revoked_at IS NULL
       RETURNING family.id
     ),
+    policy_revocation AS (
+      UPDATE exomem_oauth_token_families AS family
+      SET revoked_at = now(), revoked_reason = 'candidate_authority_invalid'
+      FROM credential
+      WHERE family.id = credential.family_id
+        AND credential.candidate_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM current_policy WHERE current_policy.id = credential.id)
+        AND family.revoked_at IS NULL
+      RETURNING family.id
+    ),
+    policy_access_revoked AS (
+      UPDATE exomem_oauth_access_tokens AS token
+      SET revoked_at = COALESCE(token.revoked_at, now())
+      WHERE token.family_id IN (SELECT id FROM policy_revocation)
+        AND token.revoked_at IS NULL
+      RETURNING token.id
+    ),
+    policy_refresh_consumed AS (
+      UPDATE exomem_oauth_refresh_tokens AS token
+      SET consumed_at = COALESCE(token.consumed_at, now())
+      WHERE token.family_id IN (SELECT id FROM policy_revocation)
+        AND token.consumed_at IS NULL
+      RETURNING token.id
+    ),
     replacement AS (
       INSERT INTO exomem_oauth_refresh_tokens (
         refresh_digest, family_id, parent_refresh_token_id, expires_at,

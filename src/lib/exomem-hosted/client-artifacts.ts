@@ -1,5 +1,4 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { revokeConflictingCanaryOAuthLineageInTransaction } from "./agent-contract-canaries";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
 import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
 
@@ -493,10 +492,6 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
     if (stageRows.length !== 1 || typeof stageRows[0]?.id !== "string")
       throw new Error("artifact stage precondition failed");
     const stageId = artifact.stagedClientReleaseId;
-    const stageTenantId = stageRows[0].tenant_id;
-    const stageAssignmentId = stageRows[0].assignment_id;
-    if (typeof stageTenantId !== "string" || typeof stageAssignmentId !== "string")
-      throw new Error("artifact stage precondition failed");
     const { rows } = await transaction`
       /* exomem:store-client-artifact */
       INSERT INTO exomem_client_artifacts (
@@ -515,16 +510,6 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
     `;
     const id = rows[0]?.id;
     if (typeof id !== "string") throw new Error("client artifact insert returned no id");
-    await revokeConflictingCanaryOAuthLineageInTransaction(transaction, {
-      tenantId: stageTenantId,
-      candidateId: artifact.candidateId,
-      assignmentId: stageAssignmentId,
-      assignmentGeneration: positiveInteger(
-        stageRows[0].assignment_generation,
-        "rollout assignment generation"
-      ),
-      stagedClientReleaseId: stageId,
-    });
     const { rows: evidenced } = await transaction`
       /* exomem:evidence-staged-client-release */
       UPDATE exomem_staged_client_releases

@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("Hosted canary assignments", () => {
-  it("revokes only conflicting internal-canary lineage during exact activation", async () => {
+  it("revokes every conflicting tenant OAuth lineage during exact activation", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {
       queries.push(strings.join("?"));
@@ -40,12 +40,13 @@ describe("Hosted canary assignments", () => {
 
     assert.equal(revoked, 1);
     const query = queries.join("\n");
-    assert.match(query, /credential_kind = 'internal_canary'/i);
+    assert.match(query, /grant_row\.tenant_id = \?::uuid/i);
+    assert.match(query, /grant_row\.candidate_id IS DISTINCT FROM \?::uuid/i);
     assert.match(query, /assignment_generation IS DISTINCT FROM \?::bigint/i);
     assert.match(query, /reviewer_credential_id IN \(SELECT id FROM conflicting_credentials\)/i);
     assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
     assert.match(query, /UPDATE exomem_oauth_access_tokens/i);
-    assert.doesNotMatch(query, /credential_kind = 'provider_review'/i);
+    assert.doesNotMatch(query, /grant_row\.tenant_id = .*candidate_id =/i);
   });
 
   it("creates immutable assignment generations under the cohort lock", async () => {
@@ -157,6 +158,7 @@ describe("Hosted canary assignments", () => {
     const query = queries.join("\n");
     assert.match(query, /UPDATE exomem_agent_contract_rollout_assignments/i);
     assert.match(query, /UPDATE exomem_staged_client_releases/i);
+    assert.match(query, /SET state = 'expired', evidenced_at = NULL, ended_at = now\(\)/i);
     assert.match(query, /exomem:revoke-canary-oauth-lineage/i);
     assert.match(query, /credential_kind = 'internal_canary'/i);
   });

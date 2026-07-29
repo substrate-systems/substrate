@@ -222,9 +222,8 @@ describe("Exomem Hosted agent contracts", () => {
     assert.match(queries[2], /assignment\.state = 'active'/i);
     assert.match(queries[2], /FOR UPDATE OF stage, candidate, assignment/i);
     assert.match(queries[3], /INSERT INTO exomem_client_artifacts/i);
-    assert.match(queries[4], /revoke-conflicting-canary-oauth-lineage/i);
-    assert.match(queries[4], /credential_kind = 'internal_canary'/i);
-    assert.match(queries[5], /SET state = 'evidenced'/i);
+    assert.match(queries[4], /SET state = 'evidenced'/i);
+    assert.doesNotMatch(queries.join("\n"), /revoke-conflicting-canary-oauth-lineage/i);
     assert.equal(
       await demoteClientArtifact("00000000-0000-0000-0000-000000000001", sha("9")),
       true

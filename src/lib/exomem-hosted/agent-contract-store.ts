@@ -6,6 +6,7 @@ import {
   promotionEvidenceDigest,
   validatePromotionEvidence,
 } from "./client-artifacts";
+import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-contract-canaries";
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
@@ -710,6 +711,7 @@ export async function promoteExomemHostedCohort(input: {
       WHERE id IN (${input.claudeArtifactId}::uuid, ${input.openaiArtifactId}::uuid)
         AND state = 'pending'
     `;
+    await revokeConflictingCandidateOAuthLineageInTransaction(transaction, input.candidateId);
     const { rows: cohortRows } = await transaction`
       /* exomem:assert-promoted-hosted-cohort */
       SELECT id::text AS id FROM exomem_hosted_alpha_cohort

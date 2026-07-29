@@ -150,7 +150,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           platform: selector.platform,
           fixtureVersion: shared.fixtureVersion,
           fixturePayloadDigest: shared.fixturePayloadDigest,
-          expiresAt: shared.expiresAt.toISOString(),
+          expiresAt: created.expiresAt,
           credentials: { username: credential.username, password: credential.password },
           requestId,
         },

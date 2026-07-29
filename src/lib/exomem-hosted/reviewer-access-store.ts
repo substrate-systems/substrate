@@ -118,6 +118,7 @@ export async function createOrRotateMarketplaceReviewerCredentialAtomic(
         FROM target
         JOIN exomem_marketplace_reviewer_credentials AS credential
           ON credential.provider = ${input.provider}
+         AND credential.credential_kind = 'provider_review'
          AND credential.revoked_at IS NULL
         FOR UPDATE
       ), credential_revoked AS (
@@ -263,7 +264,7 @@ export async function createOrRotateMarketplaceReviewerCredentialAtomic(
 /** A pending candidate is reachable only through this short-lived, exact reviewer binding. */
 export async function createInternalCanaryReviewerCredentialAtomic(
   input: CreateInternalCanaryReviewerCredentialInput
-): Promise<{ credentialId: string; ownerUserId: string; tenantId: string } | null> {
+): Promise<{ credentialId: string; ownerUserId: string; tenantId: string; expiresAt: string } | null> {
   validateMarketplaceReviewerExpiry(input.expiresAt);
   const provider: MarketplaceReviewerProvider = input.platform === "claude" ? "anthropic" : "openai";
   return withCanaryReviewerAccessLock(async (tx) => {
@@ -304,7 +305,9 @@ export async function createInternalCanaryReviewerCredentialAtomic(
       ), prior AS (
         SELECT credential.id
         FROM exomem_marketplace_reviewer_credentials AS credential
-        JOIN target ON target.assignment_id = credential.assignment_id
+        JOIN target ON target.tenant_id = credential.tenant_id
+          AND target.candidate_id = credential.candidate_id
+          AND target.assignment_id = credential.assignment_id
           AND target.assignment_generation = credential.assignment_generation
           AND target.staged_client_release_id = credential.staged_client_release_id
           AND target.oauth_client_id = credential.oauth_client_id
@@ -315,6 +318,50 @@ export async function createInternalCanaryReviewerCredentialAtomic(
         SET revoked_at = now(), revoked_by_principal_digest = ${input.operatorPrincipalDigest}
         WHERE credential.id IN (SELECT id FROM prior)
         RETURNING credential.id
+      ), prior_sessions_revoked AS (
+        UPDATE exomem_sessions AS session
+        SET revoked_at = COALESCE(session.revoked_at, now())
+        WHERE session.reviewer_credential_id IN (SELECT id FROM prior_revoked)
+          AND session.revoked_at IS NULL
+        RETURNING session.id
+      ), prior_transactions AS (
+        SELECT transaction.id FROM exomem_oauth_authorization_transactions AS transaction
+        WHERE transaction.reviewer_credential_id IN (SELECT id FROM prior_revoked)
+           OR transaction.redeemed_session_id IN (SELECT id FROM prior_sessions_revoked)
+      ), prior_transactions_consumed AS (
+        UPDATE exomem_oauth_authorization_transactions AS transaction
+        SET consumed_at = COALESCE(transaction.consumed_at, now())
+        WHERE transaction.id IN (SELECT id FROM prior_transactions) AND transaction.consumed_at IS NULL
+        RETURNING transaction.id
+      ), prior_grants_revoked AS (
+        UPDATE exomem_oauth_grants AS grant_row
+        SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
+        WHERE (grant_row.reviewer_credential_id IN (SELECT id FROM prior_revoked)
+            OR grant_row.authorization_transaction_id IN (SELECT id FROM prior_transactions))
+          AND grant_row.revoked_at IS NULL
+        RETURNING grant_row.id
+      ), prior_codes_consumed AS (
+        UPDATE exomem_oauth_authorization_codes AS code
+        SET consumed_at = COALESCE(code.consumed_at, now())
+        WHERE code.grant_id IN (SELECT id FROM prior_grants_revoked) AND code.consumed_at IS NULL
+        RETURNING code.id
+      ), prior_families_revoked AS (
+        UPDATE exomem_oauth_token_families AS family
+        SET revoked_at = COALESCE(family.revoked_at, now()),
+            revoked_reason = COALESCE(family.revoked_reason, 'reviewer_credential_rotated')
+        WHERE family.grant_id IN (SELECT id FROM prior_grants_revoked) AND family.revoked_at IS NULL
+        RETURNING family.id
+      ), prior_refresh_consumed AS (
+        UPDATE exomem_oauth_refresh_tokens AS token
+        SET consumed_at = COALESCE(token.consumed_at, now())
+        WHERE token.family_id IN (SELECT id FROM prior_families_revoked) AND token.consumed_at IS NULL
+        RETURNING token.id
+      ), prior_access_revoked AS (
+        UPDATE exomem_oauth_access_tokens AS token
+        SET revoked_at = COALESCE(token.revoked_at, now())
+        WHERE token.grant_id IN (SELECT id FROM prior_grants_revoked)
+           OR token.family_id IN (SELECT id FROM prior_families_revoked)
+        RETURNING token.id
       ), setup_sessions_revoked AS (
         UPDATE exomem_sessions AS session
         SET revoked_at = COALESCE(session.revoked_at, now())
@@ -379,13 +426,14 @@ export async function createInternalCanaryReviewerCredentialAtomic(
                ${input.fixtureVersion}, ${input.fixturePayloadDigest}, ${input.operatorPrincipalDigest},
                LEAST(${input.expiresAt.toISOString()}::timestamptz, (SELECT expires_at FROM exomem_agent_contract_rollout_assignments WHERE id = target.assignment_id), (SELECT expires_at FROM exomem_staged_client_releases WHERE id = target.staged_client_release_id))
         FROM target
-        RETURNING id, owner_user_id, tenant_id
+        RETURNING id, owner_user_id, tenant_id, expires_at
       )
-      SELECT id, owner_user_id, tenant_id FROM created
+      SELECT id, owner_user_id, tenant_id, expires_at FROM created
     `;
-    const row = rows[0] as { id?: string; owner_user_id?: string; tenant_id?: string } | undefined;
-    return row?.id && row.owner_user_id && row.tenant_id
-      ? { credentialId: row.id, ownerUserId: row.owner_user_id, tenantId: row.tenant_id }
+    const row = rows[0] as { id?: string; owner_user_id?: string; tenant_id?: string; expires_at?: unknown } | undefined;
+    const expiresAt = canonicalTimestamp(row?.expires_at);
+    return row?.id && row.owner_user_id && row.tenant_id && expiresAt
+      ? { credentialId: row.id, ownerUserId: row.owner_user_id, tenantId: row.tenant_id, expiresAt }
       : null;
   });
 }
@@ -738,6 +786,7 @@ export async function revokeInternalCanaryReviewerCredentialAtomic(input: {
         AND credential.staged_client_release_id = ${input.stagedClientReleaseId}::uuid
         AND credential.oauth_client_id = ${input.oauthClientId}::uuid
         AND client.client_platform = ${input.platform}
+        AND credential.revoked_at IS NULL
       FOR UPDATE OF credential
     `;
     if (rows.length !== 1) return 0;
@@ -800,7 +849,7 @@ export async function revokeMarketplaceReviewerCredentialAtomic(input: {
       WITH credential AS (
         SELECT id
         FROM exomem_marketplace_reviewer_credentials
-        WHERE provider = ${input.provider} AND revoked_at IS NULL
+        WHERE provider = ${input.provider} AND credential_kind = 'provider_review' AND revoked_at IS NULL
         FOR UPDATE
       ), revoked AS (
         UPDATE exomem_marketplace_reviewer_credentials AS credential_row

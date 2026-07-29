@@ -186,6 +186,57 @@ export async function revokeCanaryOAuthLineageInTransaction(
   return Number(rows[0]?.revoked_credentials ?? 0);
 }
 
+/** Caller holds the cohort lock; termination revokes one exact internal lineage. */
+export async function terminateCanaryOAuthLineageInTransaction(
+  tx: ExomemSql,
+  input: CanaryOAuthLineage
+): Promise<number> {
+  return revokeCanaryOAuthLineageInTransaction(tx, input);
+}
+
+/** Caller holds the cohort lock; promotion retains one candidate across every platform stage. */
+export async function revokeConflictingCandidateOAuthLineageInTransaction(
+  tx: ExomemSql,
+  candidateId: string
+): Promise<number> {
+  const preservedCandidateId = uuid(candidateId, "candidate ID");
+  const { rows } = await tx`
+    /* exomem:revoke-conflicting-candidate-oauth-lineage */
+    WITH grants_revoked AS (
+      UPDATE exomem_oauth_grants AS grant_row
+      SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
+      WHERE grant_row.candidate_id IS NOT NULL
+        AND grant_row.candidate_id IS DISTINCT FROM ${preservedCandidateId}::uuid
+        AND grant_row.revoked_at IS NULL
+      RETURNING grant_row.id
+    ), codes_consumed AS (
+      UPDATE exomem_oauth_authorization_codes AS code
+      SET consumed_at = COALESCE(code.consumed_at, now())
+      WHERE code.grant_id IN (SELECT id FROM grants_revoked) AND code.consumed_at IS NULL
+      RETURNING code.id
+    ), families_revoked AS (
+      UPDATE exomem_oauth_token_families AS family
+      SET revoked_at = COALESCE(family.revoked_at, now()),
+          revoked_reason = COALESCE(family.revoked_reason, 'candidate_promoted')
+      WHERE family.grant_id IN (SELECT id FROM grants_revoked) AND family.revoked_at IS NULL
+      RETURNING family.id
+    ), refresh_consumed AS (
+      UPDATE exomem_oauth_refresh_tokens AS token
+      SET consumed_at = COALESCE(token.consumed_at, now())
+      WHERE token.family_id IN (SELECT id FROM families_revoked) AND token.consumed_at IS NULL
+      RETURNING token.id
+    ), access_revoked AS (
+      UPDATE exomem_oauth_access_tokens AS token
+      SET revoked_at = COALESCE(token.revoked_at, now())
+      WHERE token.grant_id IN (SELECT id FROM grants_revoked)
+         OR token.family_id IN (SELECT id FROM families_revoked)
+      RETURNING token.id
+    )
+    SELECT count(*)::integer AS revoked_grants FROM grants_revoked
+  `;
+  return Number(rows[0]?.revoked_grants ?? 0);
+}
+
 /** Caller holds the cohort lock; retain only the exact lineage becoming active. */
 export async function revokeConflictingCanaryOAuthLineageInTransaction(
   tx: ExomemSql,
@@ -227,8 +278,14 @@ export async function revokeConflictingCanaryOAuthLineageInTransaction(
     ), grants_revoked AS (
       UPDATE exomem_oauth_grants AS grant_row
       SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
-      WHERE grant_row.reviewer_credential_id IN (SELECT id FROM conflicting_credentials)
-         OR grant_row.authorization_transaction_id IN (SELECT id FROM transactions_revoked)
+      WHERE grant_row.tenant_id = ${lineage.tenantId}::uuid
+        AND grant_row.revoked_at IS NULL
+        AND (
+          grant_row.candidate_id IS DISTINCT FROM ${lineage.candidateId}::uuid
+          OR grant_row.assignment_id IS DISTINCT FROM ${lineage.assignmentId}::uuid
+          OR grant_row.assignment_generation IS DISTINCT FROM ${lineage.assignmentGeneration}::bigint
+          OR grant_row.staged_client_release_id IS DISTINCT FROM ${lineage.stagedClientReleaseId}::uuid
+        )
       RETURNING grant_row.id
     ), codes_consumed AS (
       UPDATE exomem_oauth_authorization_codes AS code
@@ -547,7 +604,7 @@ export async function expireCanaryAuthority(limit = 20): Promise<number> {
         ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT ${bounded}
       ), expired_declarations AS (
         UPDATE exomem_staged_client_releases AS declaration
-        SET state = 'expired', ended_at = now(), version = version + 1, updated_at = now()
+        SET state = 'expired', evidenced_at = NULL, ended_at = now(), version = version + 1, updated_at = now()
         FROM declarations WHERE declaration.id = declarations.id
         RETURNING declaration.id
       )
