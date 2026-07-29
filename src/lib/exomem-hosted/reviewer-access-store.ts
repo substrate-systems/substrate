@@ -263,6 +263,84 @@ export async function createMarketplaceReviewerSessionAtomic(input: {
     : null;
 }
 
+export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
+  credentialId: string;
+  transactionDigest: Buffer;
+  sessionDigest: Buffer;
+  csrfDigest: Buffer;
+  expiresAt: Date;
+}): Promise<{ sessionId: string } | null> {
+  const { rows } = await executeExomemSql`
+    /* exomem:create-marketplace-reviewer-oauth-session */
+    WITH credential AS (
+      SELECT credential.id, credential.owner_user_id, credential.tenant_id, credential.expires_at
+      FROM exomem_marketplace_reviewer_credentials AS credential
+      JOIN users ON users.id = credential.owner_user_id AND users.deleted_at IS NULL
+      JOIN exomem_tenants AS tenant
+        ON tenant.id = credential.tenant_id
+       AND tenant.owner_user_id = credential.owner_user_id
+       AND tenant.status IN ('provisioning', 'active')
+       AND tenant.desired_state = 'running'
+       AND tenant.deleted_at IS NULL
+       AND tenant.marketplace_reviewer_purpose = true
+      JOIN exomem_entitlements AS entitlement
+        ON entitlement.tenant_id = tenant.id
+       AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
+      JOIN exomem_cells AS cell
+        ON cell.id = tenant.bound_cell_id
+       AND cell.tenant_id = tenant.id
+       AND cell.routing_state = 'bound'
+       AND cell.lifecycle_state IN ('provisioning', 'active')
+      WHERE credential.id = ${input.credentialId}::uuid
+        AND credential.revoked_at IS NULL
+        AND credential.expires_at > now()
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_account_blocks AS block
+          WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
+        )
+      FOR UPDATE OF credential
+    ), transaction AS (
+      SELECT transaction.id
+      FROM exomem_oauth_authorization_transactions AS transaction
+      JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
+       AND client.enabled = true
+       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+       AND (client.admission_mode = 'pinned' OR (
+         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
+         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
+         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+       ))
+      CROSS JOIN credential
+      WHERE transaction.transaction_digest = ${input.transactionDigest}
+        AND transaction.consumed_at IS NULL
+        AND transaction.expires_at > now()
+        AND client.client_platform = credential.provider
+      FOR UPDATE OF transaction
+    ), session AS (
+      INSERT INTO exomem_sessions (
+        user_id, tenant_id, reviewer_credential_id, session_digest, csrf_digest, expires_at
+      )
+      SELECT credential.owner_user_id,
+             credential.tenant_id,
+             credential.id,
+             ${input.sessionDigest},
+             ${input.csrfDigest},
+             LEAST(${input.expiresAt.toISOString()}, credential.expires_at)
+      FROM credential CROSS JOIN transaction
+      RETURNING id
+    ), bound AS (
+      UPDATE exomem_oauth_authorization_transactions AS transaction_row
+      SET reviewer_credential_id = credential.id
+      FROM transaction CROSS JOIN credential CROSS JOIN session
+      WHERE transaction_row.id = transaction.id
+      RETURNING transaction_row.id
+    )
+    SELECT session.id FROM session CROSS JOIN bound
+  `;
+  const row = rows[0] as { id?: string } | undefined;
+  return row?.id ? { sessionId: row.id } : null;
+}
+
 export async function getMarketplaceReviewerCredentialStatus(
   provider: MarketplaceReviewerProvider
 ): Promise<MarketplaceReviewerCredentialStatus | null> {

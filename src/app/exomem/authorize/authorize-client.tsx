@@ -8,12 +8,21 @@ import { redeemInvitationUrl } from "./invite-resume";
 type AuthorizeClientProps = {
   confirmation: string;
   nonce: string;
+  reviewerEnabled: boolean;
 };
 
-export default function AuthorizeClient({ confirmation, nonce }: AuthorizeClientProps) {
+export default function AuthorizeClient({
+  confirmation,
+  nonce,
+  reviewerEnabled,
+}: AuthorizeClientProps) {
   const [invitationUrl, setInvitationUrl] = useState("");
   const [redeemingInvitation, setRedeemingInvitation] = useState(false);
   const [invitationError, setInvitationError] = useState("");
+  const [reviewerUsername, setReviewerUsername] = useState("");
+  const [reviewerPassword, setReviewerPassword] = useState("");
+  const [reviewerSubmitting, setReviewerSubmitting] = useState(false);
+  const [reviewerError, setReviewerError] = useState("");
 
   async function useInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -39,6 +48,28 @@ export default function AuthorizeClient({ confirmation, nonce }: AuthorizeClient
     }
   }
 
+  async function signInReviewer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (reviewerSubmitting) return;
+    setReviewerSubmitting(true);
+    setReviewerError("");
+    try {
+      const result = await postPublicJson("/api/exomem/access/reviewer", {
+        username: reviewerUsername,
+        password: reviewerPassword,
+      });
+      setReviewerPassword("");
+      if (typeof result.destination !== "string" || !result.destination) {
+        throw new Error("invalid reviewer authentication response");
+      }
+      window.location.assign(result.destination);
+    } catch {
+      setReviewerPassword("");
+      setReviewerError("Reviewer sign-in failed. Check the credentials and try again.");
+      setReviewerSubmitting(false);
+    }
+  }
+
   return (
     <>
       <form action="/api/exomem/oauth/authorize/complete" className="mt-8" method="post">
@@ -48,6 +79,41 @@ export default function AuthorizeClient({ confirmation, nonce }: AuthorizeClient
           Continue
         </button>
       </form>
+      {reviewerEnabled ? (
+        <form className={styles.form} noValidate onSubmit={signInReviewer}>
+          <label className={styles.label} htmlFor="exomem-reviewer-username">
+            Reviewer username
+          </label>
+          <input
+            className={styles.input}
+            id="exomem-reviewer-username"
+            autoComplete="username"
+            value={reviewerUsername}
+            onChange={(event) => setReviewerUsername(event.target.value)}
+          />
+          <label className={styles.label} htmlFor="exomem-reviewer-password">
+            Reviewer password
+          </label>
+          <input
+            className={styles.input}
+            id="exomem-reviewer-password"
+            autoComplete="current-password"
+            type="password"
+            value={reviewerPassword}
+            onChange={(event) => setReviewerPassword(event.target.value)}
+          />
+          <button className={styles.quietButton} type="submit" disabled={reviewerSubmitting}>
+            {reviewerSubmitting ? "Signing in…" : "Sign in as reviewer"}
+          </button>
+          <p
+            className={`${styles.status} ${reviewerError ? styles.error : ""}`}
+            role={reviewerError ? "alert" : undefined}
+            aria-live="polite"
+          >
+            {reviewerError}
+          </p>
+        </form>
+      ) : null}
       <form className={styles.form} noValidate onSubmit={useInvitation}>
         <label className={styles.label} htmlFor="exomem-invitation-url">
           Use your invitation
