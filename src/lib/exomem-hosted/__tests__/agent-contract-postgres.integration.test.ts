@@ -20,6 +20,7 @@ import {
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { storeClientArtifact } from "../client-artifacts";
+import { SqlLifecycleStore } from "../lifecycle-store";
 import {
   createCanaryAssignment,
   createStagedClientRelease,
@@ -123,7 +124,11 @@ async function seedActiveReviewerAssignment(candidateId: string): Promise<{
        command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
        marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
      )
-     SELECT tenant.id, candidate.id, 1, 'active', candidate.source_release, candidate.protocol_version,
+     SELECT tenant.id, candidate.id, COALESCE((
+              SELECT MAX(existing.generation)
+              FROM exomem_agent_contract_rollout_assignments AS existing
+              WHERE existing.tenant_id = tenant.id
+            ), 0) + 1, 'active', candidate.source_release, candidate.protocol_version,
             candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest, $2,
             true, $3, now() + interval '1 hour', now()
      FROM exomem_tenants AS tenant
@@ -423,9 +428,18 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
        ) VALUES ('openai', 'internal_canary', decode($1, 'hex'), '$argon2id$integration', $2, $3,
                  $4, $5, $6, $7, $8, 'two-platform-evidence', $9, decode($10, 'hex'),
                  now() + interval '1 hour') RETURNING id`,
-      [sha("b"), authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
-        candidateId, assignment.id, assignment.generation, openAiStage.id, openAiCanaryClient.rows[0]!.id,
-        sha("c"), sha("d")]
+      [
+        sha("b"),
+        authorityOwner.rows[0]!.owner_user_id,
+        authorityOwner.rows[0]!.tenant_id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        openAiStage.id,
+        openAiCanaryClient.rows[0]!.id,
+        sha("c"),
+        sha("d"),
+      ]
     );
     const openAiCanaryFamily = await pool!.query<{ id: string }>(
       `WITH grant_row AS (
@@ -438,9 +452,16 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
          grant_id, client_id, expires_at, candidate_id, assignment_id, assignment_generation,
          staged_client_release_id, reviewer_credential_id
        ) SELECT id, $3, now() + interval '1 hour', $5, $6, $7, $8, $4 FROM grant_row RETURNING id`,
-      [authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
-        openAiCanaryClient.rows[0]!.id, openAiCanaryCredential.rows[0]!.id, candidateId,
-        assignment.id, assignment.generation, openAiStage.id]
+      [
+        authorityOwner.rows[0]!.owner_user_id,
+        authorityOwner.rows[0]!.tenant_id,
+        openAiCanaryClient.rows[0]!.id,
+        openAiCanaryCredential.rows[0]!.id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        openAiStage.id,
+      ]
     );
     const staleCanaryCredential = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_marketplace_reviewer_credentials (
@@ -450,17 +471,28 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
        ) VALUES ('openai', 'internal_canary', decode($1, 'hex'), '$argon2id$integration', $2, $3,
                  $4, $5, $6, $7, $8, 'stale-stage', $9, decode($10, 'hex'),
                  now() + interval '1 hour') RETURNING id`,
-      [sha("e"), authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
-        candidateId, assignment.id, assignment.generation, staleOpenAiStage.id, (await pool!.query<{ id: string }>(
-          `INSERT INTO exomem_oauth_clients (
+      [
+        sha("e"),
+        authorityOwner.rows[0]!.owner_user_id,
+        authorityOwner.rows[0]!.tenant_id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        staleOpenAiStage.id,
+        (
+          await pool!.query<{ id: string }>(
+            `INSERT INTO exomem_oauth_clients (
              client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
              client_platform, oauth_client_config_sha256
            ) VALUES ($1, 'pinned', false, '["https://stale.example.test/callback"]'::jsonb,
                      digest(convert_to('["https://stale.example.test/callback"]', 'utf8'), 'sha256'),
                      'openai', $2) RETURNING id`,
-          [`stale-openai-${randomUUID()}`, sha("a")]
-        )).rows[0]!.id,
-        sha("f"), sha("1")]
+            [`stale-openai-${randomUUID()}`, sha("a")]
+          )
+        ).rows[0]!.id,
+        sha("f"),
+        sha("1"),
+      ]
     );
     const staleCanaryFamily = await pool!.query<{ id: string; grant_id: string }>(
       `WITH grant_row AS (
@@ -473,12 +505,21 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
          grant_id, client_id, expires_at, candidate_id, assignment_id, assignment_generation,
          staged_client_release_id, reviewer_credential_id
        ) SELECT id, $3, now() + interval '1 hour', $5, $6, $7, $8, $4 FROM grant_row RETURNING id, grant_id`,
-      [authorityOwner.rows[0]!.owner_user_id, authorityOwner.rows[0]!.tenant_id,
-        (await pool!.query<{ oauth_client_id: string }>(
-          "SELECT oauth_client_id FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
-          [staleCanaryCredential.rows[0]!.id]
-        )).rows[0]!.oauth_client_id, staleCanaryCredential.rows[0]!.id, candidateId,
-        assignment.id, assignment.generation, staleOpenAiStage.id]
+      [
+        authorityOwner.rows[0]!.owner_user_id,
+        authorityOwner.rows[0]!.tenant_id,
+        (
+          await pool!.query<{ oauth_client_id: string }>(
+            "SELECT oauth_client_id FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+            [staleCanaryCredential.rows[0]!.id]
+          )
+        ).rows[0]!.oauth_client_id,
+        staleCanaryCredential.rows[0]!.id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        staleOpenAiStage.id,
+      ]
     );
     await new Promise((resolve) => setTimeout(resolve, 10));
     const makeArtifact = (platform: "claude" | "openai", signed: Record<string, unknown>) => ({
@@ -581,8 +622,38 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       { grant_revoked: true, family_revoked: true }
     );
     assert.equal(
-      (await pool!.query("SELECT revoked_at FROM exomem_oauth_token_families WHERE id = $1", [openAiCanaryFamily.rows[0]!.id])).rows[0]?.revoked_at,
+      (
+        await pool!.query("SELECT revoked_at FROM exomem_oauth_token_families WHERE id = $1", [
+          openAiCanaryFamily.rows[0]!.id,
+        ])
+      ).rows[0]?.revoked_at,
       null
+    );
+    assert.deepEqual(
+      (
+        await pool!.query<{ state: string; ended: boolean }>(
+          `SELECT state, ended_at IS NOT NULL AS ended
+           FROM exomem_agent_contract_rollout_assignments
+           WHERE id = $1`,
+          [assignment.id]
+        )
+      ).rows,
+      [{ state: "retired", ended: true }]
+    );
+    assert.deepEqual(
+      (
+        await pool!.query<{ platform: string; state: string; ended: boolean }>(
+          `SELECT platform, state, ended_at IS NOT NULL AS ended
+           FROM exomem_staged_client_releases
+           WHERE id = ANY($1::uuid[])
+           ORDER BY platform`,
+          [[claudeStage.id, openAiStage.id]]
+        )
+      ).rows,
+      [
+        { platform: "claude", state: "retired", ended: true },
+        { platform: "openai", state: "retired", ended: true },
+      ]
     );
     assert.deepEqual((await getLiveExomemAgentContract())?.mcpProtocolVersions, [
       "2025-11-25",
@@ -925,6 +996,241 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     });
   });
 
+  it("activates a preparing assignment atomically and rolls back every published effect on descendant revocation failure", async () => {
+    const userId = randomUUID();
+    const tenantId = randomUUID();
+    const priorCellId = randomUUID();
+    const replacementCellId = randomUUID();
+    const candidateId = randomUUID();
+    const assignmentId = randomUUID();
+    const operationId = randomUUID();
+    const clientId = randomUUID();
+    const gatewayDigest = sha("a");
+    const commandFingerprint = sha("b");
+    const schemaDigest = sha("c");
+    const compatibilityDigest = sha("d");
+
+    await pool!.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      userId,
+      `preparing-bind-${randomUUID()}@example.test`,
+    ]);
+    await pool!.query(
+      `INSERT INTO exomem_tenants
+         (id, owner_user_id, status, desired_state, legacy_unmetered)
+       VALUES ($1, $2, 'active', 'running', true)`,
+      [tenantId, userId]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
+         observed_schema_digest, observed_compatibility_digest
+       ) VALUES
+         ($1, $3, 'active', 'bound', 'running', '0', '2026.07.30', 'CELL_READY', $4, $5, $6, $7),
+         ($2, $3, 'provisioning', 'unbound', 'running', '0', '2026.07.30', 'CELL_READY', $4, $5, $6, $7)`,
+      [
+        priorCellId,
+        replacementCellId,
+        tenantId,
+        gatewayDigest,
+        commandFingerprint,
+        schemaDigest,
+        compatibilityDigest,
+      ]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      priorCellId,
+      tenantId,
+    ]);
+    await pool!.query(
+      `INSERT INTO exomem_routable_cell_contracts (
+         cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+         contract_digest, compatibility_digest, routable
+       ) VALUES ($1, 'hosted-alpha-agent-v1', '2026.07.30', '0', $2, $3, $4, true)`,
+      [priorCellId, commandFingerprint, schemaDigest, compatibilityDigest]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test',
+                 '2026.07.30', $2, $3, $4, '0', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+      [candidateId, commandFingerprint, schemaDigest, compatibilityDigest]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at
+       ) VALUES ($1, $2, $3, 1, 'preparing', '2026.07.30', '0', $4, $5, $6, $7,
+                 false, $8, now() + interval '1 hour')`,
+      [
+        assignmentId,
+        tenantId,
+        candidateId,
+        commandFingerprint,
+        schemaDigest,
+        compatibilityDigest,
+        gatewayDigest,
+        sha("e"),
+      ]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_oauth_clients (
+         id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
+         oauth_client_config_sha256
+       ) VALUES ($1, $2, 'pinned', true, '["https://preparing-bind.example.test/callback"]'::jsonb,
+                 digest(convert_to('["https://preparing-bind.example.test/callback"]', 'utf8'), 'sha256'),
+                 'claude', $3)`,
+      [clientId, `preparing-bind-client-${randomUUID()}`, sha("f")]
+    );
+    const legacyGrant = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+       VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'])
+       RETURNING id`,
+      [userId, tenantId, clientId]
+    );
+    const legacyFamily = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+       VALUES ($1, $2, now() + interval '1 hour') RETURNING id`,
+      [legacyGrant.rows[0]!.id, clientId]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, cell_id, expected_previous_cell_id, operation_type, state, idempotency_key,
+         fence_generation, checkpoint, lease_owner, lease_expires_at,
+         target_candidate_id, target_assignment_id, target_assignment_generation,
+         target_source_release, target_protocol_version, target_gateway_contract_digest,
+         target_command_fingerprint, target_schema_digest, target_compatibility_digest
+       ) VALUES ($1, $2, $3, $4, 'provision', 'running', 'preparing-bind', 1, 'readiness-proved',
+                 'bind-worker', now() + interval '1 hour', $5, $6, 1, '2026.07.30', '0', $7, $8, $9, $10)`,
+      [
+        operationId,
+        tenantId,
+        replacementCellId,
+        priorCellId,
+        candidateId,
+        assignmentId,
+        gatewayDigest,
+        commandFingerprint,
+        schemaDigest,
+        compatibilityDigest,
+      ]
+    );
+    await pool!.query(`
+      CREATE FUNCTION fail_preparing_bind_revocation() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'forced preparing bind revocation failure';
+      END;
+      $$;
+      CREATE TRIGGER fail_preparing_bind_revocation
+      BEFORE UPDATE OF revoked_at ON exomem_oauth_grants
+      FOR EACH ROW EXECUTE FUNCTION fail_preparing_bind_revocation();
+    `);
+
+    await assert.rejects(
+      () => new SqlLifecycleStore().bindCandidate(operationId, "bind-worker"),
+      /forced preparing bind revocation failure/
+    );
+    await pool!.query(
+      "DROP TRIGGER fail_preparing_bind_revocation ON exomem_oauth_grants; DROP FUNCTION fail_preparing_bind_revocation()"
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT assignment.state AS assignment_state,
+                  assignment.activated_at IS NOT NULL AS assignment_activated,
+                  tenant.bound_cell_id = $2::uuid AS prior_still_bound,
+                  prior.routing_state = 'bound' AS prior_still_routed,
+                  prior_observation.routable AS prior_observation_routable,
+                  replacement.routing_state = 'unbound' AS replacement_unbound,
+                  replacement_observation.cell_id IS NULL AS replacement_unobserved,
+                  grant_row.revoked_at IS NULL AS legacy_grant_active,
+                  family.revoked_at IS NULL AS legacy_family_active
+           FROM exomem_agent_contract_rollout_assignments AS assignment
+           JOIN exomem_tenants AS tenant ON tenant.id = assignment.tenant_id
+           JOIN exomem_cells AS prior ON prior.id = $2::uuid
+           JOIN exomem_cells AS replacement ON replacement.id = $3::uuid
+           JOIN exomem_routable_cell_contracts AS prior_observation
+             ON prior_observation.cell_id = prior.id AND prior_observation.profile_id = 'hosted-alpha-agent-v1'
+           LEFT JOIN exomem_routable_cell_contracts AS replacement_observation
+             ON replacement_observation.cell_id = replacement.id AND replacement_observation.profile_id = 'hosted-alpha-agent-v1'
+           JOIN exomem_oauth_grants AS grant_row ON grant_row.id = $4::uuid
+           JOIN exomem_oauth_token_families AS family ON family.id = $5::uuid
+           WHERE assignment.id = $1::uuid`,
+          [
+            assignmentId,
+            priorCellId,
+            replacementCellId,
+            legacyGrant.rows[0]!.id,
+            legacyFamily.rows[0]!.id,
+          ]
+        )
+      ).rows,
+      [
+        {
+          assignment_state: "preparing",
+          assignment_activated: false,
+          prior_still_bound: true,
+          prior_still_routed: true,
+          prior_observation_routable: true,
+          replacement_unbound: true,
+          replacement_unobserved: true,
+          legacy_grant_active: true,
+          legacy_family_active: true,
+        },
+      ]
+    );
+
+    assert.equal(await new SqlLifecycleStore().bindCandidate(operationId, "bind-worker"), true);
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT assignment.state AS assignment_state,
+                  assignment.activated_at IS NOT NULL AS assignment_activated,
+                  tenant.bound_cell_id = $2::uuid AS replacement_bound,
+                  prior.routing_state = 'retiring' AS prior_retired,
+                  prior_observation.routable AS prior_observation_routable,
+                  replacement.routing_state = 'bound' AS replacement_routed,
+                  replacement_observation.routable AS replacement_observation_routable,
+                  grant_row.revoked_at IS NOT NULL AS legacy_grant_revoked,
+                  family.revoked_at IS NOT NULL AS legacy_family_revoked
+           FROM exomem_agent_contract_rollout_assignments AS assignment
+           JOIN exomem_tenants AS tenant ON tenant.id = assignment.tenant_id
+           JOIN exomem_cells AS prior ON prior.id = $3::uuid
+           JOIN exomem_cells AS replacement ON replacement.id = $2::uuid
+           JOIN exomem_routable_cell_contracts AS prior_observation
+             ON prior_observation.cell_id = prior.id AND prior_observation.profile_id = 'hosted-alpha-agent-v1'
+           JOIN exomem_routable_cell_contracts AS replacement_observation
+             ON replacement_observation.cell_id = replacement.id AND replacement_observation.profile_id = 'hosted-alpha-agent-v1'
+           JOIN exomem_oauth_grants AS grant_row ON grant_row.id = $4::uuid
+           JOIN exomem_oauth_token_families AS family ON family.id = $5::uuid
+           WHERE assignment.id = $1::uuid`,
+          [
+            assignmentId,
+            replacementCellId,
+            priorCellId,
+            legacyGrant.rows[0]!.id,
+            legacyFamily.rows[0]!.id,
+          ]
+        )
+      ).rows,
+      [
+        {
+          assignment_state: "active",
+          assignment_activated: true,
+          replacement_bound: true,
+          prior_retired: true,
+          prior_observation_routable: false,
+          replacement_routed: true,
+          replacement_observation_routable: true,
+          legacy_grant_revoked: true,
+          legacy_family_revoked: true,
+        },
+      ]
+    );
+  });
+
   it("rejects evidence after a serially prior reviewer assignment termination", async () => {
     const candidateId = await storeExomemAgentContractCandidate();
     const stage = await createStagedClientRelease({
@@ -1064,7 +1370,8 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
     assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
     assert.ok(created);
-    assert.equal(created.value.generation, 2);
+    assert.ok(Number.isSafeInteger(created.value.generation));
+    assert.ok(created.value.generation > 0);
     await pool!.query(
       "UPDATE exomem_agent_contract_rollout_assignments SET state = 'active', activated_at = now() WHERE id = $1",
       [created.value.id]

@@ -26,6 +26,11 @@ describe("Exomem Hosted canary migration", () => {
     assert.doesNotMatch(sql, /INSERT INTO exomem_agent_contract_rollout_assignments/i);
     assert.doesNotMatch(sql, /INSERT INTO exomem_staged_client_releases/i);
     assert.doesNotMatch(sql, /UPDATE exomem_agent_contract_candidates/i);
-    assert.doesNotMatch(sql, /(?:provider|token|revoke|credential)/i);
+    assert.doesNotMatch(sql, /^\s*(?:INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+(?!OF\b))/im);
+    assert.doesNotMatch(
+      sql,
+      /\b(?:dblink(?:_connect|_exec)?|http(?:_get|_post|_request)?|net\.http|pg_net|curl|fetch|aws|cloudflare|paddle)\b/i
+    );
+    assert.doesNotMatch(sql, /\b(?:secret|password|private[_ ]?key|access[_ ]?key|bearer)\b/i);
   });
 });

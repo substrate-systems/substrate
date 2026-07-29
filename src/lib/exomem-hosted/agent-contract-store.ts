@@ -711,6 +711,22 @@ export async function promoteExomemHostedCohort(input: {
       WHERE id IN (${input.claudeArtifactId}::uuid, ${input.openaiArtifactId}::uuid)
         AND state = 'pending'
     `;
+    await transaction`
+      /* exomem:retire-promoted-hosted-cohort-assignments */
+      UPDATE exomem_agent_contract_rollout_assignments
+      SET state = 'retired', activated_at = NULL, ended_at = now(),
+          version = version + 1, updated_at = now()
+      WHERE candidate_id = ${input.candidateId}::uuid
+        AND state IN ('preparing', 'active')
+    `;
+    await transaction`
+      /* exomem:retire-promoted-hosted-cohort-stages */
+      UPDATE exomem_staged_client_releases
+      SET state = 'retired', evidenced_at = NULL, ended_at = now(),
+          version = version + 1, updated_at = now()
+      WHERE candidate_id = ${input.candidateId}::uuid
+        AND state IN ('staged', 'evidenced')
+    `;
     await revokeConflictingCandidateOAuthLineageInTransaction(transaction, input.candidateId);
     const { rows: cohortRows } = await transaction`
       /* exomem:assert-promoted-hosted-cohort */
