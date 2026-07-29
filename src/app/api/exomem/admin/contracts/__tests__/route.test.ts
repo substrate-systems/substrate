@@ -4,6 +4,7 @@ import { after, before, describe, it, mock } from "node:test";
 const ADMIN_TOKEN = Buffer.alloc(32, 0x71).toString("base64url");
 let importedRelease: string | null = null;
 let createdAssignment: Record<string, unknown> | null = null;
+let promotionInput: Record<string, unknown> | null = null;
 const queuedOperations: Array<Record<string, unknown>> = [];
 
 before(() => {
@@ -16,7 +17,7 @@ before(() => {
       listExomemAgentContractStatus: async () => [],
       listExomemHostedRolloutStatus: async () => [
         {
-          candidateId: "candidate-safe",
+          candidateId: "018f2d91-7c42-7000-8000-000000000021",
           state: "pending",
           sourceRelease: "0.35.0",
           routableCellCount: 1,
@@ -27,7 +28,10 @@ before(() => {
           currentTargetSourceRelease: "0.35.0",
         },
       ],
-      promoteExomemHostedCohort: async () => "promoted",
+      promoteExomemHostedCohort: async (input: Record<string, unknown>) => {
+        promotionInput = input;
+        return "promoted";
+      },
       storeExomemAgentContractCandidate: async () => "candidate-current",
       storeRetainedExomemAgentContractCandidate: async (sourceRelease: string) => {
         importedRelease = sourceRelease;
@@ -133,7 +137,7 @@ describe("Exomem operator contract controls", () => {
     assert.equal(response.status, 200);
     assert.deepEqual((await response.json()).rolloutStatus, [
       {
-        candidateId: "candidate-safe",
+        candidateId: "018f2d91-7c42-7000-8000-000000000021",
         state: "pending",
         sourceRelease: "0.35.0",
         routableCellCount: 1,
@@ -162,6 +166,33 @@ describe("Exomem operator contract controls", () => {
     assert.equal(response.status, 200);
     assert.equal(createdAssignment?.tenantId, "018f2d91-7c42-7000-8000-000000000011");
     assert.equal(typeof createdAssignment?.operatorPrincipalDigest, "string");
+  });
+
+  it("forwards the status CAS unchanged to cohort promotion", async () => {
+    const { GET, POST } = await import("../route");
+    const status = await GET(
+      new Request("https://substratesystems.io/api/exomem/admin/contracts", {
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+      }) as unknown as import("next/server").NextRequest
+    );
+    const digest = (await status.json()).rolloutStatus[0].routableSetDigest;
+    const response = await POST(
+      request(
+        {
+          action: "promote-cohort",
+          candidateId: "018f2d91-7c42-7000-8000-000000000021",
+          claudeArtifactId: "018f2d91-7c42-7000-8000-000000000022",
+          openaiArtifactId: "018f2d91-7c42-7000-8000-000000000023",
+          expectedLiveCandidateId: null,
+          expectedRoutableCellDigest: digest,
+          claudeEvidence: {},
+          openaiEvidence: {},
+        },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+    assert.equal(response.status, 200);
+    assert.equal(promotionInput?.expectedRoutableCellDigest, digest);
   });
 
   it("reports expired authority counts and whether another expiry batch remains", async () => {

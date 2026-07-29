@@ -17,6 +17,7 @@ import {
   attachOpenAiContractLocks,
   getExomemAgentContractForOAuthAccess,
   getLiveExomemAgentContract,
+  listExomemHostedRolloutStatus,
   promoteExomemHostedCohort,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
@@ -474,21 +475,20 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           digest(convert_to('["https://example.test/callback"]', 'utf8'), 'sha256'), 'openai', $2)`,
       [claudeClientId, sha("a"), openAiClientId]
     );
-    const authority = await pool!.query<{ routable_set_digest: string }>(
-      "SELECT routable_set_digest FROM exomem_agent_contract_profile_authority WHERE profile_id = $1",
-      [fixture.profile]
+    const status = (await listExomemHostedRolloutStatus()).find(
+      (entry) => entry.candidateId === candidateId
     );
-    assert.ok(
-      authority.rows[0]?.routable_set_digest,
-      "requires a public routable authority observation"
-    );
+    assert.ok(status, "operator status must expose the pending candidate");
+    assert.equal(status.routableObservationFresh, true);
+    assert.ok(status.routableSetDigest, "operator status must expose the promotion CAS");
+    const routableSetDigest = status.routableSetDigest;
     assert.equal(
       await promoteExomemHostedCohort({
         candidateId,
         claudeArtifactId: claudeId,
         openaiArtifactId: openAiId,
         expectedLiveCandidateId: null,
-        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+        expectedRoutableCellDigest: routableSetDigest,
         claudeEvidence,
         openaiEvidence: openAiEvidence,
       }),
@@ -551,7 +551,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         claudeArtifactId: claudeId,
         openaiArtifactId: openAiId,
         expectedLiveCandidateId: candidateId,
-        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+        expectedRoutableCellDigest: routableSetDigest,
         claudeEvidence,
         openaiEvidence: openAiEvidence,
       }),
@@ -638,7 +638,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           claudeArtifactId: replacementClaudeId,
           openaiArtifactId: replacementOpenAiId,
           expectedLiveCandidateId: candidateId,
-          expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+          expectedRoutableCellDigest: routableSetDigest,
           claudeEvidence: replacementClaudeEvidence,
           openaiEvidence: mismatchedOpenAiEvidence,
         }),
@@ -664,7 +664,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         claudeArtifactId: replacementClaudeId,
         openaiArtifactId: replacementOpenAiId,
         expectedLiveCandidateId: candidateId,
-        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+        expectedRoutableCellDigest: routableSetDigest,
         claudeEvidence: replacementClaudeEvidence,
         openaiEvidence: replacementOpenAiEvidence,
       }),
@@ -721,7 +721,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           claudeArtifactId: replacementClaudeId,
           openaiArtifactId: replacementOpenAiId,
           expectedLiveCandidateId: candidateId,
-          expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+          expectedRoutableCellDigest: routableSetDigest,
           claudeEvidence: replacementClaudeEvidence,
           openaiEvidence: replacementOpenAiEvidence,
         });

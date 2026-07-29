@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { afterEach, describe, it } from "node:test";
 import {
   demoteExomemAgentContractCandidate,
@@ -85,15 +86,36 @@ describe("operator status getters", () => {
   });
 
   it("reports rollout readiness and latest lifecycle target without contract content", async () => {
+    const identity = {
+      cell_id: "018f2d91-7c42-7000-8000-000000000022",
+      source_release: "0.35.0",
+      protocol_version: "1",
+      command_fingerprint: "a".repeat(64),
+      contract_digest: "b".repeat(64),
+      compatibility_digest: "c".repeat(64),
+    };
+    const routableSetDigest = createHash("sha256")
+      .update(
+        JSON.stringify([
+          "hosted-alpha-agent-v1",
+          identity.cell_id,
+          identity.source_release,
+          identity.protocol_version,
+          identity.command_fingerprint,
+          identity.contract_digest,
+          identity.compatibility_digest,
+        ])
+      )
+      .digest("hex");
     __setExomemSqlForTests(async () => ({
       rows: [
         {
           candidate_id: "018f2d91-7c42-7000-8000-000000000021",
           state: "pending",
           source_release: "0.35.0",
-          routable_cell_count: 1,
-          routable_set_digest: "a".repeat(64),
-          routable_observation_fresh: true,
+          routable_identities: [identity],
+          observed_routable_set_digest: routableSetDigest,
+          observation_within_freshness_window: true,
           observed_source_release: "0.35.0",
           observed_protocol_version: "1",
           current_target_source_release: "0.35.0",
@@ -106,7 +128,7 @@ describe("operator status getters", () => {
         state: "pending",
         sourceRelease: "0.35.0",
         routableCellCount: 1,
-        routableSetDigest: "a".repeat(64),
+        routableSetDigest,
         routableObservationFresh: true,
         observedSourceRelease: "0.35.0",
         observedProtocolVersion: "1",

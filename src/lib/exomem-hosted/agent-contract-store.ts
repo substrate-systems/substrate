@@ -37,6 +37,7 @@ const TRUSTED_RELEASES = new Map([
 ] as const);
 const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256 = /^[a-f0-9]{64}$/;
 
 type JsonRecord = Record<string, unknown>;
 type ContractState = "pending" | "live" | "failed" | "retired";
@@ -110,7 +111,7 @@ function string(value: unknown, label: string): string {
 
 function sha256(value: unknown, label: string): string {
   const candidate = string(value, label);
-  if (!/^[a-f0-9]{64}$/.test(candidate)) throw new Error(`${label} must be SHA-256`);
+  if (!SHA256.test(candidate)) throw new Error(`${label} must be SHA-256`);
   return candidate;
 }
 
@@ -505,6 +506,26 @@ export type OperatorExomemHostedRolloutStatus = {
   currentTargetSourceRelease: string | null;
 };
 
+function routableCellIdentities(value: unknown): RoutableCellIdentity[] | null {
+  if (!Array.isArray(value)) return null;
+  const identities: RoutableCellIdentity[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const row = item as Record<string, unknown>;
+    if (
+      typeof row.cell_id !== "string" ||
+      typeof row.source_release !== "string" ||
+      typeof row.protocol_version !== "string" ||
+      !SHA256.test(String(row.command_fingerprint)) ||
+      !SHA256.test(String(row.contract_digest)) ||
+      !SHA256.test(String(row.compatibility_digest))
+    )
+      return null;
+    identities.push(row as RoutableCellIdentity);
+  }
+  return identities;
+}
+
 /** Content-free operator view of candidate readiness, observed authority, and latest lifecycle target. */
 export async function listExomemHostedRolloutStatus(): Promise<
   OperatorExomemHostedRolloutStatus[]
@@ -512,12 +533,10 @@ export async function listExomemHostedRolloutStatus(): Promise<
   const { rows } = await executeExomemSql`
     /* exomem:list-hosted-rollout-status */
     SELECT candidate.id::text AS candidate_id, candidate.state, candidate.source_release,
-           routable.routable_cell_count, routable.routable_set_digest,
-           COALESCE(
-             authority.routable_set_digest = routable.routable_set_digest
-             AND authority.observed_at > now() - interval '5 minutes',
-             false
-           ) AS routable_observation_fresh,
+           routable.identities AS routable_identities,
+           authority.routable_set_digest AS observed_routable_set_digest,
+           COALESCE(authority.observed_at > now() - interval '5 minutes', false)
+             AS observation_within_freshness_window,
            authority.source_release AS observed_source_release,
            authority.protocol_version AS observed_protocol_version,
            latest.target_source_release AS current_target_source_release
@@ -530,27 +549,19 @@ export async function listExomemHostedRolloutStatus(): Promise<
      AND authority.contract_digest = candidate.schema_digest
      AND authority.compatibility_digest = candidate.compatibility_digest
     LEFT JOIN LATERAL (
-      SELECT count(*)::integer AS routable_cell_count,
-             CASE WHEN count(*) = 0 THEN repeat('0', 64)
-                  ELSE encode(
-                    digest(
-                      string_agg(
-                        json_build_array(
-                          candidate.profile_id,
-                          cell.cell_id::text,
-                          cell.source_release,
-                          cell.protocol_version,
-                          cell.command_fingerprint,
-                          cell.contract_digest,
-                          cell.compatibility_digest
-                        )::text,
-                        ',' ORDER BY cell.cell_id
-                      ),
-                      'sha256'
-                    ),
-                    'hex'
-                  )
-             END AS routable_set_digest
+      SELECT COALESCE(
+               json_agg(
+                 json_build_object(
+                   'cell_id', cell.cell_id::text,
+                   'source_release', cell.source_release,
+                   'protocol_version', cell.protocol_version,
+                   'command_fingerprint', cell.command_fingerprint,
+                   'contract_digest', cell.contract_digest,
+                   'compatibility_digest', cell.compatibility_digest
+                 ) ORDER BY cell.cell_id
+               ),
+               '[]'::json
+             ) AS identities
       FROM exomem_routable_cell_contracts AS cell
       WHERE cell.profile_id = candidate.profile_id AND cell.routable = true
     ) AS routable ON TRUE
@@ -567,14 +578,16 @@ export async function listExomemHostedRolloutStatus(): Promise<
   `;
   return rows.flatMap((raw) => {
     const row = raw as Record<string, unknown>;
+    const identities = routableCellIdentities(row.routable_identities);
+    if (identities === null) return [];
+    const digest = routableSetDigest(identities);
     if (
       typeof row.candidate_id !== "string" ||
       (row.state !== "pending" && row.state !== "live" && row.state !== "retired") ||
       typeof row.source_release !== "string" ||
-      !Number.isSafeInteger(Number(row.routable_cell_count)) ||
-      (row.routable_set_digest !== null &&
-        !/^[a-f0-9]{64}$/.test(String(row.routable_set_digest))) ||
-      typeof row.routable_observation_fresh !== "boolean" ||
+      (row.observed_routable_set_digest !== null &&
+        !SHA256.test(String(row.observed_routable_set_digest))) ||
+      typeof row.observation_within_freshness_window !== "boolean" ||
       (row.observed_source_release !== null && typeof row.observed_source_release !== "string") ||
       (row.observed_protocol_version !== null &&
         typeof row.observed_protocol_version !== "string") ||
@@ -587,10 +600,10 @@ export async function listExomemHostedRolloutStatus(): Promise<
         candidateId: row.candidate_id,
         state: row.state,
         sourceRelease: row.source_release,
-        routableCellCount: Number(row.routable_cell_count),
-        routableSetDigest:
-          row.routable_set_digest === null ? null : String(row.routable_set_digest),
-        routableObservationFresh: row.routable_observation_fresh,
+        routableCellCount: identities.length,
+        routableSetDigest: digest,
+        routableObservationFresh:
+          row.observed_routable_set_digest === digest && row.observation_within_freshness_window,
         observedSourceRelease: row.observed_source_release,
         observedProtocolVersion: row.observed_protocol_version,
         currentTargetSourceRelease: row.current_target_source_release,
