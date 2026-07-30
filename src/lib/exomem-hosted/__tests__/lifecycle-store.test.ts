@@ -18,6 +18,37 @@ describe("SQL lifecycle operation store", () => {
     assert.equal(normalizeProvisionerWireProtocol(" TrUe "), "exomem-cell-provisioner.v2");
   });
 
+  it("records v2 runtime observations but derives compatibility from the stored target", async () => {
+    let statement = "";
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
+      statement = strings.join("?");
+      values.push(...parameters);
+      return { rows: [{ id: "cell-1" }], rowCount: 1 };
+    });
+
+    const recorded = await new SqlLifecycleStore().recordReadiness({
+      operationId: "018f2d91-7c42-7000-8000-000000000071",
+      owner: "worker-a",
+      code: "CELL_READY",
+      runtimeIdentity: {
+        releaseVersion: "2026.07.11",
+        protocolVersion: "1",
+        agentProfile: "hosted-alpha-agent-v1",
+        gatewayContractDigest: "a".repeat(64),
+        commandFingerprint: "b".repeat(64),
+        schemaDigest: "c".repeat(64),
+      },
+    });
+
+    assert.equal(recorded, true);
+    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v2'/i);
+    assert.match(statement, /operation\.target_compatibility_digest/i);
+    assert.equal(values.includes("a".repeat(64)), true);
+    assert.equal(values.includes("b".repeat(64)), true);
+    assert.equal(values.includes("c".repeat(64)), true);
+  });
+
   it("claims pending work or a stale running lease with row locking and an attempt bound", async () => {
     let statement = "";
     __setExomemSqlForTests(async (strings) => {

@@ -108,6 +108,7 @@ describe("Exomem hosted operations contract", () => {
       "EXOMEM_CONTROL_PLANE_KEY",
       "EXOMEM_PROVISIONER_ENDPOINT",
       "EXOMEM_PROVISIONER_CREDENTIAL",
+      "EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED",
       "EXOMEM_CELL_PROTOCOL_VERSION",
       "EXOMEM_CELL_RELEASE_VERSION",
       "CRON_SECRET",
@@ -123,6 +124,10 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runbook, /Two-cell isolation drill/);
     assert.match(runbook, /Rollback/);
     assert.match(runbook, /not zero-knowledge/i);
+    assert.match(runbook, /outer provisioner wire protocol/i);
+    assert.match(runbook, /inner Hosted\s+runtime protocol/i);
+    assert.match(runbook, /ced714a5aa204a837e22cab831262cc0ae4766e44720b2896e61b8c157ddd3b5/);
+    assert.match(runbook, /fe4daf1b190e8e4efc737a7197d8df73c28a8672bd8e331fc95dcabf339e0881/);
   });
 
   it("serializes migration runners and applies each file with its tracking row", () => {

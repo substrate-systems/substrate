@@ -18,7 +18,12 @@ import type {
   LifecycleStore,
   LifecycleTarget,
 } from "./reconciler";
-import type { CellContractIdentity, CellWorkerPolicy, ProvisionerWireProtocol } from "./provisioner";
+import type {
+  CellContractIdentity,
+  CellWorkerPolicy,
+  ProvisionerWireProtocol,
+  RuntimeTarget,
+} from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
 import type { BillingDeletionTarget } from "./billing-deletion";
@@ -1388,15 +1393,28 @@ export class SqlLifecycleStore implements LifecycleStore {
     owner: string;
     code: string;
     contractIdentity?: CellContractIdentity;
+    runtimeIdentity?: RuntimeTarget;
   }): Promise<boolean> {
     const { rows } = await executeExomemSql`
       /* exomem:lifecycle-record-readiness */
       UPDATE exomem_cells AS cell
       SET readiness_code = ${input.code},
-          observed_gateway_contract_digest = ${input.contractIdentity?.gatewayContractDigest ?? null},
-          observed_command_fingerprint = ${input.contractIdentity?.commandFingerprint ?? null},
-          observed_schema_digest = ${input.contractIdentity?.schemaDigest ?? null},
-          observed_compatibility_digest = ${input.contractIdentity?.compatibilityDigest ?? null},
+          observed_gateway_contract_digest = ${
+            input.runtimeIdentity?.gatewayContractDigest ??
+            input.contractIdentity?.gatewayContractDigest ??
+            null
+          },
+          observed_command_fingerprint = ${
+            input.runtimeIdentity?.commandFingerprint ?? input.contractIdentity?.commandFingerprint ?? null
+          },
+          observed_schema_digest = ${
+            input.runtimeIdentity?.schemaDigest ?? input.contractIdentity?.schemaDigest ?? null
+          },
+          observed_compatibility_digest = CASE
+            WHEN operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+              THEN operation.target_compatibility_digest
+            ELSE ${input.contractIdentity?.compatibilityDigest ?? null}
+          END,
           last_liveness_at = now(),
           last_readiness_at = now(),
           updated_at = now()

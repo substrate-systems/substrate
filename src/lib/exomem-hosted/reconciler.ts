@@ -1,6 +1,7 @@
 import { randomBytes as nodeRandomBytes, randomUUID } from "node:crypto";
 import {
   PROVISIONER_PROTOCOL_V1,
+  PROVISIONER_PROTOCOL_V2,
   type CellProvisioner,
   type CellContractIdentity,
   type CellReadiness,
@@ -8,9 +9,11 @@ import {
   type CellWorkerPolicy,
   type ProvisionerWireProtocol,
   type ProvisionCellRequest,
+  type RuntimeTarget,
   ProvisionerFailure,
   ProvisionerPending,
 } from "./provisioner";
+import { EXOMEM_HOSTED_PROFILE } from "./agent-contract-store";
 import {
   decryptSecret,
   digestSecret,
@@ -225,6 +228,7 @@ export interface LifecycleStore {
     owner: string;
     code: string;
     contractIdentity?: CellContractIdentity;
+    runtimeIdentity?: RuntimeTarget;
   }): Promise<boolean>;
   recordOperationReference(
     operationId: string,
@@ -389,7 +393,8 @@ function readinessMismatch(
   readiness: CellReadiness,
   cell: CellControlRecord,
   config: ExpectedCellConfiguration,
-  target: LifecycleTarget | null = null
+  target: LifecycleTarget | null = null,
+  provisionerWireProtocol: ProvisionerWireProtocol = PROVISIONER_PROTOCOL_V1
 ): boolean {
   const expectedProtocolVersion = target?.protocolVersion ?? config.protocolVersion;
   const expectedReleaseVersion = target?.sourceRelease ?? config.releaseVersion;
@@ -404,11 +409,19 @@ function readinessMismatch(
     !readiness.writeAdmission ||
     !sameWorkerPolicy(readiness.workerPolicy, config.workerPolicy) ||
     (target !== null &&
-      (!readiness.contractIdentity ||
-        readiness.contractIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
-        readiness.contractIdentity.commandFingerprint !== target.commandFingerprint ||
-        readiness.contractIdentity.schemaDigest !== target.schemaDigest ||
-        readiness.contractIdentity.compatibilityDigest !== target.compatibilityDigest))
+      (provisionerWireProtocol === PROVISIONER_PROTOCOL_V2
+        ? !readiness.runtimeIdentity ||
+          readiness.runtimeIdentity.releaseVersion !== target.sourceRelease ||
+          readiness.runtimeIdentity.protocolVersion !== target.protocolVersion ||
+          readiness.runtimeIdentity.agentProfile !== EXOMEM_HOSTED_PROFILE ||
+          readiness.runtimeIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
+          readiness.runtimeIdentity.commandFingerprint !== target.commandFingerprint ||
+          readiness.runtimeIdentity.schemaDigest !== target.schemaDigest
+        : !readiness.contractIdentity ||
+          readiness.contractIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
+          readiness.contractIdentity.commandFingerprint !== target.commandFingerprint ||
+          readiness.contractIdentity.schemaDigest !== target.schemaDigest ||
+          readiness.contractIdentity.compatibilityDigest !== target.compatibilityDigest))
   );
 }
 
@@ -588,6 +601,12 @@ export class LifecycleReconciler {
   }
 
   #configuration(operation: LifecycleOperation) {
+    if (operation.provisionerWireProtocol === PROVISIONER_PROTOCOL_V2 && !operation.target) {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_CONFIGURATION_INVALID",
+        retryable: false,
+      });
+    }
     return {
       protocolVersion: operation.target?.protocolVersion ?? this.#config.protocolVersion,
       releaseVersion: operation.target?.sourceRelease ?? this.#config.releaseVersion,
@@ -602,6 +621,49 @@ export class LifecycleReconciler {
       schemaDigest: operation.target.schemaDigest,
       compatibilityDigest: operation.target.compatibilityDigest,
     };
+  }
+
+  #runtimeTarget(operation: LifecycleOperation): RuntimeTarget | undefined {
+    if (operation.provisionerWireProtocol === PROVISIONER_PROTOCOL_V1) return undefined;
+    const target = operation.target;
+    if (!target) {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_CONFIGURATION_INVALID",
+        retryable: false,
+      });
+    }
+    return {
+      releaseVersion: target.sourceRelease,
+      protocolVersion: target.protocolVersion,
+      agentProfile: EXOMEM_HOSTED_PROFILE,
+      gatewayContractDigest: target.gatewayContractDigest,
+      commandFingerprint: target.commandFingerprint,
+      schemaDigest: target.schemaDigest,
+    };
+  }
+
+  #cellRequest(operation: LifecycleOperation, cell: CellControlRecord) {
+    return {
+      context: this.#context(operation),
+      tenantId: operation.tenantId,
+      cellId: cell.id,
+      protocolVersion: cell.protocolVersion,
+      releaseVersion: cell.releaseVersion,
+      serviceCredential: this.#cellCredential(cell),
+      workerPolicy: cell.workerPolicy,
+      provisionerWireProtocol: operation.provisionerWireProtocol,
+      ...(operation.provisionerWireProtocol === PROVISIONER_PROTOCOL_V2
+        ? { runtimeTarget: this.#runtimeTarget(operation) }
+        : { contractIdentity: this.#contractIdentity(operation) }),
+    };
+  }
+
+  #readinessObservation(operation: LifecycleOperation, readiness: CellReadiness) {
+    return operation.provisionerWireProtocol === PROVISIONER_PROTOCOL_V2
+      ? {
+          runtimeIdentity: readiness.runtimeIdentity,
+        }
+      : { contractIdentity: readiness.contractIdentity };
   }
 
   async #cell(operation: LifecycleOperation): Promise<CellControlRecord> {
@@ -628,17 +690,7 @@ export class LifecycleReconciler {
         retryable: false,
       });
     }
-    return {
-      context: this.#context(operation),
-      tenantId: operation.tenantId,
-      cellId: cell.id,
-      protocolVersion: cell.protocolVersion,
-      releaseVersion: cell.releaseVersion,
-      serviceCredential: this.#cellCredential(cell),
-      workerPolicy: cell.workerPolicy,
-      contractIdentity: this.#contractIdentity(operation),
-      providerRef: cell.providerRef,
-    };
+    return { ...this.#cellRequest(operation, cell), providerRef: cell.providerRef };
   }
 
   #cellCredential(cell: CellControlRecord) {
@@ -676,6 +728,7 @@ export class LifecycleReconciler {
         fenceGeneration: operation.fenceGeneration,
       },
       tenantId: operation.tenantId,
+      provisionerWireProtocol: operation.provisionerWireProtocol,
     };
   }
 
@@ -706,18 +759,13 @@ export class LifecycleReconciler {
       // then destroy the exact unbound resource.
       if (!cell.providerRef) {
         const result = await this.#provisioner.provision({
+          ...this.#cellRequest(operation, cell),
           context: {
             operationId: operation.id,
             checkpoint: "candidate-created",
             idempotencyKey: `${operation.id}:candidate-created`,
             fenceGeneration: operation.fenceGeneration,
           },
-          tenantId: operation.tenantId,
-          cellId: cell.id,
-          protocolVersion: cell.protocolVersion,
-          releaseVersion: cell.releaseVersion,
-          serviceCredential: this.#cellCredential(cell),
-          workerPolicy: cell.workerPolicy,
           provisionMode: operation.operationType === "restore" ? "restore-candidate" : "serve",
         });
         const recorded = await this.#store.recordProvisioned({
@@ -766,7 +814,17 @@ export class LifecycleReconciler {
         idempotencyKey: `${operation.id}:export-failure-readiness:${cell.id}`,
       },
     });
-    if (readinessMismatch(readiness, cell, this.#config) || !readiness.live || !readiness.ready) {
+    if (
+      readinessMismatch(
+        readiness,
+        cell,
+        this.#config,
+        operation.target,
+        operation.provisionerWireProtocol
+      ) ||
+      !readiness.live ||
+      !readiness.ready
+    ) {
       throw new ProvisionerFailure({ code: "PROVISIONER_UNAVAILABLE", retryable: true });
     }
     this.#requireStored(
@@ -774,7 +832,7 @@ export class LifecycleReconciler {
         operationId: operation.id,
         owner,
         code: readiness.code,
-        contractIdentity: readiness.contractIdentity,
+        ...this.#readinessObservation(operation, readiness),
       })
     );
     const activated = await this.#store.activateAfterReadiness(operation.id, owner);
@@ -792,7 +850,15 @@ export class LifecycleReconciler {
   ): Promise<ReconcileResult> {
     const cell = await this.#cell(operation);
     const readiness = await this.#provisioner.health(this.#target(operation, cell));
-    if (readinessMismatch(readiness, cell, this.#config, operation.target)) {
+    if (
+      readinessMismatch(
+        readiness,
+        cell,
+        this.#config,
+        operation.target,
+        operation.provisionerWireProtocol
+      )
+    ) {
       return this.#terminal(operation, owner, "CELL_READINESS_MISMATCH");
     }
     if (!readiness.live || !readiness.ready) {
@@ -812,7 +878,7 @@ export class LifecycleReconciler {
         operationId: operation.id,
         owner,
         code: readiness.code,
-        contractIdentity: readiness.contractIdentity,
+        ...this.#readinessObservation(operation, readiness),
       })
     );
     return this.#advance(operation, owner, nextCheckpoint);
@@ -862,14 +928,7 @@ export class LifecycleReconciler {
       }
       this.#requireStored(await this.#store.renewLease(operation.id, owner, 45_000));
       const request: ProvisionCellRequest = {
-        context: this.#context(operation),
-        tenantId: operation.tenantId,
-        cellId: cell.id,
-        protocolVersion: cell.protocolVersion,
-        releaseVersion: cell.releaseVersion,
-        serviceCredential: this.#cellCredential(cell),
-        workerPolicy: cell.workerPolicy,
-        contractIdentity: this.#contractIdentity(operation),
+        ...this.#cellRequest(operation, cell),
         provisionMode: "serve",
       };
       const result = await this.#provisioner.provision(request);
@@ -928,14 +987,7 @@ export class LifecycleReconciler {
       const cell = await this.#store.getCell(operation.cellId ?? "");
       if (!cell) return this.#terminal(operation, owner, "CELL_CANDIDATE_MISSING");
       const result = await this.#provisioner.provision({
-        context: this.#context(operation),
-        tenantId: operation.tenantId,
-        cellId: cell.id,
-        protocolVersion: cell.protocolVersion,
-        releaseVersion: cell.releaseVersion,
-        serviceCredential: this.#cellCredential(cell),
-        workerPolicy: cell.workerPolicy,
-        contractIdentity: this.#contractIdentity(operation),
+        ...this.#cellRequest(operation, cell),
         provisionMode: "restore-candidate",
       });
       this.#requireStored(
@@ -1133,7 +1185,13 @@ export class LifecycleReconciler {
         serviceCredential: pendingCredential,
       });
       if (
-        readinessMismatch(readiness, cell, this.#config) ||
+        readinessMismatch(
+          readiness,
+          cell,
+          this.#config,
+          operation.target,
+          operation.provisionerWireProtocol
+        ) ||
         !readiness.live ||
         !readiness.ready ||
         !readiness.serviceAuthenticated ||
@@ -2073,6 +2131,8 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     operationId: string;
     owner: string;
     code: string;
+    contractIdentity?: CellContractIdentity;
+    runtimeIdentity?: RuntimeTarget;
   }): Promise<boolean> {
     const operation = this.#owned(input.operationId, input.owner);
     const cell = operation?.cellId ? this.cells.get(operation.cellId) : null;
