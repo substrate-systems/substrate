@@ -42,7 +42,7 @@ type V2ContractFixture = Omit<ContractFixture, "errors"> & {
 const fixture = rawFixture as ContractFixture;
 const v2Fixture = rawV2Fixture as unknown as V2ContractFixture;
 const FIXTURE_SHA256 = "ced714a5aa204a837e22cab831262cc0ae4766e44720b2896e61b8c157ddd3b5";
-const V2_FIXTURE_SHA256 = "b57a9c51e4b4f818ea52aee70e14ffcf13f91d6dc701ca579fcb73a174e843ff";
+const V2_FIXTURE_SHA256 = "fe4daf1b190e8e4efc737a7197d8df73c28a8672bd8e331fc95dcabf339e0881";
 
 function credential(seed: string): string {
   return createHash("sha256").update(seed).digest("base64url");
@@ -321,6 +321,25 @@ describe("Python provisioner v1 interoperability corpus", () => {
         });
         return true;
       }
+    );
+  });
+
+  it("rejects a v2 runtime-identity health envelope for a v1 request", async () => {
+    const v1Health = fixture.actions.health;
+    assert.ok(v1Health);
+    const { target } = clientRequest(v1Health);
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("fixture-provisioner-bearer-000000000"),
+        timeoutMs: 500,
+      },
+      async () => response(200, materialize(v2Fixture.actions.health.final.body))
+    );
+    await assert.rejects(
+      adapter.health(target),
+      (error) =>
+        error instanceof ProvisionerFailure && error.code === "PROVISIONER_RESPONSE_INVALID"
     );
   });
 
