@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { SqlLifecycleStore } from "../lifecycle-store";
+import { normalizeProvisionerWireProtocol, SqlLifecycleStore } from "../lifecycle-store";
 
 afterEach(() => {
   __setExomemSqlForTests(null);
@@ -9,6 +9,14 @@ afterEach(() => {
 });
 
 describe("SQL lifecycle operation store", () => {
+  it("defaults new operations to v1 and enables v2 only for normalized true", () => {
+    assert.equal(normalizeProvisionerWireProtocol(undefined), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol(""), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol("false"), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol("1"), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol(" TrUe "), "exomem-cell-provisioner.v2");
+  });
+
   it("claims pending work or a stale running lease with row locking and an attempt bound", async () => {
     let statement = "";
     __setExomemSqlForTests(async (strings) => {
@@ -362,6 +370,40 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /state = 'preparing'/i);
     assert.match(statement, /state = 'live'/i);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+  });
+
+  it("persists the selected wire protocol with a catalog target for every cell-scoped operation", async () => {
+    let statement = "";
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
+      statement = strings.join("?");
+      values.push(...parameters);
+      return { rows: [], rowCount: 0 };
+    });
+
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = " true ";
+    try {
+      await assert.rejects(
+        new SqlLifecycleStore().enqueue(
+          "018f2d91-7c42-7000-8000-000000000071",
+          "seal",
+          "v2-cell-target"
+        )
+      );
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+
+    assert.match(statement, /provisioner_wire_protocol/i);
+    assert.equal(values.includes("exomem-cell-provisioner.v2"), true);
+    assert.match(statement, /bound_cell_target AS MATERIALIZED/i);
+    assert.match(statement, /tenant\.bound_cell_id/i);
+    assert.match(statement, /candidate\.source_release = bound_cell\.release_version/i);
+    assert.match(statement, /candidate\.protocol_version = bound_cell\.protocol_version/i);
+    assert.match(statement, /LEFT JOIN target ON[\s\S]*tenant\.bound_cell_id IS NOT NULL/i);
+    assert.doesNotMatch(statement, /observed_compatibility_digest/i);
   });
 
   it("attests every rollout lock under the cohort lock before it makes a replacement routable", async () => {

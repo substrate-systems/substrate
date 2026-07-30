@@ -1,10 +1,12 @@
 import { randomBytes as nodeRandomBytes, randomUUID } from "node:crypto";
 import {
+  PROVISIONER_PROTOCOL_V1,
   type CellProvisioner,
   type CellContractIdentity,
   type CellReadiness,
   type CellTargetRequest,
   type CellWorkerPolicy,
+  type ProvisionerWireProtocol,
   type ProvisionCellRequest,
   ProvisionerFailure,
   ProvisionerPending,
@@ -81,6 +83,7 @@ export type LifecycleOperation = {
   inputArchiveSize: number | null;
   resumeAfterOperation: boolean;
   expectedPreviousCellId: string | null;
+  provisionerWireProtocol: ProvisionerWireProtocol;
   target: LifecycleTarget | null;
   createdAt: Date;
   updatedAt: Date;
@@ -1753,6 +1756,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       inputArchiveSize: options.restoreBinding?.archiveSize ?? null,
       resumeAfterOperation: operationType === "export" ? tenant.desiredState === "running" : true,
       expectedPreviousCellId: null,
+      provisionerWireProtocol: PROVISIONER_PROTOCOL_V1,
       target: null,
       createdAt: now,
       updatedAt: now,

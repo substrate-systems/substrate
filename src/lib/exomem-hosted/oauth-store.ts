@@ -1,6 +1,7 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
+import { normalizeProvisionerWireProtocol } from "./lifecycle-store";
 import type { SecretEnvelope } from "./security";
 
 export type OAuthTokenContext = {
@@ -735,8 +736,12 @@ export async function admitFirstOAuthInviteAtomic(input: {
         if (!entitlementResult.rows[0]) throw new OAuthAdmissionRejected();
 
         const operationResult = await tx`
-          INSERT INTO exomem_lifecycle_operations (tenant_id, operation_type, idempotency_key, fence_generation)
-          VALUES (${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation})
+          INSERT INTO exomem_lifecycle_operations (
+            tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol
+          ) VALUES (
+            ${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation},
+            ${normalizeProvisionerWireProtocol(process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED)}
+          )
           RETURNING id
         `;
         const operation = operationResult.rows[0] as { id: string } | undefined;

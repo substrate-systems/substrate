@@ -1018,6 +1018,35 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     );
   });
 
+  it("persists the default v1 wire protocol for an initial provision operation", async () => {
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    try {
+      const internal = await seedClient();
+      await seedPool();
+      await seedInviteAndTransaction(internal, "590");
+      const admitted = await admitFirstOAuthInviteAtomic({
+        inviteDigest: digest(590),
+        transactionDigest: digest(610),
+        sessionDigest: digest(591),
+        csrfDigest: digest(592),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+        codeDigest: digest(593),
+        codeExpiresAt: new Date(Date.now() + 60_000),
+      });
+
+      assert.ok(admitted);
+      const operation = await pool!.query<{ provisioner_wire_protocol: string }>(
+        "SELECT provisioner_wire_protocol FROM exomem_lifecycle_operations WHERE tenant_id = $1",
+        [admitted!.tenantId]
+      );
+      assert.equal(operation.rows[0]?.provisioner_wire_protocol, "exomem-cell-provisioner.v1");
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+  });
+
   it("rejects a soft-deleted identity without changing capacity or consuming its invite", async () => {
     const internal = await seedClient();
     await seedPool();

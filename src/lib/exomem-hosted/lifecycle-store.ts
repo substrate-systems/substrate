@@ -18,7 +18,13 @@ import type {
   LifecycleStore,
   LifecycleTarget,
 } from "./reconciler";
-import type { CellContractIdentity, CellWorkerPolicy } from "./provisioner";
+import {
+  PROVISIONER_PROTOCOL_V1,
+  PROVISIONER_PROTOCOL_V2,
+  type CellContractIdentity,
+  type CellWorkerPolicy,
+  type ProvisionerWireProtocol,
+} from "./provisioner";
 import type { SecretEnvelope } from "./security";
 import type { BillingDeletionTarget } from "./billing-deletion";
 import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
@@ -31,6 +37,10 @@ type LifecycleCapacityTransition = {
   succeeded: boolean;
   previous?: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
 };
+
+export function normalizeProvisionerWireProtocol(value: string | undefined): ProvisionerWireProtocol {
+  return value?.trim().toLowerCase() === "true" ? PROVISIONER_PROTOCOL_V2 : PROVISIONER_PROTOCOL_V1;
+}
 
 function asDate(value: unknown): Date {
   return value instanceof Date ? value : new Date(String(value));
@@ -109,6 +119,7 @@ function operationFromRow(row: Row): LifecycleOperation {
     expectedPreviousCellId: row.expected_previous_cell_id
       ? String(row.expected_previous_cell_id)
       : null,
+    provisionerWireProtocol: String(row.provisioner_wire_protocol) as ProvisionerWireProtocol,
     target: targetFromRow(row),
     createdAt: asDate(row.created_at),
     updatedAt: asDate(row.updated_at),
@@ -210,6 +221,9 @@ export class SqlLifecycleStore implements LifecycleStore {
     cellId: string | null = null,
     options: LifecycleEnqueueOptions = {}
   ): Promise<LifecycleOperation> {
+    const provisionerWireProtocol = normalizeProvisionerWireProtocol(
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED
+    );
     const exportTtlMs = options.exportTtlMs ?? 24 * 60 * 60 * 1000;
     if (
       operationType === "export" &&
@@ -292,7 +306,7 @@ export class SqlLifecycleStore implements LifecycleStore {
         ), inserted AS (
           INSERT INTO exomem_lifecycle_operations (
             tenant_id, cell_id, operation_type, idempotency_key,
-            fence_generation,
+            fence_generation, provisioner_wire_protocol,
             input_reference_ciphertext, input_reference_digest,
             input_export_id, input_source_cell_id,
             input_archive_sha256, input_manifest_sha256, input_archive_size,
@@ -306,6 +320,7 @@ export class SqlLifecycleStore implements LifecycleStore {
                  'restore',
                  ${idempotencyKey},
                  source_export.tenant_fence_generation,
+                 ${provisionerWireProtocol},
                  source_export.storage_reference_ciphertext,
                  source_export.storage_reference_digest,
                  source_export.id,
@@ -381,14 +396,48 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND candidate.state = 'live'
           AND NOT EXISTS (SELECT 1 FROM assignment_target)
         FOR SHARE OF candidate
+      ), bound_cell_target AS MATERIALIZED (
+        SELECT candidate.id AS candidate_id,
+               NULL::uuid AS assignment_id,
+               NULL::bigint AS assignment_generation,
+               candidate.source_release,
+               candidate.protocol_version,
+               CASE candidate.source_release || ':' || candidate.protocol_version
+                 WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
+                   THEN ${exomemContractFixture0340.digest}
+                 WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
+                   THEN ${exomemContractFixture0350.digest}
+                 ELSE NULL
+               END AS gateway_contract_digest,
+               candidate.command_fingerprint,
+               candidate.schema_digest,
+               candidate.compatibility_digest
+        FROM exomem_cells AS bound_cell
+        JOIN tenant ON tenant.id = bound_cell.tenant_id
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.state = 'live'
+         AND candidate.source_release = bound_cell.release_version
+         AND candidate.protocol_version = bound_cell.protocol_version
+        WHERE bound_cell.id = COALESCE(${cellId}::uuid, tenant.bound_cell_id)
+          AND bound_cell.routing_state IN ('bound', 'retiring')
+        FOR SHARE OF bound_cell, candidate
       ), target AS MATERIALIZED (
         SELECT * FROM assignment_target
+        WHERE ${operationType}::text IN ('provision', 'restore')
         UNION ALL
-        SELECT * FROM live_target WHERE gateway_contract_digest IS NOT NULL
+        SELECT * FROM live_target
+        WHERE ${operationType}::text IN ('provision', 'restore')
+          AND gateway_contract_digest IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM assignment_target)
+        UNION ALL
+        SELECT * FROM bound_cell_target
+        WHERE ${operationType}::text NOT IN ('provision', 'restore')
+          AND gateway_contract_digest IS NOT NULL
       )
       INSERT INTO exomem_lifecycle_operations (
         tenant_id, cell_id, operation_type, idempotency_key,
-        fence_generation,
+        fence_generation, provisioner_wire_protocol,
         input_reference_ciphertext, input_reference_digest,
         input_export_id, input_source_cell_id, input_archive_sha256, input_manifest_sha256,
         input_archive_size, resume_after_operation, export_expires_at,
@@ -405,6 +454,7 @@ export class SqlLifecycleStore implements LifecycleStore {
              ${operationType},
              ${idempotencyKey},
              tenant.fence_generation,
+             ${provisionerWireProtocol},
              ${
                options.inputReferenceEnvelope
                  ? JSON.stringify(options.inputReferenceEnvelope)
@@ -436,6 +486,8 @@ export class SqlLifecycleStore implements LifecycleStore {
              target.compatibility_digest
       FROM tenant
       LEFT JOIN target ON ${operationType}::text IN ('provision', 'restore')
+                          OR ${cellId}::uuid IS NOT NULL
+                          OR tenant.bound_cell_id IS NOT NULL
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       WHERE exomem_lifecycle_operations.input_reference_digest

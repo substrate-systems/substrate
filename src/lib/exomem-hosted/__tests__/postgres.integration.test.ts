@@ -27,9 +27,14 @@ import {
   releasePaddleReconciliationLease,
 } from "../paddle-reconciliation-runtime";
 import { FakeCellProvisioner } from "../provisioner";
-import { LifecycleReconciler, expectedCellConfiguration } from "../reconciler";
+import {
+  LifecycleReconciler,
+  expectedCellConfiguration,
+  type LifecycleOperationType,
+} from "../reconciler";
 import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
 import { SensitiveSecret, digestSecret, encryptSecret } from "../security";
+import { exomemContractFixture0350 } from "../gateway-contract-0-35-0";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -1445,6 +1450,84 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       }),
       "available"
     );
+  });
+
+  it("persists an immutable v2 target for a bound-cell operation", async () => {
+    const commandFingerprint = "a".repeat(64);
+    const schemaDigest = "b".repeat(64);
+    const compatibilityDigest = "c".repeat(64);
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+         promoted_at
+       ) VALUES (
+         'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', $1, $2, $3, $4, $5,
+         '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
+       )`,
+      [
+        exomemContractFixture0350.release,
+        commandFingerprint,
+        schemaDigest,
+        compatibilityDigest,
+        exomemContractFixture0350.protocol,
+      ]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+       ) VALUES ($1, $2, 'active', 'bound', 'running', $3, $4)`,
+      [CELL, TENANT, exomemContractFixture0350.protocol, exomemContractFixture0350.release]
+    );
+    await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
+
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "TrUe";
+    try {
+      const store = new SqlLifecycleStore();
+      const operationTypes: LifecycleOperationType[] = [
+        "suspend",
+        "resume",
+        "rotate_credential",
+        "export",
+        "stop",
+        "seal",
+      ];
+      const operations = await Promise.all(
+        operationTypes.map((operationType) =>
+          store.enqueue(TENANT, operationType, `v2-bound-cell-${operationType}`)
+        )
+      );
+      for (const queued of operations) {
+        assert.equal(queued.provisionerWireProtocol, "exomem-cell-provisioner.v2");
+        assert.ok(queued.target?.candidateId);
+        assert.equal(queued.target?.sourceRelease, exomemContractFixture0350.release);
+        assert.equal(queued.target?.protocolVersion, exomemContractFixture0350.protocol);
+        assert.equal(queued.target?.gatewayContractDigest, exomemContractFixture0350.digest);
+        assert.equal(queued.target?.commandFingerprint, commandFingerprint);
+        assert.equal(queued.target?.schemaDigest, schemaDigest);
+        assert.equal(queued.target?.compatibilityDigest, compatibilityDigest);
+      }
+
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "false";
+      const retry = await store.claim({
+        owner: "retry-worker",
+        leaseMs: 30_000,
+        maxAttempts: 6,
+        tenantId: TENANT,
+      });
+      assert.equal(retry?.provisionerWireProtocol, "exomem-cell-provisioner.v2");
+      assert.deepEqual(retry?.target, operations[0]?.target);
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
   });
 
   it("persists expired export release as mandatory recovery and completes it atomically", async () => {
