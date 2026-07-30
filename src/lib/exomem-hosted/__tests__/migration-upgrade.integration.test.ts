@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { applyMigrations } from "../../../../scripts/migrate";
 import { getLiveExomemAgentContract } from "../agent-contract-store";
 import { __setExomemSqlForTests } from "../db";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -24,6 +26,17 @@ const MIGRATION_0033 = resolve(
   process.cwd(),
   "migrations/0033_exomem_mcp_protocol_compatibility.sql"
 );
+const MIGRATION_0025 = resolve(process.cwd(), "migrations/0025_exomem_mcp_oauth.sql");
+const MIGRATION_0032 = resolve(
+  process.cwd(),
+  "migrations/0032_exomem_client_artifact_identity.sql"
+);
+const MIGRATION_0034 = resolve(process.cwd(), "migrations/0034_exomem_oauth_client_admission.sql");
+const MIGRATION_0035 = resolve(
+  process.cwd(),
+  "migrations/0035_exomem_marketplace_reviewer_access.sql"
+);
+const MIGRATION_0036 = resolve(process.cwd(), "migrations/0036_exomem_agent_contract_canaries.sql");
 
 const USER = "11111111-1111-4111-8111-111111111191";
 const TENANT = "22222222-2222-4222-8222-222222222291";
@@ -587,6 +600,64 @@ describe("migration 0033 MCP protocol compatibility", { skip: !DATABASE_URL }, (
           /exomem_agent_contract_candidates_mcp_protocol_versions_check/i
         );
       }
+    });
+  });
+});
+
+describe("migration 0036 canary upgrade safety", { skip: !DATABASE_URL }, () => {
+  it("preserves 0035 reviewer-purpose tenants without creating rollout or staged authority", async () => {
+    await with0017Schema("exomem_upgrade_0036_canaries", async (client) => {
+      await applyMigration(client, MIGRATION_0025);
+      await applyMigration(client, MIGRATION_0028);
+      await applyMigration(client, MIGRATION_0032);
+      await applyMigration(client, MIGRATION_0033);
+      await applyMigration(client, MIGRATION_0034);
+      const migrationsDir = mkdtempSync(resolve(tmpdir(), "exomem-0036-upgrade-"));
+      const scoped = new URL(DATABASE_URL!);
+      scoped.searchParams.set("options", "-c search_path=exomem_upgrade_0036_canaries,public");
+      let reviewerTenantId: string | undefined;
+      try {
+        copyFileSync(
+          MIGRATION_0035,
+          resolve(migrationsDir, "0035_exomem_marketplace_reviewer_access.sql")
+        );
+        await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
+        const reviewer = await client.query<{ id: string }>(
+          "INSERT INTO users (id, email) VALUES ($1, 'reviewer-upgrade@example.com') RETURNING id",
+          [USER_TWO]
+        );
+        const tenant = await client.query<{ id: string }>(
+          `INSERT INTO exomem_tenants (
+             owner_user_id, status, desired_state, marketplace_reviewer_purpose
+           ) VALUES ($1, 'active', 'running', true) RETURNING id`,
+          [reviewer.rows[0]!.id]
+        );
+        reviewerTenantId = tenant.rows[0]!.id;
+        copyFileSync(
+          MIGRATION_0036,
+          resolve(migrationsDir, "0036_exomem_agent_contract_canaries.sql")
+        );
+        await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
+      } finally {
+        rmSync(migrationsDir, { recursive: true, force: true });
+      }
+
+      assert.deepEqual(
+        (
+          await client.query<{
+            marketplace_reviewer_purpose: boolean;
+            assignments: string;
+            declarations: string;
+          }>(
+            `SELECT tenant.marketplace_reviewer_purpose,
+                    (SELECT count(*) FROM exomem_agent_contract_rollout_assignments)::text AS assignments,
+                    (SELECT count(*) FROM exomem_staged_client_releases)::text AS declarations
+             FROM exomem_tenants AS tenant WHERE tenant.id = $1`,
+            [reviewerTenantId]
+          )
+        ).rows,
+        [{ marketplace_reviewer_purpose: true, assignments: "0", declarations: "0" }]
+      );
     });
   });
 });

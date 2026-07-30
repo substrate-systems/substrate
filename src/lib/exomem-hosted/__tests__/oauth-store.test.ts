@@ -77,6 +77,25 @@ describe("Exomem OAuth token store", () => {
     assert.match(source, /INSERT INTO exomem_oauth_access_tokens[\s\S]*LEAST\(/i);
   });
 
+  it("propagates immutable candidate lineage through code exchange and refresh rotation", async () => {
+    const source = await import("node:fs").then(({ readFileSync }) =>
+      readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
+    );
+    const exchange = source.slice(
+      source.indexOf("exomem:oauth-code-exchange"),
+      source.indexOf("exomem:oauth-refresh-rotate")
+    );
+    const refresh = source.slice(source.indexOf("exomem:oauth-refresh-rotate"));
+
+    for (const query of [exchange, refresh]) {
+      assert.match(query, /candidate_id, assignment_id, assignment_generation, staged_client_release_id/i);
+      assert.match(query, /reviewer_credential_id/i);
+    }
+    assert.match(exchange, /INSERT INTO exomem_oauth_refresh_tokens \([\s\S]*oauth_client_id/i);
+    assert.match(refresh, /credential\.oauth_client_id = family\.client_id/i);
+    assert.match(refresh, /credential\.candidate_id = family\.candidate_id/i);
+  });
+
   it("returns CTE fields consumed by reviewer authorization and code exchange", async () => {
     const source = await import("node:fs").then(({ readFileSync }) =>
       readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
@@ -346,6 +365,9 @@ describe("Exomem OAuth token store", () => {
       query,
       /redirect_uris_digest = digest\(convert_to\(redirect_uris::text, 'utf8'\), 'sha256'\)/i
     );
+    assert.match(query, /exomem_staged_client_releases/i);
+    assert.match(query, /credential\.credential_kind = 'internal_canary'/i);
+    assert.doesNotMatch(query, /HAVING count\(\*\) = 1/i);
   });
 
   it("locks the cohort before taking the authorization snapshot", async () => {

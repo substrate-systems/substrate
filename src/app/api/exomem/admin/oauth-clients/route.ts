@@ -18,6 +18,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHA256 = /^[a-f0-9]{64}$/;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
@@ -72,19 +73,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (
       (body.action === "register_pinned" || body.action === "register_cimd") &&
       (body.platform === "claude" || body.platform === "openai") &&
-      typeof body.artifactId === "string" &&
-      UUID.test(body.artifactId) &&
+      ((typeof body.artifactId === "string" &&
+        UUID.test(body.artifactId) &&
+        body.stagedClientReleaseId === undefined) ||
+        (typeof body.stagedClientReleaseId === "string" &&
+          UUID.test(body.stagedClientReleaseId) &&
+          body.artifactId === undefined)) &&
       typeof body.clientId === "string" &&
       Array.isArray(body.redirectUris) &&
       body.redirectUris.every((redirectUri) => typeof redirectUri === "string") &&
+      (body.registeredAppIdSha256 === undefined ||
+        (typeof body.registeredAppIdSha256 === "string" && SHA256.test(body.registeredAppIdSha256))) &&
       (body.ttlSeconds === undefined || typeof body.ttlSeconds === "number")
     ) {
       result = await registerOperatorOAuthClient({
         admissionMode: body.action === "register_pinned" ? "pinned" : "cimd",
         platform: body.platform,
-        artifactId: body.artifactId,
+        ...(typeof body.artifactId === "string" ? { artifactId: body.artifactId } : {}),
+        ...(typeof body.stagedClientReleaseId === "string"
+          ? { stagedClientReleaseId: body.stagedClientReleaseId }
+          : {}),
         clientId: body.clientId,
         redirectUris: body.redirectUris,
+        ...(typeof body.registeredAppIdSha256 === "string"
+          ? { registeredAppIdSha256: body.registeredAppIdSha256 }
+          : {}),
         ttlSeconds: body.ttlSeconds as number | undefined,
       });
     } else if (

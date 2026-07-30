@@ -132,6 +132,31 @@ describe("Exomem operator OAuth client controls", () => {
     assert.equal((await response.text()).includes("desktop-client-sentinel"), false);
   });
 
+  it("accepts a staged candidate declaration without falling back to a live artifact", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          action: "register_pinned",
+          platform: "claude",
+          stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000003",
+          clientId: "candidate-client-sentinel",
+          redirectUris: ["https://app.example.test/callback"],
+        },
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(registered, {
+      admissionMode: "pinned",
+      platform: "claude",
+      stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000003",
+      clientId: "candidate-client-sentinel",
+      redirectUris: ["https://app.example.test/callback"],
+      ttlSeconds: undefined,
+    });
+  });
+
   it("rejects an oversized operator request before it reaches the control store", async () => {
     const { PATCH } = await import("../route");
     const response = await PATCH(

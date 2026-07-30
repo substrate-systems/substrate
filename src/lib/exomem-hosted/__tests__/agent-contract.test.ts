@@ -8,11 +8,14 @@ import {
   type ExomemTransaction,
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import {
   attachOpenAiContractLocks,
+  getExomemAgentContractForOAuthAccess,
   promoteExomemHostedCohort,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
+  storeRetainedExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { demoteClientArtifact, storeClientArtifact } from "../client-artifacts";
 
@@ -40,6 +43,49 @@ afterEach(() => {
 });
 
 describe("Exomem Hosted agent contracts", () => {
+  it("selects a pending contract only through the exact bearer assignment generation and bound cell", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return {
+        rows: [
+          {
+            source_release: candidateFixture0350.sourceRelease,
+            command_fingerprint: candidateFixture0350.compatibility.command_surface_sha256,
+            schema_digest: candidateFixture0350.compatibility.schema_contract_sha256,
+            compatibility_digest: candidateFixture0350.compatibility.compatibility_sha256,
+            protocol_version: candidateFixture0350.compatibility.agent_contract.protocol_version,
+            mcp_protocol_versions: ["2025-11-25", "2025-06-18"],
+            contract: candidateFixture0350.compatibility,
+          },
+        ],
+      };
+    });
+    const selected = await getExomemAgentContractForOAuthAccess({
+      tenantId: "018f2d91-7c42-7000-8000-000000000011",
+      candidateId: "018f2d91-7c42-7000-8000-000000000012",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000013",
+      assignmentGeneration: BigInt(7),
+    });
+    assert.equal(selected?.sourceRelease, "0.35.0");
+    assert.equal(queries.length, 1);
+    assert.match(queries[0]!, /assignment\.id = \?::uuid/i);
+    assert.match(queries[0]!, /assignment\.generation = \?::bigint/i);
+    assert.match(queries[0]!, /assignment\.marketplace_reviewer_purpose = true/i);
+    assert.match(queries[0]!, /binding\.source_release = candidate\.source_release/i);
+    assert.doesNotMatch(queries[0]!, /candidate\.id = .* OR /i);
+
+    assert.equal(
+      await getExomemAgentContractForOAuthAccess({
+        tenantId: "018f2d91-7c42-7000-8000-000000000011",
+        candidateId: "018f2d91-7c42-7000-8000-000000000012",
+        assignmentId: "018f2d91-7c42-7000-8000-000000000013",
+      }),
+      null
+    );
+    assert.equal(queries.length, 1, "invalid candidate lineage must not query or fall back");
+  });
+
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
@@ -66,6 +112,35 @@ describe("Exomem Hosted agent contracts", () => {
         (command) => command.name
       )
     );
+  });
+
+  it("keeps the 0.35 candidate fixture as a distinct exact release unit", () => {
+    assert.equal(candidateFixture0350.sourceCommit, "d4c5614e5f65d8bcbddee90e9e374846c5a2c22f");
+    assert.equal(candidateFixture0350.sourceRelease, "0.35.0");
+    assert.notEqual(
+      candidateFixture0350.compatibility.schema_contract_sha256,
+      exomemHostedContractFixture.compatibility.schema_contract_sha256
+    );
+    const { digest, ...rawAgentContract } = candidateFixture0350.compatibility.agent_contract;
+    assert.equal(
+      createHash("sha256").update(canonical(rawAgentContract)).digest("hex"),
+      digest.value
+    );
+  });
+
+  it("re-imports a retained release only as a fresh pending candidate", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000099" }] };
+    });
+    assert.equal(
+      await storeRetainedExomemAgentContractCandidate("0.35.0"),
+      "018f2d91-7c42-7000-8000-000000000099"
+    );
+    assert.match(queries[0]!, /'pending'/i);
+    assert.match(queries[0]!, /INSERT INTO exomem_agent_contract_candidates/i);
+    assert.doesNotMatch(queries[0]!, /UPDATE exomem_agent_contract_candidates/i);
   });
 
   it("trusts the fixture source release independently of descriptor source_release", async () => {
@@ -120,6 +195,10 @@ describe("Exomem Hosted agent contracts", () => {
       provisioning_operation_hmac_sha256: sha("6"),
       cell_hmac_sha256: sha("7"),
       oauth_client_config_sha256: sha("a"),
+      contract_candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+      staged_client_release_id: "018f2d91-7c42-7000-8000-000000000003",
+      assignment_id: "018f2d91-7c42-7000-8000-000000000004",
+      assignment_generation: 1,
       identity_count: 1,
       tenant_count: 1,
       entitlement_count: 1,
@@ -166,8 +245,11 @@ describe("Exomem Hosted agent contracts", () => {
       evidenceSha256: createHash("sha256").update(canonical(evidence)).digest("hex"),
       resultSha256: sha("8"),
       oauthClientConfigSha256: sha("a"),
-      observedAt: new Date().toISOString(),
+      observedAt: baseEvidence.timestamp,
       candidateId: "018f2d91-7c42-7000-8000-000000000002",
+      stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000003",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000004",
+      assignmentGeneration: 1,
       evidence,
     };
     const queries: string[] = [];
@@ -177,7 +259,11 @@ describe("Exomem Hosted agent contracts", () => {
         rows: [
           {
             id: "artifact-1",
+            tenant_id: "018f2d91-7c42-7000-8000-000000000001",
             candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+            source_release: "0.34.0",
+            assignment_id: "018f2d91-7c42-7000-8000-000000000004",
+            assignment_generation: 1,
             claude_package_lock: exomemHostedContractFixture.packageLock,
             claude_archive_lock: exomemHostedContractFixture.archiveLock,
           },
@@ -187,8 +273,18 @@ describe("Exomem Hosted agent contracts", () => {
     __setExomemSqlForTests(sql);
     __setExomemTransactionForTests(async (callback) => callback(sql));
     assert.equal(await storeClientArtifact(artifact), "artifact-1");
-    assert.match(queries[0], /load-client-artifact-contract-locks/i);
-    assert.match(queries[1], /INSERT INTO exomem_client_artifacts/i);
+    assert.match(queries[0], /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    assert.match(queries[1], /load-client-artifact-contract-locks/i);
+    assert.match(queries[2], /FROM exomem_staged_client_releases/i);
+    assert.match(queries[2], /candidate\.created_at < \?::timestamptz/i);
+    assert.match(queries[2], /stage\.created_at < \?::timestamptz/i);
+    assert.match(queries[2], /stage\.id = \?::uuid/i);
+    assert.match(queries[2], /assignment\.marketplace_reviewer_purpose = true/i);
+    assert.match(queries[2], /assignment\.state = 'active'/i);
+    assert.match(queries[2], /FOR UPDATE OF stage, candidate, assignment/i);
+    assert.match(queries[3], /INSERT INTO exomem_client_artifacts/i);
+    assert.match(queries[4], /SET state = 'evidenced'/i);
+    assert.doesNotMatch(queries.join("\n"), /revoke-conflicting-canary-oauth-lineage/i);
     assert.equal(
       await demoteClientArtifact("00000000-0000-0000-0000-000000000001", sha("9")),
       true
@@ -196,6 +292,23 @@ describe("Exomem Hosted agent contracts", () => {
     await assert.rejects(
       () => storeClientArtifact({ ...artifact, clientIdentity: "private" }),
       /privacy-safe hash/i
+    );
+    await assert.rejects(
+      () =>
+        storeClientArtifact({ ...artifact, candidateId: "018f2d91-7c42-7000-8000-000000000005" }),
+      /artifact contract candidate is not pending or live|artifact fields do not match signed evidence/i
+    );
+    await assert.rejects(
+      () => storeClientArtifact({ ...artifact, assignmentGeneration: 2 }),
+      /artifact fields do not match signed evidence/i
+    );
+    await assert.rejects(
+      () =>
+        storeClientArtifact({
+          ...artifact,
+          observedAt: new Date(Date.parse(String(baseEvidence.timestamp)) + 1_000).toISOString(),
+        }),
+      /artifact fields do not match signed evidence/i
     );
   });
 
@@ -240,6 +353,10 @@ describe("Exomem Hosted agent contracts", () => {
       provisioning_operation_hmac_sha256: sha("6"),
       cell_hmac_sha256: sha("7"),
       oauth_client_config_sha256: sha("a"),
+      contract_candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+      staged_client_release_id: "018f2d91-7c42-7000-8000-000000000003",
+      assignment_id: "018f2d91-7c42-7000-8000-000000000004",
+      assignment_generation: 1,
       identity_count: 1,
       tenant_count: 1,
       entitlement_count: 1,
@@ -287,12 +404,15 @@ describe("Exomem Hosted agent contracts", () => {
       evidenceSha256: createHash("sha256").update(canonical(evidence)).digest("hex"),
       resultSha256: sha("8"),
       oauthClientConfigSha256: sha("a"),
-      observedAt: new Date().toISOString(),
+      observedAt: baseEvidence.timestamp,
       candidateId: "018f2d91-7c42-7000-8000-000000000002",
+      stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000003",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000004",
+      assignmentGeneration: 1,
       evidence,
     };
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const sql = async (strings: TemplateStringsArray) => {
       const query = strings.join("?");
       queries.push(query);
       if (/load-client-artifact-contract-locks/i.test(query))
@@ -300,13 +420,27 @@ describe("Exomem Hosted agent contracts", () => {
           rows: [
             {
               candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+              source_release: "0.34.0",
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,
             },
           ],
         };
+      if (/lock-staged-client-release-for-artifact/i.test(query))
+        return {
+          rows: [
+            {
+              id: artifact.stagedClientReleaseId,
+              tenant_id: "018f2d91-7c42-7000-8000-000000000001",
+              assignment_id: artifact.assignmentId,
+              assignment_generation: artifact.assignmentGeneration,
+            },
+          ],
+        };
       return { rows: [{ id: "openai-artifact-1" }] };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (callback) => callback(sql));
     assert.equal(
       await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature: importSignature }),
       true

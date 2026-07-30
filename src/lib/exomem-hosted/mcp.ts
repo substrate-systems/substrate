@@ -11,7 +11,7 @@ import {
 import {
   EXOMEM_HOSTED_PROFILE,
   EXOMEM_HOSTED_RESOURCE,
-  getLiveExomemAgentContract,
+  getExomemAgentContractForOAuthAccess,
   type LiveExomemAgentContract,
 } from "./agent-contract-store";
 import { ExomemHostedError, exomemErrors } from "./errors";
@@ -69,6 +69,9 @@ type LifecycleStatus = { state: string; code: string; retryable: boolean; reques
 
 export type McpDependencies = {
   findAccessToken?: (digest: Buffer) => Promise<ActiveOAuthAccessToken | null>;
+  getContractForAccess?: (
+    access: ActiveOAuthAccessToken
+  ) => Promise<LiveExomemAgentContract | null>;
   getLiveContract?: () => Promise<LiveExomemAgentContract | null>;
   statusForTenant?: (tenantId: string) => Promise<LifecycleStatus>;
   routeCommand?: typeof routeExomemCommand;
@@ -212,6 +215,31 @@ const TOOL_SELECTOR_FIELDS = new Set([
   "retry_scope",
   "profile_id",
   "profile",
+  "candidate",
+  "candidate_id",
+  "assignment",
+  "assignment_id",
+  "assignment_generation",
+  "generation",
+  "stage",
+  "stage_id",
+  "staged_client_release",
+  "staged_client_release_id",
+  "artifact",
+  "artifact_id",
+  "artifact_sha256",
+  "release",
+  "release_version",
+  "schema",
+  "schema_digest",
+  "compatibility",
+  "compatibility_digest",
+  "gateway_contract_digest",
+  "source_release",
+  "bound_cell_id",
+  "target_candidate_id",
+  "contract_digest",
+  "command_fingerprint",
 ]);
 
 function normalizedField(value: string): string {
@@ -729,7 +757,12 @@ export async function handleHostedMcpRequest(
           Response.json({ error: "INVALID_REQUEST" }, { status: mediaStatus })
         );
       }
-      const live = await (dependencies.getLiveContract ?? getLiveExomemAgentContract)();
+      const live = await (
+        dependencies.getContractForAccess ??
+        (dependencies.getLiveContract
+          ? async () => dependencies.getLiveContract!()
+          : getExomemAgentContractForOAuthAccess)
+      )(access);
       if (
         !live ||
         live.profile !== EXOMEM_HOSTED_PROFILE ||

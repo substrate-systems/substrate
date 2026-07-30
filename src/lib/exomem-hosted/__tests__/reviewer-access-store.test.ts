@@ -4,10 +4,13 @@ import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql 
 import {
   createMarketplaceReviewerSessionAtomic,
   createMarketplaceReviewerOAuthSessionAtomic,
+  createInternalCanaryReviewerCredentialAtomic,
   createOrRotateMarketplaceReviewerCredentialAtomic,
   bindMarketplaceReviewerCredentialToOAuthTransactionAtomic,
   findMarketplaceReviewerCredentialForAuthentication,
   getMarketplaceReviewerCredentialStatus,
+  getInternalCanaryReviewerCredentialStatus,
+  revokeInternalCanaryReviewerCredentialAtomic,
   revokeMarketplaceReviewerCredentialAtomic,
 } from "../reviewer-access-store";
 
@@ -26,7 +29,16 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
   setSql(async (strings) => {
     const query = strings.join("?");
     queries.push(query);
-    return { rows: [{ id: "credential-1", owner_user_id: "owner-1", tenant_id: "tenant-1" }] };
+    return {
+      rows: [
+        {
+          id: "credential-1",
+          owner_user_id: "owner-1",
+          tenant_id: "tenant-1",
+          expires_at: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    };
   });
 
   const created = await createOrRotateMarketplaceReviewerCredentialAtomic({
@@ -52,6 +64,8 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
   assert.match(query, /JOIN exomem_entitlements/i);
   assert.match(query, /JOIN exomem_cells/i);
   assert.match(query, /marketplace_reviewer_purpose = true/i);
+  assert.match(query, /exomem_client_artifacts/i);
+  assert.match(query, /artifact\.state = 'live'/i);
   assert.match(query, /exomem_oauth_account_blocks/i);
   assert.match(query, /UPDATE exomem_marketplace_reviewer_credentials/i);
   assert.match(query, /INSERT INTO exomem_marketplace_reviewer_credentials/i);
@@ -131,6 +145,63 @@ test("reviewer OAuth binding maps Anthropic to Claude and excludes cross-provide
   );
   assert.match(query, /session\.reviewer_credential_id = credential\.id/i);
   assert.match(query, /transaction\.consumed_at IS NULL/i);
+});
+
+test("internal canary issuance seals invite setup state and binds exact staged authority", async () => {
+  const queries: string[] = [];
+  setSql(async (strings) => {
+    queries.push(strings.join("?"));
+    return {
+      rows: [
+        {
+          id: "credential-1",
+          owner_user_id: "owner-1",
+          tenant_id: "tenant-1",
+          expires_at: "2026-08-01T00:00:00.000Z",
+        },
+      ],
+    };
+  });
+
+  assert.deepEqual(
+    await createInternalCanaryReviewerCredentialAtomic({
+      platform: "claude",
+      usernameDigest: Buffer.alloc(32, 1),
+      passwordHash: "$argon2id$test",
+      tenantId: "tenant-1",
+      candidateId: "candidate-1",
+      assignmentId: "assignment-1",
+      assignmentGeneration: 3,
+      stagedClientReleaseId: "stage-1",
+      oauthClientId: "client-1",
+      fixtureVersion: "internal-canary-v1",
+      fixturePayloadDigest: "a".repeat(64),
+      expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+      operatorPrincipalDigest: Buffer.alloc(32, 2),
+    }),
+    {
+      credentialId: "credential-1",
+      ownerUserId: "owner-1",
+      tenantId: "tenant-1",
+      expiresAt: "2026-08-01T00:00:00.000Z",
+    }
+  );
+  const query = queries.join("\n");
+  assert.match(query, /provider, credential_kind[\s\S]*candidate_id, assignment_id, assignment_generation/i);
+  assert.match(query, /credential_kind = 'internal_canary'/i);
+  assert.match(query, /SELECT id, owner_user_id, tenant_id, expires_at FROM created/i);
+  assert.match(query, /prior_sessions_revoked[\s\S]*reviewer_credential_id IN \(SELECT id FROM prior_revoked\)/i);
+  assert.match(query, /prior_refresh_consumed[\s\S]*prior_families_revoked/i);
+  assert.match(query, /assignment\.state IN \('preparing', 'active'\)/i);
+  assert.match(query, /stage\.candidate_id = assignment\.candidate_id/i);
+  assert.match(query, /setup_sessions_revoked[\s\S]*exomem_invites AS invite/i);
+  assert.match(query, /invite\.redeemed_session_id/i);
+  assert.match(query, /setup_transactions AS \([\s\S]*SELECT transaction\.id/i);
+  assert.match(query, /setup_grants_revoked[\s\S]*authorization_transaction_id IN \(SELECT id FROM setup_transactions\)/i);
+  assert.match(query, /setup_families_revoked[\s\S]*reviewer_setup_sealed/i);
+  assert.match(query, /exomem-hosted-alpha-cohort/i);
+  assert.match(query, /exomem-marketplace-reviewer-access/i);
+  assert.ok(queries.findIndex((value) => value.includes("exomem-hosted-alpha-cohort")) < queries.findIndex((value) => value.includes("exomem-marketplace-reviewer-access")));
 });
 
 test("reviewer sessions are tagged to the credential without provisioning", async () => {
@@ -269,9 +340,79 @@ test("status is sanitized and revocation is idempotent without an account block"
   assert.match(query, /UPDATE exomem_oauth_authorization_codes/i);
   assert.match(query, /UPDATE exomem_oauth_grants/i);
   assert.match(query, /UPDATE exomem_oauth_token_families/i);
+  assert.match(query, /UPDATE exomem_oauth_refresh_tokens/i);
   assert.match(query, /UPDATE exomem_oauth_access_tokens/i);
   assert.match(query, /grants_revoked[\s\S]*reviewer_transactions/i);
   assert.doesNotMatch(query, /INSERT INTO exomem_oauth_account_blocks/i);
+});
+
+test("internal canary status and revocation require the exact lineage and exclude provider status", async () => {
+  const queries: string[] = [];
+  setSql(async (strings) => {
+    const query = strings.join("?");
+    queries.push(query);
+    if (query.includes("internal-canary-reviewer-credential-status")) {
+      return {
+        rows: [
+          {
+            client_platform: "claude",
+            fixture_version: "internal-canary-v1",
+            fixture_payload_digest: "a".repeat(64),
+            expires_at: "2026-08-01T00:00:00.000Z",
+            revoked_at: null,
+          },
+        ],
+      };
+    }
+    if (query.includes("reviewer-credential-status")) {
+      return {
+        rows: [
+          {
+            provider: "openai",
+            fixture_version: "provider-review-v1",
+            fixture_payload_digest: "b".repeat(64),
+            expires_at: "2026-08-01T00:00:00.000Z",
+            revoked_at: null,
+          },
+        ],
+      };
+    }
+    if (query.includes("lock-internal-canary-reviewer-credential")) return { rows: [{ id: "credential-1" }] };
+    return { rows: [{ revoked_credentials: 1 }] };
+  });
+
+  const selector = {
+    platform: "claude" as const,
+    tenantId: "018f2d91-7c42-7000-8000-000000000011",
+    candidateId: "018f2d91-7c42-7000-8000-000000000012",
+    assignmentId: "018f2d91-7c42-7000-8000-000000000013",
+    assignmentGeneration: 2,
+    stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000014",
+    oauthClientId: "018f2d91-7c42-7000-8000-000000000015",
+  };
+  assert.equal((await getMarketplaceReviewerCredentialStatus("openai"))?.fixtureVersion, "provider-review-v1");
+  assert.deepEqual(await getInternalCanaryReviewerCredentialStatus(selector), {
+    credentialKind: "internal_canary",
+    platform: "claude",
+    fixtureVersion: "internal-canary-v1",
+    fixturePayloadDigest: "a".repeat(64),
+    expiresAt: "2026-08-01T00:00:00.000Z",
+    revokedAt: null,
+  });
+  assert.equal(
+    await revokeInternalCanaryReviewerCredentialAtomic({
+      ...selector,
+      operatorPrincipalDigest: Buffer.alloc(32, 5),
+    }),
+    1
+  );
+  const query = queries.join("\n");
+  assert.match(query, /credential_kind = 'provider_review'/i);
+  assert.match(query, /credential_kind = 'internal_canary'/i);
+  assert.match(query, /oauth_client_id = \?::uuid/i);
+  assert.match(query, /client\.client_platform = \?/i);
+  assert.match(query, /exomem:revoke-canary-oauth-lineage/i);
+  assert.doesNotMatch(query, /password_hash[\s\S]*internal-canary-reviewer-credential-status/i);
 });
 
 test("normalizes PostgreSQL Date timestamps for reviewer lookup and status", async () => {

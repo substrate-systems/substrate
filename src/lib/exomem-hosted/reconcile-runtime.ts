@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { expireCanaryAuthority } from "./agent-contract-canaries";
 import { terminateExomemBillingForDeletion } from "./billing-deletion";
 import { SqlLifecycleStore } from "./lifecycle-store";
 import { HttpCellProvisioner, provisionerConfigFromEnv } from "./provisioner";
@@ -47,6 +48,7 @@ export async function runBoundedLifecycleReconcile(
     retryScheduled: 0,
     terminal: 0,
   };
+  await expireCanaryAuthority(Math.min(maxOperations, 20));
   for (let index = 0; index < maxOperations; index += 1) {
     if (Date.now() - startedAt >= timeBudgetMs) break;
     const result = await reconciler.reconcileOne({

@@ -10,15 +10,36 @@ import {
   routeExomemCommand,
 } from "../gateway";
 import { SensitiveSecret, type SecretEnvelope } from "../security";
-import canonicalContractFixture from "./gateway-contract-0-24-0.json";
+import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0350 } from "../agent-contract-fixture-0-35-0";
+import fullContract0340 from "./gateway-contract-0-34-0.json";
+import fullContract0350 from "./gateway-contract-0-35-0.json";
 
 const USER_A = "018f2d91-7c42-7000-8000-000000000071";
 const TENANT_A = "018f2d91-7c42-7000-8000-000000000072";
 const USER_B = "018f2d91-7c42-7000-8000-000000000073";
 const TENANT_B = "018f2d91-7c42-7000-8000-000000000074";
 
-// Generated from Exomem 0.24.0 commit 049d83c13e94102482a0f939c3baf065ee630fd1.
-const CANONICAL_CONTRACT = canonicalContractFixture as TestContract;
+// Generated from Exomem 0.34.0 commit 253c9aa365d7afd8829dc7843f1cac53353ac825.
+const CANONICAL_CONTRACT = fullContract0340 as TestContract;
+const FULL_CONTRACT_0340 = fullContract0340 as TestContract;
+const FULL_CONTRACT_0350 = fullContract0350 as TestContract;
+const LIVE_HOSTED_CONTRACT = {
+  profile: agentFixture0340.compatibility.profile,
+  sourceRelease: agentFixture0340.sourceRelease,
+  protocolVersion: agentFixture0340.compatibility.agent_contract.protocol_version,
+  commandFingerprint: agentFixture0340.compatibility.command_surface_sha256,
+  schemaDigest: agentFixture0340.compatibility.schema_contract_sha256,
+  compatibilityDigest: agentFixture0340.compatibility.compatibility_sha256,
+};
+const CANDIDATE_HOSTED_CONTRACT = {
+  profile: agentFixture0350.compatibility.profile,
+  sourceRelease: agentFixture0350.sourceRelease,
+  protocolVersion: agentFixture0350.compatibility.agent_contract.protocol_version,
+  commandFingerprint: agentFixture0350.compatibility.command_surface_sha256,
+  schemaDigest: agentFixture0350.compatibility.schema_contract_sha256,
+  compatibilityDigest: agentFixture0350.compatibility.compatibility_sha256,
+};
 
 type TestContract = {
   schema_version: number;
@@ -77,6 +98,7 @@ function target(input: {
     schemaDigest: string;
     compatibilityDigest: string;
   };
+  releaseVersion?: string;
 }): GatewayTarget {
   return {
     userId: input.userId,
@@ -87,7 +109,7 @@ function target(input: {
     cellLifecycleState: "active",
     cellRoutingState: "bound",
     protocolVersion: "1",
-    releaseVersion: "0.24.0",
+    releaseVersion: input.releaseVersion ?? "0.34.0",
     credentialVersion: 1,
     credentialCiphertext: { value: `credential-${input.cellId}` },
     endpointCiphertext: { value: input.endpoint },
@@ -117,15 +139,210 @@ function decrypt(envelope: SecretEnvelope): SensitiveSecret {
 beforeEach(clearContractCacheForTests);
 
 describe("registry-derived Exomem gateway", () => {
+  it("routes the live 0.34 full contract instead of the historical 0.24 singleton", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-034",
+      endpoint: "https://cell-034.internal/",
+      releaseVersion: "0.34.0",
+    });
+    await assert.doesNotReject(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "live release" },
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) =>
+            String(input).endsWith("/contract")
+              ? Response.json(FULL_CONTRACT_0340)
+              : Response.json({ success: true, data: {} }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      })
+    );
+  });
+
+  it("routes a 0.35 candidate against its own full contract", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-035",
+      endpoint: "https://cell-035.internal/",
+      releaseVersion: "0.35.0",
+    });
+    await assert.doesNotReject(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "candidate release" },
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) =>
+            String(input).endsWith("/contract")
+              ? Response.json(FULL_CONTRACT_0350)
+              : Response.json({ success: true, data: {} }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      })
+    );
+  });
+
+  it("keeps live and candidate agent contracts paired with their own full fixtures", async () => {
+    for (const [releaseVersion, hosted] of [
+      ["0.34.0", LIVE_HOSTED_CONTRACT],
+      ["0.35.0", CANDIDATE_HOSTED_CONTRACT],
+    ] as const) {
+      const row = target({
+        userId: USER_A,
+        tenantId: TENANT_A,
+        cellId: `cell-${releaseVersion}`,
+        endpoint: `https://cell-${releaseVersion}.internal/`,
+        releaseVersion,
+        hosted,
+      });
+      await assert.doesNotReject(
+        routeExomemCommand({
+          session: { userId: USER_A, tenantId: TENANT_A },
+          commandName: "ask_memory",
+          args: { query: releaseVersion },
+          command: {
+            name: "ask_memory",
+            params: [{ name: "query", type: "str", required: false }],
+            read_only: true,
+            mode: "read",
+            tier: 1,
+            capability: "core",
+            guarded_fields: [],
+          },
+          hostedContract: hosted,
+          dependencies: {
+            resolveTarget: async () => row,
+            fetch: async (input) =>
+              String(input).endsWith("/contract")
+                ? Response.json({
+                    agent_profile: {
+                      profile: hosted.profile,
+                      active_capability_sha256: hosted.commandFingerprint,
+                    },
+                    exomem_release: hosted.sourceRelease,
+                    protocol_version: hosted.protocolVersion,
+                    digest: { value: hosted.schemaDigest },
+                  })
+                : Response.json({ success: true, data: {} }),
+            expectedProtocol: "1",
+            decrypt,
+            principalScope: () => "A".repeat(43),
+          },
+        })
+      );
+    }
+  });
+
+  it("rejects a historical 0.24 full fixture paired with the live 0.34 agent", async () => {
+    const hosted = LIVE_HOSTED_CONTRACT;
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-split",
+      endpoint: "https://cell-split.internal/",
+      releaseVersion: "0.24.0",
+      hosted,
+    });
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "split unit" },
+        command: {
+          name: "ask_memory",
+          params: [{ name: "query", type: "str", required: false }],
+          read_only: true,
+          mode: "read",
+          tier: 1,
+          capability: "core",
+          guarded_fields: [],
+        },
+        hostedContract: hosted,
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) =>
+            String(input).endsWith("/contract")
+              ? Response.json({
+                  agent_profile: {
+                    profile: hosted.profile,
+                    active_capability_sha256: hosted.commandFingerprint,
+                  },
+                  exomem_release: hosted.sourceRelease,
+                  protocol_version: hosted.protocolVersion,
+                  digest: { value: hosted.schemaDigest },
+                })
+              : Response.json({ success: true, data: {} }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_PROTOCOL_MISMATCH"
+    );
+  });
+
+  it("rejects an unsupported profile with otherwise exact live 0.34 locks", async () => {
+    const hosted = { ...LIVE_HOSTED_CONTRACT, profile: "unsupported-agent-profile" };
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-profile-split",
+      endpoint: "https://cell-profile-split.internal/",
+      hosted,
+    });
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "profile split" },
+        command: {
+          name: "ask_memory",
+          params: [{ name: "query", type: "str", required: false }],
+          read_only: true,
+          mode: "read",
+          tier: 1,
+          capability: "core",
+          guarded_fields: [],
+        },
+        hostedContract: hosted,
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) =>
+            String(input).endsWith("/contract")
+              ? Response.json({
+                  agent_profile: {
+                    profile: hosted.profile,
+                    active_capability_sha256: hosted.commandFingerprint,
+                  },
+                  exomem_release: hosted.sourceRelease,
+                  protocol_version: hosted.protocolVersion,
+                  digest: { value: hosted.schemaDigest },
+                })
+              : Response.json({ success: true, data: {} }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_PROTOCOL_MISMATCH"
+    );
+  });
+
   it("accepts the exact hosted private profile-contract response shape", async () => {
-    const hosted = {
-      profile: "hosted-alpha-agent-v1",
-      sourceRelease: "0.24.0",
-      protocolVersion: "1",
-      commandFingerprint: "a".repeat(64),
-      schemaDigest: "b".repeat(64),
-      compatibilityDigest: "c".repeat(64),
-    };
+    const hosted = LIVE_HOSTED_CONTRACT;
     const row = target({
       userId: USER_A,
       tenantId: TENANT_A,
@@ -174,6 +391,37 @@ describe("registry-derived Exomem gateway", () => {
     for (const name of ["CF-Access-Client-Id", "CF-Access-Client-Secret"]) {
       assert.equal(hasForbiddenGatewayHeaders(new Headers({ [name]: "browser-value" })), true);
     }
+  });
+
+  it("rejects release selectors in public headers and cookies without rejecting the bearer", () => {
+    assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ authorization: "Bearer opaque", "candidate-id": "candidate-b" })
+      ),
+      true
+    );
+    assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ authorization: "Bearer opaque", "source-release": "0.35.0" })
+      ),
+      true
+    );
+    assert.equal(
+      hasForbiddenGatewayHeaders(new Headers({ cookie: "session=safe; assignment_generation=7" })),
+      true
+    );
+    assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ cookie: `session=safe; contractDigest=${"a".repeat(64)}` })
+      ),
+      true
+    );
+    assert.equal(
+      hasForbiddenGatewayHeaders(
+        new Headers({ authorization: "Bearer opaque", cookie: "session=safe" })
+      ),
+      false
+    );
   });
 
   it("keeps identical paths and idempotency keys isolated to the mapped cell", async () => {
@@ -301,6 +549,18 @@ describe("registry-derived Exomem gateway", () => {
     assert.equal(hasReservedSelector({ tenantId: TENANT_A }), true);
     assert.equal(hasReservedSelector({ nested: { cellId: "cell-a" } }), true);
     assert.equal(hasReservedSelector({ auth: { sessionId: "other" } }), true);
+    assert.equal(hasReservedSelector({ nested: { candidateId: "candidate-b" } }), true);
+    assert.equal(hasReservedSelector({ assignmentGeneration: 2 }), true);
+    assert.equal(hasReservedSelector({ stagedClientReleaseId: "stage-b" }), true);
+    assert.equal(hasReservedSelector({ artifactSha256: "a".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ releaseVersion: "0.35.0" }), true);
+    assert.equal(hasReservedSelector({ schemaDigest: "a".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ compatibilityDigest: "b".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ sourceRelease: "0.35.0" }), true);
+    assert.equal(hasReservedSelector({ boundCellId: "cell-b" }), true);
+    assert.equal(hasReservedSelector({ targetCandidateId: "candidate-b" }), true);
+    assert.equal(hasReservedSelector({ contractDigest: "a".repeat(64) }), true);
+    assert.equal(hasReservedSelector({ commandFingerprint: "b".repeat(64) }), true);
   });
 
   it("retries a lost mutation acknowledgement only against the same cell", async () => {
@@ -671,7 +931,7 @@ describe("registry-derived Exomem gateway", () => {
     );
   });
 
-  it("rejects self-consistent semantic drift from the pinned 0.24.0 registry", async () => {
+  it("rejects self-consistent semantic drift from the pinned 0.34.0 registry", async () => {
     const row = target({
       userId: USER_A,
       tenantId: TENANT_A,
@@ -683,10 +943,7 @@ describe("registry-derived Exomem gateway", () => {
       assert.ok(command);
       command.guarded_fields = [];
     });
-    assert.notEqual(
-      drifted.digest.value,
-      "b760214e79b4f9819757609ec7c6a6be74762e7b675680aa91e8386dd71ee32d"
-    );
+    assert.notEqual(drifted.digest.value, CANONICAL_CONTRACT.digest.value);
 
     await assert.rejects(
       routeExomemCommand({

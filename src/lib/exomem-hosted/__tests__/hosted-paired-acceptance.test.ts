@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -7,8 +7,26 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import fixture from "./fixtures/hosted-paired-acceptance-v1.json";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
-import { getLiveExomemAgentContract } from "../agent-contract-store";
+import {
+  attachOpenAiContractLocks,
+  getExomemAgentContractForOAuthAccess,
+  getLiveExomemAgentContract,
+  promoteExomemHostedCohort,
+  recordRoutableCellObservation,
+  storeRetainedExomemAgentContractCandidate,
+} from "../agent-contract-store";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { createCanaryAssignment, createStagedClientRelease } from "../agent-contract-canaries";
+import { storeClientArtifact } from "../client-artifacts";
+import { createInternalCanaryReviewerCredentialAtomic } from "../reviewer-access-store";
+import {
+  canonicalPromotionJson,
+  pendingArtifactFromEvidence,
+  promotionContractFixture,
+  signedPromotionEvidence,
+  testOpenAiLocks,
+  type PromotionFixtureRelease,
+} from "./agent-contract-promotion-fixture";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import {
   __setExomemSqlForTests,
@@ -16,6 +34,7 @@ import {
   consumeDeletionConfirmationAtomic,
   createDeletionConfirmationToken,
   type ExomemSql,
+  type ExomemTransaction,
 } from "../db";
 import { SqlLifecycleStore } from "../lifecycle-store";
 import { handleHostedMcpRequest } from "../mcp";
@@ -34,6 +53,17 @@ const resource = "https://substratesystems.io/api/exomem/mcp/v1";
 const verifier = "v".repeat(43);
 const oauthClientConfigSha256 = sha("f");
 const previousBaseUrl = process.env.EXOMEM_PUBLIC_BASE_URL;
+const promotionEnvironment = [
+  "EXOMEM_HOSTED_CLAUDE_INSTALL_URL",
+  "EXOMEM_HOSTED_OPENAI_INSTALL_URL",
+  "EXOMEM_HOSTED_PROMOTION_KEY_ID",
+  "EXOMEM_HOSTED_PROMOTION_SECRET",
+  "EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID",
+  "EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET",
+] as const;
+const previousPromotionEnvironment = Object.fromEntries(
+  promotionEnvironment.map((key) => [key, process.env[key]])
+);
 let pool: Pool | undefined;
 let schema: string | undefined;
 
@@ -61,11 +91,20 @@ function sql(client: Pool | PoolClient): ExomemSql {
   };
 }
 
+function transactionSql(client: PoolClient): ExomemSql & ExomemTransaction {
+  const tagged = sql(client) as ExomemSql & ExomemTransaction;
+  tagged.query = async (text, values = []) => {
+    const result = await client.query(text, values);
+    return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
+  };
+  return tagged;
+}
+
 async function transaction<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   const client = await pool!.connect();
   try {
     await client.query("BEGIN");
-    const result = await work(sql(client));
+    const result = await work(transactionSql(client));
     await client.query("COMMIT");
     return result;
   } catch (error) {
@@ -260,46 +299,209 @@ async function converge(reconciler: LifecycleReconciler, tenantId: string): Prom
   }
 }
 
-function localPromotionEvidence(): Record<string, unknown> {
+type OAuthClientFixture = {
+  id: string;
+  clientId: string;
+  redirectUri: string;
+  platform: "claude" | "openai";
+};
+
+async function issueAccess(input: {
+  client: OAuthClientFixture;
+  userId: string;
+  tenantId: string;
+  credentialId?: string;
+  candidateId?: string;
+  assignmentId?: string;
+  assignmentGeneration?: number;
+  stageId?: string;
+}) {
+  const code = mintAuthorizationCode({
+    clientId: input.client.clientId,
+    redirectUri: input.client.redirectUri,
+    resource,
+    scopes: ["exomem.read"],
+    codeChallenge: pkceS256(verifier),
+  });
+  const candidate = input.candidateId !== undefined;
+  const grant = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_oauth_grants (
+       user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
+       candidate_id, assignment_id, assignment_generation, staged_client_release_id
+     ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true, $5, $6, $7, $8, $9)
+     RETURNING id`,
+    [
+      input.userId,
+      input.tenantId,
+      input.client.id,
+      resource,
+      input.credentialId ?? null,
+      input.candidateId ?? null,
+      input.assignmentId ?? null,
+      input.assignmentGeneration ?? null,
+      input.stageId ?? null,
+    ]
+  );
+  await pool!.query(
+    `INSERT INTO exomem_oauth_authorization_codes (
+       code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed,
+       expires_at, reviewer_credential_id, candidate_id, assignment_id, assignment_generation,
+       staged_client_release_id
+     ) VALUES ($1, $2, $3, $4, $5, $6, true, now() + interval '1 hour', $7, $8, $9, $10, $11)`,
+    [
+      code.codeDigest,
+      grant.rows[0]!.id,
+      input.client.id,
+      input.client.redirectUri,
+      resource,
+      pkceS256(verifier),
+      input.credentialId ?? null,
+      input.candidateId ?? null,
+      input.assignmentId ?? null,
+      input.assignmentGeneration ?? null,
+      input.stageId ?? null,
+    ]
+  );
+  const material = mintOpaqueTokenMaterial({ refreshAllowed: true });
+  const issued = await issueOAuthTokensFromCodeAtomic({
+    codeDigest: code.codeDigest,
+    clientId: input.client.clientId,
+    redirectUri: input.client.redirectUri,
+    resource,
+    pkceChallenge: pkceS256(verifier),
+    refreshDigest: material.refreshTokenDigest!,
+    refreshExpiresAt: new Date(Date.now() + 60 * 60_000),
+    accessDigest: material.accessTokenDigest,
+    accessExpiresAt: new Date(Date.now() + 60 * 60_000),
+  });
+  assert.ok(issued, candidate ? "candidate token issuance" : "live token issuance");
   return {
-    schema_version: 1,
-    platform: "claude",
-    client_version: "0.1.0",
-    clean_client_identity_hmac_sha256: sha("1"),
-    timestamp: new Date().toISOString(),
-    paired_run_hmac_sha256: sha("2"),
-    test_identity: "hosted-client-plugins-v1",
-    exomem_identity_hmac_sha256: sha("3"),
-    tenant_hmac_sha256: sha("4"),
-    entitlement_hmac_sha256: sha("5"),
-    provisioning_operation_hmac_sha256: sha("6"),
-    cell_hmac_sha256: sha("7"),
-    identity_count: 1,
-    tenant_count: 1,
-    entitlement_count: 1,
-    operation_count: 1,
-    cell_count: 1,
-    volume_count: 1,
-    result_sha256: sha("8"),
-    package_artifact_sha256: exomemHostedContractFixture.packageLock.artifact_sha256,
-    archive_sha256: exomemHostedContractFixture.archiveLock.archive_sha256,
-    compatibility_sha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
-    schema_contract_sha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
-    command_surface_sha256: exomemHostedContractFixture.compatibility.command_surface_sha256,
-    endpoint: resource,
-    plugin_version: "0.1.0",
-    profile: "hosted-alpha-agent-v1",
-    operator_key_id: "local-mock",
-    native_install: true,
-    authorization: true,
-    tool_discovery: true,
-    content_recall: true,
-    citation: true,
-    durable_capture: true,
-    fresh_chat_recall: true,
-    operator_signature: "00",
-    mocked: true,
+    bearer: material.accessToken.reveal(),
+    digest: material.accessTokenDigest,
+    issued: issued!,
   };
+}
+
+async function attachCandidateLocksAndStages(input: {
+  candidateId: string;
+  release: PromotionFixtureRelease;
+  oauthClientConfigSha256: string;
+  digestSeed: { artifact: string; archive: string; registeredApp: string };
+}) {
+  const fixture = promotionContractFixture(input.release);
+  const openAiLocks = testOpenAiLocks(input.release, {
+    artifact: sha(input.digestSeed.artifact),
+    archive: sha(input.digestSeed.archive),
+    registeredApp: sha(input.digestSeed.registeredApp),
+  });
+  const unsigned = {
+    candidateId: input.candidateId,
+    packageLock: openAiLocks.packageLock,
+    archiveLock: openAiLocks.archiveLock,
+    operatorKeyId: "integration-importer",
+  };
+  assert.equal(
+    await attachOpenAiContractLocks({
+      ...unsigned,
+      operatorSignature: createHmac("sha256", "integration-import-secret")
+        .update(canonicalPromotionJson(unsigned))
+        .digest("hex"),
+    }),
+    true
+  );
+  const stage = async (platform: "claude" | "openai") => {
+    const locks =
+      platform === "claude"
+        ? { packageLock: fixture.packageLock, archiveLock: fixture.archiveLock }
+        : openAiLocks;
+    return createStagedClientRelease({
+      candidateId: input.candidateId,
+      platform,
+      packageSha256: locks.packageLock.artifact_sha256,
+      archiveSha256: locks.archiveLock.archive_sha256,
+      compatibilitySha256: fixture.compatibility.compatibility_sha256,
+      contractSha256: fixture.compatibility.schema_contract_sha256,
+      pluginVersion: locks.packageLock.plugin_version,
+      oauthClientConfigSha256: input.oauthClientConfigSha256,
+      registeredAppIdSha256:
+        platform === "openai" ? openAiLocks.packageLock.registered_app_id_sha256 : null,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+  };
+  return {
+    fixture,
+    openAiLocks,
+    claudeStage: await stage("claude"),
+    openAiStage: await stage("openai"),
+  };
+}
+
+async function importPairedEvidence(input: {
+  candidateId: string;
+  release: PromotionFixtureRelease;
+  assignment: { id: string; generation: number };
+  stages: Awaited<ReturnType<typeof attachCandidateLocksAndStages>>;
+  suffix: string;
+  oauthClientConfigSha256: string;
+}) {
+  const create = async (platform: "claude" | "openai", stageId: string) => {
+    const evidence = signedPromotionEvidence({
+      platform,
+      release: input.release,
+      secret: "integration-secret",
+      suffix: `${input.suffix}-${platform}`,
+      candidateId: input.candidateId,
+      stageId,
+      assignmentId: input.assignment.id,
+      assignmentGeneration: input.assignment.generation,
+      oauthClientConfigSha256: input.oauthClientConfigSha256,
+      openAiLocks: input.stages.openAiLocks,
+    });
+    const artifactId = await storeClientArtifact(pendingArtifactFromEvidence(platform, evidence));
+    return { evidence, artifactId };
+  };
+  return {
+    claude: await create("claude", input.stages.claudeStage.id),
+    openai: await create("openai", input.stages.openAiStage.id),
+  };
+}
+
+async function internalCanaryAccess(input: {
+  client: OAuthClientFixture;
+  tenantId: string;
+  userId: string;
+  candidateId: string;
+  assignment: { id: string; generation: number };
+  stageId: string;
+  suffix: number;
+}) {
+  const credential = await createInternalCanaryReviewerCredentialAtomic({
+    platform: input.client.platform,
+    usernameDigest: digest(input.suffix),
+    passwordHash: "$argon2id$paired-acceptance",
+    tenantId: input.tenantId,
+    candidateId: input.candidateId,
+    assignmentId: input.assignment.id,
+    assignmentGeneration: input.assignment.generation,
+    stagedClientReleaseId: input.stageId,
+    oauthClientId: input.client.id,
+    fixtureVersion: "paired-acceptance-v1",
+    fixturePayloadDigest: sha(String(input.suffix % 10)),
+    expiresAt: new Date(Date.now() + 60 * 60_000),
+    operatorPrincipalDigest: digest(input.suffix + 1),
+  });
+  assert.ok(credential);
+  return issueAccess({
+    client: input.client,
+    userId: input.userId,
+    tenantId: input.tenantId,
+    credentialId: credential!.credentialId,
+    candidateId: input.candidateId,
+    assignmentId: input.assignment.id,
+    assignmentGeneration: input.assignment.generation,
+    stageId: input.stageId,
+  });
 }
 
 describe("Hosted Exomem paired acceptance fixture", () => {
@@ -332,6 +534,12 @@ describe("Hosted Exomem paired acceptance fixture", () => {
 describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }, () => {
   before(async () => {
     process.env.EXOMEM_PUBLIC_BASE_URL = "https://hosted.example.test";
+    process.env.EXOMEM_HOSTED_CLAUDE_INSTALL_URL = "https://claude.ai/plugins/exomem-hosted";
+    process.env.EXOMEM_HOSTED_OPENAI_INSTALL_URL = "https://chatgpt.com/plugins/exomem-hosted";
+    process.env.EXOMEM_HOSTED_PROMOTION_KEY_ID = "integration-operator";
+    process.env.EXOMEM_HOSTED_PROMOTION_SECRET = "integration-secret";
+    process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID = "integration-importer";
+    process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET = "integration-import-secret";
     schema = `paired_acceptance_${randomUUID().replaceAll("-", "")}`;
     await ensureExomemPostgresTestExtensions(databaseUrl!);
     const admin = new Pool({ connectionString: databaseUrl });
@@ -356,6 +564,11 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     }
     if (previousBaseUrl === undefined) delete process.env.EXOMEM_PUBLIC_BASE_URL;
     else process.env.EXOMEM_PUBLIC_BASE_URL = previousBaseUrl;
+    for (const key of promotionEnvironment) {
+      const previous = previousPromotionEnvironment[key];
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    }
   });
 
   it("composes cohort admission, MCP, lifecycle attachment, deletion, and non-promotion", async () => {
@@ -798,5 +1011,601 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       ).rows,
       candidateBefore.rows
     );
+  });
+
+  it("keeps A live through paired B proof, promotes B atomically, and rolls forward to fresh A", async () => {
+    if (!(await getLiveExomemAgentContract())) await seedCohort();
+    const priorRoutes = await pool!.query<{
+      cell_id: string;
+      source_release: string;
+      protocol_version: string;
+      command_fingerprint: string;
+      contract_digest: string;
+      compatibility_digest: string;
+    }>(
+      `SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint,
+              contract_digest, compatibility_digest
+       FROM exomem_routable_cell_contracts
+       WHERE profile_id = 'hosted-alpha-agent-v1' AND routable = true`
+    );
+    for (const route of priorRoutes.rows) {
+      await recordRoutableCellObservation({
+        cellId: route.cell_id,
+        sourceRelease: route.source_release,
+        protocolVersion: route.protocol_version,
+        commandSurfaceSha256: route.command_fingerprint,
+        schemaDigest: route.contract_digest,
+        compatibilitySha256: route.compatibility_digest,
+        routable: false,
+      });
+    }
+    const createTenant = async (reviewer: boolean) => {
+      const user = await pool!.query<{ id: string }>(
+        "INSERT INTO users (email) VALUES ($1) RETURNING id",
+        [`paired-rollout-${randomUUID()}@example.test`]
+      );
+      const tenant = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_tenants (
+           owner_user_id, status, desired_state, marketplace_reviewer_purpose, legacy_unmetered
+         ) VALUES ($1, 'active', 'running', $2, true) RETURNING id`,
+        [user.rows[0]!.id, reviewer]
+      );
+      const cell = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
+           tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+           readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
+           observed_schema_digest, observed_compatibility_digest
+         ) VALUES ($1, 'active', 'bound', 'running', $2, $3, 'CELL_READY', $4, $5, $6, $7)
+         RETURNING id`,
+        [
+          tenant.rows[0]!.id,
+          exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+          exomemHostedContractFixture.sourceRelease,
+          sha("8"),
+          exomemHostedContractFixture.compatibility.command_surface_sha256,
+          exomemHostedContractFixture.compatibility.schema_contract_sha256,
+          exomemHostedContractFixture.compatibility.compatibility_sha256,
+        ]
+      );
+      await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        cell.rows[0]!.id,
+        tenant.rows[0]!.id,
+      ]);
+      await pool!.query(
+        `INSERT INTO exomem_routable_cell_contracts (
+           cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+           contract_digest, compatibility_digest, routable
+         ) VALUES ($1, 'hosted-alpha-agent-v1', $2, $3, $4, $5, $6, true)`,
+        [
+          cell.rows[0]!.id,
+          exomemHostedContractFixture.sourceRelease,
+          exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+          exomemHostedContractFixture.compatibility.command_surface_sha256,
+          exomemHostedContractFixture.compatibility.schema_contract_sha256,
+          exomemHostedContractFixture.compatibility.compatibility_sha256,
+        ]
+      );
+      await pool!.query(
+        "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+        [tenant.rows[0]!.id]
+      );
+      return { userId: user.rows[0]!.id, tenantId: tenant.rows[0]!.id, cellId: cell.rows[0]!.id };
+    };
+    const activate = async (
+      tenant: { tenantId: string; cellId: string },
+      candidateId: string,
+      assignment: { id: string; generation: number },
+      release: PromotionFixtureRelease
+    ) => {
+      const fixture = promotionContractFixture(release);
+      const previous = (
+        await pool!.query<{
+          source_release: string;
+          protocol_version: string;
+          command_fingerprint: string;
+          contract_digest: string;
+          compatibility_digest: string;
+        }>(
+          `SELECT source_release, protocol_version, command_fingerprint, contract_digest,
+                  compatibility_digest
+           FROM exomem_routable_cell_contracts
+           WHERE cell_id = $1`,
+          [tenant.cellId]
+        )
+      ).rows[0];
+      const target = (
+        await pool!.query<{
+          gateway_contract_digest: string;
+          command_fingerprint: string;
+          schema_digest: string;
+          compatibility_digest: string;
+        }>(
+          `SELECT gateway_contract_digest, command_fingerprint, schema_digest, compatibility_digest
+           FROM exomem_agent_contract_rollout_assignments WHERE id = $1`,
+          [assignment.id]
+        )
+      ).rows[0]!;
+      const replacement = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
+           tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+           readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
+           observed_schema_digest, observed_compatibility_digest
+         ) VALUES ($1, 'provisioning', 'unbound', 'running', $2, $3, 'CELL_READY', $4, $5, $6, $7)
+         RETURNING id`,
+        [
+          tenant.tenantId,
+          fixture.compatibility.agent_contract.protocol_version,
+          fixture.sourceRelease,
+          target.gateway_contract_digest,
+          target.command_fingerprint,
+          target.schema_digest,
+          target.compatibility_digest,
+        ]
+      );
+      const operationId = randomUUID();
+      await pool!.query(
+        `INSERT INTO exomem_lifecycle_operations (
+           id, tenant_id, cell_id, expected_previous_cell_id, operation_type, state, idempotency_key,
+           fence_generation, checkpoint, lease_owner, lease_expires_at,
+           target_candidate_id, target_assignment_id, target_assignment_generation,
+           target_source_release, target_protocol_version, target_gateway_contract_digest,
+           target_command_fingerprint, target_schema_digest, target_compatibility_digest
+         ) VALUES ($1, $2, $3, $4, 'provision', 'running', $5, 1, 'readiness-proved',
+                   'paired-bind', now() + interval '1 hour', $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          operationId,
+          tenant.tenantId,
+          replacement.rows[0]!.id,
+          tenant.cellId,
+          `paired-${operationId}`,
+          candidateId,
+          assignment.id,
+          assignment.generation,
+          fixture.sourceRelease,
+          fixture.compatibility.agent_contract.protocol_version,
+          target.gateway_contract_digest,
+          target.command_fingerprint,
+          target.schema_digest,
+          target.compatibility_digest,
+        ]
+      );
+      assert.equal(await new SqlLifecycleStore().bindCandidate(operationId, "paired-bind"), true);
+      if (previous) {
+        await recordRoutableCellObservation({
+          cellId: tenant.cellId,
+          sourceRelease: previous.source_release,
+          protocolVersion: previous.protocol_version,
+          commandSurfaceSha256: previous.command_fingerprint,
+          schemaDigest: previous.contract_digest,
+          compatibilitySha256: previous.compatibility_digest,
+          routable: false,
+        });
+      }
+      tenant.cellId = replacement.rows[0]!.id;
+      return replacement.rows[0]!.id;
+    };
+    const ordinary = await createTenant(false);
+    const reviewer = await createTenant(true);
+    const oauthClients = await pool!.query<{
+      id: string;
+      client_id: string;
+      client_platform: "claude" | "openai";
+      redirect_uri: string;
+      oauth_client_config_sha256: string;
+    }>(
+      `SELECT id, client_id, client_platform, redirect_uris->>0 AS redirect_uri,
+              oauth_client_config_sha256
+       FROM exomem_oauth_clients
+       WHERE enabled = true AND client_platform IN ('claude', 'openai')
+       ORDER BY client_platform`
+    );
+    const clients = Object.fromEntries(
+      oauthClients.rows.map((row) => [
+        row.client_platform,
+        {
+          id: row.id,
+          clientId: row.client_id,
+          redirectUri: row.redirect_uri,
+          platform: row.client_platform,
+        } satisfies OAuthClientFixture,
+      ])
+    ) as Record<"claude" | "openai", OAuthClientFixture>;
+    const oauthConfigDigest = oauthClients.rows[0]!.oauth_client_config_sha256;
+    assert.equal(oauthClients.rows.length, 2);
+    assert.ok(
+      oauthClients.rows.every((row) => row.oauth_client_config_sha256 === oauthConfigDigest)
+    );
+    const liveCandidateId = (
+      await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")
+    ).rows[0]!.id;
+    const ordinaryA = await issueAccess({
+      client: clients.claude,
+      userId: ordinary.userId,
+      tenantId: ordinary.tenantId,
+    });
+    assert.equal((await findMcpOAuthAccessToken(ordinaryA.digest))?.tenantId, ordinary.tenantId);
+    const candidateId = await storeRetainedExomemAgentContractCandidate("0.35.0");
+    const assignment = await createCanaryAssignment({
+      tenantId: reviewer.tenantId,
+      candidateId,
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      operatorPrincipalDigest: sha("9"),
+    });
+    await activate(reviewer, candidateId, assignment, "0.35.0");
+    assert.equal(
+      (await getExomemAgentContractForOAuthAccess({ tenantId: ordinary.tenantId }))?.sourceRelease,
+      "0.34.0"
+    );
+    assert.equal(
+      (
+        await getExomemAgentContractForOAuthAccess({
+          tenantId: reviewer.tenantId,
+          candidateId,
+          assignmentId: assignment.id,
+          assignmentGeneration: BigInt(assignment.generation),
+        })
+      )?.sourceRelease,
+      "0.35.0"
+    );
+    const bStages = await attachCandidateLocksAndStages({
+      candidateId,
+      release: "0.35.0",
+      oauthClientConfigSha256: oauthConfigDigest,
+      digestSeed: { artifact: "d", archive: "e", registeredApp: "f" },
+    });
+    const bEvidence = await importPairedEvidence({
+      candidateId,
+      release: "0.35.0",
+      assignment,
+      stages: bStages,
+      suffix: `pending-b-${randomUUID()}`,
+      oauthClientConfigSha256: oauthConfigDigest,
+    });
+    const bClaude = await internalCanaryAccess({
+      client: clients.claude,
+      tenantId: reviewer.tenantId,
+      userId: reviewer.userId,
+      candidateId,
+      assignment,
+      stageId: bStages.claudeStage.id,
+      suffix: 31,
+    });
+    const bOpenAi = await internalCanaryAccess({
+      client: clients.openai,
+      tenantId: reviewer.tenantId,
+      userId: reviewer.userId,
+      candidateId,
+      assignment,
+      stageId: bStages.openAiStage.id,
+      suffix: 41,
+    });
+    assert.equal((await findMcpOAuthAccessToken(bClaude.digest))?.candidateId, candidateId);
+    assert.equal((await findMcpOAuthAccessToken(bOpenAi.digest))?.candidateId, candidateId);
+
+    const mcpDependencies = {
+      baseUrl: "https://hosted.example.test",
+      findAccessToken: findMcpOAuthAccessToken,
+      getContractForAccess: getExomemAgentContractForOAuthAccess,
+      takeRateLimit: async () => true,
+    };
+    const initialize = async (bearer: string, url = resource, headers: HeadersInit = {}) => {
+      const response = await handleHostedMcpRequest(
+        new Request(url, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${bearer}`,
+            accept: "application/json, text/event-stream",
+            "content-type": "application/json",
+            ...headers,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-11-25",
+              capabilities: {},
+              clientInfo: { name: "paired", version: "1" },
+            },
+          }),
+        }),
+        mcpDependencies
+      );
+      return {
+        response,
+        body: (await response.json()) as {
+          error?: string;
+          result?: { serverInfo?: { version?: string } };
+        },
+      };
+    };
+    const assertRelease = async (bearer: string, expected: PromotionFixtureRelease) => {
+      const initialized = await initialize(bearer);
+      assert.equal(initialized.response.status, 200, JSON.stringify(initialized.body));
+      assert.equal(
+        initialized.body.result?.serverInfo?.version,
+        expected,
+        JSON.stringify(initialized.body)
+      );
+    };
+    await assertRelease(ordinaryA.bearer, "0.34.0");
+    await assertRelease(bClaude.bearer, "0.35.0");
+    await assertRelease(bOpenAi.bearer, "0.35.0");
+    for (const spoof of [
+      initialize(bClaude.bearer, `${resource}?candidate_id=${candidateId}`),
+      initialize(bClaude.bearer, resource, { "x-exomem-release": "0.35.0" }),
+      initialize(bClaude.bearer, resource, {
+        cookie: `assignment_generation=${assignment.generation}`,
+      }),
+    ]) {
+      const { response, body } = await spoof;
+      assert.equal(response.status, 400);
+      assert.equal(body.error, "HOSTED_SELECTOR_REJECTED");
+    }
+    const nestedSpoof = await handleHostedMcpRequest(
+      new Request(resource, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${bClaude.bearer}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          "mcp-protocol-version": "2025-11-25",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: {
+            name: "ask_memory",
+            arguments: {
+              query: "paired",
+              nested: {
+                candidate_id: liveCandidateId,
+                assignment_generation: assignment.generation + 1,
+                cell_id: ordinary.cellId,
+                artifact_id: bEvidence.claude.artifactId,
+                schema_digest: sha("0"),
+              },
+            },
+          },
+        }),
+      }),
+      mcpDependencies
+    );
+    assert.match(await nestedSpoof.text(), /HOSTED_SELECTOR_REJECTED/);
+    assert.equal(
+      await getExomemAgentContractForOAuthAccess({
+        tenantId: reviewer.tenantId,
+        candidateId,
+        assignmentId: assignment.id,
+        assignmentGeneration: BigInt(assignment.generation + 1),
+      }),
+      null
+    );
+    await pool!.query(
+      "UPDATE exomem_routable_cell_contracts SET source_release = '0.34.0' WHERE cell_id = $1",
+      [reviewer.cellId]
+    );
+    assert.equal(
+      await getExomemAgentContractForOAuthAccess({
+        tenantId: reviewer.tenantId,
+        candidateId,
+        assignmentId: assignment.id,
+        assignmentGeneration: BigInt(assignment.generation),
+      }),
+      null
+    );
+    await pool!.query(
+      "UPDATE exomem_routable_cell_contracts SET source_release = '0.35.0' WHERE cell_id = $1",
+      [reviewer.cellId]
+    );
+
+    const ordinaryBAssignment = await createCanaryAssignment({
+      tenantId: ordinary.tenantId,
+      candidateId,
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      operatorPrincipalDigest: sha("9"),
+    });
+    await activate(ordinary, candidateId, ordinaryBAssignment, "0.35.0");
+    assert.equal(await findMcpOAuthAccessToken(ordinaryA.digest), null);
+    const observe = async (
+      cellId: string,
+      release: PromotionFixtureRelease | "0.24.0",
+      locksRelease: PromotionFixtureRelease
+    ) => {
+      const fixture = promotionContractFixture(locksRelease);
+      await recordRoutableCellObservation({
+        cellId,
+        sourceRelease: release,
+        protocolVersion: fixture.compatibility.agent_contract.protocol_version,
+        commandSurfaceSha256: fixture.compatibility.command_surface_sha256,
+        schemaDigest: fixture.compatibility.schema_contract_sha256,
+        compatibilitySha256: fixture.compatibility.compatibility_sha256,
+        routable: true,
+      });
+    };
+    await observe(reviewer.cellId, "0.35.0", "0.35.0");
+    await observe(ordinary.cellId, "0.35.0", "0.35.0");
+    const authorityDigest = async () =>
+      (
+        await pool!.query<{ routable_set_digest: string }>(
+          "SELECT routable_set_digest FROM exomem_agent_contract_profile_authority WHERE profile_id = 'hosted-alpha-agent-v1'"
+        )
+      ).rows[0]!.routable_set_digest;
+    const bAuthorityDigest = await authorityDigest();
+    const bRouting = await pool!.query<{
+      source_release: string;
+      protocol_version: string;
+      command_fingerprint: string;
+      contract_digest: string;
+      compatibility_digest: string;
+    }>(
+      `SELECT source_release, protocol_version, command_fingerprint, contract_digest,
+              compatibility_digest
+       FROM exomem_routable_cell_contracts
+       WHERE profile_id = 'hosted-alpha-agent-v1' AND routable = true
+       ORDER BY cell_id`
+    );
+    assert.equal(bRouting.rows.length, 2);
+    assert.ok(
+      bRouting.rows.every(
+        (row) =>
+          row.source_release === bStages.fixture.sourceRelease &&
+          row.protocol_version === bStages.fixture.compatibility.agent_contract.protocol_version &&
+          row.command_fingerprint === bStages.fixture.compatibility.command_surface_sha256 &&
+          row.contract_digest === bStages.fixture.compatibility.schema_contract_sha256 &&
+          row.compatibility_digest === bStages.fixture.compatibility.compatibility_sha256
+      )
+    );
+    assert.deepEqual(
+      (
+        await pool!.query<{ id: string }>(
+          "SELECT id::text AS id FROM exomem_agent_contract_candidates WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live' ORDER BY id"
+        )
+      ).rows.map((row) => row.id),
+      [liveCandidateId]
+    );
+    assert.equal(
+      await promoteExomemHostedCohort({
+        candidateId,
+        claudeArtifactId: bEvidence.claude.artifactId,
+        openaiArtifactId: bEvidence.openai.artifactId,
+        expectedLiveCandidateId: liveCandidateId,
+        expectedRoutableCellDigest: bAuthorityDigest,
+        claudeEvidence: bEvidence.claude.evidence,
+        openaiEvidence: bEvidence.openai.evidence,
+      }),
+      "promoted"
+    );
+    assert.equal((await findMcpOAuthAccessToken(bClaude.digest))?.candidateId, candidateId);
+    assert.equal((await findMcpOAuthAccessToken(bOpenAi.digest))?.candidateId, candidateId);
+    const ordinaryB = await issueAccess({
+      client: clients.claude,
+      userId: ordinary.userId,
+      tenantId: ordinary.tenantId,
+    });
+    await assertRelease(ordinaryB.bearer, "0.35.0");
+
+    const rollbackCandidateId = await storeRetainedExomemAgentContractCandidate("0.34.0");
+    assert.notEqual(rollbackCandidateId, liveCandidateId);
+    assert.notEqual(rollbackCandidateId, candidateId);
+    const rollbackStages = await attachCandidateLocksAndStages({
+      candidateId: rollbackCandidateId,
+      release: "0.34.0",
+      oauthClientConfigSha256: oauthConfigDigest,
+      digestSeed: { artifact: "6", archive: "7", registeredApp: "8" },
+    });
+    const reviewerRollbackAssignment = await createCanaryAssignment({
+      tenantId: reviewer.tenantId,
+      candidateId: rollbackCandidateId,
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      operatorPrincipalDigest: sha("9"),
+    });
+    await activate(reviewer, rollbackCandidateId, reviewerRollbackAssignment, "0.34.0");
+    const rollbackEvidence = await importPairedEvidence({
+      candidateId: rollbackCandidateId,
+      release: "0.34.0",
+      assignment: reviewerRollbackAssignment,
+      stages: rollbackStages,
+      suffix: `rollback-a-${randomUUID()}`,
+      oauthClientConfigSha256: oauthConfigDigest,
+    });
+    const rollbackClaude = await internalCanaryAccess({
+      client: clients.claude,
+      tenantId: reviewer.tenantId,
+      userId: reviewer.userId,
+      candidateId: rollbackCandidateId,
+      assignment: reviewerRollbackAssignment,
+      stageId: rollbackStages.claudeStage.id,
+      suffix: 51,
+    });
+    const rollbackOpenAi = await internalCanaryAccess({
+      client: clients.openai,
+      tenantId: reviewer.tenantId,
+      userId: reviewer.userId,
+      candidateId: rollbackCandidateId,
+      assignment: reviewerRollbackAssignment,
+      stageId: rollbackStages.openAiStage.id,
+      suffix: 61,
+    });
+    const ordinaryRollbackAssignment = await createCanaryAssignment({
+      tenantId: ordinary.tenantId,
+      candidateId: rollbackCandidateId,
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      operatorPrincipalDigest: sha("9"),
+    });
+    await activate(ordinary, rollbackCandidateId, ordinaryRollbackAssignment, "0.34.0");
+    assert.equal(await findMcpOAuthAccessToken(ordinaryB.digest), null);
+    assert.ok(reviewerRollbackAssignment.generation > assignment.generation);
+    assert.ok(ordinaryRollbackAssignment.generation > ordinaryBAssignment.generation);
+    assert.notEqual(reviewerRollbackAssignment.id, assignment.id);
+    assert.notEqual(ordinaryRollbackAssignment.id, ordinaryBAssignment.id);
+    assert.notEqual(rollbackStages.claudeStage.id, bStages.claudeStage.id);
+    assert.notEqual(rollbackStages.openAiStage.id, bStages.openAiStage.id);
+    assert.notEqual(rollbackEvidence.claude.artifactId, bEvidence.claude.artifactId);
+    assert.notEqual(rollbackEvidence.openai.artifactId, bEvidence.openai.artifactId);
+
+    await observe(reviewer.cellId, "0.34.0", "0.34.0");
+    await observe(ordinary.cellId, "0.24.0", "0.34.0");
+    assert.equal(
+      await promoteExomemHostedCohort({
+        candidateId: rollbackCandidateId,
+        claudeArtifactId: rollbackEvidence.claude.artifactId,
+        openaiArtifactId: rollbackEvidence.openai.artifactId,
+        expectedLiveCandidateId: candidateId,
+        expectedRoutableCellDigest: await authorityDigest(),
+        claudeEvidence: rollbackEvidence.claude.evidence,
+        openaiEvidence: rollbackEvidence.openai.evidence,
+      }),
+      "precondition_failed"
+    );
+    await observe(ordinary.cellId, "0.34.0", "0.34.0");
+    assert.equal(
+      await promoteExomemHostedCohort({
+        candidateId: rollbackCandidateId,
+        claudeArtifactId: rollbackEvidence.claude.artifactId,
+        openaiArtifactId: rollbackEvidence.openai.artifactId,
+        expectedLiveCandidateId: candidateId,
+        expectedRoutableCellDigest: await authorityDigest(),
+        claudeEvidence: rollbackEvidence.claude.evidence,
+        openaiEvidence: rollbackEvidence.openai.evidence,
+      }),
+      "promoted"
+    );
+    assert.equal(
+      (await findMcpOAuthAccessToken(rollbackClaude.digest))?.candidateId,
+      rollbackCandidateId
+    );
+    assert.equal(
+      (await findMcpOAuthAccessToken(rollbackOpenAi.digest))?.candidateId,
+      rollbackCandidateId
+    );
+    const candidates = await pool!.query<{ id: string; state: string }>(
+      "SELECT id, state FROM exomem_agent_contract_candidates WHERE id = ANY($1::uuid[])",
+      [[liveCandidateId, candidateId, rollbackCandidateId]]
+    );
+    assert.deepEqual(Object.fromEntries(candidates.rows.map((row) => [row.id, row.state])), {
+      [liveCandidateId]: "retired",
+      [candidateId]: "retired",
+      [rollbackCandidateId]: "live",
+    });
+    const retiredLineage = await pool!.query<{ id: string; state: string }>(
+      `SELECT id, state FROM exomem_agent_contract_rollout_assignments
+       WHERE id = ANY($1::uuid[])
+       UNION ALL
+       SELECT id, state FROM exomem_staged_client_releases WHERE id = ANY($2::uuid[])`,
+      [
+        [assignment.id, ordinaryBAssignment.id],
+        [bStages.claudeStage.id, bStages.openAiStage.id],
+      ]
+    );
+    assert.equal(retiredLineage.rows.length, 4);
+    assert.ok(retiredLineage.rows.every((row) => row.state === "retired"));
+    const ordinaryRollbackA = await issueAccess({
+      client: clients.claude,
+      userId: ordinary.userId,
+      tenantId: ordinary.tenantId,
+    });
+    await assertRelease(ordinaryRollbackA.bearer, "0.34.0");
   });
 });

@@ -72,6 +72,11 @@ export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]>
 }
 
 type OperatorClientWriteResult = { id: string; enabled: boolean };
+type StagedOperatorOAuthClientRegistration = OperatorOAuthClientRegistration & {
+  stagedClientReleaseId?: string;
+};
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function metadataProvenance(input: {
   mode: "pinned" | "cimd";
@@ -88,11 +93,16 @@ function metadataProvenance(input: {
 
 /** Register a pre-approved client only. Runtime authorization never creates or fetches a client. */
 export async function registerOperatorOAuthClient(
-  input: OperatorOAuthClientRegistration,
+  input: StagedOperatorOAuthClientRegistration,
   dependencies: { fetchCimd?: (clientId: string) => Promise<CimdFetchedMetadata> } = {}
 ): Promise<OperatorClientWriteResult> {
   const registration = normalizeOperatorOAuthClientRegistration(input);
-  if (!registration.artifactId) throw exomemErrors.invalidRequest();
+  const stagedClientReleaseId = input.stagedClientReleaseId;
+  if (
+    !registration.artifactId &&
+    (typeof stagedClientReleaseId !== "string" || !UUID.test(stagedClientReleaseId))
+  )
+    throw exomemErrors.invalidRequest();
   const configSha256 = oauthClientConfigSha256({
     platform: registration.platform,
     admissionMode: registration.admissionMode,
@@ -123,6 +133,23 @@ export async function registerOperatorOAuthClient(
           AND platform = ${registration.platform}
           AND state IN ('pending', 'live')
           AND oauth_client_config_sha256 = ${configSha256}
+      ), stage AS (
+        SELECT stage.id
+        FROM exomem_staged_client_releases AS stage
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = stage.candidate_id
+         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.state IN ('pending', 'live')
+        WHERE stage.id = ${stagedClientReleaseId ?? "00000000-0000-0000-0000-000000000000"}::uuid
+          AND stage.platform = ${registration.platform}
+          AND stage.state IN ('staged', 'evidenced')
+          AND stage.expires_at > now()
+          AND stage.oauth_client_config_sha256 = ${configSha256}
+          AND stage.registered_app_id_sha256 IS NOT DISTINCT FROM ${registration.registeredAppIdSha256 ?? null}
+      ), authority AS (
+        SELECT id FROM artifact
+        UNION ALL
+        SELECT id FROM stage
       )
       INSERT INTO exomem_oauth_clients (
         client_id, admission_mode, enabled, metadata_provenance, redirect_uris,
@@ -151,7 +178,7 @@ export async function registerOperatorOAuthClient(
              ${fetched ? new URL(registration.clientId).hostname.toLowerCase() : null},
              ${registration.platform}, ${configSha256},
              gen_random_uuid()
-      FROM available CROSS JOIN artifact
+      FROM available CROSS JOIN authority
       WHERE available.allowed
       ON CONFLICT (client_id) DO UPDATE
       SET admission_mode = EXCLUDED.admission_mode,

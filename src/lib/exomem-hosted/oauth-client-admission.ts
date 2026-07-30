@@ -24,6 +24,7 @@ export type OperatorOAuthClientRegistration = {
   artifactId?: string;
   clientId: string;
   redirectUris: string[];
+  registeredAppIdSha256?: string;
   ttlSeconds?: number;
 };
 
@@ -97,6 +98,9 @@ export function normalizeOperatorOAuthClientRegistration(
     input.clientId.length === 0 ||
     input.clientId.length > MAX_OAUTH_CLIENT_ID_LENGTH ||
     !exactStringList(input.redirectUris) ||
+    (input.registeredAppIdSha256 !== undefined &&
+      (typeof input.registeredAppIdSha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(input.registeredAppIdSha256))) ||
     input.redirectUris.some((uri) => !safeRedirectUri(uri, customRedirectHosts))
   ) {
     throw exomemErrors.invalidRequest();
@@ -134,6 +138,9 @@ export function normalizeOperatorOAuthClientRegistration(
     artifactId: input.artifactId,
     clientId: input.clientId,
     redirectUris: [...input.redirectUris],
+    ...(input.registeredAppIdSha256
+      ? { registeredAppIdSha256: input.registeredAppIdSha256 }
+      : {}),
     ttlSeconds,
   };
 }

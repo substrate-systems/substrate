@@ -15,6 +15,13 @@ export type CellWorkerPolicy = {
   media: boolean;
 };
 
+export type CellContractIdentity = {
+  gatewayContractDigest: string;
+  commandFingerprint: string;
+  schemaDigest: string;
+  compatibilityDigest: string;
+};
+
 export type ProvisionerCallContext = {
   operationId: string;
   checkpoint: string;
@@ -30,6 +37,7 @@ type CellRequest = {
   releaseVersion: string;
   serviceCredential: SensitiveSecret;
   workerPolicy: CellWorkerPolicy;
+  contractIdentity?: CellContractIdentity;
 };
 
 export type ProvisionMode = "serve" | "restore-candidate";
@@ -76,6 +84,7 @@ export type CellReadiness = {
   readAdmission: boolean;
   writeAdmission: boolean;
   workerPolicy: CellWorkerPolicy;
+  contractIdentity?: CellContractIdentity;
   code: string;
 };
 
@@ -273,6 +282,7 @@ function baseCellBody(request: CellRequest): Record<string, unknown> {
     releaseVersion: request.releaseVersion,
     serviceCredential: request.serviceCredential.reveal(),
     workerPolicy: request.workerPolicy,
+    ...(request.contractIdentity ? { contractIdentity: request.contractIdentity } : {}),
   };
 }
 
@@ -320,6 +330,29 @@ function parseWorkerPolicy(value: unknown): CellWorkerPolicy | null {
     semantic: policy.semantic,
     media: policy.media,
   };
+}
+
+function parseContractIdentity(value: unknown): CellContractIdentity | null | undefined {
+  if (value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const identity = value as Record<string, unknown>;
+  const gatewayContractDigest = boundedLabel(identity.gatewayContractDigest, 64);
+  const commandFingerprint = boundedLabel(identity.commandFingerprint, 64);
+  const schemaDigest = boundedLabel(identity.schemaDigest, 64);
+  const compatibilityDigest = boundedLabel(identity.compatibilityDigest, 64);
+  if (
+    !gatewayContractDigest ||
+    !commandFingerprint ||
+    !schemaDigest ||
+    !compatibilityDigest ||
+    !/^[a-f0-9]{64}$/.test(gatewayContractDigest) ||
+    !/^[a-f0-9]{64}$/.test(commandFingerprint) ||
+    !/^[a-f0-9]{64}$/.test(schemaDigest) ||
+    !/^[a-f0-9]{64}$/.test(compatibilityDigest)
+  ) {
+    return undefined;
+  }
+  return { gatewayContractDigest, commandFingerprint, schemaDigest, compatibilityDigest };
 }
 
 async function readBoundedJsonRecord(response: Response): Promise<Record<string, unknown> | null> {
@@ -529,12 +562,14 @@ export class HttpCellProvisioner implements CellProvisioner {
     const releaseVersion = boundedLabel(response.releaseVersion, 64);
     const code = boundedLabel(response.code, 64);
     const workerPolicy = parseWorkerPolicy(response.workerPolicy);
+    const contractIdentity = parseContractIdentity(response.contractIdentity);
     if (
       !cellId ||
       !protocolVersion ||
       !releaseVersion ||
       !code ||
       !workerPolicy ||
+      contractIdentity === undefined ||
       typeof response.live !== "boolean" ||
       typeof response.ready !== "boolean" ||
       typeof response.serviceAuthenticated !== "boolean" ||
@@ -559,6 +594,7 @@ export class HttpCellProvisioner implements CellProvisioner {
       readAdmission: response.readAdmission,
       writeAdmission: response.writeAdmission,
       workerPolicy,
+      ...(contractIdentity ? { contractIdentity } : {}),
       code,
     };
   }
@@ -769,6 +805,7 @@ type FakeResource = {
   pendingCredential: SensitiveSecret | null;
   credentialVersion: number;
   workerPolicy: CellWorkerPolicy;
+  contractIdentity: CellContractIdentity | null;
   providerRef: string;
   endpoint: SensitiveSecret;
   state: "running" | "quiesced" | "stopped" | "sealed";
@@ -856,6 +893,7 @@ export class FakeCellProvisioner implements CellProvisioner {
           releaseVersion: request.releaseVersion,
           serviceCredential: request.serviceCredential.reveal(),
           workerPolicy: request.workerPolicy,
+          contractIdentity: request.contractIdentity ?? null,
           ...additional,
         })
       )
@@ -903,6 +941,7 @@ export class FakeCellProvisioner implements CellProvisioner {
       pendingCredential: null,
       credentialVersion: 1,
       workerPolicy: structuredClone(request.workerPolicy),
+      contractIdentity: request.contractIdentity ? { ...request.contractIdentity } : null,
       providerRef,
       endpoint,
       state: "running",
@@ -929,6 +968,7 @@ export class FakeCellProvisioner implements CellProvisioner {
       readAdmission: running && serviceAuthenticated,
       writeAdmission: running && serviceAuthenticated,
       workerPolicy: structuredClone(resource.workerPolicy),
+      ...(resource.contractIdentity ? { contractIdentity: { ...resource.contractIdentity } } : {}),
       code: running ? "CELL_READY" : "CELL_NOT_READY",
       ...this.readinessOverride,
     };

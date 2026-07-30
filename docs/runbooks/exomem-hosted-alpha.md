@@ -628,6 +628,29 @@ ship incident: keep routing closed and preserve only content-free audit evidence
 
 ## Rollback
 
+### Hosted contract cohort rollback
+
+Use the authenticated `/api/exomem/admin/contracts` control only. Its status
+view is content-free: candidate state, observed contract identity, the exact
+`routableSetDigest` required as `expectedRoutableCellDigest` for promotion,
+routable count, `routableObservationFresh`, and the latest lifecycle target.
+Promote only with a fresh observation; a stale observation requires a new cell
+observation before retrying, never a guessed digest. `expire-canary-authority`
+reports expired assignment and stage counts, revoked credential count, and
+whether the bounded sweep is drained. Create stages and assignments only for
+the reviewer-purpose tenant; expiry and versioned failure are terminal and
+revoke dependent internal-canary lineage. `begin-export` and `begin-restore`
+pin server-selected lifecycle targets under the cohort lock; restore accepts an
+available export ID, never caller-supplied cell or contract identity.
+
+Emergency demotion stops a live unit; it is not rollback. Forward rollback
+imports a retained coherent 0.34.0 or 0.35.0 catalog release as a new pending
+candidate UUID, then creates fresh stages, assignment generations, and signed
+two-client evidence before the normal promotion compare-and-swap. Never revive
+retired candidates, stages, assignments, client artifacts, or historical
+evidence. The historical 0.24 full-contract / 0.34 agent split is not a
+coherent unit and cannot be routed or promoted.
+
 Application rollback is safe because the Exomem migrations are additive, but
 export operations must first be fenced and drained. Stop new invites and export
 requests, then wait until no active export has `export_request_started = true`
