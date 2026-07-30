@@ -6,7 +6,12 @@ import {
 } from "./cloudflare-access";
 import { SensitiveSecret } from "./security";
 
-export const PROVISIONER_PROTOCOL = "exomem-cell-provisioner.v1";
+export const PROVISIONER_PROTOCOL_V1 = "exomem-cell-provisioner.v1";
+export const PROVISIONER_PROTOCOL_V2 = "exomem-cell-provisioner.v2";
+export const PROVISIONER_PROTOCOL = PROVISIONER_PROTOCOL_V1;
+export type ProvisionerWireProtocol =
+  | typeof PROVISIONER_PROTOCOL_V1
+  | typeof PROVISIONER_PROTOCOL_V2;
 const MAX_PROVISIONER_RESPONSE_BYTES = 1024 * 1024;
 
 export type CellWorkerPolicy = {
@@ -20,6 +25,15 @@ export type CellContractIdentity = {
   commandFingerprint: string;
   schemaDigest: string;
   compatibilityDigest: string;
+};
+
+export type RuntimeTarget = {
+  releaseVersion: string;
+  protocolVersion: string;
+  agentProfile: string;
+  gatewayContractDigest: string;
+  commandFingerprint: string;
+  schemaDigest: string;
 };
 
 export type ProvisionerCallContext = {
@@ -37,6 +51,9 @@ type CellRequest = {
   releaseVersion: string;
   serviceCredential: SensitiveSecret;
   workerPolicy: CellWorkerPolicy;
+  provisionerWireProtocol?: ProvisionerWireProtocol;
+  agentProfile?: string;
+  runtimeTarget?: RuntimeTarget;
   contractIdentity?: CellContractIdentity;
 };
 
@@ -84,6 +101,7 @@ export type CellReadiness = {
   readAdmission: boolean;
   writeAdmission: boolean;
   workerPolicy: CellWorkerPolicy;
+  runtimeIdentity?: RuntimeTarget;
   contractIdentity?: CellContractIdentity;
   code: string;
 };
@@ -110,6 +128,7 @@ export type DeleteExportRequest = {
   context: ProvisionerCallContext;
   tenantId: string;
   exportRef: SensitiveSecret;
+  provisionerWireProtocol?: ProvisionerWireProtocol;
 };
 
 export type ExportDeletionProof = {
@@ -129,12 +148,14 @@ export type TenantDestructionProof = DestructionProof & {
 export type DestroyTenantRequest = {
   context: ProvisionerCallContext;
   tenantId: string;
+  provisionerWireProtocol?: ProvisionerWireProtocol;
 };
 
 export type ExportDownloadRequest = {
   context: ProvisionerCallContext;
   tenantId: string;
   exportRef: SensitiveSecret;
+  provisionerWireProtocol?: ProvisionerWireProtocol;
 };
 
 export type ExportDownloadResult = {
@@ -273,7 +294,18 @@ function contextBody(context: ProvisionerCallContext): Record<string, unknown> {
   };
 }
 
-function baseCellBody(request: CellRequest): Record<string, unknown> {
+function wireProtocol(request: { provisionerWireProtocol?: ProvisionerWireProtocol }): ProvisionerWireProtocol {
+  if (request.provisionerWireProtocol === undefined) return PROVISIONER_PROTOCOL_V1;
+  if (
+    request.provisionerWireProtocol === PROVISIONER_PROTOCOL_V1 ||
+    request.provisionerWireProtocol === PROVISIONER_PROTOCOL_V2
+  ) {
+    return request.provisionerWireProtocol;
+  }
+  throw configurationFailure();
+}
+
+function baseCellBodyV1(request: CellRequest): Record<string, unknown> {
   return {
     ...contextBody(request.context),
     tenantId: request.tenantId,
@@ -284,6 +316,42 @@ function baseCellBody(request: CellRequest): Record<string, unknown> {
     workerPolicy: request.workerPolicy,
     ...(request.contractIdentity ? { contractIdentity: request.contractIdentity } : {}),
   };
+}
+
+function runtimeTarget(request: CellRequest): RuntimeTarget {
+  if (request.runtimeTarget) {
+    const parsed = parseRuntimeIdentity(request.runtimeTarget);
+    if (parsed) return parsed;
+    throw configurationFailure();
+  }
+  const agentProfile = boundedLabel(request.agentProfile, 128);
+  const identity = parseContractIdentity(request.contractIdentity);
+  if (!agentProfile || !identity) throw configurationFailure();
+  return {
+    releaseVersion: request.releaseVersion,
+    protocolVersion: request.protocolVersion,
+    agentProfile,
+    gatewayContractDigest: identity.gatewayContractDigest,
+    commandFingerprint: identity.commandFingerprint,
+    schemaDigest: identity.schemaDigest,
+  };
+}
+
+function baseCellBodyV2(request: CellRequest): Record<string, unknown> {
+  return {
+    ...contextBody(request.context),
+    tenantId: request.tenantId,
+    cellId: request.cellId,
+    serviceCredential: request.serviceCredential.reveal(),
+    workerPolicy: request.workerPolicy,
+    runtimeTarget: runtimeTarget(request),
+  };
+}
+
+function baseCellBody(request: CellRequest): Record<string, unknown> {
+  return wireProtocol(request) === PROVISIONER_PROTOCOL_V1
+    ? baseCellBodyV1(request)
+    : baseCellBodyV2(request);
 }
 
 function provisionBody(request: ProvisionCellRequest): Record<string, unknown> {
@@ -353,6 +421,44 @@ function parseContractIdentity(value: unknown): CellContractIdentity | null | un
     return undefined;
   }
   return { gatewayContractDigest, commandFingerprint, schemaDigest, compatibilityDigest };
+}
+
+function parseRuntimeIdentity(value: unknown): RuntimeTarget | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const identity = value as Record<string, unknown>;
+  if (
+    Object.keys(identity).sort().join(",") !==
+    "agentProfile,commandFingerprint,gatewayContractDigest,protocolVersion,releaseVersion,schemaDigest"
+  ) {
+    return null;
+  }
+  const releaseVersion = boundedLabel(identity.releaseVersion, 64);
+  const protocolVersion = boundedLabel(identity.protocolVersion, 64);
+  const agentProfile = boundedLabel(identity.agentProfile, 128);
+  const gatewayContractDigest = boundedLabel(identity.gatewayContractDigest, 64);
+  const commandFingerprint = boundedLabel(identity.commandFingerprint, 64);
+  const schemaDigest = boundedLabel(identity.schemaDigest, 64);
+  if (
+    !releaseVersion ||
+    !protocolVersion ||
+    !agentProfile ||
+    !gatewayContractDigest ||
+    !commandFingerprint ||
+    !schemaDigest ||
+    !/^[a-f0-9]{64}$/.test(gatewayContractDigest) ||
+    !/^[a-f0-9]{64}$/.test(commandFingerprint) ||
+    !/^[a-f0-9]{64}$/.test(schemaDigest)
+  ) {
+    return null;
+  }
+  return {
+    releaseVersion,
+    protocolVersion,
+    agentProfile,
+    gatewayContractDigest,
+    commandFingerprint,
+    schemaDigest,
+  };
 }
 
 async function readBoundedJsonRecord(response: Response): Promise<Record<string, unknown> | null> {
@@ -465,7 +571,7 @@ export class HttpCellProvisioner implements CellProvisioner {
 
   async #call(
     action: string,
-    request: Pick<ProvisionCellRequest, "context">,
+    request: Pick<ProvisionCellRequest, "context" | "provisionerWireProtocol">,
     body: Record<string, unknown>
   ) {
     const controller = new AbortController();
@@ -479,7 +585,7 @@ export class HttpCellProvisioner implements CellProvisioner {
           authorization: `Bearer ${this.#config.credential.reveal()}`,
           "content-type": "application/json",
           "idempotency-key": request.context.idempotencyKey,
-          "x-exomem-provisioner-protocol": PROVISIONER_PROTOCOL,
+          "x-exomem-provisioner-protocol": wireProtocol(request),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -557,6 +663,46 @@ export class HttpCellProvisioner implements CellProvisioner {
 
   async health(request: CellTargetRequest): Promise<CellReadiness> {
     const response = await this.#call("health", request, targetBody(request));
+    if (wireProtocol(request) === PROVISIONER_PROTOCOL_V2) {
+      const runtimeIdentity = parseRuntimeIdentity(response.runtimeIdentity);
+      const cellId = boundedLabel(response.cellId);
+      const code = boundedLabel(response.code, 64);
+      const workerPolicy = parseWorkerPolicy(response.workerPolicy);
+      if (
+        Object.keys(response).sort().join(",") !==
+          "cellId,code,live,mutationAuthority,readAdmission,ready,runtimeIdentity,serviceAuthenticated,workerPolicy,writeAdmission" ||
+        !runtimeIdentity ||
+        !cellId ||
+        !code ||
+        !workerPolicy ||
+        typeof response.live !== "boolean" ||
+        typeof response.ready !== "boolean" ||
+        typeof response.serviceAuthenticated !== "boolean" ||
+        typeof response.mutationAuthority !== "boolean" ||
+        typeof response.readAdmission !== "boolean" ||
+        typeof response.writeAdmission !== "boolean" ||
+        (response.live && response.ready) !== (code === "CELL_READY")
+      ) {
+        throw new ProvisionerFailure({
+          code: "PROVISIONER_RESPONSE_INVALID",
+          retryable: false,
+        });
+      }
+      return {
+        live: response.live,
+        ready: response.ready,
+        cellId,
+        protocolVersion: runtimeIdentity.protocolVersion,
+        releaseVersion: runtimeIdentity.releaseVersion,
+        serviceAuthenticated: response.serviceAuthenticated,
+        mutationAuthority: response.mutationAuthority,
+        readAdmission: response.readAdmission,
+        writeAdmission: response.writeAdmission,
+        workerPolicy,
+        runtimeIdentity,
+        code,
+      };
+    }
     const cellId = boundedLabel(response.cellId);
     const protocolVersion = boundedLabel(response.protocolVersion, 64);
     const releaseVersion = boundedLabel(response.releaseVersion, 64);
@@ -801,6 +947,9 @@ type FakeResource = {
   cellId: string;
   protocolVersion: string;
   releaseVersion: string;
+  provisionerWireProtocol: ProvisionerWireProtocol;
+  agentProfile: string | null;
+  runtimeTarget: RuntimeTarget | null;
   credential: SensitiveSecret;
   pendingCredential: SensitiveSecret | null;
   credentialVersion: number;
@@ -821,6 +970,7 @@ type ProvisionerAction =
   | "export"
   | "release-export"
   | "delete-export"
+  | "export-download"
   | "restore"
   | "seal"
   | "discard"
@@ -884,17 +1034,8 @@ export class FakeCellProvisioner implements CellProvisioner {
     const requestDigest = createHash("sha256")
       .update(
         JSON.stringify({
-          operationId: request.context.operationId,
-          checkpoint: request.context.checkpoint,
-          fenceGeneration: request.context.fenceGeneration,
-          tenantId: request.tenantId,
-          cellId: request.cellId,
-          protocolVersion: request.protocolVersion,
-          releaseVersion: request.releaseVersion,
-          serviceCredential: request.serviceCredential.reveal(),
-          workerPolicy: request.workerPolicy,
-          contractIdentity: request.contractIdentity ?? null,
-          ...additional,
+          provisionerWireProtocol: wireProtocol(request),
+          body: { ...baseCellBody(request), ...additional },
         })
       )
       .digest("base64url");
@@ -914,6 +1055,28 @@ export class FakeCellProvisioner implements CellProvisioner {
     return result;
   }
 
+  #targetFreeBefore(
+    action: "delete-export" | "export-download" | "destroy",
+    request: Pick<DeleteExportRequest, "context" | "tenantId" | "provisionerWireProtocol">,
+    body: Record<string, unknown>
+  ): string {
+    const key = `${action}\0${request.context.idempotencyKey}`;
+    const requestDigest = createHash("sha256")
+      .update(
+        JSON.stringify({
+          provisionerWireProtocol: wireProtocol(request),
+          body,
+        })
+      )
+      .digest("base64url");
+    const priorDigest = this.#requestDigests.get(key);
+    if (priorDigest && priorDigest !== requestDigest) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+    }
+    this.#requestDigests.set(key, requestDigest);
+    return key;
+  }
+
   #resource(request: CellTargetRequest): FakeResource {
     const resource = this.resources.get(request.cellId);
     if (!resource || resource.providerRef !== request.providerRef) {
@@ -924,6 +1087,8 @@ export class FakeCellProvisioner implements CellProvisioner {
 
   async provision(request: ProvisionCellRequest): Promise<ProvisionedCell> {
     if (!validProvisionMode(request.provisionMode)) throw configurationFailure();
+    const selectedRuntimeTarget =
+      wireProtocol(request) === PROVISIONER_PROTOCOL_V2 ? runtimeTarget(request) : null;
     const key = this.#before("provision", request, { provisionMode: request.provisionMode });
     const prior = this.#results.get(key) as ProvisionedCell | undefined;
     if (prior) return prior;
@@ -935,8 +1100,11 @@ export class FakeCellProvisioner implements CellProvisioner {
     this.resources.set(request.cellId, {
       tenantId: request.tenantId,
       cellId: request.cellId,
-      protocolVersion: request.protocolVersion,
-      releaseVersion: request.releaseVersion,
+      protocolVersion: selectedRuntimeTarget?.protocolVersion ?? request.protocolVersion,
+      releaseVersion: selectedRuntimeTarget?.releaseVersion ?? request.releaseVersion,
+      provisionerWireProtocol: wireProtocol(request),
+      agentProfile: selectedRuntimeTarget?.agentProfile ?? request.agentProfile ?? null,
+      runtimeTarget: selectedRuntimeTarget,
       credential: request.serviceCredential,
       pendingCredential: null,
       credentialVersion: 1,
@@ -957,6 +1125,18 @@ export class FakeCellProvisioner implements CellProvisioner {
     const serviceAuthenticated =
       presented === resource.credential.reveal() ||
       presented === resource.pendingCredential?.reveal();
+    const runtimeIdentity =
+      resource.runtimeTarget ??
+      (resource.agentProfile && resource.contractIdentity
+        ? {
+            releaseVersion: resource.releaseVersion,
+            protocolVersion: resource.protocolVersion,
+            agentProfile: resource.agentProfile,
+            gatewayContractDigest: resource.contractIdentity.gatewayContractDigest,
+            commandFingerprint: resource.contractIdentity.commandFingerprint,
+            schemaDigest: resource.contractIdentity.schemaDigest,
+          }
+        : null);
     const readiness: CellReadiness = {
       live: resource.state !== "stopped",
       ready: running,
@@ -968,7 +1148,13 @@ export class FakeCellProvisioner implements CellProvisioner {
       readAdmission: running && serviceAuthenticated,
       writeAdmission: running && serviceAuthenticated,
       workerPolicy: structuredClone(resource.workerPolicy),
-      ...(resource.contractIdentity ? { contractIdentity: { ...resource.contractIdentity } } : {}),
+      ...(wireProtocol(request) === PROVISIONER_PROTOCOL_V2
+        ? runtimeIdentity
+          ? { runtimeIdentity }
+          : {}
+        : resource.contractIdentity
+          ? { contractIdentity: { ...resource.contractIdentity } }
+          : {}),
       code: running ? "CELL_READY" : "CELL_NOT_READY",
       ...this.readinessOverride,
     };
@@ -1074,7 +1260,11 @@ export class FakeCellProvisioner implements CellProvisioner {
   async deleteExport(request: DeleteExportRequest): Promise<ExportDeletionProof> {
     const exportRef = request.exportRef.reveal();
     if (!boundedOpaqueReference(exportRef)) throw configurationFailure();
-    const key = `delete-export\0${request.context.idempotencyKey}`;
+    const key = this.#targetFreeBefore("delete-export", request, {
+      ...contextBody(request.context),
+      tenantId: request.tenantId,
+      exportRef,
+    });
     this.calls.push({
       action: "delete-export",
       cellId: "export-object",
@@ -1112,11 +1302,20 @@ export class FakeCellProvisioner implements CellProvisioner {
   }
 
   async createExportDownload(request: ExportDownloadRequest): Promise<ExportDownloadResult> {
+    const exportRef = request.exportRef.reveal();
+    if (!boundedOpaqueReference(exportRef)) throw configurationFailure();
+    const key = this.#targetFreeBefore("export-download", request, {
+      ...contextBody(request.context),
+      tenantId: request.tenantId,
+      exportRef,
+    });
+    const prior = this.#results.get(key) as ExportDownloadResult | undefined;
+    if (prior) return prior;
     const digest = createHash("sha256").update(request.exportRef.reveal()).digest("base64url");
-    return {
+    return this.#after("export-download", key, {
       url: new URL(`https://downloads.invalid/exomem/${digest}`),
       expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-    };
+    });
   }
 
   async seal(request: CellTargetRequest): Promise<void> {
@@ -1145,7 +1344,10 @@ export class FakeCellProvisioner implements CellProvisioner {
       throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
     }
     this.tenantFences.set(request.tenantId, request.context.fenceGeneration);
-    const key = `destroy\0${request.context.idempotencyKey}`;
+    const key = this.#targetFreeBefore("destroy", request, {
+      ...contextBody(request.context),
+      tenantId: request.tenantId,
+    });
     this.calls.push({
       action: "destroy",
       cellId: "tenant-wide",

@@ -152,6 +152,32 @@ describe("CellProvisioner", () => {
     );
   });
 
+  it("rejects fake idempotency replay across provisioner wire protocols", async () => {
+    const fake = new FakeCellProvisioner();
+    const request = {
+      ...provisionRequest(),
+      agentProfile: "hosted-alpha-agent-v1",
+      contractIdentity: {
+        gatewayContractDigest: "a".repeat(64),
+        commandFingerprint: "b".repeat(64),
+        schemaDigest: "c".repeat(64),
+        compatibilityDigest: "d".repeat(64),
+      },
+    } as ProvisionCellRequest;
+    await fake.provision(request);
+
+    await assert.rejects(
+      fake.provision({
+        ...request,
+        provisionerWireProtocol: "exomem-cell-provisioner.v2",
+      } as ProvisionCellRequest),
+      (error) =>
+        error instanceof ProvisionerFailure &&
+        error.code === "PROVISIONER_REJECTED" &&
+        error.retryable === false
+    );
+  });
+
   it("binds export creation to one exact product expiry and forwards durable replays", async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const adapter = new HttpCellProvisioner(
