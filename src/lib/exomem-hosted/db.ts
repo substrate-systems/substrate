@@ -2,6 +2,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
+import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
 
 export type ExomemSqlResult = {
@@ -255,6 +256,7 @@ export type RedeemedAccess = {
 export async function redeemInviteAtomic(
   input: RedeemInviteAtomicInput
 ): Promise<RedeemedAccess | null> {
+  const provisionerWireProtocol = provisionerWireProtocolFromEnv();
   const { rows } = await sql`
     /* exomem:redeem-invite */
     WITH locked_invite AS (
@@ -341,12 +343,45 @@ export async function redeemInviteAtomic(
         ON entitlement.tenant_id = tenant.id
       RETURNING id, user_id, tenant_id
     ),
+    live_target AS MATERIALIZED (
+      SELECT candidate.id AS candidate_id,
+             NULL::uuid AS assignment_id,
+             NULL::bigint AS assignment_generation,
+             candidate.source_release,
+             candidate.protocol_version,
+             MIN(catalog_cell.observed_gateway_contract_digest) AS gateway_contract_digest,
+             candidate.command_fingerprint,
+             candidate.schema_digest,
+             candidate.compatibility_digest
+      FROM exomem_agent_contract_candidates AS candidate
+      JOIN exomem_cells AS catalog_cell
+        ON catalog_cell.routing_state = 'bound'
+       AND catalog_cell.release_version = candidate.source_release
+       AND catalog_cell.protocol_version = candidate.protocol_version
+       AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
+       AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
+       AND catalog_cell.observed_schema_digest = candidate.schema_digest
+      WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+        AND candidate.state = 'live'
+      GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
+               candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
+      HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
+    ),
     operation AS (
       INSERT INTO exomem_lifecycle_operations (
-        tenant_id, operation_type, idempotency_key, fence_generation
+        tenant_id, operation_type, idempotency_key, fence_generation,
+        provisioner_wire_protocol, target_candidate_id, target_assignment_id,
+        target_assignment_generation, target_source_release, target_protocol_version,
+        target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
+        target_compatibility_digest
       )
-      SELECT tenant.id, 'provision', 'initial-provision', tenant.fence_generation
+      SELECT tenant.id, 'provision', 'initial-provision', tenant.fence_generation,
+             ${provisionerWireProtocol}, target.candidate_id, target.assignment_id,
+             target.assignment_generation, target.source_release, target.protocol_version,
+             target.gateway_contract_digest, target.command_fingerprint, target.schema_digest,
+             target.compatibility_digest
       FROM tenant
+      LEFT JOIN live_target AS target ON TRUE
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       RETURNING id, tenant_id
@@ -929,6 +964,7 @@ export async function consumeDeletionConfirmationAtomic(input: {
   tenantId: string;
   tokenDigest: Buffer;
 }): Promise<{ operationId: string; requestId: string } | null> {
+  const provisionerWireProtocol = provisionerWireProtocolFromEnv();
   const { rows } = await sql`
     /* exomem:consume-deletion-confirmation */
     WITH locked_token AS (
@@ -1024,22 +1060,94 @@ export async function consumeDeletionConfirmationAtomic(input: {
         AND NOT (
           pending.state = 'running'
           AND pending.lease_expires_at > now()
-        )
+      )
       RETURNING pending.id
+    ),
+    bound_assignment_target AS MATERIALIZED (
+      SELECT assignment.candidate_id,
+             assignment.id AS assignment_id,
+             assignment.generation AS assignment_generation,
+             assignment.source_release,
+             assignment.protocol_version,
+             assignment.gateway_contract_digest,
+             assignment.command_fingerprint,
+             assignment.schema_digest,
+             assignment.compatibility_digest
+      FROM tenant_gated
+      JOIN exomem_cells AS bound_cell
+        ON bound_cell.id = tenant_gated.bound_cell_id
+       AND bound_cell.tenant_id = tenant_gated.id
+       AND bound_cell.routing_state IN ('bound', 'retiring')
+       AND bound_cell.observed_gateway_contract_digest IS NOT NULL
+      JOIN exomem_agent_contract_rollout_assignments AS assignment
+        ON assignment.tenant_id = tenant_gated.id
+       AND assignment.state = 'active'
+       AND assignment.expires_at > now()
+       AND assignment.source_release = bound_cell.release_version
+       AND assignment.protocol_version = bound_cell.protocol_version
+       AND assignment.gateway_contract_digest = bound_cell.observed_gateway_contract_digest
+       AND assignment.command_fingerprint = bound_cell.observed_command_fingerprint
+       AND assignment.schema_digest = bound_cell.observed_schema_digest
+      JOIN exomem_agent_contract_candidates AS candidate
+        ON candidate.id = assignment.candidate_id
+       AND candidate.state IN ('pending', 'live')
+       AND candidate.source_release = assignment.source_release
+       AND candidate.protocol_version = assignment.protocol_version
+       AND candidate.command_fingerprint = assignment.command_fingerprint
+       AND candidate.schema_digest = assignment.schema_digest
+       AND candidate.compatibility_digest = assignment.compatibility_digest
+    ),
+    bound_cell_target AS MATERIALIZED (
+      SELECT candidate.id AS candidate_id,
+             NULL::uuid AS assignment_id,
+             NULL::bigint AS assignment_generation,
+             candidate.source_release,
+             candidate.protocol_version,
+             bound_cell.observed_gateway_contract_digest AS gateway_contract_digest,
+             candidate.command_fingerprint,
+             candidate.schema_digest,
+             candidate.compatibility_digest
+      FROM tenant_gated
+      JOIN exomem_cells AS bound_cell
+        ON bound_cell.id = tenant_gated.bound_cell_id
+       AND bound_cell.tenant_id = tenant_gated.id
+       AND bound_cell.routing_state IN ('bound', 'retiring')
+       AND bound_cell.observed_gateway_contract_digest IS NOT NULL
+      JOIN exomem_agent_contract_candidates AS candidate
+        ON candidate.profile_id = 'hosted-alpha-agent-v1'
+       AND candidate.state IN ('pending', 'live', 'retired')
+       AND candidate.source_release = bound_cell.release_version
+       AND candidate.protocol_version = bound_cell.protocol_version
+       AND candidate.command_fingerprint = bound_cell.observed_command_fingerprint
+       AND candidate.schema_digest = bound_cell.observed_schema_digest
+    ),
+    target AS MATERIALIZED (
+      SELECT * FROM bound_assignment_target
+      UNION ALL
+      SELECT * FROM bound_cell_target
+      WHERE NOT EXISTS (SELECT 1 FROM bound_assignment_target)
     ),
     operation AS (
       INSERT INTO exomem_lifecycle_operations (
         tenant_id, cell_id, operation_type, idempotency_key,
-        resume_after_operation, fence_generation
+        resume_after_operation, fence_generation, provisioner_wire_protocol,
+        target_candidate_id, target_assignment_id, target_assignment_generation,
+        target_source_release, target_protocol_version, target_gateway_contract_digest,
+        target_command_fingerprint, target_schema_digest, target_compatibility_digest
       )
       SELECT tenant_gated.id,
              tenant_gated.bound_cell_id,
              'delete',
              'confirmed-deletion-' || consumed.id::text,
              false,
-             tenant_gated.fence_generation
+             tenant_gated.fence_generation,
+             ${provisionerWireProtocol},
+             target.candidate_id, target.assignment_id, target.assignment_generation,
+             target.source_release, target.protocol_version, target.gateway_contract_digest,
+             target.command_fingerprint, target.schema_digest, target.compatibility_digest
       FROM tenant_gated
       JOIN consumed ON consumed.tenant_id = tenant_gated.id
+      LEFT JOIN target ON TRUE
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       RETURNING id, request_id

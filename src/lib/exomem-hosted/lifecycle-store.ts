@@ -18,13 +18,8 @@ import type {
   LifecycleStore,
   LifecycleTarget,
 } from "./reconciler";
-import {
-  PROVISIONER_PROTOCOL_V1,
-  PROVISIONER_PROTOCOL_V2,
-  type CellContractIdentity,
-  type CellWorkerPolicy,
-  type ProvisionerWireProtocol,
-} from "./provisioner";
+import type { CellContractIdentity, CellWorkerPolicy, ProvisionerWireProtocol } from "./provisioner";
+import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
 import type { BillingDeletionTarget } from "./billing-deletion";
 import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
@@ -37,10 +32,6 @@ type LifecycleCapacityTransition = {
   succeeded: boolean;
   previous?: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
 };
-
-export function normalizeProvisionerWireProtocol(value: string | undefined): ProvisionerWireProtocol {
-  return value?.trim().toLowerCase() === "true" ? PROVISIONER_PROTOCOL_V2 : PROVISIONER_PROTOCOL_V1;
-}
 
 function asDate(value: unknown): Date {
   return value instanceof Date ? value : new Date(String(value));
@@ -221,9 +212,7 @@ export class SqlLifecycleStore implements LifecycleStore {
     cellId: string | null = null,
     options: LifecycleEnqueueOptions = {}
   ): Promise<LifecycleOperation> {
-    const provisionerWireProtocol = normalizeProvisionerWireProtocol(
-      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED
-    );
+    const provisionerWireProtocol = provisionerWireProtocolFromEnv();
     const exportTtlMs = options.exportTtlMs ?? 24 * 60 * 60 * 1000;
     if (
       operationType === "export" &&
@@ -285,20 +274,23 @@ export class SqlLifecycleStore implements LifecycleStore {
           SELECT candidate.id AS candidate_id, NULL::uuid AS assignment_id,
                  NULL::bigint AS assignment_generation, candidate.source_release,
                  candidate.protocol_version,
-                 CASE candidate.source_release || ':' || candidate.protocol_version
-                   WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
-                     THEN ${exomemContractFixture0340.digest}
-                   WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
-                     THEN ${exomemContractFixture0350.digest}
-                   ELSE NULL
-                 END AS gateway_contract_digest,
+                 MIN(catalog_cell.observed_gateway_contract_digest) AS gateway_contract_digest,
                  candidate.command_fingerprint, candidate.schema_digest,
                  candidate.compatibility_digest
           FROM exomem_agent_contract_candidates AS candidate
+          JOIN exomem_cells AS catalog_cell
+            ON catalog_cell.routing_state = 'bound'
+           AND catalog_cell.release_version = candidate.source_release
+           AND catalog_cell.protocol_version = candidate.protocol_version
+           AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
+           AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
+           AND catalog_cell.observed_schema_digest = candidate.schema_digest
           WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
             AND candidate.state = 'live'
             AND NOT EXISTS (SELECT 1 FROM assignment_target)
-          FOR SHARE OF candidate
+          GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
+                   candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
+          HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
         ), target AS MATERIALIZED (
           SELECT * FROM assignment_target
           UNION ALL
@@ -381,34 +373,64 @@ export class SqlLifecycleStore implements LifecycleStore {
                NULL::bigint AS assignment_generation,
                candidate.source_release,
                candidate.protocol_version,
-               CASE candidate.source_release || ':' || candidate.protocol_version
-                 WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
-                   THEN ${exomemContractFixture0340.digest}
-                 WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
-                   THEN ${exomemContractFixture0350.digest}
-                 ELSE NULL
-               END AS gateway_contract_digest,
+               MIN(catalog_cell.observed_gateway_contract_digest) AS gateway_contract_digest,
                candidate.command_fingerprint,
                candidate.schema_digest,
                candidate.compatibility_digest
         FROM exomem_agent_contract_candidates AS candidate
+        JOIN exomem_cells AS catalog_cell
+          ON catalog_cell.routing_state = 'bound'
+         AND catalog_cell.release_version = candidate.source_release
+         AND catalog_cell.protocol_version = candidate.protocol_version
+         AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
+         AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
+         AND catalog_cell.observed_schema_digest = candidate.schema_digest
         WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
           AND candidate.state = 'live'
           AND NOT EXISTS (SELECT 1 FROM assignment_target)
-        FOR SHARE OF candidate
+        GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
+                 candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
+        HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
+      ), bound_assignment_target AS MATERIALIZED (
+        SELECT assignment.candidate_id,
+               assignment.id AS assignment_id,
+               assignment.generation AS assignment_generation,
+               assignment.source_release,
+               assignment.protocol_version,
+               assignment.gateway_contract_digest,
+               assignment.command_fingerprint,
+               assignment.schema_digest,
+               assignment.compatibility_digest
+        FROM exomem_cells AS bound_cell
+        JOIN tenant ON tenant.id = bound_cell.tenant_id
+        JOIN exomem_agent_contract_rollout_assignments AS assignment
+          ON assignment.tenant_id = tenant.id
+         AND assignment.state = 'active'
+         AND assignment.expires_at > now()
+         AND assignment.source_release = bound_cell.release_version
+         AND assignment.protocol_version = bound_cell.protocol_version
+         AND assignment.gateway_contract_digest = bound_cell.observed_gateway_contract_digest
+         AND assignment.command_fingerprint = bound_cell.observed_command_fingerprint
+         AND assignment.schema_digest = bound_cell.observed_schema_digest
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = assignment.candidate_id
+         AND candidate.state IN ('pending', 'live')
+         AND candidate.source_release = assignment.source_release
+         AND candidate.protocol_version = assignment.protocol_version
+         AND candidate.command_fingerprint = assignment.command_fingerprint
+         AND candidate.schema_digest = assignment.schema_digest
+         AND candidate.compatibility_digest = assignment.compatibility_digest
+        WHERE bound_cell.id = COALESCE(${cellId}::uuid, tenant.bound_cell_id)
+          AND bound_cell.routing_state IN ('bound', 'retiring')
+          AND bound_cell.observed_gateway_contract_digest IS NOT NULL
+        FOR SHARE OF bound_cell, assignment, candidate
       ), bound_cell_target AS MATERIALIZED (
         SELECT candidate.id AS candidate_id,
                NULL::uuid AS assignment_id,
                NULL::bigint AS assignment_generation,
                candidate.source_release,
                candidate.protocol_version,
-               CASE candidate.source_release || ':' || candidate.protocol_version
-                 WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
-                   THEN ${exomemContractFixture0340.digest}
-                 WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
-                   THEN ${exomemContractFixture0350.digest}
-                 ELSE NULL
-               END AS gateway_contract_digest,
+               bound_cell.observed_gateway_contract_digest AS gateway_contract_digest,
                candidate.command_fingerprint,
                candidate.schema_digest,
                candidate.compatibility_digest
@@ -416,11 +438,14 @@ export class SqlLifecycleStore implements LifecycleStore {
         JOIN tenant ON tenant.id = bound_cell.tenant_id
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.profile_id = 'hosted-alpha-agent-v1'
-         AND candidate.state = 'live'
+         AND candidate.state IN ('pending', 'live', 'retired')
          AND candidate.source_release = bound_cell.release_version
          AND candidate.protocol_version = bound_cell.protocol_version
+         AND candidate.command_fingerprint = bound_cell.observed_command_fingerprint
+         AND candidate.schema_digest = bound_cell.observed_schema_digest
         WHERE bound_cell.id = COALESCE(${cellId}::uuid, tenant.bound_cell_id)
           AND bound_cell.routing_state IN ('bound', 'retiring')
+          AND bound_cell.observed_gateway_contract_digest IS NOT NULL
         FOR SHARE OF bound_cell, candidate
       ), target AS MATERIALIZED (
         SELECT * FROM assignment_target
@@ -434,6 +459,10 @@ export class SqlLifecycleStore implements LifecycleStore {
         SELECT * FROM bound_cell_target
         WHERE ${operationType}::text NOT IN ('provision', 'restore')
           AND gateway_contract_digest IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM bound_assignment_target)
+        UNION ALL
+        SELECT * FROM bound_assignment_target
+        WHERE ${operationType}::text NOT IN ('provision', 'restore')
       )
       INSERT INTO exomem_lifecycle_operations (
         tenant_id, cell_id, operation_type, idempotency_key,
@@ -647,6 +676,7 @@ export class SqlLifecycleStore implements LifecycleStore {
     if (
       operation &&
       !operation.target &&
+      operation.provisionerWireProtocol === "exomem-cell-provisioner.v1" &&
       (operation.operationType === "provision" || operation.operationType === "restore")
     ) {
       return this.#snapshotLegacyTarget(operation, input.owner);

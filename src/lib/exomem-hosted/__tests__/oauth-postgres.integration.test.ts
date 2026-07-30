@@ -677,6 +677,179 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     );
   });
 
+  it("snapshots the catalog-backed v2 target for legacy invitation provisioning", async () => {
+    const candidate = await pool!.query<{
+      id: string;
+      source_release: string;
+      protocol_version: string;
+      command_fingerprint: string;
+      schema_digest: string;
+      compatibility_digest: string;
+    }>(
+      `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
+              compatibility_digest
+         FROM exomem_agent_contract_candidates
+        WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'
+        LIMIT 1`
+    );
+    const catalogUser = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ('legacy-v2-catalog@example.test') RETURNING id"
+    );
+    const catalogTenant = await pool!.query<{ id: string }>(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+      [catalogUser.rows[0]!.id]
+    );
+    const catalogCell = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        catalogTenant.rows[0]!.id,
+        candidate.rows[0]!.protocol_version,
+        candidate.rows[0]!.source_release,
+        "e".repeat(64),
+        candidate.rows[0]!.command_fingerprint,
+        candidate.rows[0]!.schema_digest,
+        candidate.rows[0]!.compatibility_digest,
+      ]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      catalogCell.rows[0]!.id,
+      catalogTenant.rows[0]!.id,
+    ]);
+    await createInviteRecord({
+      tokenDigest: digest(357),
+      emailNormalized: "legacy-v2@example.test",
+      entitlementSource: "complimentary",
+      capabilities: [],
+      resourceLimits: {},
+      marketplaceReviewerPurpose: false,
+      operatorPrincipalDigest: digest(358),
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    try {
+      const admitted = await redeemInviteAtomic({
+        tokenDigest: digest(357),
+        sessionDigest: digest(359),
+        csrfDigest: digest(360),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(admitted);
+      const operation = await pool!.query<{
+        provisioner_wire_protocol: string;
+        target_candidate_id: string;
+        target_gateway_contract_digest: string;
+      }>(
+        `SELECT provisioner_wire_protocol, target_candidate_id, target_gateway_contract_digest
+           FROM exomem_lifecycle_operations
+          WHERE id = $1`,
+        [admitted.operationId]
+      );
+      assert.deepEqual(operation.rows, [
+        {
+          provisioner_wire_protocol: "exomem-cell-provisioner.v2",
+          target_candidate_id: candidate.rows[0]!.id,
+          target_gateway_contract_digest: "e".repeat(64),
+        },
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+  });
+
+  it("snapshots the catalog-backed v2 target for OAuth invitation provisioning", async () => {
+    const candidate = await pool!.query<{
+      id: string;
+      source_release: string;
+      protocol_version: string;
+      command_fingerprint: string;
+      schema_digest: string;
+      compatibility_digest: string;
+    }>(
+      `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
+              compatibility_digest
+         FROM exomem_agent_contract_candidates
+        WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'
+        LIMIT 1`
+    );
+    const catalogUser = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ('oauth-v2-catalog@example.test') RETURNING id"
+    );
+    const catalogTenant = await pool!.query<{ id: string }>(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+      [catalogUser.rows[0]!.id]
+    );
+    const catalogCell = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        catalogTenant.rows[0]!.id,
+        candidate.rows[0]!.protocol_version,
+        candidate.rows[0]!.source_release,
+        "e".repeat(64),
+        candidate.rows[0]!.command_fingerprint,
+        candidate.rows[0]!.schema_digest,
+        candidate.rows[0]!.compatibility_digest,
+      ]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      catalogCell.rows[0]!.id,
+      catalogTenant.rows[0]!.id,
+    ]);
+    const internal = await seedClient();
+    await seedPool();
+    await seedInviteAndTransaction(internal, "370");
+
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    try {
+      const admitted = await admitFirstOAuthInviteAtomic({
+        inviteDigest: digest(370),
+        transactionDigest: digest(390),
+        sessionDigest: digest(371),
+        csrfDigest: digest(372),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+        codeDigest: digest(373),
+        codeExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(admitted);
+      const operation = await pool!.query<{
+        provisioner_wire_protocol: string;
+        target_candidate_id: string;
+        target_gateway_contract_digest: string;
+      }>(
+        `SELECT provisioner_wire_protocol, target_candidate_id, target_gateway_contract_digest
+           FROM exomem_lifecycle_operations
+          WHERE id = $1`,
+        [admitted.operationId]
+      );
+      assert.deepEqual(operation.rows, [
+        {
+          provisioner_wire_protocol: "exomem-cell-provisioner.v2",
+          target_candidate_id: candidate.rows[0]!.id,
+          target_gateway_contract_digest: "e".repeat(64),
+        },
+      ]);
+      await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
+        admitted.tenantId,
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+  });
+
   it("propagates reviewer purpose through OAuth invite admission", async () => {
     const internal = await seedClient();
     await seedPool();

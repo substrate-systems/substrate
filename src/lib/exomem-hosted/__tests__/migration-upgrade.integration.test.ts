@@ -817,6 +817,64 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
         );
         await assert.rejects(
           client.query(
+            `INSERT INTO exomem_lifecycle_operations (
+               tenant_id, operation_type, idempotency_key, fence_generation,
+               provisioner_wire_protocol, target_candidate_id, target_source_release,
+               target_protocol_version, target_gateway_contract_digest, target_command_fingerprint,
+               target_schema_digest, target_compatibility_digest
+             ) VALUES ($1, 'delete', 'v2-no-cell-target', 1, 'exomem-cell-provisioner.v2',
+                       $2, '2026.07.30', '1', $3, $4, $5, $6)`,
+            [
+              TENANT,
+              candidate.rows[0]!.id,
+              "d".repeat(64),
+              "a".repeat(64),
+              "b".repeat(64),
+              "c".repeat(64),
+            ]
+          ),
+          /exomem_lifecycle_v2_target_check/i
+        );
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_lifecycle_operations
+                SET target_candidate_id = $1,
+                    target_source_release = '2026.07.30',
+                    target_protocol_version = '1',
+                    target_gateway_contract_digest = $2,
+                    target_command_fingerprint = $3,
+                    target_schema_digest = $4,
+                    target_compatibility_digest = $5
+              WHERE tenant_id = $6 AND idempotency_key = 'v2-no-cell-delete'`,
+            [
+              candidate.rows[0]!.id,
+              "d".repeat(64),
+              "a".repeat(64),
+              "b".repeat(64),
+              "c".repeat(64),
+              TENANT,
+            ]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_lifecycle_operations
+                SET idempotency_key = 'mutated-v2-idempotency-key'
+              WHERE tenant_id = $1 AND idempotency_key = 'v2-complete-target'`,
+            [TENANT]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+        await client.query(
+          `UPDATE exomem_lifecycle_operations
+              SET checkpoint = 'resolving_target',
+                  updated_at = now()
+            WHERE tenant_id = $1 AND idempotency_key = 'v2-complete-target'`,
+          [TENANT]
+        );
+        await assert.rejects(
+          client.query(
             "UPDATE exomem_lifecycle_operations SET provisioner_wire_protocol = 'exomem-cell-provisioner.v2' WHERE id = $1",
             [SOURCE_OPERATION]
           ),

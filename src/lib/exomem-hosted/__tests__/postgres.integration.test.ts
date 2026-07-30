@@ -1289,11 +1289,19 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         expiresAt: new Date(Date.now() + 15 * 60_000),
       })
     );
-    const consumed = await consumeDeletionConfirmationAtomic({
-      userId: USER,
-      tenantId: TENANT,
-      tokenDigest: digest,
-    });
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    let consumed: Awaited<ReturnType<typeof consumeDeletionConfirmationAtomic>>;
+    try {
+      consumed = await consumeDeletionConfirmationAtomic({
+        userId: USER,
+        tenantId: TENANT,
+        tokenDigest: digest,
+      });
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
     assert.ok(consumed);
     const tenant = await pool.query<{
       status: string;
@@ -1307,6 +1315,18 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       desired_state: "deleted",
       fence_generation: "2",
     });
+    const deletionOperation = await pool.query<{
+      provisioner_wire_protocol: string;
+      target_candidate_id: string | null;
+    }>(
+      `SELECT provisioner_wire_protocol, target_candidate_id
+         FROM exomem_lifecycle_operations
+        WHERE id = $1`,
+      [consumed!.operationId]
+    );
+    assert.deepEqual(deletionOperation.rows, [
+      { provisioner_wire_protocol: "exomem-cell-provisioner.v2", target_candidate_id: null },
+    ]);
 
     const store = new SqlLifecycleStore();
     const operation = await store.claim({
@@ -1481,9 +1501,20 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
     await pool.query(
       `INSERT INTO exomem_cells (
-         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
-       ) VALUES ($1, $2, 'active', 'bound', 'running', $3, $4)`,
-      [CELL, TENANT, exomemContractFixture0350.protocol, exomemContractFixture0350.release]
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, $2, 'active', 'bound', 'running', $3, $4, $5, $6, $7, $8)`,
+      [
+        CELL,
+        TENANT,
+        exomemContractFixture0350.protocol,
+        exomemContractFixture0350.release,
+        exomemContractFixture0350.digest,
+        commandFingerprint,
+        schemaDigest,
+        compatibilityDigest,
+      ]
     );
     await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
 
@@ -1524,6 +1555,111 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       });
       assert.equal(retry?.provisionerWireProtocol, "exomem-cell-provisioner.v2");
       assert.deepEqual(retry?.target, operations[0]?.target);
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+  });
+
+  it("uses a bound cell's active pending-candidate assignment for v2 maintenance", async () => {
+    const candidateId = "77777777-7777-4777-8777-777777777791";
+    const assignmentId = "77777777-7777-4777-8777-777777777792";
+    const commandFingerprint = "a".repeat(64);
+    const schemaDigest = "b".repeat(64);
+    const compatibilityDigest = "c".repeat(64);
+    const gatewayDigest = "d".repeat(64);
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', '2026.07.30',
+                 $2, $3, $4, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+      [candidateId, commandFingerprint, schemaDigest, compatibilityDigest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '2026.07.30', $3, $4, $5, $6)`,
+      [CELL, TENANT, gatewayDigest, commandFingerprint, schemaDigest, compatibilityDigest]
+    );
+    await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+       ) VALUES ($1, $2, $3, 7, 'active', '2026.07.30', '1', $4, $5, $6, $7,
+                 false, $8, now() + interval '1 hour', now())`,
+      [
+        assignmentId,
+        TENANT,
+        candidateId,
+        commandFingerprint,
+        schemaDigest,
+        compatibilityDigest,
+        gatewayDigest,
+        "e".repeat(64),
+      ]
+    );
+
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    try {
+      const operation = await new SqlLifecycleStore().enqueue(TENANT, "seal", "v2-pending-assignment");
+      assert.deepEqual(operation.target, {
+        candidateId,
+        assignmentId,
+        assignmentGeneration: 7,
+        sourceRelease: "2026.07.30",
+        protocolVersion: "1",
+        gatewayContractDigest: gatewayDigest,
+        commandFingerprint,
+        schemaDigest,
+        compatibilityDigest,
+      });
+      const deletionDigest = Buffer.alloc(32, 0x73);
+      assert.ok(
+        await createDeletionConfirmationToken({
+          userId: USER,
+          tenantId: TENANT,
+          tokenDigest: deletionDigest,
+          expiresAt: new Date(Date.now() + 15 * 60_000),
+        })
+      );
+      const deletion = await consumeDeletionConfirmationAtomic({
+        userId: USER,
+        tenantId: TENANT,
+        tokenDigest: deletionDigest,
+      });
+      assert.ok(deletion);
+      const deletionTarget = await pool.query<{
+        provisioner_wire_protocol: string;
+        target_candidate_id: string;
+        target_assignment_id: string;
+        target_assignment_generation: string;
+      }>(
+        `SELECT provisioner_wire_protocol, target_candidate_id, target_assignment_id,
+                target_assignment_generation::text
+           FROM exomem_lifecycle_operations
+          WHERE id = $1`,
+        [deletion!.operationId]
+      );
+      assert.deepEqual(deletionTarget.rows, [
+        {
+          provisioner_wire_protocol: "exomem-cell-provisioner.v2",
+          target_candidate_id: candidateId,
+          target_assignment_id: assignmentId,
+          target_assignment_generation: "7",
+        },
+      ]);
     } finally {
       if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
       else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;

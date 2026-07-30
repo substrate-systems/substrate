@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { normalizeProvisionerWireProtocol, SqlLifecycleStore } from "../lifecycle-store";
+import { SqlLifecycleStore } from "../lifecycle-store";
+import { normalizeProvisionerWireProtocol } from "../provisioner-wire-protocol";
 
 afterEach(() => {
   __setExomemSqlForTests(null);

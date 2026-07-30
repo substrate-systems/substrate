@@ -1,7 +1,7 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
-import { normalizeProvisionerWireProtocol } from "./lifecycle-store";
+import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
 
 export type OAuthTokenContext = {
@@ -590,6 +590,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
   codeDigest: Buffer;
   codeExpiresAt: Date;
 }): Promise<OAuthInviteAdmission | null> {
+  const provisionerWireProtocol = provisionerWireProtocolFromEnv();
   try {
     return await withExomemTransaction(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
@@ -736,12 +737,48 @@ export async function admitFirstOAuthInviteAtomic(input: {
         if (!entitlementResult.rows[0]) throw new OAuthAdmissionRejected();
 
         const operationResult = await tx`
-          INSERT INTO exomem_lifecycle_operations (
-            tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol
-          ) VALUES (
-            ${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation},
-            ${normalizeProvisionerWireProtocol(process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED)}
+          WITH live_target AS MATERIALIZED (
+            SELECT candidate.id AS candidate_id,
+                   NULL::uuid AS assignment_id,
+                   NULL::bigint AS assignment_generation,
+                   candidate.source_release,
+                   candidate.protocol_version,
+                   MIN(catalog_cell.observed_gateway_contract_digest) AS gateway_contract_digest,
+                   candidate.command_fingerprint,
+                   candidate.schema_digest,
+                   candidate.compatibility_digest
+            FROM exomem_agent_contract_candidates AS candidate
+            JOIN exomem_cells AS catalog_cell
+              ON catalog_cell.routing_state = 'bound'
+             AND catalog_cell.release_version = candidate.source_release
+             AND catalog_cell.protocol_version = candidate.protocol_version
+             AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
+             AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
+             AND catalog_cell.observed_schema_digest = candidate.schema_digest
+            WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+              AND candidate.state = 'live'
+            GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
+                     candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
+            HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
           )
+          INSERT INTO exomem_lifecycle_operations (
+            tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol,
+            target_candidate_id, target_assignment_id, target_assignment_generation,
+            target_source_release, target_protocol_version, target_gateway_contract_digest,
+            target_command_fingerprint, target_schema_digest, target_compatibility_digest
+          ) SELECT
+            ${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation}::bigint,
+            ${provisionerWireProtocol}, target.candidate_id, target.assignment_id,
+            target.assignment_generation, target.source_release, target.protocol_version,
+            target.gateway_contract_digest, target.command_fingerprint, target.schema_digest,
+            target.compatibility_digest
+          FROM live_target AS target
+          UNION ALL SELECT
+            ${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation}::bigint,
+            ${provisionerWireProtocol}, NULL::uuid, NULL::uuid, NULL::bigint,
+            NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text
+          WHERE NOT EXISTS (SELECT 1 FROM live_target)
+          LIMIT 1
           RETURNING id
         `;
         const operation = operationResult.rows[0] as { id: string } | undefined;
