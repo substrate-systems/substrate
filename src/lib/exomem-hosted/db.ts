@@ -1097,7 +1097,73 @@ export async function consumeDeletionConfirmationAtomic(input: {
        AND candidate.schema_digest = assignment.schema_digest
        AND candidate.compatibility_digest = assignment.compatibility_digest
     ),
-    bound_cell_target AS MATERIALIZED (
+    origin_target_identities AS MATERIALIZED (
+      SELECT operation.target_candidate_id AS candidate_id,
+             operation.target_assignment_id AS assignment_id,
+             operation.target_assignment_generation AS assignment_generation,
+             operation.target_source_release AS source_release,
+             operation.target_protocol_version AS protocol_version,
+             operation.target_gateway_contract_digest AS gateway_contract_digest,
+             operation.target_command_fingerprint AS command_fingerprint,
+             operation.target_schema_digest AS schema_digest,
+             operation.target_compatibility_digest AS compatibility_digest,
+             MAX(operation.completed_at) AS installed_at
+      FROM tenant_gated
+      JOIN exomem_cells AS bound_cell
+        ON bound_cell.id = tenant_gated.bound_cell_id
+       AND bound_cell.tenant_id = tenant_gated.id
+       AND bound_cell.routing_state IN ('bound', 'retiring')
+      JOIN exomem_lifecycle_operations AS operation
+        ON operation.tenant_id = tenant_gated.id
+       AND operation.cell_id = bound_cell.id
+       AND operation.operation_type IN ('provision', 'restore')
+       AND operation.state = 'succeeded'
+       AND operation.target_candidate_id IS NOT NULL
+      JOIN exomem_agent_contract_candidates AS candidate
+        ON candidate.id = operation.target_candidate_id
+       AND candidate.profile_id = 'hosted-alpha-agent-v1'
+       AND candidate.source_release = operation.target_source_release
+       AND candidate.protocol_version = operation.target_protocol_version
+       AND candidate.command_fingerprint = operation.target_command_fingerprint
+       AND candidate.schema_digest = operation.target_schema_digest
+       AND candidate.compatibility_digest = operation.target_compatibility_digest
+      WHERE operation.target_source_release = bound_cell.release_version
+        AND operation.target_protocol_version = bound_cell.protocol_version
+        AND operation.target_gateway_contract_digest = bound_cell.observed_gateway_contract_digest
+        AND operation.target_command_fingerprint = bound_cell.observed_command_fingerprint
+        AND operation.target_schema_digest = bound_cell.observed_schema_digest
+        AND operation.target_compatibility_digest = bound_cell.observed_compatibility_digest
+        AND candidate.compatibility_digest = bound_cell.observed_compatibility_digest
+      GROUP BY operation.target_candidate_id, operation.target_assignment_id,
+               operation.target_assignment_generation, operation.target_source_release,
+               operation.target_protocol_version, operation.target_gateway_contract_digest,
+               operation.target_command_fingerprint, operation.target_schema_digest,
+               operation.target_compatibility_digest
+    ),
+    latest_origin_target AS MATERIALIZED (
+      SELECT identity.*
+      FROM origin_target_identities AS identity
+      WHERE identity.installed_at = (SELECT MAX(installed_at) FROM origin_target_identities)
+        AND 1 = (
+          SELECT COUNT(*)
+          FROM origin_target_identities AS current_identity
+          WHERE current_identity.installed_at = identity.installed_at
+        )
+    ),
+    has_cell_target_history AS MATERIALIZED (
+      SELECT 1
+      FROM tenant_gated
+      JOIN exomem_cells AS bound_cell
+        ON bound_cell.id = tenant_gated.bound_cell_id
+       AND bound_cell.tenant_id = tenant_gated.id
+      JOIN exomem_lifecycle_operations AS operation
+        ON operation.tenant_id = tenant_gated.id
+       AND operation.cell_id = bound_cell.id
+       AND operation.operation_type IN ('provision', 'restore')
+       AND operation.state = 'succeeded'
+       AND operation.target_candidate_id IS NOT NULL
+    ),
+    legacy_cell_target_candidates AS MATERIALIZED (
       SELECT candidate.id AS candidate_id,
              NULL::uuid AS assignment_id,
              NULL::bigint AS assignment_generation,
@@ -1113,19 +1179,44 @@ export async function consumeDeletionConfirmationAtomic(input: {
        AND bound_cell.tenant_id = tenant_gated.id
        AND bound_cell.routing_state IN ('bound', 'retiring')
        AND bound_cell.observed_gateway_contract_digest IS NOT NULL
+      JOIN exomem_routable_cell_contracts AS authority
+        ON authority.cell_id = bound_cell.id
+       AND authority.profile_id = 'hosted-alpha-agent-v1'
+       AND authority.routable
+       AND authority.source_release = bound_cell.release_version
+       AND authority.protocol_version = bound_cell.protocol_version
+       AND authority.command_fingerprint = bound_cell.observed_command_fingerprint
+       AND authority.contract_digest = bound_cell.observed_schema_digest
+       AND authority.compatibility_digest = bound_cell.observed_compatibility_digest
       JOIN exomem_agent_contract_candidates AS candidate
         ON candidate.profile_id = 'hosted-alpha-agent-v1'
-       AND candidate.state IN ('pending', 'live', 'retired')
+       AND candidate.state = 'live'
        AND candidate.source_release = bound_cell.release_version
        AND candidate.protocol_version = bound_cell.protocol_version
        AND candidate.command_fingerprint = bound_cell.observed_command_fingerprint
        AND candidate.schema_digest = bound_cell.observed_schema_digest
+       AND candidate.compatibility_digest = bound_cell.observed_compatibility_digest
+      WHERE NOT EXISTS (SELECT 1 FROM has_cell_target_history)
+    ),
+    legacy_cell_target AS MATERIALIZED (
+      SELECT candidate_id, assignment_id, assignment_generation, source_release,
+             protocol_version, gateway_contract_digest, command_fingerprint,
+             schema_digest, compatibility_digest
+      FROM legacy_cell_target_candidates
+      WHERE 1 = (SELECT COUNT(DISTINCT candidate_id) FROM legacy_cell_target_candidates)
     ),
     target AS MATERIALIZED (
       SELECT * FROM bound_assignment_target
       UNION ALL
-      SELECT * FROM bound_cell_target
+      SELECT candidate_id, assignment_id, assignment_generation, source_release,
+             protocol_version, gateway_contract_digest, command_fingerprint,
+             schema_digest, compatibility_digest
+      FROM latest_origin_target
       WHERE NOT EXISTS (SELECT 1 FROM bound_assignment_target)
+      UNION ALL
+      SELECT * FROM legacy_cell_target
+      WHERE NOT EXISTS (SELECT 1 FROM bound_assignment_target)
+        AND NOT EXISTS (SELECT 1 FROM latest_origin_target)
     ),
     operation AS (
       INSERT INTO exomem_lifecycle_operations (
