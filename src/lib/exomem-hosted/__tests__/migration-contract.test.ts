@@ -22,6 +22,10 @@ const legacyCapacityPath = resolve(
   process.cwd(),
   "migrations/0030_exomem_capacity_legacy_mode.sql"
 );
+const provisionerWireProtocolPath = resolve(
+  process.cwd(),
+  "migrations/0037_exomem_provisioner_v2_runtime_identity.sql"
+);
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -206,5 +210,36 @@ describe("Exomem hosted migration contract", () => {
   it("requires an explicit marker before admitting legacy unmetered capacity", () => {
     const sql = readFileSync(legacyCapacityPath, "utf8");
     assert.match(sql, /ADD COLUMN legacy_unmetered boolean NOT NULL DEFAULT false/i);
+  });
+
+  it("persists an immutable v1 or v2 provisioner wire protocol without duplicating targets", () => {
+    const sql = readFileSync(provisionerWireProtocolPath, "utf8");
+
+    assert.match(sql, /ADD COLUMN provisioner_wire_protocol text/i);
+    assert.match(
+      sql,
+      /UPDATE exomem_lifecycle_operations[\s\S]*SET provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i
+    );
+    assert.match(
+      sql,
+      /ALTER COLUMN provisioner_wire_protocol SET DEFAULT 'exomem-cell-provisioner\.v1'/i
+    );
+    assert.match(sql, /ALTER COLUMN provisioner_wire_protocol SET NOT NULL/i);
+    assert.match(
+      sql,
+      /provisioner_wire_protocol IN \(\s*'exomem-cell-provisioner\.v1',\s*'exomem-cell-provisioner\.v2'\s*\)/i
+    );
+    assert.match(sql, /provisioner_wire_protocol <> 'exomem-cell-provisioner\.v2'/i);
+    assert.match(sql, /operation_type = 'delete'/i);
+    assert.match(sql, /cell_id IS NULL/i);
+    assert.match(sql, /CREATE FUNCTION exomem_lifecycle_provisioner_wire_protocol_is_immutable/i);
+    assert.match(sql, /CREATE TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable/i);
+    assert.doesNotMatch(sql, /ADD COLUMN target_/i);
+    assert.doesNotMatch(sql, /ADD COLUMN observed_/i);
+    assert.doesNotMatch(sql, /INSERT INTO|DELETE FROM/i);
+    assert.doesNotMatch(
+      sql,
+      /(?:UPDATE|INSERT INTO|DELETE FROM)\s+exomem_(?:agent_contract_candidates|agent_contract_rollout_assignments|oauth|cells)/i
+    );
   });
 });
