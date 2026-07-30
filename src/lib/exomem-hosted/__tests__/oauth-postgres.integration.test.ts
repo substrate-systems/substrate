@@ -4,6 +4,14 @@ import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
+import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
+import {
+  createCanaryAssignment,
+  createStagedClientRelease,
+  expireCanaryAuthority,
+  failCanaryAssignment,
+} from "../agent-contract-canaries";
+import { storeRetainedExomemAgentContractCandidate } from "../agent-contract-store";
 import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
 import { ExomemHostedError } from "../errors";
 import {
@@ -14,9 +22,11 @@ import {
   redeemInviteAtomic,
   type ExomemSql,
 } from "../db";
+import { SqlLifecycleStore } from "../lifecycle-store";
 import {
   admitFirstOAuthInviteAtomic,
   attachExistingOwnerAuthorizationAtomic,
+  createAuthorizationTransaction,
   findActiveOAuthAccessToken,
   findMcpOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
@@ -351,6 +361,145 @@ async function seedAuthorizationCode(
     grantId: grant.rows[0].id,
     userId: user.rows[0].id,
     tenantId: tenant.rows[0].id,
+  };
+}
+
+async function seedBoundReviewerTenant(label: string): Promise<{
+  userId: string;
+  tenantId: string;
+  cellId: string;
+}> {
+  const user = await pool!.query<{ id: string }>(
+    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    [`${label}-${randomUUID()}@example.test`]
+  );
+  const tenant = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_tenants (
+       owner_user_id, status, desired_state, marketplace_reviewer_purpose, legacy_unmetered
+     ) VALUES ($1, 'active', 'running', true, true) RETURNING id`,
+    [user.rows[0]!.id]
+  );
+  await pool!.query(
+    `INSERT INTO exomem_entitlements (
+       tenant_id, source, source_state, effective_state
+     ) VALUES ($1, 'complimentary', 'active', 'active')`,
+    [tenant.rows[0]!.id]
+  );
+  const cell = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_cells (
+       tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+     ) VALUES ($1, 'active', 'bound', 'running', '1', 'shared-canary-base') RETURNING id`,
+    [tenant.rows[0]!.id]
+  );
+  await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+    cell.rows[0]!.id,
+    tenant.rows[0]!.id,
+  ]);
+  return {
+    userId: user.rows[0]!.id,
+    tenantId: tenant.rows[0]!.id,
+    cellId: cell.rows[0]!.id,
+  };
+}
+
+async function activateCanaryAssignment(input: {
+  tenantId: string;
+  priorCellId: string;
+  assignmentId: string;
+  assignmentGeneration: number;
+}): Promise<void> {
+  const target = await pool!.query<{
+    candidate_id: string;
+    source_release: string;
+    protocol_version: string;
+    gateway_contract_digest: string;
+    command_fingerprint: string;
+    schema_digest: string;
+    compatibility_digest: string;
+  }>(
+    `SELECT candidate_id, source_release, protocol_version, gateway_contract_digest,
+            command_fingerprint, schema_digest, compatibility_digest
+     FROM exomem_agent_contract_rollout_assignments
+     WHERE id = $1 AND tenant_id = $2 AND generation = $3`,
+    [input.assignmentId, input.tenantId, input.assignmentGeneration]
+  );
+  assert.equal(target.rows.length, 1);
+  const authority = target.rows[0]!;
+  const replacement = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_cells (
+       tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+       readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
+       observed_schema_digest, observed_compatibility_digest
+     ) VALUES ($1, 'provisioning', 'unbound', 'running', $2, $3, 'CELL_READY', $4, $5, $6, $7)
+     RETURNING id`,
+    [
+      input.tenantId,
+      authority.protocol_version,
+      authority.source_release,
+      authority.gateway_contract_digest,
+      authority.command_fingerprint,
+      authority.schema_digest,
+      authority.compatibility_digest,
+    ]
+  );
+  const operationId = randomUUID();
+  await pool!.query(
+    `INSERT INTO exomem_lifecycle_operations (
+       id, tenant_id, cell_id, expected_previous_cell_id, operation_type, state, idempotency_key,
+       fence_generation, checkpoint, lease_owner, lease_expires_at,
+       target_candidate_id, target_assignment_id, target_assignment_generation,
+       target_source_release, target_protocol_version, target_gateway_contract_digest,
+       target_command_fingerprint, target_schema_digest, target_compatibility_digest
+     ) SELECT $1, tenant.id, $2, $3, 'provision', 'running', $4,
+              tenant.fence_generation, 'readiness-proved', 'shared-canary-bind', now() + interval '1 hour',
+              $5, $6, $7, $8, $9, $10, $11, $12, $13
+       FROM exomem_tenants AS tenant WHERE tenant.id = $14`,
+    [
+      operationId,
+      replacement.rows[0]!.id,
+      input.priorCellId,
+      `shared-canary-${operationId}`,
+      authority.candidate_id,
+      input.assignmentId,
+      input.assignmentGeneration,
+      authority.source_release,
+      authority.protocol_version,
+      authority.gateway_contract_digest,
+      authority.command_fingerprint,
+      authority.schema_digest,
+      authority.compatibility_digest,
+      input.tenantId,
+    ]
+  );
+  assert.equal(
+    await new SqlLifecycleStore().bindCandidate(operationId, "shared-canary-bind"),
+    true
+  );
+}
+
+function authorizationTransactionInput(input: {
+  sequence: number;
+  clientId: string;
+  redirectUri: string;
+}) {
+  return {
+    transactionDigest: digest(input.sequence),
+    stateDigest: digest(input.sequence + 1),
+    stateEnvelope: {
+      version: 1 as const,
+      algorithm: "A256GCM" as const,
+      iv: "integration-iv",
+      ciphertext: "integration-ciphertext",
+      tag: "integration-tag",
+    },
+    formNonceDigest: digest(input.sequence + 2),
+    continuationBinding: digest(input.sequence + 3),
+    clientId: input.clientId,
+    redirectUri: input.redirectUri,
+    resource,
+    scopes: ["exomem.read", "offline_access"],
+    pkceChallenge: "shared-canary-challenge",
+    expiresAt: new Date(Date.now() + 60 * 60_000),
   };
 }
 
@@ -1245,6 +1394,350 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     await pool!.query(
       "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
       ["f".repeat(64), artifact.rows[0]!.id]
+    );
+  });
+
+  it("admits a shared staged client while keeping reviewer authorization lineage exact", async () => {
+    const candidateId = await storeRetainedExomemAgentContractCandidate("0.35.0");
+    const candidateClientId = `https://shared-canary.example.test/${randomUUID()}`;
+    const redirectUri = "https://shared-canary.example.test/callback";
+    const configDigest = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "pinned",
+      clientId: candidateClientId,
+      redirectUris: [redirectUri],
+    });
+    const stage = await createStagedClientRelease({
+      candidateId,
+      platform: "claude",
+      packageSha256: candidateFixture0350.packageLock.artifact_sha256,
+      archiveSha256: candidateFixture0350.archiveLock.archive_sha256,
+      compatibilitySha256: candidateFixture0350.compatibility.compatibility_sha256,
+      contractSha256: candidateFixture0350.compatibility.schema_contract_sha256,
+      pluginVersion: candidateFixture0350.packageLock.plugin_version,
+      oauthClientConfigSha256: configDigest,
+      registeredAppIdSha256: null,
+      operatorPrincipalDigest: "9".repeat(64),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    const registered = await registerOperatorOAuthClient({
+      admissionMode: "pinned",
+      platform: "claude",
+      stagedClientReleaseId: stage.id,
+      clientId: candidateClientId,
+      redirectUris: [redirectUri],
+    });
+    assert.equal(registered.enabled, false);
+
+    const reviewerA = await seedBoundReviewerTenant("shared-canary-a");
+    const reviewerB = await seedBoundReviewerTenant("shared-canary-b");
+    const assignmentExpiresAt = new Date(Date.now() + 60 * 60_000);
+    const assignmentA = await createCanaryAssignment({
+      tenantId: reviewerA.tenantId,
+      candidateId,
+      expiresAt: assignmentExpiresAt,
+      operatorPrincipalDigest: "a".repeat(64),
+    });
+    const discardedAssignmentB = await createCanaryAssignment({
+      tenantId: reviewerB.tenantId,
+      candidateId,
+      expiresAt: assignmentExpiresAt,
+      operatorPrincipalDigest: "b".repeat(64),
+    });
+    assert.equal(
+      await failCanaryAssignment({
+        assignmentId: discardedAssignmentB.id,
+        expectedVersion: discardedAssignmentB.version,
+      }),
+      true
+    );
+    const assignmentB = await createCanaryAssignment({
+      tenantId: reviewerB.tenantId,
+      candidateId,
+      expiresAt: assignmentExpiresAt,
+      operatorPrincipalDigest: "c".repeat(64),
+    });
+    assert.notEqual(assignmentA.id, assignmentB.id);
+    assert.notEqual(assignmentA.generation, assignmentB.generation);
+    await activateCanaryAssignment({
+      tenantId: reviewerA.tenantId,
+      priorCellId: reviewerA.cellId,
+      assignmentId: assignmentA.id,
+      assignmentGeneration: assignmentA.generation,
+    });
+    await activateCanaryAssignment({
+      tenantId: reviewerB.tenantId,
+      priorCellId: reviewerB.cellId,
+      assignmentId: assignmentB.id,
+      assignmentGeneration: assignmentB.generation,
+    });
+
+    const credentialA = await createInternalCanaryReviewerCredentialAtomic({
+      platform: "claude",
+      usernameDigest: digest(400),
+      passwordHash: "$argon2id$shared-canary-a",
+      tenantId: reviewerA.tenantId,
+      candidateId,
+      assignmentId: assignmentA.id,
+      assignmentGeneration: assignmentA.generation,
+      stagedClientReleaseId: stage.id,
+      oauthClientId: registered.id,
+      fixtureVersion: "shared-canary-a",
+      fixturePayloadDigest: "d".repeat(64),
+      operatorPrincipalDigest: digest(401),
+      expiresAt: new Date(Date.now() + 50 * 60_000),
+    });
+    const credentialB = await createInternalCanaryReviewerCredentialAtomic({
+      platform: "claude",
+      usernameDigest: digest(410),
+      passwordHash: "$argon2id$shared-canary-b",
+      tenantId: reviewerB.tenantId,
+      candidateId,
+      assignmentId: assignmentB.id,
+      assignmentGeneration: assignmentB.generation,
+      stagedClientReleaseId: stage.id,
+      oauthClientId: registered.id,
+      fixtureVersion: "shared-canary-b",
+      fixturePayloadDigest: "e".repeat(64),
+      operatorPrincipalDigest: digest(411),
+      expiresAt: new Date(Date.now() + 50 * 60_000),
+    });
+    assert.ok(credentialA);
+    assert.ok(credentialB);
+
+    assert.equal(
+      (await resolveApprovedOAuthClient(candidateClientId))?.clientId,
+      candidateClientId
+    );
+    const transactionAInput = authorizationTransactionInput({
+      sequence: 420,
+      clientId: candidateClientId,
+      redirectUri,
+    });
+    const transactionBInput = authorizationTransactionInput({
+      sequence: 430,
+      clientId: candidateClientId,
+      redirectUri,
+    });
+    assert.ok(await createAuthorizationTransaction(transactionAInput));
+    assert.ok(await createAuthorizationTransaction(transactionBInput));
+
+    const sessionA = await createMarketplaceReviewerOAuthSessionAtomic({
+      credentialId: credentialA!.credentialId,
+      transactionDigest: transactionAInput.transactionDigest,
+      sessionDigest: digest(440),
+      csrfDigest: digest(441),
+      expiresAt: new Date(Date.now() + 30 * 60_000),
+    });
+    const sessionB = await createMarketplaceReviewerOAuthSessionAtomic({
+      credentialId: credentialB!.credentialId,
+      transactionDigest: transactionBInput.transactionDigest,
+      sessionDigest: digest(450),
+      csrfDigest: digest(451),
+      expiresAt: new Date(Date.now() + 30 * 60_000),
+    });
+    assert.ok(sessionA);
+    assert.ok(sessionB);
+
+    const bound = await pool!.query(
+      `SELECT session.id AS session_id, session.tenant_id, session.reviewer_credential_id,
+              session.candidate_id, session.assignment_id, session.assignment_generation::text,
+              session.staged_client_release_id, session.oauth_client_id,
+              transaction.reviewer_credential_id AS transaction_credential_id,
+              transaction.candidate_id AS transaction_candidate_id,
+              transaction.assignment_id AS transaction_assignment_id,
+              transaction.assignment_generation::text AS transaction_assignment_generation,
+              transaction.staged_client_release_id AS transaction_stage_id
+       FROM exomem_sessions AS session
+       JOIN exomem_oauth_authorization_transactions AS transaction
+         ON transaction.reviewer_credential_id = session.reviewer_credential_id
+       WHERE session.id IN ($1, $2) AND transaction.transaction_digest IN ($3, $4)
+       ORDER BY session.id`,
+      [
+        sessionA!.sessionId,
+        sessionB!.sessionId,
+        transactionAInput.transactionDigest,
+        transactionBInput.transactionDigest,
+      ]
+    );
+    const expectedBound = [
+      {
+        sessionId: sessionA!.sessionId,
+        reviewer: reviewerA,
+        credential: credentialA!,
+        assignment: assignmentA,
+      },
+      {
+        sessionId: sessionB!.sessionId,
+        reviewer: reviewerB,
+        credential: credentialB!,
+        assignment: assignmentB,
+      },
+    ]
+      .map(({ sessionId, reviewer, credential, assignment }) => ({
+        session_id: sessionId,
+        tenant_id: reviewer.tenantId,
+        reviewer_credential_id: credential.credentialId,
+        candidate_id: candidateId,
+        assignment_id: assignment.id,
+        assignment_generation: String(assignment.generation),
+        staged_client_release_id: stage.id,
+        oauth_client_id: registered.id,
+        transaction_credential_id: credential.credentialId,
+        transaction_candidate_id: candidateId,
+        transaction_assignment_id: assignment.id,
+        transaction_assignment_generation: String(assignment.generation),
+        transaction_stage_id: stage.id,
+      }))
+      .sort((left, right) => left.session_id.localeCompare(right.session_id));
+    assert.deepEqual(bound.rows, expectedBound);
+
+    assert.equal(
+      await attachExistingOwnerAuthorizationAtomic({
+        sessionId: sessionA!.sessionId,
+        transactionDigest: transactionBInput.transactionDigest,
+        codeDigest: digest(460),
+        codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+      }),
+      null
+    );
+    assert.equal(
+      await attachExistingOwnerAuthorizationAtomic({
+        sessionId: sessionB!.sessionId,
+        transactionDigest: transactionAInput.transactionDigest,
+        codeDigest: digest(461),
+        codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+      }),
+      null
+    );
+    assert.equal(
+      await scalar(
+        `SELECT count(*) FROM exomem_oauth_grants AS grant_row
+         JOIN exomem_oauth_authorization_transactions AS transaction
+           ON transaction.id = grant_row.authorization_transaction_id
+         WHERE transaction.transaction_digest IN ($1, $2)`,
+        [transactionAInput.transactionDigest, transactionBInput.transactionDigest]
+      ),
+      0
+    );
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest IN ($1, $2)",
+        [digest(460), digest(461)]
+      ),
+      0
+    );
+
+    const completedA = await attachExistingOwnerAuthorizationAtomic({
+      sessionId: sessionA!.sessionId,
+      transactionDigest: transactionAInput.transactionDigest,
+      codeDigest: digest(462),
+      codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+    });
+    const completedB = await attachExistingOwnerAuthorizationAtomic({
+      sessionId: sessionB!.sessionId,
+      transactionDigest: transactionBInput.transactionDigest,
+      codeDigest: digest(463),
+      codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+    });
+    assert.equal(completedA?.tenantId, reviewerA.tenantId);
+    assert.equal(completedB?.tenantId, reviewerB.tenantId);
+
+    const completed = await pool!.query(
+      `SELECT grant_row.id AS grant_id, grant_row.tenant_id, grant_row.reviewer_credential_id,
+              grant_row.candidate_id, grant_row.assignment_id,
+              grant_row.assignment_generation::text, grant_row.staged_client_release_id,
+              code.reviewer_credential_id AS code_credential_id,
+              code.candidate_id AS code_candidate_id, code.assignment_id AS code_assignment_id,
+              code.assignment_generation::text AS code_assignment_generation,
+              code.staged_client_release_id AS code_stage_id
+       FROM exomem_oauth_grants AS grant_row
+       JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant_row.id
+       WHERE grant_row.id IN ($1, $2) AND code.code_digest IN ($3, $4)
+       ORDER BY grant_row.id`,
+      [completedA!.grantId, completedB!.grantId, digest(462), digest(463)]
+    );
+    const expectedCompleted = [
+      {
+        grantId: completedA!.grantId,
+        reviewer: reviewerA,
+        credential: credentialA!,
+        assignment: assignmentA,
+      },
+      {
+        grantId: completedB!.grantId,
+        reviewer: reviewerB,
+        credential: credentialB!,
+        assignment: assignmentB,
+      },
+    ]
+      .map(({ grantId, reviewer, credential, assignment }) => ({
+        grant_id: grantId,
+        tenant_id: reviewer.tenantId,
+        reviewer_credential_id: credential.credentialId,
+        candidate_id: candidateId,
+        assignment_id: assignment.id,
+        assignment_generation: String(assignment.generation),
+        staged_client_release_id: stage.id,
+        code_credential_id: credential.credentialId,
+        code_candidate_id: candidateId,
+        code_assignment_id: assignment.id,
+        code_assignment_generation: String(assignment.generation),
+        code_stage_id: stage.id,
+      }))
+      .sort((left, right) => left.grant_id.localeCompare(right.grant_id));
+    assert.deepEqual(completed.rows, expectedCompleted);
+
+    await pool!.query(
+      "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = activated_at + interval '1 microsecond' WHERE id = $1",
+      [assignmentA.id]
+    );
+    const firstExpiry = await expireCanaryAuthority();
+    assert.equal(firstExpiry.expiredAssignments, 1);
+    assert.equal(
+      (await resolveApprovedOAuthClient(candidateClientId))?.clientId,
+      candidateClientId
+    );
+    assert.ok(
+      await createAuthorizationTransaction(
+        authorizationTransactionInput({
+          sequence: 470,
+          clientId: candidateClientId,
+          redirectUri,
+        })
+      )
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT id, revoked_at IS NOT NULL AS revoked
+           FROM exomem_marketplace_reviewer_credentials
+           WHERE id IN ($1, $2) ORDER BY id`,
+          [credentialA!.credentialId, credentialB!.credentialId]
+        )
+      ).rows.map((row) => ({ id: row.id, revoked: row.revoked })),
+      [
+        { id: credentialA!.credentialId, revoked: true },
+        { id: credentialB!.credentialId, revoked: false },
+      ].sort((left, right) => left.id.localeCompare(right.id))
+    );
+
+    await pool!.query(
+      "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = activated_at + interval '1 microsecond' WHERE id = $1",
+      [assignmentB.id]
+    );
+    const secondExpiry = await expireCanaryAuthority();
+    assert.equal(secondExpiry.expiredAssignments, 1);
+    assert.equal(await resolveApprovedOAuthClient(candidateClientId), null);
+    assert.equal(
+      await createAuthorizationTransaction(
+        authorizationTransactionInput({
+          sequence: 480,
+          clientId: candidateClientId,
+          redirectUri,
+        })
+      ),
+      null
     );
   });
 
