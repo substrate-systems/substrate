@@ -152,11 +152,11 @@ Substrate SHALL retain an immutable generated full private-gateway contract fixt
 
 ### Requirement: Candidate Canary Selection Is Durable And Server-Authoritative
 
-The control plane SHALL allow only an authenticated operator to create a bounded `preparing` rollout assignment between one exact pending agent candidate and any exact existing tenant under the shared Hosted cohort lock. Each assignment SHALL contain an immutable monotonically increasing tenant generation, candidate ID, source release, protocol version, command fingerprint, agent schema digest, compatibility digest, full private-gateway contract digest, state, expiry, and compare-and-swap version, and SHALL NOT be retargeted in place. The assignment MAY become `active` only after the tenant's replacement cell reports the same complete identity through authenticated provisioner health. MCP SHALL resolve an active assignment only after bearer authentication from the access token's authoritative tenant. Pending OAuth and promotion-evidence authority SHALL additionally require an immutable reviewer-purpose tenant; an ordinary tenant's rollout assignment grants neither. Public OAuth or MCP input MUST NOT create, select, alter, or bypass an assignment. Removal, expiry, failure, retirement, activation, and promotion SHALL be serialized under the same lock and expose only content-free operator status.
+The control plane SHALL allow only an authenticated operator to create a bounded `preparing` rollout assignment between one exact pending agent candidate and any exact existing tenant under the shared Hosted cohort lock. Each assignment SHALL contain an immutable monotonically increasing tenant generation, candidate ID, source release, protocol version, command fingerprint, agent schema digest, compatibility digest, full private-gateway contract digest, state, expiry, and compare-and-swap version, and SHALL NOT be retargeted in place. The assignment MAY become `active` only after authenticated provisioner health reports the replacement cell's matching runtime release, Hosted protocol, agent profile, command fingerprint, agent schema digest, and full private-gateway contract digest, while the control plane independently verifies compatibility from the immutable selected candidate. MCP SHALL resolve an active assignment only after bearer authentication from the access token's authoritative tenant. Pending OAuth and promotion-evidence authority SHALL additionally require an immutable reviewer-purpose tenant; an ordinary tenant's rollout assignment grants neither. Public OAuth or MCP input MUST NOT create, select, alter, or bypass an assignment. Removal, expiry, failure, retirement, activation, and promotion SHALL be serialized under the same lock and expose only content-free operator status.
 
 #### Scenario: Assigned tenant proves a pending contract
 
-- **WHEN** an operator assigns one canary tenant to a pending candidate and the tenant's private cell reports the exact candidate release, protocol, fingerprint, schema digest, and compatibility digest
+- **WHEN** an operator assigns one canary tenant to a pending candidate, the private cell reports the exact runtime release, Hosted protocol, profile, gateway, command, and schema identity, and the local catalog proves candidate compatibility
 - **THEN** that tenant's initialize, tools/list, and tool calls use the pending contract and matching private route
 - **AND** every unassigned tenant continues to use the prior live cohort
 
@@ -287,23 +287,23 @@ OAuth MAY resolve a pending candidate client before identity is known only while
 
 ### Requirement: Lifecycle Operations Pin One Server-Selected Cell Release
 
-Before the first provider or cell side effect, every provision and restore operation SHALL durably snapshot one target contract candidate, optional assignment generation, source release, protocol, command fingerprint, agent schema digest, compatibility digest, and full private-gateway contract digest. Any assigned fleet rollout SHALL snapshot that tenant's preparing assignment; unassigned provisioning and restore SHALL snapshot the current live cohort. The snapshot SHALL remain immutable across leases, waits, retries, restarts, and concurrent cohort changes, and execution SHALL use it instead of reading a process-wide release version. Existing global environment configuration MAY validate platform support but MUST NOT select a tenant's release.
+Before the first provider or cell side effect, every cell-scoped lifecycle operation SHALL durably snapshot one target contract candidate, optional assignment generation, source release, Hosted runtime protocol, command fingerprint, agent schema digest, compatibility digest, full private-gateway contract digest, and independent provisioner wire protocol. An assigned provision/restore rollout SHALL snapshot that tenant's preparing assignment; unassigned provision/restore SHALL snapshot the current live cohort; health, export, quiesce, suspend, resume, seal, discard, delete, and other bound-cell work SHALL snapshot the authoritative candidate/runtime target behind that exact cell. Context-only export-reference and tenant-destroy provisioner steps MAY omit the runtime target from their wire body while retaining the operation's stored protocol and audit lineage. The snapshot SHALL remain immutable across leases, waits, retries, restarts, feature-gate changes, and concurrent cohort changes, and execution SHALL use it instead of reading a process-wide release version or reselecting a wire protocol. Existing global environment configuration MAY validate platform support and select v2 only for newly created operations but MUST NOT retarget an existing operation or select a tenant's release.
 
 #### Scenario: Cohort changes while an operation retries
 
-- **WHEN** a provision or restore operation waits or retries after another candidate becomes live
+- **WHEN** any cell-scoped lifecycle operation waits or retries after another candidate becomes live
 - **THEN** every retry uses the operation's original complete target snapshot
 - **AND** no provider request, candidate cell, or readiness check drifts to the newly live or globally configured release
 
 #### Scenario: Canary cell is rolled
 
 - **WHEN** an operator creates a preparing assignment and requests the tenant rollout
-- **THEN** the control plane quiesces and exports the current cell, restores a replacement from the exact snapshotted candidate, requires authenticated provisioner health to report matching gateway digest plus agent release/protocol/fingerprint/schema/compatibility locks, and atomically rebinds the tenant before activating the assignment
+- **THEN** the control plane quiesces and exports the current cell, restores a replacement from the exact snapshotted candidate, requires authenticated provisioner health to report matching gateway digest plus runtime release/Hosted protocol/profile/command/schema identity, verifies compatibility independently from the selected candidate catalog, and atomically rebinds the tenant before activating the assignment
 - **AND** failure preserves the old binding when safe or fails the tenant closed without selecting another cell
 
-#### Scenario: Provisioner health omits contract locks
+#### Scenario: Provisioner health omits runtime identity
 
-- **WHEN** a replacement reports ready but health omits or mismatches the full gateway digest or any agent lock
+- **WHEN** a replacement reports ready but health omits or mismatches the full gateway digest or any runtime release, Hosted protocol, profile, command, or schema field
 - **THEN** the lifecycle operation cannot bind the cell or activate the assignment
 - **AND** release text alone is insufficient readiness authority
 
