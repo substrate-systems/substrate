@@ -1909,6 +1909,62 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       await assert.rejects(
         new SqlLifecycleStore().enqueue(TENANT, "seal", "ambiguous-origin-seal")
       );
+      await pool.query(
+        `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+         VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
+        [USER, TENANT, Buffer.alloc(32, 0x91), Buffer.alloc(32, 0x92)]
+      );
+      const deletionDigest = Buffer.alloc(32, 0x93);
+      assert.ok(
+        await createDeletionConfirmationToken({
+          userId: USER,
+          tenantId: TENANT,
+          tokenDigest: deletionDigest,
+          expiresAt: new Date(Date.now() + 15 * 60_000),
+        })
+      );
+      await assert.rejects(
+        consumeDeletionConfirmationAtomic({
+          userId: USER,
+          tenantId: TENANT,
+          tokenDigest: deletionDigest,
+        }),
+        /lifecycle target is required for new operation|exomem_lifecycle_v2_target_check/i
+      );
+      const unchanged = await pool.query<{
+        status: string;
+        desired_state: string;
+        fence_generation: string;
+        confirmation_available: boolean;
+        session_active: boolean;
+        deletion_operations: string;
+      }>(
+        `SELECT tenant.status,
+                tenant.desired_state,
+                tenant.fence_generation::text,
+                (SELECT consumed_at IS NULL AND revoked_at IS NULL
+                   FROM exomem_access_tokens
+                  WHERE token_digest = $2) AS confirmation_available,
+                (SELECT bool_and(revoked_at IS NULL)
+                   FROM exomem_sessions
+                  WHERE tenant_id = tenant.id) AS session_active,
+                (SELECT count(*)::text
+                   FROM exomem_lifecycle_operations
+                  WHERE tenant_id = tenant.id AND operation_type = 'delete') AS deletion_operations
+           FROM exomem_tenants AS tenant
+          WHERE tenant.id = $1`,
+        [TENANT, deletionDigest]
+      );
+      assert.deepEqual(unchanged.rows, [
+        {
+          status: "active",
+          desired_state: "running",
+          fence_generation: "1",
+          confirmation_available: true,
+          session_active: true,
+          deletion_operations: "0",
+        },
+      ]);
     } finally {
       if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
       else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;

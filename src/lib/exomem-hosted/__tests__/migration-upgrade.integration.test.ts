@@ -732,6 +732,33 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
           ).rows,
           before.rows
         );
+        const claimedLegacy = await client.query<{
+          state: string;
+          checkpoint: string;
+          lease_owner: string;
+        }>(
+          `UPDATE exomem_lifecycle_operations
+              SET state = 'running',
+                  checkpoint = 'resolving_target',
+                  lease_owner = 'legacy-worker',
+                  lease_expires_at = now() + interval '1 minute'
+            WHERE id = $1
+          RETURNING state, checkpoint, lease_owner`,
+          [SOURCE_OPERATION]
+        );
+        assert.deepEqual(claimedLegacy.rows, [
+          { state: 'running', checkpoint: 'resolving_target', lease_owner: 'legacy-worker' },
+        ]);
+        const checkpointedLegacy = await client.query<{ checkpoint: string }>(
+          `UPDATE exomem_lifecycle_operations
+              SET checkpoint = 'awaiting_provider'
+            WHERE id = $1
+              AND state = 'running'
+              AND lease_owner = 'legacy-worker'
+          RETURNING checkpoint`,
+          [SOURCE_OPERATION]
+        );
+        assert.deepEqual(checkpointedLegacy.rows, [{ checkpoint: 'awaiting_provider' }]);
 
         await client.query(
           `INSERT INTO exomem_lifecycle_operations (
@@ -754,9 +781,9 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
         await assert.rejects(
           client.query(
             `INSERT INTO exomem_lifecycle_operations (
-               tenant_id, cell_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol
-             ) VALUES ($1, $2, 'seal', 'invalid-wire-protocol', 1, 'exomem-cell-provisioner.v3')`,
-            [TENANT, CELL]
+               tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol
+             ) VALUES ($1, 'delete', 'invalid-wire-protocol', 1, 'exomem-cell-provisioner.v3')`,
+            [TENANT]
           ),
           /exomem_lifecycle_provisioner_wire_protocol_check/i
         );
@@ -767,7 +794,7 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
              ) VALUES ($1, $2, 'seal', 'v2-missing-target', 1, 'exomem-cell-provisioner.v2')`,
             [TENANT, CELL]
           ),
-          /exomem_lifecycle_target_required_for_new_operations/i
+          /lifecycle target is required for new operation|exomem_lifecycle_v2_target_check/i
         );
         await assert.rejects(
           client.query(
@@ -776,7 +803,7 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
              ) VALUES ($1, $2, 'seal', 'v1-missing-target', 1)`,
             [TENANT, CELL]
           ),
-          /exomem_lifecycle_target_required_for_new_operations/i
+          /lifecycle target is required for new operation/i
         );
         await client.query(
           `INSERT INTO exomem_lifecycle_operations (
@@ -792,7 +819,7 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
              ) VALUES ($1, $2, 'delete', 'v2-retained-cell-delete', 1, 'exomem-cell-provisioner.v2')`,
             [TENANT, CELL]
           ),
-          /exomem_lifecycle_target_required_for_new_operations/i
+          /lifecycle target is required for new operation|exomem_lifecycle_v2_target_check/i
         );
 
         const candidate = await client.query<{ id: string }>(

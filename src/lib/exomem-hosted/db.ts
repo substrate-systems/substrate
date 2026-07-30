@@ -1239,7 +1239,6 @@ export async function consumeDeletionConfirmationAtomic(input: {
       FROM tenant_gated
       JOIN consumed ON consumed.tenant_id = tenant_gated.id
       LEFT JOIN target ON TRUE
-      WHERE tenant_gated.bound_cell_id IS NULL OR target.candidate_id IS NOT NULL
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       RETURNING id, request_id

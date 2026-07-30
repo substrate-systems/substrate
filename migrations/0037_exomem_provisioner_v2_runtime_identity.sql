@@ -46,24 +46,34 @@ ALTER TABLE exomem_lifecycle_operations
 -- Existing v1 rows may predate persisted targets. Keep those rows migration
 -- compatible, while requiring a complete target for every new cell-scoped
 -- operation regardless of wire protocol.
-ALTER TABLE exomem_lifecycle_operations
-  ADD CONSTRAINT exomem_lifecycle_target_required_for_new_operations CHECK (
-    (
-      operation_type = 'delete'
-      AND cell_id IS NULL
-      AND expected_previous_cell_id IS NULL
-      AND target_candidate_id IS NULL
-      AND target_assignment_id IS NULL
-      AND target_assignment_generation IS NULL
-      AND target_source_release IS NULL
-      AND target_protocol_version IS NULL
-      AND target_gateway_contract_digest IS NULL
-      AND target_command_fingerprint IS NULL
-      AND target_schema_digest IS NULL
-      AND target_compatibility_digest IS NULL
-    )
-    OR target_candidate_id IS NOT NULL
-  ) NOT VALID;
+CREATE FUNCTION exomem_lifecycle_target_required_for_new_operation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF NEW.target_candidate_id IS NULL
+     AND NOT (
+       NEW.operation_type = 'delete'
+       AND NEW.cell_id IS NULL
+       AND NEW.expected_previous_cell_id IS NULL
+       AND NEW.target_assignment_id IS NULL
+       AND NEW.target_assignment_generation IS NULL
+       AND NEW.target_source_release IS NULL
+       AND NEW.target_protocol_version IS NULL
+       AND NEW.target_gateway_contract_digest IS NULL
+       AND NEW.target_command_fingerprint IS NULL
+       AND NEW.target_schema_digest IS NULL
+       AND NEW.target_compatibility_digest IS NULL
+     ) THEN
+    RAISE EXCEPTION 'lifecycle target is required for new operation';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+CREATE TRIGGER exomem_lifecycle_target_required_for_new_operation
+BEFORE INSERT ON exomem_lifecycle_operations
+FOR EACH ROW EXECUTE FUNCTION exomem_lifecycle_target_required_for_new_operation();
 
 CREATE FUNCTION exomem_lifecycle_provisioner_wire_protocol_is_immutable()
 RETURNS trigger
