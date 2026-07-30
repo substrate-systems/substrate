@@ -482,6 +482,7 @@ describe("Python provisioner v2 interoperability corpus", () => {
       let sent: JsonRecord | null = null;
       let header: string | null = null;
       let pending = true;
+      const finalBody = materialize(testCase.final.body);
       const adapter = new HttpCellProvisioner(
         {
           endpoint: new URL("https://provisioner.internal.example/v1"),
@@ -493,7 +494,7 @@ describe("Python provisioner v2 interoperability corpus", () => {
           header = new Headers(init?.headers).get("x-exomem-provisioner-protocol");
           return pending
             ? response(testCase.pending.status, testCase.pending.body, testCase.pending.headers)
-            : response(testCase.final.status, materialize(testCase.final.body));
+            : response(testCase.final.status, finalBody);
         }
       );
       const invokeV2 = async (): Promise<unknown> => {
@@ -573,7 +574,7 @@ describe("Python provisioner v2 interoperability corpus", () => {
       const result = await invokeV2();
       assert.equal(header, v2Fixture.protocol, action);
       assert.deepEqual(sent, body, action);
-      assert.deepEqual(normalizedResult(action, result), materialize(testCase.final.body), action);
+      assert.deepEqual(normalizedResult(action, result), finalBody, action);
     }
   });
 
