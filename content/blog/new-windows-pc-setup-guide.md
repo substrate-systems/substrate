@@ -60,6 +60,8 @@ It also does not faithfully include every app. Microsoft Store apps and apps ins
 
 If you want one tool to capture apps, settings, and Store-app coverage into a portable setup file, [Endstate](/endstate) is the local-first route I built for that job. It still helps to understand the pieces: the file is yours, settings are opt-in, and no app list replaces your own data backup.
 
+Already reinstalled Windows and want to rebuild the setup you had? [Restore Windows apps and supported settings after a reinstall](/blog/restore-windows-apps-and-settings-after-reinstall) is the focused guide. This page remains the broader plan for a complete new-PC setup.
+
 ## What about the paid migration tools?
 
 EaseUS Todo PCTrans, Zinstall, and Laplink PCmover all promise a one-click move to a new PC. They work by copying your installed programs byte-for-byte across machines. That's a real capability for legacy software with no installer left, but it's also the risky path: you're transplanting a program's files onto a different Windows install and hoping it runs. They're closed source and cost $50–130.

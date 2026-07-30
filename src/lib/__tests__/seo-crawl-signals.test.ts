@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import sitemap from "../../app/sitemap";
-import { articleJsonLd } from "../structured-data";
+import { GET as getRssFeed } from "../../app/feed.xml/route";
+import { articleJsonLd, howToJsonLd } from "../structured-data";
 import { getAllPostsMeta, getPostSlugs, getPublishedPostsMeta } from "../blog";
 import { buildMetadata } from "../seo";
 
@@ -127,5 +128,43 @@ describe("SEO crawl signals", () => {
     for (const post of [store, sharing, alternative]) {
       assert.match(post, /\/blog\/new-windows-pc-setup-guide/);
     }
+  });
+
+  it("publishes a distinct reinstall-restoration guide with the required internal links", async () => {
+    const slug = "restore-windows-apps-and-settings-after-reinstall";
+    const post = getPublishedPostsMeta().find((candidate) => candidate.slug === slug);
+
+    assert.ok(post, "the restore guide must be published for blog, RSS, and sitemap discovery");
+    assert.equal(post.title, "How to Restore Windows Apps and Settings After Reinstalling Windows");
+    assert.match(post.description, /restore Windows apps and settings/i);
+    assert.equal(
+      sitemap().some((entry) => entry.url === `https://substratesystems.io/blog/${slug}`),
+      true
+    );
+    const howto = howToJsonLd(slug);
+    assert.equal(howto?.["@type"], "HowTo");
+    assert.equal(howto?.step.length, 5);
+    const rss = await getRssFeed();
+    const rssXml = await rss.text();
+    assert.match(rssXml, new RegExp(`https://substratesystems\\.io/blog/${slug}`));
+    assert.match(rssXml, /How to Restore Windows Apps and Settings After Reinstalling Windows/);
+
+    const restoreGuide = source(`content/blog/${slug}.md`);
+    assert.match(restoreGuide, /\/endstate\)/);
+    assert.match(restoreGuide, /\/endstate\/apps\)/);
+    assert.match(restoreGuide, /\/blog\/new-windows-pc-setup-guide\)/);
+    assert.match(restoreGuide, /\/blog\/reinstall-all-apps-with-winget\)/);
+    assert.match(restoreGuide, /must be captured\s+\*\*before\*\*\s+reinstalling/i);
+    assert.match(restoreGuide, /package-manager driver and package reference/i);
+    assert.match(restoreGuide, /package managers or package sources are unavailable/i);
+
+    const pillar = source("content/blog/new-windows-pc-setup-guide.md");
+    const winget = source("content/blog/reinstall-all-apps-with-winget.md");
+    const endstate = source("src/app/endstate/page.tsx");
+    const llms = source("public/llms-full.txt");
+    assert.match(pillar, new RegExp(`/blog/${slug}`));
+    assert.match(winget, new RegExp(`/blog/${slug}`));
+    assert.match(endstate, new RegExp(`/blog/${slug}`));
+    assert.match(llms, new RegExp(`https://substratesystems\\.io/blog/${slug}`));
   });
 });
