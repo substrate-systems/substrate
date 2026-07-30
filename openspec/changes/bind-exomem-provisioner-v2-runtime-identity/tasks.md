@@ -36,7 +36,7 @@
 - [x] 6.1 Run focused provisioner, reconciler, lifecycle-store, agent-contract, migration, and integration tests
 - [x] 6.2 Run ESLint, TypeScript checking, operations-contract tests, and strict OpenSpec validation
 - [x] 6.3 Obtain independent code/security review and exact-HEAD verification
-- [ ] 6.4 Commit, integrate current remote main, push, and open a ready PR with v2 issuance still disabled by default
+- [x] 6.4 Commit, integrate current remote main, push, and open a ready PR with v2 issuance still disabled by default
 - [ ] 6.5 Merge only after required checks pass and record exact forward and rollback commits
 
 ## 7. Expand And Contract With Exomem
