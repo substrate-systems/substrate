@@ -43,6 +43,6 @@
 
 - [ ] 7.1 Confirm exact D1, authoritative legacy-v1 catalog and set digest, expand/contract lock pair, and rehearsed D0 rollback evidence before enabling issuance
 - [ ] 7.2 Under the cohort/admission lock freeze assignment/promotion changes, compare the current set digest, abort/regenerate on mismatch or cut traffic to D1 before release; prove every cataloged v1 unit plus synthetic v2, then enable v2 only for new operations
-- [ ] 7.3 Prove stored retries remain stable, no fresh v1 work appears, and legacy work is drained before deploying the exact contract lock
+- [ ] 7.3 Use the authenticated content-free contraction readiness gate to prove stored retries remain stable, no fresh v1 work appears, unfinished v1 operations excluding succeeded/failed-terminal states are zero, and retained v1-origin exports (including download/GC continuations) are deleted before deploying the exact contract lock
 - [ ] 7.4 Canary provision, complete runtime identity, binding, activation, and promotion under v2
 - [ ] 7.5 Record live evidence and reject rollback while any v2 operation remains non-final, any cell/operation differs from the rollback unit, or the upgraded-schema rehearsal is absent

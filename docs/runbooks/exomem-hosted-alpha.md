@@ -668,6 +668,18 @@ revoke dependent internal-canary lineage. `begin-export` and `begin-restore`
 pin server-selected lifecycle targets under the cohort lock; restore accepts an
 available export ID, never caller-supplied cell or contract identity.
 
+Contraction is an immutable contract-lock deployment, not an environment-flag
+flip. Before it, read `contractionReadiness` from that status view. It contains
+only `unfinishedV1Operations`, `retainedV1Exports`, and `ready`:
+`unfinishedV1Operations` counts stored-v1 lifecycle operations except
+`succeeded` and `failed_terminal`; `retainedV1Exports` counts every non-deleted
+export whose originating lifecycle operation stored v1. Do not deploy the
+contract lock until both counts are zero. This includes v1-origin export download
+and export-GC continuations: a completed export operation can still require the
+v1 provisioner until its retained export is deleted. Keep expand mode until both
+counts are zero; never rewrite a stored protocol to make the status appear
+drained.
+
 Emergency demotion stops a live unit; it is not rollback. Forward rollback
 imports a retained coherent 0.34.0 or 0.35.0 catalog release as a new pending
 candidate UUID, then creates fresh stages, assignment generations, and signed

@@ -38,6 +38,12 @@ type LifecycleCapacityTransition = {
   previous?: "reserved" | "occupied" | "uncertain" | "retained_storage" | "released";
 };
 
+export type ExomemHostedContractionReadiness = {
+  ready: boolean;
+  unfinishedV1Operations: number;
+  retainedV1Exports: number;
+};
+
 function asDate(value: unknown): Date {
   return value instanceof Date ? value : new Date(String(value));
 }
@@ -153,6 +159,35 @@ function cellFromRow(row: Row): CellControlRecord {
       ? Number(row.pending_credential_version)
       : null,
     readinessCode: row.readiness_code ? String(row.readiness_code) : null,
+  };
+}
+
+export async function getExomemHostedContractionReadiness(): Promise<ExomemHostedContractionReadiness> {
+  const { rows } = await executeExomemSql`
+    /* exomem:hosted-contraction-readiness */
+    SELECT
+      (
+        SELECT COUNT(*)
+        FROM exomem_lifecycle_operations AS operation
+        WHERE operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1'
+          AND operation.state NOT IN ('succeeded', 'failed_terminal')
+      ) AS unfinished_v1_operations,
+      (
+        SELECT COUNT(*)
+        FROM exomem_exports AS export_row
+        JOIN exomem_lifecycle_operations AS operation
+          ON operation.id = export_row.operation_id
+        WHERE operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1'
+          AND export_row.state <> 'deleted'
+      ) AS retained_v1_exports
+  `;
+  const row = rows[0] ?? {};
+  const unfinishedV1Operations = Number(row.unfinished_v1_operations ?? 0);
+  const retainedV1Exports = Number(row.retained_v1_exports ?? 0);
+  return {
+    ready: unfinishedV1Operations === 0 && retainedV1Exports === 0,
+    unfinishedV1Operations,
+    retainedV1Exports,
   };
 }
 

@@ -80,8 +80,15 @@ The operational order is:
 3. Prove every cataloged legacy v1 unit plus a synthetic v2 request/health round trip.
 4. Deploy this Substrate migration and consumer with v2 issuance disabled.
 5. Enable v2 for new operations; existing operations retain stored v1.
-6. Prove no new v1 work, drain or audit persisted v1 operations, then deploy the reviewed contract lock.
-7. Canary a fresh v2 lifecycle through readiness, binding, activation, and promotion.
+6. Keep the reviewed expand lock until the content-free operator contraction
+   readiness view reports both `unfinishedV1Operations = 0` and
+   `retainedV1Exports = 0`. The first counts stored-v1 operations excluding
+   `succeeded` and `failed_terminal`; the second counts all non-deleted exports
+   whose origin operation stored v1. This deliberately retains v1-origin export
+   download and export-GC continuations after their export operation completes.
+   Do not rewrite a stored protocol to satisfy either count.
+7. Deploy the reviewed contract lock only after that drain proof.
+8. Canary a fresh v2 lifecycle through readiness, binding, activation, and promotion.
 
 Rollback is not a flag flip for in-flight work. Before acceptance, the exact D0 image, actual pre-D1 manifest, last-known-good Substrate commit, frozen corpus, and both upgraded schemas pass an executable rehearsal. Rollback then uses only that tuple after admission stops, both systems prove no non-final v2 operation exists, and remaining cells/operations match its one legacy unit.
 

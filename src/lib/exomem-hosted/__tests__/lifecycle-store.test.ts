@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { SqlLifecycleStore } from "../lifecycle-store";
+import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifecycle-store";
 import { normalizeProvisionerWireProtocol } from "../provisioner-wire-protocol";
 
 afterEach(() => {
@@ -10,6 +10,27 @@ afterEach(() => {
 });
 
 describe("SQL lifecycle operation store", () => {
+  it("reports only durable v1 drain counts for contraction readiness", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return {
+        rows: [{ unfinished_v1_operations: "2", retained_v1_exports: "1" }],
+        rowCount: 1,
+      };
+    });
+
+    assert.deepEqual(await getExomemHostedContractionReadiness(), {
+      ready: false,
+      unfinishedV1Operations: 2,
+      retainedV1Exports: 1,
+    });
+    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i);
+    assert.match(statement, /operation\.state NOT IN \('succeeded', 'failed_terminal'\)/i);
+    assert.match(statement, /export_row\.state <> 'deleted'/i);
+    assert.match(statement, /JOIN exomem_lifecycle_operations AS operation/i);
+  });
+
   it("defaults new operations to v1 and enables v2 only for normalized true", () => {
     assert.equal(normalizeProvisionerWireProtocol(undefined), "exomem-cell-provisioner.v1");
     assert.equal(normalizeProvisionerWireProtocol(""), "exomem-cell-provisioner.v1");

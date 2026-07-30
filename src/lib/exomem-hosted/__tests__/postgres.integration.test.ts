@@ -18,7 +18,7 @@ import {
   takeRateLimit,
   type ExomemSql,
 } from "../db";
-import { SqlLifecycleStore } from "../lifecycle-store";
+import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifecycle-store";
 import { getOwnerExport, listOwnerExports } from "../durability";
 import { SqlExportGcStore } from "../export-gc";
 import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
@@ -101,6 +101,100 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     await pool.query("TRUNCATE TABLE exomem_oauth_clients CASCADE");
     await pool.query("TRUNCATE TABLE rate_limit_events");
     await pool.query("TRUNCATE TABLE exomem_rate_limit_buckets");
+  });
+
+  it("keeps contraction blocked until unfinished v1 work and retained v1 exports drain", async () => {
+    const candidate = "44444444-4444-4444-8444-444444444444";
+    const activeOperation = "55555555-5555-4555-8555-555555555555";
+    const completedOperation = "66666666-6666-4666-8666-666666666666";
+    const terminalOperation = "77777777-7777-4777-8777-777777777777";
+    const exportOperation = "88888888-8888-4888-8888-888888888888";
+    const exportId = "99999999-9999-4999-8999-999999999999";
+    const digest = "a".repeat(64);
+
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state,
+         protocol_version, release_version, provider_ref,
+         service_credential_ciphertext, service_credential_digest
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', 'test', 'provider-ref', $3, $4)`,
+      [CELL, TENANT, JSON.stringify({ encrypted: true }), Buffer.alloc(32, 0x21)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+         promoted_at
+       ) VALUES ($1, 'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+                 $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
+      [candidate, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+         fence_generation, provisioner_wire_protocol, target_candidate_id,
+         target_source_release, target_protocol_version, target_gateway_contract_digest,
+         target_command_fingerprint, target_schema_digest, target_compatibility_digest, completed_at
+       ) VALUES
+         ($1, $5, $6, 'seal', 'waiting', 'created', 'v1-active', 1,
+          'exomem-cell-provisioner.v1', $7, 'test', '1', $8, $8, $8, $8, NULL),
+         ($2, $5, $6, 'seal', 'succeeded', 'readiness-proved', 'v1-completed', 1,
+          'exomem-cell-provisioner.v1', $7, 'test', '1', $8, $8, $8, $8, now()),
+         ($3, $5, $6, 'seal', 'failed_terminal', 'created', 'v1-terminal', 1,
+          'exomem-cell-provisioner.v1', $7, 'test', '1', $8, $8, $8, $8, now()),
+         ($4, $5, $6, 'export', 'succeeded', 'readiness-proved', 'v1-export', 1,
+          'exomem-cell-provisioner.v1', $7, 'test', '1', $8, $8, $8, $8, now())`,
+      [activeOperation, completedOperation, terminalOperation, exportOperation, TENANT, CELL, candidate, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_exports (
+         id, tenant_id, cell_id, operation_id, state,
+         storage_reference_ciphertext, storage_reference_digest, archive_sha256, manifest_sha256, archive_size,
+         encryption_scheme, integrity_verified, expires_at
+       ) VALUES ($1, $2, $3, $4, 'available', $5, $6, $7, $8, 1,
+                 'envelope-aes-256-gcm', true, now() + interval '1 day')`,
+      [
+        exportId,
+        TENANT,
+        CELL,
+        exportOperation,
+        JSON.stringify({ encrypted: true }),
+        Buffer.alloc(32, 0x22),
+        "b".repeat(64),
+        "c".repeat(64),
+      ]
+    );
+
+    assert.deepEqual(await getExomemHostedContractionReadiness(), {
+      ready: false,
+      unfinishedV1Operations: 1,
+      retainedV1Exports: 1,
+    });
+
+    await pool.query(
+      "UPDATE exomem_lifecycle_operations SET state = 'succeeded', completed_at = now() WHERE id = $1",
+      [activeOperation]
+    );
+    await pool.query(
+      `UPDATE exomem_exports
+          SET state = 'deleted', storage_reference_ciphertext = NULL,
+              storage_reference_digest = NULL, archive_sha256 = NULL, manifest_sha256 = NULL,
+              archive_size = NULL, encryption_scheme = NULL, integrity_verified = NULL,
+              deleted_at = now(), provider_deleted_at = now()
+        WHERE id = $1`,
+      [exportId]
+    );
+    assert.deepEqual(await getExomemHostedContractionReadiness(), {
+      ready: true,
+      unfinishedV1Operations: 0,
+      retainedV1Exports: 0,
+    });
   });
 
   after(async () => {

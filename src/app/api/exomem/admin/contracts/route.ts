@@ -18,7 +18,10 @@ import {
   failStagedClientRelease,
 } from "@/lib/exomem-hosted/agent-contract-canaries";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
-import { SqlLifecycleStore } from "@/lib/exomem-hosted/lifecycle-store";
+import {
+  getExomemHostedContractionReadiness,
+  SqlLifecycleStore,
+} from "@/lib/exomem-hosted/lifecycle-store";
 import {
   newRequestId,
   operatorErrorResponse,
@@ -47,12 +50,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     await requireRateLimitedExomemOperator(request, "read");
-    const [agentContracts, clientArtifacts, liveCohortCandidateId, rolloutStatus] =
+    const [agentContracts, clientArtifacts, liveCohortCandidateId, rolloutStatus, contractionReadiness] =
       await Promise.all([
         listExomemAgentContractStatus(),
         listOperatorClientArtifacts(),
         getLiveExomemHostedCohortCandidateId(),
         listExomemHostedRolloutStatus(),
+        getExomemHostedContractionReadiness(),
       ]);
     operatorSuccessEvent(requestId);
     return NextResponse.json({
@@ -61,6 +65,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       clientArtifacts,
       liveCohortCandidateId,
       rolloutStatus,
+      contractionReadiness,
       requestId,
     });
   } catch (error) {
