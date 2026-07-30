@@ -1688,12 +1688,83 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       .sort((left, right) => left.grant_id.localeCompare(right.grant_id));
     assert.deepEqual(completed.rows, expectedCompleted);
 
+    const descendantStates = async () =>
+      (
+        await pool!.query(
+          `SELECT session.tenant_id, session.reviewer_credential_id, session.candidate_id,
+                  session.assignment_id, session.assignment_generation::text,
+                  session.staged_client_release_id, session.oauth_client_id,
+                  session.revoked_at IS NOT NULL AS session_revoked,
+                  transaction.consumed_at IS NOT NULL AS transaction_consumed,
+                  grant_row.revoked_at IS NOT NULL AS grant_revoked,
+                  code.consumed_at IS NOT NULL AS code_consumed,
+                  ROW(transaction.reviewer_credential_id, transaction.candidate_id,
+                      transaction.assignment_id, transaction.assignment_generation,
+                      transaction.staged_client_release_id, transaction.client_id)
+                    IS NOT DISTINCT FROM
+                  ROW(session.reviewer_credential_id, session.candidate_id,
+                      session.assignment_id, session.assignment_generation,
+                      session.staged_client_release_id, session.oauth_client_id) AS transaction_bound,
+                  ROW(grant_row.reviewer_credential_id, grant_row.candidate_id,
+                      grant_row.assignment_id, grant_row.assignment_generation,
+                      grant_row.staged_client_release_id, grant_row.client_id)
+                    IS NOT DISTINCT FROM
+                  ROW(session.reviewer_credential_id, session.candidate_id,
+                      session.assignment_id, session.assignment_generation,
+                      session.staged_client_release_id, session.oauth_client_id) AS grant_bound,
+                  ROW(code.reviewer_credential_id, code.candidate_id,
+                      code.assignment_id, code.assignment_generation,
+                      code.staged_client_release_id, code.client_id)
+                    IS NOT DISTINCT FROM
+                  ROW(session.reviewer_credential_id, session.candidate_id,
+                      session.assignment_id, session.assignment_generation,
+                      session.staged_client_release_id, session.oauth_client_id) AS code_bound
+           FROM exomem_sessions AS session
+           JOIN exomem_oauth_authorization_transactions AS transaction
+             ON transaction.redeemed_session_id = session.id
+           JOIN exomem_oauth_grants AS grant_row
+             ON grant_row.authorization_transaction_id = transaction.id
+           JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant_row.id
+           WHERE session.id IN ($1, $2) AND grant_row.id IN ($3, $4)
+           ORDER BY session.tenant_id`,
+          [sessionA!.sessionId, sessionB!.sessionId, completedA!.grantId, completedB!.grantId]
+        )
+      ).rows;
+    const expectedDescendantState = (
+      reviewer: typeof reviewerA,
+      credential: NonNullable<typeof credentialA>,
+      assignment: typeof assignmentA,
+      revoked: boolean
+    ) => ({
+      tenant_id: reviewer.tenantId,
+      reviewer_credential_id: credential.credentialId,
+      candidate_id: candidateId,
+      assignment_id: assignment.id,
+      assignment_generation: String(assignment.generation),
+      staged_client_release_id: stage.id,
+      oauth_client_id: registered.id,
+      session_revoked: revoked,
+      transaction_consumed: true,
+      grant_revoked: revoked,
+      code_consumed: revoked,
+      transaction_bound: true,
+      grant_bound: true,
+      code_bound: true,
+    });
+
     await pool!.query(
       "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = activated_at + interval '1 microsecond' WHERE id = $1",
       [assignmentA.id]
     );
     const firstExpiry = await expireCanaryAuthority();
     assert.equal(firstExpiry.expiredAssignments, 1);
+    assert.deepEqual(
+      await descendantStates(),
+      [
+        expectedDescendantState(reviewerA, credentialA!, assignmentA, true),
+        expectedDescendantState(reviewerB, credentialB!, assignmentB, false),
+      ].sort((left, right) => left.tenant_id.localeCompare(right.tenant_id))
+    );
     assert.equal(
       (await resolveApprovedOAuthClient(candidateClientId))?.clientId,
       candidateClientId
@@ -1728,6 +1799,13 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     );
     const secondExpiry = await expireCanaryAuthority();
     assert.equal(secondExpiry.expiredAssignments, 1);
+    assert.deepEqual(
+      await descendantStates(),
+      [
+        expectedDescendantState(reviewerA, credentialA!, assignmentA, true),
+        expectedDescendantState(reviewerB, credentialB!, assignmentB, true),
+      ].sort((left, right) => left.tenant_id.localeCompare(right.tenant_id))
+    );
     assert.equal(await resolveApprovedOAuthClient(candidateClientId), null);
     assert.equal(
       await createAuthorizationTransaction(
