@@ -84,6 +84,33 @@ const HOWTO_BY_SLUG: Record<
       },
     ],
   },
+  "restore-windows-apps-and-settings-after-reinstall": {
+    name: "How to restore Windows apps and settings after reinstalling Windows",
+    description:
+      "Restore selected Windows applications and supported application settings from an Endstate profile captured before reinstalling Windows.",
+    steps: [
+      {
+        name: "Open the Endstate setup flow",
+        text: "Install Endstate on the fresh Windows installation, open it, and choose Set up this computer.",
+      },
+      {
+        name: "Load the saved profile",
+        text: "Load the Endstate profile captured before reinstalling Windows, or retrieve it from Hosted Backup if you use that optional service.",
+      },
+      {
+        name: "Review the comparison",
+        text: "Review the comparison between the profile and the current computer to see what is already present, what can be installed, and which settings are available.",
+      },
+      {
+        name: "Select and apply the changes",
+        text: "Select the applications and supported settings to restore, then apply the changes.",
+      },
+      {
+        name: "Verify the resulting state",
+        text: "Read the result, verify the applications you rely on, and check anything marked unavailable or skipped.",
+      },
+    ],
+  },
   "share-your-app-setup": {
     name: "How to share your app setup with someone else",
     description: "Hand someone your exact app configuration as one portable file with Endstate.",

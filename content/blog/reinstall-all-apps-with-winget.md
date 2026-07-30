@@ -19,6 +19,8 @@ Here is how to reinstall your apps with winget, and exactly where it stops.
 
 For the complete new-PC sequence — settings, data, offline copies, and the Store-app gap — start with [the complete Windows setup guide](/blog/new-windows-pc-setup-guide).
 
+If you already have a saved Endstate profile and the task is specifically restoring apps and supported settings after reinstalling Windows, read [the focused restore guide](/blog/restore-windows-apps-and-settings-after-reinstall).
+
 ## Export what you have
 
 winget can write the apps it knows about to a single JSON file:

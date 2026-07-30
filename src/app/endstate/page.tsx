@@ -1713,6 +1713,10 @@ function Guides() {
       label: "The complete guide to setting up a new Windows PC",
     },
     {
+      href: "/blog/restore-windows-apps-and-settings-after-reinstall",
+      label: "How to restore Windows apps and settings after reinstalling Windows",
+    },
+    {
       href: "/blog/free-open-source-pc-migration-alternative",
       label: "A free, open-source alternative to EaseUS, Zinstall & Laplink",
     },
