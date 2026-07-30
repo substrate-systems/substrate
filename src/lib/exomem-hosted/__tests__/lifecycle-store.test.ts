@@ -399,12 +399,13 @@ describe("SQL lifecycle operation store", () => {
 
     assert.match(statement, /provisioner_wire_protocol/i);
     assert.equal(values.includes("exomem-cell-provisioner.v2"), true);
-    assert.match(statement, /bound_cell_target AS MATERIALIZED/i);
+    assert.match(statement, /origin_target_identities AS MATERIALIZED/i);
+    assert.match(statement, /legacy_cell_target_candidates AS MATERIALIZED/i);
     assert.match(statement, /tenant\.bound_cell_id/i);
-    assert.match(statement, /candidate\.source_release = bound_cell\.release_version/i);
-    assert.match(statement, /candidate\.protocol_version = bound_cell\.protocol_version/i);
-    assert.match(statement, /LEFT JOIN target ON[\s\S]*tenant\.bound_cell_id IS NOT NULL/i);
-    assert.doesNotMatch(statement, /observed_compatibility_digest/i);
+    assert.match(statement, /operation\.target_source_release = bound_cell\.release_version/i);
+    assert.match(statement, /operation\.target_protocol_version = bound_cell\.protocol_version/i);
+    assert.match(statement, /candidate\.compatibility_digest = bound_cell\.observed_compatibility_digest/i);
+    assert.match(statement, /JOIN target ON TRUE/i);
   });
 
   it("attests every rollout lock under the cohort lock before it makes a replacement routable", async () => {

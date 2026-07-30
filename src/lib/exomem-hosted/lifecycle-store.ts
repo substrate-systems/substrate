@@ -330,7 +330,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                  target.command_fingerprint,
                  target.schema_digest,
                  target.compatibility_digest
-          FROM source_export LEFT JOIN target ON TRUE
+          FROM source_export
+          JOIN target ON TRUE
           ON CONFLICT (tenant_id, operation_type, idempotency_key) DO NOTHING
           RETURNING *
         )
@@ -598,9 +599,7 @@ export class SqlLifecycleStore implements LifecycleStore {
              target.schema_digest,
              target.compatibility_digest
       FROM tenant
-      LEFT JOIN target ON ${operationType}::text IN ('provision', 'restore')
-                          OR ${cellId}::uuid IS NOT NULL
-                          OR tenant.bound_cell_id IS NOT NULL
+      JOIN target ON TRUE
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       WHERE exomem_lifecycle_operations.input_reference_digest

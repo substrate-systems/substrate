@@ -773,12 +773,6 @@ export async function admitFirstOAuthInviteAtomic(input: {
             target.gateway_contract_digest, target.command_fingerprint, target.schema_digest,
             target.compatibility_digest
           FROM live_target AS target
-          UNION ALL SELECT
-            ${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation}::bigint,
-            ${provisionerWireProtocol}, NULL::uuid, NULL::uuid, NULL::bigint,
-            NULL::text, NULL::text, NULL::text, NULL::text, NULL::text, NULL::text
-          WHERE NOT EXISTS (SELECT 1 FROM live_target)
-          LIMIT 1
           RETURNING id
         `;
         const operation = operationResult.rows[0] as { id: string } | undefined;

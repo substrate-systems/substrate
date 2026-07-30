@@ -612,6 +612,46 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       operatorPrincipalDigest: digest(53),
       expiresAt: new Date(Date.now() + 3_600_000),
     });
+    const candidate = await pool!.query<{
+      source_release: string;
+      protocol_version: string;
+      command_fingerprint: string;
+      schema_digest: string;
+      compatibility_digest: string;
+    }>(
+      `SELECT source_release, protocol_version, command_fingerprint, schema_digest,
+              compatibility_digest
+         FROM exomem_agent_contract_candidates
+        WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'`
+    );
+    const catalogUser = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ('legacy-catalog@example.test') RETURNING id"
+    );
+    const catalogTenant = await pool!.query<{ id: string }>(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+      [catalogUser.rows[0]!.id]
+    );
+    const catalogCell = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [
+        catalogTenant.rows[0]!.id,
+        candidate.rows[0]!.protocol_version,
+        candidate.rows[0]!.source_release,
+        "e".repeat(64),
+        candidate.rows[0]!.command_fingerprint,
+        candidate.rows[0]!.schema_digest,
+        candidate.rows[0]!.compatibility_digest,
+      ]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      catalogCell.rows[0]!.id,
+      catalogTenant.rows[0]!.id,
+    ]);
 
     const ordinary = await redeemInviteAtomic({
       tokenDigest: digest(50),

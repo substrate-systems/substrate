@@ -735,9 +735,9 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
 
         await client.query(
           `INSERT INTO exomem_lifecycle_operations (
-             tenant_id, cell_id, operation_type, idempotency_key, fence_generation
-           ) VALUES ($1, $2, 'seal', 'legacy-omits-wire-protocol', 1)`,
-          [TENANT, CELL]
+             tenant_id, operation_type, idempotency_key, fence_generation
+           ) VALUES ($1, 'delete', 'legacy-omits-wire-protocol', 1)`,
+          [TENANT]
         );
         assert.equal(
           (
@@ -767,7 +767,16 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
              ) VALUES ($1, $2, 'seal', 'v2-missing-target', 1, 'exomem-cell-provisioner.v2')`,
             [TENANT, CELL]
           ),
-          /exomem_lifecycle_v2_target_check/i
+          /exomem_lifecycle_target_required_for_new_operations/i
+        );
+        await assert.rejects(
+          client.query(
+            `INSERT INTO exomem_lifecycle_operations (
+               tenant_id, cell_id, operation_type, idempotency_key, fence_generation
+             ) VALUES ($1, $2, 'seal', 'v1-missing-target', 1)`,
+            [TENANT, CELL]
+          ),
+          /exomem_lifecycle_target_required_for_new_operations/i
         );
         await client.query(
           `INSERT INTO exomem_lifecycle_operations (
@@ -783,7 +792,7 @@ describe("migration 0037 provisioner wire protocol upgrade safety", { skip: !DAT
              ) VALUES ($1, $2, 'delete', 'v2-retained-cell-delete', 1, 'exomem-cell-provisioner.v2')`,
             [TENANT, CELL]
           ),
-          /exomem_lifecycle_v2_target_check/i
+          /exomem_lifecycle_target_required_for_new_operations/i
         );
 
         const candidate = await client.query<{ id: string }>(

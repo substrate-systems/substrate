@@ -381,7 +381,7 @@ export async function redeemInviteAtomic(
              target.gateway_contract_digest, target.command_fingerprint, target.schema_digest,
              target.compatibility_digest
       FROM tenant
-      LEFT JOIN live_target AS target ON TRUE
+      JOIN live_target AS target ON TRUE
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       RETURNING id, tenant_id
@@ -1239,6 +1239,7 @@ export async function consumeDeletionConfirmationAtomic(input: {
       FROM tenant_gated
       JOIN consumed ON consumed.tenant_id = tenant_gated.id
       LEFT JOIN target ON TRUE
+      WHERE tenant_gated.bound_cell_id IS NULL OR target.candidate_id IS NOT NULL
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       RETURNING id, request_id
