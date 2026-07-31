@@ -12,6 +12,13 @@ const EVENT_NAMES = new Set([
   "lifecycle.capacity.transition",
   "lifecycle.capacity.claim",
   "mcp.request",
+  "alerts.transition.accepted",
+  "alerts.transition.duplicate",
+  "alerts.transition.denied",
+  "alerts.transition.unavailable",
+  "alerts.notification.delivered",
+  "alerts.notification.failed",
+  "alerts.backlog.undelivered",
 ]);
 
 const ERROR_CODES = new Set([
@@ -45,6 +52,14 @@ const ERROR_CODES = new Set([
   "MCP_PROTOCOL_UNSUPPORTED",
   "TENANT_PREPARING",
   "TOO_LARGE",
+  "ALERT_ENDPOINT_NOT_FOUND",
+  "ALERT_PAYLOAD_INVALID",
+  "ALERT_STORE_UNAVAILABLE",
+  "CLAIM_UNAVAILABLE",
+  "EMAIL_DELIVERY_FAILED",
+  "NOTIFICATION_STATE_WRITE_FAILED",
+  "NOTIFICATION_NOT_SCHEDULED",
+  "UNKNOWN",
 ]);
 
 const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
@@ -85,6 +100,12 @@ export type OperationalEvent = {
   requestClass?: string;
   toolClass?: string;
   retryBucket?: string;
+  /** Scheduler alert contract labels. Both are fixed names from the pinned
+   * observability contract, never tenant-derived. */
+  alertJob?: string;
+  alertName?: string;
+  /** Opaque sender-derived transition digest; carries no content. */
+  transitionHash?: string;
 };
 
 function optionalUuid(value: unknown): string | undefined {
@@ -176,6 +197,15 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalBoundedLabel(input.retryBucket)
       ? { retryBucket: optionalBoundedLabel(input.retryBucket) }
+      : {}),
+    ...(optionalBoundedLabel(input.alertJob)
+      ? { alertJob: optionalBoundedLabel(input.alertJob) }
+      : {}),
+    ...(optionalBoundedLabel(input.alertName)
+      ? { alertName: optionalBoundedLabel(input.alertName) }
+      : {}),
+    ...(optionalOpaqueHash(input.transitionHash)
+      ? { transitionHash: optionalOpaqueHash(input.transitionHash) }
       : {}),
   };
 }
