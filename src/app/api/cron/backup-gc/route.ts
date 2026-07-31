@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { withApiVersion } from '@/lib/hosted-backup/api-version';
-import { verifyCronAuth } from '@/lib/hosted-backup/cron-auth';
-import { captureCronOutcome } from '@/lib/analytics-server';
+import { NextRequest, NextResponse } from "next/server";
+import { withApiVersion } from "@/lib/hosted-backup/api-version";
+import { verifyCronAuth } from "@/lib/hosted-backup/cron-auth";
+import { captureCronOutcome } from "@/lib/analytics-server";
 import {
   findExpiredDeletedVersions,
   listChunksForVersion,
@@ -13,15 +13,12 @@ import {
   stampManifestSeen,
   softDeleteVersionById,
   deleteRateLimitEventsBefore,
-} from '@/lib/hosted-backup/db';
-import {
-  deleteObjects,
-  headObjectExists,
-  listObjectKeys,
-} from '@/lib/hosted-backup/r2';
+} from "@/lib/hosted-backup/db";
+import { deleteObjects, headObjectExists, listObjectKeys } from "@/lib/hosted-backup/r2";
+import { runAlertBacklogMaintenance } from "@/lib/exomem-hosted/alert-receiver";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Per-run work caps. Daily cadence; a backlog larger than one run's budget
 // drains across subsequent days. Every pass is idempotent and crash-safe:
@@ -47,7 +44,7 @@ function ok(body: Record<string, unknown>, status = 200): NextResponse {
 
 export async function GET(req: NextRequest) {
   if (!verifyCronAuth(req).ok) {
-    return ok({ success: false, error: { code: 'UNAUTHENTICATED' } }, 401);
+    return ok({ success: false, error: { code: "UNAUTHENTICATED" } }, 401);
   }
 
   let errorCount = 0;
@@ -64,10 +61,7 @@ export async function GET(req: NextRequest) {
     for (const version of expired) {
       try {
         const chunks = await listChunksForVersion(version.id);
-        const keys = [
-          ...chunks.map((c) => c.object_key),
-          version.manifest_object_key,
-        ];
+        const keys = [...chunks.map((c) => c.object_key), version.manifest_object_key];
         // R2 first, DB second: if the run dies between the two, the rows
         // survive and the next run retries the idempotent R2 deletes.
         expiredObjectsDeleted += await deleteObjects(keys);
@@ -78,7 +72,7 @@ export async function GET(req: NextRequest) {
       }
     }
   } catch (err) {
-    fail('pass A', err);
+    fail("pass A", err);
   }
 
   // Pass B — drain the hard-delete purge queue (backup + account deletes).
@@ -117,7 +111,7 @@ export async function GET(req: NextRequest) {
       }
     }
   } catch (err) {
-    fail('pass B', err);
+    fail("pass B", err);
   }
 
   // Pass C — abandoned-upload sweep. Each version is HEAD-checked at most
@@ -134,7 +128,7 @@ export async function GET(req: NextRequest) {
     for (const candidate of candidates) {
       try {
         const state = await headObjectExists(candidate.manifest_object_key);
-        if (state === 'present') {
+        if (state === "present") {
           await stampManifestSeen(candidate.id);
           manifestsStamped += 1;
         } else {
@@ -146,24 +140,34 @@ export async function GET(req: NextRequest) {
       }
     }
   } catch (err) {
-    fail('pass C', err);
+    fail("pass C", err);
   }
 
   // Pass D — prune rate-limit events (windows in use are ≤ 1 hour).
   let rateLimitEventsPruned = 0;
   try {
-    rateLimitEventsPruned = await deleteRateLimitEventsBefore(
-      RATE_LIMIT_RETENTION_HOURS,
-    );
+    rateLimitEventsPruned = await deleteRateLimitEventsBefore(RATE_LIMIT_RETENTION_HOURS);
   } catch (err) {
-    fail('pass D', err);
+    fail("pass D", err);
   }
+
+  // Pass E: scheduler alert notification backlog.
+  //
+  // The alert receiver normally drains itself after each incoming transition,
+  // but that only helps while transitions keep arriving. If mail delivery is
+  // broken and the cluster goes quiet, an accepted alert could sit unsent with
+  // nobody told. This pass is the K3s-independent backstop, so worst-case
+  // detection latency is one day rather than unbounded.
+  // Deliberately kept out of errorCount: that counter is about this job's own
+  // GC passes, and an alert-delivery problem is not a backup-GC failure.
+  const alerts = await runAlertBacklogMaintenance(20);
 
   // errorCount is the signal that matters: a pass can complete having failed
   // several sub-passes, and a silently degrading GC is worse than a loud one.
+  // A parked alert needs a human, so it marks the outcome failed too.
   await captureCronOutcome({
-    job: 'backup-gc',
-    outcome: errorCount > 0 ? 'failed' : 'completed',
+    job: "backup-gc",
+    outcome: errorCount > 0 || alerts.failed > 0 || alerts.errored ? "failed" : "completed",
     properties: {
       expiredVersionsPurged,
       expiredObjectsDeleted,
@@ -172,6 +176,10 @@ export async function GET(req: NextRequest) {
       manifestsStamped,
       abandonedSoftDeleted,
       rateLimitEventsPruned,
+      alertsNotified: alerts.notified,
+      alertBacklogPending: alerts.pending,
+      alertBacklogFailed: alerts.failed,
+      alertBacklogErrored: alerts.errored,
       errorCount,
     },
   });
@@ -185,6 +193,10 @@ export async function GET(req: NextRequest) {
     manifestsStamped,
     abandonedSoftDeleted,
     rateLimitEventsPruned,
+    alertsNotified: alerts.notified,
+    alertBacklogPending: alerts.pending,
+    alertBacklogFailed: alerts.failed,
+    alertBacklogErrored: alerts.errored,
     errorCount,
   });
 }

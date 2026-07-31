@@ -15,8 +15,10 @@ const EVENT_NAMES = new Set([
   "alerts.transition.accepted",
   "alerts.transition.duplicate",
   "alerts.transition.denied",
+  "alerts.transition.unavailable",
   "alerts.notification.delivered",
   "alerts.notification.failed",
+  "alerts.backlog.undelivered",
 ]);
 
 const ERROR_CODES = new Set([
@@ -52,8 +54,11 @@ const ERROR_CODES = new Set([
   "TOO_LARGE",
   "ALERT_ENDPOINT_NOT_FOUND",
   "ALERT_PAYLOAD_INVALID",
+  "ALERT_STORE_UNAVAILABLE",
+  "CLAIM_UNAVAILABLE",
   "EMAIL_DELIVERY_FAILED",
   "NOTIFICATION_STATE_WRITE_FAILED",
+  "NOTIFICATION_NOT_SCHEDULED",
   "UNKNOWN",
 ]);
 

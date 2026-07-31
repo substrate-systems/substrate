@@ -1,22 +1,19 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { __setExomemSqlForTests, type ExomemSqlResult } from "@/lib/exomem-hosted/db";
+import { setOperationalEventSinkForTests } from "@/lib/exomem-hosted/observability";
 
 const TOKEN = "1f0c7a2b9d4e6f8a0b1c2d3e4f5a6b7c";
 const TOKEN_DIGEST = createHash("sha256").update(TOKEN, "utf8").digest("hex");
 const TRANSITION_ID = "c3d4".repeat(16);
 
-type SentEmail = { to: string; subject: string; textContent: string; htmlContent: string };
-let sent: SentEmail[] = [];
-let emailFails = false;
+let sent: Array<{ to: string; subject: string }> = [];
 
-before(async () => {
-  const { mock } = await import("node:test");
+before(() => {
   mock.module("@/lib/brevo", {
     namedExports: {
-      sendTransactionalEmail: async (input: SentEmail) => {
-        if (emailFails) throw new Error("BREVO_API_KEY is not set");
+      sendTransactionalEmail: async (input: { to: string; subject: string }) => {
         sent.push(input);
         return { success: true, messageId: "test-message" };
       },
@@ -24,12 +21,10 @@ before(async () => {
   });
 });
 
-after(async () => {
-  const { mock } = await import("node:test");
-  mock.reset();
-});
+after(() => mock.reset());
 
 let recorded: string[] = [];
+let logLines: string[] = [];
 let insertConflicts = false;
 let storeFails = false;
 
@@ -41,10 +36,11 @@ function markerOf(strings: TemplateStringsArray): string {
 beforeEach(() => {
   sent = [];
   recorded = [];
+  logLines = [];
   insertConflicts = false;
   storeFails = false;
-  emailFails = false;
   process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256 = TOKEN_DIGEST;
+  setOperationalEventSinkForTests((line) => logLines.push(line));
   __setExomemSqlForTests((strings, ...values): Promise<ExomemSqlResult> => {
     const marker = markerOf(strings);
     recorded.push(marker);
@@ -52,13 +48,13 @@ beforeEach(() => {
       if (storeFails) return Promise.reject(new Error("database unavailable"));
       return Promise.resolve({ rows: insertConflicts ? [] : [{ transition_id: values[0] }] });
     }
-    if (marker === "exomem:list-undelivered-alerts") return Promise.resolve({ rows: [] });
     return Promise.resolve({ rows: [] });
   });
 });
 
 afterEach(() => {
   __setExomemSqlForTests(null);
+  setOperationalEventSinkForTests(null);
   delete process.env.EXOMEM_HOSTED_ALERT_TOKEN_SHA256;
 });
 
@@ -75,7 +71,6 @@ function senderRequest(options: {
   transitionHeader?: string | null;
   contentLength?: string;
 }) {
-  const body = options.body ?? senderBytes();
   const headers: Record<string, string> = {
     "content-type": "application/json",
     accept: "application/json",
@@ -83,11 +78,10 @@ function senderRequest(options: {
   const header = options.transitionHeader === undefined ? TRANSITION_ID : options.transitionHeader;
   if (header !== null) headers["x-exomem-alert-transition"] = header;
   if (options.contentLength) headers["content-length"] = options.contentLength;
-  const url = `https://substratesystems.io/api/exomem/alerts/${options.token ?? TOKEN}`;
-  return new Request(url, {
+  return new Request(`https://substratesystems.io/api/exomem/alerts/${options.token ?? TOKEN}`, {
     method: "POST",
     headers,
-    body,
+    body: options.body ?? senderBytes(),
   }) as unknown as import("next/server").NextRequest;
 }
 
@@ -96,45 +90,27 @@ function params(token = TOKEN) {
 }
 
 describe("POST /api/exomem/alerts/[token]", () => {
-  it("accepts the pinned sender request and notifies the founder", async () => {
+  it("acknowledges the pinned sender request once the transition is durable", async () => {
     const { POST } = await import("../route");
     const response = await POST(senderRequest({}), params());
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { success: true, accepted: true });
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0].to, "founder@substratesystems.io");
-    assert.match(sent[0].subject, /FIRING: scheduler_missed_run \(exomem-reconcile\)/);
     assert.ok(recorded.includes("exomem:record-alert-transition"));
-    assert.ok(recorded.includes("exomem:mark-alert-notified"));
   });
 
-  it("reports a resolution transition distinctly", async () => {
+  it("answers before notifying, so a slow mail provider cannot spend the sender budget", async () => {
     const { POST } = await import("../route");
-    const response = await POST(senderRequest({ body: senderBytes(false) }), params());
-    assert.equal(response.status, 200);
-    assert.match(sent[0].subject, /RESOLVED: scheduler_missed_run/);
+    await POST(senderRequest({}), params());
+    // Notification is scheduled in `after()`; nothing may be sent inline.
+    assert.equal(sent.length, 0, "email must not run inside the acknowledgement path");
   });
 
-  it("commits before answering, so the row is written even when email fails", async () => {
-    emailFails = true;
-    const { POST } = await import("../route");
-    const response = await POST(senderRequest({}), params());
-    // The sender only retries twice; a delivery failure must not cost the
-    // transition, so the acknowledgement stays 2xx once the row is durable.
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { success: true, accepted: true });
-    assert.ok(recorded.includes("exomem:record-alert-transition"));
-    assert.ok(recorded.includes("exomem:mark-alert-notification-failed"));
-    assert.equal(sent.length, 0);
-  });
-
-  it("deduplicates a redelivered transition without notifying twice", async () => {
+  it("acknowledges a redelivery rather than rejecting it", async () => {
     insertConflicts = true;
     const { POST } = await import("../route");
     const response = await POST(senderRequest({}), params());
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { success: true, accepted: false });
-    assert.equal(sent.length, 0);
   });
 
   it("answers 404 for a wrong capability and never touches the store", async () => {
@@ -142,7 +118,17 @@ describe("POST /api/exomem/alerts/[token]", () => {
     const response = await POST(senderRequest({ token: "wrong" }), params("wrong"));
     assert.equal(response.status, 404);
     assert.equal(recorded.length, 0);
-    assert.equal(sent.length, 0);
+  });
+
+  it("answers 404 rather than 405 for every other method", async () => {
+    // A 405 with an Allow header would confirm the endpoint exists to an
+    // unauthenticated prober, defeating the 404-not-401 choice.
+    const route = await import("../route");
+    for (const method of ["GET", "PUT", "PATCH", "DELETE", "OPTIONS"] as const) {
+      const response = route[method]();
+      assert.equal(response.status, 404, `${method} must not reveal the route`);
+      assert.equal(response.headers.get("allow"), null);
+    }
   });
 
   it("rejects a body whose declared length exceeds the bound", async () => {
@@ -172,17 +158,68 @@ describe("POST /api/exomem/alerts/[token]", () => {
     const { POST } = await import("../route");
     const response = await POST(senderRequest({}), params());
     assert.equal(response.status, 503);
-    const body = (await response.json()) as { error: { retryable: boolean } };
+    const body = (await response.json()) as { error: { code: string; retryable: boolean } };
+    assert.equal(body.error.code, "ALERT_STORE_UNAVAILABLE");
     assert.equal(body.error.retryable, true);
-    assert.equal(sent.length, 0);
   });
 
-  it("never puts the capability or a redirect in the response", async () => {
+  it("distinguishes a store outage from a denial in the log stream", async () => {
+    storeFails = true;
+    const { POST } = await import("../route");
+    await POST(senderRequest({}), params());
+    const events = logLines.map(
+      (line) => JSON.parse(line) as { event: string; errorCode?: string }
+    );
+    assert.ok(events.some((event) => event.event === "alerts.transition.unavailable"));
+    assert.ok(!events.some((event) => event.event === "alerts.transition.denied"));
+  });
+
+  it("labels a denial with its cause so probing is visible", async () => {
+    const { POST } = await import("../route");
+    await POST(senderRequest({ token: "wrong" }), params("wrong"));
+    const events = logLines.map(
+      (line) => JSON.parse(line) as { event: string; errorCode?: string }
+    );
+    const denial = events.find((event) => event.event === "alerts.transition.denied");
+    assert.equal(denial?.errorCode, "ALERT_ENDPOINT_NOT_FOUND");
+  });
+
+  it("never writes the capability into logs or the response", async () => {
     const { POST } = await import("../route");
     const response = await POST(senderRequest({}), params());
-    assert.equal(response.status, 200);
+    const body = JSON.stringify(await response.json());
+    assert.ok(!body.includes(TOKEN));
+    assert.ok(logLines.length > 0, "the accepted transition must be logged at all");
+    for (const line of logLines) {
+      assert.ok(!line.includes(TOKEN), `capability leaked into a log line: ${line}`);
+      assert.ok(!line.includes("founder@"), `recipient leaked into a log line: ${line}`);
+    }
+  });
+
+  it("emits only allowlisted content-free fields for an accepted transition", async () => {
+    const { POST } = await import("../route");
+    await POST(senderRequest({}), params());
+    const accepted = logLines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((event) => event.event === "alerts.transition.accepted");
+    assert.ok(accepted);
+    assert.deepEqual(Object.keys(accepted).sort(), [
+      "alertJob",
+      "alertName",
+      "event",
+      "outcome",
+      "requestId",
+      "timestamp",
+      "transitionHash",
+    ]);
+    assert.equal(accepted.alertJob, "exomem-reconcile");
+    assert.equal(accepted.transitionHash, TRANSITION_ID);
+  });
+
+  it("never redirects", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(senderRequest({}), params());
     assert.equal(response.headers.get("location"), null);
     assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.ok(!JSON.stringify(await response.json()).includes(TOKEN));
   });
 });
