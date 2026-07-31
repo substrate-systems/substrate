@@ -38,6 +38,15 @@ async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>
 }
 
 async function runningProvision(legacyUnmetered = false): Promise<string> {
+  const candidate = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_agent_contract_candidates (
+       state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+       compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+     ) VALUES ('pending', $1, 'https://capacity.example.test', 'capacity-test', $2, $3, $4,
+               '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)
+     RETURNING id`,
+    [`capacity-${randomUUID()}`, "b".repeat(64), "c".repeat(64), "d".repeat(64)]
+  );
   const email = `capacity-${randomUUID()}@example.test`;
   const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [email]);
   const tenant = await pool!.query(
@@ -47,10 +56,21 @@ async function runningProvision(legacyUnmetered = false): Promise<string> {
   const operation = await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
        tenant_id, operation_type, state, idempotency_key, fence_generation,
-       checkpoint, lease_owner, lease_expires_at
-     ) VALUES ($1, 'provision', 'running', $2, 1, 'candidate-created', 'worker-a', now() + interval '1 hour')
+       checkpoint, lease_owner, lease_expires_at, target_candidate_id, target_source_release,
+       target_protocol_version, target_gateway_contract_digest, target_command_fingerprint,
+       target_schema_digest, target_compatibility_digest
+     ) VALUES ($1, 'provision', 'running', $2, 1, 'candidate-created', 'worker-a',
+               now() + interval '1 hour', $3, 'capacity-test', '1', $4, $5, $6, $7)
      RETURNING id`,
-    [tenant.rows[0].id, randomUUID()]
+    [
+      tenant.rows[0].id,
+      randomUUID(),
+      candidate.rows[0].id,
+      "a".repeat(64),
+      "b".repeat(64),
+      "c".repeat(64),
+      "d".repeat(64),
+    ]
   );
   return operation.rows[0].id;
 }

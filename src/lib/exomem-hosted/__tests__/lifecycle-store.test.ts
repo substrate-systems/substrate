@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { SqlLifecycleStore } from "../lifecycle-store";
+import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifecycle-store";
+import { normalizeProvisionerWireProtocol } from "../provisioner-wire-protocol";
 
 afterEach(() => {
   __setExomemSqlForTests(null);
@@ -9,6 +10,66 @@ afterEach(() => {
 });
 
 describe("SQL lifecycle operation store", () => {
+  it("reports only durable v1 drain counts for contraction readiness", async () => {
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return {
+        rows: [{ unfinished_v1_operations: "2", retained_v1_exports: "1" }],
+        rowCount: 1,
+      };
+    });
+
+    assert.deepEqual(await getExomemHostedContractionReadiness(), {
+      ready: false,
+      unfinishedV1Operations: 2,
+      retainedV1Exports: 1,
+    });
+    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i);
+    assert.match(statement, /operation\.state NOT IN \('succeeded', 'failed_terminal'\)/i);
+    assert.match(statement, /export_row\.state <> 'deleted'/i);
+    assert.match(statement, /JOIN exomem_lifecycle_operations AS operation/i);
+  });
+
+  it("defaults new operations to v1 and enables v2 only for normalized true", () => {
+    assert.equal(normalizeProvisionerWireProtocol(undefined), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol(""), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol("false"), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol("1"), "exomem-cell-provisioner.v1");
+    assert.equal(normalizeProvisionerWireProtocol(" TrUe "), "exomem-cell-provisioner.v2");
+  });
+
+  it("records v2 runtime observations but derives compatibility from the stored target", async () => {
+    let statement = "";
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
+      statement = strings.join("?");
+      values.push(...parameters);
+      return { rows: [{ id: "cell-1" }], rowCount: 1 };
+    });
+
+    const recorded = await new SqlLifecycleStore().recordReadiness({
+      operationId: "018f2d91-7c42-7000-8000-000000000071",
+      owner: "worker-a",
+      code: "CELL_READY",
+      runtimeIdentity: {
+        releaseVersion: "2026.07.11",
+        protocolVersion: "1",
+        agentProfile: "hosted-alpha-agent-v1",
+        gatewayContractDigest: "a".repeat(64),
+        commandFingerprint: "b".repeat(64),
+        schemaDigest: "c".repeat(64),
+      },
+    });
+
+    assert.equal(recorded, true);
+    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v2'/i);
+    assert.match(statement, /operation\.target_compatibility_digest/i);
+    assert.equal(values.includes("a".repeat(64)), true);
+    assert.equal(values.includes("b".repeat(64)), true);
+    assert.equal(values.includes("c".repeat(64)), true);
+  });
+
   it("claims pending work or a stale running lease with row locking and an attempt bound", async () => {
     let statement = "";
     __setExomemSqlForTests(async (strings) => {
@@ -362,6 +423,41 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /state = 'preparing'/i);
     assert.match(statement, /state = 'live'/i);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+  });
+
+  it("persists the selected wire protocol with a catalog target for every cell-scoped operation", async () => {
+    let statement = "";
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
+      statement = strings.join("?");
+      values.push(...parameters);
+      return { rows: [], rowCount: 0 };
+    });
+
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = " true ";
+    try {
+      await assert.rejects(
+        new SqlLifecycleStore().enqueue(
+          "018f2d91-7c42-7000-8000-000000000071",
+          "seal",
+          "v2-cell-target"
+        )
+      );
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+
+    assert.match(statement, /provisioner_wire_protocol/i);
+    assert.equal(values.includes("exomem-cell-provisioner.v2"), true);
+    assert.match(statement, /origin_target_identities AS MATERIALIZED/i);
+    assert.match(statement, /legacy_cell_target_candidates AS MATERIALIZED/i);
+    assert.match(statement, /tenant\.bound_cell_id/i);
+    assert.match(statement, /operation\.target_source_release = bound_cell\.release_version/i);
+    assert.match(statement, /operation\.target_protocol_version = bound_cell\.protocol_version/i);
+    assert.match(statement, /candidate\.compatibility_digest = bound_cell\.observed_compatibility_digest/i);
+    assert.match(statement, /JOIN target ON TRUE/i);
   });
 
   it("attests every rollout lock under the cohort lock before it makes a replacement routable", async () => {

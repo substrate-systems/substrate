@@ -67,6 +67,11 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/lifecycle-store", {
     namedExports: {
+      getExomemHostedContractionReadiness: async () => ({
+        ready: false,
+        unfinishedV1Operations: 2,
+        retainedV1Exports: 1,
+      }),
       SqlLifecycleStore: class {
         async getAvailableRestoreBinding() {
           return {
@@ -127,7 +132,7 @@ function request(body: unknown, authorization?: string) {
 }
 
 describe("Exomem operator contract controls", () => {
-  it("returns only content-free readiness, observed identity, and lifecycle target status", async () => {
+  it("returns only content-free rollout and contraction readiness", async () => {
     const { GET } = await import("../route");
     const response = await GET(
       new Request("https://substratesystems.io/api/exomem/admin/contracts", {
@@ -135,7 +140,8 @@ describe("Exomem operator contract controls", () => {
       }) as unknown as import("next/server").NextRequest
     );
     assert.equal(response.status, 200);
-    assert.deepEqual((await response.json()).rolloutStatus, [
+    const body = await response.json();
+    assert.deepEqual(body.rolloutStatus, [
       {
         candidateId: "018f2d91-7c42-7000-8000-000000000021",
         state: "pending",
@@ -148,6 +154,11 @@ describe("Exomem operator contract controls", () => {
         currentTargetSourceRelease: "0.35.0",
       },
     ]);
+    assert.deepEqual(body.contractionReadiness, {
+      ready: false,
+      unfinishedV1Operations: 2,
+      retainedV1Exports: 1,
+    });
   });
 
   it("creates a canary assignment with the authenticated operator digest", async () => {
