@@ -18,7 +18,9 @@
   a:hover { color: #57534e; }
   @media print {
     body { background: #ffffff; }
-    [data-sheet] { width: auto !important; min-height: 0 !important; padding: 0 !important; box-shadow: none !important; margin: 0 !important; }
+    [data-sheet] { width: 170mm !important; min-height: 0 !important; padding: 0 !important; box-shadow: none !important; margin: 0 !important; }
+    div:has(> [data-sheet]) { display: block !important; padding: 0 !important; min-height: 0 !important; gap: 0 !important; }
+    [data-screenonly] { display: none !important; }
     [data-annex] { break-before: page; page-break-before: always; }
     [data-avoid] { break-inside: avoid; page-break-inside: avoid; }
     thead { display: table-header-group; }
@@ -80,18 +82,17 @@
         </sc-for>
         <div style="height:6px;"></div>
         <div style="color:#44403c; font-variant-numeric:tabular-nums;">Registry code {{ f.sellerRegistry }}</div>
-        <div style="color:#44403c;">{{ f.sellerVatStatus }}</div>
+        <div style="color:#44403c;">VAT {{ f.sellerVatStatus }}</div>
         <div style="color:#44403c;">{{ f.sellerEmail }}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:2px;">
         <div style="font-size:7.5pt; letter-spacing:0.2em; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Billed to</div>
         <div style="font-weight:400;">{{ f.buyerName }}</div>
-        <div style="color:#44403c;">Attn. {{ f.buyerAttn }}</div>
         <sc-for list="{{ buyerAddress }}" as="line" hint-placeholder-count="3">
           <div style="color:#44403c;">{{ line.text }}</div>
         </sc-for>
         <div style="height:6px;"></div>
-        <div style="color:#44403c; font-variant-numeric:tabular-nums;">Company number {{ f.buyerRegistry }}</div>
+        <div style="color:#44403c; font-variant-numeric:tabular-nums;">Registry code {{ f.buyerRegistry }}</div>
         <div style="color:#44403c; font-variant-numeric:tabular-nums;">VAT {{ f.buyerVat }}</div>
       </div>
     </div>
@@ -230,7 +231,7 @@ const INVOICE = {
     name: "Substrate Systems OÜ",
     addressLines: ["Siidisaba tn 13/2", "11311 Tallinn", "Estonia"],
     registry: "17394552",
-    vatStatus: "Not registered for VAT",
+    vatStatus: "Not registered",
     email: "billing@substratesystems.io"
   },
   buyer: {
