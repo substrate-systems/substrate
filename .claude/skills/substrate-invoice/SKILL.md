@@ -35,7 +35,28 @@ One template, edited monthly. **All content lives in the `INVOICE` object at the
 7. Rebuild `invoice.html` from `Invoice.dc.html` (single-file bundle).
 8. Print: A4, scale 100%, **background graphics on** — hairlines and placeholder blocks
    need it. Margins come from `@page` (20mm); use the browser's default margin setting.
-9. Save as `YYYY-NNN-client-slug.pdf`.
+9. Save as `YYYY-NNN-client-slug.pdf`. Use that same stem for the `.html` and the data
+   file, and as `payment.reference`, so one identifier follows the invoice everywhere.
+
+## Verify before sending
+
+Render, then assert. Do not eyeball this — a stylesheet can read correctly and lay out
+wrong, and it has.
+
+1. **Page count is exactly 2** with an annex, 1 without. The footer says "Page 1 of 2"
+   from the annex flag alone; it cannot tell whether page one overflowed. A third page
+   means the footer is now lying — move detail into the annex until it fits.
+2. **Both sheets report equal width** under emulated print media. Unequal means a sheet
+   is shrink-wrapping again.
+3. **`[data-screenonly]` computes to `display:none`** in print.
+4. **Zero `[[` tokens** in the rendered text.
+5. **The annex total equals the line-item quantity.**
+
+Measure with a real browser under print emulation, e.g. Playwright driving
+`/usr/bin/google-chrome`, `page.emulate_media(media="print")`, then
+`getBoundingClientRect()`. Count PDF pages from the page tree `/Count` — grepping
+`/Type /Page` also matches `/Pages` and over-counts. Normalise the PDF timestamp before
+comparing two renders by hash.
 
 ## Hard constraints
 
@@ -48,7 +69,14 @@ One template, edited monthly. **All content lives in the `INVOICE` object at the
    client) or an Article 44 / reverse-charge sentence (asserts a tax obligation on the
    client that does not exist — Estonian tax is handled here).
 3. **Numbering is human-managed.** Never auto-generate.
-4. **PAYMENT_ROUTES:** default `"domestic"` (LHV business account, beneficiary Substrate
+4. **The VAT rows appear only if one of the parties has a VAT number.** When neither
+   does, both rows are hidden — the frozen VAT sentence already states why no VAT is
+   charged, so repeating it in the address block is noise. When either party has one,
+   both rows show, the other reading `VAT —`. Never one side alone: that breaks the
+   mirror and reads as an omission. If a VAT-registered party ever appears, the frozen
+   sentence itself has to be revisited with the accountant — the tax treatment changes,
+   and it is not something to auto-generate.
+5. **PAYMENT_ROUTES:** default `"domestic"` (LHV business account, beneficiary Substrate
    Systems OÜ — verified against the LHV business portal 2026-08-03). `"international"`
    is the Wise business account, also the OÜ's. Both are valid; pick per client for the
    payer's convenience. The beneficiary named on an invoice must always be the legal

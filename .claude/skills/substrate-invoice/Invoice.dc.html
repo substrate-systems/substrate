@@ -82,7 +82,9 @@
         </sc-for>
         <div style="height:6px;"></div>
         <div style="color:#44403c; font-variant-numeric:tabular-nums;">Registry code {{ f.sellerRegistry }}</div>
-        <div style="color:#44403c;">VAT {{ f.sellerVatStatus }}</div>
+        <sc-if value="{{ showVat }}" hint-placeholder-val="{{ true }}">
+          <div style="color:#44403c; font-variant-numeric:tabular-nums;">VAT {{ f.sellerVat }}</div>
+        </sc-if>
         <div style="color:#44403c;">{{ f.sellerEmail }}</div>
       </div>
       <div style="display:flex; flex-direction:column; gap:2px;">
@@ -93,7 +95,9 @@
         </sc-for>
         <div style="height:6px;"></div>
         <div style="color:#44403c; font-variant-numeric:tabular-nums;">Registry code {{ f.buyerRegistry }}</div>
-        <div style="color:#44403c; font-variant-numeric:tabular-nums;">VAT {{ f.buyerVat }}</div>
+        <sc-if value="{{ showVat }}" hint-placeholder-val="{{ true }}">
+          <div style="color:#44403c; font-variant-numeric:tabular-nums;">VAT {{ f.buyerVat }}</div>
+        </sc-if>
       </div>
     </div>
 
@@ -231,7 +235,7 @@ const INVOICE = {
     name: "Substrate Systems OÜ",
     addressLines: ["Siidisaba tn 13/2", "11311 Tallinn", "Estonia"],
     registry: "17394552",
-    vatStatus: "Not registered",
+    vat: "",
     email: "billing@substratesystems.io"
   },
   buyer: {
@@ -341,12 +345,17 @@ class Component extends DCLogic {
       amount: money((Number(it.qty) || 0) * (Number(it.rate) || 0))
     }));
 
+    const hasVatId = v => {
+      const t = String(v == null ? "" : v).trim();
+      return t !== "" && t !== "\u2014" && t !== "-" && !/^not registered$/i.test(t);
+    };
+
     const f = {
       issued: date(inv.issued),
       due: date(inv.due),
       period: date(inv.period && inv.period.from) + " \u2014 " + date(inv.period && inv.period.to),
       sellerRegistry: ph(inv.seller.registry),
-      sellerVatStatus: ph(inv.seller.vatStatus),
+      sellerVat: ph(inv.seller.vat || "\u2014"),
       sellerEmail: ph(inv.seller.email),
       buyerName: ph(inv.buyer.name),
       buyerAttn: ph(inv.buyer.attn),
@@ -369,6 +378,7 @@ class Component extends DCLogic {
       total: money(subtotal),
       routeLabel: route.label,
       hasAnnex: !!annex,
+      showVat: hasVatId(inv.seller.vat) || hasVatId(inv.buyer.vat),
       annexTitle: annex ? annex.title : "",
       annexRows: annex ? annex.rows.map((r, i) => ({ key: i, label: ph(r.label), value: ph(r.value) })) : [],
       pageOneLabel: annex ? "Page 1 of 2" : "Page 1 of 1",

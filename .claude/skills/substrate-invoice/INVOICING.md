@@ -40,6 +40,14 @@ year, resetting each January (`2027-001`). Never reused, never regressed, never 
 an hours breakdown, a milestone ledger, an expense list. Omit the `annex` key and page 2
 plus the "Page 1 of 2" footer disappear. Never add an annex to look thorough.
 
+## Page one must fit one page
+
+The footer labels come from whether an annex exists, not from measuring the render, so
+they assume page one fits. Enough line items will push it over and the footer will then
+claim "Page 1 of 2" on a three-page document. After rendering, confirm the PDF has
+exactly two pages (one without an annex). If it does not, shorten `detail` text or move
+the breakdown into the annex until it does.
+
 ## What must never be invented
 
 Buyer identity (legal name, address, company number, VAT number) and the billing email
