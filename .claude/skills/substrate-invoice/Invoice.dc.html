@@ -80,20 +80,19 @@
         <sc-for list="{{ sellerAddress }}" as="line" hint-placeholder-count="3">
           <div style="color:#44403c;">{{ line.text }}</div>
         </sc-for>
-        <div style="height:6px;"></div>
+        <div style="height:4px;"></div>
         <div style="color:#44403c; font-variant-numeric:tabular-nums;">Registry code {{ f.sellerRegistry }}</div>
         <sc-if value="{{ showVat }}" hint-placeholder-val="{{ true }}">
           <div style="color:#44403c; font-variant-numeric:tabular-nums;">VAT {{ f.sellerVat }}</div>
         </sc-if>
-        <div style="color:#44403c;">{{ f.sellerEmail }}</div>
-      </div>
+              </div>
       <div style="display:flex; flex-direction:column; gap:2px;">
         <div style="font-size:7.5pt; letter-spacing:0.2em; text-transform:uppercase; color:#78716c; margin-bottom:6px;">Billed to</div>
         <div style="font-weight:400;">{{ f.buyerName }}</div>
         <sc-for list="{{ buyerAddress }}" as="line" hint-placeholder-count="3">
           <div style="color:#44403c;">{{ line.text }}</div>
         </sc-for>
-        <div style="height:6px;"></div>
+        <div style="height:4px;"></div>
         <div style="color:#44403c; font-variant-numeric:tabular-nums;">Registry code {{ f.buyerRegistry }}</div>
         <sc-if value="{{ showVat }}" hint-placeholder-val="{{ true }}">
           <div style="color:#44403c; font-variant-numeric:tabular-nums;">VAT {{ f.buyerVat }}</div>
@@ -169,7 +168,7 @@
     <div style="flex:1; min-height:8mm;"></div>
 
     <div style="display:flex; justify-content:space-between; align-items:baseline; padding-top:4mm; border-top:1px solid rgba(28,25,23,.18); color:#78716c; font-size:7.5pt; letter-spacing:0.06em; font-variant-numeric:tabular-nums;">
-      <span>{{ inv.seller.name }} · Invoice {{ inv.number }}</span>
+      <span>{{ inv.seller.name }} · {{ f.sellerEmail }} · Invoice {{ inv.number }}</span>
       <span>{{ pageOneLabel }}</span>
     </div>
   </div>
@@ -202,7 +201,7 @@
       </table>
       <div style="flex:1; min-height:8mm;"></div>
       <div style="display:flex; justify-content:space-between; align-items:baseline; padding-top:4mm; border-top:1px solid rgba(28,25,23,.18); color:#78716c; font-size:7.5pt; letter-spacing:0.06em; font-variant-numeric:tabular-nums;">
-        <span>{{ inv.seller.name }} · Invoice {{ inv.number }}</span>
+        <span>{{ inv.seller.name }} · {{ f.sellerEmail }} · Invoice {{ inv.number }}</span>
         <span>{{ pageTwoLabel }}</span>
       </div>
     </div>
