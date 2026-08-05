@@ -20,6 +20,12 @@ const declarationId = "018f2d91-7c42-7000-8000-000000000074";
 const oauthClientId = "018f2d91-7c42-7000-8000-000000000075";
 const sha = (character: string) => character.repeat(64);
 
+// The canary validator bounds expiry to (now, now + 7 days], so a literal date
+// silently rots: these fixtures passed until 2026-08-01 and failed every run after.
+// One value, derived from the clock, shared by the mock row, the input and the
+// expectation so they cannot drift apart.
+const expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+
 afterEach(() => {
   __setExomemSqlForTests(null);
   __setExomemTransactionForTests(null);
@@ -67,7 +73,7 @@ describe("Hosted canary assignments", () => {
                 generation: 2,
                 version: 1,
                 state: "preparing",
-                expires_at: "2026-08-01T00:00:00.000Z",
+                expires_at: expiresAt,
               },
             ]
           : [],
@@ -78,7 +84,7 @@ describe("Hosted canary assignments", () => {
     const assignment = await createCanaryAssignment({
       tenantId,
       candidateId,
-      expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+      expiresAt: new Date(expiresAt),
       operatorPrincipalDigest: sha("a"),
     });
 
@@ -87,7 +93,7 @@ describe("Hosted canary assignments", () => {
       generation: 2,
       version: 1,
       state: "preparing",
-      expiresAt: "2026-08-01T00:00:00.000Z",
+      expiresAt,
     });
     assert.match(queries[0]!, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
     assert.match(queries[1]!, /candidate\.state = 'pending'/i);
@@ -118,7 +124,7 @@ describe("Hosted canary assignments", () => {
               schema_digest: sha("c"),
               compatibility_digest: sha("d"),
               gateway_contract_digest: sha("e"),
-              expires_at: "2026-08-01T00:00:00.000Z",
+              expires_at: expiresAt,
             },
           ],
         };
@@ -287,7 +293,7 @@ describe("staged client releases", () => {
               plugin_version: "0.35.0",
               oauth_client_config_sha256: sha("e"),
               registered_app_id_sha256: sha("f"),
-              expires_at: "2026-08-01T00:00:00.000Z",
+              expires_at: expiresAt,
               state: "staged",
             },
           ],
@@ -309,7 +315,7 @@ describe("staged client releases", () => {
         oauthClientConfigSha256: sha("e"),
         registeredAppIdSha256: sha("f"),
         operatorPrincipalDigest: sha("1"),
-        expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+        expiresAt: new Date(expiresAt),
       }),
       { id: declarationId, version: 1, state: "staged" }
     );

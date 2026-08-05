@@ -11,6 +11,10 @@ import {
   verifyMarketplaceReviewerPassword,
 } from "../reviewer-access";
 
+// Authentication rejects an expired credential, so a literal expiry turns this
+// test from a pass into an assertion on `undefined` the day it elapses.
+const EXPIRES_AT = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+
 test("reviewer credentials use opaque generated entropy and do not expose storage values", async () => {
   let sequence = 0;
   const credential = generateMarketplaceReviewerCredential({
@@ -112,13 +116,13 @@ test("successful reviewer authentication retains the credential expiry for deriv
         tenantId: "tenant-1",
         fixtureVersion: "review-fixture-v1",
         passwordHash,
-        expiresAt: "2026-08-01T00:00:00.000Z",
+        expiresAt: EXPIRES_AT,
         revokedAt: null,
       }),
     }
   );
   assert.equal(
     (authenticated as { expiresAt?: string } | null)?.expiresAt,
-    "2026-08-01T00:00:00.000Z"
+    EXPIRES_AT
   );
 });

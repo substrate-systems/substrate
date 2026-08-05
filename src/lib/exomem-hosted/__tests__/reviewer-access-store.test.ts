@@ -14,6 +14,11 @@ import {
   revokeMarketplaceReviewerCredentialAtomic,
 } from "../reviewer-access-store";
 
+// Reviewer credential expiry is validated against a window relative to now, so a
+// literal date stops being valid the moment it passes. These fixtures held until
+// 2026-08-01 and failed every run after it. Derive it from the clock instead.
+const EXPIRES_AT = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+
 afterEach(() => {
   __setExomemSqlForTests(null);
   __setExomemTransactionForTests(null);
@@ -35,7 +40,7 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
           id: "credential-1",
           owner_user_id: "owner-1",
           tenant_id: "tenant-1",
-          expires_at: "2026-08-01T00:00:00.000Z",
+          expires_at: EXPIRES_AT,
         },
       ],
     };
@@ -49,7 +54,7 @@ test("creation validates a usable pre-bound owner and atomically rotates only th
     tenantId: "tenant-1",
     fixtureVersion: "review-fixture-v1",
     fixturePayloadDigest: "a".repeat(64),
-    expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+    expiresAt: new Date(EXPIRES_AT),
     operatorPrincipalDigest: Buffer.alloc(32, 2),
   });
 
@@ -111,7 +116,7 @@ test("an unusable rotation target cannot revoke the current provider credential"
       tenantId: "unusable-tenant",
       fixtureVersion: "review-fixture-v1",
       fixturePayloadDigest: "a".repeat(64),
-      expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+      expiresAt: new Date(EXPIRES_AT),
       operatorPrincipalDigest: Buffer.alloc(32, 2),
     }),
     null
@@ -157,7 +162,7 @@ test("internal canary issuance seals invite setup state and binds exact staged a
           id: "credential-1",
           owner_user_id: "owner-1",
           tenant_id: "tenant-1",
-          expires_at: "2026-08-01T00:00:00.000Z",
+          expires_at: EXPIRES_AT,
         },
       ],
     };
@@ -176,14 +181,14 @@ test("internal canary issuance seals invite setup state and binds exact staged a
       oauthClientId: "client-1",
       fixtureVersion: "internal-canary-v1",
       fixturePayloadDigest: "a".repeat(64),
-      expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+      expiresAt: new Date(EXPIRES_AT),
       operatorPrincipalDigest: Buffer.alloc(32, 2),
     }),
     {
       credentialId: "credential-1",
       ownerUserId: "owner-1",
       tenantId: "tenant-1",
-      expiresAt: "2026-08-01T00:00:00.000Z",
+      expiresAt: EXPIRES_AT,
     }
   );
   const query = queries.join("\n");
@@ -216,7 +221,7 @@ test("reviewer sessions are tagged to the credential without provisioning", asyn
       credentialId: "credential-1",
       sessionDigest: Buffer.alloc(32, 3),
       csrfDigest: Buffer.alloc(32, 4),
-      expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+      expiresAt: new Date(EXPIRES_AT),
     }),
     { sessionId: "session-1", ownerUserId: "owner-1", tenantId: "tenant-1" }
   );
@@ -242,7 +247,7 @@ test("reviewer OAuth session creation atomically binds the matching provider tra
       transactionDigest: Buffer.alloc(32, 8),
       sessionDigest: Buffer.alloc(32, 3),
       csrfDigest: Buffer.alloc(32, 4),
-      expiresAt: new Date("2026-08-01T00:00:00.000Z"),
+      expiresAt: new Date(EXPIRES_AT),
     }),
     { sessionId: "session-1" }
   );
@@ -309,7 +314,7 @@ test("status is sanitized and revocation is idempotent without an account block"
             provider: "openai",
             fixture_version: "review-fixture-v1",
             fixture_payload_digest: "a".repeat(64),
-            expires_at: "2026-08-01T00:00:00.000Z",
+            expires_at: EXPIRES_AT,
             revoked_at: null,
           },
         ],
@@ -323,7 +328,7 @@ test("status is sanitized and revocation is idempotent without an account block"
     provider: "openai",
     fixtureVersion: "review-fixture-v1",
     fixturePayloadDigest: "a".repeat(64),
-    expiresAt: "2026-08-01T00:00:00.000Z",
+    expiresAt: EXPIRES_AT,
     revokedAt: null,
   });
   assert.equal(JSON.stringify(status).includes("password"), false);
@@ -358,7 +363,7 @@ test("internal canary status and revocation require the exact lineage and exclud
             client_platform: "claude",
             fixture_version: "internal-canary-v1",
             fixture_payload_digest: "a".repeat(64),
-            expires_at: "2026-08-01T00:00:00.000Z",
+            expires_at: EXPIRES_AT,
             revoked_at: null,
           },
         ],
@@ -371,7 +376,7 @@ test("internal canary status and revocation require the exact lineage and exclud
             provider: "openai",
             fixture_version: "provider-review-v1",
             fixture_payload_digest: "b".repeat(64),
-            expires_at: "2026-08-01T00:00:00.000Z",
+            expires_at: EXPIRES_AT,
             revoked_at: null,
           },
         ],
@@ -396,7 +401,7 @@ test("internal canary status and revocation require the exact lineage and exclud
     platform: "claude",
     fixtureVersion: "internal-canary-v1",
     fixturePayloadDigest: "a".repeat(64),
-    expiresAt: "2026-08-01T00:00:00.000Z",
+    expiresAt: EXPIRES_AT,
     revokedAt: null,
   });
   assert.equal(
@@ -416,7 +421,7 @@ test("internal canary status and revocation require the exact lineage and exclud
 });
 
 test("normalizes PostgreSQL Date timestamps for reviewer lookup and status", async () => {
-  const expiresAt = new Date("2026-08-01T00:00:00.000Z");
+  const expiresAt = new Date(EXPIRES_AT);
   const revokedAt = new Date("2026-07-31T00:00:00.000Z");
   setSql(async (strings) => {
     const query = strings.join("?");
@@ -452,9 +457,9 @@ test("normalizes PostgreSQL Date timestamps for reviewer lookup and status", asy
   const authentication = await findMarketplaceReviewerCredentialForAuthentication(
     Buffer.alloc(32, 9)
   );
-  assert.deepEqual(authentication?.expiresAt, "2026-08-01T00:00:00.000Z");
+  assert.deepEqual(authentication?.expiresAt, EXPIRES_AT);
   assert.deepEqual(authentication?.revokedAt, null);
   const status = await getMarketplaceReviewerCredentialStatus("openai");
-  assert.deepEqual(status?.expiresAt, "2026-08-01T00:00:00.000Z");
+  assert.deepEqual(status?.expiresAt, EXPIRES_AT);
   assert.deepEqual(status?.revokedAt, "2026-07-31T00:00:00.000Z");
 });
