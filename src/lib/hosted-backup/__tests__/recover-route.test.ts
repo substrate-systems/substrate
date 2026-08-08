@@ -104,6 +104,6 @@ describe('recover route — v2.0 response shape', () => {
     assert.ok(body.recoveryToken.length > 0);
     assert.equal(typeof body.recoveryKeyWrappedDEK, 'string');
     assert.equal(body.ttlSeconds, 600, 'contract §6 says 600 seconds');
-    assert.equal(res.headers.get('X-Endstate-API-Version'), '2.0');
+    assert.equal(res.headers.get('X-Endstate-API-Version'), '2.1');
   });
 });

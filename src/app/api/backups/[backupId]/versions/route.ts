@@ -8,7 +8,10 @@ import {
   createVersionWithUploads,
   listVersionsOwned,
 } from '@/lib/hosted-backup/storage';
-import { jsonWithApiVersion } from '@/lib/hosted-backup/api-version';
+import {
+  clientRequiresVersionCommit,
+  jsonWithApiVersion,
+} from '@/lib/hosted-backup/api-version';
 import type {
   CreateVersionRequest,
   CreateVersionResponse,
@@ -61,16 +64,26 @@ export async function POST(
       throw errors.badRequest('encryptedManifest must decode to non-empty bytes');
     }
 
+    // Schema negotiation for the two-phase commit (contract §7, §8). The
+    // client advertises its schema on the request; only 2.1+ gets the
+    // create-invisible/commit-to-publish behaviour, so a 2.0 engine that has
+    // never heard of the commit endpoint is not gated on a call it cannot make.
+    const requiresCommit = clientRequiresVersionCommit(
+      req.headers.get('x-endstate-api-version'),
+    );
+
     const result = await createVersionWithUploads({
       userId,
       backupId,
       encryptedManifest: manifestBytes,
       chunkMetadata: body.chunkMetadata,
+      requiresCommit,
     });
 
     const respBody: CreateVersionResponse = {
       versionId: result.versionId,
       uploadUrls: result.uploadUrls,
+      requiresCommit: result.requiresCommit,
     };
     return jsonWithApiVersion(respBody, 200);
   } catch (err) {

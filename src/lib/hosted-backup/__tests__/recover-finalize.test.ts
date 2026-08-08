@@ -177,7 +177,7 @@ describe('recover/finalize — happy path', () => {
     assert.equal(body.subscriptionStatus, 'active');
     assert.equal(
       res.headers.get('X-Endstate-API-Version'),
-      '2.0',
+      '2.1',
       'response must stamp the new contract version',
     );
 

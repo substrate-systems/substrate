@@ -80,7 +80,7 @@ describe("shared Paddle webhook Exomem dispatch hook", () => {
     );
 
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get("X-Endstate-API-Version"), "2.0");
+    assert.equal(response.headers.get("X-Endstate-API-Version"), "2.1");
     assert.deepEqual(await response.json(), {
       ok: true,
       product: "exomem-hosted",

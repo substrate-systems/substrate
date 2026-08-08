@@ -12,6 +12,8 @@ import {
   findUncheckedManifestVersions,
   stampManifestSeen,
   softDeleteVersionById,
+  findStaleUncommittedVersions,
+  expireCancelledSubscriptions,
   deleteRateLimitEventsBefore,
 } from "@/lib/hosted-backup/db";
 import { deleteObjects, headObjectExists, listObjectKeys } from "@/lib/hosted-backup/r2";
@@ -37,6 +39,16 @@ const ABANDONED_CHECKS_PER_RUN = 50;
 // never appear later — HEAD-404 at that age is a definitive abandon signal.
 const ABANDONED_MIN_AGE_HOURS = 48;
 const RATE_LIMIT_RETENTION_HOURS = 24;
+// Uncommitted versions (schema >= 2.1 clients) are reclaimed on a MUCH
+// shorter clock than the 48h manifest sweep above. A push has 5 minutes of
+// presigned-URL life; a commit that has not arrived hours later is never
+// arriving, and until it is reclaimed the abandoned upload holds quota the
+// subscriber paid for. Deliberately generous enough to survive a slow
+// large-backup upload over a poor connection, deliberately far short of 48h.
+const UNCOMMITTED_RECLAIM_HOURS = 6;
+const UNCOMMITTED_RECLAIMS_PER_RUN = 50;
+// Cancelled subscribers whose 30-day retention window has closed, per run.
+const CANCELLED_EXPIRIES_PER_RUN = 25;
 
 function ok(body: Record<string, unknown>, status = 200): NextResponse {
   return withApiVersion(NextResponse.json(body, { status }));
@@ -143,6 +155,60 @@ export async function GET(req: NextRequest) {
     fail("pass C", err);
   }
 
+  // Pass F — reclaim stale uncommitted versions. A schema-2.1 client creates
+  // a version invisible and publishes it with an explicit commit; a push that
+  // dies in between leaves a row nobody can see, holding quota and R2 bytes.
+  // Nothing ever showed it to the user, so there is no 7-day soft-delete
+  // window to honour: the objects go and the row goes, in that order (same
+  // R2-before-DB discipline as Pass A, for the same crash-safety reason).
+  //
+  // This is the pass that closes the manifest-present/chunks-missing hole
+  // Pass C structurally cannot see: the client uploads the manifest FIRST, so
+  // a HEAD on the manifest object says "present" for exactly the pushes that
+  // failed partway through their chunks.
+  let staleUncommittedReclaimed = 0;
+  let staleUncommittedObjectsDeleted = 0;
+  try {
+    const stale = await findStaleUncommittedVersions({
+      olderThanHours: UNCOMMITTED_RECLAIM_HOURS,
+      limit: UNCOMMITTED_RECLAIMS_PER_RUN,
+    });
+    for (const version of stale) {
+      try {
+        const chunks = await listChunksForVersion(version.id);
+        const keys = [...chunks.map((c) => c.object_key), version.manifest_object_key];
+        staleUncommittedObjectsDeleted += await deleteObjects(keys);
+        await hardDeleteVersion(version.id);
+        staleUncommittedReclaimed += 1;
+      } catch (err) {
+        fail(`pass F version ${version.id}`, err);
+      }
+    }
+  } catch (err) {
+    fail("pass F", err);
+  }
+
+  // Pass G — post-cancellation purge. Contract §10 and the public Terms both
+  // promise that a cancelled subscriber's data is kept 30 days for
+  // reactivation and then permanently deleted. `cancel_started_at` has been
+  // written since the subscription state machine shipped; nothing read it and
+  // no job ever ran, so the promise was not true. This pass makes it true:
+  // backups (and their cascaded versions/chunks) are deleted, the R2 prefix is
+  // enqueued into the existing purge queue that Pass B drains, and the stored
+  // status drops to `none`. The account itself survives — §10 is explicit that
+  // the user can come back and re-subscribe.
+  let cancelledSubscriptionsExpired = 0;
+  let cancelledPrefixesEnqueued = 0;
+  try {
+    const expired = await expireCancelledSubscriptions({
+      limit: CANCELLED_EXPIRIES_PER_RUN,
+    });
+    cancelledSubscriptionsExpired = expired.downgraded;
+    cancelledPrefixesEnqueued = expired.prefixesEnqueued;
+  } catch (err) {
+    fail("pass G", err);
+  }
+
   // Pass D — prune rate-limit events (windows in use are ≤ 1 hour).
   let rateLimitEventsPruned = 0;
   try {
@@ -175,6 +241,10 @@ export async function GET(req: NextRequest) {
       purgeQueueObjectsDeleted,
       manifestsStamped,
       abandonedSoftDeleted,
+      staleUncommittedReclaimed,
+      staleUncommittedObjectsDeleted,
+      cancelledSubscriptionsExpired,
+      cancelledPrefixesEnqueued,
       rateLimitEventsPruned,
       alertsNotified: alerts.notified,
       alertBacklogPending: alerts.pending,
@@ -192,6 +262,10 @@ export async function GET(req: NextRequest) {
     purgeQueueObjectsDeleted,
     manifestsStamped,
     abandonedSoftDeleted,
+    staleUncommittedReclaimed,
+    staleUncommittedObjectsDeleted,
+    cancelledSubscriptionsExpired,
+    cancelledPrefixesEnqueued,
     rateLimitEventsPruned,
     alertsNotified: alerts.notified,
     alertBacklogPending: alerts.pending,

@@ -147,7 +147,7 @@ describe('POST /api/billing/checkout', () => {
     });
     const res = await POST(makeReqWithBearer(token));
     assert.equal(res.status, 200);
-    assert.equal(res.headers.get('X-Endstate-API-Version'), '2.0');
+    assert.equal(res.headers.get('X-Endstate-API-Version'), '2.1');
     const j = (await res.json()) as { checkoutUrl: string; transactionId: string };
     assert.equal(j.transactionId, 'txn_abc');
     assert.equal(j.checkoutUrl, 'https://sandbox-checkout.paddle.com/abc');

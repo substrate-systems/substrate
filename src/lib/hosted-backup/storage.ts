@@ -18,6 +18,7 @@ import {
   softDeleteVersionOwned,
   insertVersionWithChunks,
   softDeleteVersionsBeyondRetention,
+  commitVersion,
   sumActiveStorageForUser,
   type BackupRow,
   type BackupSummaryRow,
@@ -128,16 +129,31 @@ export async function softDeleteVersion(params: {
 }
 
 /**
- * Creates a version + chunks transactionally, mints presigned PUT URLs,
- * enforces quota before insert, enforces retention after insert. Returns
- * the new versionId and the per-chunk upload URLs.
+ * Creates a version + chunks transactionally, mints presigned PUT URLs, and
+ * enforces quota before insert. Returns the new versionId, the per-chunk
+ * upload URLs, and whether the caller must commit.
+ *
+ * `requiresCommit` is negotiated by the route from the caller's
+ * `X-Endstate-API-Version` header:
+ *
+ *   - true (schema >= 2.1) — the row is created invisible. It is not listed,
+ *     not restorable, and not counted against quota until
+ *     `commitVersionUpload` runs. Retention is NOT enforced here, because
+ *     pruning before the bytes land is exactly how a failed push used to
+ *     evict a genuinely good older version.
+ *   - false (schema 2.0, or no header) — verbatim pre-2.1 behaviour: the row
+ *     is live immediately and retention is enforced here, because such a
+ *     client has no commit call and no other moment at which the §8 retention
+ *     cap could be applied. This preserves both the visibility and the
+ *     storage behaviour existing subscribers already have.
  */
 export async function createVersionWithUploads(params: {
   userId: string;
   backupId: string;
   encryptedManifest: Uint8Array;
   chunkMetadata: ChunkMetadata[];
-}): Promise<{ versionId: string; uploadUrls: UploadUrl[] }> {
+  requiresCommit?: boolean;
+}): Promise<{ versionId: string; uploadUrls: UploadUrl[]; requiresCommit: boolean }> {
   const owner = await getBackupOwned(params.userId, params.backupId);
   if (!owner) throw errors.notFound('backup not found');
 
@@ -194,6 +210,8 @@ export async function createVersionWithUploads(params: {
     sha256: hexToBytes(c.sha256),
   }));
 
+  const requiresCommit = params.requiresCommit === true;
+
   await insertVersionWithChunks({
     versionId,
     backupId: params.backupId,
@@ -201,13 +219,18 @@ export async function createVersionWithUploads(params: {
     manifestObjectKey: versionManifestKey,
     manifestSha256: hexToBytes(manifestSha256),
     chunkCount: params.chunkMetadata.length,
+    requiresCommit,
     chunks,
   });
 
-  await softDeleteVersionsBeyondRetention({
-    backupId: params.backupId,
-    retain: VERSION_RETENTION,
-  });
+  // Retention moves to commit time for clients that commit — see the JSDoc
+  // above. Schema-2.0 callers keep the create-time prune they have always had.
+  if (!requiresCommit) {
+    await softDeleteVersionsBeyondRetention({
+      backupId: params.backupId,
+      retain: VERSION_RETENTION,
+    });
+  }
 
   const uploadUrls: UploadUrl[] = [];
   // Manifest PUT URL is one of the upload URLs, marked with chunkIndex = -1
@@ -227,7 +250,50 @@ export async function createVersionWithUploads(params: {
     });
   }
 
-  return { versionId, uploadUrls };
+  return { versionId, uploadUrls, requiresCommit };
+}
+
+/**
+ * Second phase of the push: the client has PUT every chunk and the manifest,
+ * so the version becomes visible and the §8 retention cap is applied — in
+ * that order, and only now. Retention pruning is the destructive half of the
+ * operation, so it is deliberately gated behind evidence that the new version
+ * actually exists; a push that dies before this call prunes nothing.
+ *
+ * Idempotent. A repeat call returns the original `committedAt` with
+ * `alreadyCommitted: true` and skips the prune entirely, so replays (retries,
+ * at-least-once delivery, an impatient client) cannot cascade deletions.
+ *
+ * Not-found and not-owned are indistinguishable (404), matching every other
+ * `/api/backups/*` route per contract §7.
+ */
+export async function commitVersionUpload(params: {
+  userId: string;
+  backupId: string;
+  versionId: string;
+}): Promise<{
+  versionId: string;
+  committedAt: string;
+  alreadyCommitted: boolean;
+  prunedVersions: number;
+}> {
+  const result = await commitVersion(params);
+  if (!result) throw errors.notFound('version not found');
+
+  let prunedVersions = 0;
+  if (!result.alreadyCommitted) {
+    prunedVersions = await softDeleteVersionsBeyondRetention({
+      backupId: params.backupId,
+      retain: VERSION_RETENTION,
+    });
+  }
+
+  return {
+    versionId: params.versionId,
+    committedAt: result.committedAt,
+    alreadyCommitted: result.alreadyCommitted,
+    prunedVersions,
+  };
 }
 
 export async function getDownloadUrls(params: {
