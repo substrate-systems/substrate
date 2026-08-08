@@ -1,8 +1,9 @@
 /**
  * Tests for the backup-gc cron route: auth gate, R2-before-DB ordering in
  * Pass A, queue-drain semantics in Pass B, the abandoned-upload sweep in
- * Pass C, and the rate-limit prune in Pass D. State-based module mocks per
- * the account-deletion test pattern.
+ * Pass C, the rate-limit prune in Pass D, and the stale-uncommitted-version
+ * reclaim in Pass F. State-based module mocks per the account-deletion test
+ * pattern.
  */
 
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
@@ -18,6 +19,7 @@ type GcState = {
   uncheckedVersions: Array<{ id: string; manifest_object_key: string }>;
   stampedVersionIds: string[];
   softDeletedVersionIds: string[];
+  staleUncommittedVersions: Array<{ id: string; manifest_object_key: string }>;
   rateLimitPruned: number;
   r2DeletedKeys: string[][];
   r2DeleteFails: boolean;
@@ -40,6 +42,7 @@ function setup(overrides: Partial<GcState> = {}) {
     uncheckedVersions: [],
     stampedVersionIds: [],
     softDeletedVersionIds: [],
+    staleUncommittedVersions: [],
     rateLimitPruned: 0,
     r2DeletedKeys: [],
     r2DeleteFails: false,
@@ -72,6 +75,7 @@ function setup(overrides: Partial<GcState> = {}) {
       softDeleteVersionById: async (versionId: string) => {
         state.softDeletedVersionIds.push(versionId);
       },
+      findStaleUncommittedVersions: async () => state.staleUncommittedVersions,
       deleteRateLimitEventsBefore: async () => state.rateLimitPruned,
     },
   });
@@ -288,3 +292,54 @@ describe('backup-gc — Pass D (rate-limit prune)', () => {
     assert.equal(body.rateLimitEventsPruned, 42);
   });
 });
+
+describe('backup-gc — Pass F (stale uncommitted versions)', () => {
+  it('deletes the R2 objects first, then hard-deletes the version row', async () => {
+    setup({
+      staleUncommittedVersions: [
+        { id: 'v-uncommitted', manifest_object_key: 'u/m-unc' },
+      ],
+      chunksByVersion: {
+        'v-uncommitted': [{ object_key: 'u/c-0' }, { object_key: 'u/c-1' }],
+      },
+    });
+    const res = await runGc();
+    const body = await res.json();
+    assert.deepEqual(state.r2DeletedKeys, [['u/c-0', 'u/c-1', 'u/m-unc']]);
+    assert.deepEqual(state.hardDeletedVersionIds, ['v-uncommitted']);
+    assert.equal(body.staleUncommittedReclaimed, 1);
+    assert.equal(body.staleUncommittedObjectsDeleted, 3);
+    assert.equal(body.errorCount, 0);
+  });
+
+  it('keeps the row when the R2 delete fails, so the next run retries', async () => {
+    setup({
+      staleUncommittedVersions: [{ id: 'v-unc', manifest_object_key: 'u/m' }],
+      r2DeleteFails: true,
+    });
+    const res = await runGc();
+    const body = await res.json();
+    assert.deepEqual(state.hardDeletedVersionIds, []);
+    assert.equal(body.staleUncommittedReclaimed, 0);
+    assert.ok(body.errorCount >= 1);
+  });
+
+  it('reclaims nothing when there are no stale uncommitted versions', async () => {
+    setup();
+    const res = await runGc();
+    const body = await res.json();
+    assert.equal(body.staleUncommittedReclaimed, 0);
+    assert.deepEqual(state.hardDeletedVersionIds, []);
+    assert.equal(body.errorCount, 0);
+  });
+
+  it('does not soft-delete: an uncommitted version was never visible', async () => {
+    setup({
+      staleUncommittedVersions: [{ id: 'v-unc', manifest_object_key: 'u/m' }],
+    });
+    await runGc();
+    assert.deepEqual(state.softDeletedVersionIds, []);
+    assert.deepEqual(state.hardDeletedVersionIds, ['v-unc']);
+  });
+});
+

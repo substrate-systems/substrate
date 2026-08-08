@@ -8,16 +8,40 @@ import type { KdfParams, SubscriptionStatus } from "./types";
 
 let _sql: NeonQueryFunction<false, true> | null = null;
 
+export type HostedBackupSqlResult = {
+  rows: Array<Record<string, unknown>>;
+  rowCount?: number;
+};
+
+export type HostedBackupSql = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<HostedBackupSqlResult>;
+
+let _injectedSql: HostedBackupSql | null = null;
+
 function sql(
   strings: TemplateStringsArray,
   ...values: unknown[]
-): ReturnType<NeonQueryFunction<false, true>> {
+): Promise<HostedBackupSqlResult> {
+  if (_injectedSql) return _injectedSql(strings, ...values);
   if (!_sql) {
     const url = process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
     _sql = neon(url, { fullResults: true });
   }
-  return _sql(strings, ...values);
+  return _sql(strings, ...values) as Promise<HostedBackupSqlResult>;
+}
+
+/**
+ * Test seam, mirroring `__setExomemSqlForTests` in the sibling module. Lets an
+ * integration suite point these queries at a real Postgres (via a `pg` pool
+ * wrapped in the same tagged-template shape) so the SQL in this file — not a
+ * copy of it, and not a mock standing in for it — is what gets exercised.
+ * Pass `null` to restore the Neon client.
+ */
+export function __setHostedBackupSqlForTests(next: HostedBackupSql | null): void {
+  _injectedSql = next;
 }
 
 // --- Row types ---
@@ -726,7 +750,30 @@ export type BackupVersionRow = {
   manifest_sha256: Uint8Array;
   chunk_count: number;
   deleted_at: string | null;
+  committed_at: string | null;
+  requires_commit: boolean;
 };
+
+/**
+ * The version-visibility rule (contract §8), stated once here because it is
+ * repeated inline in every read query below — Neon's tagged-template client
+ * has no way to compose a SQL fragment, so the predicate is written out each
+ * time rather than built by string concatenation.
+ *
+ *     deleted_at IS NULL
+ *       AND (requires_commit = false OR committed_at IS NOT NULL)
+ *
+ * A version is visible when it is not soft-deleted AND either it predates /
+ * opts out of the commit protocol (`requires_commit = false`, i.e. a
+ * schema-2.0 client or a backfilled row) or its uploader has confirmed the
+ * bytes landed (`committed_at IS NOT NULL`).
+ *
+ * Every surface that answers "what does this user have?" must apply it:
+ * `listVersions`, `listBackupsForUser`, `sumActiveStorageForUser`,
+ * `getUserBackupStats`, and the retention prune. `getVersionOwned` is the
+ * deliberate exception — the commit endpoint has to be able to find the
+ * version it is about to make visible.
+ */
 
 export type BackupChunkRow = {
   version_id: string;
@@ -756,11 +803,14 @@ export async function listBackupsForUser(userId: string): Promise<BackupSummaryR
     SELECT b.id, b.user_id, b.name, b.created_at, b.updated_at, b.deleted_at,
       (SELECT id FROM backup_versions
         WHERE backup_id = b.id AND deleted_at IS NULL
+          AND (requires_commit = false OR committed_at IS NOT NULL)
         ORDER BY created_at DESC LIMIT 1) AS latest_version_id,
       COALESCE((SELECT COUNT(*)::int FROM backup_versions
-        WHERE backup_id = b.id AND deleted_at IS NULL), 0) AS version_count,
+        WHERE backup_id = b.id AND deleted_at IS NULL
+          AND (requires_commit = false OR committed_at IS NOT NULL)), 0) AS version_count,
       COALESCE((SELECT SUM(size_bytes)::bigint FROM backup_versions
-        WHERE backup_id = b.id AND deleted_at IS NULL), 0) AS total_size
+        WHERE backup_id = b.id AND deleted_at IS NULL
+          AND (requires_commit = false OR committed_at IS NOT NULL)), 0) AS total_size
     FROM backups b
     WHERE b.user_id = ${userId} AND b.deleted_at IS NULL
     ORDER BY b.updated_at DESC
@@ -825,14 +875,21 @@ export async function updateBackupOwned(
 export async function listVersions(backupId: string): Promise<BackupVersionRow[]> {
   const { rows } = await sql`
     SELECT id, backup_id, created_at, size_bytes, manifest_object_key,
-           manifest_sha256, chunk_count, deleted_at
+           manifest_sha256, chunk_count, deleted_at, committed_at, requires_commit
     FROM backup_versions
-    WHERE backup_id = ${backupId} AND deleted_at IS NULL
+    WHERE backup_id = ${backupId}
+      AND deleted_at IS NULL
+      AND (requires_commit = false OR committed_at IS NOT NULL)
     ORDER BY created_at DESC
   `;
   return rows as BackupVersionRow[];
 }
 
+// Ownership-scoped single-version lookup. Deliberately does NOT apply the
+// version-visibility predicate: the commit endpoint must be able to resolve a
+// not-yet-visible version, and DELETE must be able to remove one. Callers that
+// serve a version to the user (download URLs) reach it only after the client
+// already learned the id from a visible listing.
 export async function getVersionOwned(params: {
   userId: string;
   backupId: string;
@@ -840,7 +897,8 @@ export async function getVersionOwned(params: {
 }): Promise<BackupVersionRow | null> {
   const { rows } = await sql`
     SELECT v.id, v.backup_id, v.created_at, v.size_bytes, v.manifest_object_key,
-           v.manifest_sha256, v.chunk_count, v.deleted_at
+           v.manifest_sha256, v.chunk_count, v.deleted_at,
+           v.committed_at, v.requires_commit
     FROM backup_versions v
     JOIN backups b ON b.id = v.backup_id
     WHERE v.id = ${params.versionId}
@@ -885,6 +943,7 @@ export async function sumActiveStorageForUser(userId: string): Promise<number> {
     JOIN backups b ON b.id = v.backup_id
     WHERE b.user_id = ${userId}
       AND v.deleted_at IS NULL
+      AND (v.requires_commit = false OR v.committed_at IS NOT NULL)
       AND b.deleted_at IS NULL
   `;
   const total = (rows[0] as { total: string }).total;
@@ -910,6 +969,7 @@ export async function getUserBackupStats(
     JOIN backups b ON b.id = v.backup_id
     WHERE b.user_id = ${userId}
       AND v.deleted_at IS NULL
+      AND (v.requires_commit = false OR v.committed_at IS NOT NULL)
       AND b.deleted_at IS NULL
   `;
   const row = rows[0] as {
@@ -931,6 +991,13 @@ export async function insertVersionWithChunks(params: {
   manifestObjectKey: string;
   manifestSha256: Uint8Array;
   chunkCount: number;
+  /**
+   * Negotiated per-request from the caller's `X-Endstate-API-Version`. When
+   * true the row stays invisible until `commitVersion` stamps `committed_at`.
+   * Defaults to false so any caller that has not been taught the commit
+   * protocol keeps the pre-2.1 behaviour verbatim.
+   */
+  requiresCommit?: boolean;
   chunks: Array<{
     index: number;
     objectKey: string;
@@ -948,17 +1015,20 @@ export async function insertVersionWithChunks(params: {
   const { rows } = await sql`
     WITH inserted_version AS (
       INSERT INTO backup_versions (
-        id, backup_id, size_bytes, manifest_object_key, manifest_sha256, chunk_count
+        id, backup_id, size_bytes, manifest_object_key, manifest_sha256,
+        chunk_count, requires_commit
       ) VALUES (
         ${params.versionId},
         ${params.backupId},
         ${params.sizeBytes},
         ${params.manifestObjectKey},
         ${Buffer.from(params.manifestSha256)},
-        ${params.chunkCount}
+        ${params.chunkCount},
+        ${params.requiresCommit ?? false}
       )
       RETURNING id, backup_id, created_at, size_bytes, manifest_object_key,
-                manifest_sha256, chunk_count, deleted_at
+                manifest_sha256, chunk_count, deleted_at,
+                committed_at, requires_commit
     ),
     inserted_chunks AS (
       INSERT INTO backup_chunks (version_id, chunk_index, object_key, size_bytes, sha256)
@@ -982,12 +1052,71 @@ export async function insertVersionWithChunks(params: {
       RETURNING 1
     )
     SELECT id, backup_id, created_at, size_bytes, manifest_object_key,
-           manifest_sha256, chunk_count, deleted_at
+           manifest_sha256, chunk_count, deleted_at, committed_at, requires_commit
     FROM inserted_version
   `;
   return rows[0] as BackupVersionRow;
 }
 
+/**
+ * Stamp a version committed and report whether this call is the one that did
+ * it. Ownership is enforced in the same statement — a cross-user or unknown
+ * id yields no row, which the caller turns into 404 (contract §7: not-found
+ * and not-owned are indistinguishable).
+ *
+ * Idempotent by construction: the UPDATE only fires for a row whose
+ * `committed_at` is still NULL, and the outer SELECT reads the pre-image, so
+ * a replay returns the ORIGINAL timestamp with `already_committed = true`
+ * rather than sliding the commit time forward. The caller uses that flag to
+ * skip re-running the retention prune.
+ */
+export async function commitVersion(params: {
+  userId: string;
+  backupId: string;
+  versionId: string;
+}): Promise<{ committedAt: string; alreadyCommitted: boolean } | null> {
+  const { rows } = await sql`
+    WITH target AS MATERIALIZED (
+      SELECT v.id, v.committed_at
+      FROM backup_versions v
+      JOIN backups b ON b.id = v.backup_id
+      WHERE v.id = ${params.versionId}
+        AND v.backup_id = ${params.backupId}
+        AND b.user_id = ${params.userId}
+        AND v.deleted_at IS NULL
+        AND b.deleted_at IS NULL
+    ),
+    stamped AS (
+      UPDATE backup_versions
+      SET committed_at = now()
+      WHERE id IN (SELECT id FROM target WHERE committed_at IS NULL)
+      RETURNING id, committed_at
+    ),
+    touched_backup AS (
+      UPDATE backups SET updated_at = now()
+      WHERE id = ${params.backupId}
+        AND EXISTS (SELECT 1 FROM target)
+      RETURNING 1
+    )
+    SELECT
+      COALESCE(t.committed_at, s.committed_at) AS committed_at,
+      (t.committed_at IS NOT NULL)             AS already_committed
+    FROM target t
+    LEFT JOIN stamped s ON s.id = t.id
+  `;
+  const row = rows[0] as
+    | { committed_at: string; already_committed: boolean }
+    | undefined;
+  if (!row) return null;
+  return { committedAt: row.committed_at, alreadyCommitted: row.already_committed };
+}
+
+/**
+ * Enforce the §8 retention cap. Operates strictly on VISIBLE versions: an
+ * uncommitted row neither occupies a retention slot nor gets soft-deleted
+ * here (backup-gc reclaims those instead). That is what stops a failed push
+ * from evicting a good older version — the phantom never enters the ranking.
+ */
 export async function softDeleteVersionsBeyondRetention(params: {
   backupId: string;
   retain: number;
@@ -997,9 +1126,12 @@ export async function softDeleteVersionsBeyondRetention(params: {
     SET deleted_at = now()
     WHERE backup_id = ${params.backupId}
       AND deleted_at IS NULL
+      AND (requires_commit = false OR committed_at IS NOT NULL)
       AND id NOT IN (
         SELECT id FROM backup_versions
-        WHERE backup_id = ${params.backupId} AND deleted_at IS NULL
+        WHERE backup_id = ${params.backupId}
+          AND deleted_at IS NULL
+          AND (requires_commit = false OR committed_at IS NOT NULL)
         ORDER BY created_at DESC
         LIMIT ${params.retain}
       )
@@ -1193,6 +1325,42 @@ export async function softDeleteVersionById(versionId: string): Promise<void> {
     UPDATE backup_versions SET deleted_at = now()
     WHERE id = ${versionId} AND deleted_at IS NULL
   `;
+}
+
+// --- backup-gc cron: stale uncommitted versions (Pass F) ---
+
+export type StaleUncommittedVersionRow = {
+  id: string;
+  manifest_object_key: string;
+};
+
+/**
+ * Versions whose uploader promised a commit and never sent one. These never
+ * became visible to anyone, so there is nothing to preserve for
+ * accidental-deletion recovery — the caller deletes their R2 objects and hard
+ * -deletes the rows, reclaiming the quota the abandoned push was holding.
+ *
+ * Distinct from the Pass C manifest sweep in two ways that matter: the window
+ * is hours rather than 48, because a commit that has not arrived by then is
+ * never arriving (presigned PUT URLs live 5 minutes), and the signal is our
+ * own missing commit rather than a HEAD against R2 — so it also catches the
+ * manifest-present/chunks-missing shape that a manifest HEAD can never see.
+ */
+export async function findStaleUncommittedVersions(params: {
+  olderThanHours: number;
+  limit: number;
+}): Promise<StaleUncommittedVersionRow[]> {
+  const { rows } = await sql`
+    SELECT id, manifest_object_key
+    FROM backup_versions
+    WHERE requires_commit = true
+      AND committed_at IS NULL
+      AND deleted_at IS NULL
+      AND created_at < now() - (interval '1 hour' * ${params.olderThanHours})
+    ORDER BY created_at ASC
+    LIMIT ${params.limit}
+  `;
+  return rows as StaleUncommittedVersionRow[];
 }
 
 // --- rate limiting (credential endpoints; pruned by backup-gc Pass D) ---

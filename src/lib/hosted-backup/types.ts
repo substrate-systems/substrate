@@ -3,7 +3,11 @@
  * Shapes locked in `hosted-backup-contract.md` (repo root).
  */
 
-export const SchemaVersion = '2.0' as const;
+// Bumped 2.0 → 2.1 with the additive two-phase version commit (contract §7,
+// §8, §11). Minor bump: no field was removed or re-typed, so a schema-2.0
+// engine keeps working verbatim — the commit gate is opt-in, negotiated from
+// the request-side `X-Endstate-API-Version` header.
+export const SchemaVersion = '2.1' as const;
 export type SchemaVersion = typeof SchemaVersion;
 
 export type SubscriptionStatus =
@@ -181,6 +185,22 @@ export type UploadUrl = {
 export type CreateVersionResponse = {
   versionId: string;
   uploadUrls: UploadUrl[];
+  /**
+   * True when the caller negotiated schema >= 2.1 and the version therefore
+   * stays invisible (not listed, not restorable, not counted against quota)
+   * until it is committed. Absent/false is the schema-2.0 behaviour: the
+   * version is live the moment it is created. Contract §7, §8.
+   */
+  requiresCommit?: boolean;
+};
+
+// POST /api/backups/:backupId/versions/:versionId/commit — contract §7.
+// Idempotent: a repeat call returns the original commit timestamp with
+// `alreadyCommitted: true` and re-prunes nothing.
+export type CommitVersionResponse = {
+  versionId: string;
+  committedAt: string; // ISO-8601
+  alreadyCommitted: boolean;
 };
 
 export type DownloadUrlsRequest = { chunkIndices: number[] };
