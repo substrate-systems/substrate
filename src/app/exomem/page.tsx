@@ -4,7 +4,7 @@ import { breadcrumbJsonLd, buildMetadata, siteConfig } from "@/lib/seo";
 import RevealManager from "./reveal-manager";
 import MemoryGraph from "./memory-graph";
 import CopyButton from "./copy-button";
-import HostedInterestForm from "./hosted-interest-form";
+import HostedAccessForm from "./hosted-access-form";
 import FaqAccordion, { type ExoFaq } from "./faq-accordion";
 import { GithubMark } from "@/components/GithubMark";
 
@@ -50,6 +50,40 @@ const softwareJsonLd = {
   license: "https://github.com/Artexis10/exomem/blob/main/LICENSE",
   codeRepository: "https://github.com/Artexis10/exomem",
   programmingLanguage: "Python",
+};
+
+// The SoftwareApplication offer above is the open-source download, which really
+// is free. Hosted is a separate paid service, so it gets its own offer rather
+// than contradicting that one — and this price must match the copy in section 06.
+const EXOMEM_HOSTED_PRICE_EUR = "12";
+
+const hostedJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Service",
+  name: "Exomem Hosted",
+  serviceType: "Hosted MCP memory service",
+  description:
+    "Exomem Hosted runs your private Exomem memory cell for you, reachable from Claude and ChatGPT over MCP. Your data stays exportable and deletable at any time.",
+  url: `${siteConfig.url}/exomem`,
+  provider: {
+    "@type": "Organization",
+    name: siteConfig.name,
+    url: siteConfig.url,
+  },
+  offers: {
+    "@type": "Offer",
+    price: EXOMEM_HOSTED_PRICE_EUR,
+    priceCurrency: "EUR",
+    availability: "https://schema.org/InStock",
+    priceSpecification: {
+      "@type": "UnitPriceSpecification",
+      price: EXOMEM_HOSTED_PRICE_EUR,
+      priceCurrency: "EUR",
+      unitCode: "MON",
+      billingDuration: 1,
+      billingIncrement: 1,
+    },
+  },
 };
 
 const breadcrumb = breadcrumbJsonLd([
@@ -182,6 +216,10 @@ export default function ExomemPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(hostedJsonLd) }}
       />
       <script
         type="application/ld+json"
@@ -1010,7 +1048,7 @@ export default function ExomemPage() {
                 background: "#0e0c0a",
               }}
             >
-              <p style={label}>06 — Hosted private alpha</p>
+              <p style={label}>06 — Exomem Hosted</p>
               <h2
                 style={{
                   ...h2,
@@ -1020,7 +1058,7 @@ export default function ExomemPage() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                Hosted Exomem is live for invited people.
+                Hosted Exomem is €12 a month.
               </h2>
               <p
                 style={{
@@ -1031,10 +1069,12 @@ export default function ExomemPage() {
                   color: "var(--fg-secondary)",
                 }}
               >
-                Self-hosted Exomem stays the full open-source product you run yourself. Hosted is an
-                invite-only private alpha: install an approved client entry, sign in once, and use
-                it naturally. Tenant cells process plaintext for search; storage and transport are
-                encrypted.
+                Self-hosted Exomem stays the full open-source product you run yourself. Hosted runs
+                it for you: install an approved client entry, sign in once, and use it naturally.
+                Tenant cells process plaintext for search; storage and transport are encrypted.
+                €12/month is a founder price — it is time-limited, and it stays €12 for as long as
+                you keep your subscription. Places are provisioned in batches, so if they are all
+                taken you join the waitlist instead of paying.
               </p>
               <p
                 style={{
@@ -1048,7 +1088,7 @@ export default function ExomemPage() {
                   color: "var(--fg-tertiary)",
                 }}
               >
-                <span>invite-only private alpha</span>
+                <span>€12/month founder price</span>
                 <span aria-hidden="true">·</span>
                 <span>your data exportable any time</span>
                 <span aria-hidden="true">·</span>
@@ -1056,7 +1096,7 @@ export default function ExomemPage() {
                   Hosted setup →
                 </Link>
               </p>
-              <HostedInterestForm />
+              <HostedAccessForm />
             </div>
           </div>
         </section>

@@ -7,6 +7,7 @@ import {
   redeemInvite,
   redeemMagicLink,
   requestMagicLink,
+  requestSelfServeAccess,
   type AccessDependencies,
 } from "../access";
 import { tokenDigest } from "../security";
@@ -41,6 +42,10 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
             sessionId: "session-1",
           }
         : null,
+    admitSelfServeOrWaitlist: async () => ({
+      outcome: "admitted" as const,
+      inviteId: "invite-1",
+    }),
     createMagicAccessToken: async () => ({ tokenId: "access-1" }),
     encryptDeliverySecret: () => ({
       version: 1,
@@ -356,5 +361,145 @@ describe("Exomem hosted access", () => {
     });
     assert.deepEqual(createInput?.browserChallengeDigest, Buffer.alloc(32, 0x63));
     assert.equal(JSON.stringify(createInput).includes("YWFh"), false);
+  });
+});
+
+describe("Exomem hosted self-serve admission", () => {
+  it("admits a visitor when the pool has room and emails them a setup link", async () => {
+    const sent: Array<{ to: string; subject: string; textContent: string }> = [];
+    let delivered: string | null = null;
+    let admissionInput: { expiresAt: Date; emailNormalized: string } | null = null;
+    const result = await requestSelfServeAccess(
+      { email: SENTINEL, networkKey: "ip-hash-input" },
+      dependencies({
+        admitSelfServeOrWaitlist: async (input) => {
+          admissionInput = input;
+          return { outcome: "admitted", inviteId: "invite-7" };
+        },
+        sendEmail: async (input) => {
+          sent.push({
+            to: input.to,
+            subject: input.subject,
+            textContent: input.textContent ?? "",
+          });
+          return { success: true, messageId: "message-1" };
+        },
+        markInviteDelivered: async (inviteId) => {
+          delivered = inviteId;
+        },
+      })
+    );
+
+    assert.deepEqual(result, { outcome: "admitted" });
+    assert.equal(delivered, "invite-7");
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].to, SENTINEL);
+    assert.equal(sent[0].subject, "Set up your Exomem");
+    // The token must reach the visitor as a URL fragment, never a query string:
+    // fragments are not sent to the server and do not land in access logs.
+    assert.match(sent[0].textContent, /https:\/\/substratesystems\.io\/exomem\/invite#/);
+    // A self-serve invite holds a place against the pool, so it must expire in
+    // days rather than the operator invite's month-long ceiling.
+    assert.equal(admissionInput!.emailNormalized, SENTINEL);
+    assert.equal(
+      admissionInput!.expiresAt.toISOString(),
+      new Date("2026-07-19T12:00:00.000Z").toISOString()
+    );
+  });
+
+  it("waitlists plainly when the pool is full, and mints no invite", async () => {
+    const sent: string[] = [];
+    let delivered = 0;
+    const result = await requestSelfServeAccess(
+      { email: SENTINEL, networkKey: "ip-hash-input" },
+      dependencies({
+        admitSelfServeOrWaitlist: async () => ({ outcome: "waitlisted", position: 4 }),
+        sendEmail: async (input) => {
+          sent.push(input.textContent ?? "");
+          return { success: true, messageId: "message-1" };
+        },
+        markInviteDelivered: async () => {
+          delivered += 1;
+        },
+      })
+    );
+
+    assert.deepEqual(result, { outcome: "waitlisted", position: 4 });
+    assert.equal(delivered, 0);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0], /number 4 in line/);
+    // The waitlist must never read as a charge or as a rejection.
+    assert.match(sent[0], /You have not been charged/);
+    assert.equal(/set up|checkout|pay/i.test(sent[0].split("open source")[0]), false);
+  });
+
+  it("keeps the visitor waitlisted even when the courtesy email fails", async () => {
+    const result = await requestSelfServeAccess(
+      { email: SENTINEL, networkKey: "ip-hash-input" },
+      dependencies({
+        admitSelfServeOrWaitlist: async () => ({ outcome: "waitlisted", position: 1 }),
+        sendEmail: async () => {
+          throw new Error("brevo unavailable");
+        },
+      })
+    );
+    // The row is already committed. Failing here would tell a queued visitor
+    // they were rejected, and a retry would re-queue them.
+    assert.deepEqual(result, { outcome: "waitlisted", position: 1 });
+  });
+
+  it("revokes the invite when the setup email cannot be delivered", async () => {
+    let revoked: { inviteId: string; code: string } | null = null;
+    await assert.rejects(
+      requestSelfServeAccess(
+        { email: SENTINEL, networkKey: "ip-hash-input" },
+        dependencies({
+          admitSelfServeOrWaitlist: async () => ({ outcome: "admitted", inviteId: "invite-9" }),
+          sendEmail: async () => ({ success: false }),
+          markInviteDeliveryFailed: async (inviteId, code) => {
+            revoked = { inviteId, code };
+          },
+        })
+      )
+    );
+    // The token existed only in that email. Left outstanding it would hold a
+    // place against the pool that nobody can ever consume.
+    assert.deepEqual(revoked, {
+      inviteId: "invite-9",
+      code: "EMAIL_DELIVERY_UNAVAILABLE",
+    });
+  });
+
+  it("refuses to decide admission for a throttled address", async () => {
+    let admissionAttempts = 0;
+    await assert.rejects(
+      requestSelfServeAccess(
+        { email: SENTINEL, networkKey: "ip-hash-input" },
+        dependencies({
+          takeRateLimit: async (rule) => rule.scope !== "exomem:admission:email",
+          admitSelfServeOrWaitlist: async () => {
+            admissionAttempts += 1;
+            return { outcome: "admitted", inviteId: "invite-1" };
+          },
+        })
+      )
+    );
+    assert.equal(admissionAttempts, 0);
+  });
+
+  it("rejects a malformed address before consuming any rate-limit budget", async () => {
+    let rateLimitChecks = 0;
+    await assert.rejects(
+      requestSelfServeAccess(
+        { email: "not-an-email", networkKey: "ip-hash-input" },
+        dependencies({
+          takeRateLimit: async () => {
+            rateLimitChecks += 1;
+            return true;
+          },
+        })
+      )
+    );
+    assert.equal(rateLimitChecks, 0);
   });
 });

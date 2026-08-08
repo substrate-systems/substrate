@@ -7,36 +7,55 @@ import sitemap from "../../sitemap";
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Exomem marketplace public surface", () => {
-  it("keeps self-hosted and invite-only Hosted honest on the public page", () => {
+  it("presents Hosted as honestly purchasable at a stated price", () => {
     const page = source("src/app/exomem/page.tsx");
 
     assert.match(page, /self-hosted/i);
-    assert.match(page, /Hosted private alpha/i);
     assert.match(page, /sign in once/i);
     assert.match(page, /plaintext.*search/i);
+    // A publicly listed product may not be described as a trial, demo, or
+    // invite-only alpha — the plugin directories reject that framing outright.
+    assert.doesNotMatch(page, /private alpha/i);
+    assert.doesNotMatch(page, /invite-only/i);
+    assert.doesNotMatch(page, /\bfree trial\b/i);
+    // The price is stated, and the structured data agrees with the copy.
+    assert.match(page, /€12 a month/);
+    assert.match(page, /EXOMEM_HOSTED_PRICE_EUR = "12"/);
+    assert.match(page, /priceCurrency: "EUR"/);
+    // A time-limited price must say so, and say what happens to existing subs.
+    assert.match(page, /founder price/i);
+    assert.match(page, /time-limited/i);
+    assert.match(page, /stays €12 for as long as/i);
+    // Capacity is disclosed before payment, not discovered after it.
+    assert.match(page, /waitlist/i);
     assert.doesNotMatch(page, /managed tier is on the table/i);
     assert.doesNotMatch(page, /end-to-end encrypted/i);
     assert.doesNotMatch(page, /claude\.ai\/plugins\/exomem-hosted/i);
     assert.doesNotMatch(page, /chatgpt\.com\/plugins\/exomem-hosted/i);
   });
 
-  it("keeps the imported friends-cohort form aligned with the live private alpha", () => {
-    const form = source("src/app/exomem/hosted-interest-form.tsx");
+  it("asks for admission before offering any payment surface", () => {
+    const form = source("src/app/exomem/hosted-access-form.tsx");
 
-    assert.match(form, /private alpha/i);
-    assert.match(form, /friends cohort/i);
-    assert.match(form, /request an invite/i);
-    assert.doesNotMatch(form, /Nothing gets built until it clears a threshold/i);
-    assert.doesNotMatch(form, /If a hosted tier existed/i);
+    assert.match(form, /const response = await fetch\("\/api\/exomem\/access\/request"/);
+    // Admission is settled first. A rendered price or a checkout call here would
+    // let a visitor who cannot be provisioned reach a charge.
+    assert.doesNotMatch(form, /€\d/);
+    assert.doesNotMatch(form, /fetch\("\/api\/exomem\/billing/);
+    assert.doesNotMatch(form, /Paddle\./);
+    assert.doesNotMatch(form, /private alpha|friends cohort/i);
   });
 
-  it("confirms an invite request only after the server accepts it", () => {
-    const form = source("src/app/exomem/hosted-interest-form.tsx");
+  it("reports the real outcome rather than a blanket acknowledgement", () => {
+    const form = source("src/app/exomem/hosted-access-form.tsx");
 
-    assert.match(form, /const response = await fetch\("\/api\/exomem\/interest"/);
-    assert.match(form, /if \(!response\.ok\) \{/);
-    assert.match(form, /setHint\("We couldn’t submit your request\. Please try again\."\)/);
-    assert.match(form, /if \(!response\.ok\) \{[\s\S]*?return;[\s\S]*?}\s*setSubmitted\(true\);/);
+    // A waitlisted visitor must be told they are waiting, and told their place.
+    assert.match(form, /body\.status === "waitlisted"/);
+    assert.match(form, /setOutcome\(\{ kind: "waitlisted", position: body\.position \?\? 1 \}\)/);
+    assert.match(form, /you’re number \$\{/);
+    assert.match(form, /haven’t been charged/);
+    // Success is claimed only once the server has actually accepted.
+    assert.match(form, /if \(!response\.ok \|\| !body\) \{[\s\S]*?return;/);
     assert.doesNotMatch(form, /catch \{\s*\/\* swallow/);
   });
 
@@ -63,7 +82,11 @@ describe("Exomem marketplace public surface", () => {
     assert.match(privacy, /legitimate interests/i);
     assert.match(privacy, /Estonian Data Protection Inspectorate/i);
     assert.doesNotMatch(privacy, /Draft|Owner review required/i);
-    assert.match(terms, /invite-only/i);
+    // The terms are read by directory reviewers alongside a public price.
+    assert.doesNotMatch(terms, /invite-only|private alpha/i);
+    assert.match(terms, /€12 per month/);
+    assert.match(terms, /merchant of record/i);
+    assert.match(terms, /right\s+of\s+withdrawal/i);
     assert.match(terms, /export/i);
     assert.match(terms, /Substrate Systems OÜ/i);
     assert.match(terms, /consumer rights/i);

@@ -4,7 +4,9 @@ import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { acquireCapacityProviderWorkAtomic } from "../capacity-store";
+import { admitSelfServeOrWaitlistAtomic } from "../db";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import { EXOMEM_ALPHA_CAPACITY as ALPHA } from "../oauth-admission";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
@@ -165,5 +167,124 @@ describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, ()
       }),
       "conflict"
     );
+  });
+
+  // Self-serve admission decides before money changes hands, so these exercise
+  // the SQL headroom arithmetic directly: unit tests stub the decision away, and
+  // an off-by-one here oversells places that were already paid for.
+  async function configurePool(input: {
+    runtimeCapacity: number;
+    reservedRuntime: number;
+  }): Promise<void> {
+    await pool!.query(
+      `UPDATE exomem_capacity_pools
+       SET storage_capacity_bytes = $1, reserved_storage_bytes = $2,
+           runtime_capacity_slots = $3, reserved_runtime_slots = $4,
+           provision_reservation_capacity = $3, reserved_provision_slots = $4,
+           configured_at = now(), updated_at = now()
+       WHERE pool_key = 'exomem-hosted-alpha'`,
+      [
+        ALPHA.storageBytes * input.runtimeCapacity,
+        ALPHA.storageBytes * input.reservedRuntime,
+        input.runtimeCapacity,
+        input.reservedRuntime,
+      ]
+    );
+  }
+
+  // The suite shares one schema, so admission tests start from a known pool.
+  async function resetAdmissionState(): Promise<void> {
+    await pool!.query("DELETE FROM exomem_waitlist_entries");
+    await pool!.query("DELETE FROM exomem_invites WHERE self_serve");
+  }
+
+  function admissionFor(email: string, fill: number) {
+    return admitSelfServeOrWaitlistAtomic({
+      tokenDigest: Buffer.alloc(32, fill),
+      emailNormalized: email,
+      capabilities: ["capture"],
+      resourceLimits: { storageBytes: ALPHA.storageBytes },
+      principalDigest: Buffer.alloc(32, 0xfe),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      storageBytes: ALPHA.storageBytes,
+      runtimeSlots: ALPHA.runtimeSlots,
+      provisionSlots: ALPHA.provisionReservationSlots,
+    });
+  }
+
+  it("admits only up to free capacity and waitlists the rest", async () => {
+    await resetAdmissionState();
+    await configurePool({ runtimeCapacity: 2, reservedRuntime: 0 });
+
+    const first = await admissionFor("self-serve-1@example.test", 0x01);
+    const second = await admissionFor("self-serve-2@example.test", 0x02);
+    // Two places, two admissions — outstanding invites are counted, so the
+    // third visitor is refused a place nobody could provision.
+    const third = await admissionFor("self-serve-3@example.test", 0x03);
+
+    assert.equal(first.outcome, "admitted");
+    assert.equal(second.outcome, "admitted");
+    assert.equal(third.outcome, "waitlisted");
+    assert.equal(third.outcome === "waitlisted" && third.position, 1);
+  });
+
+  it("counts outstanding invites against already-reserved capacity", async () => {
+    await resetAdmissionState();
+    // One place, already reserved by a redeemed tenant: nothing is free even
+    // though no self-serve invite is outstanding.
+    await configurePool({ runtimeCapacity: 1, reservedRuntime: 1 });
+    const result = await admissionFor("self-serve-full@example.test", 0x04);
+    assert.equal(result.outcome, "waitlisted");
+  });
+
+  it("keeps one visitor to one place across repeat requests", async () => {
+    await resetAdmissionState();
+    await configurePool({ runtimeCapacity: 1, reservedRuntime: 0 });
+    const first = await admissionFor("self-serve-repeat@example.test", 0x05);
+    assert.equal(first.outcome, "admitted");
+    // Asking twice must supersede rather than accumulate, or one impatient
+    // visitor could exhaust the pool by refreshing.
+    const second = await admissionFor("self-serve-repeat@example.test", 0x06);
+    assert.equal(second.outcome, "admitted");
+
+    const outstanding = await pool!.query(
+      `SELECT count(*)::int AS n FROM exomem_invites
+       WHERE self_serve AND consumed_at IS NULL AND revoked_at IS NULL`
+    );
+    assert.equal(outstanding.rows[0].n, 1);
+
+    const other = await admissionFor("self-serve-other@example.test", 0x07);
+    assert.equal(other.outcome, "waitlisted");
+  });
+
+  it("fails closed to the waitlist when the pool is unconfigured", async () => {
+    await resetAdmissionState();
+    await pool!.query(
+      `UPDATE exomem_capacity_pools SET configured_at = NULL WHERE pool_key = 'exomem-hosted-alpha'`
+    );
+    // Unknown capacity must never read as free capacity.
+    const result = await admissionFor("self-serve-unconfigured@example.test", 0x08);
+    assert.equal(result.outcome, "waitlisted");
+  });
+
+  it("reports a stable queue position and does not duplicate a waitlist row", async () => {
+    await resetAdmissionState();
+    await configurePool({ runtimeCapacity: 0, reservedRuntime: 0 });
+    const first = await admissionFor("self-serve-q1@example.test", 0x09);
+    const second = await admissionFor("self-serve-q2@example.test", 0x0a);
+    assert.deepEqual(
+      [
+        first.outcome === "waitlisted" && first.position,
+        second.outcome === "waitlisted" && second.position,
+      ],
+      [1, 2]
+    );
+    const again = await admissionFor("self-serve-q1@example.test", 0x0b);
+    assert.equal(again.outcome === "waitlisted" && again.position, 1);
+    const rows = await pool!.query(
+      `SELECT count(*)::int AS n FROM exomem_waitlist_entries WHERE email_normalized = $1`,
+      ["self-serve-q1@example.test"]
+    );
+    assert.equal(rows.rows[0].n, 1);
   });
 });
