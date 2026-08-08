@@ -13,6 +13,52 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * How long the reader has, in words. This leads the expiry line because that is
+ * the question they are actually asking; the instant only matters if they plan
+ * to come back later.
+ */
+function relativeExpiry(expiresAt: Date, now: Date): string | null {
+  const minutes = Math.round((expiresAt.getTime() - now.getTime()) / 60_000);
+  if (minutes <= 0) return null;
+  if (minutes === 1) return "in 1 minute";
+  if (minutes < 60) return `in ${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  if (hours === 1) return "in 1 hour";
+  if (hours < 48) return `in ${hours} hours`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "in 1 day" : `in ${days} days`;
+}
+
+/**
+ * Always UTC, always labelled. No recipient locale or time zone is collected
+ * anywhere in the product, so an unlabelled timestamp would be inviting the
+ * reader to misread it as their own local time.
+ */
+function absoluteExpiry(expiresAt: Date): string {
+  const date = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(expiresAt);
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(expiresAt);
+  return `${date} at ${time} UTC`;
+}
+
+function expiryLabel(subject: string, expiresAt: Date, now: Date): string {
+  const relative = relativeExpiry(expiresAt, now);
+  const absolute = absoluteExpiry(expiresAt);
+  return relative === null
+    ? `${subject} expired on ${absolute}.`
+    : `${subject} expires ${relative}, on ${absolute}.`;
+}
+
 function renderAccessEmail(input: {
   subject: string;
   introduction: string;
@@ -43,6 +89,7 @@ ${input.expiryLabel} This link works once. If you did not request it, you can ig
 export function renderExomemInviteEmail(input: {
   accessUrl: string;
   expiresAt: Date;
+  now?: Date;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Your Exomem invitation",
@@ -50,7 +97,7 @@ export function renderExomemInviteEmail(input: {
       "You have been invited to Exomem Hosted. Accept the invitation to create your private memory space.",
     actionLabel: "Accept invitation",
     accessUrl: input.accessUrl,
-    expiryLabel: `This invitation expires ${input.expiresAt.toISOString()}.`,
+    expiryLabel: expiryLabel("This invitation", input.expiresAt, input.now ?? new Date()),
   });
 }
 
@@ -61,6 +108,7 @@ export function renderExomemInviteEmail(input: {
 export function renderExomemWelcomeEmail(input: {
   accessUrl: string;
   expiresAt: Date;
+  now?: Date;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Set up your Exomem",
@@ -68,7 +116,7 @@ export function renderExomemWelcomeEmail(input: {
       "Your place on Exomem Hosted is ready. Set it up to create your private memory space, then connect it to Claude or ChatGPT.",
     actionLabel: "Set up Exomem",
     accessUrl: input.accessUrl,
-    expiryLabel: `This setup link expires ${input.expiresAt.toISOString()}.`,
+    expiryLabel: expiryLabel("This setup link", input.expiresAt, input.now ?? new Date()),
   });
 }
 
@@ -101,19 +149,21 @@ Exomem is also free and open source if you would rather run it yourself — ther
 export function renderExomemMagicLinkEmail(input: {
   accessUrl: string;
   expiresAt: Date;
+  now?: Date;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Sign in to Exomem",
     introduction: "Use this private link to sign in to your Exomem workspace.",
     actionLabel: "Sign in to Exomem",
     accessUrl: input.accessUrl,
-    expiryLabel: `This sign-in link expires ${input.expiresAt.toISOString()}.`,
+    expiryLabel: expiryLabel("This sign-in link", input.expiresAt, input.now ?? new Date()),
   });
 }
 
 export function renderExomemDeletionEmail(input: {
   accessUrl: string;
   expiresAt: Date;
+  now?: Date;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Confirm deletion of your Exomem",
@@ -121,6 +171,6 @@ export function renderExomemDeletionEmail(input: {
       "You asked to permanently delete your hosted Exomem. This removes the Exomem vault, hosted exports, and its encryption keys. It does not delete your shared Substrate identity or other products.",
     actionLabel: "Review and confirm deletion",
     accessUrl: input.accessUrl,
-    expiryLabel: `This confirmation expires ${input.expiresAt.toISOString()}.`,
+    expiryLabel: expiryLabel("This confirmation", input.expiresAt, input.now ?? new Date()),
   });
 }
