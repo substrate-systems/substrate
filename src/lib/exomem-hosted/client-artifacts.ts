@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
+import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
 
@@ -213,10 +214,12 @@ export async function loadClientArtifactLocks(
     throw new Error("artifact contract candidate is not pending or live");
   const fixture =
     row.source_release === "0.34.0"
-      ? exomemHostedContractFixture
+      ? exomemHostedContractFixture0340
       : row.source_release === "0.35.0"
         ? exomemHostedContractFixture0350
-        : null;
+        : row.source_release === "0.39.2"
+          ? exomemHostedContractFixture0392
+          : null;
   if (platform === "claude") {
     if (
       !fixture ||

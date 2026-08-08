@@ -1,8 +1,9 @@
 import { createHash, createHmac } from "node:crypto";
-import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as liveFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as candidateFixture0340 } from "../agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 
-export type PromotionFixtureRelease = "0.34.0" | "0.35.0";
+export type PromotionFixtureRelease = "0.34.0" | "0.35.0" | "0.39.2";
 
 export function canonicalPromotionJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalPromotionJson).join(",")}]`;
@@ -18,7 +19,8 @@ export function canonicalPromotionJson(value: unknown): string {
 }
 
 export function promotionContractFixture(release: PromotionFixtureRelease) {
-  return release === "0.34.0" ? exomemHostedContractFixture : candidateFixture0350;
+  if (release === "0.34.0") return candidateFixture0340;
+  return release === "0.35.0" ? candidateFixture0350 : liveFixture;
 }
 
 export function testOpenAiLocks(
@@ -45,7 +47,8 @@ export function testOpenAiLocks(
   } as const;
 }
 
-export const testOnlyOpenAiLocks = testOpenAiLocks("0.34.0");
+// The live release, which is what the live-import tests exercise.
+export const testOnlyOpenAiLocks = testOpenAiLocks("0.39.2");
 
 export function signedPromotionEvidence(input: {
   platform: "claude" | "openai";
@@ -131,7 +134,7 @@ export function evidence(
 ): Record<string, unknown> {
   return signedPromotionEvidence({
     platform,
-    release: "0.34.0",
+    release: "0.39.2",
     secret,
     suffix,
     ...binding,

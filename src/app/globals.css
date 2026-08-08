@@ -525,6 +525,42 @@ body {
   color: var(--fg-secondary);
 }
 
+/* Policy prose (terms, privacy, support, setup).
+   The global reset flattens headings to `font-size: inherit`, so an <h2> in
+   these pages rendered identically to the paragraph above it and the whole
+   document read as one block. These are legal pages people actually have to
+   scan, so the section breaks have to be visible. */
+.brand-exomem .exo-prose > h2 {
+  margin: 40px 0 12px;
+  font-family: var(--font-mono-exo);
+  font-size: 1.05rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+}
+.brand-exomem .exo-prose > h2:first-child {
+  margin-top: 0;
+}
+.brand-exomem .exo-prose > p {
+  margin: 0 0 20px;
+}
+.brand-exomem .exo-prose > p:last-child {
+  margin-bottom: 0;
+}
+.brand-exomem .exo-prose > ul,
+.brand-exomem .exo-prose > ol {
+  margin: 0 0 20px;
+  padding-left: 1.35rem;
+  list-style: disc;
+}
+.brand-exomem .exo-prose > ol {
+  list-style: decimal;
+}
+.brand-exomem .exo-prose li {
+  margin: 0 0 8px;
+}
+
 .brand-exomem .exo-cta-primary {
   transition: opacity 200ms var(--ease-out);
 }

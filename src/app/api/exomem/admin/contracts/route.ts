@@ -77,7 +77,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (body.action === "import-agent") {
       response = { candidateId: await storeExomemAgentContractCandidate() };
     } else if (body.action === "import-retained-agent") {
-      if (body.sourceRelease !== "0.34.0" && body.sourceRelease !== "0.35.0")
+      if (
+        body.sourceRelease !== "0.34.0" &&
+        body.sourceRelease !== "0.35.0" &&
+        body.sourceRelease !== "0.39.2"
+      )
         throw exomemErrors.invalidRequest();
       response = {
         candidateId: await storeRetainedExomemAgentContractCandidate(body.sourceRelease),
