@@ -46,6 +46,7 @@ export function ExomemPublicPage({
           {title}
         </h1>
         <div
+          className="exo-prose"
           style={{
             color: "var(--fg-secondary)",
             fontSize: "1rem",
