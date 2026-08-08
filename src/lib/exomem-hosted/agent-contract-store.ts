@@ -208,6 +208,24 @@ function checkedOpenAiLocks(
   return { packageLock: packageRecord, archiveLock: archiveRecord };
 }
 
+/**
+ * The promotable releases as one SQL parameter. Promotion matches a candidate
+ * against this set rather than an inline disjunction, so rotating the live
+ * contract cannot leave the new release trusted for import but unpromotable.
+ */
+function trustedReleaseAllowlist(): string {
+  return JSON.stringify(
+    [...TRUSTED_RELEASES].map(([sourceRelease, trusted]) => ({
+      source_release: sourceRelease,
+      command_surface_sha256: trusted.command_surface_sha256,
+      schema_contract_sha256: trusted.schema_contract_sha256,
+      compatibility_sha256: trusted.compatibility_sha256,
+      artifact_sha256: trusted.artifact_sha256,
+      archive_sha256: trusted.archive_sha256,
+    }))
+  );
+}
+
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
 function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContractCandidate {
   const source = record(fixture, "fixture");
@@ -901,19 +919,14 @@ export async function promoteExomemHostedCohort(input: {
       WHERE EXISTS (SELECT 1 FROM cells)
         AND candidate.mcp_protocol_versions IS NOT NULL
         AND exomem_mcp_protocol_versions_are_valid(candidate.mcp_protocol_versions)
-        AND (
-          (candidate.source_release = '0.34.0'
-            AND candidate.command_fingerprint = ${TRUSTED_RELEASES.get("0.34.0")!.command_surface_sha256}
-            AND candidate.schema_digest = ${TRUSTED_RELEASES.get("0.34.0")!.schema_contract_sha256}
-            AND candidate.compatibility_digest = ${TRUSTED_RELEASES.get("0.34.0")!.compatibility_sha256}
-            AND candidate.claude_package_lock->>'artifact_sha256' = ${TRUSTED_RELEASES.get("0.34.0")!.artifact_sha256}
-            AND candidate.claude_archive_lock->>'archive_sha256' = ${TRUSTED_RELEASES.get("0.34.0")!.archive_sha256})
-          OR (candidate.source_release = '0.35.0'
-            AND candidate.command_fingerprint = ${TRUSTED_RELEASES.get("0.35.0")!.command_surface_sha256}
-            AND candidate.schema_digest = ${TRUSTED_RELEASES.get("0.35.0")!.schema_contract_sha256}
-            AND candidate.compatibility_digest = ${TRUSTED_RELEASES.get("0.35.0")!.compatibility_sha256}
-            AND candidate.claude_package_lock->>'artifact_sha256' = ${TRUSTED_RELEASES.get("0.35.0")!.artifact_sha256}
-            AND candidate.claude_archive_lock->>'archive_sha256' = ${TRUSTED_RELEASES.get("0.35.0")!.archive_sha256})
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(${trustedReleaseAllowlist()}::jsonb) AS trusted
+          WHERE candidate.source_release = trusted->>'source_release'
+            AND candidate.command_fingerprint = trusted->>'command_surface_sha256'
+            AND candidate.schema_digest = trusted->>'schema_contract_sha256'
+            AND candidate.compatibility_digest = trusted->>'compatibility_sha256'
+            AND candidate.claude_package_lock->>'artifact_sha256' = trusted->>'artifact_sha256'
+            AND candidate.claude_archive_lock->>'archive_sha256' = trusted->>'archive_sha256'
         )
         AND authority.routable_set_digest = ${expected}
         AND authority.observed_at > now() - interval '5 minutes'

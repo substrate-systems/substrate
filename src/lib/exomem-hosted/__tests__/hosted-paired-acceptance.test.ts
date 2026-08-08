@@ -50,6 +50,10 @@ import { FakeCellProvisioner, ProvisionerPending } from "../provisioner";
 import { expectedCellConfiguration, LifecycleReconciler } from "../reconciler";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
+// Release A in the lineage tests is whatever contract is currently live, so a
+// contract rotation moves it without editing every assertion. B is a retained
+// neighbour that stays pinned.
+const liveRelease = exomemHostedContractFixture.sourceRelease as PromotionFixtureRelease;
 const resource = "https://substratesystems.io/api/exomem/mcp/v1";
 const verifier = "v".repeat(43);
 const oauthClientConfigSha256 = sha("f");
@@ -1235,7 +1239,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     await activate(reviewer, candidateId, assignment, "0.35.0");
     assert.equal(
       (await getExomemAgentContractForOAuthAccess({ tenantId: ordinary.tenantId }))?.sourceRelease,
-      "0.34.0"
+      liveRelease
     );
     assert.equal(
       (
@@ -1329,7 +1333,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         JSON.stringify(initialized.body)
       );
     };
-    await assertRelease(ordinaryA.bearer, "0.34.0");
+    await assertRelease(ordinaryA.bearer, liveRelease);
     await assertRelease(bClaude.bearer, "0.35.0");
     await assertRelease(bOpenAi.bearer, "0.35.0");
     for (const spoof of [
@@ -1384,7 +1388,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       null
     );
     await pool!.query(
-      "UPDATE exomem_routable_cell_contracts SET source_release = '0.34.0' WHERE cell_id = $1",
+      `UPDATE exomem_routable_cell_contracts SET source_release = '${liveRelease}' WHERE cell_id = $1`,
       [reviewer.cellId]
     );
     assert.equal(
@@ -1487,12 +1491,12 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     });
     await assertRelease(ordinaryB.bearer, "0.35.0");
 
-    const rollbackCandidateId = await storeRetainedExomemAgentContractCandidate("0.34.0");
+    const rollbackCandidateId = await storeRetainedExomemAgentContractCandidate(liveRelease);
     assert.notEqual(rollbackCandidateId, liveCandidateId);
     assert.notEqual(rollbackCandidateId, candidateId);
     const rollbackStages = await attachCandidateLocksAndStages({
       candidateId: rollbackCandidateId,
-      release: "0.34.0",
+      release: liveRelease,
       oauthClientConfigSha256: oauthConfigDigest,
       digestSeed: { artifact: "6", archive: "7", registeredApp: "8" },
     });
@@ -1502,10 +1506,10 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       expiresAt: new Date(Date.now() + 60 * 60_000),
       operatorPrincipalDigest: sha("9"),
     });
-    await activate(reviewer, rollbackCandidateId, reviewerRollbackAssignment, "0.34.0");
+    await activate(reviewer, rollbackCandidateId, reviewerRollbackAssignment, liveRelease);
     const rollbackEvidence = await importPairedEvidence({
       candidateId: rollbackCandidateId,
-      release: "0.34.0",
+      release: liveRelease,
       assignment: reviewerRollbackAssignment,
       stages: rollbackStages,
       suffix: `rollback-a-${randomUUID()}`,
@@ -1535,7 +1539,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       expiresAt: new Date(Date.now() + 60 * 60_000),
       operatorPrincipalDigest: sha("9"),
     });
-    await activate(ordinary, rollbackCandidateId, ordinaryRollbackAssignment, "0.34.0");
+    await activate(ordinary, rollbackCandidateId, ordinaryRollbackAssignment, liveRelease);
     assert.equal(await findMcpOAuthAccessToken(ordinaryB.digest), null);
     assert.ok(reviewerRollbackAssignment.generation > assignment.generation);
     assert.ok(ordinaryRollbackAssignment.generation > ordinaryBAssignment.generation);
@@ -1546,8 +1550,8 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     assert.notEqual(rollbackEvidence.claude.artifactId, bEvidence.claude.artifactId);
     assert.notEqual(rollbackEvidence.openai.artifactId, bEvidence.openai.artifactId);
 
-    await observe(reviewer.cellId, "0.34.0", "0.34.0");
-    await observe(ordinary.cellId, "0.24.0", "0.34.0");
+    await observe(reviewer.cellId, liveRelease, liveRelease);
+    await observe(ordinary.cellId, "0.24.0", liveRelease);
     assert.equal(
       await promoteExomemHostedCohort({
         candidateId: rollbackCandidateId,
@@ -1560,7 +1564,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       }),
       "precondition_failed"
     );
-    await observe(ordinary.cellId, "0.34.0", "0.34.0");
+    await observe(ordinary.cellId, liveRelease, liveRelease);
     assert.equal(
       await promoteExomemHostedCohort({
         candidateId: rollbackCandidateId,
@@ -1607,6 +1611,6 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       userId: ordinary.userId,
       tenantId: ordinary.tenantId,
     });
-    await assertRelease(ordinaryRollbackA.bearer, "0.34.0");
+    await assertRelease(ordinaryRollbackA.bearer, liveRelease);
   });
 });
