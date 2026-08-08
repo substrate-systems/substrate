@@ -1,4 +1,5 @@
 import { c, Nav, EndstateFooter } from "../_shared";
+import { SupportTiers } from "./SupportTiers";
 
 // Single source of truth: SUPPORTERS.md in the open-source engine repo. This page
 // renders the same list, so names live in one place and show in both (repo + site).
@@ -83,9 +84,9 @@ export default async function SupportersPage() {
               }}
             >
               Endstate is free for everyone because of the people below. They
-              bought a Supporter License — no extra features, just support — so
-              the rest of the product can stay free, open, and without telemetry.
-              Thank you.
+              chose to support the project — no extra features, no private
+              access, just support — so the rest of it can stay free, open, and
+              without telemetry. Thank you.
             </p>
 
             {supporters.length > 0 ? (
@@ -130,7 +131,7 @@ export default async function SupportersPage() {
                   No supporters listed yet. Want to be the first?
                 </p>
                 <a
-                  href="/endstate#pricing"
+                  href="#support"
                   className="inline-block py-2.5 px-5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
                   style={{
                     background: c.text,
@@ -139,7 +140,7 @@ export default async function SupportersPage() {
                     textDecoration: "none",
                   }}
                 >
-                  Become a supporter
+                  Support Endstate
                 </a>
               </div>
             )}
@@ -166,6 +167,83 @@ export default async function SupportersPage() {
                 SUPPORTERS.md
               </a>{" "}
               in the open-source repo.
+            </p>
+          </div>
+        </section>
+
+        <section
+          id="support"
+          className="py-24 px-6"
+          style={{ borderTop: `1px solid ${c.border}` }}
+        >
+          <div className="mx-auto" style={{ maxWidth: 680 }}>
+            <p
+              style={{
+                fontFamily: "var(--font-jetbrains-mono), monospace",
+                fontSize: "0.75rem",
+                fontWeight: 500,
+                color: c.textMuted,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                marginBottom: "1.5rem",
+              }}
+            >
+              Support Endstate
+            </p>
+
+            <h2
+              style={{
+                fontSize: "clamp(1.6rem, 3.5vw, 2.1rem)",
+                fontWeight: 700,
+                letterSpacing: "-0.03em",
+                color: c.text,
+                marginBottom: "1.25rem",
+              }}
+            >
+              Contribute to the project
+            </h2>
+
+            <p
+              style={{
+                fontSize: "1rem",
+                lineHeight: 1.7,
+                color: c.textSec,
+                marginBottom: "2.5rem",
+              }}
+            >
+              Supporting Endstate is voluntary and separate from anything you
+              buy. It is not a licence, a plan, or an upgrade: it unlocks no
+              features, carries no recurring obligation, and nothing in the
+              product checks whether you have contributed. The free product is
+              already the whole product. If Endstate saved you a rebuild and you
+              want it to keep going, this is the way to say so.
+            </p>
+
+            <SupportTiers />
+
+            <p
+              style={{
+                fontSize: "0.85rem",
+                color: c.textMuted,
+                marginTop: "2rem",
+                lineHeight: 1.6,
+              }}
+            >
+              Recognition is opt-in and stays that way — after a contribution you
+              are asked whether you would like to be listed, and nothing is
+              published unless you say yes. Looking to fund a specific
+              integration instead?{" "}
+              <a
+                href="/endstate/sponsor-an-integration"
+                style={{
+                  color: c.textSec,
+                  textDecoration: "underline",
+                  textDecorationColor: "rgba(153,153,153,0.3)",
+                }}
+              >
+                Sponsor an integration
+              </a>
+              .
             </p>
           </div>
         </section>

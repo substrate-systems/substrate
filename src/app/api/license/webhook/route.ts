@@ -7,13 +7,14 @@ import {
   fetchPaddleCustomerEmail,
   verifyPaddleSignature,
 } from "@/lib/license/paddle";
+import { configuredSupportTiers } from "@/lib/support-tiers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Paddle still targets this compatibility URL. The handler itself is for the
-// recognition-only supporter purchase; the retired licence model is not
-// reintroduced by keeping an externally configured route stable.
+// recognition-only "Support Endstate" contribution; the retired licence model is
+// not reintroduced by keeping an externally configured route stable.
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const secret = process.env.PADDLE_WEBHOOK_SECRET;
@@ -61,21 +62,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     .map((item) => item?.price?.id)
     .filter((id): id is string => Boolean(id));
 
-  const supporterPriceId = process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
-  if (!supporterPriceId) {
+  // Every configured "Support Endstate" contribution amount, including the
+  // original €89 price, whose env var name is deliberately unchanged so
+  // existing support records stay valid (see docs/naming.md). Newer amounts are
+  // additive: a price that is not yet configured simply is not in this list.
+  const supportPriceIds = configuredSupportTiers()
+    .map((tier) => tier.priceId)
+    .filter((id): id is string => Boolean(id));
+
+  if (supportPriceIds.length === 0) {
     return NextResponse.json(
       {
         error: "server_misconfigured",
-        message: "NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER is not set",
+        message: "no Endstate support price IDs are configured",
       },
       { status: 500 }
     );
   }
 
-  // Supporter tier: recognition only — no entitlement key. Thank the buyer (and
-  // invite opt-in public listing) + notify founder@ so the name can be added to
-  // SUPPORTERS.md. Reuses the existing Brevo infra; no key is issued.
-  if (eventPriceIds.includes(supporterPriceId)) {
+  // Support contribution: recognition only — no entitlement key. Thank the
+  // contributor (and invite opt-in public listing) + notify founder@ so the name
+  // can be added to SUPPORTERS.md. Reuses the existing Brevo infra; no key is
+  // issued and no entitlement is created.
+  if (eventPriceIds.some((id) => supportPriceIds.includes(id))) {
     return handleSupporterPurchase(event);
   }
 

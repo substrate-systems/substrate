@@ -2,7 +2,7 @@
 title: "We cannot decrypt your data"
 slug: we-cannot-decrypt-your-data
 subtitle: "How a conversation with Arpan turned into a cryptographic discipline"
-description: "Building Endstate's Hosted Backup as a structural commitment, not a policy promise — the Argon2id split-key construction and what follows from it."
+description: "Building Endstate's hosted backup service as a structural commitment, not a policy promise — the Argon2id split-key construction and what follows from it."
 published: 2026-05-24
 updated: 2026-07-20
 date: 2026-05-24
@@ -17,7 +17,7 @@ author: Hugo Ander Kivi
 
 [Endstate](https://substratesystems.io/endstate) is a tool for capturing and restoring the state of a Windows machine: apps, configs, settings, the lot. The "restore on a new machine" use case is the one users ask about first. The "back up to somewhere safe so you can restore on the same machine after a wipe" use case is the one that takes work to do honestly.
 
-Hosted Backup is the paid tier that handles the second use case. You upload encrypted profile snapshots to infrastructure I operate; you restore from them on any machine.
+Hosted Backup — since renamed Endstate Cloud, but called Hosted Backup throughout this piece and in the contract it quotes — is the paid tier that handles the second use case. You upload encrypted profile snapshots to infrastructure I operate; you restore from them on any machine.
 
 I wasn't going to build this initially. My colleague [Arpan Dutta](https://www.linkedin.com/in/dutta-arpan/) was the one who pushed me on it; he kept pointing out that "back up to cloud" is the obvious user expectation, and a tool that needs Dropbox or OneDrive to round out its story is doing half the job. He was right, so I built it.
 

@@ -8,8 +8,8 @@ import { ClaimCopyButton, OpenInEndstateButton } from './ClaimClient';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Claim your Hosted Backup · Endstate',
-  description: 'Finish setting up your Endstate Hosted Backup subscription.',
+  title: 'Claim your Endstate Cloud subscription · Endstate',
+  description: 'Finish setting up your Endstate Cloud subscription.',
   robots: { index: false, follow: false },
 };
 
@@ -86,7 +86,7 @@ export default async function ClaimPage({ params }: Props) {
               <>
                 Claim links expire 30 days after the purchase. Reply to the
                 email we sent you, or{' '}
-                <MailLink subject="Hosted Backup claim link expired" /> and
+                <MailLink subject="Endstate Cloud claim link expired" /> and
                 we&rsquo;ll mint a fresh one.
               </>
             }
@@ -97,8 +97,8 @@ export default async function ClaimPage({ params }: Props) {
             body={
               <>
                 If you successfully signed in to Endstate, you&rsquo;re all set
-                — your Hosted Backup is active. If you can&rsquo;t sign in,{' '}
-                <MailLink subject="Hosted Backup claim already used" />.
+                — your Endstate Cloud subscription is active. If you can&rsquo;t
+                sign in, <MailLink subject="Endstate Cloud claim already used" />.
               </>
             }
           />
@@ -110,7 +110,7 @@ export default async function ClaimPage({ params }: Props) {
                 This link doesn&rsquo;t match any claim on file. It may have
                 been mistyped or already used. If you just paid and didn&rsquo;t
                 get an email,{' '}
-                <MailLink subject="Hosted Backup claim link" /> and we&rsquo;ll
+                <MailLink subject="Endstate Cloud claim link" /> and we&rsquo;ll
                 sort it out.
               </>
             }
@@ -136,7 +136,7 @@ function SuccessState({ token, email }: { token: string; email: string }) {
             marginBottom: 18,
           }}
         >
-          Welcome to Hosted Backup.
+          Welcome to Endstate Cloud.
         </h1>
         <p
           style={{
@@ -189,9 +189,10 @@ function SuccessState({ token, email }: { token: string; email: string }) {
                 marginBottom: 20,
               }}
             >
-              Copy the code below. In Endstate, open Hosted Backup and choose
-              &ldquo;Use purchase code&rdquo;, then paste it. The code expires in 30
-              days and only works once.
+              Copy the code below. In Endstate, open Endstate Cloud (shown as
+              &ldquo;Hosted Backup&rdquo; in older versions) and choose
+              &ldquo;Use purchase code&rdquo;, then paste it. The code expires in
+              30 days and only works once.
             </p>
             <ClaimCopyButton token={token} />
             <div
@@ -234,7 +235,7 @@ function SuccessState({ token, email }: { token: string; email: string }) {
         >
           Still stuck?{' '}
           <a
-            href="mailto:founder@substratesystems.io?subject=Hosted%20Backup%20claim%20help"
+            href="mailto:founder@substratesystems.io?subject=Endstate%20Cloud%20claim%20help"
             style={{
               color: c.textSec,
               borderBottom: `1px solid rgba(153,153,153,0.3)`,

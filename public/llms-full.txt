@@ -56,13 +56,14 @@ Endstate is a free, open-source desktop app for Windows that captures your insta
 ### Pricing
 
 - **Endstate local product: Free forever.** Any number of machines. No account, no license key, no telemetry.
-- **Hosted Backup (optional): €4/month or €40/year.** Encrypted off-machine backup of your setup files.
-- **Supporter License (optional): €89 one-time.** A one-time, non-exclusive, non-transferable way to support development.
+- **Endstate Cloud (optional): €4/month or €40/year.** Managed encrypted backup, encrypted on your machine before it leaves. Local by default, cloud only by choice. Previously called Hosted Backup.
+- **Support Endstate (optional, one-time).** Voluntary contributions towards development, currently €89 (Patron), with €10 (Supporter) and €29 (Founding Supporter) planned. Supporting unlocks no features, creates no entitlement, and carries no recurring obligation. Larger contributions are arranged by email as a Custom Project Sponsor.
+- **Sponsor an integration: by quotation.** Funds deeper migration support for a specific application. No public fixed price.
 
 ### FAQ
 
 **How much does Endstate cost?**
-The local product is free forever on as many machines as you like. Optional paid services: encrypted Hosted Backup at €4/month or €40/year, and a one-time €89 Supporter License.
+The local product is free forever on as many machines as you like. The one optional paid service is Endstate Cloud, encrypted managed backup at €4/month or €40/year. Supporting the project is separate, voluntary, and unlocks nothing.
 
 **What types of apps does Endstate detect?**
 Apps installed via traditional installers (EXE/MSI) and Microsoft Store. Uses winget under the hood. Portable apps not registered in Windows are not detected.
@@ -178,13 +179,52 @@ Full article: https://substratesystems.io/endstate/why
 
 ---
 
+## Endstate Cloud
+
+**Tagline:** Local by default. Cloud only by choice.
+
+Endstate Cloud (previously called Hosted Backup) is the optional managed service: your encrypted setup history, kept current automatically. Backups are encrypted on your machine before they leave, with keys you control — Endstate stores ciphertext and operational metadata only and cannot read or decrypt your data.
+
+- €4/month or €40/year. Cancel any time.
+- Optional automatic backup after each capture; manual backup any time.
+- Restore your setup on any machine.
+- The self-hosting protocol stays open: anyone can run their own backup server, and the Endstate client supports an alternative server endpoint.
+- Nothing about the local product depends on it. Capture, restore, profiles, manifests, verification, and backup to locations you control all work forever without a subscription.
+
+---
+
+## Support Endstate
+
+Supporting Endstate is voluntary and separate from anything you buy. It is not a licence, a plan, or an upgrade: it unlocks no features, creates no entitlement, carries no recurring obligation, and nothing in the product checks whether you have contributed.
+
+One-time contribution amounts: €89 (Patron) today, with €10 (Supporter) and €29 (Founding Supporter) planned. Larger contributions are arranged by email as a Custom Project Sponsor. Recognition on the supporters page and in the open-source repository is opt-in and consent-based.
+
+- Supporters page: https://substratesystems.io/endstate/supporters
+
+---
+
+## Sponsor an Integration
+
+Endstate already reinstalls applications through WinGet and Chocolatey. Integration sponsorship funds deeper migration support: safe settings capture and restore, version handling, package-identity edge cases, testing, and documentation.
+
+- Ordinary Endstate development and community contributions continue regardless.
+- Sponsorship buys priority, explicit scope, and verification — not influence over the rest of the roadmap.
+- Public integrations become part of free, open-source Endstate under Apache 2.0.
+- Private organisational and vendor integrations are available by quotation.
+- A completed sponsorship does not imply lifetime maintenance; ongoing compatibility guarantees require a separate agreement.
+- No public fixed price. Request a quote by email.
+
+- Page: https://substratesystems.io/endstate/sponsor-an-integration
+
+---
+
 ## Terms, Privacy & Refunds
 
-**Terms:** The local Endstate product is free, on any number of machines, without an account. The engine is licensed under Apache 2.0. The Supporter License is a one-time, non-exclusive, non-transferable purchase. Software provided "as is" without warranty.
+**Terms:** The local Endstate product is free, on any number of machines, without an account. The engine is licensed under Apache 2.0. A Support Endstate contribution is a one-time voluntary payment, not a licence, and grants no additional features. Software provided "as is" without warranty.
 
-**Privacy:** No data collection during normal use. No analytics, telemetry, or tracking in the local product. Scanning and saving is entirely offline. Subscription and Supporter License purchases are processed by Paddle. App installation downloads via winget directly from publishers — Substrate is not involved.
+**Privacy:** No data collection during normal use. No analytics, telemetry, or tracking in the local product. Scanning and saving is entirely offline. Endstate Cloud subscriptions and Support Endstate contributions are processed by Paddle. App installation downloads via winget directly from publishers — Substrate is not involved.
 
-**Refunds:** Hosted Backup subscriptions: full refund within 14 days of purchase or renewal, no questions asked (no mid-period pro-rating — cancel anytime and keep access until period end). Supporter License: refundable within 30 days of purchase, no questions asked. Email founder@substratesystems.io with your order number.
+**Refunds:** Endstate Cloud subscriptions: full refund within 14 days of purchase or renewal, no questions asked (no mid-period pro-rating — cancel anytime and keep access until period end). Support Endstate contributions: refundable within 30 days of purchase, no questions asked. Email founder@substratesystems.io with your order number.
 
 **Entity:** Substrate Systems OÜ, Estonia.
 **Contact:** founder@substratesystems.io
@@ -197,6 +237,8 @@ Full article: https://substratesystems.io/endstate/why
 - Endstate product page: https://substratesystems.io/endstate
 - Endstate download: https://substratesystems.io/download
 - Endstate supported apps: https://substratesystems.io/endstate/apps
+- Support Endstate: https://substratesystems.io/endstate/supporters
+- Sponsor an integration: https://substratesystems.io/endstate/sponsor-an-integration
 - Endstate engine (GitHub): https://github.com/Artexis10/endstate
 - Endstate GUI (GitHub): https://github.com/Artexis10/endstate-gui
 - Exomem product page: https://substratesystems.io/exomem

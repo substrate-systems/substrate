@@ -120,9 +120,9 @@ export async function GET(req: NextRequest) {
 // your purchase; reply to recover" — not a re-issuance.
 function renderClaimStillPendingBody({ email }: { email: string }) {
   void email;
-  const subject = 'Your Endstate Hosted Backup is still waiting';
+  const subject = 'Your Endstate Cloud subscription is still waiting';
   const supportEmail = 'founder@substratesystems.io';
-  const text = `Your Hosted Backup subscription is still unclaimed.
+  const text = `Your Endstate Cloud subscription is still unclaimed.
 
 If you've lost the original claim link, reply to this email and we'll send a fresh one — we don't store claim tokens in a form we can re-send automatically.
 
@@ -130,7 +130,7 @@ If you've lost the original claim link, reply to this email and we'll send a fre
   const html = `<!doctype html>
 <html>
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 16px;">Your Hosted Backup subscription is still unclaimed.</p>
+    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 16px;">Your Endstate Cloud subscription is still unclaimed.</p>
     <p style="font-size: 14px; line-height: 1.6; color: #333; margin: 0 0 16px;">If you&rsquo;ve lost the original claim link, reply to this email and we&rsquo;ll send a fresh one — we don&rsquo;t store claim tokens in a form we can re-send automatically.</p>
     <p style="font-size: 14px; line-height: 1.6; color: #111; margin: 24px 0 0;">&mdash; Hugo, Substrate Systems</p>
     <p style="font-size: 12px; color: #999; margin: 16px 0 0;">Reply directly to this email or write to ${supportEmail}.</p>

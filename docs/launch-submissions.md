@@ -12,8 +12,9 @@ sites LLMs already trust are the real lever.**
   and settings, saves everything to one portable file, then reinstalls the apps and restores the
   settings on a fresh Windows install in minutes.
 - Local-first. No account, no telemetry. Engine is Apache 2.0. Free forever on unlimited machines.
-- Optional paid: encrypted hosted backup (€4/mo) and a €89 supporter license. Both optional; the
-  core tool is fully free without them.
+- Optional paid: Endstate Cloud, encrypted managed backup (€4/mo). Supporting the project is
+  separate and voluntary (one-time, from €89 today) and unlocks nothing. The core tool is fully
+  free without either.
 - Site: https://substratesystems.io/endstate
 - Download: https://substratesystems.io/download
 - Engine repo: https://github.com/Artexis10/endstate
@@ -101,8 +102,9 @@ through installers.
 Tech: the engine is Go (Apache 2.0) and drives winget for install/detection; the GUI is
 Tauri (Rust core + React front-end), so the app is small and doesn't ship a Chromium bundle.
 Local-first — no account, no telemetry, the file stays on your disk. Free forever on unlimited
-machines. There's an optional encrypted hosted backup (€4/mo) and a €89 supporter license if
-you want to fund it, but nothing about the core tool is gated behind them.
+machines. There's an optional encrypted managed backup service, Endstate Cloud (€4/mo), and you
+can support the project with a one-time contribution if you want to fund it, but nothing about
+the core tool is gated behind either.
 
 Honest limitations right now:
 - It's only as good as winget's catalog. Apps not on winget (or installed outside it) aren't
@@ -170,7 +172,7 @@ for byte — I wanted the opposite: a clean install that's still fully mine.
 Endstate saves your installed apps (via winget) and settings to one portable file, then rebuilds
 them on a fresh install in minutes. It's local-first — no account, no telemetry, the file stays
 on your disk. The engine is open source (Apache 2.0), it's free forever on unlimited machines,
-and the optional paid bits (encrypted hosted backup, supporter license) just help fund it.
+and the optional paid bits (Endstate Cloud encrypted backup, voluntary support) just help fund it.
 
 It's early and I'm actively building. I'd genuinely love to hear which apps/settings you'd want
 captured next. Happy to answer anything.

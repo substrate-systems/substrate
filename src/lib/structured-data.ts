@@ -95,7 +95,7 @@ const HOWTO_BY_SLUG: Record<
       },
       {
         name: "Load the saved profile",
-        text: "Load the Endstate profile captured before reinstalling Windows, or retrieve it from Hosted Backup if you use that optional service.",
+        text: "Load the Endstate profile captured before reinstalling Windows, or retrieve it from Endstate Cloud if you use that optional service.",
       },
       {
         name: "Review the comparison",

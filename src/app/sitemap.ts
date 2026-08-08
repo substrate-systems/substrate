@@ -23,6 +23,7 @@ const staticRoutes: Array<{
   { path: "/endstate/apps", changeFrequency: "weekly", priority: 0.7 },
   { path: "/endstate/why", changeFrequency: "monthly", priority: 0.7 },
   { path: "/endstate/supporters", changeFrequency: "monthly", priority: 0.4 },
+  { path: "/endstate/sponsor-an-integration", changeFrequency: "monthly", priority: 0.5 },
   { path: "/work", changeFrequency: "monthly", priority: 0.8 },
   { path: "/photography", changeFrequency: "monthly", priority: 0.5 },
   { path: "/photography/iceland-aurora", changeFrequency: "yearly", priority: 0.5 },

@@ -32,7 +32,7 @@ npm start
 - TypeScript
 - Tailwind CSS v4
 
-This single codebase serves the marketing site, the blog, the Hosted Backup API, and the account surface. There is no separate backend service.
+This single codebase serves the marketing site, the blog, the Hosted Backup API (publicly: **Endstate Cloud**), and the account surface. There is no separate backend service.
 
 ## Content discipline
 
@@ -42,7 +42,9 @@ Public copy on this site must match the canonical product facts. The source of t
 
 - **Scope.** Endstate is a **Windows** machine setup and restore tool today. The Go engine is structured for cross-platform use, and macOS/Linux support is coming via Nix. Never write "cross-platform machine provisioning" as an unqualified headline; if cross-platform is mentioned, qualify it as forward work.
 - **Stack.** Go end-to-end engine (CLI). The desktop GUI is **shipped** — Tauri shell in Rust + TypeScript with shadcn/ui (`github.com/Artexis10/endstate-gui`). Don't describe the GUI as planned or coming.
-- **Hosted Backup.** The Hosted Backup API is part of this Next.js codebase — see the "Hosted Backup" section below. There is no separate "Substrate backend" service and no Elixir backend anywhere. If copy implies a separate service, fix it.
+- **Endstate Cloud.** The managed backup service is called **Endstate Cloud** in all public copy. "Hosted Backup" survives only as internal identifiers — env vars, route paths, module names, TypeScript symbols, the `hostedBackup` capabilities key, and DB columns — plus the desktop app's own section label until the GUI ships the rename. Those retentions are deliberate and enumerated in [`docs/naming.md`](./docs/naming.md); do not rename them, and do not write "Hosted Backup" in new public copy. The Endstate *product* is not renamed — only the managed service.
+- **Hosted Backup API.** The API is part of this Next.js codebase — see the "Hosted Backup" section below. There is no separate "Substrate backend" service and no Elixir backend anywhere. If copy implies a separate service, fix it.
+- **Support Endstate.** Voluntary one-time contributions, never "Supporter License". Supporting unlocks nothing: no licence key, no entitlement, no feature flag, no recurring obligation. If copy implies otherwise, fix it.
 - **Roadmap framing.** The cross-platform path is Nix via the Go engine, not "additional platform drivers" or "winget/apt/brew expansion". `winget` is the current Windows install mechanism, not a roadmap item.
 
 ### Q
@@ -112,6 +114,8 @@ For a new blog post, do nothing extra — drop a `.md` file in `content/blog/` w
   ```
 
 ## Hosted Backup
+
+> Internal name. The public name of this service is **Endstate Cloud** — see [`docs/naming.md`](./docs/naming.md). Everything below is wire protocol and configuration, where the original identifiers are load-bearing and stay.
 
 The substrate also serves as the auth issuer + metadata store + presigned-URL minter for **Endstate Hosted Backup v2**. Protocol locked in [`hosted-backup-contract.md`](./hosted-backup-contract.md) (OIDC discovery, EdDSA JWTs, Argon2id-derived `serverPassword + masterKey` split, R2 storage with 5-version retention).
 

@@ -50,6 +50,8 @@ afterEach(() => {
   analyticsCaptures = [];
   delete process.env.PADDLE_WEBHOOK_SECRET;
   delete process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
+  delete process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_SUPPORT_10;
+  delete process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_SUPPORT_29;
 });
 
 function requestFor(
@@ -72,7 +74,7 @@ function requestFor(
 }
 
 describe("POST /api/license/webhook", () => {
-  it("fails retryably when the sole Supporter price is not configured", async () => {
+  it("fails retryably when no support price is configured", async () => {
     process.env.PADDLE_WEBHOOK_SECRET = "secret";
     const { POST } = await import("../route");
 
@@ -81,7 +83,7 @@ describe("POST /api/license/webhook", () => {
     assert.equal(response.status, 500);
     assert.deepEqual(await response.json(), {
       error: "server_misconfigured",
-      message: "NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER is not set",
+      message: "no Endstate support price IDs are configured",
     });
     assert.equal(sentEmails.length, 0);
   });
@@ -106,6 +108,22 @@ describe("POST /api/license/webhook", () => {
         properties: { product: "supporter" },
       },
     ]);
+  });
+
+  it("also accepts a newly configured support amount", async () => {
+    process.env.PADDLE_WEBHOOK_SECRET = "secret";
+    process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER = "pri_supporter";
+    process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_SUPPORT_10 = "pri_support_10";
+    const { POST } = await import("../route");
+
+    const response = await POST(requestFor("pri_support_10"));
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true, supporter: true });
+    assert.deepEqual(
+      sentEmails.map(({ to }) => to),
+      ["founder@substratesystems.io", "supporter@example.com"]
+    );
   });
 
   it("acknowledges and ignores every other one-time SKU", async () => {

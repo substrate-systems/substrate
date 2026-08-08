@@ -45,7 +45,7 @@ describe('renderClaimEmail (issue #13)', () => {
     );
   });
 
-  it('keeps the CTA on HTTPS and gives the exact Hosted Backup fallback path', () => {
+  it('keeps the CTA on HTTPS and gives the exact in-app fallback path', () => {
     const { htmlContent, textContent } = renderClaimEmail({
       email: 'buyer@example.com',
       token: SAMPLE_TOKEN,
@@ -55,12 +55,12 @@ describe('renderClaimEmail (issue #13)', () => {
     assert.ok(!htmlContent.includes('href="endstate://'));
     assert.ok(
       htmlContent.includes(
-        'In Endstate, open Hosted Backup, choose &ldquo;Use purchase code&rdquo;, then paste the code.',
+        'In Endstate, open Endstate Cloud (shown as &ldquo;Hosted Backup&rdquo; in older versions), choose &ldquo;Use purchase code&rdquo;, then paste the code.',
       ),
     );
     assert.ok(
       textContent.includes(
-        'In Endstate, open Hosted Backup, choose "Use purchase code", then paste the code.',
+        'In Endstate, open Endstate Cloud (shown as "Hosted Backup" in older versions), choose "Use purchase code", then paste the code.',
       ),
     );
     assert.ok(!htmlContent.includes('sign-in screen'));
@@ -78,7 +78,7 @@ describe('renderResendClaimEmail (issue #13)', () => {
     assert.ok(textContent.includes(SAMPLE_TOKEN));
   });
 
-  it('uses the same exact Hosted Backup fallback path', () => {
+  it('uses the same exact in-app fallback path', () => {
     const { htmlContent, textContent } = renderResendClaimEmail({
       email: 'buyer@example.com',
       token: SAMPLE_TOKEN,
@@ -86,12 +86,12 @@ describe('renderResendClaimEmail (issue #13)', () => {
 
     assert.ok(
       htmlContent.includes(
-        'In Endstate, open Hosted Backup, choose &ldquo;Use purchase code&rdquo;, then paste the code.',
+        'In Endstate, open Endstate Cloud (shown as &ldquo;Hosted Backup&rdquo; in older versions), choose &ldquo;Use purchase code&rdquo;, then paste the code.',
       ),
     );
     assert.ok(
       textContent.includes(
-        'In Endstate, open Hosted Backup, choose "Use purchase code", then paste the code.',
+        'In Endstate, open Endstate Cloud (shown as "Hosted Backup" in older versions), choose "Use purchase code", then paste the code.',
       ),
     );
   });

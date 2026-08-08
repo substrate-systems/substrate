@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Your account · Endstate',
-  description: 'Manage your Endstate Hosted Backup subscription.',
+  description: 'Manage your Endstate Cloud subscription.',
   robots: { index: false, follow: false },
 };
 
@@ -171,7 +171,7 @@ function friendlyForCode(code: string): { heading: string; body: React.ReactNode
           <>
             Open Endstate and click &ldquo;Manage subscription&rdquo; to start a
             fresh session. If this keeps happening,{' '}
-            <FounderMailLink subject="Hosted Backup account portal error" />.
+            <FounderMailLink subject="Endstate Cloud account portal error" />.
           </>
         ),
       };
