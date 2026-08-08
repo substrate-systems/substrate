@@ -23,9 +23,28 @@ The complimentary alpha does **not** require Paddle or a price. It does require:
    and
 6. a two-cell isolation/export/deletion drill before a real invite is sent.
 
-The friends-tier sandbox lifecycle is approved and drilled. Live paid launch
-remains deliberately disabled until the public price, checkout domain,
-terms/tax review, and live webhook are approved and configured.
+The friends-tier sandbox lifecycle is approved and drilled. Live paid launch was
+gated on four conditions; three are now closed and one remains an operator step:
+
+- **Public price** — closed. €12/month founder price, stated on `/exomem` with
+  matching `Service` structured data, and disclosed as time-limited with existing
+  subscriptions keeping their rate.
+- **Terms/tax review** — closed. The terms cover renewal, cancellation, the EU
+  consumer right of withdrawal, and Paddle as merchant of record; Paddle handles
+  VAT as merchant of record.
+- **Checkout domain** — closed. Checkout returns to `EXOMEM_PUBLIC_BASE_URL`,
+  validated by `parseExomemPublicBaseUrl`.
+- **Live webhook + catalog** — **open, operator action.** `paidCheckoutEnabled`
+  stays false until `EXOMEM_PADDLE_PRODUCT_ID` and `EXOMEM_PADDLE_PRICE_ID` are
+  set in production. No code change makes checkout work without them.
+
+Signup is self-serve and capacity-gated: `POST /api/exomem/access/request`
+admits a visitor and emails a setup link when the pool has headroom, and
+waitlists them when it does not. Admission is decided before any payment surface
+appears, so the pool's configured capacity is now a commercial limit as well as
+an operational one — raising it admits more buyers, and leaving it low queues
+them. An unconfigured pool waitlists everybody, which is the intended
+fail-closed behaviour rather than an outage.
 
 The pinned compatibility, schema-contract, and command-surface digests are
 `6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c`,
@@ -73,7 +92,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                         |
 | `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                                                                                                                                              |
 | `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                                                                                                                                                  |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.39.2` for this release unit -- the release the hosted deployment lock names. Readiness must echo it, and the gateway contract catalog must carry a fixture pair for it or every command fails closed.                                                                                                                                                                                                                     |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.39.2` for this release unit -- the release the hosted deployment lock names. Readiness must echo it, and the gateway contract catalog must carry a fixture pair for it or every command fails closed.                                                                    |
 | `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                                                                                                                                                       |
 | `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
 | `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
