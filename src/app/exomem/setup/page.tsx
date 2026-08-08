@@ -8,17 +8,17 @@ export const metadata: Metadata = {
 
 export default function ExomemSetupPage() {
   return (
-    <ExomemPublicPage title="Set up Exomem Hosted" eyebrow="Invite-only private alpha">
+    <ExomemPublicPage title="Set up Exomem Hosted" eyebrow="Exomem Hosted setup">
       <p>
         Hosted Exomem is designed to disappear into normal work: install or connect an approved
         Claude, ChatGPT, or Codex entry, sign in once through OAuth, then use your usual
         conversation. The client uses Exomem&apos;s governed tools and bundled skills to retrieve
-        and preserve useful context. During the private alpha, the exact live install actions appear
+        and preserve useful context. Once your cell is ready, the exact live install actions appear
         in your Exomem account; this page never guesses an unapproved marketplace URL.
       </p>
       <h2>Normal path</h2>
       <ol>
-        <li>Accept a private-alpha invite and finish account setup.</li>
+        <li>Open your setup link and finish account setup.</li>
         <li>Choose the approved client install action supplied to your account.</li>
         <li>Complete the OAuth sign-in once, then return to the client.</li>
         <li>Work normally; Exomem can retrieve and capture governed knowledge when relevant.</li>

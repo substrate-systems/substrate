@@ -54,6 +54,50 @@ export function renderExomemInviteEmail(input: {
   });
 }
 
+/**
+ * Self-serve admission. Distinct from the operator invitation because nobody
+ * invited them — they asked, capacity was free, and the next step is theirs.
+ */
+export function renderExomemWelcomeEmail(input: {
+  accessUrl: string;
+  expiresAt: Date;
+}): RenderedExomemAccessEmail {
+  return renderAccessEmail({
+    subject: "Set up your Exomem",
+    introduction:
+      "Your place on Exomem Hosted is ready. Set it up to create your private memory space, then connect it to Claude or ChatGPT.",
+    actionLabel: "Set up Exomem",
+    accessUrl: input.accessUrl,
+    expiryLabel: `This setup link expires ${input.expiresAt.toISOString()}.`,
+  });
+}
+
+/**
+ * No call to action on purpose: there is nothing for them to do, and a button
+ * here would imply otherwise. Capacity is stated as the reason so the wait does
+ * not read as a silent rejection.
+ */
+export function renderExomemWaitlistEmail(input: { position: number }): RenderedExomemAccessEmail {
+  const introduction =
+    input.position === 1
+      ? "Thanks for asking about Exomem Hosted. Every place is currently taken, so you are first in line — we will email you as soon as one frees up. You have not been charged."
+      : `Thanks for asking about Exomem Hosted. Every place is currently taken, so you are number ${input.position} in line — we will email you as soon as one frees up. You have not been charged.`;
+  const htmlContent = `<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
+    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(introduction)}</p>
+    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">Exomem is also free and open source if you would rather run it yourself — there is no waiting for that.</p>
+    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
+  </body>
+</html>`;
+  const textContent = `${introduction}
+
+Exomem is also free and open source if you would rather run it yourself — there is no waiting for that.
+
+— Exomem by Substrate Systems`;
+  return { subject: "You are on the Exomem waitlist", htmlContent, textContent };
+}
+
 export function renderExomemMagicLinkEmail(input: {
   accessUrl: string;
   expiresAt: Date;

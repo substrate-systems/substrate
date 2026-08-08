@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function ExomemSupportPage() {
   return (
-    <ExomemPublicPage title="Exomem Hosted support" eyebrow="Private alpha support">
+    <ExomemPublicPage title="Exomem Hosted support" eyebrow="Subscriber support">
       <p>
         For access, setup, privacy, or service issues, email{" "}
         <a href="mailto:founder@substratesystems.io">founder@substratesystems.io</a> with a short
@@ -25,8 +25,8 @@ export default function ExomemSupportPage() {
         will never ask you to paste a token or manually edit a tenant connection URL.
       </p>
       <p>
-        For privacy, export, or deletion requests, use the same address. The service is invite-only;
-        account recovery and support require verification of the account owner.
+        For privacy, export, or deletion requests, use the same address. The service is
+        capacity-limited; account recovery and support require verification of the account owner.
       </p>
       <h2>Security reports</h2>
       <p>
