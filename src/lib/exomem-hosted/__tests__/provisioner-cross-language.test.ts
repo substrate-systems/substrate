@@ -65,7 +65,18 @@ function response(status: number, body: JsonRecord | null, headers = {}): Respon
     : Response.json(body, { status, headers });
 }
 
-function clientRequest(testCase: ActionCase): {
+/** A caller-supplied contract identity must never reach a v1 body. */
+const CONTRACT_IDENTITY = {
+  gatewayContractDigest: "a".repeat(64),
+  commandFingerprint: "b".repeat(64),
+  schemaDigest: "c".repeat(64),
+  compatibilityDigest: "d".repeat(64),
+} as const;
+
+function clientRequest(
+  testCase: ActionCase,
+  contractIdentity?: ProvisionCellRequest["contractIdentity"]
+): {
   provision: ProvisionCellRequest;
   target: CellTargetRequest;
   body: JsonRecord;
@@ -84,6 +95,7 @@ function clientRequest(testCase: ActionCase): {
     releaseVersion: String(body.releaseVersion),
     serviceCredential: new SensitiveSecret(String(body.serviceCredential)),
     workerPolicy: body.workerPolicy as ProvisionCellRequest["workerPolicy"],
+    ...(contractIdentity ? { contractIdentity } : {}),
   };
   const provision: ProvisionCellRequest = {
     ...cell,
@@ -99,7 +111,8 @@ function clientRequest(testCase: ActionCase): {
 async function invoke(
   action: string,
   testCase: ActionCase,
-  providerResponse: Response
+  providerResponse: Response,
+  contractIdentity?: ProvisionCellRequest["contractIdentity"]
 ): Promise<{ result: unknown; sent: JsonRecord; expectedRequest: JsonRecord }> {
   let sent: JsonRecord | null = null;
   const adapter = new HttpCellProvisioner(
@@ -113,7 +126,7 @@ async function invoke(
       return providerResponse;
     }
   );
-  const { provision, target, body } = clientRequest(testCase);
+  const { provision, target, body } = clientRequest(testCase, contractIdentity);
   let result: unknown;
   switch (action) {
     case "provision":
@@ -242,6 +255,26 @@ describe("Python provisioner v1 interoperability corpus", () => {
       );
       assert.deepEqual(sent, expectedRequest, action);
       assert.deepEqual(normalizedResult(action, result), final.body, action);
+    }
+  });
+
+  it("keeps a bound contract identity out of every v1 body", async () => {
+    // The provisioner validates with extra="forbid", so one unknown key fails the
+    // call outright. The reconciler attaches contractIdentity only once an
+    // operation has a bound contract target, which is why the corpus above never
+    // reached this path: it builds its requests from the fixture, and the fixture
+    // has no contract identity to carry. Provisioning broke in production the
+    // moment contract binding started working.
+    for (const [action, testCase] of Object.entries(fixture.actions)) {
+      const final = materialize(testCase.final);
+      const { sent, expectedRequest } = await invoke(
+        action,
+        testCase,
+        response(final.status, final.body),
+        CONTRACT_IDENTITY
+      );
+      assert.deepEqual(sent, expectedRequest, action);
+      assert.equal(Object.hasOwn(sent, "contractIdentity"), false, action);
     }
   });
 

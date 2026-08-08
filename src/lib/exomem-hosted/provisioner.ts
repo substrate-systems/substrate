@@ -273,6 +273,22 @@ function contextBody(context: ProvisionerCallContext): Record<string, unknown> {
   };
 }
 
+/**
+ * Exactly the fields `exomem-cell-provisioner.v1` declares, and nothing else.
+ *
+ * The provisioner validates every request body with `extra="forbid"`, so one
+ * unknown key fails the whole call with a bare `PROVISIONER_REJECTED`. That is
+ * how `contractIdentity` broke provisioning: it is not part of v1, and the
+ * reconciler only attaches it once an operation has a bound contract target, so
+ * the rejection appeared only after contract binding started working.
+ *
+ * Carrying contract digests to the provisioner is the v2 protocol's job, where
+ * `runtimeTarget` is matched exactly against the deployment lock. Substrate
+ * cannot speak v2 yet: its per-cell gateway digest is a different artifact from
+ * the lock's `runtimeTarget.gatewayContractDigest`, so an exact match would
+ * fail. Adding the field to v1 instead would fork the protocol and give up the
+ * exactness v2 exists to provide.
+ */
 function baseCellBody(request: CellRequest): Record<string, unknown> {
   return {
     ...contextBody(request.context),
@@ -282,7 +298,6 @@ function baseCellBody(request: CellRequest): Record<string, unknown> {
     releaseVersion: request.releaseVersion,
     serviceCredential: request.serviceCredential.reveal(),
     workerPolicy: request.workerPolicy,
-    ...(request.contractIdentity ? { contractIdentity: request.contractIdentity } : {}),
   };
 }
 
