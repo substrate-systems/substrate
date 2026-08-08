@@ -9,7 +9,9 @@ import {
   type ExomemSql,
   type ExomemTransaction,
 } from "../db";
-import { exomemHostedContractFixture } from "../agent-contract-fixture";
+// The live import stores the deployed release, so "the fixture the live import
+// produces" is the 0.39.2 one. Every expectation below derives from this.
+import { exomemHostedContractFixture } from "../agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import { resolveApprovedOAuthClient } from "../oauth-store";
@@ -1006,7 +1008,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     const lineage = { tenantId, candidateId, assignmentId, assignmentGeneration: BigInt(7) };
     assert.equal(
       (await getExomemAgentContractForOAuthAccess({ tenantId: ordinaryTenantId }))?.sourceRelease,
-      "0.34.0"
+      "0.39.2"
     );
     assert.equal((await getExomemAgentContractForOAuthAccess(lineage))?.sourceRelease, "0.35.0");
     assert.equal(
