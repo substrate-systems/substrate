@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { renderExomemInviteEmail, renderExomemMagicLinkEmail } from "../exomem-access";
+import {
+  renderExomemDeletionEmail,
+  renderExomemInviteEmail,
+  renderExomemMagicLinkEmail,
+  renderExomemWelcomeEmail,
+} from "../exomem-access";
 
 describe("Exomem access emails", () => {
   it("keeps invite bearer material in the URL fragment", () => {
@@ -23,5 +28,59 @@ describe("Exomem access emails", () => {
     });
     assert.match(rendered.subject, /Exomem/);
     assert.match(rendered.textContent, /works once/i);
+  });
+
+  it("states expiry as a duration and a labelled UTC instant, never a raw ISO stamp", () => {
+    const rendered = renderExomemInviteEmail({
+      accessUrl: "https://substratesystems.io/exomem/invite#safe-token",
+      expiresAt: new Date("2026-08-15T12:00:40.632Z"),
+      now: new Date("2026-08-08T12:00:00.000Z"),
+    });
+    assert.match(
+      rendered.textContent,
+      /This invitation expires in 7 days, on 15 August 2026 at 12:00 UTC\./
+    );
+    assert.equal(rendered.textContent.includes("2026-08-15T12:00:40.632Z"), false);
+    assert.equal(rendered.htmlContent.includes("2026-08-15T12:00:40.632Z"), false);
+  });
+
+  it("scales the duration down to the units a short-lived link needs", () => {
+    const now = new Date("2026-08-08T12:00:00.000Z");
+    const cases: [string, string][] = [
+      ["2026-08-08T12:01:00.000Z", "in 1 minute"],
+      ["2026-08-08T12:15:00.000Z", "in 15 minutes"],
+      ["2026-08-08T13:00:00.000Z", "in 1 hour"],
+      ["2026-08-09T12:00:00.000Z", "in 24 hours"],
+      ["2026-08-10T12:00:00.000Z", "in 2 days"],
+    ];
+    for (const [expiry, expected] of cases) {
+      const rendered = renderExomemMagicLinkEmail({
+        accessUrl: "https://substratesystems.io/exomem/invite#safe-token",
+        expiresAt: new Date(expiry),
+        now,
+      });
+      assert.match(rendered.textContent, new RegExp(`This sign-in link expires ${expected},`));
+    }
+  });
+
+  it("does not claim a lapsed link is still good", () => {
+    const rendered = renderExomemDeletionEmail({
+      accessUrl: "https://substratesystems.io/exomem/delete#safe-token",
+      expiresAt: new Date("2026-08-08T11:00:00.000Z"),
+      now: new Date("2026-08-08T12:00:00.000Z"),
+    });
+    assert.match(rendered.textContent, /This confirmation expired on 8 August 2026 at 11:00 UTC\./);
+  });
+
+  it("uses the same expiry wording for the self-serve welcome", () => {
+    const rendered = renderExomemWelcomeEmail({
+      accessUrl: "https://substratesystems.io/exomem/setup#safe-token",
+      expiresAt: new Date("2026-08-09T12:00:00.000Z"),
+      now: new Date("2026-08-08T12:00:00.000Z"),
+    });
+    assert.match(
+      rendered.textContent,
+      /This setup link expires in 24 hours, on 9 August 2026 at 12:00 UTC\./
+    );
   });
 });
