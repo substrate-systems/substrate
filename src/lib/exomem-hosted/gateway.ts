@@ -8,8 +8,10 @@ import { resolveGatewayTarget, type GatewayTarget } from "./db";
 import { exomemErrors } from "./errors";
 import { exomemHostedContractFixture as agentFixture0340 } from "./agent-contract-fixture";
 import { exomemHostedContractFixture as agentFixture0350 } from "./agent-contract-fixture-0-35-0";
+import { exomemHostedContractFixture as agentFixture0392 } from "./agent-contract-fixture-0-39-2";
 import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
 import { exomemContractFixture0350 } from "./gateway-contract-0-35-0";
+import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
 import {
   decryptSecret,
   opaquePrincipalScope,
@@ -294,6 +296,7 @@ function safeJsonObject(value: unknown): Record<string, unknown> | null {
 const gatewayContractCatalog = Object.freeze([
   Object.freeze({ full: exomemContractFixture0340, agent: agentFixture0340 }),
   Object.freeze({ full: exomemContractFixture0350, agent: agentFixture0350 }),
+  Object.freeze({ full: exomemContractFixture0392, agent: agentFixture0392 }),
 ]);
 
 function contractFixture(

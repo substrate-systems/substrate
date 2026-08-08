@@ -15,7 +15,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 The complimentary alpha does **not** require Paddle or a price. It does require:
 
 1. migrations `0017` through `0034_exomem_oauth_client_admission.sql` applied to the production Neon database;
-2. an Exomem `0.34.0` cell image from commit `253c9aa365d7afd8829dc7843f1cac53353ac825` exposing private protocol `1`;
+2. an Exomem `0.39.2` cell image from commit `4e9ba9caabcee985e3371320803c11946cd40cc6` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
@@ -73,7 +73,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                         |
 | `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                                                                                                                                              |
 | `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                                                                                                                                                  |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.34.0` for this release unit. Readiness must echo it.                                                                                                                                                                                                                     |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.39.2` for this release unit -- the release the hosted deployment lock names. Readiness must echo it, and the gateway contract catalog must carry a fixture pair for it or every command fails closed.                                                                                                                                                                                                                     |
 | `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                                                                                                                                                       |
 | `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
 | `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
@@ -647,7 +647,7 @@ pin server-selected lifecycle targets under the cohort lock; restore accepts an
 available export ID, never caller-supplied cell or contract identity.
 
 Emergency demotion stops a live unit; it is not rollback. Forward rollback
-imports a retained coherent 0.34.0 or 0.35.0 catalog release as a new pending
+imports a retained coherent 0.34.0, 0.35.0, or 0.39.2 catalog release as a new pending
 candidate UUID, then creates fresh stages, assignment generations, and signed
 two-client evidence before the normal promotion compare-and-swap. Never revive
 retired candidates, stages, assignments, client artifacts, or historical
