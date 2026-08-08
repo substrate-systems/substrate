@@ -9,6 +9,7 @@ import {
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
+import { exomemHostedContractFixture as candidateFixture0392 } from "../agent-contract-fixture-0-39-2";
 import {
   attachOpenAiContractLocks,
   getExomemAgentContractForOAuthAccess,
@@ -144,7 +145,9 @@ describe("Exomem Hosted agent contracts", () => {
   });
 
   it("trusts the fixture source release independently of descriptor source_release", async () => {
-    const fixture = exomemHostedContractFixture as unknown as {
+    // storeExomemAgentContractCandidate imports the deployed release, so the
+    // trust check has to be exercised against that fixture, not the retained one.
+    const fixture = candidateFixture0392 as unknown as {
       sourceRelease: string;
       compatibility: Record<string, unknown>;
     };
@@ -157,9 +160,9 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.34.0");
+      assert.equal(fixture.sourceRelease, "0.39.2");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
-      fixture.sourceRelease = "0.34.1";
+      fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
     } finally {
       fixture.sourceRelease = originalSourceRelease;

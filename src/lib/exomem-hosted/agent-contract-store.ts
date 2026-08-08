@@ -2,6 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, executeExomemTransaction, withExomemTransaction } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
+import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -11,7 +12,22 @@ import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-con
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
+/** Releases whose fixtures are pinned in this file and may be imported. */
+export type TrustedRelease = "0.34.0" | "0.35.0" | "0.39.2";
+/** Releases available as an explicit rollback target. */
+export type RetainedRelease = TrustedRelease;
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.39.2",
+    {
+      sourceCommit: "4e9ba9caabcee985e3371320803c11946cd40cc6",
+      command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+      schema_contract_sha256: "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c",
+      compatibility_sha256: "fed9898424ac4b3349af36353a9119b576adb6aa91b4a81cd0abbaaf95c9874c",
+      artifact_sha256: "20adc7f85bc66c3566431de15f7d42d9d24693a32945151a7a3db53b3d2a2469",
+      archive_sha256: "c4ef2e565fbe30cff342c934d6bbe4f56937907b4ce9f348e6bc748e38285f91",
+    },
+  ],
   [
     "0.34.0",
     {
@@ -197,7 +213,7 @@ function checkedOpenAiLocks(
 function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContractCandidate {
   const source = record(fixture, "fixture");
   const sourceRelease = string(source.sourceRelease, "fixture source release");
-  const trusted = TRUSTED_RELEASES.get(sourceRelease as "0.34.0" | "0.35.0");
+  const trusted = TRUSTED_RELEASES.get(sourceRelease as TrustedRelease);
   if (!trusted) throw new Error("agent contract fixture has an untrusted source release");
   if (source.sourceCommit !== trusted.sourceCommit)
     throw new Error("agent contract fixture has an untrusted source commit");
@@ -293,17 +309,24 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
 
 /** Store the sole checked Exomem fixture; no caller-supplied contract is accepted. */
 export async function storeExomemAgentContractCandidate(): Promise<string> {
+  // The deployed cell release, which is what a provisioning cell must bind to.
+  // A candidate for any other release leaves the reconciler with no usable target
+  // and the operation quarantines at `candidate-created`.
   return storeCheckedExomemAgentContractCandidate(
-    checkedExomemAgentContractCandidate(exomemHostedContractFixture)
+    checkedExomemAgentContractCandidate(exomemHostedContractFixture0392)
   );
 }
 
 /** A rollback begins with a fresh pending UUID from an immutable retained release fixture. */
 export async function storeRetainedExomemAgentContractCandidate(
-  sourceRelease: "0.34.0" | "0.35.0"
+  sourceRelease: RetainedRelease
 ): Promise<string> {
   const fixture =
-    sourceRelease === "0.34.0" ? exomemHostedContractFixture : exomemHostedContractFixture0350;
+    sourceRelease === "0.34.0"
+      ? exomemHostedContractFixture
+      : sourceRelease === "0.35.0"
+        ? exomemHostedContractFixture0350
+        : exomemHostedContractFixture0392;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 
