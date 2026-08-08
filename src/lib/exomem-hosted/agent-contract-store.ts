@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, executeExomemTransaction, withExomemTransaction } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import {
   loadClientArtifactLocks,
@@ -11,7 +12,20 @@ import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-con
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
+/** Releases whose fixtures are pinned here; the bare fixture is the live one. */
+export type TrustedRelease = "0.34.0" | "0.35.0" | "0.39.2";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.39.2",
+    {
+      sourceCommit: "4e9ba9caabcee985e3371320803c11946cd40cc6",
+      command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+      schema_contract_sha256: "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c",
+      compatibility_sha256: "fed9898424ac4b3349af36353a9119b576adb6aa91b4a81cd0abbaaf95c9874c",
+      artifact_sha256: "20adc7f85bc66c3566431de15f7d42d9d24693a32945151a7a3db53b3d2a2469",
+      archive_sha256: "c4ef2e565fbe30cff342c934d6bbe4f56937907b4ce9f348e6bc748e38285f91",
+    },
+  ],
   [
     "0.34.0",
     {
@@ -147,6 +161,7 @@ function checkedOpenAiLocks(
   const archiveRecord = record(archiveLock, "OpenAI archive lock");
   const claudeLocks = [
     record(exomemHostedContractFixture.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0340.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0350.packageLock, "Claude package lock"),
   ];
   const expected = [
@@ -193,11 +208,29 @@ function checkedOpenAiLocks(
   return { packageLock: packageRecord, archiveLock: archiveRecord };
 }
 
+/**
+ * The promotable releases as one SQL parameter. Promotion matches a candidate
+ * against this set rather than an inline disjunction, so rotating the live
+ * contract cannot leave the new release trusted for import but unpromotable.
+ */
+function trustedReleaseAllowlist(): string {
+  return JSON.stringify(
+    [...TRUSTED_RELEASES].map(([sourceRelease, trusted]) => ({
+      source_release: sourceRelease,
+      command_surface_sha256: trusted.command_surface_sha256,
+      schema_contract_sha256: trusted.schema_contract_sha256,
+      compatibility_sha256: trusted.compatibility_sha256,
+      artifact_sha256: trusted.artifact_sha256,
+      archive_sha256: trusted.archive_sha256,
+    }))
+  );
+}
+
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
 function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContractCandidate {
   const source = record(fixture, "fixture");
   const sourceRelease = string(source.sourceRelease, "fixture source release");
-  const trusted = TRUSTED_RELEASES.get(sourceRelease as "0.34.0" | "0.35.0");
+  const trusted = TRUSTED_RELEASES.get(sourceRelease as TrustedRelease);
   if (!trusted) throw new Error("agent contract fixture has an untrusted source release");
   if (source.sourceCommit !== trusted.sourceCommit)
     throw new Error("agent contract fixture has an untrusted source commit");
@@ -300,10 +333,14 @@ export async function storeExomemAgentContractCandidate(): Promise<string> {
 
 /** A rollback begins with a fresh pending UUID from an immutable retained release fixture. */
 export async function storeRetainedExomemAgentContractCandidate(
-  sourceRelease: "0.34.0" | "0.35.0"
+  sourceRelease: TrustedRelease
 ): Promise<string> {
   const fixture =
-    sourceRelease === "0.34.0" ? exomemHostedContractFixture : exomemHostedContractFixture0350;
+    sourceRelease === "0.34.0"
+      ? exomemHostedContractFixture0340
+      : sourceRelease === "0.35.0"
+        ? exomemHostedContractFixture0350
+        : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 
@@ -882,19 +919,14 @@ export async function promoteExomemHostedCohort(input: {
       WHERE EXISTS (SELECT 1 FROM cells)
         AND candidate.mcp_protocol_versions IS NOT NULL
         AND exomem_mcp_protocol_versions_are_valid(candidate.mcp_protocol_versions)
-        AND (
-          (candidate.source_release = '0.34.0'
-            AND candidate.command_fingerprint = ${TRUSTED_RELEASES.get("0.34.0")!.command_surface_sha256}
-            AND candidate.schema_digest = ${TRUSTED_RELEASES.get("0.34.0")!.schema_contract_sha256}
-            AND candidate.compatibility_digest = ${TRUSTED_RELEASES.get("0.34.0")!.compatibility_sha256}
-            AND candidate.claude_package_lock->>'artifact_sha256' = ${TRUSTED_RELEASES.get("0.34.0")!.artifact_sha256}
-            AND candidate.claude_archive_lock->>'archive_sha256' = ${TRUSTED_RELEASES.get("0.34.0")!.archive_sha256})
-          OR (candidate.source_release = '0.35.0'
-            AND candidate.command_fingerprint = ${TRUSTED_RELEASES.get("0.35.0")!.command_surface_sha256}
-            AND candidate.schema_digest = ${TRUSTED_RELEASES.get("0.35.0")!.schema_contract_sha256}
-            AND candidate.compatibility_digest = ${TRUSTED_RELEASES.get("0.35.0")!.compatibility_sha256}
-            AND candidate.claude_package_lock->>'artifact_sha256' = ${TRUSTED_RELEASES.get("0.35.0")!.artifact_sha256}
-            AND candidate.claude_archive_lock->>'archive_sha256' = ${TRUSTED_RELEASES.get("0.35.0")!.archive_sha256})
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(${trustedReleaseAllowlist()}::jsonb) AS trusted
+          WHERE candidate.source_release = trusted->>'source_release'
+            AND candidate.command_fingerprint = trusted->>'command_surface_sha256'
+            AND candidate.schema_digest = trusted->>'schema_contract_sha256'
+            AND candidate.compatibility_digest = trusted->>'compatibility_sha256'
+            AND candidate.claude_package_lock->>'artifact_sha256' = trusted->>'artifact_sha256'
+            AND candidate.claude_archive_lock->>'archive_sha256' = trusted->>'archive_sha256'
         )
         AND authority.routable_set_digest = ${expected}
         AND authority.observed_at > now() - interval '5 minutes'

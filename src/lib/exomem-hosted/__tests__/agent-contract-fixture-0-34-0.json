@@ -1,7 +1,6 @@
-// Generated from Exomem compatibility.json at commit 4e9ba9caabcee985e3371320803c11946cd40cc6 for cell release 0.39.2. Do not edit.
-export const exomemHostedContractFixture = {
-  "sourceCommit": "4e9ba9caabcee985e3371320803c11946cd40cc6",
-  "sourceRelease": "0.39.2",
+{
+  "sourceCommit": "253c9aa365d7afd8829dc7843f1cac53353ac825",
+  "sourceRelease": "0.34.0",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -42,8 +41,8 @@ export const exomemHostedContractFixture = {
             },
             "annotations": {
               "destructiveHint": false,
-              "idempotentHint": true,
-              "openWorldHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
               "readOnlyHint": true,
               "title": "Bootstrap"
             },
@@ -116,8 +115,8 @@ export const exomemHostedContractFixture = {
             },
             "annotations": {
               "destructiveHint": false,
-              "idempotentHint": true,
-              "openWorldHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
               "readOnlyHint": true,
               "title": "Ask Memory"
             },
@@ -1326,8 +1325,8 @@ export const exomemHostedContractFixture = {
             },
             "annotations": {
               "destructiveHint": false,
-              "idempotentHint": true,
-              "openWorldHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
               "readOnlyHint": true,
               "title": "Read Memory"
             },
@@ -1466,8 +1465,8 @@ export const exomemHostedContractFixture = {
             },
             "annotations": {
               "destructiveHint": false,
-              "idempotentHint": true,
-              "openWorldHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
               "readOnlyHint": true,
               "title": "Browse Memory"
             },
@@ -1582,53 +1581,14 @@ export const exomemHostedContractFixture = {
             "annotations": {
               "destructiveHint": false,
               "idempotentHint": false,
-              "openWorldHint": true,
+              "openWorldHint": false,
               "readOnlyHint": false,
               "title": "Remember"
             },
-            "description": "Remember a durable conclusion as compiled governed knowledge.\n\nThis is for distilled thinking, decisions, findings, failures, patterns,\nexperiments, and production logs. Raw material belongs in `capture_source`;\nproof artifacts belong in `preserve_evidence`.\n\nFor each `sources:` wikilink, this appends the new note's wikilink to that\nsource's `ingested_into:` frontmatter, maintaining the source-to-note graph\nand taking the source out of the unprocessed backlog.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
+            "description": "Remember a durable conclusion as compiled governed knowledge.\n\nThis is for distilled thinking, decisions, findings, failures, patterns,\nexperiments, and production logs. Raw material belongs in `capture_source`;\nproof artifacts belong in `preserve_evidence`.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
-                "bridge_of": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "type": "string"
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Optional source paths or stable memory refs for a reviewed cross-domain bridge; requires bridge_scope and bridge_review."
-                },
-                "bridge_review": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "ISO date when an approved bridge should be reviewed again."
-                },
-                "bridge_scope": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Descriptive lowercase scope slug for a bridge draft."
-                },
                 "concluded": {
                   "anyOf": [
                     {
@@ -1928,7 +1888,7 @@ export const exomemHostedContractFixture = {
                     }
                   ],
                   "default": null,
-                  "description": "Vault-relative wikilinks to existing pages this conclusion draws from, e.g. [\"Knowledge Base/Sources/Articles/2026-05-18-example\"]. Brackets and the leading `Knowledge Base/` are both tolerated. Each entry appends this note's wikilink to that source's `ingested_into:`. Expected for research-note, insight, failure, and pattern; omitting it returns a warning rather than failing the write, because a conclusion drawn from live work with nothing captured is an honest empty list."
+                  "description": "Source/evidence paths this conclusion draws from."
                 },
                 "started": {
                   "anyOf": [
@@ -2037,7 +1997,7 @@ export const exomemHostedContractFixture = {
               "type": "list[str]"
             },
             {
-              "description": "Vault-relative wikilinks to existing pages this conclusion draws from, e.g. [\"Knowledge Base/Sources/Articles/2026-05-18-example\"]. Brackets and the leading `Knowledge Base/` are both tolerated. Each entry appends this note's wikilink to that source's `ingested_into:`. Expected for research-note, insight, failure, and pattern; omitting it returns a warning rather than failing the write, because a conclusion drawn from live work with nothing captured is an honest empty list.",
+              "description": "Source/evidence paths this conclusion draws from.",
               "name": "sources",
               "required": false,
               "type": "list[str]"
@@ -2133,24 +2093,6 @@ export const exomemHostedContractFixture = {
               "type": "str"
             },
             {
-              "description": "Optional source paths or stable memory refs for a reviewed cross-domain bridge; requires bridge_scope and bridge_review.",
-              "name": "bridge_of",
-              "required": false,
-              "type": "list[str]"
-            },
-            {
-              "description": "Descriptive lowercase scope slug for a bridge draft.",
-              "name": "bridge_scope",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "ISO date when an approved bridge should be reviewed again.",
-              "name": "bridge_review",
-              "required": false,
-              "type": "str"
-            },
-            {
               "description": "Include link suggestions in the result.",
               "name": "suggestions",
               "required": false,
@@ -2237,7 +2179,7 @@ export const exomemHostedContractFixture = {
             "annotations": {
               "destructiveHint": true,
               "idempotentHint": false,
-              "openWorldHint": true,
+              "openWorldHint": false,
               "readOnlyHint": false,
               "title": "Observe Memory"
             },
@@ -2565,7 +2507,7 @@ export const exomemHostedContractFixture = {
             "annotations": {
               "destructiveHint": false,
               "idempotentHint": false,
-              "openWorldHint": true,
+              "openWorldHint": false,
               "readOnlyHint": false,
               "title": "Capture Source"
             },
@@ -2766,8 +2708,8 @@ export const exomemHostedContractFixture = {
             },
             "annotations": {
               "destructiveHint": false,
-              "idempotentHint": true,
-              "openWorldHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
               "readOnlyHint": true,
               "title": "Compile Source"
             },
@@ -2849,7 +2791,7 @@ export const exomemHostedContractFixture = {
             "annotations": {
               "destructiveHint": false,
               "idempotentHint": false,
-              "openWorldHint": true,
+              "openWorldHint": false,
               "readOnlyHint": false,
               "title": "Preserve Evidence"
             },
@@ -2975,8 +2917,8 @@ export const exomemHostedContractFixture = {
             },
             "annotations": {
               "destructiveHint": false,
-              "idempotentHint": true,
-              "openWorldHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
               "readOnlyHint": true,
               "title": "Review Memory"
             },
@@ -3247,8 +3189,8 @@ export const exomemHostedContractFixture = {
             },
             "annotations": {
               "destructiveHint": false,
-              "idempotentHint": true,
-              "openWorldHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
               "readOnlyHint": true,
               "title": "Review Item Context"
             },
@@ -3391,7 +3333,7 @@ export const exomemHostedContractFixture = {
             "annotations": {
               "destructiveHint": false,
               "idempotentHint": false,
-              "openWorldHint": true,
+              "openWorldHint": false,
               "readOnlyHint": false,
               "title": "Triage Memory"
             },
@@ -3532,7 +3474,7 @@ export const exomemHostedContractFixture = {
             "annotations": {
               "destructiveHint": false,
               "idempotentHint": false,
-              "openWorldHint": true,
+              "openWorldHint": false,
               "readOnlyHint": false,
               "title": "Connect Memory"
             },
@@ -4307,7 +4249,7 @@ export const exomemHostedContractFixture = {
       },
       "digest": {
         "algorithm": "sha256",
-        "value": "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c"
+        "value": "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853"
       },
       "envelopes": {
         "error": {
@@ -4366,7 +4308,7 @@ export const exomemHostedContractFixture = {
       "triage_memory",
       "connect_memory"
     ],
-    "compatibility_sha256": "fed9898424ac4b3349af36353a9119b576adb6aa91b4a81cd0abbaaf95c9874c",
+    "compatibility_sha256": "6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c",
     "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery": {
@@ -4526,7 +4468,7 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c",
+    "schema_contract_sha256": "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853",
     "schema_version": 1,
     "skills": {
       "exomem": [
@@ -4563,12 +4505,12 @@ export const exomemHostedContractFixture = {
         "read_memory"
       ]
     },
-    "skills_sha256": "69a61bda904b7f48ef6d6da77b952b4e78b1991619e630db7039f0dd259a446f"
+    "skills_sha256": "c897d335438f686b1c323a1fe080372df34092d9b009292a470a3f9bd1da69e7"
   },
   "packageLock": {
-    "artifact_sha256": "20adc7f85bc66c3566431de15f7d42d9d24693a32945151a7a3db53b3d2a2469",
+    "artifact_sha256": "b99ac90d97c7ae25463f434fb02fe87a36842aa82373cd5c4c449b17f512b95a",
     "command_surface_sha256": "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
-    "compatibility_sha256": "fed9898424ac4b3349af36353a9119b576adb6aa91b4a81cd0abbaaf95c9874c",
+    "compatibility_sha256": "6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c",
     "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery_sha256": "103fefcef3f994cf09aa067f65ad8beb369907b382ea41bb9a49af2a2c446e7b",
@@ -4577,12 +4519,12 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c",
+    "schema_contract_sha256": "c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853",
     "schema_version": 1,
-    "skills_sha256": "69a61bda904b7f48ef6d6da77b952b4e78b1991619e630db7039f0dd259a446f"
+    "skills_sha256": "c897d335438f686b1c323a1fe080372df34092d9b009292a470a3f9bd1da69e7"
   },
   "archiveLock": {
-    "archive_sha256": "c4ef2e565fbe30cff342c934d6bbe4f56937907b4ce9f348e6bc748e38285f91",
+    "archive_sha256": "dc55e52e36c4b533a0179f19e8856a3414016ad536d0f85370fe5a765661858b",
     "platform": "claude"
   }
-} as const;
+}

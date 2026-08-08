@@ -1006,7 +1006,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     const lineage = { tenantId, candidateId, assignmentId, assignmentGeneration: BigInt(7) };
     assert.equal(
       (await getExomemAgentContractForOAuthAccess({ tenantId: ordinaryTenantId }))?.sourceRelease,
-      "0.34.0"
+      exomemHostedContractFixture.sourceRelease
     );
     assert.equal((await getExomemAgentContractForOAuthAccess(lineage))?.sourceRelease, "0.35.0");
     assert.equal(

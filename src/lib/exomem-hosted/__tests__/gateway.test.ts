@@ -10,9 +10,9 @@ import {
   routeExomemCommand,
 } from "../gateway";
 import { SensitiveSecret, type SecretEnvelope } from "../security";
-import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as agentFixture0350 } from "../agent-contract-fixture-0-35-0";
-import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture-0-39-2";
+import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture";
 import fullContract0340 from "./gateway-contract-0-34-0.json";
 import fullContract0350 from "./gateway-contract-0-35-0.json";
 import fullContract0392 from "./gateway-contract-0-39-2.json";
