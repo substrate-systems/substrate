@@ -76,7 +76,7 @@ function formatDate(iso: string | null): string | null {
 }
 
 export function displayPlanName(plan: string | null): string {
-  if (!plan || /^pri_[a-z0-9]{26}$/i.test(plan)) return 'Hosted Backup';
+  if (!plan || /^pri_[a-z0-9]{26}$/i.test(plan)) return 'Endstate Cloud';
   return plan;
 }
 
@@ -100,7 +100,7 @@ export function AccountView({ snapshot }: { snapshot: AccountSnapshot }) {
             marginBottom: 14,
           }}
         >
-          Your Hosted Backup subscription.
+          Your Endstate Cloud subscription.
         </h1>
         <p
           style={{
@@ -334,7 +334,7 @@ function ManageInPaddleButton({ disabled }: { disabled: boolean }) {
           code === 'PADDLE_PORTAL_UNAVAILABLE' ? (
             <>
               We don&rsquo;t have a payment record on file yet —{' '}
-              <FounderMailLink subject="Hosted Backup billing update" /> if you
+              <FounderMailLink subject="Endstate Cloud billing update" /> if you
               need to update billing.
             </>
           ) : (
@@ -508,7 +508,7 @@ function DangerZone() {
         setError(
           <>
             We couldn&rsquo;t delete your account right now.{' '}
-            <FounderMailLink subject="Hosted Backup account deletion" /> for help.
+            <FounderMailLink subject="Endstate Cloud account deletion" /> for help.
           </>,
         );
         return;

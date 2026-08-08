@@ -106,14 +106,14 @@ export default function TermsPage() {
               account required.
             </Li>
             <Li>
-              <strong style={{ color: c.text }}>Hosted Backup</strong> — an optional paid
-              subscription to Endstate&apos;s managed encrypted backup service. Currently in
-              early access; not yet generally available.
+              <strong style={{ color: c.text }}>Endstate Cloud</strong> (previously Hosted
+              Backup) — an optional paid subscription to Endstate&apos;s managed encrypted
+              backup service. Currently in early access; not yet generally available.
             </Li>
             <Li>
-              <strong style={{ color: c.text }}>Supporter License</strong> — an optional
-              one-time payment that supports development. It does not unlock additional
-              features.
+              <strong style={{ color: c.text }}>Support Endstate</strong> — an optional
+              one-time contribution that supports development. It is not a licence and does
+              not unlock additional features.
             </Li>
           </ul>
           <P>
@@ -152,16 +152,16 @@ export default function TermsPage() {
           <h3
             style={{ fontSize: "1rem", fontWeight: 600, color: c.text, marginTop: "1.5rem", marginBottom: "0.75rem" }}
           >
-            Hosted Backup subscription
+            Endstate Cloud subscription
           </h3>
           <P>
-            A Hosted Backup subscription grants access to Endstate&apos;s managed backup
+            An Endstate Cloud subscription grants access to Endstate&apos;s managed backup
             service for the term you have paid for (monthly or annual). Subscriptions renew
             automatically until cancelled. Cancelling stops future renewals; access remains
             active until the end of the paid period.
           </P>
           <P>
-            Data uploaded to Hosted Backup is encrypted on your machine before it leaves
+            Data uploaded to Endstate Cloud is encrypted on your machine before it leaves
             using keys that you control. Endstate stores only ciphertext and metadata
             necessary to operate the service (account email, billing identifiers, object
             sizes, timestamps). Endstate cannot read or decrypt your backup data.
@@ -170,14 +170,15 @@ export default function TermsPage() {
           <h3
             style={{ fontSize: "1rem", fontWeight: 600, color: c.text, marginTop: "1.5rem", marginBottom: "0.75rem" }}
           >
-            Supporter License
+            Support Endstate
           </h3>
           <P>
-            The Supporter License is a one-time, non-exclusive, non-transferable
-            acknowledgement that you have contributed to the development of Endstate. It
-            does not grant additional features beyond what the free product offers. With
-            your explicit opt-in, your name may appear on the public supporters page and in
-            the project repository. You can ask for removal at any time.
+            A support contribution is a one-time, voluntary payment acknowledging that you
+            have contributed to the development of Endstate. It is not a licence, grants no
+            additional features beyond what the free product offers, creates no entitlement
+            or recurring obligation, and gives no priority claim on future work. With your
+            explicit opt-in, your name may appear on the public supporters page and in the
+            project repository. You can ask for removal at any time.
           </P>
 
           <h3
@@ -186,7 +187,7 @@ export default function TermsPage() {
             Acceptable use
           </h3>
           <P>
-            You agree not to use Hosted Backup to store unlawful content, to store data
+            You agree not to use Endstate Cloud to store unlawful content, to store data
             you do not have the right to store, or to attempt to circumvent the encryption
             or storage limits of the service. Endstate may suspend service for violations
             of acceptable use after written notice, except where immediate action is legally
@@ -246,7 +247,7 @@ export default function TermsPage() {
           <h3
             style={{ fontSize: "1rem", fontWeight: 600, color: c.text, marginTop: "1.5rem", marginBottom: "0.75rem" }}
           >
-            Hosted Backup
+            Endstate Cloud
           </h3>
           <ul style={{ listStyle: "none", padding: 0, margin: "1rem 0" }}>
             <Li>
@@ -264,7 +265,7 @@ export default function TermsPage() {
             </Li>
             <Li>
               <strong style={{ color: c.text }}>Data retention after cancellation:</strong>{" "}
-              when you cancel a Hosted Backup subscription, your encrypted data is retained
+              when you cancel an Endstate Cloud subscription, your encrypted data is retained
               for 30 days to allow reactivation, then permanently deleted. You can request
               earlier deletion at any time.
             </Li>
@@ -276,10 +277,10 @@ export default function TermsPage() {
             Payment processing
           </h3>
           <P>
-            Subscription and Supporter License purchases are processed by Paddle, which acts
-            as merchant of record. Paddle handles your payment card details under its own
-            privacy policy; Endstate receives transaction identifiers and your email
-            address, not payment card data.
+            Endstate Cloud subscriptions and Support Endstate contributions are processed by
+            Paddle, which acts as merchant of record. Paddle handles your payment card
+            details under its own privacy policy; Endstate receives transaction identifiers
+            and your email address, not payment card data.
           </P>
 
           <h3
@@ -289,7 +290,7 @@ export default function TermsPage() {
           </h3>
           <P>
             EU residents have the right under GDPR to access, rectify, export, or delete
-            their personal data, including data held by Hosted Backup. Because backup
+            their personal data, including data held by Endstate Cloud. Because backup
             payloads are encrypted with keys we do not hold, &ldquo;access&rdquo; and
             &ldquo;export&rdquo; cover metadata and ciphertext only — you must use your
             local Endstate client to decrypt the contents. Contact{" "}
@@ -307,10 +308,10 @@ export default function TermsPage() {
           <h3
             style={{ fontSize: "1rem", fontWeight: 600, color: c.text, marginTop: "1.5rem", marginBottom: "0.75rem" }}
           >
-            Hosted Backup subscription
+            Endstate Cloud subscription
           </h3>
           <P>
-            You can cancel a Hosted Backup subscription at any time from your account or by
+            You can cancel an Endstate Cloud subscription at any time from your account or by
             email. Cancelling stops the next renewal; access continues until the end of the
             current paid period.
           </P>
@@ -325,10 +326,10 @@ export default function TermsPage() {
           <h3
             style={{ fontSize: "1rem", fontWeight: 600, color: c.text, marginTop: "1.5rem", marginBottom: "0.75rem" }}
           >
-            Supporter License
+            Support Endstate
           </h3>
           <P>
-            Supporter License purchases are refundable within 30 days of purchase, no
+            Support Endstate contributions are refundable within 30 days of purchase, no
             questions asked. After 30 days, refunds are at our discretion.
           </P>
 

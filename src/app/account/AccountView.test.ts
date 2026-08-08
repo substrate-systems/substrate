@@ -4,11 +4,11 @@ import { dateLineText, displayPlanName, statusVisual } from './AccountView';
 
 describe('displayPlanName', () => {
   it('does not expose an internal Paddle price ID as the plan name', () => {
-    assert.equal(displayPlanName('pri_01ks03yq9ggsj4mdfdv3egwz67'), 'Hosted Backup');
+    assert.equal(displayPlanName('pri_01ks03yq9ggsj4mdfdv3egwz67'), 'Endstate Cloud');
   });
 
   it('preserves a human-readable plan name', () => {
-    assert.equal(displayPlanName('Hosted Backup Plus'), 'Hosted Backup Plus');
+    assert.equal(displayPlanName('Endstate Cloud Plus'), 'Endstate Cloud Plus');
   });
 });
 
