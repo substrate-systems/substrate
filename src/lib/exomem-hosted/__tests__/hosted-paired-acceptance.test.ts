@@ -16,6 +16,7 @@ import {
   storeRetainedExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as acceptedFixture0340 } from "../agent-contract-fixture-0-34-0";
 import { createCanaryAssignment, createStagedClientRelease } from "../agent-contract-canaries";
 import { storeClientArtifact } from "../client-artifacts";
 import { createInternalCanaryReviewerCredentialAtomic } from "../reviewer-access-store";
@@ -506,11 +507,11 @@ async function internalCanaryAccess(input: {
 
 describe("Hosted Exomem paired acceptance fixture", () => {
   it("pins the released contract and requires two native client identities", () => {
-    assert.equal(
-      exomemHostedContractFixture.sourceCommit,
-      "253c9aa365d7afd8829dc7843f1cac53353ac825"
-    );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.34.0");
+    // The paired-acceptance evidence was gathered against 0.34.0, so it pins that
+    // contract. It does not follow the live release; a new release needs its own
+    // acceptance run before this fixture can move.
+    assert.equal(acceptedFixture0340.sourceCommit, "253c9aa365d7afd8829dc7843f1cac53353ac825");
+    assert.equal(acceptedFixture0340.sourceRelease, "0.34.0");
     assert.equal(fixture.local_provenance, "mock");
     assert.deepEqual(fixture.external_release_gates, [
       "registered_openai_asdk_app",
@@ -518,15 +519,15 @@ describe("Hosted Exomem paired acceptance fixture", () => {
     ]);
     assert.equal(
       fixture.compatibility_sha256,
-      exomemHostedContractFixture.compatibility.compatibility_sha256
+      acceptedFixture0340.compatibility.compatibility_sha256
     );
     assert.equal(
       fixture.schema_contract_sha256,
-      exomemHostedContractFixture.compatibility.schema_contract_sha256
+      acceptedFixture0340.compatibility.schema_contract_sha256
     );
     assert.equal(
       fixture.command_surface_sha256,
-      exomemHostedContractFixture.compatibility.command_surface_sha256
+      acceptedFixture0340.compatibility.command_surface_sha256
     );
   });
 });

@@ -92,9 +92,9 @@ describe("Exomem Hosted agent contracts", () => {
   it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "253c9aa365d7afd8829dc7843f1cac53353ac825"
+      "4e9ba9caabcee985e3371320803c11946cd40cc6"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.34.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.39.2");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -157,9 +157,9 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.34.0");
+      assert.equal(fixture.sourceRelease, "0.39.2");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
-      fixture.sourceRelease = "0.34.1";
+      fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
     } finally {
       fixture.sourceRelease = originalSourceRelease;
@@ -261,7 +261,7 @@ describe("Exomem Hosted agent contracts", () => {
             id: "artifact-1",
             tenant_id: "018f2d91-7c42-7000-8000-000000000001",
             candidate_id: "018f2d91-7c42-7000-8000-000000000002",
-            source_release: "0.34.0",
+            source_release: "0.39.2",
             assignment_id: "018f2d91-7c42-7000-8000-000000000004",
             assignment_generation: 1,
             claude_package_lock: exomemHostedContractFixture.packageLock,
@@ -420,7 +420,7 @@ describe("Exomem Hosted agent contracts", () => {
           rows: [
             {
               candidate_id: "018f2d91-7c42-7000-8000-000000000002",
-              source_release: "0.34.0",
+              source_release: "0.39.2",
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,
             },
