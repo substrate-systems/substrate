@@ -84,6 +84,19 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 3,
     windowSeconds: 24 * 60 * 60,
   },
+  // Self-serve admission mints a real invite, so it is held tighter than the
+  // interest form it replaces: an address gets few attempts per day, and a
+  // network cannot farm invites for many addresses at once.
+  admissionIp: {
+    scope: "exomem:admission:ip",
+    limit: 10,
+    windowSeconds: 60 * 60,
+  },
+  admissionEmail: {
+    scope: "exomem:admission:email",
+    limit: 3,
+    windowSeconds: 24 * 60 * 60,
+  },
   marketplaceReviewerIp: {
     scope: "exomem:marketplace-reviewer:ip",
     limit: 20,

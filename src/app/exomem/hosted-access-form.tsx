@@ -5,25 +5,22 @@ import { useState } from "react";
 const MONO = "var(--font-mono-exo)";
 const STD_EASE = "cubic-bezier(0.33,1,0.68,1)";
 
-const TIERS = [
-  { value: "", label: "friends cohort preference (optional)" },
-  { value: "complimentary", label: "complimentary private alpha" },
-  { value: "5", label: "~€5 / month if paid access opens" },
-  { value: "10", label: "~€10 / month if paid access opens" },
-  { value: "20", label: "€20+ / month if paid access opens" },
-];
-
 const isValidEmail = (v: string) => v.indexOf("@") >= 1 && v.indexOf(".") > v.indexOf("@");
 
+type Outcome = { kind: "idle" } | { kind: "admitted" } | { kind: "waitlisted"; position: number };
+
 /**
- * Friends-cohort access request. It POSTs the email and optional preference to
- * /api/exomem/interest (Brevo-backed) and confirms the request without promising
- * an invite. Validation is intentionally minimal for this private alpha flow.
+ * Self-serve admission. Replaces the friends-cohort interest form: capacity, not
+ * an operator, decides, and the visitor is told which answer they got before any
+ * payment surface appears.
+ *
+ * There is deliberately no price or checkout in this component. Admission is
+ * settled first, and the setup link carries the buyer onward — a visitor who
+ * cannot be provisioned must never reach a charge.
  */
-export default function HostedInterestForm() {
+export default function HostedAccessForm() {
   const [email, setEmail] = useState("");
-  const [tier, setTier] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
   const [hint, setHint] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -34,33 +31,46 @@ export default function HostedInterestForm() {
     e.currentTarget.style.borderColor = "var(--exo-border-input)";
   };
 
-  const register = async () => {
+  const request = async () => {
     const value = email.trim();
     if (!isValidEmail(value)) {
-      setHint("Enter a valid email so we can follow up about private alpha access.");
+      setHint("Enter a valid email — your setup link is sent there.");
       return;
     }
     setPending(true);
     setHint("");
     try {
-      const response = await fetch("/api/exomem/interest", {
+      const response = await fetch("/api/exomem/access/request", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: value, tier }),
+        body: JSON.stringify({ email: value }),
       });
-      if (!response.ok) {
-        setHint("We couldn’t submit your request. Please try again.");
+      const body = (await response.json().catch(() => null)) as {
+        status?: string;
+        position?: number;
+      } | null;
+      if (!response.ok || !body) {
+        setHint(
+          response.status === 429
+            ? "Too many attempts. Try again a little later."
+            : "We couldn’t complete that. Please try again."
+        );
         return;
       }
-      setSubmitted(true);
+      if (body.status === "waitlisted") {
+        setOutcome({ kind: "waitlisted", position: body.position ?? 1 });
+        return;
+      }
+      setOutcome({ kind: "admitted" });
     } catch {
-      setHint("We couldn’t submit your request. Please try again.");
+      setHint("We couldn’t complete that. Please try again.");
     } finally {
       setPending(false);
     }
   };
 
-  if (submitted) {
+  if (outcome.kind !== "idle") {
+    const admitted = outcome.kind === "admitted";
     return (
       <div
         style={{
@@ -73,10 +83,16 @@ export default function HostedInterestForm() {
         }}
       >
         <span aria-hidden="true" style={{ color: "var(--exo-amber)" }}>
-          ✓
+          {admitted ? "✓" : "◷"}
         </span>
         <div>
-          <p style={{ margin: 0, color: "var(--fg-primary)" }}>Request received — thank you.</p>
+          <p style={{ margin: 0, color: "var(--fg-primary)" }}>
+            {admitted
+              ? "Check your email — your setup link is on its way."
+              : outcome.kind === "waitlisted" && outcome.position === 1
+                ? "Every place is taken — you’re first in line."
+                : `Every place is taken — you’re number ${outcome.kind === "waitlisted" ? outcome.position : 0} in line.`}
+          </p>
           <p
             style={{
               margin: "6px 0 0",
@@ -86,7 +102,9 @@ export default function HostedInterestForm() {
               fontWeight: 300,
             }}
           >
-            We&rsquo;ll follow up if there is room in the private alpha friends cohort.
+            {admitted
+              ? "The link expires in seven days. Setting up takes about a minute, and you can connect Claude or ChatGPT straight after."
+              : "We’ll email you the moment one frees up, and you haven’t been charged. Exomem is free and open source if you’d rather run it yourself today."}
           </p>
         </div>
       </div>
@@ -113,12 +131,12 @@ export default function HostedInterestForm() {
             setHint("");
           }}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void register();
+            if (e.key === "Enter") void request();
           }}
           onFocus={focusAmber}
           onBlur={blurBorder}
           style={{
-            flex: "1 1 220px",
+            flex: "1 1 260px",
             minWidth: 0,
             background: "var(--bg-elevated)",
             border: "1px solid var(--exo-border-input)",
@@ -130,34 +148,9 @@ export default function HostedInterestForm() {
             transition: `border-color 200ms ${STD_EASE}`,
           }}
         />
-        <select
-          aria-label="Friends cohort preference. Optional."
-          value={tier}
-          onChange={(e) => setTier(e.target.value)}
-          onFocus={focusAmber}
-          onBlur={blurBorder}
-          style={{
-            flex: "1 1 200px",
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--exo-border-input)",
-            borderRadius: "8px",
-            padding: "12px 14px",
-            fontFamily: MONO,
-            fontSize: "12.5px",
-            color: "var(--fg-secondary)",
-            cursor: "pointer",
-            transition: `border-color 200ms ${STD_EASE}`,
-          }}
-        >
-          {TIERS.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
         <button
           type="button"
-          onClick={() => void register()}
+          onClick={() => void request()}
           disabled={pending}
           style={{
             flex: "none",
@@ -180,7 +173,7 @@ export default function HostedInterestForm() {
             if (!pending) e.currentTarget.style.opacity = "1";
           }}
         >
-          Request an invite
+          {pending ? "Checking…" : "Get started"}
         </button>
       </div>
       <p

@@ -211,6 +211,181 @@ export async function markInviteDeliveryFailed(inviteId: string, errorCode: stri
   `;
 }
 
+export type SelfServeAdmissionInput = {
+  tokenDigest: Buffer;
+  emailNormalized: string;
+  capabilities: string[];
+  resourceLimits: Record<string, number>;
+  principalDigest: Buffer;
+  expiresAt: Date;
+  storageBytes: number;
+  runtimeSlots: number;
+  provisionSlots: number;
+};
+
+export type SelfServeAdmissionResult =
+  | { outcome: "admitted"; inviteId: string }
+  | { outcome: "waitlisted"; position: number };
+
+/**
+ * Decides admission before any payment surface is offered, in one serialized
+ * transaction against the capacity pool row.
+ *
+ * An outstanding self-serve invite is a *soft* reservation: admission has been
+ * promised, but the hard reservation in `exomem_capacity_pools` only happens
+ * when the invite is redeemed through OAuth admission. Counting outstanding
+ * invites against headroom is what stops us admitting more visitors than the
+ * pool can ever provision — the hard reservation alone would admit everybody and
+ * then fail them one by one after they had already paid.
+ *
+ * Fails closed: an absent or unconfigured pool waitlists rather than admits.
+ */
+export async function admitSelfServeOrWaitlistAtomic(
+  input: SelfServeAdmissionInput
+): Promise<SelfServeAdmissionResult> {
+  return withExomemTransaction(async (tx) => {
+    const poolResult = await tx`
+      /* exomem:self-serve-admission-pool */
+      SELECT id,
+             storage_capacity_bytes,
+             reserved_storage_bytes,
+             runtime_capacity_slots,
+             reserved_runtime_slots,
+             provision_reservation_capacity,
+             reserved_provision_slots
+      FROM exomem_capacity_pools
+      WHERE pool_key = 'exomem-hosted-alpha'
+        AND configured_at IS NOT NULL
+      FOR UPDATE
+    `;
+    const pool = poolResult.rows[0] as Record<string, unknown> | undefined;
+
+    // Repeat requests must not each consume a soft slot. Revoking the previous
+    // outstanding invite first keeps one visitor to one reservation, and the
+    // freshly minted token supersedes any older link they were emailed.
+    await tx`
+      /* exomem:self-serve-supersede-outstanding */
+      UPDATE exomem_invites
+      SET revoked_at = now()
+      WHERE email_normalized = ${input.emailNormalized}
+        AND self_serve
+        AND consumed_at IS NULL
+        AND revoked_at IS NULL
+    `;
+
+    let admitted = false;
+    if (pool) {
+      const outstandingResult = await tx`
+        /* exomem:self-serve-outstanding */
+        SELECT count(*)::integer AS outstanding
+        FROM exomem_invites
+        WHERE self_serve
+          AND consumed_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at > now()
+      `;
+      const outstanding = Number(
+        (outstandingResult.rows[0] as { outstanding: number } | undefined)?.outstanding ?? 0
+      );
+      // The +1 is this visitor: admit only if the pool could still honour every
+      // promise already made plus this one.
+      const claimed = outstanding + 1;
+      const fits = (capacity: unknown, reserved: unknown, perTenant: number): boolean =>
+        Number(capacity) >= Number(reserved) + perTenant * claimed;
+      admitted =
+        fits(pool.storage_capacity_bytes, pool.reserved_storage_bytes, input.storageBytes) &&
+        fits(pool.runtime_capacity_slots, pool.reserved_runtime_slots, input.runtimeSlots) &&
+        fits(
+          pool.provision_reservation_capacity,
+          pool.reserved_provision_slots,
+          input.provisionSlots
+        );
+    }
+
+    if (!admitted) {
+      // Position is counted server-side against the row's own `created_at`.
+      // Round-tripping that timestamp through JS would silently truncate
+      // Postgres microseconds to milliseconds, so a row could fail to compare
+      // against itself and every visitor would be told they were next.
+      //
+      // The count is strictly-before plus one: a freshly inserted row is not
+      // visible to a subquery in the same statement, and an upserted row is —
+      // strict `<` makes both paths agree.
+      const waitlistResult = await tx`
+        /* exomem:self-serve-waitlist */
+        WITH upserted AS (
+          INSERT INTO exomem_waitlist_entries (email_normalized)
+          VALUES (${input.emailNormalized})
+          ON CONFLICT (email_normalized) DO UPDATE
+          SET updated_at = now(),
+              -- Re-queue someone who was admitted before. Their previous
+              -- self-serve invite was just revoked above, so they hold nothing;
+              -- leaving admitted_at set would tell them a queue position while
+              -- making their row invisible to every "admitted_at IS NULL" sweep,
+              -- so they would wait forever for an email nobody would send.
+              -- created_at is deliberately untouched: they asked first and keep
+              -- their place.
+              admitted_at = NULL,
+              admitted_invite_id = NULL
+          RETURNING id, created_at
+        )
+        SELECT upserted.id,
+               (
+                 SELECT count(*)
+                 FROM exomem_waitlist_entries AS queued
+                 WHERE queued.admitted_at IS NULL
+                   AND queued.created_at < upserted.created_at
+               )::integer + 1 AS position
+        FROM upserted
+      `;
+      const entry = waitlistResult.rows[0] as { id: string; position: number } | undefined;
+      if (!entry) throw new Error("self-serve waitlist insert returned no row");
+      return { outcome: "waitlisted", position: Number(entry.position) };
+    }
+
+    const inviteResult = await tx`
+      /* exomem:self-serve-invite */
+      INSERT INTO exomem_invites (
+        token_digest,
+        email_normalized,
+        entitlement_source,
+        entitlement_capabilities,
+        entitlement_limits,
+        marketplace_reviewer_purpose,
+        created_by_principal_digest,
+        expires_at,
+        self_serve
+      ) VALUES (
+        ${input.tokenDigest},
+        ${input.emailNormalized},
+        'paddle',
+        ${JSON.stringify(input.capabilities)}::jsonb,
+        ${JSON.stringify(input.resourceLimits)}::jsonb,
+        false,
+        ${input.principalDigest},
+        ${input.expiresAt.toISOString()},
+        true
+      )
+      RETURNING id
+    `;
+    const invite = inviteResult.rows[0] as { id: string } | undefined;
+    if (!invite) throw new Error("self-serve invite insert returned no row");
+
+    // A visitor who waited and is now admitted stops being queued.
+    await tx`
+      /* exomem:self-serve-waitlist-admitted */
+      UPDATE exomem_waitlist_entries
+      SET admitted_at = now(),
+          admitted_invite_id = ${invite.id}::uuid,
+          updated_at = now()
+      WHERE email_normalized = ${input.emailNormalized}
+        AND admitted_at IS NULL
+    `;
+
+    return { outcome: "admitted", inviteId: invite.id };
+  });
+}
+
 export async function inspectValidInvite(
   tokenDigest: Buffer
 ): Promise<{ emailNormalized: string; expiresAt: string } | null> {
