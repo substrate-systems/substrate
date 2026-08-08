@@ -17,6 +17,9 @@ const RELEASES = {
   d4c5614e5f65d8bcbddee90e9e374846c5a2c22f: {
     sourceRelease: "0.35.0",
   },
+  "4e9ba9caabcee985e3371320803c11946cd40cc6": {
+    sourceRelease: "0.39.2",
+  },
 };
 
 function fail(message) {
