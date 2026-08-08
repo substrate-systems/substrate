@@ -26,7 +26,8 @@ export async function GET(req: NextRequest) {
     }
     // Re-read entitlement from the DB rather than trusting the JWT claim
     // (claim is a hint; DB is authoritative per contract §10). The
-    // effective status already applies the 14-day past_due grace cutoff.
+    // effective status already applies the 30-day past_due grace cutoff and
+    // the 30-day post-cancellation retention cutoff.
     const ent = await getSubscriptionEntitlement(user.id);
     // Backup freshness + quota (issue #59): one round-trip for usage/count/last,
     // plus the enforced quota limit so the GUI's meter total matches enforcement.

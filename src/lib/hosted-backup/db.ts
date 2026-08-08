@@ -397,11 +397,23 @@ export type SubscriptionRow = {
   updated_at: string;
 };
 
-// Past-due grace window per hosted-backup contract: Paddle's `past_due` keeps
-// a user entitled for this many days, then they are cut off at read time. The
-// stored row is left as `grace` so a late `subscription.activated` from
-// Paddle can still recover the user without an extra state path.
-export const GRACE_WINDOW_DAYS = 14;
+// Past-due grace window per hosted-backup contract §10: Paddle's `past_due`
+// keeps a user entitled for this many days, then they are cut off at read
+// time. The stored row is left as `grace` so a late `subscription.activated`
+// from Paddle can still recover the user without an extra state path.
+//
+// 30, not 14: the published contract §10 and the public Terms both promise a
+// 30-day grace window. The code said 14, which cut paying customers off two
+// weeks before we told them we would. Correcting upward is user-favourable
+// and makes the promise true.
+export const GRACE_WINDOW_DAYS = 30;
+
+// Post-cancellation retention per contract §10 and the public Terms ("retained
+// for 30 days to allow reactivation, then permanently deleted"). Two things
+// hang off this one constant so the promise and the deletion cannot drift:
+// the read-time `cancelled → none` cutoff below, and the backup-gc pass that
+// purges the blobs and downgrades the stored row.
+export const CANCELLED_RETENTION_DAYS = 30;
 
 export async function getSubscriptionStatus(userId: string): Promise<SubscriptionStatus> {
   const { rows } = await sql`
@@ -411,6 +423,10 @@ export async function getSubscriptionStatus(userId: string): Promise<Subscriptio
          AND grace_started_at IS NOT NULL
          AND grace_started_at < now() - (${GRACE_WINDOW_DAYS} || ' days')::interval
         THEN 'cancelled'
+        WHEN status = 'cancelled'
+         AND cancel_started_at IS NOT NULL
+         AND cancel_started_at < now() - (${CANCELLED_RETENTION_DAYS} || ' days')::interval
+        THEN 'none'
         ELSE status
       END AS effective_status
     FROM subscriptions WHERE user_id = ${userId} LIMIT 1
@@ -432,9 +448,11 @@ export type SubscriptionEntitlement = {
 };
 
 /**
- * Returns the full debug view of a user's subscription, including the 14-day
- * grace-cutoff-adjusted effective status and a computed grace period end.
- * Used by `GET /api/account/me`.
+ * Returns the full debug view of a user's subscription, including the
+ * grace-cutoff- and cancellation-retention-adjusted effective status and a
+ * computed grace period end. Used by `GET /api/account/me`. Kept in lockstep
+ * with `getSubscriptionStatus` above — the gates read that one, this one is
+ * what the user is shown, and they must agree.
  */
 export async function getSubscriptionEntitlement(userId: string): Promise<SubscriptionEntitlement> {
   const { rows } = await sql`
@@ -452,6 +470,10 @@ export async function getSubscriptionEntitlement(userId: string): Promise<Subscr
          AND grace_started_at IS NOT NULL
          AND grace_started_at < now() - (${GRACE_WINDOW_DAYS} || ' days')::interval
         THEN 'cancelled'
+        WHEN status = 'cancelled'
+         AND cancel_started_at IS NOT NULL
+         AND cancel_started_at < now() - (${CANCELLED_RETENTION_DAYS} || ' days')::interval
+        THEN 'none'
         ELSE status
       END AS effective_status,
       CASE
@@ -1361,6 +1383,65 @@ export async function findStaleUncommittedVersions(params: {
     LIMIT ${params.limit}
   `;
   return rows as StaleUncommittedVersionRow[];
+}
+
+// --- backup-gc cron: post-cancellation data purge (Pass G) ---
+
+/**
+ * Completes the `cancelled → none` transition that contract §10 and the
+ * public Terms both promise ("retained for 30 days to allow reactivation,
+ * then permanently deleted"). `cancel_started_at` has been written by the
+ * Paddle webhook since day one but was read by nothing; this is the query
+ * that finally acts on it.
+ *
+ * Deliberately NOT `deleteUserCascade`: that is account deletion, and §10 is
+ * explicit that the account survives the purge ("The user's account remains.
+ * They can re-subscribe at any time"). What goes is the DATA — the `backups`
+ * rows (versions and chunks cascade) plus the R2 prefix that carried their
+ * objects. The prefix is enqueued into the same `r2_purge_queue` that backup
+ * and account deletion use, in the SAME statement as the DELETE, because the
+ * cascaded rows carried the only object-key knowledge. Pass B drains it.
+ *
+ * The status downgrade to `none` is what stops the row being reprocessed on
+ * the next run, and it makes the read gate agree with reality rather than
+ * relying only on the read-time cutoff in `getSubscriptionStatus`.
+ */
+export async function expireCancelledSubscriptions(params: {
+  limit: number;
+}): Promise<{ downgraded: number; prefixesEnqueued: number }> {
+  const { rows } = await sql`
+    WITH expired AS MATERIALIZED (
+      SELECT user_id
+      FROM subscriptions
+      WHERE status = 'cancelled'
+        AND cancel_started_at IS NOT NULL
+        AND cancel_started_at < now() - (${CANCELLED_RETENTION_DAYS} || ' days')::interval
+      ORDER BY cancel_started_at ASC
+      LIMIT ${params.limit}
+    ),
+    purged_backups AS (
+      DELETE FROM backups
+      WHERE user_id IN (SELECT user_id FROM expired)
+      RETURNING user_id
+    ),
+    enqueued AS (
+      INSERT INTO r2_purge_queue (r2_prefix)
+      SELECT DISTINCT 'users/' || user_id || '/backups/'
+      FROM purged_backups
+      RETURNING 1
+    ),
+    downgraded AS (
+      UPDATE subscriptions
+      SET status = 'none', updated_at = now()
+      WHERE user_id IN (SELECT user_id FROM expired)
+      RETURNING user_id
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM downgraded) AS downgraded,
+      (SELECT COUNT(*)::int FROM enqueued)   AS prefixes_enqueued
+  `;
+  const row = rows[0] as { downgraded: number; prefixes_enqueued: number };
+  return { downgraded: row.downgraded, prefixesEnqueued: row.prefixes_enqueued };
 }
 
 // --- rate limiting (credential endpoints; pruned by backup-gc Pass D) ---

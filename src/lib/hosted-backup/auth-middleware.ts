@@ -119,10 +119,14 @@ export async function requireWriteAccess(req: NextRequest): Promise<AuthContext>
  * (`requireWriteAccess` rejects anything other than `active`). A
  * `subscription.resumed` webhook transitions them back to `active`.
  *
- * The 14-day past_due grace cutoff is applied inside
+ * The 30-day past_due grace cutoff is applied inside
  * `getSubscriptionStatus`, so a user whose stored status is `grace` but
- * whose `grace_started_at` is older than 14 days is observed here as
- * `cancelled` (i.e. read-allowed, write-blocked).
+ * whose `grace_started_at` is older than `GRACE_WINDOW_DAYS` is observed
+ * here as `cancelled` (i.e. read-allowed, write-blocked). The same function
+ * applies the 30-day post-cancellation cutoff, so a `cancelled` user past
+ * `CANCELLED_RETENTION_DAYS` is observed as `none` and blocked here — which
+ * is correct, because the backup-gc cron has purged (or is about to purge)
+ * the data they would be reading.
  *
  * Honors the same `HOSTED_BACKUP_TEST_EMAIL_PATTERN` bypass as
  * `requireWriteAccess` — see that function's JSDoc for full semantics and

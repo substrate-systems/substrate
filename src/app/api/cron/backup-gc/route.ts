@@ -13,6 +13,7 @@ import {
   stampManifestSeen,
   softDeleteVersionById,
   findStaleUncommittedVersions,
+  expireCancelledSubscriptions,
   deleteRateLimitEventsBefore,
 } from "@/lib/hosted-backup/db";
 import { deleteObjects, headObjectExists, listObjectKeys } from "@/lib/hosted-backup/r2";
@@ -46,6 +47,8 @@ const RATE_LIMIT_RETENTION_HOURS = 24;
 // large-backup upload over a poor connection, deliberately far short of 48h.
 const UNCOMMITTED_RECLAIM_HOURS = 6;
 const UNCOMMITTED_RECLAIMS_PER_RUN = 50;
+// Cancelled subscribers whose 30-day retention window has closed, per run.
+const CANCELLED_EXPIRIES_PER_RUN = 25;
 
 function ok(body: Record<string, unknown>, status = 200): NextResponse {
   return withApiVersion(NextResponse.json(body, { status }));
@@ -185,6 +188,27 @@ export async function GET(req: NextRequest) {
     fail("pass F", err);
   }
 
+  // Pass G — post-cancellation purge. Contract §10 and the public Terms both
+  // promise that a cancelled subscriber's data is kept 30 days for
+  // reactivation and then permanently deleted. `cancel_started_at` has been
+  // written since the subscription state machine shipped; nothing read it and
+  // no job ever ran, so the promise was not true. This pass makes it true:
+  // backups (and their cascaded versions/chunks) are deleted, the R2 prefix is
+  // enqueued into the existing purge queue that Pass B drains, and the stored
+  // status drops to `none`. The account itself survives — §10 is explicit that
+  // the user can come back and re-subscribe.
+  let cancelledSubscriptionsExpired = 0;
+  let cancelledPrefixesEnqueued = 0;
+  try {
+    const expired = await expireCancelledSubscriptions({
+      limit: CANCELLED_EXPIRIES_PER_RUN,
+    });
+    cancelledSubscriptionsExpired = expired.downgraded;
+    cancelledPrefixesEnqueued = expired.prefixesEnqueued;
+  } catch (err) {
+    fail("pass G", err);
+  }
+
   // Pass D — prune rate-limit events (windows in use are ≤ 1 hour).
   let rateLimitEventsPruned = 0;
   try {
@@ -219,6 +243,8 @@ export async function GET(req: NextRequest) {
       abandonedSoftDeleted,
       staleUncommittedReclaimed,
       staleUncommittedObjectsDeleted,
+      cancelledSubscriptionsExpired,
+      cancelledPrefixesEnqueued,
       rateLimitEventsPruned,
       alertsNotified: alerts.notified,
       alertBacklogPending: alerts.pending,
@@ -238,6 +264,8 @@ export async function GET(req: NextRequest) {
     abandonedSoftDeleted,
     staleUncommittedReclaimed,
     staleUncommittedObjectsDeleted,
+    cancelledSubscriptionsExpired,
+    cancelledPrefixesEnqueued,
     rateLimitEventsPruned,
     alertsNotified: alerts.notified,
     alertBacklogPending: alerts.pending,

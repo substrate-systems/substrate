@@ -1,5 +1,6 @@
 /**
- * Real-Postgres coverage for the two-phase version commit (contract §7, §8).
+ * Real-Postgres coverage for the two-phase version commit (contract §7, §8)
+ * and the lifecycle honesty work in §10.
  *
  * These assertions are about SQL, so they run against SQL: migrations 0001 →
  * 0038 are applied into an isolated schema and `db.ts` is pointed at that
@@ -17,9 +18,14 @@ import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import {
+  CANCELLED_RETENTION_DAYS,
+  GRACE_WINDOW_DAYS,
   __setHostedBackupSqlForTests,
   commitVersion,
+  expireCancelledSubscriptions,
   findStaleUncommittedVersions,
+  getSubscriptionEntitlement,
+  getSubscriptionStatus,
   getUserBackupStats,
   insertVersionWithChunks,
   listBackupsForUser,
@@ -409,5 +415,167 @@ describe("hosted-backup version commit (Postgres)", { skip: !DATABASE_URL }, () 
       !found.includes(oldLegacy),
       "a schema-2.0 version is never reclaimed — it owes no commit"
     );
+  });
+});
+
+describe("hosted-backup subscription lifecycle (Postgres)", { skip: !DATABASE_URL }, () => {
+  const LIFECYCLE_SCHEMA = "hosted_backup_lifecycle";
+  let lifecyclePool: Pool | undefined;
+
+  async function apply(file: string): Promise<void> {
+    for (const statement of statements(file)) await lifecyclePool!.query(statement);
+  }
+
+  async function makeUser(email: string): Promise<string> {
+    const { rows } = await lifecyclePool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ($1) RETURNING id",
+      [email]
+    );
+    return rows[0].id;
+  }
+
+  before(async () => {
+    await ensureExomemPostgresTestExtensions(DATABASE_URL!);
+    const admin = new Pool({ connectionString: DATABASE_URL });
+    try {
+      await admin.query(`DROP SCHEMA IF EXISTS ${LIFECYCLE_SCHEMA} CASCADE`);
+      await admin.query(`CREATE SCHEMA ${LIFECYCLE_SCHEMA}`);
+    } finally {
+      await admin.end();
+    }
+    const url = new URL(DATABASE_URL!);
+    url.searchParams.set("options", `-c search_path=${LIFECYCLE_SCHEMA},public`);
+    lifecyclePool = new Pool({ connectionString: url.toString() });
+    for (const file of [...PRE_COMMIT_MIGRATIONS, COMMIT_MIGRATION]) await apply(file);
+    __setHostedBackupSqlForTests(taggedSql(lifecyclePool));
+  });
+
+  after(async () => {
+    __setHostedBackupSqlForTests(null);
+    await lifecyclePool?.end();
+    const admin = new Pool({ connectionString: DATABASE_URL });
+    try {
+      await admin.query(`DROP SCHEMA IF EXISTS ${LIFECYCLE_SCHEMA} CASCADE`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("grace lasts 30 days, matching the contract and the public Terms", async () => {
+    assert.equal(GRACE_WINDOW_DAYS, 30);
+    const userId = await makeUser("grace@example.com");
+    await lifecyclePool!.query(
+      `INSERT INTO subscriptions (user_id, status, grace_started_at)
+       VALUES ($1, 'grace', now() - interval '20 days')`,
+      [userId]
+    );
+    assert.equal(
+      await getSubscriptionStatus(userId),
+      "grace",
+      "day 20 of grace is still grace — the old 14-day constant cut this user off"
+    );
+
+    await lifecyclePool!.query(
+      "UPDATE subscriptions SET grace_started_at = now() - interval '31 days' WHERE user_id = $1",
+      [userId]
+    );
+    assert.equal(await getSubscriptionStatus(userId), "cancelled", "past 30 days, grace ends");
+
+    const entitlement = await getSubscriptionEntitlement(userId);
+    assert.equal(entitlement.effectiveStatus, "cancelled");
+    assert.equal(entitlement.storedStatus, "grace");
+  });
+
+  it("cancelled falls to none once the 30-day retention window closes", async () => {
+    assert.equal(CANCELLED_RETENTION_DAYS, 30);
+    const userId = await makeUser("cancelled@example.com");
+    await lifecyclePool!.query(
+      `INSERT INTO subscriptions (user_id, status, cancel_started_at)
+       VALUES ($1, 'cancelled', now() - interval '10 days')`,
+      [userId]
+    );
+    assert.equal(
+      await getSubscriptionStatus(userId),
+      "cancelled",
+      "inside the window the user can still read and reactivate"
+    );
+
+    await lifecyclePool!.query(
+      "UPDATE subscriptions SET cancel_started_at = now() - interval '31 days' WHERE user_id = $1",
+      [userId]
+    );
+    assert.equal(await getSubscriptionStatus(userId), "none", "past the window, access is gone");
+    assert.equal((await getSubscriptionEntitlement(userId)).effectiveStatus, "none");
+  });
+
+  it("purges expired cancellations: data deleted, prefix enqueued, status downgraded", async () => {
+    // Own the whole subscriptions table for this case — the read-time cutoff
+    // cases above leave rows that would otherwise be swept up here.
+    await lifecyclePool!.query("DELETE FROM subscriptions");
+    const expiredUser = await makeUser("expired@example.com");
+    const freshUser = await makeUser("fresh@example.com");
+    await lifecyclePool!.query(
+      `INSERT INTO subscriptions (user_id, status, cancel_started_at) VALUES
+         ($1, 'cancelled', now() - interval '45 days'),
+         ($2, 'cancelled', now() - interval '5 days')`,
+      [expiredUser, freshUser]
+    );
+    const { rows: expiredBackups } = await lifecyclePool!.query<{ id: string }>(
+      "INSERT INTO backups (user_id, name) VALUES ($1, 'gone') RETURNING id",
+      [expiredUser]
+    );
+    await lifecyclePool!.query(
+      "INSERT INTO backups (user_id, name) VALUES ($1, 'still here')",
+      [freshUser]
+    );
+    await lifecyclePool!.query(
+      `INSERT INTO backup_versions
+         (backup_id, size_bytes, manifest_object_key, manifest_sha256, chunk_count)
+       VALUES ($1, 512, 'm', '\\x00'::bytea, 1)`,
+      [expiredBackups[0].id]
+    );
+
+    const result = await expireCancelledSubscriptions({ limit: 25 });
+    assert.equal(result.downgraded, 1, "only the expired subscriber is downgraded");
+    assert.equal(result.prefixesEnqueued, 1);
+
+    const { rows: statuses } = await lifecyclePool!.query<{ user_id: string; status: string }>(
+      "SELECT user_id, status FROM subscriptions WHERE user_id = ANY($1::uuid[])",
+      [[expiredUser, freshUser]]
+    );
+    const byUser = new Map(statuses.map((r) => [r.user_id, r.status]));
+    assert.equal(byUser.get(expiredUser), "none");
+    assert.equal(byUser.get(freshUser), "cancelled");
+
+    const { rows: remaining } = await lifecyclePool!.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM backups WHERE user_id = $1",
+      [expiredUser]
+    );
+    assert.equal(remaining[0].count, "0", "the expired subscriber's backups are gone");
+    const { rows: versions } = await lifecyclePool!.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM backup_versions"
+    );
+    assert.equal(versions[0].count, "0", "versions cascade with their backup");
+
+    const { rows: queued } = await lifecyclePool!.query<{ r2_prefix: string }>(
+      "SELECT r2_prefix FROM r2_purge_queue WHERE purged_at IS NULL"
+    );
+    assert.deepEqual(
+      queued.map((r) => r.r2_prefix),
+      [`users/${expiredUser}/backups/`],
+      "the R2 prefix is enqueued on the existing purge queue that Pass B drains"
+    );
+
+    // The account itself survives — §10 promises the user can re-subscribe.
+    const { rows: userRows } = await lifecyclePool!.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM users WHERE id = $1",
+      [expiredUser]
+    );
+    assert.equal(userRows[0].count, "1");
+
+    // Idempotent: the downgrade removes the row from the candidate set.
+    const second = await expireCancelledSubscriptions({ limit: 25 });
+    assert.equal(second.downgraded, 0);
+    assert.equal(second.prefixesEnqueued, 0);
   });
 });
