@@ -189,9 +189,10 @@ function SuccessState({ token, email }: { token: string; email: string }) {
                 marginBottom: 20,
               }}
             >
-              Copy the code below. In Endstate, open Hosted Backup (the app still
-              uses the old name) and choose &ldquo;Use purchase code&rdquo;, then
-              paste it. The code expires in 30 days and only works once.
+              Copy the code below. In Endstate, open Endstate Cloud (shown as
+              &ldquo;Hosted Backup&rdquo; in older versions) and choose
+              &ldquo;Use purchase code&rdquo;, then paste it. The code expires in
+              30 days and only works once.
             </p>
             <ClaimCopyButton token={token} />
             <div
