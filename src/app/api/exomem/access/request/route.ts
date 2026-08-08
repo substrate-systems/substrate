@@ -32,14 +32,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       email: body.email,
       networkKey: clientAddressKey(request) ?? "unavailable",
     });
-    emitAccessEvent({
-      event:
-        result.outcome === "admitted"
-          ? "access.self_serve.admitted"
-          : "access.self_serve.waitlisted",
-      outcome: "succeeded",
-      requestId,
-    });
+    // By this point the decision is committed: an admitted visitor has an invite
+    // minted and a setup link already sent. Telemetry must not be able to turn
+    // that into a failure the caller sees, or they are told to try again while
+    // holding a live link — and a retry supersedes the invite they were sent.
+    try {
+      emitAccessEvent({
+        event:
+          result.outcome === "admitted"
+            ? "access.self_serve.admitted"
+            : "access.self_serve.waitlisted",
+        outcome: "succeeded",
+        requestId,
+      });
+    } catch {
+      // Intentionally swallowed; the observability channel is not the operation.
+    }
     return NextResponse.json(
       {
         success: true,

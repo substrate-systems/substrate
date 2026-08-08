@@ -9,6 +9,8 @@ const EVENT_NAMES = new Set([
   "access.magic_link.delivery_failed",
   "access.logout.succeeded",
   "access.request.denied",
+  "access.self_serve.admitted",
+  "access.self_serve.waitlisted",
   "lifecycle.capacity.transition",
   "lifecycle.capacity.claim",
   "mcp.request",
