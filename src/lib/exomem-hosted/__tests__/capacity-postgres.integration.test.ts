@@ -257,6 +257,47 @@ describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, ()
     assert.equal(other.outcome, "waitlisted");
   });
 
+  it("re-queues a previously admitted visitor instead of stranding them", async () => {
+    await resetAdmissionState();
+
+    // The row must already exist and already be marked admitted for the upsert
+    // conflict to matter, so this walks the real sequence: queue, get admitted,
+    // then come back after the invite lapses.
+    await configurePool({ runtimeCapacity: 0, reservedRuntime: 0 });
+    const queued = await admissionFor("self-serve-returning@example.test", 0x10);
+    assert.equal(queued.outcome, "waitlisted");
+
+    await configurePool({ runtimeCapacity: 1, reservedRuntime: 0 });
+    const admitted = await admissionFor("self-serve-returning@example.test", 0x11);
+    assert.equal(admitted.outcome, "admitted");
+    const marked = await pool!.query(
+      `SELECT admitted_at FROM exomem_waitlist_entries WHERE email_normalized = $1`,
+      ["self-serve-returning@example.test"]
+    );
+    assert.notEqual(marked.rows[0].admitted_at, null);
+
+    // Their invite lapses, and by the time they come back the pool is full.
+    await pool!.query("UPDATE exomem_invites SET revoked_at = now() WHERE self_serve");
+    await configurePool({ runtimeCapacity: 1, reservedRuntime: 1 });
+    const again = await admissionFor("self-serve-returning@example.test", 0x12);
+    assert.equal(again.outcome, "waitlisted");
+
+    // Being told a position while carrying admitted_at would make the row
+    // invisible to every pending-queue sweep: they would wait forever.
+    const row = await pool!.query(
+      `SELECT admitted_at, admitted_invite_id FROM exomem_waitlist_entries
+       WHERE email_normalized = $1`,
+      ["self-serve-returning@example.test"]
+    );
+    assert.equal(row.rows[0].admitted_at, null);
+    assert.equal(row.rows[0].admitted_invite_id, null);
+
+    const pending = await pool!.query(
+      `SELECT count(*)::int AS n FROM exomem_waitlist_entries WHERE admitted_at IS NULL`
+    );
+    assert.equal(pending.rows[0].n, 1);
+  });
+
   it("fails closed to the waitlist when the pool is unconfigured", async () => {
     await resetAdmissionState();
     await pool!.query(

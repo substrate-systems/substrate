@@ -317,7 +317,16 @@ export async function admitSelfServeOrWaitlistAtomic(
           INSERT INTO exomem_waitlist_entries (email_normalized)
           VALUES (${input.emailNormalized})
           ON CONFLICT (email_normalized) DO UPDATE
-          SET updated_at = now()
+          SET updated_at = now(),
+              -- Re-queue someone who was admitted before. Their previous
+              -- self-serve invite was just revoked above, so they hold nothing;
+              -- leaving admitted_at set would tell them a queue position while
+              -- making their row invisible to every "admitted_at IS NULL" sweep,
+              -- so they would wait forever for an email nobody would send.
+              -- created_at is deliberately untouched: they asked first and keep
+              -- their place.
+              admitted_at = NULL,
+              admitted_invite_id = NULL
           RETURNING id, created_at
         )
         SELECT upserted.id,
