@@ -11,20 +11,26 @@ async function source(relativePath: string): Promise<string> {
 
 describe('retired Endstate lifetime checkout contract', () => {
   it('has no lifetime checkout or lifetime license-minting path', async () => {
-    const [paddle, buyButton, webhook] = await Promise.all([
+    const [paddle, buyButton, webhook, supportTiers] = await Promise.all([
       source('src/lib/paddle.ts'),
       source('src/app/endstate/BuyButton.tsx'),
       source('src/app/api/license/webhook/route.ts'),
+      source('src/lib/support-tiers.ts'),
     ]);
 
-    for (const contents of [paddle, buyButton, webhook]) {
+    for (const contents of [paddle, buyButton, webhook, supportTiers]) {
       assert.doesNotMatch(contents, /ENDSTATE_LIFETIME/);
       assert.doesNotMatch(contents, /openEndstateCheckout/);
     }
 
     assert.doesNotMatch(webhook, /createLicenseKey|insertLicense/);
     assert.match(webhook, /handleSupporterPurchase/);
-    assert.match(webhook, /NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER/);
+
+    // The webhook resolves its accepted prices through the support-tier config,
+    // so the original €89 env var lives there now. It is deliberately unrenamed:
+    // every existing support record is attached to that price (docs/naming.md).
+    assert.match(webhook, /configuredSupportTiers/);
+    assert.match(supportTiers, /NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER/);
   });
 
   it('removes the unused lifetime activation surface', async () => {
