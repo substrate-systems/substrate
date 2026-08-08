@@ -139,6 +139,15 @@ export function EndstateFooter() {
           >
             Supporters
           </Link>
+          <Link
+            href="/endstate/sponsor-an-integration"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Sponsor an integration
+          </Link>
           <a
             href="https://github.com/Artexis10/endstate/blob/main/PRINCIPLES.md"
             target="_blank"
