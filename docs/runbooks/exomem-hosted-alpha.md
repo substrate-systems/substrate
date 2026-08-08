@@ -1,6 +1,7 @@
 # Exomem Hosted Alpha — Operator Runbook
 
-This runbook covers the invite-only, complimentary alpha. Substrate is the
+This runbook covers Exomem Hosted, now open to self-serve purchase and gated
+on capacity rather than on invitations. Substrate is the
 public account, entitlement, routing, and lifecycle control plane. Every tenant
 is routed to one private Exomem cell with its own vault, state, logs, service
 credential, and provider resource. A cell never receives email, browser
@@ -12,7 +13,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 
 ## Alpha launch gates
 
-The complimentary alpha does **not** require Paddle or a price. It does require:
+Complimentary access does **not** require Paddle or a price. Every route does require:
 
 1. migrations `0017` through `0034_exomem_oauth_client_admission.sql` applied to the production Neon database;
 2. an Exomem `0.39.2` cell image from commit `4e9ba9caabcee985e3371320803c11946cd40cc6` exposing private protocol `1`;
