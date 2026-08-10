@@ -69,6 +69,23 @@ function safeRedirectUri(value: string, customHosts: readonly string[]): boolean
   );
 }
 
+/** Bootstrap is intentionally narrower than ordinary client admission. */
+export function isSafeLoopbackOAuthRedirect(value: string): boolean {
+  if (value.length === 0 || value.length > MAX_OAUTH_REDIRECT_URI_LENGTH) return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "http:" &&
+      !url.username &&
+      !url.password &&
+      !url.hash &&
+      isLoopbackHost(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function exactStringList(value: unknown): value is string[] {
   return (
     Array.isArray(value) &&
@@ -138,9 +155,7 @@ export function normalizeOperatorOAuthClientRegistration(
     artifactId: input.artifactId,
     clientId: input.clientId,
     redirectUris: [...input.redirectUris],
-    ...(input.registeredAppIdSha256
-      ? { registeredAppIdSha256: input.registeredAppIdSha256 }
-      : {}),
+    ...(input.registeredAppIdSha256 ? { registeredAppIdSha256: input.registeredAppIdSha256 } : {}),
     ttlSeconds,
   };
 }

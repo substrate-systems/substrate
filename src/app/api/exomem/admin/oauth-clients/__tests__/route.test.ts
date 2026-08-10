@@ -16,6 +16,7 @@ let listed = [
 ];
 let updated: Record<string, unknown> | null = null;
 let registered: Record<string, unknown> | null = null;
+let bootstrapCreated: Record<string, unknown> | null = null;
 
 before(() => {
   process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
@@ -34,6 +35,7 @@ before(() => {
   mock.module("@/lib/exomem-hosted/operator-controls", {
     namedExports: {
       listOperatorOAuthClients: async () => listed,
+      listReviewerOAuthBootstrapAuthorities: async () => [],
       setOperatorOAuthClientEnabled: async (input: Record<string, unknown>) => {
         updated = input;
         return true;
@@ -46,6 +48,14 @@ before(() => {
         id: "018f2d91-7c42-7000-8000-000000000002",
         enabled: false,
       }),
+      createReviewerOAuthBootstrapAuthority: async (input: Record<string, unknown>) => {
+        bootstrapCreated = input;
+        return {
+          id: "018f2d91-7c42-7000-8000-000000000004",
+          expiresAt: "2026-08-10T12:00:00.000Z",
+        };
+      },
+      revokeReviewerOAuthBootstrapAuthority: async () => true,
     },
   });
 });
@@ -69,6 +79,7 @@ beforeEach(() => {
   ];
   updated = null;
   registered = null;
+  bootstrapCreated = null;
 });
 
 function request(method: string, input: { authorization?: string; body?: unknown } = {}) {
@@ -155,6 +166,25 @@ describe("Exomem operator OAuth client controls", () => {
       redirectUris: ["https://app.example.test/callback"],
       ttlSeconds: undefined,
     });
+  });
+
+  it("creates a one-shot reviewer bootstrap without returning invite or client material", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          action: "create_reviewer_bootstrap",
+          inviteId: "018f2d91-7c42-7000-8000-000000000001",
+          stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000002",
+          oauthClientId: "018f2d91-7c42-7000-8000-000000000003",
+          expiresAt: "2026-08-10T12:00:00.000Z",
+        },
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.equal(bootstrapCreated?.inviteId, "018f2d91-7c42-7000-8000-000000000001");
+    assert.equal((await response.text()).includes("018f2d91-7c42-7000-8000-000000000001"), false);
   });
 
   it("rejects an oversized operator request before it reaches the control store", async () => {

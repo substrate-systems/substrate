@@ -1,6 +1,7 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
+import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
 import type { SecretEnvelope } from "./security";
 
 export type OAuthTokenContext = {
@@ -63,6 +64,14 @@ export async function resolveApprovedOAuthClient(
           WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
              OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
         )) OR EXISTS (
+          SELECT 1
+          FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
+          WHERE bootstrap.state = 'active' AND bootstrap.expires_at > now()
+            AND bootstrap.oauth_client_id = client.id
+            AND bootstrap.oauth_client_authority_version = client.authority_version
+            AND bootstrap.oauth_client_config_sha256 = client.oauth_client_config_sha256
+            AND bootstrap.redirect_uri_digest = client.redirect_uris_digest
+        ) OR EXISTS (
           SELECT 1
           FROM exomem_marketplace_reviewer_credentials AS credential
           JOIN exomem_agent_contract_rollout_assignments AS assignment
@@ -127,7 +136,17 @@ export async function createAuthorizationTransaction(input: {
   return withCohortLock(async (tx) => {
     const { rows } = await tx`
     /* exomem:create-oauth-authorization-transaction */
-    WITH pruned AS (
+    WITH expired_bootstraps AS (
+      UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+      SET state = 'expired', expired_at = now()
+      WHERE state = 'active' AND expires_at <= now()
+      RETURNING oauth_client_id
+    ), disabled_bootstrap_clients AS (
+      UPDATE exomem_oauth_clients AS client
+      SET enabled = false, authority_version = gen_random_uuid(), updated_at = now()
+      WHERE client.id IN (SELECT oauth_client_id FROM expired_bootstraps)
+      RETURNING client.id
+    ), pruned AS (
       DELETE FROM exomem_oauth_authorization_transactions
       WHERE id IN (
         SELECT id FROM exomem_oauth_authorization_transactions
@@ -139,14 +158,27 @@ export async function createAuthorizationTransaction(input: {
     )
     INSERT INTO exomem_oauth_authorization_transactions (
       transaction_digest, client_id, redirect_uri, resource, requested_scopes,
-       state_digest, state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       state_digest, state_envelope, form_nonce_digest, continuation_binding, pkce_challenge,
+       reviewer_bootstrap_authority_id, expires_at
     )
     SELECT ${input.transactionDigest}, client.id, ${input.redirectUri}, ${input.resource},
             ${input.scopes}, ${input.stateDigest}, ${JSON.stringify(input.stateEnvelope)}::jsonb,
             ${input.formNonceDigest}, ${input.continuationBinding},
-           ${input.pkceChallenge},
-           ${input.expiresAt.toISOString()}
+           ${input.pkceChallenge}, bootstrap.id,
+           LEAST(${input.expiresAt.toISOString()}::timestamptz, COALESCE(bootstrap.expires_at, ${input.expiresAt.toISOString()}::timestamptz))
     FROM exomem_oauth_clients AS client
+    LEFT JOIN LATERAL (
+      SELECT authority.id, authority.expires_at
+      FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+      JOIN exomem_invites AS invite ON invite.id = authority.invite_id
+      WHERE authority.state = 'active' AND authority.expires_at > now()
+        AND authority.oauth_client_id = client.id
+        AND authority.oauth_client_authority_version = client.authority_version
+        AND authority.oauth_client_config_sha256 = client.oauth_client_config_sha256
+        AND authority.redirect_uri_digest = client.redirect_uris_digest
+        AND invite.consumed_at IS NULL AND invite.revoked_at IS NULL AND invite.expires_at > now()
+      LIMIT 1
+    ) AS bootstrap ON true
     WHERE client.client_id = ${input.clientId}
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
       AND (client.admission_mode = 'pinned' OR (
@@ -178,8 +210,12 @@ export async function createAuthorizationTransaction(input: {
           WHERE credential.credential_kind = 'internal_canary'
             AND credential.oauth_client_id = client.id
             AND credential.revoked_at IS NULL AND credential.expires_at > now()
-        )
+      ) OR bootstrap.id IS NOT NULL
       )
+      AND (bootstrap.id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM exomem_oauth_authorization_transactions AS pending
+        WHERE pending.reviewer_bootstrap_authority_id = bootstrap.id
+      ))
       AND (
         SELECT count(*) FROM exomem_oauth_authorization_transactions
         WHERE consumed_at IS NULL AND expires_at > now()
@@ -224,6 +260,15 @@ export async function findPendingOAuthAuthorization(
         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
       ))
       AND (
+        EXISTS (
+          SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
+          WHERE bootstrap.id = transaction.reviewer_bootstrap_authority_id
+            AND bootstrap.state = 'active' AND bootstrap.expires_at > now()
+            AND bootstrap.oauth_client_id = client.id
+            AND bootstrap.oauth_client_authority_version = client.authority_version
+            AND bootstrap.oauth_client_config_sha256 = client.oauth_client_config_sha256
+            AND bootstrap.redirect_uri_digest = client.redirect_uris_digest
+        ) OR (transaction.reviewer_bootstrap_authority_id IS NULL AND
         (transaction.candidate_id IS NULL AND (
           (client.enabled = true AND EXISTS (
           SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
@@ -271,7 +316,7 @@ export async function findPendingOAuthAuthorization(
             AND credential.oauth_client_id = client.id
             AND credential.credential_kind = 'internal_canary'
             AND credential.revoked_at IS NULL AND credential.expires_at > now()
-        )
+        ))
       )
     LIMIT 1
   `;
@@ -576,6 +621,285 @@ type OAuthInviteAdmission = {
 };
 
 /**
+ * Lock order for the bootstrap branch is authority, invite, OAuth
+ * transaction/client, candidate/stage, user/tenant, then capacity. Keeping the
+ * construction in this transaction makes the initial operation immediately
+ * claimable without a later assignment step.
+ */
+async function admitReviewerOAuthBootstrapInTransaction(
+  tx: ExomemSql,
+  input: {
+    inviteDigest: Buffer;
+    transactionDigest: Buffer;
+    sessionDigest: Buffer;
+    csrfDigest: Buffer;
+    sessionExpiresAt: Date;
+    codeDigest: Buffer;
+    codeExpiresAt: Date;
+  },
+  authorityId: string
+): Promise<OAuthInviteAdmission> {
+  const inviteResult = await tx`
+    SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits
+    FROM exomem_invites
+    WHERE token_digest = ${input.inviteDigest} AND consumed_at IS NULL AND revoked_at IS NULL
+      AND expires_at > now() AND marketplace_reviewer_purpose = true
+      AND delivery_state = 'sent' AND delivered_at IS NOT NULL
+    FOR UPDATE
+  `;
+  const invite = inviteResult.rows[0] as
+    | {
+        id: string;
+        email_normalized: string;
+        entitlement_source: "complimentary" | "paddle";
+        entitlement_capabilities: string[];
+        entitlement_limits: Record<string, number>;
+      }
+    | undefined;
+  if (!invite) throw new OAuthAdmissionRejected();
+
+  const authorizationResult = await tx`
+    SELECT transaction.id, transaction.client_id, transaction.redirect_uri, transaction.resource,
+           transaction.requested_scopes, transaction.pkce_challenge, authority.candidate_id,
+           authority.staged_client_release_id, authority.oauth_client_id,
+           authority.oauth_client_authority_version, authority.oauth_client_config_sha256,
+           authority.redirect_uri_digest, authority.expires_at
+    FROM exomem_oauth_authorization_transactions AS transaction
+    JOIN exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+      ON authority.id = transaction.reviewer_bootstrap_authority_id
+     AND authority.id = ${authorityId}::uuid
+     AND authority.state = 'active' AND authority.expires_at > now()
+     AND authority.invite_id = ${invite.id}::uuid
+    JOIN exomem_oauth_clients AS client
+      ON client.id = transaction.client_id
+     AND client.id = authority.oauth_client_id
+     AND client.authority_version = authority.oauth_client_authority_version
+     AND client.oauth_client_config_sha256 = authority.oauth_client_config_sha256
+     AND client.redirect_uris_digest = authority.redirect_uri_digest
+     AND client.enabled = true
+    WHERE transaction.transaction_digest = ${input.transactionDigest}
+      AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+    FOR UPDATE OF transaction, client
+  `;
+  const authorization = authorizationResult.rows[0] as
+    | {
+        id: string;
+        client_id: string;
+        redirect_uri: string;
+        resource: string;
+        requested_scopes: string[];
+        pkce_challenge: string;
+        candidate_id: string;
+        staged_client_release_id: string;
+        oauth_client_id: string;
+        expires_at: Date;
+      }
+    | undefined;
+  if (!authorization) throw new OAuthAdmissionRejected();
+
+  const targetResult = await tx`
+    SELECT candidate.id, candidate.source_release, candidate.protocol_version,
+           candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest,
+           stage.id AS stage_id
+    FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+    JOIN exomem_agent_contract_candidates AS candidate
+      ON candidate.id = authority.candidate_id
+     AND candidate.profile_id = 'hosted-alpha-agent-v1'
+     AND candidate.state = 'pending'
+     AND candidate.source_release = ${exomemContractFixture0392.release}
+     AND candidate.protocol_version = ${exomemContractFixture0392.protocol}
+     AND candidate.schema_digest = authority.candidate_contract_digest
+    JOIN exomem_staged_client_releases AS stage
+      ON stage.id = authority.staged_client_release_id
+     AND stage.candidate_id = candidate.id
+     AND stage.platform = authority.stage_platform
+     AND stage.state = 'staged' AND stage.expires_at > now()
+     AND stage.oauth_client_config_sha256 = authority.stage_config_sha256
+     AND stage.oauth_client_config_sha256 = authority.oauth_client_config_sha256
+    WHERE authority.id = ${authorityId}::uuid
+      AND authority.candidate_id = ${authorization.candidate_id}::uuid
+      AND authority.staged_client_release_id = ${authorization.staged_client_release_id}::uuid
+      AND authority.oauth_client_id = ${authorization.oauth_client_id}::uuid
+      AND authority.expires_at > now()
+    FOR UPDATE OF candidate, stage
+  `;
+  const target = targetResult.rows[0] as
+    | {
+        id: string;
+        source_release: string;
+        protocol_version: string;
+        command_fingerprint: string;
+        schema_digest: string;
+        compatibility_digest: string;
+        stage_id: string;
+      }
+    | undefined;
+  if (!target) throw new OAuthAdmissionRejected();
+
+  const blocked = await tx`
+    SELECT 1
+    WHERE EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+       OR EXISTS (
+         SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
+         WHERE assignment.marketplace_reviewer_purpose = true
+           AND assignment.state = 'active' AND assignment.expires_at > now()
+       )
+       OR EXISTS (
+         SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
+         WHERE credential.credential_kind = 'internal_canary'
+           AND credential.revoked_at IS NULL AND credential.expires_at > now()
+       )
+       OR EXISTS (
+         SELECT 1 FROM exomem_tenants AS tenant
+         JOIN exomem_cells AS cell ON cell.id = tenant.bound_cell_id
+         WHERE tenant.marketplace_reviewer_purpose = true AND tenant.deleted_at IS NULL
+           AND (cell.routing_state = 'bound' OR cell.readiness_code = 'CELL_READY')
+       )
+  `;
+  if (blocked.rows[0]) throw new OAuthAdmissionRejected();
+
+  const ownerResult = await tx`
+    INSERT INTO users (email, email_verified_at)
+    VALUES (${invite.email_normalized}, now())
+    ON CONFLICT (email) DO UPDATE
+    SET email_verified_at = COALESCE(users.email_verified_at, now())
+    WHERE users.deleted_at IS NULL
+    RETURNING id
+  `;
+  const owner = ownerResult.rows[0] as { id: string } | undefined;
+  if (!owner) throw new OAuthAdmissionRejected();
+  const priorTenant = await tx`
+    SELECT id FROM exomem_tenants WHERE owner_user_id = ${owner.id}::uuid FOR UPDATE
+  `;
+  if (priorTenant.rows[0]) throw new OAuthAdmissionRejected();
+
+  const reservationResult = await tx`
+    UPDATE exomem_capacity_pools AS pool
+    SET reserved_storage_bytes = reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes},
+        reserved_runtime_slots = reserved_runtime_slots + ${EXOMEM_ALPHA_CAPACITY.runtimeSlots},
+        reserved_provision_slots = reserved_provision_slots + ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots},
+        updated_at = now()
+    WHERE pool.pool_key = 'exomem-hosted-alpha' AND pool.configured_at IS NOT NULL
+      AND pool.storage_capacity_bytes >= pool.reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes}
+      AND pool.runtime_capacity_slots >= pool.reserved_runtime_slots + ${EXOMEM_ALPHA_CAPACITY.runtimeSlots}
+      AND pool.provision_reservation_capacity >= pool.reserved_provision_slots + ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots}
+    RETURNING id
+  `;
+  const pool = reservationResult.rows[0] as { id: string } | undefined;
+  if (!pool) throw new OAuthAdmissionCapacityUnavailable();
+  const tenantResult = await tx`
+    INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
+    VALUES (${owner.id}::uuid, 'provisioning', 'running', true)
+    RETURNING id, fence_generation
+  `;
+  const tenant = tenantResult.rows[0] as { id: string; fence_generation: number } | undefined;
+  if (!tenant) throw new OAuthAdmissionRejected();
+  const entitlementResult = await tx`
+    INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state, capabilities, resource_limits)
+    VALUES (${tenant.id}::uuid, ${invite.entitlement_source},
+      ${invite.entitlement_source === "complimentary" ? "complimentary_active" : "awaiting_checkout"},
+      ${invite.entitlement_source === "complimentary" ? "active" : "provisioning"},
+      ${JSON.stringify(invite.entitlement_capabilities)}::jsonb, ${JSON.stringify(invite.entitlement_limits)}::jsonb)
+    RETURNING tenant_id
+  `;
+  if (!entitlementResult.rows[0]) throw new OAuthAdmissionRejected();
+  const assignmentResult = await tx`
+    INSERT INTO exomem_agent_contract_rollout_assignments (
+      tenant_id, candidate_id, generation, state, source_release, protocol_version,
+      command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+      marketplace_reviewer_purpose, created_by_principal_digest, expires_at
+    ) VALUES (${tenant.id}::uuid, ${target.id}::uuid, 1, 'preparing', ${target.source_release},
+      ${target.protocol_version}, ${target.command_fingerprint}, ${target.schema_digest},
+      ${target.compatibility_digest}, ${exomemContractFixture0392.digest}, true,
+      encode((SELECT operator_principal_digest FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = ${authorityId}::uuid), 'hex'),
+      LEAST((SELECT expires_at FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = ${authorityId}::uuid),
+            (SELECT expires_at FROM exomem_staged_client_releases WHERE id = ${target.stage_id}::uuid)))
+    RETURNING id, generation
+  `;
+  const assignment = assignmentResult.rows[0] as { id: string; generation: number } | undefined;
+  if (!assignment) throw new OAuthAdmissionRejected();
+  const operationResult = await tx`
+    INSERT INTO exomem_lifecycle_operations (
+      tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol,
+      target_candidate_id, target_assignment_id, target_assignment_generation, target_source_release,
+      target_protocol_version, target_gateway_contract_digest, target_command_fingerprint,
+      target_schema_digest, target_compatibility_digest
+    ) VALUES (${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation},
+      'exomem-cell-provisioner.v1', ${target.id}::uuid, ${assignment.id}::uuid, ${assignment.generation},
+      ${target.source_release}, ${target.protocol_version}, ${exomemContractFixture0392.digest},
+      ${target.command_fingerprint}, ${target.schema_digest}, ${target.compatibility_digest})
+    RETURNING id
+  `;
+  const operation = operationResult.rows[0] as { id: string } | undefined;
+  if (!operation) throw new OAuthAdmissionRejected();
+  const allocationResult = await tx`
+    INSERT INTO exomem_capacity_allocations (
+      pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state, operation_id
+    ) VALUES (${pool.id}::uuid, ${tenant.id}::uuid, ${EXOMEM_ALPHA_CAPACITY.storageBytes},
+      ${EXOMEM_ALPHA_CAPACITY.runtimeSlots}, ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots}, 'reserved', ${operation.id}::uuid)
+    RETURNING id
+  `;
+  if (!allocationResult.rows[0]) throw new OAuthAdmissionRejected();
+  const sessionResult = await tx`
+    INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+    VALUES (${owner.id}::uuid, ${tenant.id}::uuid, ${input.sessionDigest}, ${input.csrfDigest}, ${input.sessionExpiresAt.toISOString()})
+    RETURNING id
+  `;
+  const session = sessionResult.rows[0] as { id: string } | undefined;
+  if (!session) throw new OAuthAdmissionRejected();
+  const grantResult = await tx`
+    INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id)
+    VALUES (${owner.id}::uuid, ${tenant.id}::uuid, ${authorization.client_id}::uuid, ${authorization.resource},
+      ${authorization.requested_scopes.filter((scope) => scope !== "offline_access")}, false, ${authorization.id}::uuid)
+    RETURNING id
+  `;
+  const grant = grantResult.rows[0] as { id: string } | undefined;
+  if (!grant) throw new OAuthAdmissionRejected();
+  const codeResult = await tx`
+    INSERT INTO exomem_oauth_authorization_codes (
+      code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
+    ) VALUES (${input.codeDigest}, ${grant.id}::uuid, ${authorization.client_id}::uuid,
+      ${authorization.redirect_uri}, ${authorization.resource}, ${authorization.pkce_challenge}, false,
+      LEAST(${input.codeExpiresAt.toISOString()}::timestamptz, ${authorization.expires_at.toISOString()}::timestamptz))
+    RETURNING id
+  `;
+  if (!codeResult.rows[0]) throw new OAuthAdmissionRejected();
+  const consumedInvite = await tx`
+    UPDATE exomem_invites SET consumed_at = now(), consumed_by_user_id = ${owner.id}::uuid,
+      redeemed_tenant_id = ${tenant.id}::uuid, redeemed_session_id = ${session.id}::uuid
+    WHERE id = ${invite.id}::uuid AND consumed_at IS NULL RETURNING id
+  `;
+  const consumedTransaction = await tx`
+    UPDATE exomem_oauth_authorization_transactions SET consumed_at = now(), redeemed_session_id = ${session.id}::uuid
+    WHERE id = ${authorization.id}::uuid AND consumed_at IS NULL RETURNING id
+  `;
+  const consumedAuthority = await tx`
+    WITH consumed AS (
+      UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+      SET state = 'consumed', consumed_at = now(), outcome_tenant_id = ${tenant.id}::uuid,
+          outcome_assignment_id = ${assignment.id}::uuid, outcome_assignment_generation = ${assignment.generation},
+          outcome_operation_id = ${operation.id}::uuid, outcome_session_id = ${session.id}::uuid,
+          outcome_grant_id = ${grant.id}::uuid
+      WHERE id = ${authorityId}::uuid AND state = 'active' AND expires_at > now()
+      RETURNING oauth_client_id
+    )
+    UPDATE exomem_oauth_clients AS client
+    SET enabled = false, authority_version = gen_random_uuid(), updated_at = now()
+    WHERE client.id IN (SELECT oauth_client_id FROM consumed)
+    RETURNING id
+  `;
+  if (!consumedInvite.rows[0] || !consumedTransaction.rows[0] || !consumedAuthority.rows[0]) {
+    throw new OAuthAdmissionRejected();
+  }
+  return {
+    tenantId: tenant.id,
+    sessionId: session.id,
+    operationId: operation.id,
+    grantId: grant.id,
+  };
+}
+
+/**
  * Serializes duplicate identities on the users.email unique key. Capacity is
  * reserved only after the transaction has observed that no entitled tenant
  * exists, and every later zero-row anomaly rolls the whole transaction back.
@@ -591,7 +915,21 @@ export async function admitFirstOAuthInviteAtomic(input: {
 }): Promise<OAuthInviteAdmission | null> {
   try {
     return await withExomemTransaction(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+      const bootstrapResult = await tx`
+        /* exomem:lock-reviewer-oauth-bootstrap-authority */
+        SELECT authority.id
+        FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+        JOIN exomem_oauth_authorization_transactions AS transaction
+          ON transaction.reviewer_bootstrap_authority_id = authority.id
+        WHERE transaction.transaction_digest = ${input.transactionDigest}
+          AND authority.state = 'active' AND authority.expires_at > now()
+        FOR UPDATE OF authority
+      `;
+      const bootstrap = bootstrapResult.rows[0] as { id?: string } | undefined;
+      if (bootstrap?.id) {
+        return admitReviewerOAuthBootstrapInTransaction(tx, input, bootstrap.id);
+      }
       const inviteResult = await tx`
         SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits,
                marketplace_reviewer_purpose
@@ -1323,6 +1661,12 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND code.consumed_at IS NULL
         AND code.expires_at > now()
         AND oauth_grant.revoked_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM exomem_oauth_authorization_transactions AS bootstrap_transaction
+          WHERE bootstrap_transaction.id = oauth_grant.authorization_transaction_id
+            AND bootstrap_transaction.reviewer_bootstrap_authority_id IS NOT NULL
+        )
         AND (
           (code.candidate_id IS NULL
             AND client.enabled = true

@@ -264,9 +264,15 @@ export async function createOrRotateMarketplaceReviewerCredentialAtomic(
 /** A pending candidate is reachable only through this short-lived, exact reviewer binding. */
 export async function createInternalCanaryReviewerCredentialAtomic(
   input: CreateInternalCanaryReviewerCredentialInput
-): Promise<{ credentialId: string; ownerUserId: string; tenantId: string; expiresAt: string } | null> {
+): Promise<{
+  credentialId: string;
+  ownerUserId: string;
+  tenantId: string;
+  expiresAt: string;
+} | null> {
   validateMarketplaceReviewerExpiry(input.expiresAt);
-  const provider: MarketplaceReviewerProvider = input.platform === "claude" ? "anthropic" : "openai";
+  const provider: MarketplaceReviewerProvider =
+    input.platform === "claude" ? "anthropic" : "openai";
   return withCanaryReviewerAccessLock(async (tx) => {
     const { rows } = await tx`
       /* exomem:create-internal-canary-reviewer-credential */
@@ -297,6 +303,23 @@ export async function createInternalCanaryReviewerCredentialAtomic(
         WHERE tenant.id = ${input.tenantId}::uuid
           AND tenant.marketplace_reviewer_purpose = true
           AND tenant.deleted_at IS NULL
+          AND (
+            NOT EXISTS (
+              SELECT 1
+              FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
+              WHERE bootstrap.state IN ('active', 'consumed')
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
+              WHERE bootstrap.state = 'consumed'
+                AND bootstrap.outcome_tenant_id = tenant.id
+                AND bootstrap.outcome_assignment_id = assignment.id
+                AND bootstrap.outcome_assignment_generation = assignment.generation
+                AND bootstrap.staged_client_release_id = stage.id
+                AND bootstrap.oauth_client_id = client.id
+            )
+          )
           AND NOT EXISTS (
             SELECT 1 FROM exomem_oauth_account_blocks AS block
             WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
@@ -430,7 +453,9 @@ export async function createInternalCanaryReviewerCredentialAtomic(
       )
       SELECT id, owner_user_id, tenant_id, expires_at FROM created
     `;
-    const row = rows[0] as { id?: string; owner_user_id?: string; tenant_id?: string; expires_at?: unknown } | undefined;
+    const row = rows[0] as
+      | { id?: string; owner_user_id?: string; tenant_id?: string; expires_at?: unknown }
+      | undefined;
     const expiresAt = canonicalTimestamp(row?.expires_at);
     return row?.id && row.owner_user_id && row.tenant_id && expiresAt
       ? { credentialId: row.id, ownerUserId: row.owner_user_id, tenantId: row.tenant_id, expiresAt }
