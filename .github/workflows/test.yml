@@ -37,6 +37,7 @@ jobs:
       - name: Hosted Exomem PostgreSQL authority and paired acceptance
         env:
           EXOMEM_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/substrate_test
+          CONFIRM_ENDSTATE_CLOUD_RELEASE_A: "yes"
         run: >-
           node --import tsx --experimental-test-module-mocks --test
           src/lib/exomem-hosted/__tests__/oauth-postgres.integration.test.ts
