@@ -868,8 +868,8 @@ describe("hosted-backup subscription lifecycle (Postgres)", { skip: !DATABASE_UR
     ]);
     await lifecyclePool!.query(
       `INSERT INTO backup_versions
-         (backup_id, size_bytes, manifest_object_key, manifest_sha256, chunk_count)
-       VALUES ($1, 512, 'm', '\\x00'::bytea, 1)`,
+         (backup_id, size_bytes, manifest_object_key, manifest_sha256, chunk_count, client_operation_id)
+       VALUES ($1, 512, 'm', '\\x00'::bytea, 1, 'lifecycle-expired-version')`,
       [expiredBackups[0].id]
     );
 

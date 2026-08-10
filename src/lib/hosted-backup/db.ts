@@ -481,7 +481,7 @@ export async function getSubscriptionEntitlement(userId: string): Promise<Subscr
       END AS grace_period_ends_at
       , CASE
         WHEN status = 'grace' AND grace_started_at IS NOT NULL
-        THEN grace_started_at + ((${GRACE_WINDOW_DAYS} + ${CANCELLED_RETENTION_DAYS}) || ' days')::interval
+        THEN grace_started_at + ((${GRACE_WINDOW_DAYS}::int + ${CANCELLED_RETENTION_DAYS}::int) || ' days')::interval
         WHEN status = 'cancelled' AND cancel_started_at IS NOT NULL
         THEN cancel_started_at + (${CANCELLED_RETENTION_DAYS} || ' days')::interval
         ELSE NULL
@@ -1091,13 +1091,13 @@ export async function listBackupsForUser(userId: string): Promise<BackupSummaryR
           AND ((committed_at IS NOT NULL AND legacy_unverified = false)
             OR (legacy_unverified = true AND legacy_quarantined = false
               AND created_at < (SELECT legacy_cutoff FROM hosted_backup_generation_visibility_policy WHERE singleton = true)
-              AND NOT (SELECT strict_generation_visibility FROM hosted_backup_generation_visibility_policy WHERE singleton = true))), 0) AS version_count,
+              AND NOT (SELECT strict_generation_visibility FROM hosted_backup_generation_visibility_policy WHERE singleton = true)))), 0) AS version_count,
       COALESCE((SELECT SUM(size_bytes)::bigint FROM backup_versions
         WHERE backup_id = b.id AND deleted_at IS NULL
           AND ((committed_at IS NOT NULL AND legacy_unverified = false)
             OR (legacy_unverified = true AND legacy_quarantined = false
               AND created_at < (SELECT legacy_cutoff FROM hosted_backup_generation_visibility_policy WHERE singleton = true)
-              AND NOT (SELECT strict_generation_visibility FROM hosted_backup_generation_visibility_policy WHERE singleton = true))), 0) AS total_size
+              AND NOT (SELECT strict_generation_visibility FROM hosted_backup_generation_visibility_policy WHERE singleton = true)))), 0) AS total_size
     FROM backups b
     WHERE b.user_id = ${userId} AND b.deleted_at IS NULL
     ORDER BY b.updated_at DESC
@@ -1477,7 +1477,7 @@ export async function insertVersionWithChunks(params: {
         ${params.versionId}, ${params.manifestSizeBytes}, ${Buffer.from(params.manifestSha256)},
         ${operationChunkMetadata}::jsonb
       FROM owner CROSS JOIN reserved
-      WHERE ${params.clientOperationId ?? null} IS NOT NULL
+      WHERE ${params.clientOperationId ?? null}::text IS NOT NULL
         AND reserved.bytes + ${params.sizeBytes} <= ${params.quotaBytes}
       ON CONFLICT (backup_id, operation_id) DO NOTHING
       RETURNING version_id
@@ -1499,7 +1499,7 @@ export async function insertVersionWithChunks(params: {
         ${params.clientOperationId ?? null}
       FROM owner CROSS JOIN reserved
       WHERE reserved.bytes + ${params.sizeBytes} <= ${params.quotaBytes}
-        AND (${params.clientOperationId ?? null} IS NULL OR EXISTS (SELECT 1 FROM reserved_operation))
+        AND (${params.clientOperationId ?? null}::text IS NULL OR EXISTS (SELECT 1 FROM reserved_operation))
       ON CONFLICT (backup_id, client_operation_id)
         WHERE client_operation_id IS NOT NULL AND deleted_at IS NULL DO NOTHING
       RETURNING id, backup_id, created_at, size_bytes, manifest_size_bytes, manifest_object_key,
