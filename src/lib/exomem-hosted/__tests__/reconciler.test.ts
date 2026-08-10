@@ -125,6 +125,7 @@ describe("Exomem lifecycle reconciler", () => {
     const operation = await store.enqueue(TENANT, "provision", "targeted-health");
     const stored = store.operations.get(operation.id);
     assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
     stored.target = {
       candidateId: "018f2d91-7c42-7000-8000-000000000060",
       assignmentId: "018f2d91-7c42-7000-8000-000000000061",
@@ -150,11 +151,70 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
   });
 
+  it("binds a targeted marketplace reviewer over stored strict v1 without identity observations", async () => {
+    const provisioner = new FakeCellProvisioner();
+    provisioner.readinessOverride.contractIdentity = undefined;
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    const operation = await store.enqueue(TENANT, "provision", "reviewer-v1-health");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v1";
+    stored.target = {
+      candidateId: "018f2d91-7c42-7000-8000-000000000060",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000061",
+      assignmentGeneration: 1,
+      sourceRelease: "2026.07.12",
+      protocolVersion: "1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+
+    await convergeProvision(reconciler);
+
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+  });
+
+  it("rejects mixed strict-v1 health that carries a contract identity", async () => {
+    const provisioner = new FakeCellProvisioner();
+    provisioner.readinessOverride.contractIdentity = {
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    const operation = await store.enqueue(TENANT, "provision", "reviewer-v1-mixed-health");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v1";
+    stored.target = {
+      candidateId: "018f2d91-7c42-7000-8000-000000000063",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000064",
+      assignmentGeneration: 1,
+      sourceRelease: "2026.07.12",
+      protocolVersion: "1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+
+    await convergeProvision(reconciler);
+
+    assert.equal(store.operations.get(operation.id)?.errorCode, "CELL_READINESS_MISMATCH");
+    assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
+  });
+
   it("validates a targeted replacement against its persisted release instead of current config", async () => {
     const { store, reconciler } = harness();
     const operation = await store.enqueue(TENANT, "provision", "pinned-prior-release");
     const stored = store.operations.get(operation.id);
     assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
     stored.target = {
       candidateId: "018f2d91-7c42-7000-8000-000000000062",
       assignmentId: null,

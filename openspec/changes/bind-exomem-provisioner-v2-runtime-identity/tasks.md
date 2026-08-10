@@ -9,6 +9,7 @@
 - [ ] 2.1 Add failing migration tests for v1 backfill/default, allowed values, v2 target completeness, the exact no-cell-delete exception, immutability, rolling-binary compatibility, and absence of control-plane/provider side effects
 - [ ] 2.2 Add `provisioner_wire_protocol` plus its v2 target constraint and narrow no-cell-delete exception without duplicating migration 0036 target or observation fields
 - [ ] 2.3 Update lifecycle row types/readers/writers so new operations persist a protocol and every cell-scoped operation snapshots a complete authoritative target before first issuance
+- [x] 2.4 Add migration 0039 strict-v1 provenance, immutable backfill/default, and real PostgreSQL reviewer-v1 compatibility coverage
 
 ## 3. Implement Strict Dual-Protocol Codecs
 
@@ -24,6 +25,7 @@
 - [ ] 4.3 Compare strict v2 health only against `runtimeIdentity` and record gateway/command/schema measurements in existing observation columns
 - [ ] 4.4 Resolve compatibility and package/archive/plugin/OAuth lineage only through existing candidate and staged-client records
 - [ ] 4.5 Preserve offline recovery and destruction when live runtime health is unavailable
+- [x] 4.6 Bind only the exact reviewer-purpose v1 assignment with NULL observations and categorically exclude it from cohort promotion evidence
 
 ## 5. Share The Cross-Language Corpus
 

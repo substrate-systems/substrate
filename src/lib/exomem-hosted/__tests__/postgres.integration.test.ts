@@ -1763,8 +1763,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants
-         (id, owner_user_id, status, desired_state, legacy_unmetered)
-       VALUES ($1, $2, 'active', 'running', true)`,
+         (id, owner_user_id, status, desired_state, legacy_unmetered, marketplace_reviewer_purpose)
+       VALUES ($1, $2, 'active', 'running', true, true)`,
       [TENANT, USER]
     );
     await pool.query(
@@ -1773,16 +1773,12 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
          observed_schema_digest, observed_compatibility_digest
        ) VALUES
-         ($1, $3, 'retired', 'retiring', 'quiesced', '0', '2026.07.11', 'CELL_READY', $4, $5, $6, $7),
-         ($2, $3, 'active', 'bound', 'running', '0', '2026.07.11', 'CELL_READY', $4, $5, $6, $7)`,
+         ($1, $3, 'retired', 'retiring', 'quiesced', '0', '2026.07.11', 'CELL_READY', NULL, NULL, NULL, NULL),
+         ($2, $3, 'active', 'bound', 'running', '0', '2026.07.11', 'CELL_READY', NULL, NULL, NULL, NULL)`,
       [
         prior,
         replacement,
         TENANT,
-        gatewayDigest,
-        commandFingerprint,
-        schemaDigest,
-        compatibilityDigest,
       ]
     );
     await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
@@ -1810,7 +1806,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
          marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
        ) VALUES ($1, $2, $3, 1, 'active', '2026.07.11', '0', $4, $5, $6, $7,
-                 false, $8, now() + interval '1 hour', now())`,
+                 true, $8, now() + interval '1 hour', now())`,
       [
         assignment,
         TENANT,
@@ -1863,6 +1859,24 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.deepEqual(state.rows, [
       { assignment_state: "active", bound_cell_id: replacement, replacement_routable: true },
     ]);
+    assert.deepEqual(
+      (
+        await pool.query(
+          `SELECT observed_gateway_contract_digest, observed_command_fingerprint,
+                  observed_schema_digest, observed_compatibility_digest
+           FROM exomem_cells WHERE id = $1`,
+          [replacement]
+        )
+      ).rows,
+      [
+        {
+          observed_gateway_contract_digest: null,
+          observed_command_fingerprint: null,
+          observed_schema_digest: null,
+          observed_compatibility_digest: null,
+        },
+      ]
+    );
   });
 
   it("refuses a retired pinned candidate without changing the old binding or routability", async () => {
@@ -1970,6 +1984,12 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const commandFingerprint = "b".repeat(64);
     const schemaDigest = "c".repeat(64);
     const compatibilityDigest = "d".repeat(64);
+    await pool.query(
+      "ALTER TABLE exomem_lifecycle_operations DROP CONSTRAINT IF EXISTS exomem_lifecycle_operations_provisioner_wire_protocol_check"
+    );
+    await pool.query(
+      "DROP TRIGGER IF EXISTS exomem_lifecycle_provisioner_wire_protocol_immutable ON exomem_lifecycle_operations"
+    );
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants
@@ -1987,10 +2007,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
     await pool.query(
       `INSERT INTO exomem_lifecycle_operations (
-         id, tenant_id, operation_type, idempotency_key, fence_generation,
+         id, tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol,
          target_candidate_id, target_source_release, target_protocol_version, target_gateway_contract_digest,
          target_command_fingerprint, target_schema_digest, target_compatibility_digest
-       ) VALUES ($1, $2, 'provision', 'pinned-older-target', 1,
+       ) VALUES ($1, $2, 'provision', 'pinned-older-target', 1, 'exomem-cell-provisioner.v2',
                  $3, '2026.07.11', '0', $4, $5, $6, $7)`,
       [
         operation,

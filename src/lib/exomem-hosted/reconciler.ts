@@ -40,6 +40,10 @@ export type LifecycleOperationState =
   | "failed_retryable"
   | "failed_terminal";
 
+export type ProvisionerWireProtocol =
+  | "exomem-cell-provisioner.v1"
+  | "exomem-cell-provisioner.v2";
+
 export type LifecycleTarget = {
   candidateId: string;
   assignmentId: string | null;
@@ -57,6 +61,7 @@ export type LifecycleOperation = {
   tenantId: string;
   cellId: string | null;
   operationType: LifecycleOperationType;
+  provisionerWireProtocol: ProvisionerWireProtocol;
   state: LifecycleOperationState;
   idempotencyKey: string;
   fenceGeneration: number;
@@ -386,11 +391,12 @@ function readinessMismatch(
   readiness: CellReadiness,
   cell: CellControlRecord,
   config: ExpectedCellConfiguration,
-  target: LifecycleTarget | null = null
+  operation: LifecycleOperation | null = null
 ): boolean {
+  const target = operation?.target ?? null;
   const expectedProtocolVersion = target?.protocolVersion ?? config.protocolVersion;
   const expectedReleaseVersion = target?.sourceRelease ?? config.releaseVersion;
-  return (
+  const flatMismatch =
     readiness.cellId !== cell.id ||
     readiness.protocolVersion !== expectedProtocolVersion ||
     readiness.releaseVersion !== expectedReleaseVersion ||
@@ -399,13 +405,18 @@ function readinessMismatch(
     !readiness.mutationAuthority ||
     !readiness.readAdmission ||
     !readiness.writeAdmission ||
-    !sameWorkerPolicy(readiness.workerPolicy, config.workerPolicy) ||
-    (target !== null &&
+    !sameWorkerPolicy(readiness.workerPolicy, config.workerPolicy);
+  if (flatMismatch) return true;
+  if (operation?.provisionerWireProtocol === "exomem-cell-provisioner.v1") {
+    return readiness.contractIdentity !== undefined;
+  }
+  return (
+    target !== null &&
       (!readiness.contractIdentity ||
         readiness.contractIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
         readiness.contractIdentity.commandFingerprint !== target.commandFingerprint ||
         readiness.contractIdentity.schemaDigest !== target.schemaDigest ||
-        readiness.contractIdentity.compatibilityDigest !== target.compatibilityDigest))
+        readiness.contractIdentity.compatibilityDigest !== target.compatibilityDigest)
   );
 }
 
@@ -592,7 +603,13 @@ export class LifecycleReconciler {
   }
 
   #contractIdentity(operation: LifecycleOperation) {
-    if (!operation.target) return undefined;
+    if (operation.provisionerWireProtocol === "exomem-cell-provisioner.v1") return undefined;
+    if (operation.provisionerWireProtocol !== "exomem-cell-provisioner.v2" || !operation.target) {
+      throw new ProvisionerFailure({
+        code: "PROVISIONER_CONFIGURATION_INVALID",
+        retryable: false,
+      });
+    }
     return {
       gatewayContractDigest: operation.target.gatewayContractDigest,
       commandFingerprint: operation.target.commandFingerprint,
@@ -625,6 +642,7 @@ export class LifecycleReconciler {
         retryable: false,
       });
     }
+    const contractIdentity = this.#contractIdentity(operation);
     return {
       context: this.#context(operation),
       tenantId: operation.tenantId,
@@ -633,7 +651,7 @@ export class LifecycleReconciler {
       releaseVersion: cell.releaseVersion,
       serviceCredential: this.#cellCredential(cell),
       workerPolicy: cell.workerPolicy,
-      contractIdentity: this.#contractIdentity(operation),
+      ...(contractIdentity ? { contractIdentity } : {}),
       providerRef: cell.providerRef,
     };
   }
@@ -763,7 +781,7 @@ export class LifecycleReconciler {
         idempotencyKey: `${operation.id}:export-failure-readiness:${cell.id}`,
       },
     });
-    if (readinessMismatch(readiness, cell, this.#config) || !readiness.live || !readiness.ready) {
+    if (readinessMismatch(readiness, cell, this.#config, operation) || !readiness.live || !readiness.ready) {
       throw new ProvisionerFailure({ code: "PROVISIONER_UNAVAILABLE", retryable: true });
     }
     this.#requireStored(
@@ -789,7 +807,7 @@ export class LifecycleReconciler {
   ): Promise<ReconcileResult> {
     const cell = await this.#cell(operation);
     const readiness = await this.#provisioner.health(this.#target(operation, cell));
-    if (readinessMismatch(readiness, cell, this.#config, operation.target)) {
+    if (readinessMismatch(readiness, cell, this.#config, operation)) {
       return this.#terminal(operation, owner, "CELL_READINESS_MISMATCH");
     }
     if (!readiness.live || !readiness.ready) {
@@ -858,6 +876,7 @@ export class LifecycleReconciler {
         throw new ProvisionerFailure({ code: "CONTROL_PLANE_STATE_CONFLICT", retryable: true });
       }
       this.#requireStored(await this.#store.renewLease(operation.id, owner, 45_000));
+      const contractIdentity = this.#contractIdentity(operation);
       const request: ProvisionCellRequest = {
         context: this.#context(operation),
         tenantId: operation.tenantId,
@@ -866,7 +885,7 @@ export class LifecycleReconciler {
         releaseVersion: cell.releaseVersion,
         serviceCredential: this.#cellCredential(cell),
         workerPolicy: cell.workerPolicy,
-        contractIdentity: this.#contractIdentity(operation),
+        ...(contractIdentity ? { contractIdentity } : {}),
         provisionMode: "serve",
       };
       const result = await this.#provisioner.provision(request);
@@ -924,6 +943,7 @@ export class LifecycleReconciler {
     if (operation.checkpoint === "candidate-created") {
       const cell = await this.#store.getCell(operation.cellId ?? "");
       if (!cell) return this.#terminal(operation, owner, "CELL_CANDIDATE_MISSING");
+      const contractIdentity = this.#contractIdentity(operation);
       const result = await this.#provisioner.provision({
         context: this.#context(operation),
         tenantId: operation.tenantId,
@@ -932,7 +952,7 @@ export class LifecycleReconciler {
         releaseVersion: cell.releaseVersion,
         serviceCredential: this.#cellCredential(cell),
         workerPolicy: cell.workerPolicy,
-        contractIdentity: this.#contractIdentity(operation),
+        ...(contractIdentity ? { contractIdentity } : {}),
         provisionMode: "restore-candidate",
       });
       this.#requireStored(
@@ -1130,7 +1150,7 @@ export class LifecycleReconciler {
         serviceCredential: pendingCredential,
       });
       if (
-        readinessMismatch(readiness, cell, this.#config) ||
+        readinessMismatch(readiness, cell, this.#config, operation) ||
         !readiness.live ||
         !readiness.ready ||
         !readiness.serviceAuthenticated ||
@@ -1722,6 +1742,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       tenantId,
       cellId,
       operationType,
+      provisionerWireProtocol: "exomem-cell-provisioner.v1",
       state: "pending",
       idempotencyKey,
       fenceGeneration: tenant.fenceGeneration,

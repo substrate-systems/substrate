@@ -898,10 +898,43 @@ export async function promoteExomemHostedCohort(input: {
       WHERE id = ${input.candidateId}::uuid AND state IN ('pending', 'live')
       FOR UPDATE
     ), cells AS (
-      SELECT source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest
-      FROM exomem_routable_cell_contracts
-      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
-      FOR UPDATE
+      SELECT route.source_release, route.protocol_version, route.command_fingerprint,
+             route.contract_digest, route.compatibility_digest
+      FROM candidate
+      JOIN exomem_routable_cell_contracts AS route
+        ON route.profile_id = ${EXOMEM_HOSTED_PROFILE}
+       AND route.routable = true
+      JOIN exomem_cells AS cell ON cell.id = route.cell_id
+      JOIN LATERAL (
+        SELECT operation.id
+        FROM exomem_lifecycle_operations AS operation
+        WHERE operation.cell_id = route.cell_id
+          AND operation.tenant_id = cell.tenant_id
+          AND operation.state = 'succeeded'
+          AND operation.operation_type IN ('provision', 'restore')
+          AND operation.checkpoint = 'bound'
+          AND operation.target_candidate_id = candidate.id
+          AND cell.observed_gateway_contract_digest IS NOT NULL
+          AND cell.observed_command_fingerprint IS NOT NULL
+          AND cell.observed_schema_digest IS NOT NULL
+          AND cell.observed_compatibility_digest IS NOT NULL
+          AND cell.observed_gateway_contract_digest = operation.target_gateway_contract_digest
+          AND cell.observed_command_fingerprint = operation.target_command_fingerprint
+          AND cell.observed_schema_digest = operation.target_schema_digest
+          AND cell.observed_compatibility_digest = operation.target_compatibility_digest
+          AND route.source_release = operation.target_source_release
+          AND route.protocol_version = operation.target_protocol_version
+          AND route.command_fingerprint = operation.target_command_fingerprint
+          AND route.contract_digest = operation.target_schema_digest
+          AND route.compatibility_digest = operation.target_compatibility_digest
+        ORDER BY operation.completed_at DESC NULLS LAST, operation.id
+        LIMIT 1
+        FOR UPDATE
+      ) AS operation ON true
+      WHERE cell.routing_state = 'bound'
+        AND cell.lifecycle_state = 'active'
+        AND cell.readiness_code = 'CELL_READY'
+      FOR UPDATE OF route, cell
     ), claude AS (
       SELECT * FROM exomem_client_artifacts
       WHERE id = ${input.claudeArtifactId}::uuid AND platform = 'claude' AND state IN ('pending', 'live')
@@ -917,6 +950,10 @@ export async function promoteExomemHostedCohort(input: {
       JOIN claude ON true
       JOIN openai ON true
       WHERE EXISTS (SELECT 1 FROM cells)
+        AND (SELECT count(*) FROM cells) = (
+          SELECT count(*) FROM exomem_routable_cell_contracts AS route
+          WHERE route.profile_id = ${EXOMEM_HOSTED_PROFILE} AND route.routable = true
+        )
         AND candidate.mcp_protocol_versions IS NOT NULL
         AND exomem_mcp_protocol_versions_are_valid(candidate.mcp_protocol_versions)
         AND EXISTS (

@@ -428,6 +428,19 @@ ID, protocol, release, authenticated-service state, mutation authority, read and
 write admissions, and exact worker policy. Substrate does not bind or route a
 candidate that fails any field.
 
+The outer provisioner wire protocol is durably recorded on every lifecycle
+operation. The deployed consumer currently accepts only the exact strict-v1
+literal, so retries retain v1 even across a rollout; the later dual-protocol
+migration is the only change allowed to widen that database constraint. Strict
+v1 health is intentionally identity-less. A v1 response that carries
+`contractIdentity` is a mixed envelope and fails closed. The sole
+lower-assurance exception is an unexpired marketplace-reviewer tenant with its
+exact reviewer assignment: it may bind with all four cell runtime observations
+NULL. Its routable row is selected routing metadata, never observed runtime
+identity, and it cannot be used to promote a cohort. Every promotion authority
+cell requires a succeeded bound lifecycle proof and complete exact runtime
+observations matching its operation target and catalog route.
+
 `export` carries one exact product expiry in its idempotent request and must return non-empty opaque
 `exportRef` and `releaseRef` values, 64-character lowercase
 `archiveSha256` and `manifestSha256`, positive `archiveSize`,

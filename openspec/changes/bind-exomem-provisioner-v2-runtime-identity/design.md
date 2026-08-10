@@ -112,3 +112,22 @@ Rollback is not a flag flip for in-flight work. Before acceptance, the exact D0 
 
 - The exact D1 digest, final deployment-lock digest, and rollback Substrate commit are supplied only after their reviewed builds/merges. They cannot be placeholders in production configuration.
 - Live enablement requires operator deployment credentials, capacity/cost approval, and rollout evidence; repository checks alone do not satisfy that gate.
+
+## Strict-v1 reviewer compatibility addendum
+
+Until strict v2 codecs are issued, a stored `exomem-cell-provisioner.v1` operation
+may bind the first marketplace-reviewer cell without manufacturing a runtime
+identity. The database stores the immutable outer wire discriminator, currently
+constrained to the exact v1 literal; the later dual-protocol migration widens
+that constraint. Strict v1 health remains identity-less and must prove the
+authenticated flat cell, release, runtime protocol, admission, worker-policy,
+and ready-code fields. Any v1 health envelope carrying `contractIdentity` is a
+mixed envelope and fails closed.
+
+The lower-assurance bind is limited, under the existing cohort lock, to an
+unexpired marketplace-reviewer tenant and its exact marketplace-reviewer
+`preparing` or `active` assignment, candidate, and generation. It writes the
+selected immutable target to the routable catalog as expected routing metadata,
+but leaves all observed runtime digest columns NULL. Full exact observations
+remain mandatory for ordinary binds and for every routable cell used as cohort
+promotion authority, so a v1 reviewer cell can never promote a candidate.

@@ -446,12 +446,13 @@ async function activateCanaryAssignment(input: {
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
        id, tenant_id, cell_id, expected_previous_cell_id, operation_type, state, idempotency_key,
-       fence_generation, checkpoint, lease_owner, lease_expires_at,
+       fence_generation, checkpoint, lease_owner, lease_expires_at, provisioner_wire_protocol,
        target_candidate_id, target_assignment_id, target_assignment_generation,
        target_source_release, target_protocol_version, target_gateway_contract_digest,
        target_command_fingerprint, target_schema_digest, target_compatibility_digest
      ) SELECT $1, tenant.id, $2, $3, 'provision', 'running', $4,
               tenant.fence_generation, 'readiness-proved', 'shared-canary-bind', now() + interval '1 hour',
+              'exomem-cell-provisioner.v2',
               $5, $6, $7, $8, $9, $10, $11, $12, $13
        FROM exomem_tenants AS tenant WHERE tenant.id = $14`,
     [
@@ -512,6 +513,14 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     const scoped = new URL(databaseUrl!);
     scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
+    await admin.query(
+      `ALTER TABLE "${schema}".exomem_lifecycle_operations
+       DROP CONSTRAINT exomem_lifecycle_operations_provisioner_wire_protocol_check`
+    );
+    await admin.query(
+      `DROP TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable
+       ON "${schema}".exomem_lifecycle_operations`
+    );
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });
     __setExomemSqlForTests(taggedSql(pool));

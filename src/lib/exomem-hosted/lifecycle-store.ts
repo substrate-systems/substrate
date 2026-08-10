@@ -13,6 +13,7 @@ import type {
   ExportRecordDisposition,
   LifecycleOperation,
   LifecycleOperationType,
+  ProvisionerWireProtocol,
   LifecycleEnqueueOptions,
   LifecycleStatus,
   LifecycleStore,
@@ -78,6 +79,7 @@ function operationFromRow(row: Row): LifecycleOperation {
     tenantId: String(row.tenant_id),
     cellId: row.cell_id ? String(row.cell_id) : null,
     operationType: String(row.operation_type) as LifecycleOperationType,
+    provisionerWireProtocol: String(row.provisioner_wire_protocol) as ProvisionerWireProtocol,
     state: String(row.state) as LifecycleOperation["state"],
     idempotencyKey: String(row.idempotency_key),
     fenceGeneration: Number(row.fence_generation),
@@ -1237,10 +1239,22 @@ export class SqlLifecycleStore implements LifecycleStore {
       /* exomem:lifecycle-record-readiness */
       UPDATE exomem_cells AS cell
       SET readiness_code = ${input.code},
-          observed_gateway_contract_digest = ${input.contractIdentity?.gatewayContractDigest ?? null},
-          observed_command_fingerprint = ${input.contractIdentity?.commandFingerprint ?? null},
-          observed_schema_digest = ${input.contractIdentity?.schemaDigest ?? null},
-          observed_compatibility_digest = ${input.contractIdentity?.compatibilityDigest ?? null},
+          observed_gateway_contract_digest = CASE
+            WHEN operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1' THEN NULL
+            ELSE ${input.contractIdentity?.gatewayContractDigest ?? null}
+          END,
+          observed_command_fingerprint = CASE
+            WHEN operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1' THEN NULL
+            ELSE ${input.contractIdentity?.commandFingerprint ?? null}
+          END,
+          observed_schema_digest = CASE
+            WHEN operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1' THEN NULL
+            ELSE ${input.contractIdentity?.schemaDigest ?? null}
+          END,
+          observed_compatibility_digest = CASE
+            WHEN operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1' THEN NULL
+            ELSE ${input.contractIdentity?.compatibilityDigest ?? null}
+          END,
           last_liveness_at = now(),
           last_readiness_at = now(),
           updated_at = now()
@@ -1556,7 +1570,9 @@ export class SqlLifecycleStore implements LifecycleStore {
                operation.target_command_fingerprint,
                operation.target_schema_digest,
                operation.target_compatibility_digest,
+               operation.provisioner_wire_protocol,
                tenant.bound_cell_id,
+               tenant.marketplace_reviewer_purpose AS tenant_marketplace_reviewer_purpose,
                candidate.routing_state,
                candidate.lifecycle_state
         FROM exomem_lifecycle_operations AS operation
@@ -1591,11 +1607,26 @@ export class SqlLifecycleStore implements LifecycleStore {
                   AND contract_candidate.state IN ('pending', 'live')
                 )
               )
-              AND
-              candidate.observed_gateway_contract_digest = operation.target_gateway_contract_digest
-              AND candidate.observed_command_fingerprint = operation.target_command_fingerprint
-              AND candidate.observed_schema_digest = operation.target_schema_digest
-              AND candidate.observed_compatibility_digest = operation.target_compatibility_digest
+              AND (
+                (
+                  operation.provisioner_wire_protocol <> 'exomem-cell-provisioner.v1'
+                  AND
+                  candidate.observed_gateway_contract_digest = operation.target_gateway_contract_digest
+                  AND candidate.observed_command_fingerprint = operation.target_command_fingerprint
+                  AND candidate.observed_schema_digest = operation.target_schema_digest
+                  AND candidate.observed_compatibility_digest = operation.target_compatibility_digest
+                )
+                OR (
+                  operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1'
+                  AND operation.target_assignment_id IS NOT NULL
+                  AND tenant.marketplace_reviewer_purpose = true
+                  AND target_assignment.marketplace_reviewer_purpose = true
+                  AND candidate.observed_gateway_contract_digest IS NULL
+                  AND candidate.observed_command_fingerprint IS NULL
+                  AND candidate.observed_schema_digest IS NULL
+                  AND candidate.observed_compatibility_digest IS NULL
+                )
+              )
             )
           )
           AND (
@@ -1613,6 +1644,17 @@ export class SqlLifecycleStore implements LifecycleStore {
                 AND target_assignment.command_fingerprint = operation.target_command_fingerprint
                 AND target_assignment.schema_digest = operation.target_schema_digest
                 AND target_assignment.compatibility_digest = operation.target_compatibility_digest
+                AND (
+                  operation.provisioner_wire_protocol <> 'exomem-cell-provisioner.v1'
+                  OR (
+                    tenant.marketplace_reviewer_purpose = true
+                    AND target_assignment.marketplace_reviewer_purpose = true
+                    AND candidate.observed_gateway_contract_digest IS NULL
+                    AND candidate.observed_command_fingerprint IS NULL
+                    AND candidate.observed_schema_digest IS NULL
+                    AND candidate.observed_compatibility_digest IS NULL
+                  )
+                )
             )
           )
         FOR UPDATE OF operation, tenant, candidate

@@ -17,6 +17,7 @@ import {
 } from "../agent-contract-store";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as acceptedFixture0340 } from "../agent-contract-fixture-0-34-0";
+import { exomemContractFixture0392 } from "../gateway-contract-0-39-2";
 import { createCanaryAssignment, createStagedClientRelease } from "../agent-contract-canaries";
 import { storeClientArtifact } from "../client-artifacts";
 import { createInternalCanaryReviewerCredentialAtomic } from "../reviewer-access-store";
@@ -270,13 +271,20 @@ async function seedAdmission(
   redirectUri: string,
   invitationDigest: Buffer,
   transactionDigest: Buffer,
-  requestedScopes: string[] = ["exomem.read"]
+  requestedScopes: string[] = ["exomem.read"],
+  marketplaceReviewerPurpose = false
 ) {
   await pool!.query(
     `INSERT INTO exomem_invites (token_digest, email_normalized, entitlement_source,
-     entitlement_capabilities, entitlement_limits, created_by_principal_digest, expires_at)
-     VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, $3, now() + interval '1 hour')`,
-    [invitationDigest, `paired-${randomUUID()}@example.test`, digest(7)]
+     entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
+     created_by_principal_digest, expires_at)
+     VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, $3, $4, now() + interval '1 hour')`,
+    [
+      invitationDigest,
+      `paired-${randomUUID()}@example.test`,
+      marketplaceReviewerPurpose,
+      digest(7),
+    ]
   );
   await pool!.query(
     `INSERT INTO exomem_oauth_authorization_transactions (
@@ -552,6 +560,16 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     const scoped = new URL(databaseUrl!);
     scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
+    // This isolated fixture also exercises the future full-identity branch.
+    // Production 0039 intentionally remains strict-v1 until its successor widens this check.
+    await admin.query(
+      `ALTER TABLE "${schema}".exomem_lifecycle_operations
+       DROP CONSTRAINT exomem_lifecycle_operations_provisioner_wire_protocol_check`
+    );
+    await admin.query(
+      `DROP TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable
+       ON "${schema}".exomem_lifecycle_operations`
+    );
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });
     __setExomemSqlForTests(sql(pool));
@@ -691,6 +709,12 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     });
     assert.ok(admitted);
     if (!admitted) throw new Error("first OAuth admission was rejected");
+    await pool!.query(
+      `UPDATE exomem_lifecycle_operations
+       SET provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+       WHERE id = $1`,
+      [admitted.operationId]
+    );
     ownerId = (
       await pool!.query<{ owner_user_id: string }>(
         "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
@@ -1018,6 +1042,99 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     );
   });
 
+  it("binds a targetless OAuth reviewer provision over strict v1 without runtime identity", async () => {
+    const client = (
+      await pool!.query<{ id: string; client_id: string; redirect_uri: string }>(
+        `SELECT id, client_id, redirect_uris->>0 AS redirect_uri
+         FROM exomem_oauth_clients WHERE client_platform = 'claude' AND enabled
+         ORDER BY created_at LIMIT 1`
+      )
+    ).rows[0]!;
+    const candidate = (
+      await pool!.query<{ id: string }>(
+        "SELECT id FROM exomem_agent_contract_candidates WHERE state = 'live' ORDER BY promoted_at LIMIT 1"
+      )
+    ).rows[0]!;
+    const inviteDigest = digest(31);
+    const transactionDigest = digest(32);
+    await seedAdmission(client.id, client.redirect_uri, inviteDigest, transactionDigest, undefined, true);
+    const admitted = await admitFirstOAuthInviteAtomic({
+      inviteDigest,
+      transactionDigest,
+      sessionDigest: digest(33),
+      csrfDigest: digest(34),
+      codeDigest: digest(35),
+      codeExpiresAt: new Date(Date.now() + 60_000),
+      sessionExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(admitted);
+    if (!admitted) throw new Error("reviewer OAuth admission was rejected");
+    await pool!.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at
+       )
+       SELECT $1, candidate.id, 1, 'preparing', candidate.source_release, candidate.protocol_version,
+              candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest, $2,
+              true, $3, now() + interval '1 hour'
+       FROM exomem_agent_contract_candidates AS candidate WHERE candidate.id = $4`,
+      [admitted.tenantId, exomemContractFixture0392.digest, sha("9"), candidate.id]
+    );
+    const reconciler = new LifecycleReconciler({
+      store: new SqlLifecycleStore(),
+      provisioner: new FakeCellProvisioner(),
+      config: expectedCellConfiguration({
+        protocolVersion: "1",
+        releaseVersion: "0.34.0",
+        workerPolicy: { workerCount: 0, semantic: false, media: false },
+      }),
+      envelopeKey: Buffer.alloc(32, 9),
+      randomBytes: (size) => Buffer.alloc(size, 8),
+    });
+    await converge(reconciler, admitted.tenantId);
+    assert.equal((await new SqlLifecycleStore().statusForTenant(admitted.tenantId)).state, "ready");
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT assignment.state AS assignment_state, tenant.status AS tenant_status,
+                  allocation.state AS allocation_state, cell.lifecycle_state, cell.routing_state,
+                  cell.observed_gateway_contract_digest, cell.observed_command_fingerprint,
+                  cell.observed_schema_digest, cell.observed_compatibility_digest,
+                  route.source_release, route.protocol_version
+           FROM exomem_tenants AS tenant
+           JOIN exomem_agent_contract_rollout_assignments AS assignment ON assignment.tenant_id = tenant.id
+           JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
+           JOIN exomem_cells AS cell ON cell.id = tenant.bound_cell_id
+           JOIN exomem_routable_cell_contracts AS route
+             ON route.cell_id = cell.id AND route.profile_id = 'hosted-alpha-agent-v1'
+           WHERE tenant.id = $1`,
+          [admitted.tenantId]
+        )
+      ).rows,
+      [
+        {
+          assignment_state: "active",
+          tenant_status: "active",
+          allocation_state: "occupied",
+          lifecycle_state: "active",
+          routing_state: "bound",
+          observed_gateway_contract_digest: null,
+          observed_command_fingerprint: null,
+          observed_schema_digest: null,
+          observed_compatibility_digest: null,
+          source_release: exomemHostedContractFixture.sourceRelease,
+          protocol_version: exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+        },
+      ]
+    );
+    await pool!.query(
+      `UPDATE exomem_routable_cell_contracts SET routable = false
+       WHERE cell_id = (SELECT bound_cell_id FROM exomem_tenants WHERE id = $1)`,
+      [admitted.tenantId]
+    );
+  });
+
   it("keeps A live through paired B proof, promotes B atomically, and rolls forward to fresh A", async () => {
     if (!(await getLiveExomemAgentContract())) await seedCohort();
     const priorRoutes = await pool!.query<{
@@ -1151,12 +1268,13 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       await pool!.query(
         `INSERT INTO exomem_lifecycle_operations (
            id, tenant_id, cell_id, expected_previous_cell_id, operation_type, state, idempotency_key,
-           fence_generation, checkpoint, lease_owner, lease_expires_at,
+           fence_generation, checkpoint, lease_owner, lease_expires_at, provisioner_wire_protocol,
            target_candidate_id, target_assignment_id, target_assignment_generation,
            target_source_release, target_protocol_version, target_gateway_contract_digest,
            target_command_fingerprint, target_schema_digest, target_compatibility_digest
          ) VALUES ($1, $2, $3, $4, 'provision', 'running', $5, 1, 'readiness-proved',
-                   'paired-bind', now() + interval '1 hour', $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+                   'paired-bind', now() + interval '1 hour', 'exomem-cell-provisioner.v2',
+                   $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           operationId,
           tenant.tenantId,
@@ -1175,6 +1293,24 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         ]
       );
       assert.equal(await new SqlLifecycleStore().bindCandidate(operationId, "paired-bind"), true);
+      assert.equal(
+        await new SqlLifecycleStore().advance(
+          operationId,
+          "paired-bind",
+          "readiness-proved",
+          "bound"
+        ),
+        true
+      );
+      assert.ok(
+        await new SqlLifecycleStore().claim({
+          owner: "paired-bind-finalize",
+          leaseMs: 60_000,
+          maxAttempts: 3,
+          tenantId: tenant.tenantId,
+        })
+      );
+      assert.equal(await new SqlLifecycleStore().succeed(operationId, "paired-bind-finalize"), true);
       if (previous) {
         await recordRoutableCellObservation({
           cellId: tenant.cellId,
@@ -1469,6 +1605,34 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         )
       ).rows.map((row) => row.id),
       [liveCandidateId]
+    );
+    const promotionProof = await pool!.query(
+      `SELECT route.cell_id, operation.state, operation.checkpoint,
+              operation.target_candidate_id = $1::uuid AS target_matches,
+              cell.observed_gateway_contract_digest = operation.target_gateway_contract_digest AS gateway_matches,
+              cell.observed_command_fingerprint = operation.target_command_fingerprint AS command_matches,
+              cell.observed_schema_digest = operation.target_schema_digest AS schema_matches,
+              cell.observed_compatibility_digest = operation.target_compatibility_digest AS compatibility_matches
+       FROM exomem_routable_cell_contracts AS route
+       JOIN exomem_cells AS cell ON cell.id = route.cell_id
+       LEFT JOIN exomem_lifecycle_operations AS operation
+         ON operation.cell_id = route.cell_id AND operation.target_candidate_id = $1::uuid
+       WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+       ORDER BY route.cell_id`,
+      [candidateId]
+    );
+    assert.ok(
+      promotionProof.rows.every(
+        (row) =>
+          row.state === "succeeded" &&
+          row.checkpoint === "bound" &&
+          row.target_matches === true &&
+          row.gateway_matches === true &&
+          row.command_matches === true &&
+          row.schema_matches === true &&
+          row.compatibility_matches === true
+      ),
+      JSON.stringify(promotionProof.rows)
     );
     assert.equal(
       await promoteExomemHostedCohort({
