@@ -86,7 +86,10 @@ describe("private Exomem Home contract", () => {
     assert.match(opener, /window\.sessionStorage\.getItem/);
     assert.match(opener, /window\.sessionStorage\.removeItem/);
     assert.match(opener, /setValidationFailed\(true\)/);
-    assert.match(opener, /const \{ ready, error, openTransactionCheckout \} = usePaddle\(\)/);
+    assert.match(
+      opener,
+      /const \{ ready, error, openTransactionCheckout \} = usePaddle\("transaction"\)/
+    );
     assert.match(opener, /if \(error\) onFailure\?\.\(\)/);
     assert.match(opener, /const opened = await openTransactionCheckout\(transactionId\)/);
     assert.match(opener, /opened \? onOpened\(\) : onFailure\?\.\(\)/);

@@ -70,7 +70,7 @@ describe("supporter and cancellation durable queues", () => {
     await markPaddleCancellationAttempt("t-1", false, "Paddle unavailable");
     assert.match(calls[0], /attempts = attempts \+ 1/);
     assert.match(calls[0], /cancelled_at = CASE WHEN/);
-    assert.match(calls[0], /next_attempt_at = CASE WHEN/);
+    assert.match(calls[0], /next_attempt_at = CASE\s+WHEN/);
     assert.match(calls[0], /attention_required_at/);
   });
 

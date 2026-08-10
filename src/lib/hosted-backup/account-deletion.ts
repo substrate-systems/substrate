@@ -1,9 +1,10 @@
 /**
  * GDPR account deletion per contract §12.
  *
- * Synchronous Postgres cascade delete + audit-log row. Best-effort Paddle
- * subscription cancel (logs and continues on failure). The cascade statement
- * itself enqueues the user's R2 prefix into r2_purge_queue (the audit log
+ * Synchronous Postgres cascade delete + audit-log row. A durable Paddle
+ * cancellation tombstone is required before deletion; the provider call is
+ * best effort and retries from that tombstone. The cascade statement itself
+ * enqueues the user's R2 prefix into r2_purge_queue (the audit log
  * keeps only sha256(userId), so the prefix would otherwise be lost); the
  * daily backup-gc cron drains the queue within the /account UI's promised
  * 24-hour window.

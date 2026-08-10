@@ -11,6 +11,7 @@ type DeletionState = {
   cascadedUserIds: string[];
   paddleCancelCalled: boolean;
   paddleCancelOk: boolean;
+  tombstoneFails: boolean;
   completedTombstones: string[];
   subscriptionForUser: {
     paddle_subscription_id: string | null;
@@ -32,6 +33,7 @@ function setup(
     cascadedUserIds: [],
     paddleCancelCalled: false,
     paddleCancelOk: opts.paddleCancelOk ?? true,
+    tombstoneFails: opts.tombstoneFails ?? false,
     completedTombstones: [],
     subscriptionForUser: opts.hasSubscription
       ? { paddle_subscription_id: "sub_xx", status: "active" }
@@ -51,7 +53,7 @@ function setup(
       },
       getSubscriptionByUserId: async () => state.subscriptionForUser,
       enqueuePaddleCancellationTombstone: async () => {
-        if (opts.tombstoneFails) throw new Error("tombstone write failed");
+        if (state.tombstoneFails) throw new Error("tombstone write failed");
         return "tombstone_xx";
       },
       markPaddleCancellationAttempt: async (id: string, cancelled: boolean) => {
