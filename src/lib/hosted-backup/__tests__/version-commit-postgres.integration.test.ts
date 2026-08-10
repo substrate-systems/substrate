@@ -83,21 +83,8 @@ function taggedSql(client: Pool | PoolClient): HostedBackupSql {
   };
 }
 
-function statements(file: string): string[] {
-  return readFileSync(resolve(process.cwd(), "migrations", file), "utf8")
-    .split("\n")
-    .map((line) => {
-      const comment = line.indexOf("--");
-      return comment >= 0 ? line.slice(0, comment) : line;
-    })
-    .join("\n")
-    .split(";")
-    .map((statement) => statement.trim())
-    .filter(Boolean);
-}
-
 async function applyMigrationFile(file: string): Promise<void> {
-  for (const statement of statements(file)) await pool!.query(statement);
+  await pool!.query(readFileSync(resolve(process.cwd(), "migrations", file), "utf8"));
 }
 
 function scopedUrl(databaseUrl: string): string {
@@ -724,7 +711,7 @@ describe("hosted-backup subscription lifecycle (Postgres)", { skip: !DATABASE_UR
   let lifecyclePool: Pool | undefined;
 
   async function apply(file: string): Promise<void> {
-    for (const statement of statements(file)) await lifecyclePool!.query(statement);
+    await lifecyclePool!.query(readFileSync(resolve(process.cwd(), "migrations", file), "utf8"));
   }
 
   async function makeUser(email: string): Promise<string> {
