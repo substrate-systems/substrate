@@ -4,6 +4,20 @@ import { resolve } from "node:path";
 import { describe, it } from "node:test";
 
 describe("Exomem agent-contract artifact migration", () => {
+  it("adds immutable strict-v1 operation provenance without control-plane side effects", () => {
+    const sql = readFileSync(
+      resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql"),
+      "utf8"
+    );
+    assert.match(
+      sql,
+      /ADD COLUMN provisioner_wire_protocol text NOT NULL\s+DEFAULT 'exomem-cell-provisioner\.v1'/i
+    );
+    assert.match(sql, /provisioner_wire_protocol IN \('exomem-cell-provisioner\.v1'\)/i);
+    assert.match(sql, /provisioner wire protocol is immutable/i);
+    assert.doesNotMatch(sql, /INSERT INTO exomem_(?:agent_contract_rollout_assignments|oauth|agent_contract_candidates)/i);
+  });
+
   it("keeps contract candidates and client artifacts additive and tenant-neutral", () => {
     const sql = readFileSync(
       resolve(process.cwd(), "migrations/0028_exomem_agent_contract_artifacts.sql"),

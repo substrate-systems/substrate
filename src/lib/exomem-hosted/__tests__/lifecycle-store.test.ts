@@ -402,6 +402,31 @@ describe("SQL lifecycle operation store", () => {
     );
   });
 
+  it("limits identity-less v1 binding to the exact marketplace reviewer assignment", async () => {
+    const statements: string[] = [];
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        statements.push(strings.join("?"));
+        return { rows: [], rowCount: 0 };
+      })
+    );
+
+    await new SqlLifecycleStore().bindCandidate("018f2d91-7c42-7000-8000-000000000070", "worker-a");
+
+    const statement = statements.join("\n");
+    assert.match(
+      statement,
+      /operation\.provisioner_wire_protocol <> 'exomem-cell-provisioner\.v1'[\s\S]*candidate\.observed_gateway_contract_digest = operation\.target_gateway_contract_digest/i
+    );
+    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i);
+    assert.match(statement, /tenant\.marketplace_reviewer_purpose = true/i);
+    assert.match(statement, /target_assignment\.marketplace_reviewer_purpose = true/i);
+    assert.match(statement, /candidate\.observed_gateway_contract_digest IS NULL/i);
+    assert.match(statement, /candidate\.observed_command_fingerprint IS NULL/i);
+    assert.match(statement, /candidate\.observed_schema_digest IS NULL/i);
+    assert.match(statement, /candidate\.observed_compatibility_digest IS NULL/i);
+  });
+
   it("recognizes only the exact active assignment when a bind acknowledgement was lost", async () => {
     const statements: string[] = [];
     __setExomemTransactionForTests(async (work) =>

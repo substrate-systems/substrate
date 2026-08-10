@@ -99,6 +99,16 @@ A lifecycle operation SHALL bind a replacement cell and activate an assignment o
 - **WHEN** the returned release, runtime protocol, profile, gateway, command, or schema value differs from the immutable target
 - **THEN** the replacement cannot bind and the assignment cannot activate or promote
 
+#### Scenario: First strict-v1 marketplace reviewer cell
+
+- **WHEN** an unexpired marketplace-reviewer tenant has the exact stored v1
+  operation and marketplace-reviewer preparing or active assignment for a
+  pending or live candidate, and strict v1 health proves its flat ready fields
+  without a runtime identity
+- **THEN** it may bind and activate without writing observed runtime digests,
+  while the resulting routable cell remains ineligible as cohort promotion
+  authority
+
 #### Scenario: Runtime is unavailable during destructive recovery
 
 - **WHEN** a correctly fenced discard or destroy proceeds while the cell cannot answer health

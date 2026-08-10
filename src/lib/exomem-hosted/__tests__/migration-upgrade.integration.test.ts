@@ -37,6 +37,7 @@ const MIGRATION_0035 = resolve(
   "migrations/0035_exomem_marketplace_reviewer_access.sql"
 );
 const MIGRATION_0036 = resolve(process.cwd(), "migrations/0036_exomem_agent_contract_canaries.sql");
+const MIGRATION_0039 = resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql");
 
 const USER = "11111111-1111-4111-8111-111111111191";
 const TENANT = "22222222-2222-4222-8222-222222222291";
@@ -657,6 +658,49 @@ describe("migration 0036 canary upgrade safety", { skip: !DATABASE_URL }, () => 
           )
         ).rows,
         [{ marketplace_reviewer_purpose: true, assignments: "0", declarations: "0" }]
+      );
+    });
+  });
+});
+
+describe("migration 0039 provisioner wire protocol safety", { skip: !DATABASE_URL }, () => {
+  it("backfills old work, permits old-writer inserts, and rejects v2 or protocol rewrites", async () => {
+    await with0017Schema("exomem_upgrade_0039_wire_protocol", async (client) => {
+      await client.query(
+        `INSERT INTO exomem_lifecycle_operations (
+           tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation
+         ) VALUES ($1, 'provision', 'pending', 'created', 'pre-0039', 1)`,
+        [TENANT]
+      );
+      await client.query(readFileSync(MIGRATION_0039, "utf8"));
+      const existing = await client.query<{ provisioner_wire_protocol: string }>(
+        "SELECT provisioner_wire_protocol FROM exomem_lifecycle_operations WHERE idempotency_key = 'pre-0039'"
+      );
+      assert.deepEqual(existing.rows, [{ provisioner_wire_protocol: "exomem-cell-provisioner.v1" }]);
+      const inserted = await client.query<{ id: string; provisioner_wire_protocol: string }>(
+        `INSERT INTO exomem_lifecycle_operations (
+           tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation
+         ) VALUES ($1, 'provision', 'pending', 'created', 'old-writer-after-0039', 1)
+         RETURNING id, provisioner_wire_protocol`,
+        [TENANT]
+      );
+      assert.equal(inserted.rows[0]?.provisioner_wire_protocol, "exomem-cell-provisioner.v1");
+      await assert.rejects(
+        client.query(
+          "UPDATE exomem_lifecycle_operations SET provisioner_wire_protocol = 'exomem-cell-provisioner.v2' WHERE id = $1",
+          [inserted.rows[0]?.id]
+        ),
+        /provisioner wire protocol is immutable/i
+      );
+      await assert.rejects(
+        client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation,
+             provisioner_wire_protocol
+           ) VALUES ($1, 'provision', 'pending', 'created', 'v2-forbidden', 1, 'exomem-cell-provisioner.v2')`,
+          [TENANT]
+        ),
+        /exomem_lifecycle_operations_provisioner_wire_protocol_check/i
       );
     });
   });

@@ -11,6 +11,7 @@ import {
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
+import { exomemContractFixture0392 } from "../gateway-contract-0-39-2";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
@@ -145,6 +146,49 @@ async function seedActiveReviewerAssignment(candidateId: string): Promise<{
   return { id: rows[0]!.id, generation: Number(rows[0]!.generation) };
 }
 
+async function seedExactBoundProof(candidateId: string): Promise<void> {
+  await pool!.query(
+    `WITH target AS (
+       SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
+              compatibility_digest
+       FROM exomem_agent_contract_candidates WHERE id = $1::uuid
+     ), bound_cells AS (
+       SELECT cell.id, cell.tenant_id
+       FROM exomem_routable_cell_contracts AS route
+       JOIN exomem_cells AS cell ON cell.id = route.cell_id
+       WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+     )
+     UPDATE exomem_cells AS cell
+     SET lifecycle_state = 'active', routing_state = 'bound', readiness_code = 'CELL_READY',
+         observed_gateway_contract_digest = $2,
+         observed_command_fingerprint = target.command_fingerprint,
+         observed_schema_digest = target.schema_digest,
+         observed_compatibility_digest = target.compatibility_digest
+     FROM bound_cells, target
+     WHERE cell.id = bound_cells.id`,
+    [candidateId, exomemContractFixture0392.digest]
+  );
+  await pool!.query(
+    `INSERT INTO exomem_lifecycle_operations (
+       tenant_id, cell_id, operation_type, state, idempotency_key, fence_generation, checkpoint,
+       provisioner_wire_protocol, target_candidate_id, target_source_release, target_protocol_version,
+       target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
+       target_compatibility_digest, completed_at
+     )
+     SELECT cell.tenant_id, cell.id, 'provision', 'succeeded',
+            'promotion-proof-' || target.id::text || '-' || cell.id::text,
+            tenant.fence_generation, 'bound',
+            'exomem-cell-provisioner.v2', target.id, target.source_release, target.protocol_version,
+            $2, target.command_fingerprint, target.schema_digest, target.compatibility_digest, now()
+     FROM exomem_routable_cell_contracts AS route
+     JOIN exomem_cells AS cell ON cell.id = route.cell_id
+     JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+     JOIN exomem_agent_contract_candidates AS target ON target.id = $1::uuid
+     WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
+    [candidateId, exomemContractFixture0392.digest]
+  );
+}
+
 describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `agent_contract_it_${randomUUID().replaceAll("-", "")}`;
@@ -154,6 +198,15 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     const scoped = new URL(databaseUrl!);
     scoped.searchParams.set("options", `-c search_path=${schema},public`);
     await applyMigrations({ databaseUrl: scoped.toString() });
+    // The promotion proof fixture models the subsequent full-identity codec.
+    await admin.query(
+      `ALTER TABLE "${schema}".exomem_lifecycle_operations
+       DROP CONSTRAINT exomem_lifecycle_operations_provisioner_wire_protocol_check`
+    );
+    await admin.query(
+      `DROP TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable
+       ON "${schema}".exomem_lifecycle_operations`
+    );
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString(), max: 3 });
     __setExomemSqlForTests(sql(pool));
@@ -203,6 +256,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       routable: true,
     });
     const candidateId = await storeExomemAgentContractCandidate();
+    await seedExactBoundProof(candidateId);
     const pendingCandidate = await pool!.query<{
       state: string;
       package_sha256: string;
@@ -559,6 +613,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     );
 
     const replacementCandidateId = await storeExomemAgentContractCandidate();
+    await seedExactBoundProof(replacementCandidateId);
     const replacementUnsigned = {
       candidateId: replacementCandidateId,
       packageLock: testOnlyOpenAiLocks.packageLock,
@@ -1040,8 +1095,8 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     ]);
     await pool!.query(
       `INSERT INTO exomem_tenants
-         (id, owner_user_id, status, desired_state, legacy_unmetered)
-       VALUES ($1, $2, 'active', 'running', true)`,
+         (id, owner_user_id, status, desired_state, legacy_unmetered, marketplace_reviewer_purpose)
+       VALUES ($1, $2, 'active', 'running', true, true)`,
       [tenantId, userId]
     );
     await pool!.query(
@@ -1050,16 +1105,12 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
          readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
          observed_schema_digest, observed_compatibility_digest
        ) VALUES
-         ($1, $3, 'active', 'bound', 'running', '0', '2026.07.30', 'CELL_READY', $4, $5, $6, $7),
-         ($2, $3, 'provisioning', 'unbound', 'running', '0', '2026.07.30', 'CELL_READY', $4, $5, $6, $7)`,
+         ($1, $3, 'active', 'bound', 'running', '0', '2026.07.30', 'CELL_READY', NULL, NULL, NULL, NULL),
+         ($2, $3, 'provisioning', 'unbound', 'running', '0', '2026.07.30', 'CELL_READY', NULL, NULL, NULL, NULL)`,
       [
         priorCellId,
         replacementCellId,
         tenantId,
-        gatewayDigest,
-        commandFingerprint,
-        schemaDigest,
-        compatibilityDigest,
       ]
     );
     await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
@@ -1087,7 +1138,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
          command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
          marketplace_reviewer_purpose, created_by_principal_digest, expires_at
        ) VALUES ($1, $2, $3, 1, 'preparing', '2026.07.30', '0', $4, $5, $6, $7,
-                 false, $8, now() + interval '1 hour')`,
+                 true, $8, now() + interval '1 hour')`,
       [
         assignmentId,
         tenantId,
