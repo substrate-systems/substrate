@@ -299,7 +299,7 @@ describe("hosted-backup version commit (Postgres)", { skip: !DATABASE_URL }, () 
       backupId,
       sizeBytes: 1,
       requiresCommit: true,
-      clientCommitRequired: false,
+      clientCommitRequired: true,
     });
     await pool!.query(
       "UPDATE backup_versions SET created_at = now() - interval '7 hours', legacy_unverified = true WHERE id = $1",
@@ -868,8 +868,9 @@ describe("hosted-backup subscription lifecycle (Postgres)", { skip: !DATABASE_UR
     ]);
     await lifecyclePool!.query(
       `INSERT INTO backup_versions
-         (backup_id, size_bytes, manifest_object_key, manifest_sha256, chunk_count, client_operation_id)
-       VALUES ($1, 512, 'm', '\\x00'::bytea, 1, 'lifecycle-expired-version')`,
+         (backup_id, size_bytes, manifest_size_bytes, manifest_object_key, manifest_sha256,
+          chunk_count, client_operation_id)
+       VALUES ($1, 512, 0, 'm', '\\x00'::bytea, 1, 'lifecycle-expired-version')`,
       [expiredBackups[0].id]
     );
 
