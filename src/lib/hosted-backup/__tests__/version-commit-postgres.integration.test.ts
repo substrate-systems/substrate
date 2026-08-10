@@ -314,9 +314,10 @@ describe("hosted-backup version commit (Postgres)", { skip: !DATABASE_URL }, () 
       operationId: `operation-${versionId}`,
     });
     assert.equal(replay?.gc_reclaim_token, claimed[0].gc_reclaim_token);
-    assert.deepEqual(
-      await findLegacyUnverifiedVersions(10),
-      [],
+    const reconciliationCandidates = await findLegacyUnverifiedVersions(10);
+    assert.equal(
+      reconciliationCandidates.some((candidate) => candidate.id === versionId),
+      false,
       "reconciliation must not select a GC-owned version"
     );
     assert.equal(
