@@ -1,6 +1,6 @@
 # Substrate Systems
 
-> Substrate Systems OÜ is a solo-founded Estonian software company building durable systems infrastructure. The company operates under the brand "Substrate" at substratesystems.io. Software infrastructure for durable systems. No lock-in, no telemetry.
+> Substrate Systems OÜ is a solo-founded Estonian software company building durable systems infrastructure. The company operates under the brand "Substrate" at substratesystems.io. Software infrastructure for durable systems. No lock-in; the website discloses aggregate analytics, while Endstate's local app has no telemetry.
 
 Substrate builds tools for long-horizon problems — software that prioritizes structural integrity, determinism, and longevity over velocity. The company's engineering philosophy: systems precede products, constraints enable clarity, foundations compound.
 
@@ -8,7 +8,7 @@ Founded by Hugo Ander Kivi. Registered in Estonia as Substrate Systems OÜ.
 
 ## Products
 
-- [Endstate](https://substratesystems.io/endstate): Free, open-source Windows app that sets up a new PC fast. It scans your current machine for installed apps (via winget) and their settings, saves everything to a single portable file you control, then reinstalls the apps and restores settings on a fresh Windows install in minutes. Local-first, no account, no telemetry. The local product is free forever on as many machines as you like. Optional paid services: encrypted hosted backup (€4/mo or €40/yr) and a one-time €89 supporter license. Download: https://substratesystems.io/download
+- [Endstate](https://substratesystems.io/endstate): Free, open-source Windows app that sets up a new PC fast. It scans your current machine for installed apps (via winget) and their settings, saves everything to a single portable file you control, then reinstalls the apps and restores settings on a fresh Windows install in minutes. Local-first, no account, no telemetry. The local product is free forever on as many machines as you like. Optional paid service: Endstate Cloud, encrypted managed backup (€4/mo or €40/yr). Endstate Cloud protects the application list and supported non-secret settings captured by Endstate; it is not personal-file backup. Supporting the project is separate and voluntary — one-time contributions unlock nothing. Download: https://substratesystems.io/download
 - [Endstate provisioning engine (GitHub)](https://github.com/Artexis10/endstate): Open-source CLI that handles app detection, installation, and settings backup/restore on Windows via winget. Apache 2.0 license.
 - [Endstate GUI (GitHub)](https://github.com/Artexis10/endstate-gui): Desktop application built with Tauri (React + Rust). Open source (Apache 2.0).
 - [Exomem](https://substratesystems.io/exomem): Open-source, MCP-native long-term memory layer for AI agents (Claude, Codex, Cursor) over a Markdown and Obsidian vault you own. Hybrid keyword + vector retrieval, local OCR/ASR/PDF/Office/image (CLIP) indexing, human review queues, and matching CLI + REST surfaces. Install: `pip install exomem`. Source: https://github.com/Artexis10/exomem
@@ -21,7 +21,9 @@ Founded by Hugo Ander Kivi. Registered in Estonia as Substrate Systems OÜ.
 - [How to transfer programs from one computer to another](https://substratesystems.io/blog/transfer-programs-to-another-computer): Installed Windows programs cannot be copied between machines, and the paid tools that promise it work by transplanting registry state. Capture what is installed plus its settings, then reinstall cleanly.
 - [Exomem vs claude-mem](https://substratesystems.io/blog/exomem-vs-claude-mem): claude-mem captures and replays session activity from a local SQLite/Chroma store; Exomem stores curated conclusions as Markdown in a vault you own. Both are open source and agent-agnostic — the difference is where the data lives and who curates it.
 - [Writing](https://substratesystems.io/blog): Field notes on durable infrastructure, LLM governance, and building foundational systems solo.
-- [Terms, Privacy & Refunds](https://substratesystems.io/terms): No telemetry or analytics, offline-first design. Contact: founder@substratesystems.io.
+- [Terms, Privacy & Refunds](https://substratesystems.io/terms): Endstate's local app has no telemetry; website analytics are disclosed separately. Contact: founder@substratesystems.io.
+- [Support Endstate](https://substratesystems.io/endstate/supporters): The people who fund free, open setup, and how to contribute. Supporting is voluntary and unlocks nothing.
+- [Sponsor an Endstate integration](https://substratesystems.io/endstate/sponsor-an-integration): Fund deeper migration support for a specific Windows application — settings capture and restore, version handling, package-identity edge cases, testing, and documentation. Priced by quotation.
 
 ## Endstate technical details
 

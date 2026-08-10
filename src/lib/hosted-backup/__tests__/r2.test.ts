@@ -1,70 +1,127 @@
-import { before, describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { before, describe, it } from "node:test";
+import assert from "node:assert/strict";
 
 before(() => {
-  process.env.ENDSTATE_R2_ENDPOINT = 'https://test-account.r2.cloudflarestorage.com';
-  process.env.ENDSTATE_R2_ACCESS_KEY_ID = 'AKIATESTKEY1234567890';
-  process.env.ENDSTATE_R2_SECRET_ACCESS_KEY = 'secret-test-key-very-long-string';
-  process.env.ENDSTATE_R2_BUCKET = 'endstate-backups-test';
+  process.env.ENDSTATE_R2_ENDPOINT = "https://test-account.r2.cloudflarestorage.com";
+  process.env.ENDSTATE_R2_ACCESS_KEY_ID = "AKIATESTKEY1234567890";
+  process.env.ENDSTATE_R2_SECRET_ACCESS_KEY = "secret-test-key-very-long-string";
+  process.env.ENDSTATE_R2_BUCKET = "endstate-backups-test";
 });
 
-describe('R2 object key helpers', () => {
-  it('manifestKey scopes by user, backup, and version', async () => {
-    const { manifestKey } = await import('../r2');
+describe("R2 object key helpers", () => {
+  it("manifestKey scopes by user, backup, and version", async () => {
+    const { manifestKey } = await import("../r2");
     const key = manifestKey({
-      userId: 'user-1',
-      backupId: 'bk-2',
-      versionId: 'v-3',
+      userId: "user-1",
+      backupId: "bk-2",
+      versionId: "v-3",
     });
-    assert.equal(key, 'users/user-1/backups/bk-2/versions/v-3/manifest');
+    assert.equal(key, "users/user-1/backups/bk-2/versions/v-3/manifest");
   });
 
-  it('chunkKey scopes by user, backup, version, and chunk index', async () => {
-    const { chunkKey } = await import('../r2');
+  it("chunkKey scopes by user, backup, version, and chunk index", async () => {
+    const { chunkKey } = await import("../r2");
     const key = chunkKey({
-      userId: 'user-1',
-      backupId: 'bk-2',
-      versionId: 'v-3',
+      userId: "user-1",
+      backupId: "bk-2",
+      versionId: "v-3",
       chunkIndex: 7,
     });
-    assert.equal(key, 'users/user-1/backups/bk-2/versions/v-3/chunks/7');
+    assert.equal(key, "users/user-1/backups/bk-2/versions/v-3/chunks/7");
   });
 
-  it('userPrefix is users/<id>/', async () => {
-    const { userPrefix } = await import('../r2');
-    assert.equal(userPrefix('abc'), 'users/abc/');
+  it("userPrefix is users/<id>/", async () => {
+    const { userPrefix } = await import("../r2");
+    assert.equal(userPrefix("abc"), "users/abc/");
   });
 });
 
-describe('presigned URL TTL', () => {
-  it('presignPut produces a URL whose expiresAt is ~5 minutes from now', async () => {
-    const { presignPut } = await import('../r2');
+describe("presigned URL TTL", () => {
+  it("presignPut produces a URL whose expiresAt is ~5 minutes from now", async () => {
+    const { presignPut } = await import("../r2");
     const before = Date.now();
-    const signed = await presignPut('users/u/backups/b/versions/v/chunks/0');
+    const signed = await presignPut("users/u/backups/b/versions/v/chunks/0");
     const after = Date.now();
-    assert.ok(signed.url.startsWith('https://'));
-    assert.ok(signed.url.includes('test-account.r2.cloudflarestorage.com'));
+    assert.ok(signed.url.startsWith("https://"));
+    assert.ok(signed.url.includes("test-account.r2.cloudflarestorage.com"));
     const ttlMs = signed.expiresAt.getTime() - before;
     // Should be close to 300000ms (5 min). Allow generous slack.
     assert.ok(
       ttlMs >= 300_000 - 100 && ttlMs <= 300_000 + (after - before) + 100,
-      `expiresAt should be ~300s out, was ${ttlMs}ms`,
+      `expiresAt should be ~300s out, was ${ttlMs}ms`
     );
     // The signed URL embeds the configured TTL.
     assert.ok(
-      signed.url.includes('X-Amz-Expires=300') ||
-        signed.url.includes('x-amz-expires=300'),
-      'signed URL should embed X-Amz-Expires=300',
+      signed.url.includes("X-Amz-Expires=300") || signed.url.includes("x-amz-expires=300"),
+      "signed URL should embed X-Amz-Expires=300"
+    );
+    assert.doesNotMatch(
+      signed.url.toLowerCase(),
+      /if-none-match/,
+      "old engines do not send conditional PUT headers, so they must not be signed"
     );
   });
 
-  it('presignGet produces a URL scoped to the requested key', async () => {
-    const { presignGet } = await import('../r2');
-    const signed = await presignGet('users/u/backups/b/versions/v/manifest');
-    assert.ok(signed.url.includes('users/u/backups/b/versions/v/manifest'));
-    assert.ok(
-      signed.url.includes('X-Amz-Expires=300') ||
-        signed.url.includes('x-amz-expires=300'),
+  it("presignGet produces a URL scoped to the requested key", async () => {
+    const { presignGet } = await import("../r2");
+    const signed = await presignGet("users/u/backups/b/versions/v/manifest");
+    assert.ok(signed.url.includes("users/u/backups/b/versions/v/manifest"));
+    assert.ok(signed.url.includes("X-Amz-Expires=300") || signed.url.includes("x-amz-expires=300"));
+  });
+
+  it("signs If-None-Match only for a modern commit-required upload", async () => {
+    const { presignPut } = await import("../r2");
+    const signed = await presignPut("users/u/backups/b/versions/v/chunks/1", {
+      contentLength: 42,
+      ifNoneMatchStar: true,
+    });
+    assert.match(
+      decodeURIComponent(signed.url).toLowerCase(),
+      /if-none-match/,
+      "a commit-required client must receive a conditional, non-overwriting PUT contract"
     );
+  });
+
+  it("binds a modern upload to the expected ciphertext SHA-256", async () => {
+    const { presignPut } = await import("../r2");
+    const signed = await presignPut("users/u/backups/b/versions/v/chunks/2", {
+      contentLength: 42,
+      ifNoneMatchStar: true,
+      sha256Hex: "ab".repeat(32),
+    });
+    assert.match(
+      decodeURIComponent(signed.url).toLowerCase(),
+      /x-amz-checksum-sha256/,
+      "modern PUT URLs must sign the expected checksum"
+    );
+    assert.match(
+      decodeURIComponent(signed.url).toLowerCase(),
+      /x-amz-meta-endstate-sha256/,
+      "modern PUT URLs must sign immutable ciphertext-hash metadata"
+    );
+  });
+});
+
+describe("publication HEAD checks", () => {
+  it("enables checksum retrieval for commit verification", async () => {
+    const { __setClient, headObject } = await import("../r2");
+    const inputs: Array<Record<string, unknown>> = [];
+    __setClient({
+      send: async (command: { input: Record<string, unknown> }) => {
+        inputs.push(command.input);
+        return {
+          ContentLength: 42,
+          ChecksumSHA256: "checksum",
+          Metadata: { "endstate-sha256": "ab".repeat(32) },
+        };
+      },
+    } as never);
+    try {
+      const result = await headObject("users/u/backups/b/versions/v/chunks/0");
+      assert.equal(inputs[0]?.ChecksumMode, "ENABLED");
+      assert.equal(result.metadataSha256, "ab".repeat(32));
+    } finally {
+      __setClient(null);
+    }
   });
 });

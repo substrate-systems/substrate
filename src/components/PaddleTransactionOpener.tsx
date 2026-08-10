@@ -44,7 +44,7 @@ function OpenPaddleTransaction({
   onOpened: () => void;
   onFailure?: () => void;
 }) {
-  const { ready, error, openTransactionCheckout } = usePaddle();
+  const { ready, error, openTransactionCheckout } = usePaddle("transaction");
   const openedRef = useRef(false);
 
   useEffect(() => {

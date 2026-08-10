@@ -1,34 +1,31 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import { cookies } from 'next/headers';
-import { Nav, EndstateFooter } from '../endstate/_shared';
-import { ACCOUNT_SESSION_COOKIE } from '@/lib/hosted-backup/browser-session';
-import { resolveAccountSession } from '@/lib/hosted-backup/browser-session';
-import {
-  findUserById,
-  getSubscriptionEntitlement,
-} from '@/lib/hosted-backup/db';
-import type { SubscriptionStatus } from '@/lib/hosted-backup/types';
-import { AccountView } from './AccountView';
-import { dmSans, jetbrainsMono } from '@/lib/fonts';
+import type { Metadata } from "next";
+import Link from "next/link";
+import { cookies } from "next/headers";
+import { Nav, EndstateFooter } from "../endstate/_shared";
+import { ACCOUNT_SESSION_COOKIE } from "@/lib/hosted-backup/browser-session";
+import { resolveAccountSession } from "@/lib/hosted-backup/browser-session";
+import { findUserById, getSubscriptionEntitlement } from "@/lib/hosted-backup/db";
+import type { SubscriptionStatus } from "@/lib/hosted-backup/types";
+import { AccountView } from "./AccountView";
+import { dmSans, jetbrainsMono } from "@/lib/fonts";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: 'Your account · Endstate',
-  description: 'Manage your Endstate Hosted Backup subscription.',
+  title: "Your account · Endstate",
+  description: "Manage your Endstate Cloud subscription.",
   robots: { index: false, follow: false },
 };
 
 const c = {
-  bg: '#0c0c0c',
-  card: '#1a1a1a',
-  border: '#2a2a2a',
-  text: '#e8e8e8',
-  textSec: '#999',
-  textMuted: '#666',
-  teal: '#2dd4bf',
-  copper: '#c87941',
+  bg: "#0c0c0c",
+  card: "#1a1a1a",
+  border: "#2a2a2a",
+  text: "#e8e8e8",
+  textSec: "#999",
+  textMuted: "#666",
+  teal: "#2dd4bf",
+  copper: "#c87941",
 };
 
 const FONT_FAMILY =
@@ -43,6 +40,7 @@ type AccountSnapshot = {
   currentPeriodEnd: string | null;
   scheduledCancelAt: string | null;
   gracePeriodEndsAt: string | null;
+  retentionEndsAt: string | null;
   hasPaddleCustomer: boolean;
 };
 
@@ -62,6 +60,7 @@ async function loadSnapshot(): Promise<AccountSnapshot | null> {
     currentPeriodEnd: ent.currentPeriodEnd,
     scheduledCancelAt: ent.scheduledCancelAt,
     gracePeriodEndsAt: ent.gracePeriodEndsAt,
+    retentionEndsAt: ent.retentionEndsAt,
     hasPaddleCustomer: !!ent.paddleCustomerId,
   };
 }
@@ -80,17 +79,17 @@ export default async function AccountPage({ searchParams }: Props) {
         className={`${dmSans.variable} ${jetbrainsMono.variable}`}
         style={{
           background: c.bg,
-          minHeight: '100vh',
+          minHeight: "100vh",
           color: c.text,
           fontFamily: FONT_FAMILY,
-          WebkitFontSmoothing: 'antialiased',
+          WebkitFontSmoothing: "antialiased",
         }}
       >
         <Nav />
         {snapshot ? (
           <AccountView snapshot={snapshot} />
         ) : (
-          <SessionErrorState code={error ?? 'NO_SESSION'} />
+          <SessionErrorState code={error ?? "NO_SESSION"} />
         )}
         <EndstateFooter />
       </main>
@@ -101,14 +100,14 @@ export default async function AccountPage({ searchParams }: Props) {
 function SessionErrorState({ code }: { code: string }) {
   const friendly = friendlyForCode(code);
   return (
-    <section style={{ padding: '120px 24px 96px' }}>
-      <div style={{ maxWidth: 720, margin: '0 auto' }}>
+    <section style={{ padding: "120px 24px 96px" }}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <Eyebrow tone="muted">Account portal</Eyebrow>
         <h1
           style={{
-            fontSize: 'clamp(1.8rem, 3vw, 2.4rem)',
+            fontSize: "clamp(1.8rem, 3vw, 2.4rem)",
             fontWeight: 600,
-            letterSpacing: '-0.03em',
+            letterSpacing: "-0.03em",
             lineHeight: 1.1,
             marginBottom: 18,
           }}
@@ -117,7 +116,7 @@ function SessionErrorState({ code }: { code: string }) {
         </h1>
         <p
           style={{
-            fontSize: '1rem',
+            fontSize: "1rem",
             color: c.textSec,
             lineHeight: 1.6,
             maxWidth: 560,
@@ -130,10 +129,10 @@ function SessionErrorState({ code }: { code: string }) {
           href="/endstate"
           style={{
             color: c.textSec,
-            fontSize: '0.9rem',
-            borderBottom: '1px solid rgba(153,153,153,0.3)',
+            fontSize: "0.9rem",
+            borderBottom: "1px solid rgba(153,153,153,0.3)",
             paddingBottom: 1,
-            textDecoration: 'none',
+            textDecoration: "none",
           }}
         >
           ← Back to Endstate
@@ -145,33 +144,29 @@ function SessionErrorState({ code }: { code: string }) {
 
 function friendlyForCode(code: string): { heading: string; body: React.ReactNode } {
   switch (code) {
-    case 'BROWSER_SESSION_CONSUMED':
+    case "BROWSER_SESSION_CONSUMED":
       return {
-        heading: 'This account link has already been used.',
-        body:
-          'Open Endstate and click "Manage subscription" again to get a fresh link. Account portal links are single-use for security.',
+        heading: "This account link has already been used.",
+        body: 'Open Endstate and click "Manage subscription" again to get a fresh link. Account portal links are single-use for security.',
       };
-    case 'TOKEN_EXPIRED':
-    case 'INVALID_TOKEN':
+    case "TOKEN_EXPIRED":
+    case "INVALID_TOKEN":
       return {
-        heading: 'This account link is no longer valid.',
-        body:
-          'Account portal links expire after 60 seconds. Open Endstate and click "Manage subscription" again to get a fresh one.',
+        heading: "This account link is no longer valid.",
+        body: 'Account portal links expire after 60 seconds. Open Endstate and click "Manage subscription" again to get a fresh one.',
       };
-    case 'ACCOUNT_SESSION_EXPIRED':
+    case "ACCOUNT_SESSION_EXPIRED":
       return {
-        heading: 'Your account session has expired.',
-        body:
-          'Sessions last an hour for your security. Open Endstate and click "Manage subscription" again to sign back in.',
+        heading: "Your account session has expired.",
+        body: 'Sessions last an hour for your security. Open Endstate and click "Manage subscription" again to sign back in.',
       };
     default:
       return {
         heading: "We couldn't open your account portal.",
         body: (
           <>
-            Open Endstate and click &ldquo;Manage subscription&rdquo; to start a
-            fresh session. If this keeps happening,{' '}
-            <FounderMailLink subject="Hosted Backup account portal error" />.
+            Open Endstate and click &ldquo;Manage subscription&rdquo; to start a fresh session. If
+            this keeps happening, <FounderMailLink subject="Endstate Cloud account portal error" />.
           </>
         ),
       };
@@ -184,8 +179,8 @@ function FounderMailLink({ subject }: { subject: string }) {
       href={`mailto:founder@substratesystems.io?subject=${encodeURIComponent(subject)}`}
       style={{
         color: c.textSec,
-        borderBottom: '1px solid rgba(153,153,153,0.3)',
-        textDecoration: 'none',
+        borderBottom: "1px solid rgba(153,153,153,0.3)",
+        textDecoration: "none",
       }}
     >
       email founder@substratesystems.io
@@ -195,25 +190,25 @@ function FounderMailLink({ subject }: { subject: string }) {
 
 function Eyebrow({
   children,
-  tone = 'accent',
+  tone = "accent",
 }: {
   children: React.ReactNode;
-  tone?: 'accent' | 'muted';
+  tone?: "accent" | "muted";
 }) {
-  const accent = tone === 'accent';
+  const accent = tone === "accent";
   return (
     <span
       style={{
-        display: 'inline-block',
+        display: "inline-block",
         fontFamily: MONO_FAMILY,
-        fontSize: '0.7rem',
+        fontSize: "0.7rem",
         fontWeight: 500,
         color: accent ? c.copper : c.textSec,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        padding: '6px 12px',
-        border: `1px solid ${accent ? 'rgba(200,121,65,0.3)' : c.border}`,
-        background: accent ? 'rgba(200,121,65,0.06)' : 'transparent',
+        letterSpacing: "0.18em",
+        textTransform: "uppercase",
+        padding: "6px 12px",
+        border: `1px solid ${accent ? "rgba(200,121,65,0.3)" : c.border}`,
+        background: accent ? "rgba(200,121,65,0.06)" : "transparent",
         borderRadius: 4,
         marginBottom: 24,
       }}

@@ -29,11 +29,11 @@ type BrevoErrorResponse = {
 };
 
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
-const DEFAULT_SENDER_EMAIL = "licenses@substratesystems.io";
 // Friendlier display name in the inbox. Trust signals come from the
 // from-address + DKIM/SPF/DMARC — the name is just for the human reading.
 // Override via BREVO_SENDER_NAME if needed (e.g. for the founder digest).
-const DEFAULT_SENDER_NAME = "Hugo at Endstate";
+const DEFAULT_SENDER_NAME = "Endstate";
+const LEGACY_SENDER_EMAIL = "licenses@substratesystems.io";
 
 export async function sendTransactionalEmail(
   input: SendTransactionalEmailInput
@@ -55,8 +55,13 @@ export async function sendTransactionalEmail(
     throw new Error("BREVO_API_KEY is not set");
   }
 
-  const senderEmail = input.senderEmail ?? process.env.BREVO_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
+  const senderEmail = input.senderEmail ?? process.env.BREVO_SENDER_EMAIL ?? LEGACY_SENDER_EMAIL;
   const senderName = input.senderName ?? process.env.BREVO_SENDER_NAME ?? DEFAULT_SENDER_NAME;
+  if (senderEmail === LEGACY_SENDER_EMAIL) {
+    console.warn(
+      "[brevo] legacy licenses@ sender configured; cut over only after the new sender is verified in Brevo"
+    );
+  }
   const sender = { email: senderEmail, name: senderName };
 
   let res: Response;
@@ -70,7 +75,10 @@ export async function sendTransactionalEmail(
       },
       body: JSON.stringify({
         sender,
-        replyTo: sender,
+        replyTo: {
+          email: process.env.BREVO_REPLY_TO_EMAIL ?? "founder@substratesystems.io",
+          name: senderName,
+        },
         to: [{ email: to }],
         subject,
         htmlContent,

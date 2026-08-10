@@ -25,6 +25,7 @@ import { Client, type ClientBase } from "pg";
 const DEFAULT_MIGRATIONS_DIR = resolve(process.cwd(), "migrations");
 const MIGRATION_LOCK_NAMESPACE = 0x45584f4d; // "EXOM"
 const MIGRATION_LOCK_ID = 0x454d; // "EM"
+const RELEASE_A_MIGRATION = "0040_backup_version_commit.sql";
 
 type Sql = Pick<ClientBase, "query">;
 
@@ -165,6 +166,16 @@ export async function applyMigrations(
     const applied = await getAppliedVersions(client);
     const all = listMigrationFiles(migrationsDir);
     const pending = all.filter((name) => !applied.has(name));
+
+    if (
+      !dry &&
+      pending.includes(RELEASE_A_MIGRATION) &&
+      process.env.CONFIRM_ENDSTATE_CLOUD_RELEASE_A !== "yes"
+    ) {
+      throw new Error(
+        `${RELEASE_A_MIGRATION} is a controlled Release-A migration; set CONFIRM_ENDSTATE_CLOUD_RELEASE_A=yes only for the approved rollout`
+      );
+    }
 
     if (pending.length === 0) {
       console.log(`[migrate] up to date — ${all.length} migrations applied`);

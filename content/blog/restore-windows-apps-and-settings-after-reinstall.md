@@ -20,7 +20,7 @@ That condition matters. Endstate cannot recover an old configuration after the f
 
 On the computer that still has your working setup, open [Endstate](/endstate) and choose **Save this computer**. It scans the installed applications it can identify and captures the settings available through its modules, then lets you save the result as a portable `.endstate` profile.
 
-Save that profile somewhere that will survive the reinstall. An external drive or USB stick is straightforward; a sync folder you can reach again afterwards also works. Do not leave the only copy on the Windows drive you are about to erase. If you use Endstate Hosted Backup, you can also push the profile there, but it is optional; local profiles work without an account.
+Save that profile somewhere that will survive the reinstall. An external drive or USB stick is straightforward; a sync folder you can reach again afterwards also works. Do not leave the only copy on the Windows drive you are about to erase. If you use Endstate Cloud, you can also push the profile there, but it is optional; local profiles work without an account.
 
 Capture is not a promise that every program or setting is covered. It records the applications and settings it finds, and the result is inspectable before you use it. The [live Endstate compatibility list](/endstate/apps) is the canonical place to check the current settings-module coverage.
 
@@ -37,7 +37,7 @@ winget install --id SubstrateSystems.Endstate -e
 You can also [download Endstate](/download). Then follow the setup flow:
 
 1. Open Endstate and choose **Set up this computer**.
-2. Load the profile you saved before reinstalling Windows, or retrieve it from Hosted Backup if you deliberately use that service.
+2. Load the profile you saved before reinstalling Windows, or retrieve it from Endstate Cloud if you deliberately use that service.
 3. Review the comparison between the profile and the current computer. It shows what is already present, what can be installed, and which settings are available.
 4. Select the applications and supported settings you want to restore, then apply the changes.
 5. Read the result and verify the applications you rely on. Sign in where an application needs its own account, and check anything that was marked unavailable or skipped.
@@ -98,7 +98,7 @@ No. Windows can restore selected Windows settings and help with some app reinsta
 
 ### Does Endstate work without an account?
 
-Yes. Endstate works locally with portable profiles and does not require an account. Hosted Backup is an optional service for people who want an off-device copy.
+Yes. Endstate works locally with portable profiles and does not require an account. Endstate Cloud is an optional service for people who want an off-device copy.
 
 ### What happens when an app has no settings module?
 

@@ -1,16 +1,16 @@
-import { NextRequest } from 'next/server';
-import { errorResponse, HostedBackupError } from '@/lib/hosted-backup/errors';
-import { requireAuth } from '@/lib/hosted-backup/auth-middleware';
+import { NextRequest } from "next/server";
+import { errorResponse, HostedBackupError } from "@/lib/hosted-backup/errors";
+import { requireAuth } from "@/lib/hosted-backup/auth-middleware";
 import {
   findUserById,
   getSubscriptionEntitlement,
   getUserBackupStats,
-} from '@/lib/hosted-backup/db';
-import { getQuotaBytes } from '@/lib/hosted-backup/storage';
-import { jsonWithApiVersion } from '@/lib/hosted-backup/api-version';
-import type { AccountMeResponse } from '@/lib/hosted-backup/types';
+} from "@/lib/hosted-backup/db";
+import { getQuotaBytes } from "@/lib/hosted-backup/storage";
+import { jsonWithApiVersion } from "@/lib/hosted-backup/api-version";
+import type { AccountMeResponse } from "@/lib/hosted-backup/types";
 
-export const runtime = 'nodejs';
+export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,14 +19,15 @@ export async function GET(req: NextRequest) {
     if (!user) {
       // User row deleted while a token was still in flight. Surface as 401.
       throw new HostedBackupError({
-        code: 'UNAUTHENTICATED',
+        code: "UNAUTHENTICATED",
         status: 401,
-        message: 'user no longer exists',
+        message: "user no longer exists",
       });
     }
     // Re-read entitlement from the DB rather than trusting the JWT claim
     // (claim is a hint; DB is authoritative per contract §10). The
-    // effective status already applies the 14-day past_due grace cutoff.
+    // effective status already applies the 30-day past_due grace cutoff and
+    // the 30-day post-cancellation retention cutoff.
     const ent = await getSubscriptionEntitlement(user.id);
     // Backup freshness + quota (issue #59): one round-trip for usage/count/last,
     // plus the enforced quota limit so the GUI's meter total matches enforcement.
@@ -40,6 +41,7 @@ export async function GET(req: NextRequest) {
       currentPeriodEnd: ent.currentPeriodEnd,
       scheduledCancelAt: ent.scheduledCancelAt,
       gracePeriodEndsAt: ent.gracePeriodEndsAt,
+      retentionEndsAt: ent.retentionEndsAt,
       paddleSubscriptionId: ent.paddleSubscriptionId,
       paddleCustomerId: ent.paddleCustomerId,
       lastBackupAt: stats.lastBackupAt,
@@ -50,7 +52,7 @@ export async function GET(req: NextRequest) {
     return jsonWithApiVersion(responseBody, 200);
   } catch (err) {
     if (!(err instanceof HostedBackupError)) {
-      console.error('[hosted-backup account/me] unhandled:', err);
+      console.error("[hosted-backup account/me] unhandled:", err);
     }
     return errorResponse(err);
   }

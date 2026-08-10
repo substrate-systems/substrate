@@ -19,6 +19,7 @@ import { GithubMark } from "@/components/GithubMark";
 import { BuyButton } from "./BuyButton";
 import { PaddleTransactionOpener } from "./PaddleTransactionOpener";
 import { usePaddle, type HostedBackupCadence } from "@/lib/paddle";
+import { lowestConfiguredSupportAmount } from "@/lib/support-tiers";
 import { siteConfig } from "@/lib/seo";
 import { faqs } from "./faq-data";
 
@@ -1227,7 +1228,9 @@ type PricingTier = {
     href?: string;
     primary?: boolean;
     external?: boolean;
-    kind?: "paddle-hosted-backup" | "paddle-supporter";
+    // `paddle-hosted-backup` is a deliberately retained internal discriminant;
+    // the tier it drives is called Endstate Cloud in public copy.
+    kind?: "paddle-hosted-backup";
   };
   badge?: string;
   highlight?: boolean;
@@ -1262,7 +1265,7 @@ function HostedBackupCadenceToggle({
   return (
     <div
       role="radiogroup"
-      aria-label="Hosted Backup billing cadence"
+      aria-label="Endstate Cloud billing cadence"
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -1317,7 +1320,7 @@ function HostedBackupCadenceToggle({
 
 function Pricing() {
   const { ref, visible } = useInView();
-  const { openHostedBackupCheckout, openSupporterCheckout } = usePaddle();
+  const { openHostedBackupCheckout } = usePaddle();
   const [hostedBackupCadence, setHostedBackupCadence] = useState<HostedBackupCadence>("monthly");
 
   const hostedBackupPrice =
@@ -1371,7 +1374,10 @@ function Pricing() {
       ? "Billed monthly · Cancel any time"
       : "Billed yearly · Cancel any time";
   const hostedBackupCtaLabel =
-    hostedBackupCadence === "monthly" ? "Get Hosted Backup — €4/mo" : "Get Hosted Backup — €40/yr";
+    hostedBackupCadence === "monthly"
+      ? "Get Endstate Cloud — €4/mo"
+      : "Get Endstate Cloud — €40/yr";
+  const supportFromAmount = lowestConfiguredSupportAmount();
 
   const tiers: PricingTier[] = [
     {
@@ -1399,14 +1405,16 @@ function Pricing() {
       highlight: true,
     },
     {
-      name: "Hosted Backup",
+      name: "Endstate Cloud",
       price: hostedBackupPrice,
       cadence: hostedBackupCadenceLabel,
-      blurb: "Optional managed backup if you want it. Encrypted on your machine before it leaves.",
+      blurb: "Your encrypted setup history, ready on another Windows PC.",
       features: [
-        "End-to-end encrypted, client-side keys",
-        "Restore your setup on any machine",
-        "Endstate cannot read your data",
+        "Endstate application lists and supported non-secret settings, encrypted before upload",
+        "Endstate Cloud protects the application list and supported non-secret settings captured by Endstate; it is not personal-file backup.",
+        "Client-side keys — Endstate cannot read your data",
+        "Keep protected versions without managing storage yourself",
+        "Restore your Endstate setup on another Windows PC",
         "Self-hosting protocol stays open",
         "Cancel any time",
       ],
@@ -1422,62 +1430,65 @@ function Pricing() {
       ),
     },
     {
-      name: "Supporter License",
+      name: "Support Endstate",
       price: (
         <>
-          <span
-            style={{
-              fontSize: "1.5rem",
-              fontWeight: 400,
-              color: c.textSec,
-              verticalAlign: "super",
-              marginRight: 2,
-            }}
-          >
-            €
-          </span>
-          <span
-            style={{ fontSize: "3.5rem", fontWeight: 700, letterSpacing: "-0.04em", color: c.text }}
-          >
-            89
-          </span>
+          {supportFromAmount ? (
+            <>
+              <span
+                style={{ fontSize: "1.1rem", fontWeight: 400, color: c.textSec, marginRight: 6 }}
+              >
+                from
+              </span>
+              <span
+                style={{
+                  fontSize: "3.5rem",
+                  fontWeight: 700,
+                  letterSpacing: "-0.04em",
+                  color: c.text,
+                }}
+              >
+                {supportFromAmount}
+              </span>
+            </>
+          ) : (
+            <span style={{ fontSize: "1.5rem", fontWeight: 500, color: c.textSec }}>
+              Any amount
+            </span>
+          )}
         </>
       ),
-      cadence: "One-time · Optional",
+      cadence: "One-time · Entirely optional",
       blurb:
-        "No extra features. You support development, you get a thank-you on the supporters page.",
+        "Not a plan. Endstate is already free and complete — this is for people who want the project to keep going.",
       features: [
+        "Unlocks nothing: there is nothing held back",
         "Your name on the supporters page (opt-in)",
-        "Your name in the GitHub repo",
-        "Helps fund ongoing development",
+        "Your name in the open-source repository (opt-in)",
+        "Funds ongoing development",
         "That's the whole pitch — be honest with yourself",
       ],
       cta: {
-        label: "Support development",
-        kind: "paddle-supporter",
+        label: "Choose an amount",
+        href: "/endstate/supporters#support",
       },
     },
     {
-      name: "Teams",
+      name: "Endstate for Teams",
       price: (
         <span style={{ fontSize: "1.5rem", fontWeight: 500, color: c.textSec }}>
-          Custom pricing
+          Design partner research
         </span>
       ),
-      cadence: "Per seat · Contact us",
-      blurb: "Hosted backups and shared profiles for teams setting up multiple machines.",
-      features: [
-        "Everything in Hosted Backup",
-        "Shared profiles — push a standard setup to any machine",
-        "Centralized account, multiple seats",
-        "Team admin controls",
-        "Priority support",
-      ],
+      cadence: "Speaking with design partners",
+      blurb:
+        "We are exploring how Endstate could support repeatable Windows setup and recovery for organisations.",
+      features: ["Speaking with design partners", "No current team product or purchase"],
       cta: {
-        label: "Contact us",
+        label: "Talk to us",
         href: "mailto:founder@substratesystems.io?subject=Endstate%20Teams%20%E2%80%94%20interested",
       },
-      badge: "Coming soon",
+      badge: "Research",
     },
   ];
 
@@ -1607,22 +1618,9 @@ function Pricing() {
                 ))}
               </ul>
 
-              {tier.cta.kind === "paddle-supporter" ? (
+              {tier.cta.kind === "paddle-hosted-backup" ? (
                 <BuyButton
-                  action={() => openSupporterCheckout()}
-                  completionLabel="Thank you — you're now an Endstate supporter."
-                  className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
-                  style={{
-                    background: tier.cta.primary ? c.text : "transparent",
-                    color: tier.cta.primary ? c.bg : c.text,
-                    border: tier.cta.primary ? "none" : `1px solid ${c.border}`,
-                    fontSize: "0.95rem",
-                  }}
-                >
-                  {tier.cta.label}
-                </BuyButton>
-              ) : tier.cta.kind === "paddle-hosted-backup" ? (
-                <BuyButton
+                  product="hosted_backup"
                   action={() => openHostedBackupCheckout(hostedBackupCadence)}
                   completionLabel="Thanks — check your email to finish setup."
                   className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"

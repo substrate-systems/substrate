@@ -1,5 +1,5 @@
-import { jsonWithApiVersion } from './api-version';
-import type { ErrorEnvelope } from './types';
+import { jsonWithApiVersion } from "./api-version";
+import type { ErrorEnvelope } from "./types";
 
 /**
  * Domain error for Hosted Backup. Throw at any layer; route handlers catch
@@ -21,7 +21,7 @@ export class HostedBackupError extends Error {
     docsKey?: string;
   }) {
     super(params.message);
-    this.name = 'HostedBackupError';
+    this.name = "HostedBackupError";
     this.code = params.code;
     this.status = params.status;
     this.detail = params.detail;
@@ -44,12 +44,12 @@ export function errorResponse(err: unknown) {
     };
     return jsonWithApiVersion(envelope, err.status);
   }
-  console.error('[hosted-backup error] unhandled:', err);
+  console.error("[hosted-backup error] unhandled:", err);
   const envelope: ErrorEnvelope = {
     success: false,
     error: {
-      code: 'INTERNAL_ERROR',
-      message: 'unexpected server error',
+      code: "INTERNAL_ERROR",
+      message: "unexpected server error",
     },
   };
   return jsonWithApiVersion(envelope, 500);
@@ -59,143 +59,177 @@ export function errorResponse(err: unknown) {
 
 export const errors = {
   badRequest: (message: string, detail?: Record<string, unknown>) =>
-    new HostedBackupError({ code: 'BAD_REQUEST', status: 400, message, detail }),
-  unauthenticated: (message = 'authentication required') =>
-    new HostedBackupError({ code: 'UNAUTHENTICATED', status: 401, message }),
-  invalidToken: (message = 'invalid token') =>
-    new HostedBackupError({ code: 'INVALID_TOKEN', status: 401, message }),
-  tokenExpired: (message = 'token expired') =>
-    new HostedBackupError({ code: 'TOKEN_EXPIRED', status: 401, message }),
+    new HostedBackupError({ code: "BAD_REQUEST", status: 400, message, detail }),
+  unauthenticated: (message = "authentication required") =>
+    new HostedBackupError({ code: "UNAUTHENTICATED", status: 401, message }),
+  invalidToken: (message = "invalid token") =>
+    new HostedBackupError({ code: "INVALID_TOKEN", status: 401, message }),
+  tokenExpired: (message = "token expired") =>
+    new HostedBackupError({ code: "TOKEN_EXPIRED", status: 401, message }),
   invalidCredentials: () =>
     new HostedBackupError({
-      code: 'INVALID_CREDENTIALS',
+      code: "INVALID_CREDENTIALS",
       status: 401,
-      message: 'email or password is incorrect',
+      message: "email or password is incorrect",
     }),
   invalidRecoveryKey: () =>
     new HostedBackupError({
-      code: 'INVALID_RECOVERY_KEY',
+      code: "INVALID_RECOVERY_KEY",
       status: 401,
-      message: 'recovery key proof did not verify',
+      message: "recovery key proof did not verify",
     }),
   recoveryTokenExpired: () =>
     new HostedBackupError({
-      code: 'RECOVERY_TOKEN_EXPIRED',
+      code: "RECOVERY_TOKEN_EXPIRED",
       status: 401,
-      message: 'recovery token expired',
+      message: "recovery token expired",
     }),
   refreshReuseDetected: () =>
     new HostedBackupError({
-      code: 'REFRESH_REUSE_DETECTED',
+      code: "REFRESH_REUSE_DETECTED",
       status: 401,
-      message: 'refresh token already used; chain revoked',
+      message: "refresh token already used; chain revoked",
     }),
   refreshExpired: () =>
     new HostedBackupError({
-      code: 'REFRESH_EXPIRED',
+      code: "REFRESH_EXPIRED",
       status: 401,
-      message: 'refresh token expired',
+      message: "refresh token expired",
     }),
   refreshInvalid: () =>
     new HostedBackupError({
-      code: 'REFRESH_INVALID',
+      code: "REFRESH_INVALID",
       status: 401,
-      message: 'refresh token is invalid',
+      message: "refresh token is invalid",
     }),
   emailTaken: () =>
     new HostedBackupError({
-      code: 'EMAIL_TAKEN',
+      code: "EMAIL_TAKEN",
       status: 409,
-      message: 'an account already exists for this email',
+      message: "an account already exists for this email",
     }),
   pendingClaim: () =>
     new HostedBackupError({
-      code: 'PENDING_CLAIM',
+      code: "PENDING_CLAIM",
       status: 409,
       message:
-        'a Hosted Backup purchase for this email is awaiting claim — check your inbox for the claim link or contact founder@substratesystems.io',
+        "an Endstate Cloud purchase for this email is awaiting claim — check your inbox for the claim link or contact founder@substratesystems.io",
     }),
   claimTokenInvalid: () =>
     new HostedBackupError({
-      code: 'CLAIM_TOKEN_INVALID',
+      code: "CLAIM_TOKEN_INVALID",
       status: 401,
-      message: 'claim token is invalid',
+      message: "claim token is invalid",
     }),
   claimTokenExpired: () =>
     new HostedBackupError({
-      code: 'CLAIM_TOKEN_EXPIRED',
+      code: "CLAIM_TOKEN_EXPIRED",
       status: 401,
-      message: 'claim token expired',
+      message: "claim token expired",
     }),
   claimTokenConsumed: () =>
     new HostedBackupError({
-      code: 'CLAIM_TOKEN_CONSUMED',
+      code: "CLAIM_TOKEN_CONSUMED",
       status: 409,
-      message: 'claim token already used',
+      message: "claim token already used",
     }),
-  rateLimited: (message = 'rate limited') =>
+  rateLimited: (message = "rate limited") =>
     new HostedBackupError({
-      code: 'RATE_LIMITED',
+      code: "RATE_LIMITED",
       status: 429,
       message,
     }),
   emailNotFound: () =>
     new HostedBackupError({
-      code: 'EMAIL_NOT_FOUND',
+      code: "EMAIL_NOT_FOUND",
       status: 404,
-      message: 'no account for this email',
+      message: "no account for this email",
     }),
   kdfTooWeak: (detail?: Record<string, unknown>) =>
     new HostedBackupError({
-      code: 'KDF_TOO_WEAK',
+      code: "KDF_TOO_WEAK",
       status: 400,
-      message: 'kdf parameters are below the v1 floor',
+      message: "kdf parameters are below the v1 floor",
       detail,
     }),
-  notFound: (message = 'not found') =>
-    new HostedBackupError({ code: 'NOT_FOUND', status: 404, message }),
-  subscriptionRequired: (message = 'an active subscription is required') =>
+  notFound: (message = "not found") =>
+    new HostedBackupError({ code: "NOT_FOUND", status: 404, message }),
+  subscriptionRequired: (message = "an active subscription is required") =>
     new HostedBackupError({
-      code: 'SUBSCRIPTION_REQUIRED',
+      code: "SUBSCRIPTION_REQUIRED",
       status: 402,
       message,
     }),
   storageQuotaExceeded: (detail?: Record<string, unknown>) =>
     new HostedBackupError({
-      code: 'STORAGE_QUOTA_EXCEEDED',
+      code: "STORAGE_QUOTA_EXCEEDED",
       status: 413,
-      message: 'storage quota exceeded',
+      message: "storage quota exceeded",
       detail,
-      remediation: 'delete unused versions or backups to reclaim space',
+      remediation: "delete unused versions or backups to reclaim space",
+    }),
+  uploadIncomplete: (detail?: Record<string, unknown>) =>
+    new HostedBackupError({
+      code: "UPLOAD_INCOMPLETE",
+      status: 409,
+      message: "the encrypted manifest or one or more chunks are not ready to publish",
+      detail,
+      remediation: "retry the upload or commit after the object store confirms every object",
+    }),
+  versionAlreadyCommitted: () =>
+    new HostedBackupError({
+      code: "VERSION_ALREADY_COMMITTED",
+      status: 409,
+      message: "the version is already committed and cannot receive new upload URLs",
+    }),
+  operationPayloadMismatch: () =>
+    new HostedBackupError({
+      code: "OPERATION_PAYLOAD_MISMATCH",
+      status: 409,
+      message: "operationId was already used with a different payload",
+    }),
+  versionReclaimInProgress: () =>
+    new HostedBackupError({
+      code: "VERSION_RECLAIM_IN_PROGRESS",
+      status: 503,
+      message: "the pending version is being reclaimed; retry later",
+      remediation: "retry the same operation after the cleanup lease clears",
+    }),
+  versionReplayInProgress: () =>
+    new HostedBackupError({
+      code: "VERSION_REPLAY_IN_PROGRESS",
+      status: 503,
+      message: "the pending version is being replayed; retry later",
+      remediation: "retry the same operation after the current staging URLs expire",
     }),
   paddleSignatureInvalid: (detail?: Record<string, unknown>) =>
     new HostedBackupError({
-      code: 'PADDLE_SIGNATURE_INVALID',
+      code: "PADDLE_SIGNATURE_INVALID",
       status: 401,
-      message: 'paddle webhook signature did not verify',
+      message: "paddle webhook signature did not verify",
       detail,
     }),
   browserSessionConsumed: () =>
     new HostedBackupError({
-      code: 'BROWSER_SESSION_CONSUMED',
+      code: "BROWSER_SESSION_CONSUMED",
       status: 401,
-      message: 'browser-session token has already been redeemed',
+      message: "browser-session token has already been redeemed",
     }),
-  accountSessionInvalid: (message = 'account session is invalid') =>
+  accountSessionInvalid: (message = "account session is invalid") =>
     new HostedBackupError({
-      code: 'ACCOUNT_SESSION_INVALID',
+      code: "ACCOUNT_SESSION_INVALID",
       status: 401,
       message,
     }),
   accountSessionExpired: () =>
     new HostedBackupError({
-      code: 'ACCOUNT_SESSION_EXPIRED',
+      code: "ACCOUNT_SESSION_EXPIRED",
       status: 401,
-      message: 'account session expired',
+      message: "account session expired",
     }),
-  paddlePortalUnavailable: (message = 'no Paddle customer on file yet') =>
+  paddlePortalUnavailable: (message = "no Paddle customer on file yet") =>
     new HostedBackupError({
-      code: 'PADDLE_PORTAL_UNAVAILABLE',
+      code: "PADDLE_PORTAL_UNAVAILABLE",
       status: 404,
       message,
     }),
