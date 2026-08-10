@@ -192,13 +192,13 @@ function setupMocks() {
           : null;
       },
       findVersionByOperationOwned: async (params: { operationId: string }) => {
-        store.operationLookups += 1;
         const row = store.versions.find(
           (version) => version.client_operation_id === params.operationId
         );
         return row ? { ...row, legacy_unverified: false } : null;
       },
       findVersionOperationOwned: async (params: { operationId: string }) => {
+        store.operationLookups += 1;
         const row = store.versions.find(
           (version) => version.client_operation_id === params.operationId
         );
@@ -285,7 +285,10 @@ function setupMocks() {
         state: "present",
         contentLength: key.startsWith("manifest/")
           ? 10
-          : Number(store.versions.find((row) => row.id === key.split("/")[1])?.size_bytes ?? 0),
+          : (() => {
+              const row = store.versions.find((version) => version.id === key.split("/")[1]);
+              return row ? row.size_bytes - row.manifest_size_bytes : 0;
+            })(),
         metadataSha256: key.startsWith("manifest/")
           ? createHash("sha256").update(Buffer.alloc(10)).digest("hex")
           : "aa".repeat(32),
