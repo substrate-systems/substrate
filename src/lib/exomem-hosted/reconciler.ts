@@ -720,6 +720,7 @@ export class LifecycleReconciler {
       // lost. Re-converge the original create key to recover the provider ref,
       // then destroy the exact unbound resource.
       if (!cell.providerRef) {
+        const contractIdentity = this.#contractIdentity(operation);
         const result = await this.#provisioner.provision({
           context: {
             operationId: operation.id,
@@ -733,6 +734,7 @@ export class LifecycleReconciler {
           releaseVersion: cell.releaseVersion,
           serviceCredential: this.#cellCredential(cell),
           workerPolicy: cell.workerPolicy,
+          ...(contractIdentity ? { contractIdentity } : {}),
           provisionMode: operation.operationType === "restore" ? "restore-candidate" : "serve",
         });
         const recorded = await this.#store.recordProvisioned({

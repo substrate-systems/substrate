@@ -24,6 +24,15 @@ class ProvisionModeRecordingProvisioner extends FakeCellProvisioner {
   }
 }
 
+class ContractIdentityRecordingProvisioner extends FakeCellProvisioner {
+  readonly provisionRequests: Array<Parameters<FakeCellProvisioner["provision"]>[0]> = [];
+
+  override async provision(request: Parameters<FakeCellProvisioner["provision"]>[0]) {
+    this.provisionRequests.push(request);
+    return super.provision(request);
+  }
+}
+
 function billingProof(tenantId: string) {
   return {
     tenantId,
@@ -337,6 +346,45 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(provisioner.resources.size, 1);
     assert.equal(store.statusForTenant(TENANT).state, "ready");
     assert.equal(store.capacityAllocations.get(operation.id)?.state, "occupied");
+  });
+
+  it("replays lost provision acknowledgements with the stored protocol identity shape", async () => {
+    const replay = async (protocol: "exomem-cell-provisioner.v1" | "exomem-cell-provisioner.v2") => {
+      const provisioner = new ContractIdentityRecordingProvisioner();
+      const { store, reconciler } = harness(undefined, async () => true, provisioner);
+      const operation = await store.enqueue(TENANT, "provision", `lost-ack-${protocol}`);
+      await reconciler.reconcileOne({ owner: "create", tenantId: TENANT });
+      const stored = store.operations.get(operation.id)!;
+      stored.provisionerWireProtocol = protocol;
+      if (protocol.endsWith("v2")) {
+        stored.target = {
+          candidateId: "018f2d91-7c42-7000-8000-000000000072",
+          assignmentId: null,
+          assignmentGeneration: null,
+          sourceRelease: "2026.07.12",
+          protocolVersion: "1",
+          gatewayContractDigest: "a".repeat(64),
+          commandFingerprint: "b".repeat(64),
+          schemaDigest: "c".repeat(64),
+          compatibilityDigest: "d".repeat(64),
+        };
+      }
+      provisioner.loseNextAcknowledgement("provision");
+      await reconciler.reconcileOne({ owner: "create", tenantId: TENANT });
+      await store.makeRunnable(TENANT);
+      await reconciler.reconcileOne({ owner: "cleanup", tenantId: TENANT });
+      return provisioner.provisionRequests.at(-1)!;
+    };
+
+    const v1 = await replay("exomem-cell-provisioner.v1");
+    assert.equal(v1.contractIdentity, undefined);
+    const v2 = await replay("exomem-cell-provisioner.v2");
+    assert.deepEqual(v2.contractIdentity, {
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    });
   });
 
   it("waits for resume capacity before contacting the provider and retains storage on suspension", async () => {

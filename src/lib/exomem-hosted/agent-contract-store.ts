@@ -913,6 +913,7 @@ export async function promoteExomemHostedCohort(input: {
           AND operation.state = 'succeeded'
           AND operation.operation_type IN ('provision', 'restore')
           AND operation.checkpoint = 'bound'
+          AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
           AND operation.target_candidate_id = candidate.id
           AND cell.observed_gateway_contract_digest IS NOT NULL
           AND cell.observed_command_fingerprint IS NOT NULL

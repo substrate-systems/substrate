@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import {
@@ -1877,6 +1878,116 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         },
       ]
     );
+  });
+
+  it("refuses every strict-v1 bind exception outside the exact reviewer null-observation path", async () => {
+    const gatewayDigest = "a".repeat(64);
+    const commandFingerprint = "b".repeat(64);
+    const schemaDigest = "c".repeat(64);
+    const compatibilityDigest = "d".repeat(64);
+    const cases: Array<{
+      name: string;
+      tenantReviewer?: boolean;
+      assignmentReviewer?: boolean;
+      expiresAt?: string;
+      operationGeneration?: number;
+      observations?: Array<string | null>;
+    }> = [
+      { name: "ordinary tenant", tenantReviewer: false },
+      { name: "ordinary assignment", assignmentReviewer: false },
+      { name: "expired assignment", expiresAt: "now() - interval '1 second'" },
+      { name: "wrong assignment generation", operationGeneration: 2 },
+      { name: "partial observations", observations: [gatewayDigest, null, null, null] },
+      {
+        name: "exact non-null observations",
+        observations: [gatewayDigest, commandFingerprint, schemaDigest, compatibilityDigest],
+      },
+    ];
+
+    for (const scenario of cases) {
+      const userId = randomUUID();
+      const tenantId = randomUUID();
+      const cellId = randomUUID();
+      const candidateId = randomUUID();
+      const assignmentId = randomUUID();
+      const operationId = randomUUID();
+      await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+        userId,
+        `v1-refusal-${scenario.name}-${userId}@example.test`,
+      ]);
+      await pool.query(
+        `INSERT INTO exomem_tenants (
+           id, owner_user_id, status, desired_state, legacy_unmetered, marketplace_reviewer_purpose
+         ) VALUES ($1, $2, 'provisioning', 'running', true, $3)`,
+        [tenantId, userId, scenario.tenantReviewer ?? true]
+      );
+      await pool.query(
+        `INSERT INTO exomem_cells (
+           id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+           readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
+           observed_schema_digest, observed_compatibility_digest
+         ) VALUES ($1, $2, 'provisioning', 'unbound', 'running', '0', '2026.07.11', 'CELL_READY',
+                   $3, $4, $5, $6)`,
+        [cellId, tenantId, ...(scenario.observations ?? [null, null, null, null])]
+      );
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_candidates (
+           id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+           compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test',
+                   '2026.07.11', $2, $3, $4, '0', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+        [candidateId, commandFingerprint, schemaDigest, compatibilityDigest]
+      );
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_rollout_assignments (
+           id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+           command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+           marketplace_reviewer_purpose, created_by_principal_digest, created_at, expires_at
+         ) VALUES ($1, $2, $3, 1, 'preparing', '2026.07.11', '0', $4, $5, $6, $7,
+                   $8, $9, now() - interval '2 hours',
+                   ${scenario.expiresAt ?? "now() + interval '1 hour'"})`,
+        [
+          assignmentId,
+          tenantId,
+          candidateId,
+          commandFingerprint,
+          schemaDigest,
+          compatibilityDigest,
+          gatewayDigest,
+          scenario.assignmentReviewer ?? true,
+          "e".repeat(64),
+        ]
+      );
+      await pool.query(
+        `INSERT INTO exomem_lifecycle_operations (
+           id, tenant_id, cell_id, operation_type, state, idempotency_key, fence_generation,
+           checkpoint, lease_owner, lease_expires_at, target_candidate_id, target_assignment_id,
+           target_assignment_generation, target_source_release, target_protocol_version,
+           target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
+           target_compatibility_digest
+         ) VALUES ($1, $2, $3, 'provision', 'running', $4, 1, 'readiness-proved',
+                   'v1-refusal', now() + interval '1 hour', $5, $6, $7, '2026.07.11', '0',
+                   $8, $9, $10, $11)`,
+        [
+          operationId,
+          tenantId,
+          cellId,
+          `v1-refusal-${operationId}`,
+          candidateId,
+          assignmentId,
+          scenario.operationGeneration ?? 1,
+          gatewayDigest,
+          commandFingerprint,
+          schemaDigest,
+          compatibilityDigest,
+        ]
+      );
+      assert.equal(
+        await new SqlLifecycleStore().bindCandidate(operationId, "v1-refusal"),
+        false,
+        scenario.name
+      );
+    }
   });
 
   it("refuses a retired pinned candidate without changing the old binding or routability", async () => {

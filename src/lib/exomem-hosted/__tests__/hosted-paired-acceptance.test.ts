@@ -1129,9 +1129,19 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       ]
     );
     await pool!.query(
-      `UPDATE exomem_routable_cell_contracts SET routable = false
-       WHERE cell_id = (SELECT bound_cell_id FROM exomem_tenants WHERE id = $1)`,
-      [admitted.tenantId]
+      `UPDATE exomem_cells AS cell
+       SET observed_gateway_contract_digest = $1,
+           observed_command_fingerprint = $2,
+           observed_schema_digest = $3,
+           observed_compatibility_digest = $4
+       WHERE cell.id = (SELECT bound_cell_id FROM exomem_tenants WHERE id = $5)`,
+      [
+        exomemContractFixture0392.digest,
+        exomemHostedContractFixture.compatibility.command_surface_sha256,
+        exomemHostedContractFixture.compatibility.schema_contract_sha256,
+        exomemHostedContractFixture.compatibility.compatibility_sha256,
+        admitted.tenantId,
+      ]
     );
   });
 
@@ -1144,13 +1154,23 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       command_fingerprint: string;
       contract_digest: string;
       compatibility_digest: string;
+      v1_bound: boolean;
     }>(
-      `SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint,
-              contract_digest, compatibility_digest
-       FROM exomem_routable_cell_contracts
+      `SELECT route.cell_id::text AS cell_id, route.source_release, route.protocol_version,
+              route.command_fingerprint, route.contract_digest, route.compatibility_digest,
+              EXISTS (
+                SELECT 1 FROM exomem_lifecycle_operations AS operation
+                WHERE operation.cell_id = route.cell_id
+                  AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1'
+                  AND operation.operation_type IN ('provision', 'restore')
+                  AND operation.state = 'succeeded'
+                  AND operation.checkpoint = 'bound'
+              ) AS v1_bound
+       FROM exomem_routable_cell_contracts AS route
        WHERE profile_id = 'hosted-alpha-agent-v1' AND routable = true`
     );
     for (const route of priorRoutes.rows) {
+      if (route.v1_bound) continue;
       await recordRoutableCellObservation({
         cellId: route.cell_id,
         sourceRelease: route.source_release,
@@ -1575,21 +1595,23 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       ).rows[0]!.routable_set_digest;
     const bAuthorityDigest = await authorityDigest();
     const bRouting = await pool!.query<{
+      cell_id: string;
       source_release: string;
       protocol_version: string;
       command_fingerprint: string;
       contract_digest: string;
       compatibility_digest: string;
     }>(
-      `SELECT source_release, protocol_version, command_fingerprint, contract_digest,
+      `SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint, contract_digest,
               compatibility_digest
        FROM exomem_routable_cell_contracts
        WHERE profile_id = 'hosted-alpha-agent-v1' AND routable = true
        ORDER BY cell_id`
     );
-    assert.equal(bRouting.rows.length, 2);
+    assert.ok(bRouting.rows.length > 2);
+    assert.equal(bRouting.rows.filter((row) => row.source_release === "0.35.0").length, 2);
     assert.ok(
-      bRouting.rows.every(
+      bRouting.rows.filter((row) => row.source_release === "0.35.0").every(
         (row) =>
           row.source_release === bStages.fixture.sourceRelease &&
           row.protocol_version === bStages.fixture.compatibility.agent_contract.protocol_version &&
@@ -1622,7 +1644,10 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       [candidateId]
     );
     assert.ok(
-      promotionProof.rows.every(
+      promotionProof.rows.filter((row) => row.target_matches === true).length === 2 &&
+      promotionProof.rows
+        .filter((row) => row.target_matches === true)
+        .every(
         (row) =>
           row.state === "succeeded" &&
           row.checkpoint === "bound" &&
@@ -1631,11 +1656,10 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
           row.command_matches === true &&
           row.schema_matches === true &&
           row.compatibility_matches === true
-      ),
+        ),
       JSON.stringify(promotionProof.rows)
     );
-    assert.equal(
-      await promoteExomemHostedCohort({
+    const promotionInput = {
         candidateId,
         claudeArtifactId: bEvidence.claude.artifactId,
         openaiArtifactId: bEvidence.openai.artifactId,
@@ -1643,6 +1667,56 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         expectedRoutableCellDigest: bAuthorityDigest,
         claudeEvidence: bEvidence.claude.evidence,
         openaiEvidence: bEvidence.openai.evidence,
+      };
+    const beforeV1PromotionStop = await pool!.query(
+      `SELECT candidate.state AS candidate_state, artifact.state AS artifact_state
+       FROM exomem_agent_contract_candidates AS candidate
+       CROSS JOIN exomem_client_artifacts AS artifact
+       WHERE candidate.id = $1 AND artifact.id IN ($2, $3) ORDER BY artifact.id`,
+      [candidateId, bEvidence.claude.artifactId, bEvidence.openai.artifactId]
+    );
+    assert.equal(await promoteExomemHostedCohort(promotionInput), "precondition_failed");
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT candidate.state AS candidate_state, artifact.state AS artifact_state
+           FROM exomem_agent_contract_candidates AS candidate
+           CROSS JOIN exomem_client_artifacts AS artifact
+           WHERE candidate.id = $1 AND artifact.id IN ($2, $3) ORDER BY artifact.id`,
+          [candidateId, bEvidence.claude.artifactId, bEvidence.openai.artifactId]
+        )
+      ).rows,
+      beforeV1PromotionStop.rows
+    );
+    await pool!.query(
+      `UPDATE exomem_routable_cell_contracts AS route SET routable = false
+       WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+         AND NOT EXISTS (
+           SELECT 1 FROM exomem_lifecycle_operations AS operation
+           WHERE operation.cell_id = route.cell_id
+             AND operation.target_candidate_id = $1::uuid
+             AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+             AND operation.operation_type IN ('provision', 'restore')
+             AND operation.state = 'succeeded'
+             AND operation.checkpoint = 'bound'
+         )`,
+      [candidateId]
+    );
+    for (const route of bRouting.rows.filter((row) => row.source_release === "0.35.0")) {
+      await recordRoutableCellObservation({
+        cellId: route.cell_id,
+        sourceRelease: route.source_release,
+        protocolVersion: route.protocol_version,
+        commandSurfaceSha256: route.command_fingerprint,
+        schemaDigest: route.contract_digest,
+        compatibilitySha256: route.compatibility_digest,
+        routable: true,
+      });
+    }
+    assert.equal(
+      await promoteExomemHostedCohort({
+        ...promotionInput,
+        expectedRoutableCellDigest: await authorityDigest(),
       }),
       "promoted"
     );
