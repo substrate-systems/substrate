@@ -5,6 +5,7 @@ import {
   demoteOperatorClientArtifact,
   listOperatorClientArtifacts,
   listOperatorOAuthClients,
+  listReviewerOAuthBootstrapAuthorities,
   registerOperatorOAuthClient,
   revokeOperatorOAuthAccount,
   revokeOperatorOAuthFamily,
@@ -78,6 +79,26 @@ describe("hosted operator controls", () => {
     ]);
   });
 
+  it("returns the consumed bootstrap assignment generation without private client data", async () => {
+    __setExomemSqlForTests(async () => ({
+      rows: [
+        {
+          id: "018f2d91-7c42-7000-8000-000000000001",
+          state: "consumed",
+          expires_at: new Date("2026-08-12T00:00:00.000Z"),
+          outcome_tenant_id: "tenant-1",
+          outcome_assignment_id: "assignment-1",
+          outcome_assignment_generation: 1,
+          outcome_operation_id: "operation-1",
+          outcome_session_id: "session-1",
+          outcome_grant_id: "grant-1",
+        },
+      ],
+    }));
+
+    assert.equal((await listReviewerOAuthBootstrapAuthorities())[0]?.outcomeAssignmentGeneration, 1);
+  });
+
   it("changes exactly one opaque client record", async () => {
     let query = "";
     const sql = async (strings: TemplateStringsArray) => {
@@ -115,6 +136,29 @@ describe("hosted operator controls", () => {
     );
     assert.doesNotMatch(query, /exomem_staged_client_releases/i);
     assert.match(query, /exomem_client_artifacts/i);
+    assert.match(query, /client\.reviewer_bootstrap_ever_authorized = false/i);
+  });
+
+  it("never re-enables a client with bootstrap history, including a null legacy config", async () => {
+    let query = "";
+    const sql = async (strings: TemplateStringsArray) => {
+      query = strings.join("?");
+      return { rows: [] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.equal(
+      await setOperatorOAuthClientEnabled({
+        clientRecordId: "018f2d91-7c42-7000-8000-000000000001",
+        enabled: true,
+      }),
+      false
+    );
+    assert.match(
+      query,
+      /\(\? = false\) OR \(\s*client\.reviewer_bootstrap_ever_authorized = false AND EXISTS/i
+    );
   });
 
   it("fences family and account revocation to the named owner and tenant", async () => {

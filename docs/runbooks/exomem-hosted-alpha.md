@@ -246,6 +246,44 @@ allocation, claim lease, operation checkpoint, and stable error code together;
 never free capacity because a provider response timed out or an operator cannot
 find a cell by hand.
 
+### Virgin-install reviewer OAuth bootstrap
+
+Use this procedure only when Hosted has no live cohort and no usable
+internal-canary reviewer authority. It creates one fresh reviewer-purpose
+tenant; never redeem a reviewer invite through the ordinary invite path, which
+is legacy-unmetered and does not reserve capacity.
+
+1. Verify privately that the candidate is pending `hosted-alpha-agent-v1`
+   release `0.39.2`, the selected client release is still `staged`, capacity is
+   configured, and there is no live cohort, active reviewer assignment,
+   bound/ready reviewer cell, or active internal-canary credential.
+2. Create and deliver one reviewer-purpose operator invite. Confirm the invite
+   identity does not already own a tenant (`exomem_tenants.owner_user_id` is
+   unique); if it does, stop and issue a fresh alias invite. Confirm it is
+   unconsumed, unrevoked, and has a remaining expiry longer than the review
+   window. Register one matching pinned client with exactly one safe HTTP
+   loopback redirect.
+3. Through the authenticated OAuth-client operator endpoint, create
+   `create_reviewer_bootstrap` with only the invite ID, staged release ID,
+   client record ID, and an expiry no more than 30 minutes away. Record only
+   the returned opaque authority ID and expiry. After consumption, record the
+   opaque assignment ID and returned assignment generation for exact
+   internal-canary issuance; never copy redirects, codes,
+   or invite tokens into a ticket.
+4. Complete one clean OAuth authorization and redeem the delivered invite. The
+   authority must become `consumed` with opaque tenant, assignment, operation,
+   session, and grant outcomes. A capacity failure leaves the three inputs
+   reusable; do not retry through direct invite redemption.
+5. Reconcile the returned operation immediately. Its target is already pinned
+   to the exact candidate and assignment. Once the exact internal-canary
+   credential is issued, the setup session/grant/code are sealed and a clean
+   client must authorize again with attributed lineage.
+
+To stop the attempt, call `revoke_reviewer_bootstrap` with the authority ID.
+Expiry and revocation disable the pinned client. Do not re-enable, re-register,
+or repurpose a client with bootstrap history; prepare a new staged client and a
+new authority instead.
+
 For `TENANT_PREPARING`, `CELL_PREPARING`, capacity, or terminal provisioning
 failures, return only the stable MCP error and opaque request/support reference.
 Inspect the tenant/operation/claim IDs, expected release and protocol, and
