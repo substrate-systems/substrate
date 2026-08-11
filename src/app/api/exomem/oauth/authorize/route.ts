@@ -29,6 +29,7 @@ type AuthorizeStage =
   | "post_callback";
 
 type AuthorizeErrorClass = "error" | "non_error";
+type AuthorizeRejectionStage = "client_resolution" | "redirect_validation";
 
 const SAFE_NODE_ERROR_CODES = new Set([
   "EAI_AGAIN",
@@ -74,6 +75,10 @@ function logOperationalFailure(stage: AuthorizeStage, caught: unknown): void {
     error_class: errorClass,
     ...(errorCode ? { error_code: errorCode } : {}),
   });
+}
+
+function logAuthorizeRejection(stage: AuthorizeRejectionStage): void {
+  console.error({ event: "exomem_oauth_authorize_rejection", stage });
 }
 
 function parameter(params: URLSearchParams, name: string): string | null {
@@ -133,10 +138,16 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (!clientId || clientId.length > 2048) return error();
     stage = "client_resolution";
     const client = await resolveApprovedOAuthClient(clientId);
-    if (!client) return error();
+    if (!client) {
+      logAuthorizeRejection("client_resolution");
+      return error();
+    }
     stage = "redirect_validation";
     const redirectUri = parameter(url.searchParams, "redirect_uri");
-    if (!redirectUri || !client.redirectUris.includes(redirectUri)) return error();
+    if (!redirectUri || !client.redirectUris.includes(redirectUri)) {
+      logAuthorizeRejection("redirect_validation");
+      return error();
+    }
     callback = { redirectUri, state: callbackState(url.searchParams) };
     stage = "post_callback";
     const parameters = parseAuthorizeParameters(url.searchParams);

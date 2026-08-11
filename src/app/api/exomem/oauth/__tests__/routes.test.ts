@@ -409,7 +409,7 @@ describe("Exomem OAuth routes", () => {
     }
   });
 
-  it("keeps invalid clients and redirects local without an operational-failure log", async () => {
+  it("keeps invalid clients and redirects local with fixed rejection stages", async () => {
     const { GET } = await import("../authorize/route");
     const logged: unknown[][] = [];
     const originalError = console.error;
@@ -427,7 +427,27 @@ describe("Exomem OAuth routes", () => {
       assert.deepEqual(await invalidClient.json(), { error: "invalid_request" });
       assert.equal(invalidRedirect.status, 400);
       assert.deepEqual(await invalidRedirect.json(), { error: "invalid_request" });
-      assert.deepEqual(logged, []);
+      assert.deepEqual(logged, [
+        [
+          {
+            event: "exomem_oauth_authorize_rejection",
+            stage: "client_resolution",
+          },
+        ],
+        [
+          {
+            event: "exomem_oauth_authorize_rejection",
+            stage: "redirect_validation",
+          },
+        ],
+      ]);
+      assert.deepEqual(
+        logged.map(([entry]) => Object.keys(entry as Record<string, unknown>).sort()),
+        [
+          ["event", "stage"],
+          ["event", "stage"],
+        ]
+      );
     } finally {
       console.error = originalError;
     }
