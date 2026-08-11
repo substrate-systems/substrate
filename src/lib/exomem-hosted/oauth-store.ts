@@ -219,6 +219,7 @@ export async function createAuthorizationTransaction(input: {
         SELECT count(*) FROM exomem_oauth_authorization_transactions
         WHERE consumed_at IS NULL AND expires_at > now()
       ) < ${MAX_PENDING_OAUTH_AUTHORIZATIONS}
+    ON CONFLICT DO NOTHING
     RETURNING id
   `;
     const row = rows[0] as { id: string } | undefined;

@@ -53,6 +53,42 @@ async function transaction<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   }
 }
 
+async function createBootstrapFixture(sequence: number) {
+  const candidateId = await storeRetainedExomemAgentContractCandidate("0.39.2");
+  const candidate = await pool!.query<{ schema_digest: string; compatibility_digest: string }>(
+    "SELECT schema_digest, compatibility_digest FROM exomem_agent_contract_candidates WHERE id = $1",
+    [candidateId]
+  );
+  const fixtureClientId = `bootstrap-race-client-${sequence}`;
+  const fixtureRedirect = `http://127.0.0.1:${48000 + sequence}/callback`;
+  const config = oauthClientConfigSha256({
+    platform: "claude", admissionMode: "pinned", clientId: fixtureClientId, redirectUris: [fixtureRedirect],
+  });
+  const stage = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_staged_client_releases (
+       candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+       contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest, expires_at
+     ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.39.2', $6, $7, now() + interval '20 minutes') RETURNING id`,
+    [candidateId, "a".repeat(64), "b".repeat(64), candidate.rows[0]!.compatibility_digest,
+      candidate.rows[0]!.schema_digest, config, "c".repeat(64)]
+  );
+  const client = await pool!.query<{ id: string; authority_version: string }>(
+    `INSERT INTO exomem_oauth_clients (
+       client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform, oauth_client_config_sha256
+     ) VALUES ($1, 'pinned', false, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'claude', $3)
+     RETURNING id, authority_version`,
+    [fixtureClientId, JSON.stringify([fixtureRedirect]), config]
+  );
+  const invite = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_invites (
+       token_digest, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits,
+       marketplace_reviewer_purpose, created_by_principal_digest, delivery_state, delivered_at, expires_at
+     ) VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, true, $3, 'sent', now(), now() + interval '20 minutes') RETURNING id`,
+    [digest(sequence * 100), `bootstrap-race-${sequence}@example.test`, digest(sequence * 100 + 1)]
+  );
+  return { candidateId, clientId: fixtureClientId, redirectUri: fixtureRedirect, config, stageId: stage.rows[0]!.id, clientIdRecord: client.rows[0]!.id, inviteId: invite.rows[0]!.id };
+}
+
 describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `oauth_bootstrap_${randomUUID().replaceAll("-", "")}`;
@@ -302,6 +338,65 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         [authorityB!.id]
       ),
       /immutable/
+    );
+  });
+
+  it("serializes concurrent authority creation without mutating the losing client", async () => {
+    const fixture = await createBootstrapFixture(20);
+    const create = () => createReviewerOAuthBootstrapAuthority({
+      inviteId: fixture.inviteId,
+      stagedClientReleaseId: fixture.stageId,
+      oauthClientId: fixture.clientIdRecord,
+      expiresAt: new Date(Date.now() + 10 * 60_000),
+      operatorPrincipalDigest: digest(2001),
+    });
+    const settled = await Promise.allSettled([create(), create()]);
+    assert.equal(settled.filter((result) => result.status === "fulfilled" && result.value !== null).length, 1);
+    assert.equal(settled.filter((result) => result.status === "rejected").length, 0);
+    assert.deepEqual(
+      (await pool!.query(`SELECT state FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE invite_id = $1`, [fixture.inviteId])).rows,
+      [{ state: "active" }]
+    );
+    await pool!.query(
+      `UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities SET state = 'revoked', revoked_at = now()
+       WHERE invite_id = $1`, [fixture.inviteId]
+    );
+  });
+
+  it("serializes authorization and redemption into one complete bootstrap graph", async () => {
+    const fixture = await createBootstrapFixture(21);
+    const authority = await createReviewerOAuthBootstrapAuthority({
+      inviteId: fixture.inviteId, stagedClientReleaseId: fixture.stageId, oauthClientId: fixture.clientIdRecord,
+      expiresAt: new Date(Date.now() + 10 * 60_000), operatorPrincipalDigest: digest(2101),
+    });
+    assert.ok(authority);
+    const authorize = (n: number) => createAuthorizationTransaction({
+      transactionDigest: digest(2110 + n), stateDigest: digest(2120 + n),
+      stateEnvelope: { version: 1, algorithm: "A256GCM", iv: "iv", ciphertext: "cipher", tag: "tag" },
+      formNonceDigest: digest(2130 + n), continuationBinding: digest(2140 + n),
+      clientId: fixture.clientId, redirectUri: fixture.redirectUri, resource, scopes: ["exomem.read"],
+      pkceChallenge: `race-${n}`, expiresAt: new Date(Date.now() + 10 * 60_000),
+    });
+    const authorizations = await Promise.allSettled([authorize(1), authorize(2)]);
+    assert.equal(authorizations.filter((result) => result.status === "fulfilled" && result.value).length, 1);
+    assert.equal(authorizations.filter((result) => result.status === "rejected").length, 0);
+    const transactionRow = await pool!.query<{ transaction_digest: Buffer }>(
+      `SELECT transaction_digest FROM exomem_oauth_authorization_transactions
+       WHERE reviewer_bootstrap_authority_id = $1`, [authority!.id]
+    );
+    assert.equal(transactionRow.rows.length, 1);
+    const txDigest = transactionRow.rows[0]!.transaction_digest;
+    const redeem = (n: number) => admitFirstOAuthInviteAtomic({
+      inviteDigest: digest(2100), transactionDigest: txDigest, sessionDigest: digest(2150 + n), csrfDigest: digest(2160 + n),
+      sessionExpiresAt: new Date(Date.now() + 10 * 60_000), codeDigest: digest(2170 + n), codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+    });
+    const redemptions = await Promise.allSettled([redeem(1), redeem(2)]);
+    assert.equal(redemptions.filter((result) => result.status === "fulfilled" && result.value !== null).length, 1);
+    assert.equal(redemptions.filter((result) => result.status === "rejected").length, 0);
+    assert.deepEqual(
+      (await pool!.query(`SELECT state, count(*)::text AS count FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities
+        WHERE id = $1 GROUP BY state`, [authority!.id])).rows,
+      [{ state: "consumed", count: "1" }]
     );
   });
 });

@@ -200,6 +200,10 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
             SELECT 1 FROM exomem_hosted_alpha_cohort
           )
           AND NOT EXISTS (
+            SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities
+            WHERE state = 'active'
+          )
+          AND NOT EXISTS (
             SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
             WHERE assignment.marketplace_reviewer_purpose = true
               AND assignment.state = 'active' AND assignment.expires_at > now()
