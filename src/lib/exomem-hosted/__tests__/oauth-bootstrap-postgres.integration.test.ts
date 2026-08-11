@@ -65,17 +65,45 @@ async function transaction<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   }
 }
 
-async function waitForCohortLockWaiter(): Promise<void> {
+async function waitForCohortLockWaiters(expected = 1): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const { rows } = await pool!.query<{ waiting: number }>(
+      `SELECT count(*)::int AS waiting
+       FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`
+    );
+    if ((rows[0]?.waiting ?? 0) >= expected) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`expected ${expected} cohort lock waiter(s)`);
+}
+
+async function waitForAuthorityWallExpiry(authorityId: string): Promise<void> {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const { rows } = await pool!.query<{ expired: boolean }>(
+      `SELECT clock_timestamp() >= expires_at AS expired
+       FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = $1`,
+      [authorityId]
+    );
+    if (rows[0]?.expired) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("bootstrap authority did not reach wall-clock expiry");
+}
+
+async function waitForBlockedQuery(pattern: string): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const { rows } = await pool!.query<{ waiting: boolean }>(
       `SELECT EXISTS (
-         SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
-       ) AS waiting`
+         SELECT 1 FROM pg_stat_activity
+         WHERE pid <> pg_backend_pid() AND datname = current_database()
+           AND query LIKE $1 AND wait_event_type = 'Lock'
+       ) AS waiting`,
+      [pattern]
     );
     if (rows[0]?.waiting) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("bootstrap redemption did not wait for the cohort lock");
+  throw new Error(`query did not block for pattern ${pattern}`);
 }
 
 async function setCapacity(slots = 4): Promise<void> {
@@ -1277,8 +1305,176 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
     );
   });
 
-  it("serializes a candidate promotion winner ahead of redemption without a partial graph", async () => {
+  it("rejects redemption begun before expiry when the cohort lock is acquired after expiry", async () => {
+    const prepared = await prepareBootstrap(79, 2_500);
+    const before = await bootstrapGraphSnapshot();
+    const blocker = await pool!.connect();
+    let redemption: Promise<Awaited<ReturnType<typeof admitFirstOAuthInviteAtomic>>> | undefined;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
+      redemption = admitFirstOAuthInviteAtomic(prepared.redeemInput);
+      await waitForCohortLockWaiters();
+      assert.equal(
+        (
+          await pool!.query<{ unexpired: boolean }>(
+            `SELECT clock_timestamp() < expires_at AS unexpired
+             FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = $1`,
+            [prepared.authority.id]
+          )
+        ).rows[0]?.unexpired,
+        true
+      );
+      await waitForAuthorityWallExpiry(prepared.authority.id);
+      await blocker.query("COMMIT");
+    } catch (error) {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      blocker.release();
+    }
+    assert.equal(await redemption!, null);
+    assert.deepEqual(await bootstrapGraphSnapshot(), before);
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT authority.state, client.enabled,
+                  invite.consumed_at AS invite_consumed_at,
+                  transaction.consumed_at AS transaction_consumed_at
+           FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+           JOIN exomem_oauth_clients AS client ON client.id = authority.oauth_client_id
+           JOIN exomem_invites AS invite ON invite.id = authority.invite_id
+           JOIN exomem_oauth_authorization_transactions AS transaction
+             ON transaction.reviewer_bootstrap_authority_id = authority.id
+           WHERE authority.id = $1`,
+          [prepared.authority.id]
+        )
+      ).rows,
+      [
+        {
+          state: "expired",
+          enabled: false,
+          invite_consumed_at: null,
+          transaction_consumed_at: null,
+        },
+      ]
+    );
+  });
+
+  it("serializes a queued revocation winner ahead of a concurrent redemption", async () => {
+    const prepared = await prepareBootstrap(80);
+    const before = await bootstrapGraphSnapshot();
+    const blocker = await pool!.connect();
+    let revocation: Promise<boolean> | undefined;
+    let redemption: Promise<Awaited<ReturnType<typeof admitFirstOAuthInviteAtomic>>> | undefined;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
+      revocation = revokeReviewerOAuthBootstrapAuthority({ authorityId: prepared.authority.id });
+      await waitForCohortLockWaiters();
+      redemption = admitFirstOAuthInviteAtomic(prepared.redeemInput);
+      await waitForCohortLockWaiters(2);
+      await blocker.query("COMMIT");
+    } catch (error) {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      blocker.release();
+    }
+    const [revoked, redeemed] = await Promise.all([revocation!, redemption!]);
+    assert.equal(revoked, true);
+    assert.equal(redeemed, null);
+    assert.deepEqual(await bootstrapGraphSnapshot(), before);
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT authority.state, client.enabled,
+                  invite.consumed_at AS invite_consumed_at,
+                  transaction.consumed_at AS transaction_consumed_at
+           FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+           JOIN exomem_oauth_clients AS client ON client.id = authority.oauth_client_id
+           JOIN exomem_invites AS invite ON invite.id = authority.invite_id
+           JOIN exomem_oauth_authorization_transactions AS transaction
+             ON transaction.reviewer_bootstrap_authority_id = authority.id
+           WHERE authority.id = $1`,
+          [prepared.authority.id]
+        )
+      ).rows,
+      [
+        {
+          state: "revoked",
+          enabled: false,
+          invite_consumed_at: null,
+          transaction_consumed_at: null,
+        },
+      ]
+    );
+  });
+
+  it("loses a concurrent final-capacity race without mutation and retries exact inputs", async () => {
     const prepared = await prepareBootstrap(81);
+    await setCapacity(1);
+    const capacityWinner = await pool!.connect();
+    let redemption: Promise<Awaited<ReturnType<typeof admitFirstOAuthInviteAtomic>>> | undefined;
+    try {
+      await capacityWinner.query("BEGIN");
+      await capacityWinner.query(
+        `SELECT id FROM exomem_capacity_pools
+         WHERE pool_key = 'exomem-hosted-alpha' FOR UPDATE`
+      );
+      redemption = admitFirstOAuthInviteAtomic(prepared.redeemInput);
+      await waitForBlockedQuery("%UPDATE exomem_capacity_pools AS pool%reserved_storage_bytes%");
+      const wonCapacity = await capacityWinner.query(
+        `UPDATE exomem_capacity_pools
+         SET reserved_storage_bytes = reserved_storage_bytes + $1,
+             reserved_runtime_slots = reserved_runtime_slots + 1,
+             reserved_provision_slots = reserved_provision_slots + 1,
+             updated_at = clock_timestamp()
+         WHERE pool_key = 'exomem-hosted-alpha'
+           AND storage_capacity_bytes >= reserved_storage_bytes + $1
+           AND runtime_capacity_slots >= reserved_runtime_slots + 1
+           AND provision_reservation_capacity >= reserved_provision_slots + 1
+         RETURNING id`,
+        [EXOMEM_ALPHA_CAPACITY.storageBytes]
+      );
+      assert.equal(wonCapacity.rowCount, 1);
+      await capacityWinner.query("COMMIT");
+    } catch (error) {
+      await capacityWinner.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      capacityWinner.release();
+    }
+    await assert.rejects(
+      redemption!,
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CAPACITY_UNAVAILABLE"
+    );
+    assert.deepEqual(await bootstrapGraphSnapshot(), {
+      users: "0",
+      tenants: "0",
+      entitlements: "0",
+      assignments: "0",
+      operations: "0",
+      allocations: "0",
+      sessions: "0",
+      grants: "0",
+      codes: "0",
+      families: "0",
+      access_tokens: "0",
+      refresh_tokens: "0",
+      reserved_storage_bytes: String(EXOMEM_ALPHA_CAPACITY.storageBytes),
+      reserved_runtime_slots: "1",
+      reserved_provision_slots: "1",
+    });
+    await assertBootstrapReusable(prepared);
+
+    await setCapacity(1);
+    assert.ok(await admitFirstOAuthInviteAtomic(prepared.redeemInput));
+  });
+
+  it("serializes a candidate promotion winner ahead of redemption without a partial graph", async () => {
+    const prepared = await prepareBootstrap(82);
     const before = await bootstrapGraphSnapshot();
     const promoter = await pool!.connect();
     let redemption: Promise<Awaited<ReturnType<typeof admitFirstOAuthInviteAtomic>>> | undefined;
@@ -1296,7 +1492,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         1
       );
       redemption = admitFirstOAuthInviteAtomic(prepared.redeemInput);
-      await waitForCohortLockWaiter();
+      await waitForCohortLockWaiters();
       await promoter.query("COMMIT");
     } catch (error) {
       await promoter.query("ROLLBACK").catch(() => undefined);
@@ -1334,7 +1530,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
   });
 
   it("claims the committed operation immediately with the exact 0.39.2 assignment target", async () => {
-    const prepared = await prepareBootstrap(82);
+    const prepared = await prepareBootstrap(83);
     const redeemed = await admitFirstOAuthInviteAtomic(prepared.redeemInput);
     assert.ok(redeemed);
 

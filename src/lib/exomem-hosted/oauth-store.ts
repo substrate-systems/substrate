@@ -643,7 +643,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
     SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits
     FROM exomem_invites
     WHERE token_digest = ${input.inviteDigest} AND consumed_at IS NULL AND revoked_at IS NULL
-      AND expires_at > now() AND marketplace_reviewer_purpose = true
+      AND expires_at > clock_timestamp() AND marketplace_reviewer_purpose = true
       AND delivery_state = 'sent' AND delivered_at IS NOT NULL
     FOR UPDATE
   `;
@@ -668,7 +668,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
     JOIN exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
       ON authority.id = transaction.reviewer_bootstrap_authority_id
      AND authority.id = ${authorityId}::uuid
-     AND authority.state = 'active' AND authority.expires_at > now()
+     AND authority.state = 'active' AND authority.expires_at > clock_timestamp()
      AND authority.invite_id = ${invite.id}::uuid
     JOIN exomem_oauth_clients AS client
       ON client.id = transaction.client_id
@@ -678,7 +678,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
      AND client.redirect_uris_digest = authority.redirect_uri_digest
      AND client.enabled = true
     WHERE transaction.transaction_digest = ${input.transactionDigest}
-      AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
+      AND transaction.consumed_at IS NULL AND transaction.expires_at > clock_timestamp()
     FOR UPDATE OF transaction, client
   `;
   const authorization = authorizationResult.rows[0] as
@@ -719,7 +719,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
       ON stage.id = authority.staged_client_release_id
      AND stage.candidate_id = candidate.id
      AND stage.platform = authority.stage_platform
-     AND stage.state = 'staged' AND stage.expires_at > now()
+     AND stage.state = 'staged' AND stage.expires_at > clock_timestamp()
      AND stage.contract_sha256 = authority.candidate_schema_digest
      AND stage.compatibility_sha256 = authority.candidate_compatibility_digest
      AND stage.oauth_client_config_sha256 = authority.stage_config_sha256
@@ -728,7 +728,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
       AND authority.candidate_id = ${authorization.candidate_id}::uuid
       AND authority.staged_client_release_id = ${authorization.staged_client_release_id}::uuid
       AND authority.oauth_client_id = ${authorization.oauth_client_id}::uuid
-      AND authority.expires_at > now()
+      AND authority.expires_at > clock_timestamp()
     FOR UPDATE OF candidate, stage
   `;
   const target = targetResult.rows[0] as
@@ -751,12 +751,12 @@ async function admitReviewerOAuthBootstrapInTransaction(
        OR EXISTS (
          SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
          WHERE assignment.marketplace_reviewer_purpose = true
-           AND assignment.state = 'active' AND assignment.expires_at > now()
+           AND assignment.state = 'active' AND assignment.expires_at > clock_timestamp()
        )
        OR EXISTS (
          SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
          WHERE credential.credential_kind = 'internal_canary'
-           AND credential.revoked_at IS NULL AND credential.expires_at > now()
+           AND credential.revoked_at IS NULL AND credential.expires_at > clock_timestamp()
        )
        OR EXISTS (
          SELECT 1 FROM exomem_tenants AS tenant
@@ -889,7 +889,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
           outcome_assignment_id = ${assignment.id}::uuid, outcome_assignment_generation = ${assignment.generation},
           outcome_operation_id = ${operation.id}::uuid, outcome_session_id = ${session.id}::uuid,
           outcome_grant_id = ${grant.id}::uuid
-      WHERE id = ${authorityId}::uuid AND state = 'active' AND expires_at > now()
+      WHERE id = ${authorityId}::uuid AND state = 'active' AND expires_at > clock_timestamp()
       RETURNING oauth_client_id
     )
     UPDATE exomem_oauth_clients AS client
@@ -925,6 +925,25 @@ export async function admitFirstOAuthInviteAtomic(input: {
   try {
     return await withExomemTransaction(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+      // PostgreSQL now() is fixed at transaction start, but this lock wait may
+      // cross the authority's expiry. Retire against wall time before rechecks.
+      const expiredBootstrapResult = await tx`
+        WITH expired AS (
+          UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+          SET state = 'expired', expired_at = clock_timestamp()
+          FROM exomem_oauth_authorization_transactions AS transaction
+          WHERE transaction.transaction_digest = ${input.transactionDigest}
+            AND transaction.reviewer_bootstrap_authority_id = authority.id
+            AND authority.state = 'active'
+            AND authority.expires_at <= clock_timestamp()
+          RETURNING authority.oauth_client_id
+        )
+        UPDATE exomem_oauth_clients AS client
+        SET enabled = false, authority_version = gen_random_uuid(), updated_at = clock_timestamp()
+        WHERE client.id IN (SELECT oauth_client_id FROM expired)
+        RETURNING client.id
+      `;
+      if (expiredBootstrapResult.rows[0]) return null;
       const bootstrapResult = await tx`
         /* exomem:lock-reviewer-oauth-bootstrap-authority */
         SELECT authority.id
@@ -932,7 +951,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
         JOIN exomem_oauth_authorization_transactions AS transaction
           ON transaction.reviewer_bootstrap_authority_id = authority.id
         WHERE transaction.transaction_digest = ${input.transactionDigest}
-          AND authority.state = 'active' AND authority.expires_at > now()
+          AND authority.state = 'active' AND authority.expires_at > clock_timestamp()
         FOR UPDATE OF authority
       `;
       const bootstrap = bootstrapResult.rows[0] as { id?: string } | undefined;
