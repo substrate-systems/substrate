@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import {
   OAuthProtocolError,
@@ -77,8 +78,27 @@ function logOperationalFailure(stage: AuthorizeStage, caught: unknown): void {
   });
 }
 
-function logAuthorizeRejection(stage: AuthorizeRejectionStage): void {
-  console.error({ event: "exomem_oauth_authorize_rejection", stage });
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function logAuthorizeRejection(
+  stage: AuthorizeRejectionStage,
+  redirectDiagnostics?: { requestedRedirectUri: string | null; approvedRedirectUris: string[] }
+): void {
+  console.error({
+    event: "exomem_oauth_authorize_rejection",
+    stage,
+    ...(redirectDiagnostics
+      ? {
+          requested_redirect_present: redirectDiagnostics.requestedRedirectUri !== null,
+          ...(redirectDiagnostics.requestedRedirectUri !== null
+            ? { requested_redirect_sha256: sha256(redirectDiagnostics.requestedRedirectUri) }
+            : {}),
+          approved_redirects_sha256: redirectDiagnostics.approvedRedirectUris.map(sha256),
+        }
+      : {}),
+  });
 }
 
 function parameter(params: URLSearchParams, name: string): string | null {
@@ -145,7 +165,10 @@ export async function GET(request: Request): Promise<NextResponse> {
     stage = "redirect_validation";
     const redirectUri = parameter(url.searchParams, "redirect_uri");
     if (!redirectUri || !client.redirectUris.includes(redirectUri)) {
-      logAuthorizeRejection("redirect_validation");
+      logAuthorizeRejection("redirect_validation", {
+        requestedRedirectUri: redirectUri,
+        approvedRedirectUris: client.redirectUris,
+      });
       return error();
     }
     callback = { redirectUri, state: callbackState(url.searchParams) };

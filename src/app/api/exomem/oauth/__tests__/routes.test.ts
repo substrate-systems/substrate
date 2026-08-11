@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { pkceS256 } from "@/lib/exomem-hosted/oauth";
 import { readOAuthForm } from "@/lib/exomem-hosted/oauth-http";
@@ -33,6 +34,7 @@ let admissionError: Error | null = null;
 let rateLimitAllowed = true;
 let oauthClientResolutions = 0;
 let oauthClientResolutionError: Error | null = null;
+let approvedRedirectUris = [REDIRECT_URI];
 let tokenStoreCalls = 0;
 const codes = new Map<
   string,
@@ -115,7 +117,7 @@ before(() => {
           ? {
               id: "018f2d91-7c42-7000-8000-000000000041",
               clientId: CLIENT_ID,
-              redirectUris: [REDIRECT_URI],
+              redirectUris: approvedRedirectUris,
               admissionMode: "pinned",
             }
           : null;
@@ -295,6 +297,7 @@ beforeEach(() => {
   rateLimitAllowed = true;
   oauthClientResolutions = 0;
   oauthClientResolutionError = null;
+  approvedRedirectUris = [REDIRECT_URI];
   tokenStoreCalls = 0;
   codes.clear();
   refreshCredentials.clear();
@@ -409,24 +412,50 @@ describe("Exomem OAuth routes", () => {
     }
   });
 
-  it("keeps invalid clients and redirects local with fixed rejection stages", async () => {
+  it("keeps invalid clients local and logs only redirect URI fingerprints", async () => {
     const { GET } = await import("../authorize/route");
+    const rawClient = "raw-client-sentinel";
+    const rawState = "raw-state-sentinel";
+    const rawResource = "https://resource.example.test/raw-resource-sentinel";
+    const requestedRedirect = "https://attacker.example.test/raw-redirect-sentinel";
+    const approvedRedirects = [
+      "https://client.example.test/approved-redirect-sentinel-a",
+      "https://client.example.test/approved-redirect-sentinel-b",
+    ];
     const logged: unknown[][] = [];
     const originalError = console.error;
+    approvedRedirectUris = approvedRedirects;
     console.error = (...args: unknown[]) => logged.push(args);
 
     try {
-      const invalidClient = await GET(authorizeRequest("client-state", { client_id: "unknown" }));
+      const invalidClient = await GET(authorizeRequest(rawState, { client_id: rawClient }));
       const invalidRedirect = await GET(
-        authorizeRequest("client-state", {
-          redirect_uri: "https://attacker.example.test/oauth/callback",
+        authorizeRequest(rawState, {
+          redirect_uri: requestedRedirect,
+          resource: rawResource,
         })
+      );
+      const missingRedirectUrl = new URL(authorizeRequest(rawState, { resource: rawResource }).url);
+      missingRedirectUrl.searchParams.delete("redirect_uri");
+      const missingRedirect = await GET(
+        new Request(missingRedirectUrl, { headers: { "x-forwarded-for": "203.0.113.10" } })
       );
 
       assert.equal(invalidClient.status, 400);
       assert.deepEqual(await invalidClient.json(), { error: "invalid_request" });
+      assert.equal(invalidClient.headers.get("location"), null);
+      assert.equal(invalidClient.headers.get("cache-control"), "no-store");
+      assert.equal(invalidClient.headers.get("referrer-policy"), "no-referrer");
       assert.equal(invalidRedirect.status, 400);
       assert.deepEqual(await invalidRedirect.json(), { error: "invalid_request" });
+      assert.equal(invalidRedirect.headers.get("location"), null);
+      assert.equal(invalidRedirect.headers.get("cache-control"), "no-store");
+      assert.equal(invalidRedirect.headers.get("referrer-policy"), "no-referrer");
+      assert.equal(missingRedirect.status, 400);
+      assert.deepEqual(await missingRedirect.json(), { error: "invalid_request" });
+      assert.equal(missingRedirect.headers.get("location"), null);
+      assert.equal(missingRedirect.headers.get("cache-control"), "no-store");
+      assert.equal(missingRedirect.headers.get("referrer-policy"), "no-referrer");
       assert.deepEqual(logged, [
         [
           {
@@ -438,6 +467,23 @@ describe("Exomem OAuth routes", () => {
           {
             event: "exomem_oauth_authorize_rejection",
             stage: "redirect_validation",
+            requested_redirect_present: true,
+            requested_redirect_sha256: createHash("sha256")
+              .update(requestedRedirect, "utf8")
+              .digest("hex"),
+            approved_redirects_sha256: approvedRedirects.map((redirect) =>
+              createHash("sha256").update(redirect, "utf8").digest("hex")
+            ),
+          },
+        ],
+        [
+          {
+            event: "exomem_oauth_authorize_rejection",
+            stage: "redirect_validation",
+            requested_redirect_present: false,
+            approved_redirects_sha256: approvedRedirects.map((redirect) =>
+              createHash("sha256").update(redirect, "utf8").digest("hex")
+            ),
           },
         ],
       ]);
@@ -445,9 +491,25 @@ describe("Exomem OAuth routes", () => {
         logged.map(([entry]) => Object.keys(entry as Record<string, unknown>).sort()),
         [
           ["event", "stage"],
-          ["event", "stage"],
+          [
+            "approved_redirects_sha256",
+            "event",
+            "requested_redirect_present",
+            "requested_redirect_sha256",
+            "stage",
+          ],
+          ["approved_redirects_sha256", "event", "requested_redirect_present", "stage"],
         ]
       );
+      const serializedLogs = JSON.stringify(logged);
+      for (const rawSentinel of [
+        rawClient,
+        rawState,
+        rawResource,
+        requestedRedirect,
+        ...approvedRedirects,
+      ])
+        assert.equal(serializedLogs.includes(rawSentinel), false);
     } finally {
       console.error = originalError;
     }
@@ -514,7 +576,10 @@ describe("Exomem OAuth routes", () => {
       .getSetCookie()
       .filter((value) => value.startsWith("exomem_oauth_"));
     assert.equal(continuityCookies.length, 2);
-    assert.equal(continuityCookies.every((value) => /Path=\//i.test(value)), true);
+    assert.equal(
+      continuityCookies.every((value) => /Path=\//i.test(value)),
+      true
+    );
     const stored = continuations.get(digestKey(digestSecret(transaction)));
     assert.ok(stored);
     assert.deepEqual(
@@ -657,9 +722,7 @@ describe("Exomem OAuth routes", () => {
       .filter((value) => value.startsWith("exomem_oauth_"));
     assert.equal(clearedContinuityCookies.length, 2);
     assert.equal(
-      clearedContinuityCookies.every(
-        (value) => /Path=\//i.test(value) && /Max-Age=0/i.test(value)
-      ),
+      clearedContinuityCookies.every((value) => /Path=\//i.test(value) && /Max-Age=0/i.test(value)),
       true
     );
     assert.equal(admitCalls.length, 1);
