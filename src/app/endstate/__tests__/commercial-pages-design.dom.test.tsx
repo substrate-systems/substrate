@@ -38,7 +38,13 @@ describe("Endstate commercial pages", () => {
       assert.equal(document.querySelectorAll("[data-migration-comparison]").length, 2);
       assert.equal(document.querySelectorAll("[data-sponsorship-benefit]").length, 3);
 
-      const quoteLinks = [...document.querySelectorAll<HTMLAnchorElement>("a[href^='mailto:']")];
+      const quoteLinks = [
+        ...document.querySelectorAll<HTMLAnchorElement>("a[href^='mailto:']"),
+      ].filter(
+        (link) =>
+          new URL(link.href).searchParams.get("subject") ===
+          "Integration sponsorship enquiry — Endstate"
+      );
       assert.equal(quoteLinks.length, 2);
       for (const link of quoteLinks) {
         const mailto = new URL(link.href);
