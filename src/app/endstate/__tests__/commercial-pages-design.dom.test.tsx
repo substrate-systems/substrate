@@ -15,7 +15,9 @@ function renderSponsorshipPage(): string {
     const React = (await import("react")).default;
     const { renderToStaticMarkup } = await import("react-dom/server");
     const page = await import(${JSON.stringify(sponsorshipPageUrl)});
-    process.stdout.write(renderToStaticMarkup(React.createElement(page.default)));
+    const SponsorshipPage =
+      typeof page.default === "function" ? page.default : page.default.default;
+    process.stdout.write(renderToStaticMarkup(React.createElement(SponsorshipPage)));
   `;
   const result = spawnSync(
     process.execPath,
