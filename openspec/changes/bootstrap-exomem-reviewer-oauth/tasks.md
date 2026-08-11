@@ -9,4 +9,4 @@
 
 - [x] 2.1 Add focused migration, route, and real PostgreSQL redemption coverage
 - [x] 2.2 Document the one-shot operator procedure and rollback
-- [ ] 2.3 Extend real-Postgres race coverage for every promotion, expiry, and capacity race
+- [x] 2.3 Extend real-Postgres race coverage for every promotion, expiry, and capacity race
