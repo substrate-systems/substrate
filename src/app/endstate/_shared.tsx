@@ -1,23 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { c } from "./_palette";
 
-/* ── Palette ── */
-export const c = {
-  bg: "#0c0c0c",
-  elevated: "#141414",
-  card: "#1a1a1a",
-  cardHover: "#1e1e1e",
-  border: "#2a2a2a",
-  borderAccent: "#333",
-  text: "#e8e8e8",
-  textSec: "#999",
-  textMuted: "#666",
-  teal: "#2dd4bf",
-  green: "#22c55e",
-  copper: "#c87941",
-  blue: "#3b82f6",
-};
+export { c } from "./_palette";
 
 /* ── Fade-up animation helper ── */
 export const fadeUp = (delay = 0) => ({

@@ -9,6 +9,9 @@ import { JSDOM } from "jsdom";
 const sponsorshipPageUrl = pathToFileURL(
   resolve(process.cwd(), "src/app/endstate/sponsor-an-integration/page.tsx")
 ).href;
+const supportersPageUrl = pathToFileURL(
+  resolve(process.cwd(), "src/app/endstate/supporters/page.tsx")
+).href;
 
 function renderSponsorshipPage(): string {
   const script = `
@@ -28,7 +31,116 @@ function renderSponsorshipPage(): string {
   return result.stdout;
 }
 
+function renderSupportersPage(supportersMarkdown: string): string {
+  const script = `
+    const React = (await import("react")).default;
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    globalThis.fetch = async () => ({
+      ok: true,
+      text: async () => ${JSON.stringify(supportersMarkdown)},
+    });
+    const page = await import(${JSON.stringify(supportersPageUrl)});
+    const SupportersPage = typeof page.default === "function" ? page.default : page.default.default;
+    process.stdout.write(renderToStaticMarkup(await SupportersPage()));
+  `;
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "--eval", script],
+    { cwd: process.cwd(), encoding: "utf8" }
+  );
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout;
+}
+
 describe("Endstate commercial pages", () => {
+  it("loads the palette for server pages without crossing the client component boundary", () => {
+    for (const page of ["supporters/page.tsx", "sponsor-an-integration/page.tsx"]) {
+      const source = readFileSync(resolve(process.cwd(), "src/app/endstate", page), "utf8");
+
+      assert.match(source, /import\s+\{\s*c\s*\}\s+from\s+["']\.\.\/_palette["']/);
+      assert.doesNotMatch(source, /import\s+\{[^}]*\bc\b[^}]*\}\s+from\s+["']\.\.\/_shared["']/);
+    }
+  });
+
+  it("keeps the shared palette server-safe and concrete", () => {
+    const palette = readFileSync(resolve(process.cwd(), "src/app/endstate/_palette.ts"), "utf8");
+
+    assert.doesNotMatch(palette, /^["']use client["'];?$/m);
+    assert.match(palette, /export const c = \{/);
+    for (const [name, value] of [
+      ["bg", "#0c0c0c"],
+      ["elevated", "#141414"],
+      ["card", "#1a1a1a"],
+      ["border", "#2a2a2a"],
+      ["borderAccent", "#333"],
+      ["text", "#e8e8e8"],
+      ["teal", "#2dd4bf"],
+    ]) {
+      assert.match(palette, new RegExp(`${name}:\\s*["']${value}["']`));
+    }
+  });
+
+  it("renders concrete palette styles for integration sponsorship", () => {
+    const dom = new JSDOM(renderSponsorshipPage());
+    try {
+      const { document } = dom.window;
+      const migrationCard = document.querySelector<HTMLElement>("[data-migration-comparison]");
+      const quoteCta = [...document.querySelectorAll<HTMLAnchorElement>("a")].find(
+        (link) => link.textContent?.trim() === "Request a quote"
+      );
+
+      assert.ok(migrationCard);
+      assert.match(migrationCard.getAttribute("style") ?? "", /border:1px solid #2a2a2a/);
+      assert.doesNotMatch(migrationCard.getAttribute("style") ?? "", /undefined/);
+      assert.ok(quoteCta);
+      assert.match(quoteCta.getAttribute("style") ?? "", /background:#e8e8e8/);
+      assert.doesNotMatch(quoteCta.getAttribute("style") ?? "", /transparent|undefined/);
+    } finally {
+      dom.window.close();
+    }
+  });
+
+  it("renders the canonical supporter feed in order without tier labels", () => {
+    const dom = new JSDOM(
+      renderSupportersPage(
+        [
+          "# Endstate supporters",
+          "",
+          "## Supporters",
+          "- James E. Howard",
+          "- Ada Lovelace",
+          "- Lina Ortiz",
+          "",
+          "## Recognition",
+        ].join("\n")
+      )
+    );
+    try {
+      const { document } = dom.window;
+      const roster = document.querySelector<HTMLElement>("[data-supporter-roster]");
+      const supportCta = document.querySelector<HTMLAnchorElement>("[data-support-primary-cta]");
+
+      assert.ok(roster);
+      assert.match(roster.getAttribute("style") ?? "", /background:#1a1a1a/);
+      assert.match(roster.getAttribute("style") ?? "", /border:1px solid #2a2a2a/);
+      assert.deepEqual(
+        [...roster.querySelectorAll("li")].map((item) => item.textContent?.replace("◆", "").trim()),
+        ["James E. Howard", "Ada Lovelace", "Lina Ortiz"]
+      );
+      assert.doesNotMatch(
+        roster.textContent ?? "",
+        /Founding Supporter|Patron|Project Sponsor|tier|amount|transaction/i
+      );
+
+      assert.ok(supportCta);
+      assert.equal(supportCta.getAttribute("href"), "#support");
+      assert.match(supportCta.getAttribute("style") ?? "", /background:#2dd4bf/);
+      assert.doesNotMatch(supportCta.getAttribute("style") ?? "", /transparent|undefined/);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it("groups integration sponsorship into an outcome hero, comparison, benefits, and quote panel", () => {
     const dom = new JSDOM(renderSponsorshipPage());
     try {

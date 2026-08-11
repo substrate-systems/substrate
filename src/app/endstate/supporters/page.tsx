@@ -1,4 +1,5 @@
-import { c, EndstateFooter, Nav } from "../_shared";
+import { c } from "../_palette";
+import { EndstateFooter, Nav } from "../_shared";
 import { SupportTiers } from "./SupportTiers";
 
 // Single source of truth: SUPPORTERS.md in the open-source engine repo. This page
@@ -45,7 +46,7 @@ export default async function SupportersPage() {
       >
         <Nav />
 
-        <section className="pt-32 sm:pt-40 pb-20 sm:pb-28 px-6">
+        <section className="pt-32 sm:pt-40 pb-14 sm:pb-20 px-6">
           <div
             className="mx-auto grid gap-8 lg:grid-cols-[1.3fr_0.7fr] lg:items-end"
             style={{ maxWidth: 1100 }}
@@ -91,12 +92,14 @@ export default async function SupportersPage() {
               </p>
               <a
                 href="#support"
+                data-support-primary-cta
                 className="inline-block py-3 px-6 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
                 style={{
-                  background: c.text,
+                  background: c.teal,
                   color: c.bg,
                   fontSize: "0.95rem",
                   textDecoration: "none",
+                  boxShadow: "0 8px 24px rgba(45,212,191,0.24)",
                 }}
               >
                 Support Endstate
@@ -176,8 +179,13 @@ export default async function SupportersPage() {
             </div>
 
             <div
+              data-supporter-roster
               className="rounded-2xl p-6 sm:p-8"
-              style={{ background: c.card, border: `1px solid ${c.border}` }}
+              style={{
+                background: c.card,
+                border: `1px solid ${c.border}`,
+                boxShadow: "0 12px 32px rgba(0,0,0,0.18)",
+              }}
             >
               {supporters.length > 0 ? (
                 <ul
