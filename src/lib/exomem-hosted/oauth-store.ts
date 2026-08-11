@@ -1,7 +1,6 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
-import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
 import type { SecretEnvelope } from "./security";
 
 export type OAuthTokenContext = {
@@ -698,22 +697,30 @@ async function admitReviewerOAuthBootstrapInTransaction(
   if (!authorization) throw new OAuthAdmissionRejected();
 
   const targetResult = await tx`
-    SELECT candidate.id, candidate.source_release, candidate.protocol_version,
-           candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest,
+    SELECT candidate.id, authority.candidate_source_release AS source_release,
+           authority.candidate_protocol_version AS protocol_version,
+           authority.candidate_gateway_contract_digest AS gateway_contract_digest,
+           authority.candidate_command_fingerprint AS command_fingerprint,
+           authority.candidate_schema_digest AS schema_digest,
+           authority.candidate_compatibility_digest AS compatibility_digest,
            stage.id AS stage_id
     FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
     JOIN exomem_agent_contract_candidates AS candidate
       ON candidate.id = authority.candidate_id
      AND candidate.profile_id = 'hosted-alpha-agent-v1'
      AND candidate.state = 'pending'
-     AND candidate.source_release = ${exomemContractFixture0392.release}
-     AND candidate.protocol_version = ${exomemContractFixture0392.protocol}
-     AND candidate.schema_digest = authority.candidate_contract_digest
+     AND candidate.source_release = authority.candidate_source_release
+     AND candidate.protocol_version = authority.candidate_protocol_version
+     AND candidate.command_fingerprint = authority.candidate_command_fingerprint
+     AND candidate.schema_digest = authority.candidate_schema_digest
+     AND candidate.compatibility_digest = authority.candidate_compatibility_digest
     JOIN exomem_staged_client_releases AS stage
       ON stage.id = authority.staged_client_release_id
      AND stage.candidate_id = candidate.id
      AND stage.platform = authority.stage_platform
      AND stage.state = 'staged' AND stage.expires_at > now()
+     AND stage.contract_sha256 = authority.candidate_schema_digest
+     AND stage.compatibility_sha256 = authority.candidate_compatibility_digest
      AND stage.oauth_client_config_sha256 = authority.stage_config_sha256
      AND stage.oauth_client_config_sha256 = authority.oauth_client_config_sha256
     WHERE authority.id = ${authorityId}::uuid
@@ -728,6 +735,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
         id: string;
         source_release: string;
         protocol_version: string;
+        gateway_contract_digest: string;
         command_fingerprint: string;
         schema_digest: string;
         compatibility_digest: string;
@@ -810,7 +818,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
       marketplace_reviewer_purpose, created_by_principal_digest, expires_at
     ) VALUES (${tenant.id}::uuid, ${target.id}::uuid, 1, 'preparing', ${target.source_release},
       ${target.protocol_version}, ${target.command_fingerprint}, ${target.schema_digest},
-      ${target.compatibility_digest}, ${exomemContractFixture0392.digest}, true,
+      ${target.compatibility_digest}, ${target.gateway_contract_digest}, true,
       encode((SELECT operator_principal_digest FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = ${authorityId}::uuid), 'hex'),
       LEAST((SELECT expires_at FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = ${authorityId}::uuid),
             (SELECT expires_at FROM exomem_staged_client_releases WHERE id = ${target.stage_id}::uuid)))
@@ -826,7 +834,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
       target_schema_digest, target_compatibility_digest
     ) VALUES (${tenant.id}::uuid, 'provision', 'initial-provision', ${tenant.fence_generation},
       'exomem-cell-provisioner.v1', ${target.id}::uuid, ${assignment.id}::uuid, ${assignment.generation},
-      ${target.source_release}, ${target.protocol_version}, ${exomemContractFixture0392.digest},
+      ${target.source_release}, ${target.protocol_version}, ${target.gateway_contract_digest},
       ${target.command_fingerprint}, ${target.schema_digest}, ${target.compatibility_digest})
     RETURNING id
   `;

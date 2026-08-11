@@ -12,6 +12,12 @@ CREATE TABLE exomem_marketplace_reviewer_oauth_bootstrap_authorities (
   candidate_id uuid NOT NULL REFERENCES exomem_agent_contract_candidates(id) ON DELETE RESTRICT,
   candidate_profile_id text NOT NULL,
   candidate_contract_digest text NOT NULL CHECK (candidate_contract_digest ~ '^[a-f0-9]{64}$'),
+  candidate_source_release text NOT NULL,
+  candidate_protocol_version text NOT NULL,
+  candidate_gateway_contract_digest text NOT NULL CHECK (candidate_gateway_contract_digest ~ '^[a-f0-9]{64}$'),
+  candidate_command_fingerprint text NOT NULL CHECK (candidate_command_fingerprint ~ '^[a-f0-9]{64}$'),
+  candidate_schema_digest text NOT NULL CHECK (candidate_schema_digest ~ '^[a-f0-9]{64}$'),
+  candidate_compatibility_digest text NOT NULL CHECK (candidate_compatibility_digest ~ '^[a-f0-9]{64}$'),
   staged_client_release_id uuid NOT NULL REFERENCES exomem_staged_client_releases(id) ON DELETE RESTRICT,
   stage_platform text NOT NULL CHECK (stage_platform IN ('claude', 'openai')),
   stage_config_sha256 text NOT NULL CHECK (stage_config_sha256 ~ '^[a-f0-9]{64}$'),
@@ -39,8 +45,12 @@ CREATE TABLE exomem_marketplace_reviewer_oauth_bootstrap_authorities (
     OR (state = 'consumed' AND consumed_at IS NOT NULL AND revoked_at IS NULL AND expired_at IS NULL
       AND outcome_tenant_id IS NOT NULL AND outcome_assignment_id IS NOT NULL AND outcome_assignment_generation IS NOT NULL
       AND outcome_operation_id IS NOT NULL AND outcome_session_id IS NOT NULL AND outcome_grant_id IS NOT NULL)
-    OR (state = 'revoked' AND revoked_at IS NOT NULL AND consumed_at IS NULL AND expired_at IS NULL)
-    OR (state = 'expired' AND expired_at IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL)
+    OR (state = 'revoked' AND revoked_at IS NOT NULL AND consumed_at IS NULL AND expired_at IS NULL
+      AND outcome_tenant_id IS NULL AND outcome_assignment_id IS NULL AND outcome_assignment_generation IS NULL
+      AND outcome_operation_id IS NULL AND outcome_session_id IS NULL AND outcome_grant_id IS NULL)
+    OR (state = 'expired' AND expired_at IS NOT NULL AND consumed_at IS NULL AND revoked_at IS NULL
+      AND outcome_tenant_id IS NULL AND outcome_assignment_id IS NULL AND outcome_assignment_generation IS NULL
+      AND outcome_operation_id IS NULL AND outcome_session_id IS NULL AND outcome_grant_id IS NULL)
   )
 );
 
@@ -56,11 +66,18 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-  IF NEW.singleton IS DISTINCT FROM OLD.singleton
+  IF (OLD.state <> 'active' AND NEW IS DISTINCT FROM OLD)
+     OR NEW.singleton IS DISTINCT FROM OLD.singleton
      OR NEW.invite_id IS DISTINCT FROM OLD.invite_id
      OR NEW.candidate_id IS DISTINCT FROM OLD.candidate_id
      OR NEW.candidate_profile_id IS DISTINCT FROM OLD.candidate_profile_id
      OR NEW.candidate_contract_digest IS DISTINCT FROM OLD.candidate_contract_digest
+     OR NEW.candidate_source_release IS DISTINCT FROM OLD.candidate_source_release
+     OR NEW.candidate_protocol_version IS DISTINCT FROM OLD.candidate_protocol_version
+     OR NEW.candidate_gateway_contract_digest IS DISTINCT FROM OLD.candidate_gateway_contract_digest
+     OR NEW.candidate_command_fingerprint IS DISTINCT FROM OLD.candidate_command_fingerprint
+     OR NEW.candidate_schema_digest IS DISTINCT FROM OLD.candidate_schema_digest
+     OR NEW.candidate_compatibility_digest IS DISTINCT FROM OLD.candidate_compatibility_digest
      OR NEW.staged_client_release_id IS DISTINCT FROM OLD.staged_client_release_id
      OR NEW.stage_platform IS DISTINCT FROM OLD.stage_platform
      OR NEW.stage_config_sha256 IS DISTINCT FROM OLD.stage_config_sha256
@@ -71,7 +88,6 @@ BEGIN
      OR NEW.operator_principal_digest IS DISTINCT FROM OLD.operator_principal_digest
      OR NEW.created_at IS DISTINCT FROM OLD.created_at
      OR NEW.expires_at IS DISTINCT FROM OLD.expires_at
-     OR (OLD.state <> 'active' AND NEW.state IS DISTINCT FROM OLD.state)
      OR (OLD.state = 'active' AND NEW.state NOT IN ('active', 'consumed', 'revoked', 'expired'))
      OR (OLD.outcome_tenant_id IS NOT NULL AND (
        NEW.outcome_tenant_id IS DISTINCT FROM OLD.outcome_tenant_id

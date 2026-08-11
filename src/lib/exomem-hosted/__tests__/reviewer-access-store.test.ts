@@ -194,6 +194,10 @@ test("internal canary issuance seals invite setup state and binds exact staged a
   const query = queries.join("\n");
   assert.match(query, /provider, credential_kind[\s\S]*candidate_id, assignment_id, assignment_generation/i);
   assert.match(query, /credential_kind = 'internal_canary'/i);
+  assert.match(
+    query,
+    /bootstrap\.state = 'consumed'[\s\S]*bootstrap\.outcome_tenant_id = tenant\.id[\s\S]*bootstrap\.outcome_assignment_id = assignment\.id/i
+  );
   assert.match(query, /SELECT id, owner_user_id, tenant_id, expires_at FROM created/i);
   assert.match(query, /prior_sessions_revoked[\s\S]*reviewer_credential_id IN \(SELECT id FROM prior_revoked\)/i);
   assert.match(query, /prior_refresh_consumed[\s\S]*prior_families_revoked/i);

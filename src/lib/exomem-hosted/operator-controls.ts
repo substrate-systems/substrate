@@ -13,6 +13,7 @@ import {
   type CimdFetchedMetadata,
   type OperatorOAuthClientRegistration,
 } from "./oauth-client-admission";
+import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
 
 export type OperatorOAuthClient = {
   id: string;
@@ -30,6 +31,7 @@ export type ReviewerOAuthBootstrapAuthority = {
   expiresAt: string;
   outcomeTenantId: string | null;
   outcomeAssignmentId: string | null;
+  outcomeAssignmentGeneration: number | null;
   outcomeOperationId: string | null;
   outcomeSessionId: string | null;
   outcomeGrantId: string | null;
@@ -88,7 +90,7 @@ export async function listReviewerOAuthBootstrapAuthorities(): Promise<
   const { rows } = await executeExomemSql`
     /* exomem:list-reviewer-oauth-bootstrap-authorities */
     SELECT id::text AS id, state, expires_at, outcome_tenant_id::text AS outcome_tenant_id,
-           outcome_assignment_id::text AS outcome_assignment_id,
+           outcome_assignment_id::text AS outcome_assignment_id, outcome_assignment_generation,
            outcome_operation_id::text AS outcome_operation_id,
            outcome_session_id::text AS outcome_session_id, outcome_grant_id::text AS outcome_grant_id
     FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities
@@ -112,6 +114,10 @@ export async function listReviewerOAuthBootstrapAuthorities(): Promise<
         outcomeTenantId: typeof row.outcome_tenant_id === "string" ? row.outcome_tenant_id : null,
         outcomeAssignmentId:
           typeof row.outcome_assignment_id === "string" ? row.outcome_assignment_id : null,
+        outcomeAssignmentGeneration:
+          typeof row.outcome_assignment_generation === "number"
+            ? row.outcome_assignment_generation
+            : null,
         outcomeOperationId:
           typeof row.outcome_operation_id === "string" ? row.outcome_operation_id : null,
         outcomeSessionId:
@@ -163,13 +169,20 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
         FOR UPDATE
       ), stage AS (
         SELECT stage.id, stage.candidate_id, stage.platform, stage.oauth_client_config_sha256,
-               stage.expires_at, candidate.profile_id, candidate.schema_digest AS contract_sha256
+               stage.expires_at, candidate.profile_id, candidate.schema_digest AS contract_sha256,
+               candidate.source_release, candidate.protocol_version, candidate.command_fingerprint,
+               candidate.compatibility_digest
         FROM exomem_staged_client_releases AS stage
         JOIN exomem_agent_contract_candidates AS candidate
-          ON candidate.id = stage.candidate_id
-         AND candidate.profile_id = 'hosted-alpha-agent-v1' AND candidate.state = 'pending'
+         ON candidate.id = stage.candidate_id
+         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.source_release = ${exomemContractFixture0392.release}
+         AND candidate.protocol_version = ${exomemContractFixture0392.protocol}
+         AND candidate.state = 'pending'
         WHERE stage.id = ${input.stagedClientReleaseId}::uuid
-          AND stage.state = 'staged' AND stage.expires_at > now()
+         AND stage.state = 'staged' AND stage.expires_at > now()
+         AND stage.contract_sha256 = candidate.schema_digest
+         AND stage.compatibility_sha256 = candidate.compatibility_digest
         FOR UPDATE OF stage, candidate
       ), client AS (
         UPDATE exomem_oauth_clients AS client
@@ -208,11 +221,15 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
       ), authority AS (
         INSERT INTO exomem_marketplace_reviewer_oauth_bootstrap_authorities (
           state, invite_id, candidate_id, candidate_profile_id, candidate_contract_digest,
+          candidate_source_release, candidate_protocol_version, candidate_gateway_contract_digest,
+          candidate_command_fingerprint, candidate_schema_digest, candidate_compatibility_digest,
           staged_client_release_id, stage_platform, stage_config_sha256, oauth_client_id,
           oauth_client_authority_version, oauth_client_config_sha256, redirect_uri_digest,
           operator_principal_digest, expires_at
         )
         SELECT 'active', invite.id, stage.candidate_id, stage.profile_id, stage.contract_sha256,
+               stage.source_release, stage.protocol_version, ${exomemContractFixture0392.digest},
+               stage.command_fingerprint, stage.contract_sha256, stage.compatibility_digest,
                stage.id, stage.platform, stage.oauth_client_config_sha256, client.id,
                client.authority_version, client.oauth_client_config_sha256, client.redirect_uris_digest,
                ${input.operatorPrincipalDigest}, LEAST(${input.expiresAt.toISOString()}::timestamptz, invite.expires_at, stage.expires_at)
@@ -377,11 +394,13 @@ export async function registerOperatorOAuthClient(
             ELSE exomem_oauth_clients.enabled
           END,
           authority_version = gen_random_uuid(), updated_at = now()
-      WHERE exomem_oauth_clients.oauth_client_config_sha256 IS NULL
-         OR (
+        WHERE (
+          exomem_oauth_clients.oauth_client_config_sha256 IS NULL
+          OR (
            exomem_oauth_clients.client_platform = EXCLUDED.client_platform
            AND exomem_oauth_clients.oauth_client_config_sha256 = EXCLUDED.oauth_client_config_sha256
-         )
+          )
+        )
         AND exomem_oauth_clients.reviewer_bootstrap_ever_authorized = false
       RETURNING id, enabled
     `;

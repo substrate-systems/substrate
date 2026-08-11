@@ -257,14 +257,18 @@ is legacy-unmetered and does not reserve capacity.
    release `0.39.2`, the selected client release is still `staged`, capacity is
    configured, and there is no live cohort, active reviewer assignment,
    bound/ready reviewer cell, or active internal-canary credential.
-2. Create and deliver one reviewer-purpose operator invite. Confirm it is
+2. Create and deliver one reviewer-purpose operator invite. Confirm the invite
+   identity does not already own a tenant (`exomem_tenants.owner_user_id` is
+   unique); if it does, stop and issue a fresh alias invite. Confirm it is
    unconsumed, unrevoked, and has a remaining expiry longer than the review
    window. Register one matching pinned client with exactly one safe HTTP
    loopback redirect.
 3. Through the authenticated OAuth-client operator endpoint, create
    `create_reviewer_bootstrap` with only the invite ID, staged release ID,
    client record ID, and an expiry no more than 30 minutes away. Record only
-   the returned opaque authority ID and expiry; never copy redirects, codes,
+   the returned opaque authority ID and expiry. After consumption, record the
+   opaque assignment ID and returned assignment generation for exact
+   internal-canary issuance; never copy redirects, codes,
    or invite tokens into a ticket.
 4. Complete one clean OAuth authorization and redeem the delivered invite. The
    authority must become `consumed` with opaque tenant, assignment, operation,

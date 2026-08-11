@@ -13,6 +13,7 @@ import {
 } from "../oauth-store";
 import { oauthClientConfigSha256 } from "../oauth-client-admission";
 import { createReviewerOAuthBootstrapAuthority } from "../operator-controls";
+import { createInternalCanaryReviewerCredentialAtomic } from "../reviewer-access-store";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const clientId = "bootstrap-reviewer-client";
@@ -80,6 +81,10 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
 
   it("redeems one bounded authority into a complete nonlegacy reviewer graph", async () => {
     const candidateId = await storeRetainedExomemAgentContractCandidate("0.39.2");
+    const candidate = await pool!.query<{ schema_digest: string; compatibility_digest: string }>(
+      "SELECT schema_digest, compatibility_digest FROM exomem_agent_contract_candidates WHERE id = $1",
+      [candidateId]
+    );
     const config = oauthClientConfigSha256({
       platform: "claude",
       admissionMode: "pinned",
@@ -96,8 +101,8 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         candidateId,
         "a".repeat(64),
         "b".repeat(64),
-        "c".repeat(64),
-        "d".repeat(64),
+        candidate.rows[0]!.compatibility_digest,
+        candidate.rows[0]!.schema_digest,
         config,
         "e".repeat(64),
       ]
@@ -172,11 +177,14 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       authority_state: string;
       allocation_state: string;
       token_count: string;
+      outcome_tenant_id: string;
+      outcome_assignment_id: string;
     }>(
       `SELECT tenant.legacy_unmetered, assignment.state AS assignment_state, operation.operation_type,
               operation.target_candidate_id = $1::uuid AND operation.target_assignment_id = assignment.id
                 AND operation.target_assignment_generation = assignment.generation AS target_matches,
               operation.provisioner_wire_protocol, authority.state AS authority_state, allocation.state AS allocation_state,
+              authority.outcome_tenant_id, authority.outcome_assignment_id,
               (SELECT count(*) FROM exomem_oauth_access_tokens)::text AS token_count
        FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
        JOIN exomem_tenants AS tenant ON tenant.id = authority.outcome_tenant_id
@@ -195,8 +203,105 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         provisioner_wire_protocol: "exomem-cell-provisioner.v1",
         authority_state: "consumed",
         allocation_state: "reserved",
+        outcome_tenant_id: graph.rows[0]?.outcome_tenant_id,
+        outcome_assignment_id: graph.rows[0]?.outcome_assignment_id,
         token_count: "0",
       },
     ]);
+    await assert.rejects(
+      pool!.query(
+        `UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+         SET outcome_assignment_generation = 2 WHERE id = $1`,
+        [authority!.id]
+      ),
+      /immutable/
+    );
+
+    const candidateB = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_agent_contract_candidates (
+         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, mcp_protocol_versions, contract,
+         claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
+       ) SELECT 'pending', profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+                compatibility_digest, protocol_version, mcp_protocol_versions, contract,
+                claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
+         FROM exomem_agent_contract_candidates WHERE id = $1 RETURNING id`,
+      [candidateId]
+    );
+    const clientBId = "bootstrap-reviewer-client-b";
+    const configB = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "pinned",
+      clientId: clientBId,
+      redirectUris: ["http://127.0.0.1:47832/callback"],
+    });
+    const stageB = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_staged_client_releases (
+         candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest, expires_at
+       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.39.2', $6, $7, now() + interval '20 minutes') RETURNING id`,
+      [candidateB.rows[0]!.id, "1".repeat(64), "2".repeat(64), candidate.rows[0]!.compatibility_digest, candidate.rows[0]!.schema_digest, configB, "3".repeat(64)]
+    );
+    const clientB = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform, oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', false, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'claude', $3) RETURNING id`,
+      [clientBId, JSON.stringify(["http://127.0.0.1:47832/callback"]), configB]
+    );
+    const inviteB = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits,
+         marketplace_reviewer_purpose, created_by_principal_digest, delivery_state, delivered_at, expires_at
+       ) VALUES ($1, 'bootstrap-reviewer-b@example.test', 'complimentary', '[]'::jsonb, '{}'::jsonb,
+         true, $2, 'sent', now(), now() + interval '20 minutes') RETURNING id`,
+      [digest(11), digest(12)]
+    );
+    const authorityB = await createReviewerOAuthBootstrapAuthority({
+        inviteId: inviteB.rows[0]!.id,
+        stagedClientReleaseId: stageB.rows[0]!.id,
+        oauthClientId: clientB.rows[0]!.id,
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+        operatorPrincipalDigest: digest(13),
+      });
+    assert.ok(authorityB);
+    assert.equal(
+      await createInternalCanaryReviewerCredentialAtomic({
+        platform: "claude",
+        usernameDigest: digest(14),
+        passwordHash: "$argon2id$bootstrap-fence",
+        tenantId: graph.rows[0]!.outcome_tenant_id as string,
+        candidateId,
+        assignmentId: graph.rows[0]!.outcome_assignment_id as string,
+        assignmentGeneration: 1,
+        stagedClientReleaseId: stage.rows[0]!.id,
+        oauthClientId: client.rows[0]!.id,
+        fixtureVersion: "bootstrap-fence",
+        fixturePayloadDigest: "4".repeat(64),
+        operatorPrincipalDigest: digest(15),
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      }),
+      null
+    );
+    await pool!.query(
+      `UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+       SET state = 'revoked', revoked_at = now() WHERE id = $1`,
+      [authorityB!.id]
+    );
+    await assert.rejects(
+      pool!.query(
+        `UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+         SET outcome_tenant_id = $1 WHERE id = $2`,
+        [graph.rows[0]!.outcome_tenant_id, authorityB!.id]
+      ),
+      /check constraint|immutable/
+    );
+    await assert.rejects(
+      pool!.query(
+        `UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+         SET state = 'active', revoked_at = NULL WHERE id = $1`,
+        [authorityB!.id]
+      ),
+      /immutable/
+    );
   });
 });

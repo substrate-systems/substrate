@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -38,6 +38,10 @@ const MIGRATION_0035 = resolve(
 );
 const MIGRATION_0036 = resolve(process.cwd(), "migrations/0036_exomem_agent_contract_canaries.sql");
 const MIGRATION_0039 = resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql");
+const MIGRATION_0040 = resolve(
+  process.cwd(),
+  "migrations/0040_exomem_marketplace_reviewer_oauth_bootstrap.sql"
+);
 
 const USER = "11111111-1111-4111-8111-111111111191";
 const TENANT = "22222222-2222-4222-8222-222222222291";
@@ -703,5 +707,44 @@ describe("migration 0039 provisioner wire protocol safety", { skip: !DATABASE_UR
         /exomem_lifecycle_operations_provisioner_wire_protocol_check/i
       );
     });
+  });
+});
+
+describe("migration 0040 bootstrap authority upgrade safety", { skip: !DATABASE_URL }, () => {
+  it("preserves populated pre-0040 OAuth clients while adding bootstrap history", async () => {
+    const upgradeSchema = "exomem_upgrade_0040_bootstrap";
+    const migrationsDir = mkdtempSync(resolve(tmpdir(), "exomem-0040-upgrade-"));
+    const scoped = new URL(DATABASE_URL!);
+    scoped.searchParams.set("options", `-c search_path=${upgradeSchema},public`);
+    const pool = new Pool({ connectionString: DATABASE_URL });
+    const scopedPool = new Pool({ connectionString: scoped.toString() });
+    try {
+      for (const name of readdirSync(resolve(process.cwd(), "migrations"))) {
+        if (name <= "0039_exomem_provisioner_wire_protocol.sql")
+          copyFileSync(resolve(process.cwd(), "migrations", name), resolve(migrationsDir, name));
+      }
+      await pool.query(`DROP SCHEMA IF EXISTS ${upgradeSchema} CASCADE`);
+      await pool.query(`CREATE SCHEMA ${upgradeSchema}`);
+      await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
+      const legacy = await scopedPool.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+           client_platform, oauth_client_config_sha256)
+         VALUES ('pre-0040-client', 'pinned', false, '["http://127.0.0.1/callback"]'::jsonb,
+           digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'), 'claude', $1) RETURNING id`,
+        ["a".repeat(64)]
+      );
+      copyFileSync(MIGRATION_0040, resolve(migrationsDir, "0040_exomem_marketplace_reviewer_oauth_bootstrap.sql"));
+      await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
+      const verified = await scopedPool.query<{
+        id: string;
+        reviewer_bootstrap_ever_authorized: boolean;
+      }>("SELECT id, reviewer_bootstrap_ever_authorized FROM exomem_oauth_clients WHERE id = $1", [legacy.rows[0]!.id]);
+      assert.deepEqual(verified.rows, [{ id: legacy.rows[0]!.id, reviewer_bootstrap_ever_authorized: false }]);
+    } finally {
+      rmSync(migrationsDir, { recursive: true, force: true });
+      await scopedPool.end();
+      await pool.query(`DROP SCHEMA IF EXISTS ${upgradeSchema} CASCADE`).catch(() => undefined);
+      await pool.end();
+    }
   });
 });

@@ -303,13 +303,17 @@ export async function createInternalCanaryReviewerCredentialAtomic(
         WHERE tenant.id = ${input.tenantId}::uuid
           AND tenant.marketplace_reviewer_purpose = true
           AND tenant.deleted_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
+            WHERE bootstrap.state = 'active'
+          )
           AND (
             NOT EXISTS (
               SELECT 1
               FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
-              WHERE bootstrap.state IN ('active', 'consumed')
-            )
-            OR EXISTS (
+              WHERE bootstrap.state = 'consumed'
+            ) OR EXISTS (
               SELECT 1
               FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
               WHERE bootstrap.state = 'consumed'
