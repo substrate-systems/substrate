@@ -32,6 +32,7 @@ let admitCalls: Array<Record<string, unknown>> = [];
 let admissionError: Error | null = null;
 let rateLimitAllowed = true;
 let oauthClientResolutions = 0;
+let oauthClientResolutionError: Error | null = null;
 let tokenStoreCalls = 0;
 const codes = new Map<
   string,
@@ -109,6 +110,7 @@ before(() => {
     namedExports: {
       resolveApprovedOAuthClient: async (clientId: string) => {
         oauthClientResolutions += 1;
+        if (oauthClientResolutionError) throw oauthClientResolutionError;
         return clientId === CLIENT_ID
           ? {
               id: "018f2d91-7c42-7000-8000-000000000041",
@@ -292,6 +294,7 @@ beforeEach(() => {
   admissionError = null;
   rateLimitAllowed = true;
   oauthClientResolutions = 0;
+  oauthClientResolutionError = null;
   tokenStoreCalls = 0;
   codes.clear();
   refreshCredentials.clear();
@@ -367,6 +370,67 @@ describe("Exomem OAuth routes", () => {
     assert.equal(response.headers.get("retry-after"), "600");
     assert.equal(oauthClientResolutions, 0);
     assert.equal(continuations.size, 0);
+  });
+
+  it("returns a safe local outage response and log when client resolution throws", async () => {
+    const { GET } = await import("../authorize/route");
+    const sentinel = "authorize-runtime-sentinel";
+    const logged: unknown[][] = [];
+    const originalError = console.error;
+    const resolverError = Object.assign(new Error(sentinel), {
+      code: "XX000",
+      arbitrary: sentinel,
+    });
+    resolverError.stack = sentinel;
+    oauthClientResolutionError = resolverError;
+    console.error = (...args: unknown[]) => logged.push(args);
+
+    try {
+      const response = await GET(authorizeRequest());
+
+      assert.equal(response.status, 503);
+      assert.equal(response.headers.get("location"), null);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+      assert.deepEqual(await response.json(), { error: "temporarily_unavailable" });
+      assert.deepEqual(logged, [
+        [
+          {
+            event: "exomem_oauth_authorize_operational_failure",
+            stage: "client_resolution",
+            error_class: "error",
+            error_code: "XX000",
+          },
+        ],
+      ]);
+      assert.equal(JSON.stringify(logged).includes(sentinel), false);
+    } finally {
+      console.error = originalError;
+    }
+  });
+
+  it("keeps invalid clients and redirects local without an operational-failure log", async () => {
+    const { GET } = await import("../authorize/route");
+    const logged: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => logged.push(args);
+
+    try {
+      const invalidClient = await GET(authorizeRequest("client-state", { client_id: "unknown" }));
+      const invalidRedirect = await GET(
+        authorizeRequest("client-state", {
+          redirect_uri: "https://attacker.example.test/oauth/callback",
+        })
+      );
+
+      assert.equal(invalidClient.status, 400);
+      assert.deepEqual(await invalidClient.json(), { error: "invalid_request" });
+      assert.equal(invalidRedirect.status, 400);
+      assert.deepEqual(await invalidRedirect.json(), { error: "invalid_request" });
+      assert.deepEqual(logged, []);
+    } finally {
+      console.error = originalError;
+    }
   });
 
   it("returns approved authorization failures to the bound client with the original state", async () => {
