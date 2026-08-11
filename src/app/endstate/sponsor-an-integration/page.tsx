@@ -1,4 +1,5 @@
-import { c, EndstateFooter, Nav } from "../_shared";
+import { c } from "../_palette";
+import { EndstateFooter, Nav } from "../_shared";
 
 /**
  * Integration sponsorship.
