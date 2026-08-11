@@ -38,9 +38,9 @@ const MIGRATION_0035 = resolve(
 );
 const MIGRATION_0036 = resolve(process.cwd(), "migrations/0036_exomem_agent_contract_canaries.sql");
 const MIGRATION_0039 = resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql");
-const MIGRATION_0040 = resolve(
+const MIGRATION_0044 = resolve(
   process.cwd(),
-  "migrations/0040_exomem_marketplace_reviewer_oauth_bootstrap.sql"
+  "migrations/0044_exomem_marketplace_reviewer_oauth_bootstrap.sql"
 );
 
 const USER = "11111111-1111-4111-8111-111111111191";
@@ -710,10 +710,10 @@ describe("migration 0039 provisioner wire protocol safety", { skip: !DATABASE_UR
   });
 });
 
-describe("migration 0040 bootstrap authority upgrade safety", { skip: !DATABASE_URL }, () => {
-  it("preserves populated pre-0040 OAuth clients while adding bootstrap history", async () => {
-    const upgradeSchema = "exomem_upgrade_0040_bootstrap";
-    const migrationsDir = mkdtempSync(resolve(tmpdir(), "exomem-0040-upgrade-"));
+describe("migration 0044 bootstrap authority upgrade safety", { skip: !DATABASE_URL }, () => {
+  it("preserves populated pre-0044 OAuth clients while adding bootstrap history", async () => {
+    const upgradeSchema = "exomem_upgrade_0044_bootstrap";
+    const migrationsDir = mkdtempSync(resolve(tmpdir(), "exomem-0044-upgrade-"));
     const scoped = new URL(DATABASE_URL!);
     scoped.searchParams.set("options", `-c search_path=${upgradeSchema},public`);
     const pool = new Pool({ connectionString: DATABASE_URL });
@@ -729,11 +729,11 @@ describe("migration 0040 bootstrap authority upgrade safety", { skip: !DATABASE_
       const legacy = await scopedPool.query<{ id: string }>(
         `INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
            client_platform, oauth_client_config_sha256)
-         VALUES ('pre-0040-client', 'pinned', false, '["http://127.0.0.1/callback"]'::jsonb,
+         VALUES ('pre-0044-client', 'pinned', false, '["http://127.0.0.1/callback"]'::jsonb,
            digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'), 'claude', $1) RETURNING id`,
         ["a".repeat(64)]
       );
-      copyFileSync(MIGRATION_0040, resolve(migrationsDir, "0040_exomem_marketplace_reviewer_oauth_bootstrap.sql"));
+      copyFileSync(MIGRATION_0044, resolve(migrationsDir, "0044_exomem_marketplace_reviewer_oauth_bootstrap.sql"));
       await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
       const verified = await scopedPool.query<{
         id: string;

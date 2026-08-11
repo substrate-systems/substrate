@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
 
 const migration = resolve(
   process.cwd(),
-  "migrations/0040_exomem_marketplace_reviewer_oauth_bootstrap.sql"
+  "migrations/0044_exomem_marketplace_reviewer_oauth_bootstrap.sql"
 );
+
+test("numbered migration identities are unique and monotonic", () => {
+  const names = readdirSync(resolve(process.cwd(), "migrations"))
+    .filter((name) => /^\d{4}_.+\.sql$/.test(name))
+    .sort((a, b) => a.localeCompare(b));
+  const identities = names.map((name) => Number(name.slice(0, 4)));
+  assert.equal(new Set(identities).size, identities.length);
+  assert.deepEqual(
+    identities,
+    identities.toSorted((a, b) => a - b)
+  );
+});
 
 test("reviewer OAuth bootstrap is a one-shot authority with transaction lineage", () => {
   assert.equal(existsSync(migration), true);
