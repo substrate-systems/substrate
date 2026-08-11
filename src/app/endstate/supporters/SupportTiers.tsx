@@ -22,7 +22,7 @@ export function SupportTiers() {
   const tiers = configuredSupportTiers();
 
   return (
-    <div className="grid sm:grid-cols-2 gap-4">
+    <div className="grid gap-4 sm:grid-cols-2">
       {tiers.map((tier) => (
         <TierCard key={tier.id} tier={tier}>
           <BuyButton
@@ -31,9 +31,9 @@ export function SupportTiers() {
             completionLabel="Thank you — that genuinely helps."
             className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
             style={{
-              background: "transparent",
+              background: c.elevated,
               color: c.text,
-              border: `1px solid ${c.border}`,
+              border: `1px solid ${c.borderAccent}`,
               fontSize: "0.95rem",
             }}
           >
@@ -55,9 +55,9 @@ export function SupportTiers() {
           href={CUSTOM_SPONSOR_MAILTO}
           className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
           style={{
-            background: "transparent",
+            background: "rgba(200, 121, 65, 0.12)",
             color: c.text,
-            border: `1px solid ${c.border}`,
+            border: `1px solid rgba(200, 121, 65, 0.5)`,
             fontSize: "0.95rem",
             textDecoration: "none",
           }}
@@ -72,12 +72,30 @@ export function SupportTiers() {
 type CardTier = Pick<SupportTier, "name" | "amount" | "blurb"> & { id: string };
 
 function TierCard({ tier, children }: { tier: CardTier; children: React.ReactNode }) {
+  const isCustom = tier.id === "custom";
+
   return (
     <div
-      className="rounded-xl p-6 flex flex-col"
-      style={{ border: `1px solid ${c.border}`, background: c.card }}
+      className="rounded-2xl p-5 sm:p-6 flex flex-col"
+      style={{
+        border: `1px solid ${isCustom ? "rgba(200, 121, 65, 0.5)" : c.border}`,
+        background: isCustom ? "rgba(200, 121, 65, 0.06)" : c.card,
+      }}
     >
-      <h3 style={{ fontSize: "1rem", fontWeight: 600, color: c.text, marginBottom: "0.35rem" }}>
+      <p
+        style={{
+          fontFamily: "var(--font-jetbrains-mono), monospace",
+          fontSize: "0.7rem",
+          fontWeight: 500,
+          color: isCustom ? c.copper : c.teal,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          marginBottom: "0.75rem",
+        }}
+      >
+        Voluntary support
+      </p>
+      <h3 style={{ fontSize: "1.05rem", fontWeight: 600, color: c.text, marginBottom: "0.35rem" }}>
         {tier.name}
       </h3>
       <p
