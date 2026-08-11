@@ -1,62 +1,62 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import Link from 'next/link';
-import type { AccountSnapshot } from './page';
+import { useState } from "react";
+import Link from "next/link";
+import type { AccountSnapshot } from "./page";
 
 const c = {
-  bg: '#0c0c0c',
-  card: '#1a1a1a',
-  border: '#2a2a2a',
-  text: '#e8e8e8',
-  textSec: '#999',
-  textMuted: '#666',
-  teal: '#2dd4bf',
-  green: '#22c55e',
-  copper: '#c87941',
-  amber: '#f59e0b',
-  red: '#ef4444',
+  bg: "#0c0c0c",
+  card: "#1a1a1a",
+  border: "#2a2a2a",
+  text: "#e8e8e8",
+  textSec: "#999",
+  textMuted: "#666",
+  teal: "#2dd4bf",
+  green: "#22c55e",
+  copper: "#c87941",
+  amber: "#f59e0b",
+  red: "#ef4444",
 };
 
 const MONO_FAMILY =
   "var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 
-type Tone = 'positive' | 'warning' | 'danger' | 'neutral';
+type Tone = "positive" | "warning" | "danger" | "neutral";
 
 export function statusVisual(
-  status: AccountSnapshot['subscriptionStatus'],
-  scheduledCancelAt: string | null,
+  status: AccountSnapshot["subscriptionStatus"],
+  scheduledCancelAt: string | null
 ): {
   tone: Tone;
   label: string;
 } {
-  if (status === 'active' && scheduledCancelAt) {
-    return { tone: 'warning', label: 'Cancelling' };
+  if (status === "active" && scheduledCancelAt) {
+    return { tone: "warning", label: "Cancelling" };
   }
   switch (status) {
-    case 'active':
-      return { tone: 'positive', label: 'Active' };
-    case 'grace':
-      return { tone: 'warning', label: 'Renewal failed' };
-    case 'paused':
-      return { tone: 'warning', label: 'Paused' };
-    case 'cancelled':
-      return { tone: 'danger', label: 'Cancelled' };
-    case 'none':
+    case "active":
+      return { tone: "positive", label: "Active" };
+    case "grace":
+      return { tone: "warning", label: "Renewal failed" };
+    case "paused":
+      return { tone: "warning", label: "Paused" };
+    case "cancelled":
+      return { tone: "danger", label: "Cancelled" };
+    case "none":
     default:
-      return { tone: 'neutral', label: 'No subscription' };
+      return { tone: "neutral", label: "No subscription" };
   }
 }
 
 function toneColor(tone: Tone): string {
   switch (tone) {
-    case 'positive':
+    case "positive":
       return c.green;
-    case 'warning':
+    case "warning":
       return c.amber;
-    case 'danger':
+    case "danger":
       return c.red;
-    case 'neutral':
+    case "neutral":
     default:
       return c.textSec;
   }
@@ -66,9 +66,9 @@ function formatDate(iso: string | null): string | null {
   if (!iso) return null;
   try {
     return new Date(iso).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     });
   } catch {
     return null;
@@ -76,7 +76,7 @@ function formatDate(iso: string | null): string | null {
 }
 
 export function displayPlanName(plan: string | null): string {
-  if (!plan || /^pri_[a-z0-9]{26}$/i.test(plan)) return 'Hosted Backup';
+  if (!plan || /^pri_[a-z0-9]{26}$/i.test(plan)) return "Endstate Cloud";
   return plan;
 }
 
@@ -86,36 +86,37 @@ export function AccountView({ snapshot }: { snapshot: AccountSnapshot }) {
   const periodEnd = formatDate(snapshot.currentPeriodEnd);
   const scheduledCancelAt = formatDate(snapshot.scheduledCancelAt);
   const graceEnd = formatDate(snapshot.gracePeriodEndsAt);
+  const retentionEnd = formatDate(snapshot.retentionEndsAt);
 
   return (
-    <section style={{ padding: '120px 24px 96px' }}>
-      <div style={{ maxWidth: 720, margin: '0 auto' }}>
+    <section style={{ padding: "120px 24px 96px" }}>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
         <Eyebrow>Account portal</Eyebrow>
         <h1
           style={{
-            fontSize: 'clamp(2.2rem, 4vw, 3rem)',
+            fontSize: "clamp(2.2rem, 4vw, 3rem)",
             fontWeight: 600,
-            letterSpacing: '-0.035em',
+            letterSpacing: "-0.035em",
             lineHeight: 1.05,
             marginBottom: 14,
           }}
         >
-          Your Hosted Backup subscription.
+          Your Endstate Cloud subscription.
         </h1>
         <p
           style={{
-            fontSize: '1.05rem',
+            fontSize: "1.05rem",
             color: c.textSec,
             lineHeight: 1.55,
             marginBottom: 40,
           }}
         >
-          Signed in as{' '}
+          Signed in as{" "}
           <span
             style={{
               color: c.text,
               fontWeight: 500,
-              borderBottom: '1px dashed rgba(232,232,232,0.25)',
+              borderBottom: "1px dashed rgba(232,232,232,0.25)",
               paddingBottom: 1,
             }}
           >
@@ -133,6 +134,7 @@ export function AccountView({ snapshot }: { snapshot: AccountSnapshot }) {
           periodEnd={periodEnd}
           scheduledCancelAt={scheduledCancelAt}
           graceEnd={graceEnd}
+          retentionEnd={retentionEnd}
           hasPaddleCustomer={snapshot.hasPaddleCustomer}
         />
 
@@ -149,19 +151,18 @@ function StatusCard(props: {
   accent: string;
   label: string;
   plan: string;
-  status: AccountSnapshot['subscriptionStatus'];
+  status: AccountSnapshot["subscriptionStatus"];
   periodEnd: string | null;
   scheduledCancelAt: string | null;
   graceEnd: string | null;
+  retentionEnd: string | null;
   hasPaddleCustomer: boolean;
 }) {
   // Tonal background + border + top stripe, scaled to the state's accent.
   // Mirrors the `StepCard` pattern from /endstate/claim/[token] (featured
   // variant) so /account inherits the same visual vocabulary.
   const rgb = hexToRgbTriplet(props.accent);
-  const tinted = rgb
-    ? `linear-gradient(180deg, rgba(${rgb},0.04), rgba(${rgb},0.015))`
-    : c.card;
+  const tinted = rgb ? `linear-gradient(180deg, rgba(${rgb},0.04), rgba(${rgb},0.015))` : c.card;
   const tintedBorder = rgb ? `1px solid rgba(${rgb},0.25)` : `1px solid ${c.border}`;
 
   return (
@@ -170,15 +171,15 @@ function StatusCard(props: {
         background: tinted,
         border: tintedBorder,
         borderRadius: 10,
-        padding: '28px 32px',
-        position: 'relative',
-        overflow: 'hidden',
+        padding: "28px 32px",
+        position: "relative",
+        overflow: "hidden",
         marginBottom: 24,
       }}
     >
       <div
         style={{
-          position: 'absolute',
+          position: "absolute",
           top: 0,
           left: 0,
           right: 0,
@@ -189,20 +190,20 @@ function StatusCard(props: {
       <div
         style={{
           fontFamily: MONO_FAMILY,
-          fontSize: '0.72rem',
+          fontSize: "0.72rem",
           fontWeight: 500,
           color: props.accent,
-          letterSpacing: '0.16em',
-          textTransform: 'uppercase',
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
           marginBottom: 12,
-          display: 'flex',
-          alignItems: 'center',
+          display: "flex",
+          alignItems: "center",
           gap: 10,
         }}
       >
         <span
           style={{
-            display: 'inline-block',
+            display: "inline-block",
             width: 6,
             height: 6,
             borderRadius: 999,
@@ -214,9 +215,9 @@ function StatusCard(props: {
       </div>
       <h3
         style={{
-          fontSize: '1.35rem',
+          fontSize: "1.35rem",
           fontWeight: 600,
-          letterSpacing: '-0.015em',
+          letterSpacing: "-0.015em",
           marginBottom: 8,
           color: c.text,
         }}
@@ -229,6 +230,7 @@ function StatusCard(props: {
         periodEnd={props.periodEnd}
         scheduledCancelAt={props.scheduledCancelAt}
         graceEnd={props.graceEnd}
+        retentionEnd={props.retentionEnd}
       />
 
       <PrimaryAction status={props.status} hasPaddleCustomer={props.hasPaddleCustomer} />
@@ -249,18 +251,20 @@ function DateLine({
   periodEnd,
   scheduledCancelAt,
   graceEnd,
+  retentionEnd,
 }: {
-  status: AccountSnapshot['subscriptionStatus'];
+  status: AccountSnapshot["subscriptionStatus"];
   periodEnd: string | null;
   scheduledCancelAt: string | null;
   graceEnd: string | null;
+  retentionEnd: string | null;
 }) {
-  const text = dateLineText({ status, periodEnd, scheduledCancelAt, graceEnd });
+  const text = dateLineText({ status, periodEnd, scheduledCancelAt, graceEnd, retentionEnd });
   if (!text) return null;
   return (
     <p
       style={{
-        fontSize: '0.95rem',
+        fontSize: "0.95rem",
         color: c.textSec,
         lineHeight: 1.55,
         marginBottom: 20,
@@ -276,25 +280,29 @@ export function dateLineText({
   periodEnd,
   scheduledCancelAt,
   graceEnd,
+  retentionEnd,
 }: {
-  status: AccountSnapshot['subscriptionStatus'];
+  status: AccountSnapshot["subscriptionStatus"];
   periodEnd: string | null;
   scheduledCancelAt: string | null;
   graceEnd: string | null;
+  retentionEnd: string | null;
 }): string | null {
   let text: string | null = null;
-  if (status === 'active' && scheduledCancelAt) {
+  if (status === "active" && scheduledCancelAt) {
     text = `Access remains active through ${scheduledCancelAt}.`;
-  } else if (status === 'active' && periodEnd) {
+  } else if (status === "active" && periodEnd) {
     text = `Renews ${periodEnd}.`;
-  } else if (status === 'grace' && graceEnd) {
-    text = `Backups remain readable through ${graceEnd}. Update your card to keep pushing new versions.`;
-  } else if (status === 'cancelled' && periodEnd) {
-    text = `Cancelled. Existing backups remain accessible through ${periodEnd}.`;
-  } else if (status === 'paused') {
-    text = 'Subscription paused. Resume in Paddle to push new versions.';
-  } else if (status === 'none') {
-    text = 'No active subscription. Start one to back up to the cloud.';
+  } else if (status === "grace" && graceEnd) {
+    text = retentionEnd
+      ? `Backups remain readable through ${graceEnd}. If payment is not resolved, existing backups remain accessible through ${retentionEnd}.`
+      : `Backups remain readable through ${graceEnd}. Update your card to keep pushing new versions.`;
+  } else if (status === "cancelled" && retentionEnd) {
+    text = `Cancelled. Existing backups remain accessible through ${retentionEnd}.`;
+  } else if (status === "paused") {
+    text = "Subscription paused. Resume in Paddle to push new versions.";
+  } else if (status === "none") {
+    text = "No active subscription. Start one to back up to the cloud.";
   }
   return text;
 }
@@ -303,17 +311,17 @@ function PrimaryAction({
   status,
   hasPaddleCustomer,
 }: {
-  status: AccountSnapshot['subscriptionStatus'];
+  status: AccountSnapshot["subscriptionStatus"];
   hasPaddleCustomer: boolean;
 }) {
-  const needsPortal = status === 'active' || status === 'grace' || status === 'paused';
-  const needsCheckout = status === 'cancelled' || status === 'none';
+  const needsPortal = status === "active" || status === "grace" || status === "paused";
+  const needsCheckout = status === "cancelled" || status === "none";
 
   if (needsPortal) {
     return <ManageInPaddleButton disabled={!hasPaddleCustomer} />;
   }
   if (needsCheckout) {
-    const label = status === 'cancelled' ? 'Resubscribe' : 'Subscribe';
+    const label = status === "cancelled" ? "Resubscribe" : "Subscribe";
     return <ResubscribeButton label={label} />;
   }
   return null;
@@ -326,26 +334,26 @@ function ManageInPaddleButton({ disabled }: { disabled: boolean }) {
     setPending(true);
     setError(null);
     try {
-      const res = await fetch('/api/billing/portal', { method: 'POST' });
+      const res = await fetch("/api/billing/portal", { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         const code = body?.error?.code ?? `HTTP_${res.status}`;
         setError(
-          code === 'PADDLE_PORTAL_UNAVAILABLE' ? (
+          code === "PADDLE_PORTAL_UNAVAILABLE" ? (
             <>
-              We don&rsquo;t have a payment record on file yet —{' '}
-              <FounderMailLink subject="Hosted Backup billing update" /> if you
-              need to update billing.
+              We don&rsquo;t have a payment record on file yet —{" "}
+              <FounderMailLink subject="Endstate Cloud billing update" /> if you need to update
+              billing.
             </>
           ) : (
             "We couldn't open Paddle's billing portal. Try again in a moment."
-          ),
+          )
         );
         return;
       }
       const body = (await res.json()) as { portalUrl?: string };
       if (!body.portalUrl) {
-        setError('Paddle returned an unexpected response.');
+        setError("Paddle returned an unexpected response.");
         return;
       }
       window.location.href = body.portalUrl;
@@ -357,16 +365,18 @@ function ManageInPaddleButton({ disabled }: { disabled: boolean }) {
   }
   return (
     <div>
-      <PrimaryButton onClick={go} disabled={disabled || pending} label={pending ? 'Opening…' : 'Manage in Paddle'} />
+      <PrimaryButton
+        onClick={go}
+        disabled={disabled || pending}
+        label={pending ? "Opening…" : "Manage in Paddle"}
+      />
       {disabled && (
-        <p style={{ fontSize: '0.85rem', color: c.textMuted, marginTop: 10 }}>
-          Paddle doesn&rsquo;t have a customer record for this account yet. This usually means your first
-          payment is still processing — try again in a few minutes.
+        <p style={{ fontSize: "0.85rem", color: c.textMuted, marginTop: 10 }}>
+          Paddle doesn&rsquo;t have a customer record for this account yet. This usually means your
+          first payment is still processing — try again in a few minutes.
         </p>
       )}
-      {error && (
-        <p style={{ fontSize: '0.85rem', color: c.amber, marginTop: 10 }}>{error}</p>
-      )}
+      {error && <p style={{ fontSize: "0.85rem", color: c.amber, marginTop: 10 }}>{error}</p>}
     </div>
   );
 }
@@ -382,14 +392,14 @@ function ResubscribeButton({ label }: { label: string }) {
       // bearer-auth route stays for the engine path; the web page uses
       // /web-checkout so the session cookie is honored. See route handler
       // for the auth-surface rationale.
-      const res = await fetch('/api/billing/web-checkout', { method: 'POST' });
+      const res = await fetch("/api/billing/web-checkout", { method: "POST" });
       if (!res.ok) {
         setError("We couldn't open checkout. Try again in a moment.");
         return;
       }
       const body = (await res.json()) as { checkoutUrl?: string };
       if (!body.checkoutUrl) {
-        setError('Checkout returned an unexpected response.');
+        setError("Checkout returned an unexpected response.");
         return;
       }
       window.location.href = body.checkoutUrl;
@@ -401,10 +411,8 @@ function ResubscribeButton({ label }: { label: string }) {
   }
   return (
     <div>
-      <PrimaryButton onClick={go} disabled={pending} label={pending ? 'Opening…' : label} />
-      {error && (
-        <p style={{ fontSize: '0.85rem', color: c.amber, marginTop: 10 }}>{error}</p>
-      )}
+      <PrimaryButton onClick={go} disabled={pending} label={pending ? "Opening…" : label} />
+      {error && <p style={{ fontSize: "0.85rem", color: c.amber, marginTop: 10 }}>{error}</p>}
     </div>
   );
 }
@@ -427,19 +435,19 @@ function PrimaryButton({
       onClick={onClick}
       disabled={disabled}
       style={{
-        appearance: 'none',
-        border: 'none',
+        appearance: "none",
+        border: "none",
         background: disabled ? c.border : c.text,
         color: disabled ? c.textMuted : c.bg,
-        fontFamily: 'inherit',
-        fontSize: '0.95rem',
+        fontFamily: "inherit",
+        fontSize: "0.95rem",
         fontWeight: 600,
-        padding: '14px 24px',
+        padding: "14px 24px",
         borderRadius: 8,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        letterSpacing: '-0.005em',
-        display: 'inline-flex',
-        alignItems: 'center',
+        cursor: disabled ? "not-allowed" : "pointer",
+        letterSpacing: "-0.005em",
+        display: "inline-flex",
+        alignItems: "center",
         gap: 8,
       }}
     >
@@ -452,30 +460,30 @@ function RecoveryKeyReminder() {
   return (
     <aside
       style={{
-        background: 'rgba(200,121,65,0.05)',
-        border: '1px solid rgba(200,121,65,0.2)',
+        background: "rgba(200,121,65,0.05)",
+        border: "1px solid rgba(200,121,65,0.2)",
         borderRadius: 10,
-        padding: '20px 24px',
+        padding: "20px 24px",
         marginBottom: 32,
       }}
     >
       <div
         style={{
           fontFamily: MONO_FAMILY,
-          fontSize: '0.7rem',
+          fontSize: "0.7rem",
           fontWeight: 500,
           color: c.copper,
-          letterSpacing: '0.16em',
-          textTransform: 'uppercase',
+          letterSpacing: "0.16em",
+          textTransform: "uppercase",
           marginBottom: 8,
         }}
       >
         Recovery key
       </div>
-      <p style={{ fontSize: '0.95rem', color: c.textSec, lineHeight: 1.55, margin: 0 }}>
+      <p style={{ fontSize: "0.95rem", color: c.textSec, lineHeight: 1.55, margin: 0 }}>
         Your 24-word recovery key is the only way to recover your backups if you forget your
-        passphrase. Endstate cannot recover it for you — keep your saved file or printout
-        somewhere safe.
+        passphrase. Endstate cannot recover it for you — keep your saved file or printout somewhere
+        safe.
       </p>
     </aside>
   );
@@ -490,8 +498,8 @@ function DangerZone() {
     setPending(true);
     setError(null);
     try {
-      await fetch('/api/account/session/logout', { method: 'POST' });
-      window.location.href = '/endstate';
+      await fetch("/api/account/session/logout", { method: "POST" });
+      window.location.href = "/endstate";
     } catch {
       setError("We couldn't sign you out cleanly. Close this tab to end the session.");
     } finally {
@@ -503,17 +511,17 @@ function DangerZone() {
     setPending(true);
     setError(null);
     try {
-      const res = await fetch('/api/account/web-delete', { method: 'POST' });
+      const res = await fetch("/api/account/web-delete", { method: "POST" });
       if (!res.ok) {
         setError(
           <>
-            We couldn&rsquo;t delete your account right now.{' '}
-            <FounderMailLink subject="Hosted Backup account deletion" /> for help.
-          </>,
+            We couldn&rsquo;t delete your account right now.{" "}
+            <FounderMailLink subject="Endstate Cloud account deletion" /> for help.
+          </>
         );
         return;
       }
-      window.location.href = '/endstate?deleted=1';
+      window.location.href = "/endstate?deleted=1";
     } catch {
       setError("We couldn't reach the server. Check your connection and try again.");
     } finally {
@@ -526,8 +534,8 @@ function DangerZone() {
       style={{
         borderTop: `1px solid ${c.border}`,
         paddingTop: 24,
-        display: 'flex',
-        flexDirection: 'column',
+        display: "flex",
+        flexDirection: "column",
         gap: 10,
       }}
     >
@@ -536,16 +544,16 @@ function DangerZone() {
         onClick={signOut}
         disabled={pending}
         style={{
-          alignSelf: 'flex-start',
-          appearance: 'none',
-          background: 'transparent',
+          alignSelf: "flex-start",
+          appearance: "none",
+          background: "transparent",
           border: `1px solid ${c.border}`,
           color: c.textSec,
-          fontFamily: 'inherit',
-          fontSize: '0.9rem',
-          padding: '10px 16px',
+          fontFamily: "inherit",
+          fontSize: "0.9rem",
+          padding: "10px 16px",
           borderRadius: 8,
-          cursor: pending ? 'not-allowed' : 'pointer',
+          cursor: pending ? "not-allowed" : "pointer",
         }}
       >
         Sign out
@@ -554,50 +562,50 @@ function DangerZone() {
       {confirming ? (
         <div
           style={{
-            background: 'rgba(239,68,68,0.04)',
-            border: '1px solid rgba(239,68,68,0.25)',
+            background: "rgba(239,68,68,0.04)",
+            border: "1px solid rgba(239,68,68,0.25)",
             borderRadius: 8,
-            padding: '14px 16px',
+            padding: "14px 16px",
             marginTop: 6,
           }}
         >
-          <p style={{ fontSize: '0.9rem', color: c.text, marginBottom: 12, lineHeight: 1.5 }}>
-            Delete your account? Your subscription will be cancelled and all backed-up data will
-            be purged within 24 hours. This cannot be undone.
+          <p style={{ fontSize: "0.9rem", color: c.text, marginBottom: 12, lineHeight: 1.5 }}>
+            Delete your account? Your subscription will be cancelled and all backed-up data will be
+            purged within 24 hours. This cannot be undone.
           </p>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: "flex", gap: 10 }}>
             <button
               type="button"
               onClick={deleteAccount}
               disabled={pending}
               style={{
-                appearance: 'none',
-                background: 'rgba(239,68,68,0.12)',
-                border: '1px solid rgba(239,68,68,0.35)',
+                appearance: "none",
+                background: "rgba(239,68,68,0.12)",
+                border: "1px solid rgba(239,68,68,0.35)",
                 color: c.red,
-                fontFamily: 'inherit',
-                fontSize: '0.9rem',
-                padding: '8px 14px',
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+                padding: "8px 14px",
                 borderRadius: 6,
-                cursor: pending ? 'not-allowed' : 'pointer',
+                cursor: pending ? "not-allowed" : "pointer",
               }}
             >
-              {pending ? 'Deleting…' : 'Yes, delete account'}
+              {pending ? "Deleting…" : "Yes, delete account"}
             </button>
             <button
               type="button"
               onClick={() => setConfirming(false)}
               disabled={pending}
               style={{
-                appearance: 'none',
-                background: 'transparent',
+                appearance: "none",
+                background: "transparent",
                 border: `1px solid ${c.border}`,
                 color: c.textSec,
-                fontFamily: 'inherit',
-                fontSize: '0.9rem',
-                padding: '8px 14px',
+                fontFamily: "inherit",
+                fontSize: "0.9rem",
+                padding: "8px 14px",
                 borderRadius: 6,
-                cursor: pending ? 'not-allowed' : 'pointer',
+                cursor: pending ? "not-allowed" : "pointer",
               }}
             >
               Cancel
@@ -610,34 +618,32 @@ function DangerZone() {
           onClick={() => setConfirming(true)}
           disabled={pending}
           style={{
-            alignSelf: 'flex-start',
-            appearance: 'none',
-            background: 'transparent',
+            alignSelf: "flex-start",
+            appearance: "none",
+            background: "transparent",
             border: `1px solid rgba(239,68,68,0.35)`,
             color: c.red,
-            fontFamily: 'inherit',
-            fontSize: '0.9rem',
-            padding: '10px 16px',
+            fontFamily: "inherit",
+            fontSize: "0.9rem",
+            padding: "10px 16px",
             borderRadius: 8,
-            cursor: pending ? 'not-allowed' : 'pointer',
+            cursor: pending ? "not-allowed" : "pointer",
           }}
         >
           Delete account…
         </button>
       )}
 
-      {error && (
-        <p style={{ fontSize: '0.85rem', color: c.amber, marginTop: 4 }}>{error}</p>
-      )}
+      {error && <p style={{ fontSize: "0.85rem", color: c.amber, marginTop: 4 }}>{error}</p>}
 
-      <p style={{ fontSize: '0.8rem', color: c.textMuted, marginTop: 4 }}>
-        Trouble?{' '}
+      <p style={{ fontSize: "0.8rem", color: c.textMuted, marginTop: 4 }}>
+        Trouble?{" "}
         <Link
           href="mailto:founder@substratesystems.io"
           style={{
             color: c.textSec,
-            borderBottom: '1px solid rgba(153,153,153,0.3)',
-            textDecoration: 'none',
+            borderBottom: "1px solid rgba(153,153,153,0.3)",
+            textDecoration: "none",
           }}
         >
           Email founder@substratesystems.io
@@ -654,8 +660,8 @@ function FounderMailLink({ subject }: { subject: string }) {
       href={`mailto:founder@substratesystems.io?subject=${encodeURIComponent(subject)}`}
       style={{
         color: c.textSec,
-        borderBottom: '1px solid rgba(153,153,153,0.3)',
-        textDecoration: 'none',
+        borderBottom: "1px solid rgba(153,153,153,0.3)",
+        textDecoration: "none",
       }}
     >
       email founder@substratesystems.io
@@ -667,16 +673,16 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
     <span
       style={{
-        display: 'inline-block',
+        display: "inline-block",
         fontFamily: MONO_FAMILY,
-        fontSize: '0.7rem',
+        fontSize: "0.7rem",
         fontWeight: 500,
         color: c.copper,
-        letterSpacing: '0.18em',
-        textTransform: 'uppercase',
-        padding: '6px 12px',
-        border: '1px solid rgba(200,121,65,0.3)',
-        background: 'rgba(200,121,65,0.06)',
+        letterSpacing: "0.18em",
+        textTransform: "uppercase",
+        padding: "6px 12px",
+        border: "1px solid rgba(200,121,65,0.3)",
+        background: "rgba(200,121,65,0.06)",
         borderRadius: 4,
         marginBottom: 24,
       }}

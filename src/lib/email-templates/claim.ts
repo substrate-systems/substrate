@@ -1,14 +1,17 @@
 /**
- * Email templates for the Hosted Backup anonymous-buyer claim flow.
+ * Email templates for the Endstate Cloud anonymous-buyer claim flow.
  *
  * Plaintext-first: every template's `textContent` reads cleanly on its own
  * (no "see HTML version"). The HTML mirrors the text with inline styles to
  * use no external assets or stylesheets. Tone is direct, founder-voiced, and
  * avoids marketing fluff.
+ *
+ * The fallback instruction uses the current Endstate Cloud label and names
+ * "Hosted Backup" only as navigation compatibility for older desktop releases.
+ * See docs/naming.md.
  */
 
-const SITE_BASE_URL =
-  process.env.NEXT_PUBLIC_SITE_BASE_URL ?? 'https://substratesystems.io';
+const SITE_BASE_URL = process.env.NEXT_PUBLIC_SITE_BASE_URL ?? "https://substratesystems.io";
 const DOWNLOAD_URL = `${SITE_BASE_URL}/download`;
 
 export type RenderedEmail = {
@@ -24,7 +27,7 @@ export type ClaimEmailInput = {
 
 export type FyiEmailInput = {
   email: string;
-  plan: 'monthly' | 'yearly' | string | null;
+  plan: "monthly" | "yearly" | string | null;
   currentPeriodEnd: string | null;
 };
 
@@ -36,33 +39,29 @@ export type FounderDigestInput = {
   }>;
 };
 
-export function renderClaimEmail({
-  token,
-}: ClaimEmailInput): RenderedEmail {
+export function renderClaimEmail({ token }: ClaimEmailInput): RenderedEmail {
   return renderClaimEmailVariant(token, {
     intro:
-      'Thanks for buying Endstate Hosted Backup. One short step to finish setting up: claim your account.',
+      "Thanks for subscribing to Endstate Cloud. One short step to finish setting up: claim your account.",
   });
 }
 
-export function renderResendClaimEmail({
-  token,
-}: ClaimEmailInput): RenderedEmail {
+export function renderResendClaimEmail({ token }: ClaimEmailInput): RenderedEmail {
   return renderClaimEmailVariant(token, {
-    eyebrow: 'Still here for you',
-    headline: 'Your subscription is waiting.',
+    eyebrow: "Still here for you",
+    headline: "Your subscription is waiting.",
     intro:
-      'Just a friendly nudge — your Hosted Backup subscription is ready to claim. Tap the button or paste the code into Endstate.',
+      "Just a friendly nudge — your Endstate Cloud subscription is ready to claim. Tap the button or paste the code into Endstate.",
   });
 }
 
 function renderClaimEmailVariant(
   token: string,
-  opts: { intro: string; eyebrow?: string; headline?: string },
+  opts: { intro: string; eyebrow?: string; headline?: string }
 ): RenderedEmail {
   const claimUrl = `${SITE_BASE_URL}/endstate/claim/${encodeURIComponent(token)}`;
-  const subject = "You're in. Here's your Hosted Backup claim link.";
-  const eyebrow = opts.eyebrow ?? 'Welcome';
+  const subject = "You're in. Here's your Endstate Cloud claim link.";
+  const eyebrow = opts.eyebrow ?? "Welcome";
   const headline = opts.headline ?? "You're in.";
 
   // Email-safe (works in Gmail, Apple Mail, Outlook desktop): table-based
@@ -111,11 +110,11 @@ function renderClaimEmailVariant(
                     <td align="center" style="padding: 18px 16px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 14px; font-weight: 500; color: #ffffff; word-break: break-all;">${escapeHtml(token)}</td>
                   </tr>
                 </table>
-                <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 12px 0 32px;">In Endstate, open Hosted Backup, choose &ldquo;Use purchase code&rdquo;, then paste the code.</p>
+                <p style="font-size: 13px; line-height: 1.55; color: #666; margin: 12px 0 32px;">In Endstate, open Endstate Cloud (shown as &ldquo;Hosted Backup&rdquo; in older versions), choose &ldquo;Use purchase code&rdquo;, then paste the code.</p>
 
                 <!-- Download -->
                 <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 6px;">Don&rsquo;t have Endstate yet?</p>
-                <p style="font-size: 14px; line-height: 1.6; margin: 0 0 32px;"><a href="${DOWNLOAD_URL}" style="color: #0c0c0c; text-decoration: none; border-bottom: 1px solid #0c0c0c; padding-bottom: 1px;">Download it free</a> <span style="color: #888;">&mdash; the local product is free, your subscription unlocks Hosted Backup.</span></p>
+                <p style="font-size: 14px; line-height: 1.6; margin: 0 0 32px;"><a href="${DOWNLOAD_URL}" style="color: #0c0c0c; text-decoration: none; border-bottom: 1px solid #0c0c0c; padding-bottom: 1px;">Download it free</a> <span style="color: #888;">&mdash; the local product is free, your subscription adds Endstate Cloud.</span></p>
 
                 <!-- Divider -->
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
@@ -145,10 +144,10 @@ Or paste this code into Endstate after installing:
 
   ${token}
 
-In Endstate, open Hosted Backup, choose "Use purchase code", then paste the code.
+In Endstate, open Endstate Cloud (shown as "Hosted Backup" in older versions), choose "Use purchase code", then paste the code.
 
 Don't have Endstate yet? Download it free: ${DOWNLOAD_URL}
-(The local product is free; your subscription unlocks Hosted Backup.)
+(The local product is free; your subscription adds Endstate Cloud.)
 
 Your link expires in 30 days. If it expires, just reply to this email and I'll send a fresh one.
 
@@ -158,15 +157,10 @@ Your link expires in 30 days. If it expires, just reply to this email and I'll s
   return { subject, htmlContent, textContent };
 }
 
-export function renderFyiEmail({
-  plan,
-  currentPeriodEnd,
-}: FyiEmailInput): RenderedEmail {
-  const subject = 'Hosted Backup added to your Endstate account';
+export function renderFyiEmail({ plan, currentPeriodEnd }: FyiEmailInput): RenderedEmail {
+  const subject = "Endstate Cloud added to your Endstate account";
   const cadence = cadenceLabel(plan);
-  const renewalLine = currentPeriodEnd
-    ? `It renews on ${formatDate(currentPeriodEnd)}.`
-    : '';
+  const renewalLine = currentPeriodEnd ? `It renews on ${formatDate(currentPeriodEnd)}.` : "";
 
   const htmlContent = `<!doctype html>
 <html>
@@ -181,9 +175,9 @@ export function renderFyiEmail({
             <tr>
               <td style="padding: 40px 40px 32px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0c0c0c;">
                 <p style="font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; color: #c87941; letter-spacing: 0.18em; text-transform: uppercase; margin: 0 0 14px;">Subscription added</p>
-                <h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 14px; color: #0c0c0c;">Hosted Backup is on your account.</h1>
-                <p style="font-size: 16px; line-height: 1.55; color: #444; margin: 0 0 20px;">A ${escapeHtml(cadence)} subscription has been linked to your existing Endstate account.${renewalLine ? ' ' + escapeHtml(renewalLine) : ''}</p>
-                <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 24px;">Your credentials are unchanged. Sign in to Endstate the way you always do, and Hosted Backup is now available.</p>
+                <h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 14px; color: #0c0c0c;">Endstate Cloud is on your account.</h1>
+                <p style="font-size: 16px; line-height: 1.55; color: #444; margin: 0 0 20px;">A ${escapeHtml(cadence)} subscription has been linked to your existing Endstate account.${renewalLine ? " " + escapeHtml(renewalLine) : ""}</p>
+                <p style="font-size: 14px; line-height: 1.6; color: #444; margin: 0 0 24px;">Your credentials are unchanged. Sign in to Endstate the way you always do, and Endstate Cloud is now available.</p>
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                   <tr><td style="height: 1px; background: #eee; line-height: 1px; font-size: 0;">&nbsp;</td></tr>
                 </table>
@@ -199,9 +193,9 @@ export function renderFyiEmail({
   </body>
 </html>`;
 
-  const textContent = `A Hosted Backup subscription (${cadence}) has been added to your Endstate account.
+  const textContent = `An Endstate Cloud subscription (${cadence}) has been added to your Endstate account.
 
-${renewalLine ? `${renewalLine}\n\n` : ''}Your existing account credentials are unchanged — sign in to Endstate the same way you always do, and Hosted Backup is now available.
+${renewalLine ? `${renewalLine}\n\n` : ""}Your existing account credentials are unchanged — sign in to Endstate the same way you always do, and Endstate Cloud is now available.
 
 Didn't make this purchase? Reply to this email and I'll sort it out.
 
@@ -211,33 +205,31 @@ Didn't make this purchase? Reply to this email and I'll sort it out.
   return { subject, htmlContent, textContent };
 }
 
-export function renderFounderDigest({
-  pendingClaims,
-}: FounderDigestInput): RenderedEmail {
-  const subject = `[Endstate] ${pendingClaims.length} unclaimed Hosted Backup ${pendingClaims.length === 1 ? 'subscription' : 'subscriptions'} (14d+)`;
+export function renderFounderDigest({ pendingClaims }: FounderDigestInput): RenderedEmail {
+  const subject = `[Endstate] ${pendingClaims.length} unclaimed Endstate Cloud ${pendingClaims.length === 1 ? "subscription" : "subscriptions"} (14d+)`;
   const rows = pendingClaims
     .map(
       (c) =>
-        `  - ${c.email} | created ${c.createdAt} | paddle_customer_id ${c.paddleCustomerId ?? '(none)'}`,
+        `  - ${c.email} | created ${c.createdAt} | paddle_customer_id ${c.paddleCustomerId ?? "(none)"}`
     )
-    .join('\n');
+    .join("\n");
 
   const htmlRows = pendingClaims
     .map(
       (c) =>
-        `<tr><td style="padding: 4px 12px 4px 0; font-family: ui-monospace, monospace; font-size: 12px;">${escapeHtml(c.email)}</td><td style="padding: 4px 12px 4px 0; font-family: ui-monospace, monospace; font-size: 12px; color: #666;">${escapeHtml(c.createdAt)}</td><td style="padding: 4px 0; font-family: ui-monospace, monospace; font-size: 12px; color: #666;">${escapeHtml(c.paddleCustomerId ?? '(none)')}</td></tr>`,
+        `<tr><td style="padding: 4px 12px 4px 0; font-family: ui-monospace, monospace; font-size: 12px;">${escapeHtml(c.email)}</td><td style="padding: 4px 12px 4px 0; font-family: ui-monospace, monospace; font-size: 12px; color: #666;">${escapeHtml(c.createdAt)}</td><td style="padding: 4px 0; font-family: ui-monospace, monospace; font-size: 12px; color: #666;">${escapeHtml(c.paddleCustomerId ?? "(none)")}</td></tr>`
     )
-    .join('');
+    .join("");
 
   const htmlContent = `<!doctype html>
 <html>
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #111; max-width: 720px; margin: 0 auto; padding: 24px;">
-    <p style="font-size: 14px; line-height: 1.5; margin: 0 0 12px;">These Hosted Backup subscriptions have been unclaimed for 14+ days. Reach out, refund, or extend the grace as appropriate.</p>
+    <p style="font-size: 14px; line-height: 1.5; margin: 0 0 12px;">These Endstate Cloud subscriptions have been unclaimed for 14+ days. Reach out, refund, or extend the grace as appropriate.</p>
     <table cellspacing="0" cellpadding="0" style="border-collapse: collapse;">${htmlRows}</table>
   </body>
 </html>`;
 
-  const textContent = `These Hosted Backup subscriptions have been unclaimed for 14+ days. Reach out, refund, or extend the grace as appropriate.
+  const textContent = `These Endstate Cloud subscriptions have been unclaimed for 14+ days. Reach out, refund, or extend the grace as appropriate.
 
 ${rows}`;
 
@@ -245,18 +237,18 @@ ${rows}`;
 }
 
 function cadenceLabel(plan: string | null | undefined): string {
-  if (plan === 'monthly' || plan === 'yearly') return plan;
+  if (plan === "monthly" || plan === "yearly") return plan;
   // Fall back to a generic noun when the plan ID is a Paddle pri_ value.
-  return 'subscription';
+  return "subscription";
 }
 
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString('en-GB', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+    return d.toLocaleDateString("en-GB", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
     });
   } catch {
     return iso;
@@ -265,9 +257,9 @@ function formatDate(iso: string): string {
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

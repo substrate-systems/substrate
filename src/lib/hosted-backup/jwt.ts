@@ -9,15 +9,12 @@
  * rotations.
  */
 
-import { randomUUID } from 'node:crypto';
-import * as ed from '@noble/ed25519';
-import { sha512 } from '@noble/hashes/sha2.js';
-import type { JwtClaims, SubscriptionStatus } from './types';
-import { errors } from './errors';
-import {
-  getActiveAndRecentlyRetiredSigningKeys,
-  type SigningKeyRow,
-} from './db';
+import { randomUUID } from "node:crypto";
+import * as ed from "@noble/ed25519";
+import { sha512 } from "@noble/hashes/sha2.js";
+import type { JwtClaims, SubscriptionStatus } from "./types";
+import { errors } from "./errors";
+import { getActiveAndRecentlyRetiredSigningKeys, type SigningKeyRow } from "./db";
 
 // Test seam: tests can inject a synthetic keys provider so they don't need a
 // real Neon connection. Production calls the DB-backed provider.
@@ -36,17 +33,22 @@ const td = new TextDecoder();
 const ACCESS_TOKEN_TTL_S = 900; // 15 min, contract §4
 const RECOVERY_TOKEN_TTL_S = 600; // 10 min, contract §6
 const BROWSER_SESSION_TOKEN_TTL_S = 60; // contract §4 (Account Portal handoff)
-const ACCESS_AUDIENCE = 'endstate-backup';
-const RECOVERY_AUDIENCE = 'endstate-recover';
-const BROWSER_SESSION_AUDIENCE = 'endstate-account';
+const ACCESS_AUDIENCE = "endstate-backup";
+const RECOVERY_AUDIENCE = "endstate-recover";
+const BROWSER_SESSION_AUDIENCE = "endstate-account";
+
+function getAccessAudience(): string {
+  const configured = process.env.ENDSTATE_OIDC_AUDIENCE?.trim();
+  return configured || ACCESS_AUDIENCE;
+}
 
 function getIssuer(): string {
-  return process.env.ENDSTATE_OIDC_ISSUER_URL ?? 'https://substratesystems.io';
+  return process.env.ENDSTATE_OIDC_ISSUER_URL ?? "https://substratesystems.io";
 }
 
 function hexToBytes(hex: string): Uint8Array {
-  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
-  if (clean.length % 2 !== 0) throw new Error('invalid hex');
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (clean.length % 2 !== 0) throw new Error("invalid hex");
   const out = new Uint8Array(clean.length / 2);
   for (let i = 0; i < out.length; i++) {
     out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
@@ -55,11 +57,11 @@ function hexToBytes(hex: string): Uint8Array {
 }
 
 function base64url(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64url');
+  return Buffer.from(bytes).toString("base64url");
 }
 
 function fromBase64url(s: string): Uint8Array {
-  return new Uint8Array(Buffer.from(s, 'base64url'));
+  return new Uint8Array(Buffer.from(s, "base64url"));
 }
 
 let cachedKeyPair: { secretKey: Uint8Array; publicKey: Uint8Array } | null = null;
@@ -73,8 +75,8 @@ async function getActiveKeyPair(): Promise<{
 }> {
   const hex = process.env.ENDSTATE_JWT_PRIVATE_KEY_HEX;
   const kid = process.env.ENDSTATE_JWT_ACTIVE_KID;
-  if (!hex) throw new Error('ENDSTATE_JWT_PRIVATE_KEY_HEX is not set');
-  if (!kid) throw new Error('ENDSTATE_JWT_ACTIVE_KID is not set');
+  if (!hex) throw new Error("ENDSTATE_JWT_PRIVATE_KEY_HEX is not set");
+  if (!kid) throw new Error("ENDSTATE_JWT_ACTIVE_KID is not set");
   if (cachedKeyPair && cachedFromSecretHex === hex && cachedKid === kid) {
     return { ...cachedKeyPair, kid };
   }
@@ -90,13 +92,11 @@ export async function derivePublicKey(privateKeyHex: string): Promise<Uint8Array
   return publicKey;
 }
 
-type JwtHeader = { alg: 'EdDSA'; typ: 'JWT'; kid: string };
+type JwtHeader = { alg: "EdDSA"; typ: "JWT"; kid: string };
 
-async function signCompactJwt(
-  payload: Record<string, unknown>,
-): Promise<string> {
+async function signCompactJwt(payload: Record<string, unknown>): Promise<string> {
   const { secretKey, kid } = await getActiveKeyPair();
-  const header: JwtHeader = { alg: 'EdDSA', typ: 'JWT', kid };
+  const header: JwtHeader = { alg: "EdDSA", typ: "JWT", kid };
   const headerPart = base64url(te.encode(JSON.stringify(header)));
   const payloadPart = base64url(te.encode(JSON.stringify(payload)));
   const signingInput = `${headerPart}.${payloadPart}`;
@@ -114,7 +114,7 @@ export async function mintAccessToken(params: {
   const claims: JwtClaims = {
     iss: getIssuer(),
     sub: params.userId,
-    aud: ACCESS_AUDIENCE,
+    aud: getAccessAudience(),
     iat,
     nbf: iat,
     exp,
@@ -178,7 +178,7 @@ function decodeJsonPart<T>(part: string): T {
   try {
     return JSON.parse(td.decode(fromBase64url(part))) as T;
   } catch {
-    throw errors.invalidToken('malformed token segment');
+    throw errors.invalidToken("malformed token segment");
   }
 }
 
@@ -188,62 +188,59 @@ function decodeJsonPart<T>(part: string): T {
  */
 export async function verifyAccessToken(
   token: string,
-  opts: VerifyOptions = {},
+  opts: VerifyOptions = {}
 ): Promise<VerifiedClaims> {
-  const expectedAud = opts.audience ?? ACCESS_AUDIENCE;
-  const parts = token.split('.');
-  if (parts.length !== 3) throw errors.invalidToken('not a compact JWT');
+  const expectedAud = opts.audience ?? getAccessAudience();
+  const parts = token.split(".");
+  if (parts.length !== 3) throw errors.invalidToken("not a compact JWT");
   const [headerPart, payloadPart, sigPart] = parts;
 
   const header = decodeJsonPart<JwtHeader>(headerPart);
-  if (header.alg !== 'EdDSA' || header.typ !== 'JWT' || !header.kid) {
-    throw errors.invalidToken('unexpected JWT header');
+  if (header.alg !== "EdDSA" || header.typ !== "JWT" || !header.kid) {
+    throw errors.invalidToken("unexpected JWT header");
   }
 
   const keys = await keysProvider();
   const matched = keys.find((k) => k.kid === header.kid);
-  if (!matched) throw errors.invalidToken('unknown kid');
+  if (!matched) throw errors.invalidToken("unknown kid");
 
   const sig = fromBase64url(sigPart);
   const signingInput = te.encode(`${headerPart}.${payloadPart}`);
   const ok = await ed.verifyAsync(sig, signingInput, matched.public_key);
-  if (!ok) throw errors.invalidToken('signature mismatch');
+  if (!ok) throw errors.invalidToken("signature mismatch");
 
   const claims = decodeJsonPart<JwtClaims>(payloadPart);
   const now = Math.floor(Date.now() / 1000);
 
   const expectedIss = getIssuer();
-  if (claims.iss !== expectedIss) throw errors.invalidToken('wrong issuer');
-  if (claims.aud !== expectedAud) throw errors.invalidToken('wrong audience');
-  if (typeof claims.exp !== 'number' || claims.exp <= now) {
+  if (claims.iss !== expectedIss) throw errors.invalidToken("wrong issuer");
+  if (claims.aud !== expectedAud) throw errors.invalidToken("wrong audience");
+  if (typeof claims.exp !== "number" || claims.exp <= now) {
     throw errors.tokenExpired();
   }
-  if (typeof claims.nbf === 'number' && claims.nbf > now) {
-    throw errors.invalidToken('token not yet valid');
+  if (typeof claims.nbf === "number" && claims.nbf > now) {
+    throw errors.invalidToken("token not yet valid");
   }
   if (!claims.sub || !claims.jti) {
-    throw errors.invalidToken('missing required claims');
+    throw errors.invalidToken("missing required claims");
   }
 
   return {
     userId: claims.sub,
-    subscriptionStatus:
-      (claims.subscription_status as SubscriptionStatus | undefined) ?? 'none',
+    subscriptionStatus: (claims.subscription_status as SubscriptionStatus | undefined) ?? "none",
     jti: claims.jti,
     aud: claims.aud,
     exp: claims.exp,
   };
 }
 
-export async function verifyRecoveryToken(
-  token: string,
-): Promise<{ userId: string; jti: string }> {
+export async function verifyRecoveryToken(token: string): Promise<{ userId: string; jti: string }> {
   const claims = await verifyAccessToken(token, { audience: RECOVERY_AUDIENCE });
   return { userId: claims.userId, jti: claims.jti };
 }
 
 export async function verifyBrowserSessionToken(
-  token: string,
+  token: string
 ): Promise<{ userId: string; jti: string; exp: number }> {
   const claims = await verifyAccessToken(token, {
     audience: BROWSER_SESSION_AUDIENCE,
@@ -262,4 +259,5 @@ export const _internal = {
   ACCESS_AUDIENCE,
   RECOVERY_AUDIENCE,
   BROWSER_SESSION_AUDIENCE,
+  getAccessAudience,
 };

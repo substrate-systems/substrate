@@ -1,8 +1,8 @@
-import type { NextRequest } from 'next/server';
-import { verifyAccessToken } from './jwt';
-import { errors } from './errors';
-import { findUserById, getSubscriptionStatus } from './db';
-import type { SubscriptionStatus } from './types';
+import type { NextRequest } from "next/server";
+import { verifyAccessToken } from "./jwt";
+import { errors } from "./errors";
+import { findUserById, getSubscriptionStatus } from "./db";
+import type { SubscriptionStatus } from "./types";
 
 export type AuthContext = {
   userId: string;
@@ -11,15 +11,14 @@ export type AuthContext = {
 };
 
 export async function requireAuth(req: NextRequest): Promise<AuthContext> {
-  const header =
-    req.headers.get('authorization') ?? req.headers.get('Authorization');
+  const header = req.headers.get("authorization") ?? req.headers.get("Authorization");
   if (!header) throw errors.unauthenticated();
   const lower = header.toLowerCase();
-  if (!lower.startsWith('bearer ')) {
-    throw errors.unauthenticated('expected Bearer token');
+  if (!lower.startsWith("bearer ")) {
+    throw errors.unauthenticated("expected Bearer token");
   }
-  const token = header.slice('bearer '.length).trim();
-  if (!token) throw errors.unauthenticated('empty Bearer token');
+  const token = header.slice("bearer ".length).trim();
+  if (!token) throw errors.unauthenticated("empty Bearer token");
   const claims = await verifyAccessToken(token);
   return {
     userId: claims.userId,
@@ -37,7 +36,7 @@ type BypassCacheEntry = { source: string; regex: RegExp | null; warned: boolean 
 let bypassCache: BypassCacheEntry | null = null;
 
 function getTestEmailBypassPattern(): RegExp | null {
-  const source = process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN ?? '';
+  const source = process.env.HOSTED_BACKUP_TEST_EMAIL_PATTERN ?? "";
   if (!source) return null;
   if (bypassCache && bypassCache.source === source) return bypassCache.regex;
   try {
@@ -47,7 +46,7 @@ function getTestEmailBypassPattern(): RegExp | null {
   } catch {
     if (!bypassCache || bypassCache.source !== source || !bypassCache.warned) {
       console.warn(
-        `[hosted-backup] HOSTED_BACKUP_TEST_EMAIL_PATTERN is not a valid regex; bypass disabled`,
+        `[hosted-backup] HOSTED_BACKUP_TEST_EMAIL_PATTERN is not a valid regex; bypass disabled`
       );
     }
     bypassCache = { source, regex: null, warned: true };
@@ -93,17 +92,17 @@ export async function requireWriteAccess(req: NextRequest): Promise<AuthContext>
     const user = await findUserById(ctx.userId);
     if (user && bypassRegex.test(user.email)) {
       console.warn(
-        `[hosted-backup] subscription gate bypassed for test account user=${ctx.userId}`,
+        `[hosted-backup] subscription gate bypassed for test account user=${ctx.userId}`
       );
       return ctx;
     }
   }
   const live = await getSubscriptionStatus(ctx.userId);
-  if (live !== 'active') {
+  if (live !== "active") {
     throw errors.subscriptionRequired(
-      live === 'none'
-        ? 'an active subscription is required'
-        : `writes are blocked while subscription is ${live}`,
+      live === "none"
+        ? "an active subscription is required"
+        : `writes are blocked while subscription is ${live}`
     );
   }
   return { ...ctx, subscriptionStatus: live };
@@ -119,10 +118,14 @@ export async function requireWriteAccess(req: NextRequest): Promise<AuthContext>
  * (`requireWriteAccess` rejects anything other than `active`). A
  * `subscription.resumed` webhook transitions them back to `active`.
  *
- * The 14-day past_due grace cutoff is applied inside
+ * The 30-day past_due grace cutoff is applied inside
  * `getSubscriptionStatus`, so a user whose stored status is `grace` but
- * whose `grace_started_at` is older than 14 days is observed here as
- * `cancelled` (i.e. read-allowed, write-blocked).
+ * whose `grace_started_at` is older than `GRACE_WINDOW_DAYS` is observed
+ * here as `cancelled` (i.e. read-allowed, write-blocked). The same function
+ * applies the 30-day post-cancellation cutoff, so a `cancelled` user past
+ * `CANCELLED_RETENTION_DAYS` is observed as `none` and blocked here — which
+ * is correct, because the backup-gc cron has purged (or is about to purge)
+ * the data they would be reading.
  *
  * Honors the same `HOSTED_BACKUP_TEST_EMAIL_PATTERN` bypass as
  * `requireWriteAccess` — see that function's JSDoc for full semantics and
@@ -139,14 +142,14 @@ export async function requireReadAccess(req: NextRequest): Promise<AuthContext> 
     const user = await findUserById(ctx.userId);
     if (user && bypassRegex.test(user.email)) {
       console.warn(
-        `[hosted-backup] subscription gate bypassed for test account user=${ctx.userId}`,
+        `[hosted-backup] subscription gate bypassed for test account user=${ctx.userId}`
       );
       return ctx;
     }
   }
   const live = await getSubscriptionStatus(ctx.userId);
-  if (live === 'none') {
-    throw errors.subscriptionRequired('no subscription on file');
+  if (live === "none") {
+    throw errors.subscriptionRequired("no subscription on file");
   }
   return { ...ctx, subscriptionStatus: live };
 }

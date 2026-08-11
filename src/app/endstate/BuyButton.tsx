@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import type { CSSProperties, ReactNode } from 'react';
-import { usePaddle } from '@/lib/paddle';
-import { c } from './_shared';
+import type { CSSProperties, ReactNode } from "react";
+import { usePaddle, type CheckoutProduct } from "@/lib/paddle";
+import { c } from "./_shared";
 
 type Props = {
   children: ReactNode;
@@ -10,16 +10,18 @@ type Props = {
   style?: CSSProperties;
   completionLabel?: string;
   action: () => Promise<void> | void;
+  product: CheckoutProduct;
 };
 
 export function BuyButton({
   children,
   className,
   style,
-  completionLabel = 'Thanks — your purchase is complete.',
+  completionLabel = "Thanks — your purchase is complete.",
   action,
+  product,
 }: Props) {
-  const { ready, completed } = usePaddle();
+  const { ready, completed } = usePaddle(product);
 
   if (completed) {
     return (
@@ -29,10 +31,10 @@ export function BuyButton({
         className={className}
         style={{
           ...style,
-          background: 'rgba(45, 212, 191, 0.1)',
+          background: "rgba(45, 212, 191, 0.1)",
           color: c.teal,
-          border: '1px solid rgba(45, 212, 191, 0.3)',
-          cursor: 'default',
+          border: "1px solid rgba(45, 212, 191, 0.3)",
+          cursor: "default",
         }}
       >
         {completionLabel}
@@ -49,8 +51,8 @@ export function BuyButton({
       disabled={!ready}
       className={className}
       style={{
-        border: 'none',
-        cursor: ready ? 'pointer' : 'wait',
+        border: "none",
+        cursor: ready ? "pointer" : "wait",
         opacity: ready ? 1 : 0.72,
         ...style,
       }}

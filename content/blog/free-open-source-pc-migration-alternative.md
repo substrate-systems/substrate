@@ -51,7 +51,7 @@ Endstate takes the position that byte-copying installed programs is the wrong de
 3. Saves all of it to one portable file that you control — no account, no cloud dependency for this step.
 4. On your new machine, reinstalls each app fresh from its real installer and, if you opt in, restores your captured settings.
 
-The result on the new PC is a set of cleanly installed applications, not transplanted files hoping to run in a different context. It's local-first: scanning and saving happen entirely offline, the file is yours, and there's no telemetry and no mandatory account. The core engine is Apache 2.0 licensed and [on GitHub](https://github.com/Artexis10/endstate), so you can read exactly what it does before you run it — something none of the closed-source tools above let you do. The local product itself is free forever, on unlimited machines. The only paid pieces are optional: encrypted hosted backup (€4/mo or €40/yr, if you want your snapshot stored somewhere other than a USB stick) and a one-time €89 supporter license for people who want to fund development.
+The result on the new PC is a set of cleanly installed applications, not transplanted files hoping to run in a different context. It's local-first: scanning and saving happen entirely offline, the file is yours, and there's no telemetry and no mandatory account. The core engine is Apache 2.0 licensed and [on GitHub](https://github.com/Artexis10/endstate), so you can read exactly what it does before you run it — something none of the closed-source tools above let you do. The local product itself is free forever, on unlimited machines. The only paid piece is optional: Endstate Cloud, encrypted managed backup (€4/mo or €40/yr, if you want your snapshot stored somewhere other than a USB stick). Supporting the project with a one-time contribution is separate, voluntary, and unlocks nothing.
 
 The honest tradeoff: if you have that one piece of software with no clean installer left anywhere, Endstate can't resurrect it — a byte-copy tool might. For the other 95% of a typical setup, reinstall-plus-settings-restore is safer, produces a cleaner machine, and costs nothing.
 
@@ -87,7 +87,7 @@ No, and that's deliberate. Endstate records what's installed and reinstalls it f
 That's the one case where byte-copy tools have a real edge — they can move software that literally cannot be reinstalled. Endstate won't help there; a tool like PCmover or Zinstall might.
 
 **Does Endstate require an account or send telemetry?**
-No. The local product runs without an account and without telemetry. The only feature that touches a server is the optional, encrypted Hosted Backup, and that's opt-in.
+No. The local product runs without an account and without telemetry. The only feature that touches a server is the optional, encrypted Endstate Cloud, and that's opt-in.
 
 **Is Endstate really open source?**
 The provisioning engine is Apache 2.0 licensed and [on GitHub](https://github.com/Artexis10/endstate). The paid hosted-backup infrastructure is separate from the local engine, but the core tool that scans, saves, and restores your machine is inspectable code, not a closed binary.

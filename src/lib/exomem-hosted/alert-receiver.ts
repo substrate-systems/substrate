@@ -314,7 +314,13 @@ export async function notifyAlertTransition(
   const { subject, textContent, htmlContent } = renderNotification(transition);
   const to = process.env[ALERT_RECIPIENT_VARIABLE] ?? DEFAULT_ALERT_RECIPIENT;
   try {
-    const result = await sendTransactionalEmail({ to, subject, htmlContent, textContent });
+    const result = await sendTransactionalEmail({
+      to,
+      senderName: "Exomem",
+      subject,
+      htmlContent,
+      textContent,
+    });
     if (!result.success) return { delivered: false, errorCode: "EMAIL_DELIVERY_FAILED" };
     return { delivered: true };
   } catch {

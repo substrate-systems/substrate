@@ -8,10 +8,18 @@ import {
   type Paddle,
 } from "@paddle/paddle-js";
 import { AnalyticsEvent, capture, currentDistinctId } from "@/lib/analytics";
+import type { SupportTier } from "@/lib/support-tiers";
 
-type CompletionListener = () => void;
+type CompletionListener = (product: CheckoutProduct | null) => void;
 
-/** What a checkout is for, carried on every event in the funnel. */
+/**
+ * What a checkout is for, carried on every event in the funnel.
+ *
+ * `supporter` and `hosted_backup` are analytics identifiers, not public copy —
+ * the public names are "Support Endstate" and "Endstate Cloud". They are kept
+ * verbatim so historical funnel data stays queryable as one series. See
+ * docs/naming.md.
+ */
 export type CheckoutProduct = "supporter" | "hosted_backup" | "transaction";
 
 /**
@@ -43,6 +51,14 @@ function checkoutCustomData(): { ph_distinct_id: string } | undefined {
 
 let paddlePromise: Promise<Paddle | null> | null = null;
 const completionListeners = new Set<CompletionListener>();
+let activeCheckoutProduct: CheckoutProduct | null = null;
+
+export function completionMatchesProduct(
+  completed: CheckoutProduct | null,
+  expected?: CheckoutProduct
+): boolean {
+  return !expected || completed === expected;
+}
 
 function resolveEnvironment(): Environments {
   const raw = process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT;
@@ -69,10 +85,13 @@ function loadPaddle(): Promise<Paddle | null> {
         // the authoritative record is the webhook, captured server-side.
         capture(AnalyticsEvent.CheckoutCompleted, {
           transaction_id: event.data?.transaction_id ?? null,
+          product: activeCheckoutProduct,
         });
+        const completedProduct = activeCheckoutProduct;
+        activeCheckoutProduct = null;
         completionListeners.forEach((fn) => {
           try {
-            fn();
+            fn(completedProduct);
           } catch (err) {
             console.error("[paddle] completion listener threw", err);
           }
@@ -89,13 +108,17 @@ function loadPaddle(): Promise<Paddle | null> {
   return paddlePromise;
 }
 
+/**
+ * Billing cadence for Endstate Cloud. The type name is a deliberately retained
+ * internal identifier — see docs/naming.md.
+ */
 export type HostedBackupCadence = "monthly" | "yearly";
 
 export type UsePaddleResult = {
   ready: boolean;
   error: string | null;
   completed: boolean;
-  openSupporterCheckout: () => Promise<void>;
+  openSupportCheckout: (tier: SupportTier) => Promise<void>;
   openHostedBackupCheckout: (cadence: HostedBackupCadence) => Promise<void>;
   openTransactionCheckout: (transactionId: string) => Promise<boolean>;
 };
@@ -115,9 +138,11 @@ async function openCheckoutWith(
     return false;
   }
   try {
+    activeCheckoutProduct = product;
     open(paddle);
     return true;
   } catch (err) {
+    if (activeCheckoutProduct === product) activeCheckoutProduct = null;
     console.error("[paddle] failed to open checkout", err);
     trackCheckoutFailure(product, "open");
     alert(UNAVAILABLE_MESSAGE);
@@ -125,7 +150,7 @@ async function openCheckoutWith(
   }
 }
 
-export function usePaddle(): UsePaddleResult {
+export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
@@ -141,26 +166,34 @@ export function usePaddle(): UsePaddleResult {
       }
     });
 
-    const onComplete = () => setCompleted(true);
+    const onComplete = (product: CheckoutProduct | null) => {
+      if (completionMatchesProduct(product, completionProduct)) setCompleted(true);
+    };
     completionListeners.add(onComplete);
     return () => {
       cancelled = true;
       completionListeners.delete(onComplete);
     };
-  }, []);
+  }, [completionProduct]);
 
-  async function openSupporterCheckout(): Promise<void> {
-    capture(AnalyticsEvent.CheckoutStarted, { product: "supporter" });
-    const priceId = process.env.NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER;
-    if (!priceId) {
-      console.error("[paddle] NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER is not set");
-      trackCheckoutFailure("supporter", "missing_price_id");
+  /**
+   * Opens a one-time contribution checkout for a configured support tier.
+   *
+   * Callers only ever pass tiers from `configuredSupportTiers()`, so a missing
+   * price ID here means the tier list and the render guard disagreed — worth an
+   * event rather than a silent no-op.
+   */
+  async function openSupportCheckout(tier: SupportTier): Promise<void> {
+    capture(AnalyticsEvent.CheckoutStarted, { product: "supporter", tier: tier.id });
+    if (!tier.priceId) {
+      console.error(`[paddle] no price ID configured for support tier "${tier.id}"`);
+      trackCheckoutFailure("supporter", "missing_price_id", { tier: tier.id });
       alert(UNAVAILABLE_MESSAGE);
       return;
     }
     await openCheckoutWith("supporter", (paddle) => {
       paddle.Checkout.open({
-        items: [{ priceId, quantity: 1 }],
+        items: [{ priceId: tier.priceId as string, quantity: 1 }],
         customData: checkoutCustomData(),
       });
     });
@@ -203,7 +236,7 @@ export function usePaddle(): UsePaddleResult {
     ready,
     error,
     completed,
-    openSupporterCheckout,
+    openSupportCheckout,
     openHostedBackupCheckout,
     openTransactionCheckout,
   };

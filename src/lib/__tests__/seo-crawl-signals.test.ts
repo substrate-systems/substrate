@@ -109,6 +109,18 @@ describe("SEO crawl signals", () => {
     assert.doesNotMatch(exomemPage, /mainEntity: faqs\.map/);
   });
 
+  it("makes Endstate Cloud's bounded backup scope explicit", () => {
+    const scopeDisclaimer =
+      "Endstate Cloud protects the application list and supported non-secret settings captured by Endstate; it is not personal-file backup.";
+
+    for (const path of ["src/app/endstate/page.tsx", "public/llms.txt", "public/llms-full.txt"]) {
+      assert.ok(
+        source(path).includes(scopeDisclaimer),
+        `${path} must contain the Cloud scope disclaimer`
+      );
+    }
+  });
+
   it("makes the Windows setup guide the useful cluster hub", () => {
     const guide = source("content/blog/new-windows-pc-setup-guide.md");
     const winget = source("content/blog/reinstall-all-apps-with-winget.md");

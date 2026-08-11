@@ -36,6 +36,7 @@ type PaddleSubscriptionEventData = {
 export type PaddleSubscriptionEvent = {
   event_id: string;
   event_type: string;
+  occurred_at?: string;
   data?: PaddleSubscriptionEventData;
 };
 
@@ -182,6 +183,8 @@ export async function applyPaddleEvent(
     cancelStartedAt: transition.cancelStartedAt,
     currentPeriodEnd: transition.currentPeriodEnd,
     scheduledCancelAt: transition.scheduledCancelAt,
+    providerEventOccurredAt: event.occurred_at ? new Date(event.occurred_at) : new Date(),
+    providerEventId: event.event_id,
   });
 
   const result: ApplyResult = preAccountFlow

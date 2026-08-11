@@ -70,10 +70,10 @@ function setupMocks(opts: { totalSizeForUser?: number } = {}) {
         const key = `${userId}:${backupId}`;
         return state.ownedBackups.get(key) ?? null;
       },
-      sumActiveStorageForUser: async (_userId: string) => state.totalSize,
       insertVersionWithChunks: async (
-        params: { versionId: string; backupId: string; sizeBytes: number; manifestObjectKey: string; manifestSha256: Uint8Array; chunkCount: number },
+        params: { versionId: string; backupId: string; sizeBytes: number; quotaBytes: number; manifestObjectKey: string; manifestSha256: Uint8Array; chunkCount: number },
       ) => {
+        if (state.totalSize + params.sizeBytes > params.quotaBytes) return null;
         state.insertedVersion = {
           id: params.versionId,
           backup_id: params.backupId,
@@ -208,7 +208,7 @@ describe('createVersionWithUploads — quota enforcement', () => {
     );
   });
 
-  it('passes when current + new < limit, and triggers retention enforcement', async () => {
+  it('creates a pending version below quota without pruning before commit', async () => {
     setupMocks({ totalSizeForUser: 0 });
     state.ownedBackups.set('user-R:bk-R', {
       id: 'bk-R',
@@ -232,8 +232,9 @@ describe('createVersionWithUploads — quota enforcement', () => {
     assert.equal(result.uploadUrls.length, 2);
     assert.equal(result.uploadUrls[0].chunkIndex, -1);
     assert.equal(result.uploadUrls[1].chunkIndex, 0);
+    assert.equal(result.requiresCommit, true);
     assert.ok(state.insertedVersion);
-    assert.equal(state.softDeletedBeyondRetention, 1);
+    assert.equal(state.softDeletedBeyondRetention, 0);
   });
 });
 

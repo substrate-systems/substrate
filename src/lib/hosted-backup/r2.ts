@@ -11,9 +11,9 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { PRESIGNED_URL_TTL_S } from './types';
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { PRESIGNED_URL_TTL_S } from "./types";
 
 let _client: S3Client | null = null;
 
@@ -22,11 +22,11 @@ function getClient(): S3Client {
   const endpoint = process.env.ENDSTATE_R2_ENDPOINT;
   const accessKeyId = process.env.ENDSTATE_R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.ENDSTATE_R2_SECRET_ACCESS_KEY;
-  if (!endpoint) throw new Error('ENDSTATE_R2_ENDPOINT is not set');
-  if (!accessKeyId) throw new Error('ENDSTATE_R2_ACCESS_KEY_ID is not set');
-  if (!secretAccessKey) throw new Error('ENDSTATE_R2_SECRET_ACCESS_KEY is not set');
+  if (!endpoint) throw new Error("ENDSTATE_R2_ENDPOINT is not set");
+  if (!accessKeyId) throw new Error("ENDSTATE_R2_ACCESS_KEY_ID is not set");
+  if (!secretAccessKey) throw new Error("ENDSTATE_R2_SECRET_ACCESS_KEY is not set");
   _client = new S3Client({
-    region: 'auto',
+    region: "auto",
     endpoint,
     forcePathStyle: true,
     credentials: { accessKeyId, secretAccessKey },
@@ -36,7 +36,7 @@ function getClient(): S3Client {
 
 function getBucket(): string {
   const bucket = process.env.ENDSTATE_R2_BUCKET;
-  if (!bucket) throw new Error('ENDSTATE_R2_BUCKET is not set');
+  if (!bucket) throw new Error("ENDSTATE_R2_BUCKET is not set");
   return bucket;
 }
 
@@ -47,12 +47,17 @@ export type PresignedUrl = {
 
 export async function presignPut(
   objectKey: string,
-  opts?: { contentLength?: number; sha256Hex?: string },
+  opts?: { contentLength?: number; sha256Hex?: string; ifNoneMatchStar?: boolean }
 ): Promise<PresignedUrl> {
   const cmd = new PutObjectCommand({
     Bucket: getBucket(),
     Key: objectKey,
     ContentLength: opts?.contentLength,
+    ...(opts?.sha256Hex
+      ? { ChecksumSHA256: Buffer.from(opts.sha256Hex, "hex").toString("base64") }
+      : {}),
+    ...(opts?.sha256Hex ? { Metadata: { "endstate-sha256": opts.sha256Hex } } : {}),
+    ...(opts?.ifNoneMatchStar ? { IfNoneMatch: "*" } : {}),
   });
   const url = await getSignedUrl(getClient(), cmd, {
     expiresIn: PRESIGNED_URL_TTL_S,
@@ -85,41 +90,81 @@ export async function presignGet(objectKey: string): Promise<PresignedUrl> {
  * "definitively gone" from "couldn't tell" (the abandoned-upload sweep
  * soft-deletes on `'absent'` and must never do so on a transport error).
  */
-export async function headObjectExists(
-  objectKey: string,
-): Promise<'present' | 'absent'> {
+export async function headObjectExists(objectKey: string): Promise<"present" | "absent"> {
   try {
-    await getClient().send(
-      new HeadObjectCommand({ Bucket: getBucket(), Key: objectKey }),
-    );
-    return 'present';
+    await getClient().send(new HeadObjectCommand({ Bucket: getBucket(), Key: objectKey }));
+    return "present";
   } catch (err) {
-    const status = (err as { $metadata?: { httpStatusCode?: number } })
-      ?.$metadata?.httpStatusCode;
+    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
     const name = (err as { name?: string })?.name;
-    if (status === 404 || name === 'NotFound' || name === 'NoSuchKey') {
-      return 'absent';
+    if (status === 404 || name === "NotFound" || name === "NoSuchKey") {
+      return "absent";
     }
     throw err;
   }
 }
 
+/**
+ * Presence plus exact encrypted length for publication checks. `absent` is
+ * definitive; transport and authorization uncertainty remains an exception
+ * so callers return a retryable failure rather than publishing on doubt.
+ */
+export async function headObject(objectKey: string): Promise<{
+  state: "present" | "absent";
+  contentLength?: number;
+  checksumSha256?: string;
+  metadataSha256?: string;
+}> {
+  try {
+    let result;
+    try {
+      result = await getClient().send(
+        new HeadObjectCommand({ Bucket: getBucket(), Key: objectKey, ChecksumMode: "ENABLED" })
+      );
+    } catch (err) {
+      if (!isChecksumModeUnsupported(err)) throw err;
+      // Metadata remains the required publication proof. Some S3-compatible
+      // providers accept ordinary HEAD but do not implement checksum mode.
+      result = await getClient().send(
+        new HeadObjectCommand({ Bucket: getBucket(), Key: objectKey })
+      );
+    }
+    return {
+      state: "present",
+      contentLength: result.ContentLength,
+      checksumSha256: result.ChecksumSHA256,
+      metadataSha256: result.Metadata?.["endstate-sha256"],
+    };
+  } catch (err) {
+    const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    const name = (err as { name?: string })?.name;
+    if (status === 404 || name === "NotFound" || name === "NoSuchKey") {
+      return { state: "absent" };
+    }
+    throw err;
+  }
+}
+
+function isChecksumModeUnsupported(err: unknown): boolean {
+  const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+  const name = (err as { name?: string })?.name;
+  return status === 400 && (name === "InvalidRequest" || name === "NotImplemented");
+}
+
 /** One page of object keys under a prefix (page size ≤ 1000, R2/S3 limit). */
 export async function listObjectKeys(
   prefix: string,
-  continuationToken?: string,
+  continuationToken?: string
 ): Promise<{ keys: string[]; nextToken?: string }> {
   const resp = await getClient().send(
     new ListObjectsV2Command({
       Bucket: getBucket(),
       Prefix: prefix,
       ContinuationToken: continuationToken,
-    }),
+    })
   );
   return {
-    keys: (resp.Contents ?? [])
-      .map((o) => o.Key)
-      .filter((k): k is string => typeof k === 'string'),
+    keys: (resp.Contents ?? []).map((o) => o.Key).filter((k): k is string => typeof k === "string"),
     nextToken: resp.IsTruncated ? resp.NextContinuationToken : undefined,
   };
 }
@@ -137,12 +182,12 @@ export async function deleteObjects(keys: string[]): Promise<number> {
       new DeleteObjectsCommand({
         Bucket: getBucket(),
         Delete: { Objects: batch.map((k) => ({ Key: k })), Quiet: true },
-      }),
+      })
     );
     const errs = resp.Errors ?? [];
     if (errs.length > 0) {
       throw new Error(
-        `R2 DeleteObjects reported ${errs.length} error(s); first: ${errs[0].Key}: ${errs[0].Message}`,
+        `R2 DeleteObjects reported ${errs.length} error(s); first: ${errs[0].Key}: ${errs[0].Message}`
       );
     }
     deleted += batch.length;

@@ -32,7 +32,7 @@ npm start
 - TypeScript
 - Tailwind CSS v4
 
-This single codebase serves the marketing site, the blog, the Hosted Backup API, and the account surface. There is no separate backend service.
+This single codebase serves the marketing site, the blog, the Hosted Backup API (publicly: **Endstate Cloud**), and the account surface. There is no separate backend service.
 
 ## Content discipline
 
@@ -42,7 +42,9 @@ Public copy on this site must match the canonical product facts. The source of t
 
 - **Scope.** Endstate is a **Windows** machine setup and restore tool today. The Go engine is structured for cross-platform use, and macOS/Linux support is coming via Nix. Never write "cross-platform machine provisioning" as an unqualified headline; if cross-platform is mentioned, qualify it as forward work.
 - **Stack.** Go end-to-end engine (CLI). The desktop GUI is **shipped** — Tauri shell in Rust + TypeScript with shadcn/ui (`github.com/Artexis10/endstate-gui`). Don't describe the GUI as planned or coming.
-- **Hosted Backup.** The Hosted Backup API is part of this Next.js codebase — see the "Hosted Backup" section below. There is no separate "Substrate backend" service and no Elixir backend anywhere. If copy implies a separate service, fix it.
+- **Endstate Cloud.** The managed backup service is called **Endstate Cloud** in all current public copy. "Hosted Backup" survives only as internal identifiers — env vars, route paths, module names, TypeScript symbols, the `hostedBackup` capabilities key, and DB columns — plus narrowly qualified instructions for older desktop versions. Those retentions are deliberate and enumerated in [`docs/naming.md`](./docs/naming.md); do not rename them, and do not write "Hosted Backup" in new public copy. The Endstate _product_ is not renamed — only the managed service.
+- **Hosted Backup API.** The API is part of this Next.js codebase — see the "Hosted Backup" section below. There is no separate "Substrate backend" service and no Elixir backend anywhere. If copy implies a separate service, fix it.
+- **Support Endstate.** Voluntary one-time contributions, never "Supporter License". Supporting unlocks nothing: no licence key, no entitlement, no feature flag, no recurring obligation. If copy implies otherwise, fix it.
 - **Roadmap framing.** The cross-platform path is Nix via the Go engine, not "additional platform drivers" or "winget/apt/brew expansion". `winget` is the current Windows install mechanism, not a roadmap item.
 
 ### Q
@@ -92,7 +94,12 @@ export const metadata: Metadata = {
     url: "/example",
     images: [{ url: OG_IMAGE, width: 1200, height: 630, alt: TITLE }],
   },
-  twitter: { card: "summary_large_image", title: TITLE, description: DESCRIPTION, images: [OG_IMAGE] },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: [OG_IMAGE],
+  },
 };
 ```
 
@@ -112,6 +119,8 @@ For a new blog post, do nothing extra — drop a `.md` file in `content/blog/` w
   ```
 
 ## Hosted Backup
+
+> Internal name. The public name of this service is **Endstate Cloud** — see [`docs/naming.md`](./docs/naming.md). Everything below is wire protocol and configuration, where the original identifiers are load-bearing and stay.
 
 The substrate also serves as the auth issuer + metadata store + presigned-URL minter for **Endstate Hosted Backup v2**. Protocol locked in [`hosted-backup-contract.md`](./hosted-backup-contract.md) (OIDC discovery, EdDSA JWTs, Argon2id-derived `serverPassword + masterKey` split, R2 storage with 5-version retention).
 
@@ -135,22 +144,22 @@ Then set `ENDSTATE_JWT_PRIVATE_KEY_HEX` and `ENDSTATE_JWT_ACTIVE_KID` in your en
 
 **Env vars (Hosted Backup-specific).**
 
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL` | Neon connection string |
-| `ENDSTATE_OIDC_ISSUER_URL` | OIDC issuer URL (`iss` claim, JWKS URL prefix). Defaults to `https://substratesystems.io`. |
-| `ENDSTATE_JWT_PRIVATE_KEY_HEX` | 32-byte seed (hex) for the active JWT signing key |
-| `ENDSTATE_JWT_ACTIVE_KID` | `kid` for the active signing key (matches a row in `signing_keys`) |
+| Variable                       | Purpose                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                 | Neon connection string                                                                     |
+| `ENDSTATE_OIDC_ISSUER_URL`     | OIDC issuer URL (`iss` claim, JWKS URL prefix). Defaults to `https://substratesystems.io`. |
+| `ENDSTATE_JWT_PRIVATE_KEY_HEX` | 32-byte seed (hex) for the active JWT signing key                                          |
+| `ENDSTATE_JWT_ACTIVE_KID`      | `kid` for the active signing key (matches a row in `signing_keys`)                         |
 
 **R2 (object storage).** Hosted Backup uses Cloudflare R2 for encrypted blob storage. Create a bucket; mint an R2 token scoped to that bucket; set:
 
-| Variable | Purpose |
-|---|---|
-| `ENDSTATE_R2_ACCESS_KEY_ID` | R2 token's access key |
-| `ENDSTATE_R2_SECRET_ACCESS_KEY` | R2 token's secret |
-| `ENDSTATE_R2_BUCKET` | Bucket name (e.g. `endstate-backups`) |
-| `ENDSTATE_R2_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` |
-| `HOSTED_BACKUP_QUOTA_BYTES` | Optional override of the 1 GiB per-user quota |
+| Variable                        | Purpose                                         |
+| ------------------------------- | ----------------------------------------------- |
+| `ENDSTATE_R2_ACCESS_KEY_ID`     | R2 token's access key                           |
+| `ENDSTATE_R2_SECRET_ACCESS_KEY` | R2 token's secret                               |
+| `ENDSTATE_R2_BUCKET`            | Bucket name (e.g. `endstate-backups`)           |
+| `ENDSTATE_R2_ENDPOINT`          | `https://<account-id>.r2.cloudflarestorage.com` |
+| `HOSTED_BACKUP_QUOTA_BYTES`     | Optional override of the 1 GiB per-user quota   |
 
 The server only mints presigned PUT/GET URLs (5-minute TTL); chunks transit directly between client and R2.
 

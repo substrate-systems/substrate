@@ -3,25 +3,24 @@
  * Shapes locked in `hosted-backup-contract.md` (repo root).
  */
 
-export const SchemaVersion = '2.0' as const;
+// Keep the emitted schema at 2.0 until released 2.0 engines are retired:
+// they reject a newer response header after a write has already mutated state.
+// The two-phase protocol is additive and is selected by an incoming 2.1
+// request header; a later release can advertise 2.1 once that fleet is gone.
+export const SchemaVersion = "2.0" as const;
 export type SchemaVersion = typeof SchemaVersion;
 
-export type SubscriptionStatus =
-  | 'none'
-  | 'active'
-  | 'grace'
-  | 'paused'
-  | 'cancelled';
+export type SubscriptionStatus = "none" | "active" | "grace" | "paused" | "cancelled";
 
 export type KdfParams = {
-  algorithm: 'argon2id';
+  algorithm: "argon2id";
   memory: number;
   iterations: number;
   parallelism: number;
 };
 
 export const KDF_FLOOR: Readonly<KdfParams> = Object.freeze({
-  algorithm: 'argon2id',
+  algorithm: "argon2id",
   memory: 65536,
   iterations: 3,
   parallelism: 4,
@@ -105,6 +104,8 @@ export type AccountMeResponse = {
   currentPeriodEnd: string | null;
   scheduledCancelAt: string | null;
   gracePeriodEndsAt: string | null;
+  /** Authoritative final Cloud-data retention deadline, if one is running. */
+  retentionEndsAt: string | null;
   paddleSubscriptionId: string | null;
   paddleCustomerId: string | null;
   // Backup freshness + quota surface (issue #59). lastBackupAt is the most
@@ -170,6 +171,12 @@ export type ChunkMetadata = {
 export type CreateVersionRequest = {
   encryptedManifest: string; // base64
   chunkMetadata: ChunkMetadata[];
+  /**
+   * Stable across a client retry of the same push. New engines send the same
+   * value in X-Endstate-Operation-ID; this body field remains compatible with
+   * earlier callers and must match the header if both are supplied.
+   */
+  operationId?: string;
 };
 
 export type UploadUrl = {
@@ -181,6 +188,24 @@ export type UploadUrl = {
 export type CreateVersionResponse = {
   versionId: string;
   uploadUrls: UploadUrl[];
+  /** Present only when an operation-ID replay finds an already published version. */
+  alreadyCommitted?: boolean;
+  /**
+   * Every new version remains invisible (not listed, restorable, or counted
+   * as committed usage) until it is verified and published. Schema-2.1+
+   * clients publish explicitly; the bounded reconciliation pass handles
+   * compatibility clients.
+   */
+  requiresCommit?: boolean;
+};
+
+// POST /api/backups/:backupId/versions/:versionId/commit — contract §7.
+// Idempotent: a repeat call returns the original commit timestamp with
+// `alreadyCommitted: true` and re-prunes nothing.
+export type CommitVersionResponse = {
+  versionId: string;
+  committedAt: string; // ISO-8601
+  alreadyCommitted: boolean;
 };
 
 export type DownloadUrlsRequest = { chunkIndices: number[] };
@@ -201,23 +226,25 @@ export type EndstateExtensions = {
   auth_logout_endpoint: string;
   auth_recover_endpoint: string;
   backup_api_base: string;
-  supported_kdf_algorithms: ['argon2id'];
+  supported_kdf_algorithms: ["argon2id"];
   supported_envelope_versions: number[];
   min_kdf_params: { memory: number; iterations: number; parallelism: number };
+  /** Optional, rollout-gated features that newer engines may opt into. */
+  backup_api_capabilities?: ["version-create-operation-replay-v1"];
 };
 
 export type OidcDiscoveryDocument = {
   issuer: string;
   jwks_uri: string;
-  id_token_signing_alg_values_supported: ['EdDSA'];
+  id_token_signing_alg_values_supported: ["EdDSA"];
   endstate_extensions: EndstateExtensions;
 };
 
 export type Jwk = {
-  kty: 'OKP';
-  crv: 'Ed25519';
-  alg: 'EdDSA';
-  use: 'sig';
+  kty: "OKP";
+  crv: "Ed25519";
+  alg: "EdDSA";
+  use: "sig";
   kid: string;
   x: string; // base64url
 };

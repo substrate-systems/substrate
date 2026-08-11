@@ -48,8 +48,18 @@ export function Nav() {
         </div>
         {/* Center */}
         <div className="flex items-center gap-2">
-          <img src="/endstate/icons/transparent/transparent-sw5.svg" alt="" width={24} height={24} className="block" />
-          <Link href="/endstate" className="font-bold tracking-tight" style={{ color: c.text, fontSize: "1.1rem", textDecoration: "none" }}>
+          <img
+            src="/endstate/icons/transparent/transparent-sw5.svg"
+            alt=""
+            width={24}
+            height={24}
+            className="block"
+          />
+          <Link
+            href="/endstate"
+            className="font-bold tracking-tight"
+            style={{ color: c.text, fontSize: "1.1rem", textDecoration: "none" }}
+          >
             Endstate
           </Link>
         </div>
@@ -89,14 +99,12 @@ export function Nav() {
 /* ── Footer ── */
 export function EndstateFooter() {
   return (
-    <footer
-      className="py-16 px-6"
-      style={{ background: c.bg, borderTop: `1px solid ${c.border}` }}
-    >
-      <div className="mx-auto flex flex-col items-center text-center lg:flex-row lg:justify-between lg:text-left gap-4" style={{ maxWidth: 1100 }}>
-        <p style={{ fontSize: "0.8rem", color: c.textMuted }}>
-          Substrate Systems
-        </p>
+    <footer className="py-16 px-6" style={{ background: c.bg, borderTop: `1px solid ${c.border}` }}>
+      <div
+        className="mx-auto flex flex-col items-center text-center lg:flex-row lg:justify-between lg:text-left gap-4"
+        style={{ maxWidth: 1100 }}
+      >
+        <p style={{ fontSize: "0.8rem", color: c.textMuted }}>Substrate Systems</p>
         <p style={{ fontSize: "0.8rem", color: c.textMuted }}>
           Open source on{" "}
           <a
@@ -138,6 +146,15 @@ export function EndstateFooter() {
             onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
           >
             Supporters
+          </Link>
+          <Link
+            href="/endstate/sponsor-an-integration"
+            className="transition-colors duration-200"
+            style={{ fontSize: "0.8rem", color: c.textSec, textDecoration: "none" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = c.text)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.textSec)}
+          >
+            Sponsor an integration
           </Link>
           <a
             href="https://github.com/Artexis10/endstate/blob/main/PRINCIPLES.md"
