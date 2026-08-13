@@ -48,7 +48,9 @@ import {
 } from "../oauth-store";
 import { mintAuthorizationCode, mintOpaqueTokenMaterial, pkceS256 } from "../oauth";
 import { FakeCellProvisioner, ProvisionerPending } from "../provisioner";
+import { __setPromotionProvisionerForTests } from "../promotion-runtime";
 import { expectedCellConfiguration, LifecycleReconciler } from "../reconciler";
+import { digestSecret, encryptSecret } from "../security";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 // Release A in the lineage tests is whatever contract is currently live, so a
@@ -66,6 +68,7 @@ const promotionEnvironment = [
   "EXOMEM_HOSTED_PROMOTION_SECRET",
   "EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID",
   "EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET",
+  "EXOMEM_CONTROL_PLANE_KEY",
 ] as const;
 const previousPromotionEnvironment = Object.fromEntries(
   promotionEnvironment.map((key) => [key, process.env[key]])
@@ -308,12 +311,7 @@ async function seedAdmission(
      entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
      created_by_principal_digest, expires_at)
      VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, $3, $4, now() + interval '1 hour')`,
-    [
-      invitationDigest,
-      `paired-${randomUUID()}@example.test`,
-      marketplaceReviewerPurpose,
-      digest(7),
-    ]
+    [invitationDigest, `paired-${randomUUID()}@example.test`, marketplaceReviewerPurpose, digest(7)]
   );
   await pool!.query(
     `INSERT INTO exomem_oauth_authorization_transactions (
@@ -608,6 +606,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
   after(async () => {
     __setExomemSqlForTests(null);
     __setExomemTransactionForTests(null);
+    __setPromotionProvisionerForTests(null);
     await pool?.end();
     if (schema) {
       const admin = new Pool({ connectionString: databaseUrl });
@@ -649,6 +648,8 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       }
     }
     const provider = new PendingDestroyProvider();
+    process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 9).toString("base64url");
+    __setPromotionProvisionerForTests(provider);
     const store = new SqlLifecycleStore();
     let ownerId = "";
     const reconciler = new LifecycleReconciler({
@@ -804,24 +805,18 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       ).rows[0],
       { exact_storage: true, exact_runtime: true, provision_released: true }
     );
-    assert.deepEqual(
-      await loadOwnerInstallActions(
-        ownerId,
-        admitted.tenantId
-      ),
-      [
-        {
-          platform: "claude",
-          version: "0.1.0",
-          installUrl: "https://claude.ai/plugins/exomem-hosted",
-        },
-        {
-          platform: "openai",
-          version: "0.1.0",
-          installUrl: "https://chatgpt.com/plugins/exomem-hosted",
-        },
-      ]
-    );
+    assert.deepEqual(await loadOwnerInstallActions(ownerId, admitted.tenantId), [
+      {
+        platform: "claude",
+        version: "0.1.0",
+        installUrl: "https://claude.ai/plugins/exomem-hosted",
+      },
+      {
+        platform: "openai",
+        version: "0.1.0",
+        installUrl: "https://chatgpt.com/plugins/exomem-hosted",
+      },
+    ]);
 
     const claudeMaterial = mintOpaqueTokenMaterial({ refreshAllowed: true });
     const claudeIssued = await issueOAuthTokensFromCodeAtomic({
@@ -1098,7 +1093,14 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     ).rows[0]!;
     const inviteDigest = digest(31);
     const transactionDigest = digest(32);
-    await seedAdmission(client.id, client.redirect_uri, inviteDigest, transactionDigest, undefined, true);
+    await seedAdmission(
+      client.id,
+      client.redirect_uri,
+      inviteDigest,
+      transactionDigest,
+      undefined,
+      true
+    );
     const admitted = await admitFirstOAuthInviteAtomic({
       inviteDigest,
       transactionDigest,
@@ -1165,7 +1167,8 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
           observed_schema_digest: null,
           observed_compatibility_digest: null,
           source_release: exomemHostedContractFixture.sourceRelease,
-          protocol_version: exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+          protocol_version:
+            exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
         },
       ]
     );
@@ -1188,6 +1191,24 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
 
   it("keeps A live through paired B proof, promotes B atomically, and rolls forward to fresh A", async () => {
     if (!(await getLiveExomemAgentContract())) await seedCohort();
+    const promotionEnvelopeKey = Buffer.alloc(32, 9);
+    process.env.EXOMEM_CONTROL_PLANE_KEY = promotionEnvelopeKey.toString("base64url");
+    __setPromotionProvisionerForTests({
+      health: async (request) => ({
+        live: true,
+        ready: true,
+        cellId: request.cellId,
+        protocolVersion: request.runtimeTarget!.protocolVersion,
+        releaseVersion: request.runtimeTarget!.releaseVersion,
+        serviceAuthenticated: true,
+        mutationAuthority: true,
+        readAdmission: true,
+        writeAdmission: true,
+        workerPolicy: request.workerPolicy,
+        runtimeIdentity: request.runtimeTarget,
+        code: "CELL_READY",
+      }),
+    });
     const priorRoutes = await pool!.query<{
       cell_id: string;
       source_release: string;
@@ -1254,6 +1275,21 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         cell.rows[0]!.id,
         tenant.rows[0]!.id,
       ]);
+      await pool!.query(
+        `UPDATE exomem_cells
+         SET worker_policy = '{"workerCount":1,"semantic":true,"media":false}'::jsonb,
+             provider_ref = $2, service_credential_ciphertext = $3::jsonb,
+             service_credential_digest = $4
+         WHERE id = $1`,
+        [
+          cell.rows[0]!.id,
+          `paired-promotion-${cell.rows[0]!.id}`,
+          JSON.stringify(
+            encryptSecret(`paired-credential-${cell.rows[0]!.id}`, { key: promotionEnvelopeKey })
+          ),
+          digestSecret(`paired-credential-${cell.rows[0]!.id}`),
+        ]
+      );
       await pool!.query(
         `INSERT INTO exomem_routable_cell_contracts (
            cell_id, profile_id, source_release, protocol_version, command_fingerprint,
@@ -1327,6 +1363,23 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       );
       const operationId = randomUUID();
       await pool!.query(
+        `UPDATE exomem_cells
+         SET worker_policy = '{"workerCount":1,"semantic":true,"media":false}'::jsonb,
+             provider_ref = $2, service_credential_ciphertext = $3::jsonb,
+             service_credential_digest = $4
+         WHERE id = $1`,
+        [
+          replacement.rows[0]!.id,
+          `paired-promotion-${replacement.rows[0]!.id}`,
+          JSON.stringify(
+            encryptSecret(`paired-credential-${replacement.rows[0]!.id}`, {
+              key: promotionEnvelopeKey,
+            })
+          ),
+          digestSecret(`paired-credential-${replacement.rows[0]!.id}`),
+        ]
+      );
+      await pool!.query(
         `INSERT INTO exomem_lifecycle_operations (
            id, tenant_id, cell_id, expected_previous_cell_id, operation_type, state, idempotency_key,
            fence_generation, checkpoint, lease_owner, lease_expires_at, provisioner_wire_protocol,
@@ -1371,7 +1424,10 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
           tenantId: tenant.tenantId,
         })
       );
-      assert.equal(await new SqlLifecycleStore().succeed(operationId, "paired-bind-finalize"), true);
+      assert.equal(
+        await new SqlLifecycleStore().succeed(operationId, "paired-bind-finalize"),
+        true
+      );
       if (previous) {
         await recordRoutableCellObservation({
           cellId: tenant.cellId,
@@ -1652,14 +1708,17 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     assert.ok(bRouting.rows.length > 2);
     assert.equal(bRouting.rows.filter((row) => row.source_release === "0.35.0").length, 2);
     assert.ok(
-      bRouting.rows.filter((row) => row.source_release === "0.35.0").every(
-        (row) =>
-          row.source_release === bStages.fixture.sourceRelease &&
-          row.protocol_version === bStages.fixture.compatibility.agent_contract.protocol_version &&
-          row.command_fingerprint === bStages.fixture.compatibility.command_surface_sha256 &&
-          row.contract_digest === bStages.fixture.compatibility.schema_contract_sha256 &&
-          row.compatibility_digest === bStages.fixture.compatibility.compatibility_sha256
-      )
+      bRouting.rows
+        .filter((row) => row.source_release === "0.35.0")
+        .every(
+          (row) =>
+            row.source_release === bStages.fixture.sourceRelease &&
+            row.protocol_version ===
+              bStages.fixture.compatibility.agent_contract.protocol_version &&
+            row.command_fingerprint === bStages.fixture.compatibility.command_surface_sha256 &&
+            row.contract_digest === bStages.fixture.compatibility.schema_contract_sha256 &&
+            row.compatibility_digest === bStages.fixture.compatibility.compatibility_sha256
+        )
     );
     assert.deepEqual(
       (
@@ -1686,29 +1745,29 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     );
     assert.ok(
       promotionProof.rows.filter((row) => row.target_matches === true).length === 2 &&
-      promotionProof.rows
-        .filter((row) => row.target_matches === true)
-        .every(
-        (row) =>
-          row.state === "succeeded" &&
-          row.checkpoint === "bound" &&
-          row.target_matches === true &&
-          row.gateway_matches === true &&
-          row.command_matches === true &&
-          row.schema_matches === true &&
-          row.compatibility_matches === true
-        ),
+        promotionProof.rows
+          .filter((row) => row.target_matches === true)
+          .every(
+            (row) =>
+              row.state === "succeeded" &&
+              row.checkpoint === "bound" &&
+              row.target_matches === true &&
+              row.gateway_matches === true &&
+              row.command_matches === true &&
+              row.schema_matches === true &&
+              row.compatibility_matches === true
+          ),
       JSON.stringify(promotionProof.rows)
     );
     const promotionInput = {
-        candidateId,
-        claudeArtifactId: bEvidence.claude.artifactId,
-        openaiArtifactId: bEvidence.openai.artifactId,
-        expectedLiveCandidateId: liveCandidateId,
-        expectedRoutableCellDigest: bAuthorityDigest,
-        claudeEvidence: bEvidence.claude.evidence,
-        openaiEvidence: bEvidence.openai.evidence,
-      };
+      candidateId,
+      claudeArtifactId: bEvidence.claude.artifactId,
+      openaiArtifactId: bEvidence.openai.artifactId,
+      expectedLiveCandidateId: liveCandidateId,
+      expectedRoutableCellDigest: bAuthorityDigest,
+      claudeEvidence: bEvidence.claude.evidence,
+      openaiEvidence: bEvidence.openai.evidence,
+    };
     const beforeV1PromotionStop = await pool!.query(
       `SELECT candidate.state AS candidate_state, artifact.state AS artifact_state
        FROM exomem_agent_contract_candidates AS candidate

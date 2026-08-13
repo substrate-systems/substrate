@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
@@ -10,6 +10,12 @@ import {
   validatePromotionEvidence,
 } from "./client-artifacts";
 import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-contract-canaries";
+import { routableSetDigest, type RoutableCellIdentity } from "./routable-authority";
+import {
+  PromotionRuntimePreconditionError,
+  preparePromotionRuntimeHealth,
+  recordPromotionRuntimeAuthorityInTransaction,
+} from "./promotion-runtime";
 
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
@@ -97,32 +103,6 @@ export type LiveExomemAgentContract = {
   mcpProtocolVersions: string[];
   contract: JsonRecord;
 };
-
-type RoutableCellIdentity = {
-  cell_id: unknown;
-  source_release: unknown;
-  protocol_version: unknown;
-  command_fingerprint: unknown;
-  contract_digest: unknown;
-  compatibility_digest: unknown;
-};
-
-function routableSetDigest(identities: RoutableCellIdentity[]): string {
-  const entries = identities.map((row) =>
-    JSON.stringify([
-      EXOMEM_HOSTED_PROFILE,
-      String(row.cell_id),
-      String(row.source_release),
-      String(row.protocol_version),
-      String(row.command_fingerprint),
-      String(row.contract_digest),
-      String(row.compatibility_digest),
-    ])
-  );
-  return entries.length
-    ? createHash("sha256").update(entries.join(",")).digest("hex")
-    : "0".repeat(64);
-}
 
 function record(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -632,7 +612,7 @@ export async function listExomemHostedRolloutStatus(): Promise<
     const row = raw as Record<string, unknown>;
     const identities = routableCellIdentities(row.routable_identities);
     if (identities === null) return [];
-    const digest = routableSetDigest(identities);
+    const digest = routableSetDigest(EXOMEM_HOSTED_PROFILE, identities);
     if (
       typeof row.candidate_id !== "string" ||
       (row.state !== "pending" && row.state !== "live" && row.state !== "retired") ||
@@ -777,7 +757,7 @@ export async function refreshRoutableProfileAuthorityInTransaction(
   const fingerprint = sha256(observed.command_fingerprint, "observed command fingerprint");
   const contract = sha256(observed.contract_digest, "observed contract digest");
   const compatibility = sha256(observed.compatibility_digest, "observed compatibility digest");
-  const digest = routableSetDigest(identities);
+  const digest = routableSetDigest(EXOMEM_HOSTED_PROFILE, identities);
   const allMatch = identities.every(
     (row) =>
       row.source_release === sourceRelease &&
@@ -873,15 +853,34 @@ export async function promoteExomemHostedCohort(input: {
   openaiEvidence: unknown;
 }): Promise<ExomemHostedCohortPromotionResult> {
   const expected = sha256(input.expectedRoutableCellDigest, "routable cell digest");
-  return withExomemTransaction(async (transaction) => {
-    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
-    await transaction`
+  const { rows: candidateRows } = await executeExomemSql`
+    SELECT state
+    FROM exomem_agent_contract_candidates
+    WHERE id = ${input.candidateId}::uuid AND profile_id = ${EXOMEM_HOSTED_PROFILE}
+    LIMIT 1
+  `;
+  const candidateAlreadyLive = candidateRows[0]?.state === "live";
+  const promotionHealth = candidateAlreadyLive
+    ? null
+    : await preparePromotionRuntimeHealth({
+        candidateId: input.candidateId,
+        expectedRoutableCellDigest: expected,
+      });
+  if (!candidateAlreadyLive && !promotionHealth) return "precondition_failed";
+  try {
+    return await withExomemTransaction(async (transaction) => {
+      await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+      const preconditionFailed = (): ExomemHostedCohortPromotionResult => {
+        if (promotionHealth) throw new PromotionRuntimePreconditionError();
+        return "precondition_failed";
+      };
+      await transaction`
       /* exomem:lock-routable-hosted-authority */
       SELECT profile_id FROM exomem_agent_contract_profile_authority
       WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
       FOR UPDATE
     `;
-    const { rows: routableRows } = await transaction`
+      const { rows: routableRows } = await transaction`
       /* exomem:lock-current-routable-hosted-cells */
       SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint,
              contract_digest, compatibility_digest
@@ -890,21 +889,62 @@ export async function promoteExomemHostedCohort(input: {
       ORDER BY cell_id
       FOR UPDATE
     `;
-    if (routableSetDigest(routableRows as RoutableCellIdentity[]) !== expected)
-      return "precondition_failed";
-    const claudeLocks = await loadClientArtifactLocks("claude", input.candidateId, transaction);
-    const openaiLocks = await loadClientArtifactLocks("openai", input.candidateId, transaction);
-    const claudeEvidence = validatePromotionEvidence(input.claudeEvidence, "claude", claudeLocks);
-    const openaiEvidence = validatePromotionEvidence(input.openaiEvidence, "openai", openaiLocks);
-    for (const key of [
-      "paired_run_hmac_sha256",
-      "exomem_identity_hmac_sha256",
-      "tenant_hmac_sha256",
-    ]) {
-      if (claudeEvidence[key] !== openaiEvidence[key])
-        throw new Error("paired client evidence must name the same Hosted cohort");
-    }
-    const { rows: liveRows } = await transaction`
+      if (
+        routableSetDigest(EXOMEM_HOSTED_PROFILE, routableRows as RoutableCellIdentity[]) !==
+        expected
+      )
+        return preconditionFailed();
+      const claudeLocks = await loadClientArtifactLocks("claude", input.candidateId, transaction);
+      const openaiLocks = await loadClientArtifactLocks("openai", input.candidateId, transaction);
+      const claudeEvidence = validatePromotionEvidence(input.claudeEvidence, "claude", claudeLocks);
+      const openaiEvidence = validatePromotionEvidence(input.openaiEvidence, "openai", openaiLocks);
+      for (const key of [
+        "paired_run_hmac_sha256",
+        "exomem_identity_hmac_sha256",
+        "tenant_hmac_sha256",
+      ]) {
+        if (claudeEvidence[key] !== openaiEvidence[key])
+          throw new Error("paired client evidence must name the same Hosted cohort");
+      }
+      const { rows: terminalRows } = await transaction`
+        /* exomem:lock-terminal-hosted-cohort-replay */
+        SELECT candidate.state AS candidate_state, claude.state AS claude_state, openai.state AS openai_state
+        FROM exomem_agent_contract_candidates AS candidate
+        JOIN exomem_client_artifacts AS claude
+          ON claude.id = ${input.claudeArtifactId}::uuid
+         AND claude.platform = 'claude'
+         AND claude.contract_candidate_id = candidate.id
+         AND claude.evidence_sha256 = ${promotionEvidenceDigest(claudeEvidence)}
+        JOIN exomem_client_artifacts AS openai
+          ON openai.id = ${input.openaiArtifactId}::uuid
+         AND openai.platform = 'openai'
+         AND openai.contract_candidate_id = candidate.id
+         AND openai.evidence_sha256 = ${promotionEvidenceDigest(openaiEvidence)}
+        WHERE candidate.id = ${input.candidateId}::uuid
+          AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
+        FOR UPDATE OF candidate, claude, openai
+      `;
+      const terminal = terminalRows[0];
+      if (
+        terminal?.candidate_state === "live" &&
+        terminal.claude_state === "live" &&
+        terminal.openai_state === "live" &&
+        (input.expectedLiveCandidateId === null ||
+          input.expectedLiveCandidateId === input.candidateId)
+      )
+        return "already_live";
+      if (
+        promotionHealth &&
+        !(await recordPromotionRuntimeAuthorityInTransaction({
+          transaction,
+          candidateId: input.candidateId,
+          expectedRoutableCellDigest: expected,
+          probes: promotionHealth,
+          refreshAuthority: refreshRoutableProfileAuthorityInTransaction,
+        }))
+      )
+        return "precondition_failed";
+      const { rows: liveRows } = await transaction`
       /* exomem:lock-live-hosted-cohort */
       SELECT id::text AS id
       FROM exomem_agent_contract_candidates
@@ -912,17 +952,17 @@ export async function promoteExomemHostedCohort(input: {
       ORDER BY id
       FOR UPDATE
     `;
-    const liveCandidateIds = liveRows.flatMap((row) =>
-      typeof row.id === "string" ? [row.id] : []
-    );
-    if (
-      liveCandidateIds.length !== (input.expectedLiveCandidateId === null ? 0 : 1) ||
-      (input.expectedLiveCandidateId !== null &&
-        liveCandidateIds[0] !== input.expectedLiveCandidateId)
-    ) {
-      return "precondition_failed";
-    }
-    const { rows } = await transaction`
+      const liveCandidateIds = liveRows.flatMap((row) =>
+        typeof row.id === "string" ? [row.id] : []
+      );
+      if (
+        liveCandidateIds.length !== (input.expectedLiveCandidateId === null ? 0 : 1) ||
+        (input.expectedLiveCandidateId !== null &&
+          liveCandidateIds[0] !== input.expectedLiveCandidateId)
+      ) {
+        return preconditionFailed();
+      }
+      const { rows } = await transaction`
       /* exomem:validate-hosted-cohort-promotion */
       WITH authority AS (
       SELECT authority.*
@@ -941,11 +981,15 @@ export async function promoteExomemHostedCohort(input: {
         ON route.profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND route.routable = true
       JOIN exomem_cells AS cell ON cell.id = route.cell_id
+      JOIN exomem_tenants AS tenant
+        ON tenant.id = cell.tenant_id
+       AND tenant.bound_cell_id = cell.id
       JOIN LATERAL (
-        SELECT operation.id
+        SELECT operation.*
         FROM exomem_lifecycle_operations AS operation
         WHERE operation.cell_id = route.cell_id
           AND operation.tenant_id = cell.tenant_id
+          AND operation.fence_generation = tenant.fence_generation
           AND operation.state = 'succeeded'
           AND operation.operation_type IN ('provision', 'restore')
           AND operation.checkpoint = 'bound'
@@ -968,10 +1012,25 @@ export async function promoteExomemHostedCohort(input: {
         LIMIT 1
         FOR UPDATE
       ) AS operation ON true
+      JOIN exomem_agent_contract_rollout_assignments AS assignment
+        ON assignment.id = operation.target_assignment_id
+       AND assignment.tenant_id = cell.tenant_id
+       AND assignment.candidate_id = operation.target_candidate_id
+       AND assignment.generation = operation.target_assignment_generation
+       AND assignment.source_release = operation.target_source_release
+       AND assignment.protocol_version = operation.target_protocol_version
+       AND assignment.gateway_contract_digest = operation.target_gateway_contract_digest
+       AND assignment.command_fingerprint = operation.target_command_fingerprint
+       AND assignment.schema_digest = operation.target_schema_digest
+       AND assignment.compatibility_digest = operation.target_compatibility_digest
+       AND assignment.state = 'active'
+       AND assignment.expires_at > now()
       WHERE cell.routing_state = 'bound'
         AND cell.lifecycle_state = 'active'
+        AND tenant.status = 'active'
+        AND tenant.desired_state = 'running'
         AND cell.readiness_code = 'CELL_READY'
-      FOR UPDATE OF route, cell
+      FOR UPDATE OF route, cell, tenant, operation, assignment
     ), claude AS (
       SELECT * FROM exomem_client_artifacts
       WHERE id = ${input.claudeArtifactId}::uuid AND platform = 'claude' AND state IN ('pending', 'live')
@@ -1003,7 +1062,7 @@ export async function promoteExomemHostedCohort(input: {
             AND candidate.claude_archive_lock->>'archive_sha256' = trusted->>'archive_sha256'
         )
         AND authority.routable_set_digest = ${expected}
-        AND authority.observed_at > now() - interval '5 minutes'
+        AND (candidate.state = 'live' OR authority.observed_at > now() - interval '5 minutes')
         AND authority.source_release = candidate.source_release
         AND authority.protocol_version = candidate.protocol_version
         AND authority.command_fingerprint = candidate.command_fingerprint
@@ -1084,48 +1143,48 @@ export async function promoteExomemHostedCohort(input: {
         )
       ) SELECT candidate_state, claude_state, openai_state FROM exact_cells
     `;
-    const states = rows[0];
-    if (!states) return "precondition_failed";
-    if (
-      states.candidate_state === "live" &&
-      states.claude_state === "live" &&
-      states.openai_state === "live"
-    ) {
-      return "already_live";
-    }
-    if (
-      states.candidate_state !== "pending" ||
-      states.claude_state !== "pending" ||
-      states.openai_state !== "pending"
-    ) {
-      return "precondition_failed";
-    }
-    await transaction`
+      const states = rows[0];
+      if (!states) return preconditionFailed();
+      if (
+        states.candidate_state === "live" &&
+        states.claude_state === "live" &&
+        states.openai_state === "live"
+      ) {
+        return "already_live";
+      }
+      if (
+        states.candidate_state !== "pending" ||
+        states.claude_state !== "pending" ||
+        states.openai_state !== "pending"
+      ) {
+        return preconditionFailed();
+      }
+      await transaction`
       /* exomem:retire-live-hosted-cohort */
       UPDATE exomem_agent_contract_candidates
       SET state = 'retired', retired_at = now()
       WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live'
     `;
-    await transaction`
+      await transaction`
       /* exomem:retire-live-hosted-client-artifacts */
       UPDATE exomem_client_artifacts
       SET state = 'retired', retired_at = now()
       WHERE platform IN ('claude', 'openai') AND state = 'live'
     `;
-    await transaction`
+      await transaction`
       /* exomem:promote-hosted-cohort */
       UPDATE exomem_agent_contract_candidates
       SET state = 'live', promoted_at = now()
       WHERE id = ${input.candidateId}::uuid AND state = 'pending'
     `;
-    await transaction`
+      await transaction`
       /* exomem:promote-hosted-cohort-client-artifacts */
       UPDATE exomem_client_artifacts
       SET state = 'live', promoted_at = now()
       WHERE id IN (${input.claudeArtifactId}::uuid, ${input.openaiArtifactId}::uuid)
         AND state = 'pending'
     `;
-    await transaction`
+      await transaction`
       /* exomem:retire-promoted-hosted-cohort-assignments */
       UPDATE exomem_agent_contract_rollout_assignments
       SET state = 'retired', activated_at = NULL, ended_at = now(),
@@ -1133,7 +1192,7 @@ export async function promoteExomemHostedCohort(input: {
       WHERE candidate_id = ${input.candidateId}::uuid
         AND state IN ('preparing', 'active')
     `;
-    await transaction`
+      await transaction`
       /* exomem:retire-promoted-hosted-cohort-stages */
       UPDATE exomem_staged_client_releases
       SET state = 'retired', evidenced_at = NULL, ended_at = now(),
@@ -1141,13 +1200,17 @@ export async function promoteExomemHostedCohort(input: {
       WHERE candidate_id = ${input.candidateId}::uuid
         AND state IN ('staged', 'evidenced')
     `;
-    await revokeConflictingCandidateOAuthLineageInTransaction(transaction, input.candidateId);
-    const { rows: cohortRows } = await transaction`
+      await revokeConflictingCandidateOAuthLineageInTransaction(transaction, input.candidateId);
+      const { rows: cohortRows } = await transaction`
       /* exomem:assert-promoted-hosted-cohort */
       SELECT id::text AS id FROM exomem_hosted_alpha_cohort
     `;
-    if (cohortRows.length !== 1 || cohortRows[0]?.id !== input.candidateId)
-      throw new Error("atomic Hosted cohort promotion produced a partial cohort");
-    return "promoted";
-  });
+      if (cohortRows.length !== 1 || cohortRows[0]?.id !== input.candidateId)
+        throw new Error("atomic Hosted cohort promotion produced a partial cohort");
+      return "promoted";
+    });
+  } catch (error) {
+    if (error instanceof PromotionRuntimePreconditionError) return "precondition_failed";
+    throw error;
+  }
 }

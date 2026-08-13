@@ -160,6 +160,39 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
   });
 
+  it("retries rather than terminally rejecting an outer-v2 cell that is not live or ready yet", async () => {
+    const provisioner = new FakeCellProvisioner();
+    provisioner.readinessOverride.live = false;
+    provisioner.readinessOverride.ready = false;
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    const operation = await store.enqueue(TENANT, "provision", "targeted-not-ready");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+    stored.target = {
+      candidateId: "018f2d91-7c42-7000-8000-000000000060",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000061",
+      assignmentGeneration: 1,
+      sourceRelease: "2026.07.12",
+      protocolVersion: "1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+
+    await reconciler.reconcileOne({ owner: "targeted-create", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "targeted-provision", tenantId: TENANT });
+    const result = await reconciler.reconcileOne({ owner: "targeted-health", tenantId: TENANT });
+
+    assert.deepEqual(result, {
+      kind: "retry_scheduled",
+      operationId: operation.id,
+      code: "CELL_NOT_READY",
+    });
+    assert.equal(store.operations.get(operation.id)?.state, "failed_retryable");
+  });
+
   it("binds a targeted marketplace reviewer over stored strict v1 without identity observations", async () => {
     const provisioner = new FakeCellProvisioner();
     provisioner.readinessOverride.contractIdentity = undefined;
@@ -267,7 +300,10 @@ describe("Exomem lifecycle reconciler", () => {
 
     const cellId = store.tenants.get(TENANT)?.boundCellId;
     assert.ok(cellId);
-    assert.equal(provisioner.resources.get(cellId)?.provisionerWireProtocol, "exomem-cell-provisioner.v2");
+    assert.equal(
+      provisioner.resources.get(cellId)?.provisionerWireProtocol,
+      "exomem-cell-provisioner.v2"
+    );
     assert.deepEqual(provisioner.resources.get(cellId)?.runtimeTarget, {
       releaseVersion: "2026.07.11",
       protocolVersion: "1",
@@ -289,7 +325,10 @@ describe("Exomem lifecycle reconciler", () => {
 
     assert.equal(provisioner.calls.length, 0);
     assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
-    assert.equal(store.operations.get(operation.id)?.errorCode, "PROVISIONER_CONFIGURATION_INVALID");
+    assert.equal(
+      store.operations.get(operation.id)?.errorCode,
+      "PROVISIONER_CONFIGURATION_INVALID"
+    );
   });
 
   it("retries a stored v2 operation with its original wire identity after the issuance flag changes", async () => {
@@ -332,16 +371,14 @@ describe("Exomem lifecycle reconciler", () => {
     }
   });
 
-  for (
-    const mismatch of [
-      "releaseVersion",
-      "protocolVersion",
-      "agentProfile",
-      "gatewayContractDigest",
-      "commandFingerprint",
-      "schemaDigest",
-    ] as const
-  ) {
+  for (const mismatch of [
+    "releaseVersion",
+    "protocolVersion",
+    "agentProfile",
+    "gatewayContractDigest",
+    "commandFingerprint",
+    "schemaDigest",
+  ] as const) {
     it(`never binds a v2 cell when runtime identity ${mismatch} differs`, async () => {
       const { store, reconciler, provisioner } = harness();
       const operation = await store.enqueue(TENANT, "provision", `v2-mismatch-${mismatch}`);
@@ -479,7 +516,9 @@ describe("Exomem lifecycle reconciler", () => {
   });
 
   it("replays lost provision acknowledgements with the stored protocol identity shape", async () => {
-    const replay = async (protocol: "exomem-cell-provisioner.v1" | "exomem-cell-provisioner.v2") => {
+    const replay = async (
+      protocol: "exomem-cell-provisioner.v1" | "exomem-cell-provisioner.v2"
+    ) => {
       const provisioner = new ContractIdentityRecordingProvisioner();
       const { store, reconciler } = harness(undefined, async () => true, provisioner);
       const operation = await store.enqueue(TENANT, "provision", `lost-ack-${protocol}`);
@@ -786,7 +825,9 @@ describe("Exomem lifecycle reconciler", () => {
 
     assert.deepEqual(provisioner.destroyProtocols, ["exomem-cell-provisioner.v2"]);
     assert.equal(
-      provisioner.calls.some((call) => call.action === "health" && call.idempotencyKey.startsWith(operation.id)),
+      provisioner.calls.some(
+        (call) => call.action === "health" && call.idempotencyKey.startsWith(operation.id)
+      ),
       false
     );
   });

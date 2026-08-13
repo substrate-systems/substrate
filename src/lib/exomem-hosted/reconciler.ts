@@ -24,6 +24,7 @@ import {
   type SecretEnvelope,
 } from "./security";
 import { exomemErrors } from "./errors";
+import { strictOuterV2ReadinessMismatch } from "./promotion-runtime";
 import type { BillingDeletionTarget } from "./billing-deletion";
 
 export type LifecycleOperationType =
@@ -414,13 +415,7 @@ function readinessMismatch(
   }
   return (
     target !== null &&
-      (!readiness.runtimeIdentity ||
-        readiness.runtimeIdentity.releaseVersion !== target.sourceRelease ||
-        readiness.runtimeIdentity.protocolVersion !== target.protocolVersion ||
-        readiness.runtimeIdentity.agentProfile !== EXOMEM_HOSTED_PROFILE ||
-        readiness.runtimeIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
-        readiness.runtimeIdentity.commandFingerprint !== target.commandFingerprint ||
-        readiness.runtimeIdentity.schemaDigest !== target.schemaDigest)
+    strictOuterV2ReadinessMismatch(readiness, cell, operation!, config.workerPolicy)
   );
 }
 
@@ -821,7 +816,11 @@ export class LifecycleReconciler {
         idempotencyKey: `${operation.id}:export-failure-readiness:${cell.id}`,
       },
     });
-    if (readinessMismatch(readiness, cell, this.#config, operation) || !readiness.live || !readiness.ready) {
+    if (
+      readinessMismatch(readiness, cell, this.#config, operation) ||
+      !readiness.live ||
+      !readiness.ready
+    ) {
       throw new ProvisionerFailure({ code: "PROVISIONER_UNAVAILABLE", retryable: true });
     }
     this.#requireStored(

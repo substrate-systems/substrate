@@ -6,6 +6,7 @@ import { applyMigrations } from "../../../../scripts/migrate";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
+  withExomemTransaction,
   type ExomemSql,
   type ExomemTransaction,
 } from "../db";
@@ -21,10 +22,19 @@ import {
   listExomemHostedRolloutStatus,
   promoteExomemHostedCohort,
   recordRoutableCellObservation,
+  refreshRoutableProfileAuthorityInTransaction,
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { storeClientArtifact } from "../client-artifacts";
 import { SqlLifecycleStore } from "../lifecycle-store";
+import {
+  __setPromotionProvisionerForTests,
+  preparePromotionRuntimeHealth,
+  PromotionRuntimePreconditionError,
+  recordPromotionRuntimeAuthorityInTransaction,
+} from "../promotion-runtime";
+import { digestSecret, encryptSecret } from "../security";
+import { routableSetDigest } from "../routable-authority";
 import {
   createCanaryAssignment,
   createStagedClientRelease,
@@ -43,6 +53,7 @@ const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
 let schema: string | undefined;
 const sha = (letter: string) => letter.repeat(64);
+const promotionEnvelopeKey = Buffer.alloc(32, 0x3a);
 
 function sql(client: Pool | PoolClient): ExomemSql {
   return async (strings, ...values) => {
@@ -103,9 +114,18 @@ async function seedRoutableCells(): Promise<void> {
     );
     const cell = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_cells (
-         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
-       ) VALUES ($1, 'active', 'bound', 'running', '1', 'test') RETURNING id`,
-      [tenant.rows[0]!.id]
+       tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         worker_policy, provider_ref, service_credential_ciphertext, service_credential_digest
+       ) VALUES ($1, 'active', 'bound', 'running', '1', 'test',
+                 '{"workerCount":1,"semantic":true,"media":false}'::jsonb, $2, $3::jsonb, $4) RETURNING id`,
+      [
+        tenant.rows[0]!.id,
+        `promotion-provider-${suffix}`,
+        JSON.stringify(
+          encryptSecret(`promotion-credential-${suffix}`, { key: promotionEnvelopeKey })
+        ),
+        digestSecret(`promotion-credential-${suffix}`),
+      ]
     );
     await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
       cell.rows[0]!.id,
@@ -118,6 +138,16 @@ async function seedActiveReviewerAssignment(candidateId: string): Promise<{
   id: string;
   generation: number;
 }> {
+  const existing = await pool!.query<{ id: string; generation: string }>(
+    `SELECT id::text AS id, generation
+     FROM exomem_agent_contract_rollout_assignments
+     WHERE candidate_id = $1::uuid AND state = 'active' AND expires_at > now()
+     ORDER BY created_at, id
+     LIMIT 1`,
+    [candidateId]
+  );
+  if (existing.rows[0])
+    return { id: existing.rows[0].id, generation: Number(existing.rows[0].generation) };
   const { rows } = await pool!.query<{ id: string; generation: string }>(
     `INSERT INTO exomem_agent_contract_rollout_assignments (
        tenant_id, candidate_id, generation, state, source_release, protocol_version,
@@ -152,6 +182,36 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
               compatibility_digest
        FROM exomem_agent_contract_candidates WHERE id = $1::uuid
+     ), routed_cells AS (
+       SELECT cell.tenant_id
+       FROM exomem_routable_cell_contracts AS route
+       JOIN exomem_cells AS cell ON cell.id = route.cell_id
+       WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+     )
+     INSERT INTO exomem_agent_contract_rollout_assignments (
+       tenant_id, candidate_id, generation, state, source_release, protocol_version,
+       command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+       marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+     )
+     SELECT routed_cells.tenant_id, target.id, COALESCE((
+              SELECT MAX(existing.generation)
+              FROM exomem_agent_contract_rollout_assignments AS existing
+              WHERE existing.tenant_id = routed_cells.tenant_id
+            ), 0) + 1, 'active', target.source_release, target.protocol_version,
+            target.command_fingerprint, target.schema_digest, target.compatibility_digest, $2,
+            true, $3, now() + interval '1 hour', now()
+     FROM routed_cells CROSS JOIN target
+     WHERE NOT EXISTS (
+       SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
+       WHERE assignment.tenant_id = routed_cells.tenant_id AND assignment.state IN ('preparing', 'active')
+     )`,
+    [candidateId, exomemContractFixture0490.digest, sha("9")]
+  );
+  await pool!.query(
+    `WITH target AS (
+       SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
+              compatibility_digest
+       FROM exomem_agent_contract_candidates WHERE id = $1::uuid
      ), bound_cells AS (
        SELECT cell.id, cell.tenant_id
        FROM exomem_routable_cell_contracts AS route
@@ -172,6 +232,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
     `INSERT INTO exomem_lifecycle_operations (
        tenant_id, cell_id, operation_type, state, idempotency_key, fence_generation, checkpoint,
        provisioner_wire_protocol, target_candidate_id, target_source_release, target_protocol_version,
+       target_assignment_id, target_assignment_generation,
        target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
        target_compatibility_digest, completed_at
      )
@@ -179,11 +240,15 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
             'promotion-proof-' || target.id::text || '-' || cell.id::text,
             tenant.fence_generation, 'bound',
             'exomem-cell-provisioner.v2', target.id, target.source_release, target.protocol_version,
+            assignment.id, assignment.generation,
             $2, target.command_fingerprint, target.schema_digest, target.compatibility_digest, now()
      FROM exomem_routable_cell_contracts AS route
      JOIN exomem_cells AS cell ON cell.id = route.cell_id
      JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
      JOIN exomem_agent_contract_candidates AS target ON target.id = $1::uuid
+     JOIN exomem_agent_contract_rollout_assignments AS assignment
+       ON assignment.tenant_id = cell.tenant_id AND assignment.candidate_id = target.id
+      AND assignment.state = 'active' AND assignment.expires_at > now()
      WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
     [candidateId, exomemContractFixture0490.digest]
   );
@@ -218,6 +283,23 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     process.env.EXOMEM_HOSTED_PROMOTION_SECRET = "integration-secret";
     process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID = "integration-importer";
     process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET = "integration-import-secret";
+    process.env.EXOMEM_CONTROL_PLANE_KEY = promotionEnvelopeKey.toString("base64url");
+    __setPromotionProvisionerForTests({
+      health: async (request) => ({
+        live: true,
+        ready: true,
+        cellId: request.cellId,
+        protocolVersion: request.runtimeTarget!.protocolVersion,
+        releaseVersion: request.runtimeTarget!.releaseVersion,
+        serviceAuthenticated: true,
+        mutationAuthority: true,
+        readAdmission: true,
+        writeAdmission: true,
+        workerPolicy: request.workerPolicy,
+        runtimeIdentity: request.runtimeTarget,
+        code: "CELL_READY",
+      }),
+    });
   });
 
   after(async () => {
@@ -229,6 +311,8 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     delete process.env.EXOMEM_HOSTED_PROMOTION_SECRET;
     delete process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_KEY_ID;
     delete process.env.EXOMEM_HOSTED_CONTRACT_IMPORT_SECRET;
+    delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+    __setPromotionProvisionerForTests(null);
     await pool?.end();
     if (schema) {
       const admin = new Pool({ connectionString: databaseUrl });
@@ -599,6 +683,11 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       "2025-11-25",
       "2025-06-18",
     ]);
+    await pool!.query(
+      `UPDATE exomem_agent_contract_profile_authority
+       SET observed_at = now() - interval '6 minutes'
+       WHERE profile_id = 'hosted-alpha-agent-v1'`
+    );
     assert.equal(
       await promoteExomemHostedCohort({
         candidateId,
@@ -713,6 +802,19 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
        WHERE client_platform = 'openai' AND oauth_client_config_sha256 = $1`,
       [sha("a")]
     );
+    const authorityBeforeLateFailure = (
+      await pool!.query(
+        `SELECT authority.routable_set_digest, authority.observed_at,
+                cell.last_liveness_at, cell.last_readiness_at,
+                cell.observed_gateway_contract_digest, cell.observed_command_fingerprint,
+                cell.observed_schema_digest, cell.observed_compatibility_digest
+         FROM exomem_agent_contract_profile_authority AS authority
+         CROSS JOIN LATERAL (
+           SELECT * FROM exomem_cells ORDER BY id LIMIT 1
+         ) AS cell
+         WHERE authority.profile_id = 'hosted-alpha-agent-v1'`
+      )
+    ).rows;
     assert.equal(
       await promoteExomemHostedCohort({
         candidateId: replacementCandidateId,
@@ -726,6 +828,22 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       "precondition_failed"
     );
     assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT authority.routable_set_digest, authority.observed_at,
+                  cell.last_liveness_at, cell.last_readiness_at,
+                  cell.observed_gateway_contract_digest, cell.observed_command_fingerprint,
+                  cell.observed_schema_digest, cell.observed_compatibility_digest
+           FROM exomem_agent_contract_profile_authority AS authority
+           CROSS JOIN LATERAL (
+             SELECT * FROM exomem_cells ORDER BY id LIMIT 1
+           ) AS cell
+           WHERE authority.profile_id = 'hosted-alpha-agent-v1'`
+        )
+      ).rows,
+      authorityBeforeLateFailure
+    );
+    assert.deepEqual(
       (await pool!.query<{ id: string }>("SELECT id FROM exomem_hosted_alpha_cohort")).rows.map(
         (row) => row.id
       ),
@@ -737,6 +855,81 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
            metadata_ttl_seconds = NULL, metadata_expires_at = NULL, cimd_host = NULL
        WHERE client_platform = 'openai' AND oauth_client_config_sha256 = $1`,
       [sha("a")]
+    );
+    const fencedCell = (
+      await pool!.query<{ cell_id: string }>(
+        `SELECT route.cell_id::text AS cell_id
+         FROM exomem_routable_cell_contracts AS route
+         JOIN exomem_lifecycle_operations AS operation ON operation.cell_id = route.cell_id
+         WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+           AND operation.target_candidate_id = $1::uuid
+           AND operation.state = 'succeeded' AND operation.checkpoint = 'bound'
+           AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+         ORDER BY route.cell_id DESC
+         LIMIT 1`,
+        [replacementCandidateId]
+      )
+    ).rows[0]!;
+    const promotionObservationsBeforeFence = (
+      await pool!.query(
+        `SELECT authority.routable_set_digest, authority.observed_at,
+                cell.id::text AS cell_id, cell.last_liveness_at, cell.last_readiness_at,
+                cell.observed_gateway_contract_digest, cell.observed_command_fingerprint,
+                cell.observed_schema_digest, cell.observed_compatibility_digest
+         FROM exomem_agent_contract_profile_authority AS authority
+         JOIN exomem_routable_cell_contracts AS route
+           ON route.profile_id = authority.profile_id AND route.routable
+         JOIN exomem_cells AS cell ON cell.id = route.cell_id
+         WHERE authority.profile_id = 'hosted-alpha-agent-v1'
+         ORDER BY cell.id`
+      )
+    ).rows;
+    await pool!.query(
+      `CREATE FUNCTION fence_runtime_promotion_cell() RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN
+         IF NEW.id = '${fencedCell.cell_id}'::uuid THEN
+           UPDATE exomem_tenants SET fence_generation = fence_generation + 1 WHERE id = NEW.tenant_id;
+         END IF;
+         RETURN NEW;
+       END;
+       $$;
+       CREATE TRIGGER fence_runtime_promotion_cell
+       BEFORE UPDATE OF last_liveness_at ON exomem_cells
+       FOR EACH ROW EXECUTE FUNCTION fence_runtime_promotion_cell();`
+    );
+    try {
+      assert.equal(
+        await promoteExomemHostedCohort({
+          candidateId: replacementCandidateId,
+          claudeArtifactId: replacementClaudeId,
+          openaiArtifactId: replacementOpenAiId,
+          expectedLiveCandidateId: candidateId,
+          expectedRoutableCellDigest: routableSetDigest,
+          claudeEvidence: replacementClaudeEvidence,
+          openaiEvidence: replacementOpenAiEvidence,
+        }),
+        "precondition_failed"
+      );
+    } finally {
+      await pool!.query("DROP TRIGGER IF EXISTS fence_runtime_promotion_cell ON exomem_cells");
+      await pool!.query("DROP FUNCTION IF EXISTS fence_runtime_promotion_cell()");
+    }
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT authority.routable_set_digest, authority.observed_at,
+                  cell.id::text AS cell_id, cell.last_liveness_at, cell.last_readiness_at,
+                  cell.observed_gateway_contract_digest, cell.observed_command_fingerprint,
+                  cell.observed_schema_digest, cell.observed_compatibility_digest
+           FROM exomem_agent_contract_profile_authority AS authority
+           JOIN exomem_routable_cell_contracts AS route
+             ON route.profile_id = authority.profile_id AND route.routable
+           JOIN exomem_cells AS cell ON cell.id = route.cell_id
+           WHERE authority.profile_id = 'hosted-alpha-agent-v1'
+           ORDER BY cell.id`
+        )
+      ).rows,
+      promotionObservationsBeforeFence
     );
     const owner = await pool!.query<{ id: string }>(
       "INSERT INTO users (email) VALUES ($1) RETURNING id",
@@ -1107,11 +1300,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
        ) VALUES
          ($1, $3, 'active', 'bound', 'running', '0', '2026.07.30', 'CELL_READY', NULL, NULL, NULL, NULL),
          ($2, $3, 'provisioning', 'unbound', 'running', '0', '2026.07.30', 'CELL_READY', NULL, NULL, NULL, NULL)`,
-      [
-        priorCellId,
-        replacementCellId,
-        tenantId,
-      ]
+      [priorCellId, replacementCellId, tenantId]
     );
     await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
       priorCellId,
@@ -1407,6 +1596,283 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     );
     const replacement = await createStagedClientRelease(input);
     assert.notEqual(replacement.id, first.id);
+  });
+
+  it("rolls back every prior observation when a later runtime authority row loses its fence", async () => {
+    const candidateId = await storeExomemAgentContractCandidate();
+    const candidate = (
+      await pool!.query<{
+        source_release: string;
+        protocol_version: string;
+        command_fingerprint: string;
+        schema_digest: string;
+        compatibility_digest: string;
+      }>(
+        `SELECT source_release, protocol_version, command_fingerprint, schema_digest, compatibility_digest
+         FROM exomem_agent_contract_candidates WHERE id = $1`,
+        [candidateId]
+      )
+    ).rows[0]!;
+    const cellIds: string[] = [];
+    for (const suffix of ["first", "second"]) {
+      const user = await pool!.query<{ id: string }>(
+        "INSERT INTO users (email) VALUES ($1) RETURNING id",
+        [`runtime-race-${suffix}-${randomUUID()}@example.test`]
+      );
+      const tenant = await pool!.query<{ id: string; fence_generation: string }>(
+        `INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
+         VALUES ($1, 'active', 'running', true) RETURNING id, fence_generation`,
+        [user.rows[0]!.id]
+      );
+      const credential = `runtime-race-credential-${suffix}`;
+      const cell = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
+           tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+           worker_policy, provider_ref, service_credential_ciphertext, service_credential_digest
+         ) VALUES ($1, 'active', 'bound', 'running', $2, $3,
+                   '{"workerCount":1,"semantic":true,"media":false}'::jsonb, $4, $5::jsonb, $6)
+         RETURNING id`,
+        [
+          tenant.rows[0]!.id,
+          candidate.protocol_version,
+          candidate.source_release,
+          `runtime-race-provider-${suffix}`,
+          JSON.stringify(encryptSecret(credential, { key: promotionEnvelopeKey })),
+          digestSecret(credential),
+        ]
+      );
+      cellIds.push(cell.rows[0]!.id);
+      await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        cell.rows[0]!.id,
+        tenant.rows[0]!.id,
+      ]);
+      const assignment = await pool!.query<{ id: string; generation: string }>(
+        `INSERT INTO exomem_agent_contract_rollout_assignments (
+           tenant_id, candidate_id, generation, state, source_release, protocol_version,
+           command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+           marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+         ) VALUES ($1, $2, 1, 'active', $3, $4, $5, $6, $7, $8, true, $9,
+                   now() + interval '1 hour', now()) RETURNING id, generation`,
+        [
+          tenant.rows[0]!.id,
+          candidateId,
+          candidate.source_release,
+          candidate.protocol_version,
+          candidate.command_fingerprint,
+          candidate.schema_digest,
+          candidate.compatibility_digest,
+          exomemContractFixture0490.digest,
+          sha("9"),
+        ]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_routable_cell_contracts (
+           cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+           contract_digest, compatibility_digest, routable
+         ) VALUES ($1, 'hosted-alpha-agent-v1', $2, $3, $4, $5, $6, true)`,
+        [
+          cell.rows[0]!.id,
+          candidate.source_release,
+          candidate.protocol_version,
+          candidate.command_fingerprint,
+          candidate.schema_digest,
+          candidate.compatibility_digest,
+        ]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_lifecycle_operations (
+           tenant_id, cell_id, operation_type, state, idempotency_key, fence_generation, checkpoint,
+           provisioner_wire_protocol, target_candidate_id, target_assignment_id, target_assignment_generation,
+           target_source_release, target_protocol_version, target_gateway_contract_digest,
+           target_command_fingerprint, target_schema_digest, target_compatibility_digest, completed_at
+         ) VALUES ($1, $2, 'provision', 'succeeded', $3, $4, 'bound',
+                   'exomem-cell-provisioner.v2', $5, $6, $7, $8, $9, $10, $11, $12, $13, now())`,
+        [
+          tenant.rows[0]!.id,
+          cell.rows[0]!.id,
+          `runtime-race-${suffix}`,
+          tenant.rows[0]!.fence_generation,
+          candidateId,
+          assignment.rows[0]!.id,
+          assignment.rows[0]!.generation,
+          candidate.source_release,
+          candidate.protocol_version,
+          exomemContractFixture0490.digest,
+          candidate.command_fingerprint,
+          candidate.schema_digest,
+          candidate.compatibility_digest,
+        ]
+      );
+    }
+    const priorRouteStates = (
+      await pool!.query<{ cell_id: string; routable: boolean }>(
+        "SELECT cell_id::text AS cell_id, routable FROM exomem_routable_cell_contracts"
+      )
+    ).rows;
+    await pool!.query(
+      "UPDATE exomem_routable_cell_contracts SET routable = false WHERE NOT (cell_id = ANY($1::uuid[]))",
+      [cellIds]
+    );
+    const routes = (
+      await pool!.query<{
+        cell_id: string;
+        source_release: string;
+        protocol_version: string;
+        command_fingerprint: string;
+        contract_digest: string;
+        compatibility_digest: string;
+      }>(
+        `SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint,
+                contract_digest, compatibility_digest
+         FROM exomem_routable_cell_contracts WHERE cell_id = ANY($1::uuid[]) ORDER BY cell_id`,
+        [cellIds]
+      )
+    ).rows;
+    const rejectedCellId = routes[1]!.cell_id;
+    const expected = routableSetDigest("hosted-alpha-agent-v1", routes);
+    const originalCell = (
+      await pool!.query<{ service_credential_digest: Buffer; tenant_id: string }>(
+        "SELECT service_credential_digest, tenant_id::text AS tenant_id FROM exomem_cells WHERE id = $1::uuid",
+        [routes[0]!.cell_id]
+      )
+    ).rows[0]!;
+    const originalCredentialDigest = originalCell.service_credential_digest;
+    await pool!.query(
+      "UPDATE exomem_cells SET service_credential_digest = NULL WHERE id = $1::uuid",
+      [routes[0]!.cell_id]
+    );
+    assert.equal(
+      await preparePromotionRuntimeHealth({ candidateId, expectedRoutableCellDigest: expected }),
+      null
+    );
+    await pool!.query(
+      "UPDATE exomem_cells SET service_credential_digest = $2 WHERE id = $1::uuid",
+      [routes[0]!.cell_id, digestSecret("wrong-runtime-race-credential")]
+    );
+    assert.equal(
+      await preparePromotionRuntimeHealth({ candidateId, expectedRoutableCellDigest: expected }),
+      null
+    );
+    await pool!.query(
+      "UPDATE exomem_cells SET service_credential_digest = $2 WHERE id = $1::uuid",
+      [routes[0]!.cell_id, originalCredentialDigest]
+    );
+    const originalFenceGeneration = (
+      await pool!.query<{ fence_generation: string }>(
+        "SELECT fence_generation FROM exomem_tenants WHERE id = $1::uuid",
+        [originalCell.tenant_id]
+      )
+    ).rows[0]!.fence_generation;
+    await pool!.query(
+      "UPDATE exomem_tenants SET fence_generation = fence_generation + 1 WHERE id = $1::uuid",
+      [originalCell.tenant_id]
+    );
+    assert.equal(
+      await preparePromotionRuntimeHealth({ candidateId, expectedRoutableCellDigest: expected }),
+      null
+    );
+    await pool!.query("UPDATE exomem_tenants SET fence_generation = $2 WHERE id = $1::uuid", [
+      originalCell.tenant_id,
+      originalFenceGeneration,
+    ]);
+    const probes = await preparePromotionRuntimeHealth({
+      candidateId,
+      expectedRoutableCellDigest: expected,
+    });
+    assert.ok(probes && probes.length === 2, "non-null credential digests must form strict probes");
+    await pool!.query(
+      `CREATE FUNCTION reject_second_runtime_observation() RETURNS trigger LANGUAGE plpgsql AS $$
+       BEGIN
+         IF NEW.id = '${rejectedCellId}'::uuid THEN RETURN NULL; END IF;
+         RETURN NEW;
+       END;
+       $$;
+       CREATE TRIGGER reject_second_runtime_observation
+       BEFORE UPDATE OF readiness_code ON exomem_cells
+       FOR EACH ROW EXECUTE FUNCTION reject_second_runtime_observation();`
+    );
+    const assignmentId = probes![0]!.operation.target!.assignmentId;
+    const assignmentSourceRelease = probes![0]!.operation.target!.sourceRelease;
+    let assignmentTriggerDisabled = false;
+    try {
+      await assert.rejects(
+        () =>
+          withExomemTransaction((transaction) =>
+            recordPromotionRuntimeAuthorityInTransaction({
+              transaction,
+              candidateId,
+              expectedRoutableCellDigest: expected,
+              probes: probes!,
+              refreshAuthority: refreshRoutableProfileAuthorityInTransaction,
+            })
+          ),
+        PromotionRuntimePreconditionError
+      );
+      await pool!.query("DROP TRIGGER reject_second_runtime_observation ON exomem_cells");
+      await pool!.query("DROP FUNCTION reject_second_runtime_observation()");
+      assert.deepEqual(
+        (
+          await pool!.query(
+            "SELECT id::text AS id, last_liveness_at FROM exomem_cells WHERE id = ANY($1::uuid[]) ORDER BY id",
+            [cellIds]
+          )
+        ).rows,
+        cellIds.sort().map((id) => ({ id, last_liveness_at: null }))
+      );
+      await pool!.query(
+        "ALTER TABLE exomem_agent_contract_rollout_assignments DISABLE TRIGGER exomem_agent_contract_rollout_assignment_immutable"
+      );
+      assignmentTriggerDisabled = true;
+      await pool!.query(
+        `UPDATE exomem_agent_contract_rollout_assignments
+         SET source_release = 'migrated-assignment-release'
+         WHERE id = $1::uuid`,
+        [assignmentId]
+      );
+      assert.equal(
+        await preparePromotionRuntimeHealth({ candidateId, expectedRoutableCellDigest: expected }),
+        null
+      );
+      await assert.rejects(
+        () =>
+          withExomemTransaction((transaction) =>
+            recordPromotionRuntimeAuthorityInTransaction({
+              transaction,
+              candidateId,
+              expectedRoutableCellDigest: expected,
+              probes: probes!,
+              refreshAuthority: refreshRoutableProfileAuthorityInTransaction,
+            })
+          ),
+        PromotionRuntimePreconditionError
+      );
+      await pool!.query(
+        "UPDATE exomem_agent_contract_rollout_assignments SET source_release = $2 WHERE id = $1::uuid",
+        [assignmentId, assignmentSourceRelease]
+      );
+      await pool!.query(
+        "ALTER TABLE exomem_agent_contract_rollout_assignments ENABLE TRIGGER exomem_agent_contract_rollout_assignment_immutable"
+      );
+      assignmentTriggerDisabled = false;
+    } finally {
+      await pool!.query("DROP TRIGGER IF EXISTS reject_second_runtime_observation ON exomem_cells");
+      await pool!.query("DROP FUNCTION IF EXISTS reject_second_runtime_observation()");
+      for (const route of priorRouteStates) {
+        await pool!.query(
+          "UPDATE exomem_routable_cell_contracts SET routable = $2 WHERE cell_id = $1",
+          [route.cell_id, route.routable]
+        );
+      }
+      if (assignmentTriggerDisabled) {
+        await pool!.query(
+          "UPDATE exomem_agent_contract_rollout_assignments SET source_release = $2 WHERE id = $1::uuid",
+          [assignmentId, assignmentSourceRelease]
+        );
+        await pool!.query(
+          "ALTER TABLE exomem_agent_contract_rollout_assignments ENABLE TRIGGER exomem_agent_contract_rollout_assignment_immutable"
+        );
+      }
+    }
   });
 
   it("serializes two concurrent reviewer assignment creators and decodes PostgreSQL bigint generations", async () => {
