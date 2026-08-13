@@ -38,7 +38,9 @@ import {
 import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
 import {
   preflightRecoverExpiredReviewerCleanup,
+  preflightRecoverTerminalReviewerDelete,
   recoverExpiredReviewerCleanup,
+  recoverTerminalReviewerDelete,
 } from "../operator-controls";
 import { failCanaryAssignment } from "../agent-contract-canaries";
 import { SensitiveSecret, digestSecret, encryptSecret } from "../security";
@@ -205,6 +207,118 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       ]
     );
     return { userId, tenantId, cellId, candidateId, assignmentId, sourceOperationId };
+  }
+
+  async function seedTerminalReviewerDelete() {
+    const seed = await seedExpiredReviewerCleanup();
+    const operationId = randomUUID();
+    const clientId = randomUUID();
+    const stageId = randomUUID();
+    const sessionId = randomUUID();
+    const inviteId = randomUUID();
+    const grantId = randomUUID();
+    const authorityId = randomUUID();
+    const digest = "a".repeat(64);
+    await pool.query(
+      `UPDATE exomem_lifecycle_operations
+       SET state = 'failed_terminal', error_code = 'DELETION_SUPERSEDED', completed_at = now()
+       WHERE id = $1`,
+      [seed.sourceOperationId]
+    );
+    await pool.query(
+      `UPDATE exomem_tenants
+       SET status = 'deletion_pending', desired_state = 'deleted', fence_generation = 2
+       WHERE id = $1`,
+      [seed.tenantId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation,
+         attempts, error_code, provider_result_ref, completed_at
+       ) VALUES ($1, $2, 'delete', 'failed_terminal', 'destroyed', 'terminal-reviewer-delete', 2,
+                 6, 'LIFECYCLE_MAX_ATTEMPTS', 'provider-destroyed', now())`,
+      [operationId, seed.tenantId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_oauth_clients (id, client_id, admission_mode, redirect_uris, redirect_uris_digest)
+       VALUES ($1, $2, 'pinned', '["http://127.0.0.1"]'::jsonb,
+               digest(convert_to('["http://127.0.0.1"]', 'utf8'), 'sha256'))`,
+      [clientId, `terminal-recovery-${clientId}`]
+    );
+    await pool.query(
+      `INSERT INTO exomem_staged_client_releases (
+         id, candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest,
+         created_at, expires_at, ended_at
+       ) VALUES ($1, $2, 'claude', 'expired', $3, $3, $3, $3, 'test', $3, $3,
+                 now() - interval '2 hours', now() - interval '1 second', now())`,
+      [stageId, seed.candidateId, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_sessions (id, user_id, tenant_id, session_digest, csrf_digest, expires_at, revoked_at)
+       VALUES ($1, $2, $3, $4, $5, now() + interval '1 day', now())`,
+      [sessionId, seed.userId, seed.tenantId, Buffer.alloc(32, 0x51), Buffer.alloc(32, 0x52)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_invites (
+         id, token_digest, email_normalized, entitlement_source, created_by_principal_digest, expires_at,
+         consumed_at, consumed_by_user_id, redeemed_tenant_id, redeemed_session_id
+       ) VALUES ($1, $2, 'terminal-reviewer@example.test', 'complimentary', $3, now() + interval '1 day',
+                 now(), $4, $5, $6)`,
+      [inviteId, Buffer.alloc(32, 0x53), Buffer.alloc(32, 0x54), seed.userId, seed.tenantId, sessionId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_oauth_grants (id, user_id, tenant_id, client_id, resource, scopes, revoked_at)
+       VALUES ($1, $2, $3, $4, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'], now())`,
+      [grantId, seed.userId, seed.tenantId, clientId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_marketplace_reviewer_oauth_bootstrap_authorities (
+         id, state, invite_id, candidate_id, candidate_profile_id, candidate_contract_digest,
+         candidate_source_release, candidate_protocol_version, candidate_gateway_contract_digest,
+         candidate_command_fingerprint, candidate_schema_digest, candidate_compatibility_digest,
+         staged_client_release_id, stage_platform, stage_config_sha256, oauth_client_id,
+         oauth_client_authority_version, oauth_client_config_sha256, redirect_uri_digest,
+         operator_principal_digest, expires_at, consumed_at, outcome_tenant_id, outcome_assignment_id,
+         outcome_assignment_generation, outcome_operation_id, outcome_session_id, outcome_grant_id
+       ) VALUES ($1, 'consumed', $2, $3, 'hosted-alpha-agent-v1', $4, 'test', '1', $4, $4, $4, $4,
+                 $5, 'claude', $4, $6, $7, $4, $8, $9, now() + interval '1 day', now(),
+                 $10, $11, 1, $12, $13, $14)`,
+      [
+        authorityId,
+        inviteId,
+        seed.candidateId,
+        digest,
+        stageId,
+        clientId,
+        randomUUID(),
+        Buffer.alloc(32, 0x55),
+        Buffer.alloc(32, 0x56),
+        seed.tenantId,
+        seed.assignmentId,
+        seed.sourceOperationId,
+        sessionId,
+        grantId,
+      ]
+    );
+    const capacityPool = await pool.query<{ id: string }>(
+      "SELECT id FROM exomem_capacity_pools WHERE pool_key = 'exomem-hosted-alpha'"
+    );
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+       SET storage_capacity_bytes = 5, runtime_capacity_slots = 1,
+           provision_reservation_capacity = 1, provision_claim_capacity = 1,
+           reserved_storage_bytes = 5, reserved_runtime_slots = 1, reserved_provision_slots = 0
+       WHERE id = $1`,
+      [capacityPool.rows[0]!.id]
+    );
+    await pool.query(
+      `INSERT INTO exomem_capacity_allocations (
+         pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state
+       ) VALUES ($1, $2, 5, 1, 0, 'uncertain')`,
+      [capacityPool.rows[0]!.id, seed.tenantId]
+    );
+    return { ...seed, operationId, inviteId, sessionId, authorityId };
   }
 
   it("keeps contraction blocked until unfinished v1 work and retained v1 exports drain", async () => {
@@ -3074,6 +3188,130 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       [seed.tenantId]
     );
     assert.equal(deleteCount.rows[0]?.count, "1");
+  });
+
+  it("replays the exact terminal reviewer delete through the local finalizer without provider work", async () => {
+    const seed = await seedTerminalReviewerDelete();
+    assert.deepEqual(
+      await preflightRecoverTerminalReviewerDelete({ operationId: seed.operationId, expectedFence: 2 }),
+      { eligible: true }
+    );
+    assert.deepEqual(
+      await recoverTerminalReviewerDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      { outcome: "enqueued", operationId: seed.operationId }
+    );
+    assert.deepEqual(
+      await recoverTerminalReviewerDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      { outcome: "replayed", operationId: seed.operationId }
+    );
+    const reopened = await pool.query<{
+      state: string;
+      checkpoint: string;
+      attempts: number;
+      provider_result_ref: string | null;
+      completed_at: Date | null;
+      audit_count: string;
+    }>(
+      `SELECT operation.state, operation.checkpoint, operation.attempts, operation.provider_result_ref,
+              operation.completed_at,
+              (SELECT count(*)::text FROM exomem_audit_events
+               WHERE operation_id = operation.id
+                 AND event_type IN ('operator.terminal_reviewer_delete.authorized',
+                                    'operator.terminal_reviewer_delete.replayed')) AS audit_count
+       FROM exomem_lifecycle_operations AS operation WHERE operation.id = $1`,
+      [seed.operationId]
+    );
+    assert.deepEqual(reopened.rows[0], {
+      state: "waiting",
+      checkpoint: "destroyed",
+      attempts: 0,
+      provider_result_ref: "provider-destroyed",
+      completed_at: null,
+      audit_count: "2",
+    });
+
+    const provisioner = new FakeCellProvisioner();
+    const reconciler = new LifecycleReconciler({
+      store: new SqlLifecycleStore(),
+      provisioner,
+      config: expectedCellConfiguration({
+        protocolVersion: "1",
+        releaseVersion: "test",
+        workerPolicy: { workerCount: 0, semantic: false, media: false },
+      }),
+    });
+    assert.deepEqual(
+      await reconciler.reconcileOne({ owner: "terminal-recovery-worker", tenantId: seed.tenantId }),
+      { kind: "succeeded", operationId: seed.operationId }
+    );
+    assert.equal(provisioner.calls.length, 0);
+    const finalized = await pool.query<{
+      operation_state: string;
+      checkpoint: string;
+      tenant_status: string;
+      cell_state: string;
+      allocation_state: string;
+      retained_bootstrap: boolean;
+    }>(
+      `SELECT operation.state AS operation_state, operation.checkpoint, tenant.status AS tenant_status,
+              cell.lifecycle_state AS cell_state, allocation.state AS allocation_state,
+              EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities
+                      WHERE id = $2::uuid AND state = 'consumed'
+                        AND outcome_session_id = $3::uuid) AS retained_bootstrap
+       FROM exomem_lifecycle_operations AS operation
+       JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+       JOIN exomem_cells AS cell ON cell.tenant_id = tenant.id
+       JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
+       WHERE operation.id = $1`,
+      [seed.operationId, seed.authorityId, seed.sessionId]
+    );
+    assert.deepEqual(finalized.rows[0], {
+      operation_state: "succeeded",
+      checkpoint: "destroyed",
+      tenant_status: "deleted",
+      cell_state: "deleted",
+      allocation_state: "released",
+      retained_bootstrap: true,
+    });
+  });
+
+  it("refuses a terminal reviewer delete without stored provider proof", async () => {
+    const seed = await seedTerminalReviewerDelete();
+    await pool.query("UPDATE exomem_lifecycle_operations SET provider_result_ref = NULL WHERE id = $1", [
+      seed.operationId,
+    ]);
+    assert.deepEqual(
+      await preflightRecoverTerminalReviewerDelete({ operationId: seed.operationId, expectedFence: 2 }),
+      { eligible: false }
+    );
+    assert.equal(
+      await recoverTerminalReviewerDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      null
+    );
+    const unchanged = await pool.query<{ state: string; attempts: number; error_code: string | null }>(
+      "SELECT state, attempts, error_code FROM exomem_lifecycle_operations WHERE id = $1",
+      [seed.operationId]
+    );
+    assert.deepEqual(unchanged.rows[0], {
+      state: "failed_terminal",
+      attempts: 6,
+      error_code: "LIFECYCLE_MAX_ATTEMPTS",
+    });
   });
 
   it("refuses stale, leased, bound, ambiguous, healthy, customer, and terminal cleanup without mutation", async () => {

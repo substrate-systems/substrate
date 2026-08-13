@@ -33,7 +33,9 @@ import {
   demoteOperatorClientArtifact,
   listOperatorClientArtifacts,
   preflightRecoverExpiredReviewerCleanup,
+  preflightRecoverTerminalReviewerDelete,
   recoverExpiredReviewerCleanup,
+  recoverTerminalReviewerDelete,
 } from "@/lib/exomem-hosted/operator-controls";
 
 export const runtime = "nodejs";
@@ -90,24 +92,54 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     let response: Record<string, unknown>;
     if (
       body.action === "preflight-recover-expired-reviewer-cleanup" ||
-      body.action === "recover-expired-reviewer-cleanup"
+      body.action === "recover-expired-reviewer-cleanup" ||
+      body.action === "preflight-recover-terminal-reviewer-delete" ||
+      body.action === "recover-terminal-reviewer-delete"
     ) {
-      const sourceOperationId = uuid(body.sourceOperationId);
+      const terminalDeleteRecovery =
+        body.action === "preflight-recover-terminal-reviewer-delete" ||
+        body.action === "recover-terminal-reviewer-delete";
+      if (
+        terminalDeleteRecovery &&
+        (Object.keys(body).length !== 3 ||
+          !Object.prototype.hasOwnProperty.call(body, "operationId") ||
+          !Object.prototype.hasOwnProperty.call(body, "expectedFence"))
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
+      const sourceOperationId =
+        terminalDeleteRecovery
+          ? uuid(body.operationId)
+          : uuid(body.sourceOperationId);
       const expectedFence = fence(body.expectedFence);
       if (!sourceOperationId || !expectedFence) throw exomemErrors.invalidRequest();
-      if (body.action === "preflight-recover-expired-reviewer-cleanup") {
-        const preflight = await preflightRecoverExpiredReviewerCleanup({
-          sourceOperationId,
-          expectedFence,
-        });
+      if (
+        body.action === "preflight-recover-expired-reviewer-cleanup" ||
+        body.action === "preflight-recover-terminal-reviewer-delete"
+      ) {
+        const preflight =
+          body.action === "preflight-recover-terminal-reviewer-delete"
+            ? await preflightRecoverTerminalReviewerDelete({
+                operationId: sourceOperationId,
+                expectedFence,
+              })
+            : await preflightRecoverExpiredReviewerCleanup({ sourceOperationId, expectedFence });
         response = { eligible: preflight.eligible };
       } else {
-        const recovered = await recoverExpiredReviewerCleanup({
-          sourceOperationId,
-          expectedFence,
-          requestId,
-          operatorPrincipalDigest: operator.principalDigest,
-        });
+        const recovered =
+          body.action === "recover-terminal-reviewer-delete"
+            ? await recoverTerminalReviewerDelete({
+                operationId: sourceOperationId,
+                expectedFence,
+                requestId,
+                operatorPrincipalDigest: operator.principalDigest,
+              })
+            : await recoverExpiredReviewerCleanup({
+                sourceOperationId,
+                expectedFence,
+                requestId,
+                operatorPrincipalDigest: operator.principalDigest,
+              });
         if (!recovered) throw exomemErrors.invalidRequest();
         response = { outcome: recovered.outcome, operationId: recovered.operationId };
       }

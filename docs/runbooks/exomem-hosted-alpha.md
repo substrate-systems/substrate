@@ -588,6 +588,41 @@ or mark the tenant/cell deleted. A retry is allowed only as the exact replay of
 the superseded source at the old fence and the one derived-key delete at
 old-fence-plus-one.
 
+### Terminal reviewer delete replay
+
+Use this narrower recovery only for the one provider-proven reviewer deletion
+that is already terminal as `failed_terminal` / `LIFECYCLE_MAX_ATTEMPTS` at
+checkpoint `destroyed`. Keep the scheduler suspended while checking the exact
+state. Do not use it for another tenant, a new delete, an earlier checkpoint,
+or a capacity repair.
+
+Call `POST /api/exomem/admin/contracts` with exactly one of these bodies,
+first the preflight and then one recovery request:
+
+```json
+{ "action": "preflight-recover-terminal-reviewer-delete", "operationId": "<uuid>", "expectedFence": 2 }
+```
+
+```json
+{ "action": "recover-terminal-reviewer-delete", "operationId": "<uuid>", "expectedFence": 2 }
+```
+
+Both responses are content-free: preflight returns only `eligible` and a
+request ID; recovery returns only `enqueued` or `replayed`, the opaque operation
+ID, and a request ID. A refusal is non-diagnostic: stop and inspect privately;
+never try altered selectors.
+
+The control accepts only the existing target-free delete, its current fence,
+stored provider proof, exact superseded reviewer source and consumed bootstrap
+lineage, one unbound provider-free cell, uncertain allocation with checked
+counters, and no unfinished or live reviewer/OAuth authority. It reopens the
+same operation once at `destroyed`; it does not call the provider, create a
+delete, alter capacity, or alter the stored proof, fence, or idempotency key.
+After one bounded reconcile, verify that the same operation is
+`succeeded/destroyed`, the tenant and cells are deleted, uncertain capacity was
+released by the normal finalizer, all live authority is scrubbed, and the
+consumed bootstrap invite plus revoked outcome session remain retained.
+
 After the one invocation, run a bounded authenticated
 `/api/cron/exomem-reconcile` pass until that higher-fence delete records all
 provider DESTROY proofs (`computeDestroyed`, `storageDestroyed`, and

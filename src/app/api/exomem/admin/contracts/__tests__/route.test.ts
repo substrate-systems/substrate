@@ -104,7 +104,15 @@ before(() => {
         recoveryInput = input;
         return { eligible: true };
       },
+      preflightRecoverTerminalReviewerDelete: async (input: Record<string, unknown>) => {
+        recoveryInput = input;
+        return { eligible: true };
+      },
       recoverExpiredReviewerCleanup: async (input: Record<string, unknown>) => {
+        recoveryInput = input;
+        return { outcome: "replayed", operationId: "018f2d91-7c42-7000-8000-000000000099" };
+      },
+      recoverTerminalReviewerDelete: async (input: Record<string, unknown>) => {
         recoveryInput = input;
         return { outcome: "replayed", operationId: "018f2d91-7c42-7000-8000-000000000099" };
       },
@@ -196,6 +204,63 @@ describe("Exomem operator contract controls", () => {
               action: "recover-expired-reviewer-cleanup",
               sourceOperationId: "no",
               expectedFence: 0,
+            },
+            `Bearer ${ADMIN_TOKEN}`
+          )
+        )
+      ).status,
+      400
+    );
+  });
+
+  it("keeps terminal-reviewer-delete preflight and replay content-free", async () => {
+    const { POST } = await import("../route");
+    const operationId = "018f2d91-7c42-7000-8000-000000000091";
+    const preflight = await POST(
+      request(
+        { action: "preflight-recover-terminal-reviewer-delete", operationId, expectedFence: 7 },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+    assert.equal(preflight.status, 200);
+    assert.deepEqual(Object.keys(await preflight.json()).sort(), ["eligible", "requestId", "success"]);
+    assert.deepEqual(recoveryInput, { operationId, expectedFence: 7 });
+
+    const replay = await POST(
+      request(
+        { action: "recover-terminal-reviewer-delete", operationId, expectedFence: 7 },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+    assert.equal(replay.status, 200);
+    const body = await replay.json();
+    assert.deepEqual(Object.keys(body).sort(), ["operationId", "outcome", "requestId", "success"]);
+    assert.equal(body.outcome, "replayed");
+    assert.equal(JSON.stringify(body).includes(operationId), false);
+  });
+
+  it("rejects malformed or refused terminal-reviewer-delete replay requests", async () => {
+    const { POST } = await import("../route");
+    assert.equal(
+      (
+        await POST(
+          request(
+            { action: "recover-terminal-reviewer-delete", operationId: "no", expectedFence: 0 },
+            `Bearer ${ADMIN_TOKEN}`
+          )
+        )
+      ).status,
+      400
+    );
+    assert.equal(
+      (
+        await POST(
+          request(
+            {
+              action: "recover-terminal-reviewer-delete",
+              operationId: "018f2d91-7c42-7000-8000-000000000091",
+              expectedFence: 7,
+              sourceOperationId: "018f2d91-7c42-7000-8000-000000000092",
             },
             `Bearer ${ADMIN_TOKEN}`
           )
