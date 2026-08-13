@@ -92,20 +92,49 @@ export async function preflightRecoverTerminalReviewerDelete(
        AND source.fence_generation = operation.fence_generation - 1
        AND source.state = 'failed_terminal' AND source.error_code = 'DELETION_SUPERSEDED'
        AND source.operation_type IN ('provision', 'restore')
+      CROSS JOIN LATERAL (
+        SELECT encode(
+          digest(convert_to(source.id::text || ':recover-expired-reviewer-cleanup', 'utf8'), 'sha256'),
+          'hex'
+        ) AS value
+      ) AS derived_delete_key
       JOIN exomem_agent_contract_rollout_assignments AS assignment
-        ON assignment.id = source.target_assignment_id
+       ON assignment.id = source.target_assignment_id
        AND assignment.tenant_id = tenant.id
        AND assignment.candidate_id = source.target_candidate_id
        AND assignment.generation = source.target_assignment_generation
        AND assignment.marketplace_reviewer_purpose = true
+       AND assignment.source_release = source.target_source_release
+       AND assignment.protocol_version = source.target_protocol_version
+       AND assignment.gateway_contract_digest = source.target_gateway_contract_digest
+       AND assignment.command_fingerprint = source.target_command_fingerprint
+       AND assignment.schema_digest = source.target_schema_digest
+       AND assignment.compatibility_digest = source.target_compatibility_digest
        AND ((assignment.state = 'expired' AND assignment.expires_at <= now())
          OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL))
+      JOIN exomem_agent_contract_candidates AS candidate
+        ON candidate.id = source.target_candidate_id
+       AND candidate.profile_id = 'hosted-alpha-agent-v1'
+       AND candidate.source_release = source.target_source_release
+       AND candidate.protocol_version = source.target_protocol_version
+       AND candidate.command_fingerprint = source.target_command_fingerprint
+       AND candidate.schema_digest = source.target_schema_digest
+       AND candidate.compatibility_digest = source.target_compatibility_digest
       JOIN exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
-        ON bootstrap.state = 'consumed'
+       ON bootstrap.state = 'consumed'
        AND bootstrap.outcome_tenant_id = tenant.id
        AND bootstrap.outcome_assignment_id = assignment.id
        AND bootstrap.outcome_assignment_generation = assignment.generation
        AND bootstrap.outcome_operation_id = source.id
+       AND bootstrap.candidate_id = source.target_candidate_id
+       AND bootstrap.candidate_profile_id = 'hosted-alpha-agent-v1'
+       AND bootstrap.candidate_contract_digest = candidate.schema_digest
+       AND bootstrap.candidate_source_release = source.target_source_release
+       AND bootstrap.candidate_protocol_version = source.target_protocol_version
+       AND bootstrap.candidate_gateway_contract_digest = source.target_gateway_contract_digest
+       AND bootstrap.candidate_command_fingerprint = source.target_command_fingerprint
+       AND bootstrap.candidate_schema_digest = source.target_schema_digest
+       AND bootstrap.candidate_compatibility_digest = source.target_compatibility_digest
       JOIN exomem_invites AS invite
         ON invite.id = bootstrap.invite_id AND invite.consumed_at IS NOT NULL
        AND invite.redeemed_tenant_id = tenant.id AND invite.redeemed_session_id = bootstrap.outcome_session_id
@@ -115,11 +144,14 @@ export async function preflightRecoverTerminalReviewerDelete(
       WHERE operation.id = ${input.operationId}::uuid
         AND operation.operation_type = 'delete'
         AND operation.state = 'failed_terminal' AND operation.error_code = 'LIFECYCLE_MAX_ATTEMPTS'
-        AND operation.checkpoint = 'destroyed' AND operation.provider_result_ref IS NOT NULL
+        AND operation.checkpoint = 'destroyed'
         AND operation.completed_at IS NOT NULL AND operation.lease_owner IS NULL
         AND operation.lease_expires_at IS NULL AND operation.fence_generation = ${input.expectedFence}::bigint
+        AND operation.cell_id IS NOT NULL AND operation.expected_previous_cell_id IS NULL
+        AND operation.cell_id = source.cell_id
         AND operation.target_candidate_id IS NULL AND operation.target_assignment_id IS NULL
         AND operation.target_assignment_generation IS NULL
+        AND operation.idempotency_key = derived_delete_key.value
         AND tenant.fence_generation = ${input.expectedFence}::bigint
         AND tenant.marketplace_reviewer_purpose = true
         AND tenant.status = 'deletion_pending' AND tenant.desired_state = 'deleted'
@@ -140,6 +172,17 @@ export async function preflightRecoverTerminalReviewerDelete(
         AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
                         WHERE conflicting.tenant_id = tenant.id AND conflicting.id <> operation.id
                           AND conflicting.state NOT IN ('succeeded', 'failed_terminal'))
+        AND EXISTS (SELECT 1 FROM exomem_audit_events AS source_audit
+                    WHERE source_audit.event_type = 'operator.reviewer_cleanup.authorized'
+                      AND source_audit.outcome = 'succeeded'
+                      AND source_audit.tenant_id = tenant.id
+                      AND source_audit.cell_id = operation.cell_id
+                      AND source_audit.operation_id = source.id)
+        AND EXISTS (SELECT 1 FROM exomem_audit_events AS delete_audit
+                    WHERE delete_audit.event_type = 'operator.reviewer_cleanup.delete_enqueued'
+                      AND delete_audit.outcome = 'pending'
+                      AND delete_audit.tenant_id = tenant.id
+                      AND delete_audit.operation_id = operation.id)
         AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
                         WHERE live_assignment.tenant_id = tenant.id AND live_assignment.state = 'active'
                           AND live_assignment.expires_at > now())
@@ -202,14 +245,43 @@ export async function recoverTerminalReviewerDelete(
          AND assignment.candidate_id = source.target_candidate_id
          AND assignment.generation = source.target_assignment_generation
          AND assignment.marketplace_reviewer_purpose = true
+         AND assignment.source_release = source.target_source_release
+         AND assignment.protocol_version = source.target_protocol_version
+         AND assignment.gateway_contract_digest = source.target_gateway_contract_digest
+         AND assignment.command_fingerprint = source.target_command_fingerprint
+         AND assignment.schema_digest = source.target_schema_digest
+         AND assignment.compatibility_digest = source.target_compatibility_digest
          AND ((assignment.state = 'expired' AND assignment.expires_at <= now())
            OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL))
+        CROSS JOIN LATERAL (
+          SELECT encode(
+            digest(convert_to(source.id::text || ':recover-expired-reviewer-cleanup', 'utf8'), 'sha256'),
+            'hex'
+          ) AS value
+        ) AS derived_delete_key
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = source.target_candidate_id
+         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.source_release = source.target_source_release
+         AND candidate.protocol_version = source.target_protocol_version
+         AND candidate.command_fingerprint = source.target_command_fingerprint
+         AND candidate.schema_digest = source.target_schema_digest
+         AND candidate.compatibility_digest = source.target_compatibility_digest
         JOIN exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
           ON bootstrap.state = 'consumed'
          AND bootstrap.outcome_tenant_id = operation.tenant_id
          AND bootstrap.outcome_assignment_id = assignment.id
          AND bootstrap.outcome_assignment_generation = assignment.generation
          AND bootstrap.outcome_operation_id = source.id
+         AND bootstrap.candidate_id = source.target_candidate_id
+         AND bootstrap.candidate_profile_id = 'hosted-alpha-agent-v1'
+         AND bootstrap.candidate_contract_digest = candidate.schema_digest
+         AND bootstrap.candidate_source_release = source.target_source_release
+         AND bootstrap.candidate_protocol_version = source.target_protocol_version
+         AND bootstrap.candidate_gateway_contract_digest = source.target_gateway_contract_digest
+         AND bootstrap.candidate_command_fingerprint = source.target_command_fingerprint
+         AND bootstrap.candidate_schema_digest = source.target_schema_digest
+         AND bootstrap.candidate_compatibility_digest = source.target_compatibility_digest
         JOIN exomem_invites AS invite
           ON invite.id = bootstrap.invite_id AND invite.consumed_at IS NOT NULL
          AND invite.redeemed_tenant_id = operation.tenant_id
@@ -220,11 +292,14 @@ export async function recoverTerminalReviewerDelete(
         WHERE NOT EXISTS (SELECT 1 FROM replay)
           AND operation.operation_type = 'delete'
           AND operation.state = 'failed_terminal' AND operation.error_code = 'LIFECYCLE_MAX_ATTEMPTS'
-          AND operation.checkpoint = 'destroyed' AND operation.provider_result_ref IS NOT NULL
+          AND operation.checkpoint = 'destroyed'
           AND operation.completed_at IS NOT NULL AND operation.lease_owner IS NULL
           AND operation.lease_expires_at IS NULL
+          AND operation.cell_id IS NOT NULL AND operation.expected_previous_cell_id IS NULL
+          AND operation.cell_id = source.cell_id
           AND operation.target_candidate_id IS NULL AND operation.target_assignment_id IS NULL
           AND operation.target_assignment_generation IS NULL
+          AND operation.idempotency_key = derived_delete_key.value
           AND operation.tenant_fence_generation = ${input.expectedFence}::bigint
           AND operation.marketplace_reviewer_purpose = true
           AND operation.tenant_status = 'deletion_pending' AND operation.tenant_desired_state = 'deleted'
@@ -245,6 +320,17 @@ export async function recoverTerminalReviewerDelete(
           AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
                           WHERE conflicting.tenant_id = operation.tenant_id AND conflicting.id <> operation.id
                             AND conflicting.state NOT IN ('succeeded', 'failed_terminal'))
+          AND EXISTS (SELECT 1 FROM exomem_audit_events AS source_audit
+                      WHERE source_audit.event_type = 'operator.reviewer_cleanup.authorized'
+                        AND source_audit.outcome = 'succeeded'
+                        AND source_audit.tenant_id = operation.tenant_id
+                        AND source_audit.cell_id = operation.cell_id
+                        AND source_audit.operation_id = source.id)
+          AND EXISTS (SELECT 1 FROM exomem_audit_events AS delete_audit
+                      WHERE delete_audit.event_type = 'operator.reviewer_cleanup.delete_enqueued'
+                        AND delete_audit.outcome = 'pending'
+                        AND delete_audit.tenant_id = operation.tenant_id
+                        AND delete_audit.operation_id = operation.id)
           AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
                           WHERE live_assignment.tenant_id = operation.tenant_id AND live_assignment.state = 'active'
                             AND live_assignment.expires_at > now())

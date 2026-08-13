@@ -613,11 +613,13 @@ ID, and a request ID. A refusal is non-diagnostic: stop and inspect privately;
 never try altered selectors.
 
 The control accepts only the existing target-free delete, its current fence,
-stored provider proof, exact superseded reviewer source and consumed bootstrap
-lineage, one unbound provider-free cell, uncertain allocation with checked
-counters, and no unfinished or live reviewer/OAuth authority. It reopens the
-same operation once at `destroyed`; it does not call the provider, create a
-delete, alter capacity, or alter the stored proof, fence, or idempotency key.
+the persisted `destroyed` checkpoint as provider proof, the exact
+source-derived idempotency identity and owner-confirmed cleanup audits, exact
+superseded reviewer source and consumed bootstrap/candidate contract lineage,
+one unbound provider-free cell, uncertain allocation with checked counters, and
+no unfinished or live reviewer/OAuth authority. It reopens the same operation
+once at `destroyed`; it does not call the provider, create a delete, alter
+capacity, or alter the checkpoint, fence, or idempotency key.
 After one bounded reconcile, verify that the same operation is
 `succeeded/destroyed`, the tenant and cells are deleted, uncertain capacity was
 released by the normal finalizer, all live authority is scrubbed, and the

@@ -6,7 +6,7 @@ A reviewer tenant's provider DESTROY completed, but its old local finalizer hit 
 
 - Add a content-free operator preflight for the one exact terminal reviewer delete shape.
 - Add a one-shot, audited recovery that reopens only the local finalizer at its existing fence and `destroyed` checkpoint.
-- Preserve the stored provider proof and idempotency identity; recovery never calls the provider, creates a new delete, or edits capacity directly.
+- Treat the persisted `destroyed` checkpoint as the provider proof and preserve the idempotency identity; recovery never calls the provider, creates a new delete, or edits capacity directly.
 - Extend the Hosted runbook with the guarded replay and postconditions.
 
 ## Capabilities

@@ -196,7 +196,16 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /state = 'failed_terminal'/i);
     assert.match(mutation, /error_code = 'LIFECYCLE_MAX_ATTEMPTS'/i);
     assert.match(mutation, /checkpoint = 'destroyed'/i);
-    assert.match(mutation, /provider_result_ref IS NOT NULL/i);
+    assert.match(mutation, /checkpoint = 'destroyed'/i);
+    assert.doesNotMatch(mutation, /provider_result_ref IS NOT NULL/i);
+    assert.match(mutation, /idempotency_key = derived_delete_key\.value/i);
+    assert.match(mutation, /cell_id IS NOT NULL AND operation\.expected_previous_cell_id IS NULL/i);
+    assert.match(mutation, /operator\.reviewer_cleanup\.delete_enqueued/i);
+    assert.match(mutation, /assignment\.gateway_contract_digest = source\.target_gateway_contract_digest/i);
+    assert.match(mutation, /assignment\.compatibility_digest = source\.target_compatibility_digest/i);
+    assert.match(mutation, /candidate\.schema_digest = source\.target_schema_digest/i);
+    assert.match(mutation, /bootstrap\.candidate_contract_digest = candidate\.schema_digest/i);
+    assert.match(mutation, /bootstrap\.candidate_compatibility_digest = source\.target_compatibility_digest/i);
     assert.match(mutation, /allocation\.state = 'uncertain'/i);
     assert.match(mutation, /DELETION_SUPERSEDED/i);
     assert.match(mutation, /state = 'consumed'/i);

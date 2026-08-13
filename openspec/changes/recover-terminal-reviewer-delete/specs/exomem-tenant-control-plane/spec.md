@@ -2,7 +2,7 @@
 
 ### Requirement: Provider-proven terminal reviewer deletion can finish locally
 
-The control plane SHALL permit an authenticated operator to replay only the local finalizer of one exact reviewer-purpose delete that already holds provider destruction proof at checkpoint `destroyed` but terminalized after a local finalizer failure. Recovery MUST preserve the delete operation identity, fence, idempotency key, checkpoint, and provider result; MUST NOT call the provider, create a new delete, release capacity directly, or manufacture proof; and MUST be atomic, audited, content free, and serialized under the Hosted cohort lock.
+The control plane SHALL permit an authenticated operator to replay only the local finalizer of one exact reviewer-purpose delete whose persisted checkpoint `destroyed` is the authoritative provider-destruction proof but terminalized after a local finalizer failure. Recovery MUST preserve the delete operation identity, fence, idempotency key, and checkpoint; MUST NOT call the provider, create a new delete, release capacity directly, or manufacture proof; and MUST be atomic, audited, content free, and serialized under the Hosted cohort lock.
 
 #### Scenario: Exact terminal delete is recovered
 
@@ -17,7 +17,7 @@ The control plane SHALL permit an authenticated operator to replay only the loca
 
 #### Scenario: Terminal delete shape differs
 
-- **WHEN** the operation is not the exact target-free `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed` delete, the fence is stale, the provider result is absent, the tenant is not the exact reviewer deletion state, the cell or allocation graph differs, bootstrap retention cannot be proven, or live/conflicting authority exists
+- **WHEN** the operation is not the exact target-free `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed` delete, its source-derived identity or prior audit is absent, the fence is stale, the tenant is not the exact reviewer deletion state, the cell or allocation graph differs, bootstrap lineage cannot be proven, or live/conflicting authority exists
 - **THEN** recovery refuses without changing operation, tenant, cell, authority, provider evidence, or capacity state
 
 #### Scenario: Recovery request is replayed
