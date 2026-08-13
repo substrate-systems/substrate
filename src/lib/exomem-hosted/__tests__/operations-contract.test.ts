@@ -114,10 +114,15 @@ describe("Exomem hosted operations contract", () => {
       "CRON_SECRET",
       "EXOMEM_HOSTED_SCHEDULER_SECRET",
       "BREVO_API_KEY",
-      "EXOMEM_PADDLE_PRICE_ID",
     ]) {
       assert.match(runbook, new RegExp(`\\b${variable}\\b`));
     }
+    assert.doesNotMatch(runbook, /\bEXOMEM_PADDLE_PRICE_ID\b/);
+    assert.match(runbook, /New Exomem checkout remains disabled regardless of Paddle/i);
+    assert.match(
+      runbook,
+      /transactions or subscriptions that already have a stored, tenant-bound provider\s+reference/i
+    );
     assert.match(runbook, /computeDestroyed/);
     assert.match(runbook, /storageDestroyed/);
     assert.match(runbook, /keysDestroyed/);

@@ -33,7 +33,6 @@ export type OwnerBillingAccount = {
 export type OwnerBillingSummary = {
   source: "complimentary" | "paddle";
   state: string;
-  checkoutAvailable: boolean;
   portalAvailable: boolean;
 };
 
@@ -104,11 +103,6 @@ export function billingSummary(account: OwnerBillingAccount): OwnerBillingSummar
   return {
     source: account.source,
     state: account.effectiveState,
-    checkoutAvailable:
-      account.source === "paddle" &&
-      !account.customerRef &&
-      (!account.transactionRef || Boolean(account.providerEnvironment)) &&
-      ["awaiting_checkout", "checkout_pending"].includes(account.sourceState),
     portalAvailable:
       account.source === "paddle" &&
       Boolean(account.providerEnvironment) &&
@@ -262,7 +256,8 @@ export async function resumeReturnedOwnerCheckout(
   const account = await (dependencies.load ?? loadOwnerBillingAccount)(userId, tenantId);
   if (
     !account ||
-    !billingSummary(account).checkoutAvailable ||
+    account.source !== "paddle" ||
+    account.customerRef ||
     account.transactionRef !== transactionId ||
     !account.providerEnvironment
   ) {

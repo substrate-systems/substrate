@@ -25,7 +25,6 @@ before(() => {
       ownerBillingSummary: async () => ({
         source: "complimentary",
         state: "active",
-        checkoutAvailable: false,
         portalAvailable: false,
       }),
     },

@@ -4,7 +4,7 @@ import { ExomemPublicPage } from "../public-page";
 
 export const metadata: Metadata = {
   title: "Exomem Hosted Terms of Service",
-  description: "Terms for the Exomem Hosted subscription service from Substrate Systems OÜ.",
+  description: "Terms for the friends-only Exomem Hosted alpha from Substrate Systems OÜ.",
 };
 
 export default function ExomemTermsPage() {
@@ -13,19 +13,17 @@ export default function ExomemTermsPage() {
       <p>
         These terms are an agreement between you and Substrate Systems OÜ (Estonian registry code
         17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Exomem Hosted. They apply when
-        you create an account, subscribe, or use the Hosted service. The open-source Exomem software
-        remains governed by the license in its repository.
+        you receive an invitation or use the Hosted service. The open-source Exomem software remains
+        governed by the license in its repository.
       </p>
 
       <h2>Eligibility and availability</h2>
       <p>
-        Hosted Exomem is open to anyone who can subscribe, subject to available capacity. Because
-        each subscriber runs in an isolated cell on finite infrastructure, we admit new subscribers
-        up to that capacity and place further requests on a waitlist; we do not take payment for a
-        place we cannot provide. You must be legally able to enter this agreement, provide accurate
-        account information, keep access to your email and connected clients secure, and promptly
-        tell us about suspected unauthorized use. An account is personal and may not be sold or
-        transferred.
+        Hosted Exomem is a friends-only private alpha. Access is by invitation; registering interest
+        does not create an account or promise access. You must be legally able to enter this
+        agreement, provide accurate account information, keep access to your email and connected
+        clients secure, and promptly tell us about suspected unauthorized use. An account is
+        personal and may not be sold or transferred.
       </p>
 
       <h2>The service</h2>
@@ -58,23 +56,16 @@ export default function ExomemTermsPage() {
         infrastructure, or third parties, and will give notice where lawful and practicable.
       </p>
 
-      <h2>Fees, cancellation, export, and deletion</h2>
+      <h2>Alpha access, export, and deletion</h2>
       <p>
-        Hosted Exomem is €12 per month, billed monthly and renewing automatically until cancelled.
-        That is a time-limited founder price: we may raise the price for new subscribers, and if we
-        do, your existing subscription keeps the price you signed up at for as long as it remains
-        active. Paddle acts as merchant of record, shows the final price including any applicable
-        VAT before you pay, and issues your invoice. Some subscribers hold complimentary access,
-        which carries no fee.
+        This friends-only private alpha has no public purchase flow. Invitations may provide
+        complimentary access; any separately agreed paid arrangement remains governed by the terms
+        provided for that arrangement and does not open public admission.
       </p>
       <p>
-        You can cancel at any time from your account; cancellation stops the next renewal and access
-        continues to the end of the paid period. Consumers in the EU have a statutory 14-day right
-        of withdrawal; because the service is made available immediately, you are asked to consent
-        to that immediate start at checkout, and refund requests are handled by Paddle as merchant
-        of record. You can stop using the service, disconnect clients, export your canonical data,
-        and request verified account deletion at any time. Ending access does not erase information
-        already sent to a third-party client; manage that information with the client provider.
+        You can stop using the service, disconnect clients, export your canonical data, and request
+        verified account deletion at any time. Ending access does not erase information already sent
+        to a third-party client; manage that information with the client provider.
       </p>
 
       <h2>Intellectual property and feedback</h2>
