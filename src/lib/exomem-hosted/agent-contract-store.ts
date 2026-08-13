@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { executeExomemSql, executeExomemTransaction, withExomemTransaction } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
@@ -755,7 +755,69 @@ export async function attachOpenAiContractLocks(input: {
   return rows.length === 1;
 }
 
-/** The sole authority writer: one connection serializes the profile, cells, and exact digest. */
+/** Caller holds the cohort lock; refresh promotion authority from the exact post-write route set. */
+export async function refreshRoutableProfileAuthorityInTransaction(
+  transaction: ExomemSql,
+  observedCellId: string,
+  fallbackIdentity?: Omit<RoutableCellIdentity, "cell_id">
+): Promise<void> {
+  const { rows } = await transaction`
+    SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint,
+           contract_digest, compatibility_digest
+    FROM exomem_routable_cell_contracts
+    WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
+    ORDER BY cell_id
+    FOR UPDATE
+  `;
+  const identities = rows as RoutableCellIdentity[];
+  const observed = identities.find((row) => row.cell_id === observedCellId) ?? fallbackIdentity;
+  if (!observed) throw new Error("observed routable cell is missing from the profile route set");
+  const sourceRelease = string(observed.source_release, "observed source release");
+  const protocolVersion = string(observed.protocol_version, "observed protocol version");
+  const fingerprint = sha256(observed.command_fingerprint, "observed command fingerprint");
+  const contract = sha256(observed.contract_digest, "observed contract digest");
+  const compatibility = sha256(observed.compatibility_digest, "observed compatibility digest");
+  const digest = routableSetDigest(identities);
+  const allMatch = identities.every(
+    (row) =>
+      row.source_release === sourceRelease &&
+      row.protocol_version === protocolVersion &&
+      row.command_fingerprint === fingerprint &&
+      row.contract_digest === contract &&
+      row.compatibility_digest === compatibility
+  );
+  await transaction`
+    INSERT INTO exomem_agent_contract_profile_authority (
+      profile_id, routable_set_digest, routable_cell_count, source_release, protocol_version,
+      command_fingerprint, contract_digest, compatibility_digest, observed_at
+    ) VALUES (
+      ${EXOMEM_HOSTED_PROFILE}, repeat('0', 64), 0, ${sourceRelease}, ${protocolVersion},
+      ${fingerprint}, ${contract}, ${compatibility}, now()
+    )
+    ON CONFLICT (profile_id) DO NOTHING
+  `;
+  await transaction`
+    SELECT profile_id
+    FROM exomem_agent_contract_profile_authority
+    WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
+    FOR UPDATE
+  `;
+  await transaction`
+    UPDATE exomem_agent_contract_profile_authority
+    SET routable_set_digest = ${digest},
+        routable_cell_count = ${identities.length},
+        source_release = CASE WHEN ${allMatch} THEN ${sourceRelease} ELSE source_release END,
+        protocol_version = CASE WHEN ${allMatch} THEN ${protocolVersion} ELSE protocol_version END,
+        command_fingerprint = CASE WHEN ${allMatch} THEN ${fingerprint} ELSE command_fingerprint END,
+        contract_digest = CASE WHEN ${allMatch} THEN ${contract} ELSE contract_digest END,
+        compatibility_digest = CASE WHEN ${allMatch} THEN ${compatibility} ELSE compatibility_digest END,
+        observed_at = now(),
+        updated_at = now()
+    WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
+  `;
+}
+
+/** The sole standalone authority writer serializes behind the same cohort lock as binding. */
 export async function recordRoutableCellObservation(input: {
   cellId: string;
   sourceRelease: string;
@@ -768,74 +830,33 @@ export async function recordRoutableCellObservation(input: {
   const fingerprint = sha256(input.commandSurfaceSha256, "command surface digest");
   const contract = sha256(input.schemaDigest, "schema digest");
   const compatibility = sha256(input.compatibilitySha256, "compatibility digest");
-  await executeExomemTransaction(async (transaction) => {
-    await transaction.query(
-      `INSERT INTO exomem_agent_contract_profile_authority (profile_id, routable_set_digest, routable_cell_count, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest, observed_at)
-       VALUES ($1, repeat('0', 64), 0, $2, $3, $4, $5, $6, now()) ON CONFLICT (profile_id) DO NOTHING`,
-      [
-        EXOMEM_HOSTED_PROFILE,
-        input.sourceRelease,
-        input.protocolVersion,
-        fingerprint,
-        contract,
-        compatibility,
-      ]
-    );
-    await transaction.query(
-      `SELECT profile_id FROM exomem_agent_contract_profile_authority WHERE profile_id = $1 FOR UPDATE`,
-      [EXOMEM_HOSTED_PROFILE]
-    );
-    await transaction.query(
-      `INSERT INTO exomem_routable_cell_contracts (cell_id, profile_id, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest, routable, observed_at)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, now())
-       ON CONFLICT (cell_id, profile_id) DO UPDATE SET source_release = EXCLUDED.source_release, protocol_version = EXCLUDED.protocol_version, command_fingerprint = EXCLUDED.command_fingerprint, contract_digest = EXCLUDED.contract_digest, compatibility_digest = EXCLUDED.compatibility_digest, routable = EXCLUDED.routable, observed_at = now()`,
-      [
-        input.cellId,
-        EXOMEM_HOSTED_PROFILE,
-        input.sourceRelease,
-        input.protocolVersion,
-        fingerprint,
-        contract,
-        compatibility,
-        input.routable,
-      ]
-    );
-    const cells = await transaction.query(
-      `SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest
-       FROM exomem_routable_cell_contracts WHERE profile_id = $1 AND routable = true ORDER BY cell_id FOR UPDATE`,
-      [EXOMEM_HOSTED_PROFILE]
-    );
-    const identities = cells.rows as RoutableCellIdentity[];
-    const digest = routableSetDigest(identities);
-    const allMatch = identities.every(
-      (row) =>
-        row.source_release === input.sourceRelease &&
-        row.protocol_version === input.protocolVersion &&
-        row.command_fingerprint === fingerprint &&
-        row.contract_digest === contract &&
-        row.compatibility_digest === compatibility
-    );
-    await transaction.query(
-      `UPDATE exomem_agent_contract_profile_authority SET
-         routable_set_digest = $2, routable_cell_count = $3,
-         source_release = CASE WHEN $9 THEN $4 ELSE source_release END,
-         protocol_version = CASE WHEN $9 THEN $5 ELSE protocol_version END,
-         command_fingerprint = CASE WHEN $9 THEN $6 ELSE command_fingerprint END,
-         contract_digest = CASE WHEN $9 THEN $7 ELSE contract_digest END,
-         compatibility_digest = CASE WHEN $9 THEN $8 ELSE compatibility_digest END,
-         observed_at = now(), updated_at = now() WHERE profile_id = $1`,
-      [
-        EXOMEM_HOSTED_PROFILE,
-        digest,
-        identities.length,
-        input.sourceRelease,
-        input.protocolVersion,
-        fingerprint,
-        contract,
-        compatibility,
-        allMatch,
-      ]
-    );
+  await withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    await transaction`
+      INSERT INTO exomem_routable_cell_contracts (
+        cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+        contract_digest, compatibility_digest, routable, observed_at
+      ) VALUES (
+        ${input.cellId}::uuid, ${EXOMEM_HOSTED_PROFILE}, ${input.sourceRelease},
+        ${input.protocolVersion}, ${fingerprint}, ${contract}, ${compatibility},
+        ${input.routable}, now()
+      )
+      ON CONFLICT (cell_id, profile_id) DO UPDATE
+      SET source_release = EXCLUDED.source_release,
+          protocol_version = EXCLUDED.protocol_version,
+          command_fingerprint = EXCLUDED.command_fingerprint,
+          contract_digest = EXCLUDED.contract_digest,
+          compatibility_digest = EXCLUDED.compatibility_digest,
+          routable = EXCLUDED.routable,
+          observed_at = now()
+    `;
+    await refreshRoutableProfileAuthorityInTransaction(transaction, input.cellId, {
+      source_release: input.sourceRelease,
+      protocol_version: input.protocolVersion,
+      command_fingerprint: fingerprint,
+      contract_digest: contract,
+      compatibility_digest: compatibility,
+    });
   });
 }
 

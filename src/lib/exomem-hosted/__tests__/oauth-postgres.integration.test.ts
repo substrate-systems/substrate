@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -476,6 +476,65 @@ async function activateCanaryAssignment(input: {
     await new SqlLifecycleStore().bindCandidate(operationId, "shared-canary-bind"),
     true
   );
+  const routes = await pool!.query<{
+    cell_id: string;
+    source_release: string;
+    protocol_version: string;
+    command_fingerprint: string;
+    contract_digest: string;
+    compatibility_digest: string;
+  }>(
+    `SELECT cell_id::text, source_release, protocol_version, command_fingerprint,
+            contract_digest, compatibility_digest
+     FROM exomem_routable_cell_contracts
+     WHERE profile_id = 'hosted-alpha-agent-v1' AND routable = true
+     ORDER BY cell_id`
+  );
+  const expectedRoutableSetDigest = createHash("sha256")
+    .update(
+      routes.rows
+        .map((row) =>
+          JSON.stringify([
+            "hosted-alpha-agent-v1",
+            row.cell_id,
+            row.source_release,
+            row.protocol_version,
+            row.command_fingerprint,
+            row.contract_digest,
+            row.compatibility_digest,
+          ])
+        )
+        .join(",")
+    )
+    .digest("hex");
+  const promotionAuthority = await pool!.query<{
+    routable_set_digest: string;
+    routable_cell_count: number;
+    source_release: string;
+    protocol_version: string;
+    command_fingerprint: string;
+    contract_digest: string;
+    compatibility_digest: string;
+    fresh: boolean;
+  }>(
+    `SELECT routable_set_digest, routable_cell_count, source_release, protocol_version,
+            command_fingerprint, contract_digest, compatibility_digest,
+            observed_at > now() - interval '5 minutes' AS fresh
+     FROM exomem_agent_contract_profile_authority
+     WHERE profile_id = 'hosted-alpha-agent-v1'`
+  );
+  assert.deepEqual(promotionAuthority.rows, [
+    {
+      routable_set_digest: expectedRoutableSetDigest,
+      routable_cell_count: routes.rows.length,
+      source_release: authority.source_release,
+      protocol_version: authority.protocol_version,
+      command_fingerprint: authority.command_fingerprint,
+      contract_digest: authority.schema_digest,
+      compatibility_digest: authority.compatibility_digest,
+      fresh: true,
+    },
+  ]);
 }
 
 function authorizationTransactionInput(input: {

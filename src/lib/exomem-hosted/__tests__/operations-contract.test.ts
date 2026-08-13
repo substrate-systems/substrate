@@ -121,6 +121,14 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runbook, /New Exomem checkout remains disabled regardless of Paddle/i);
     assert.match(
       runbook,
+      /set\s+`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` for the 0\.49\.0\s+reviewer canary/i
+    );
+    assert.match(
+      runbook,
+      /outer v2 carries the existing `hosted-alpha-agent-v1` runtime\s+target/i
+    );
+    assert.match(
+      runbook,
       /transactions or subscriptions that already have a stored, tenant-bound provider\s+reference/i
     );
     assert.match(runbook, /computeDestroyed/);
@@ -138,6 +146,10 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runbook, /retainedV1Exports/);
     assert.match(runbook, /v1-origin export download\s+and export-GC continuations/i);
     assert.match(runbook, /Keep expand mode until both\s+counts are zero/i);
+    assert.match(runbook, /scripts\/exomem-d1-expand-preflight\.ts/);
+    assert.match(runbook, /683fa1847a6b1bcac2c61a897493cf4ea5d17b4f1bf64a6b98733f23aeacd92c/);
+    assert.match(runbook, /02ec4eda1fed39e485dfabc2457d5b268686b74747a3249ec041f9b8dfdc2f3e/);
+    assert.match(runbook, /type the exact line\s+`release`/i);
   });
 
   it("serializes migration runners and applies each file with its tracking row", () => {
