@@ -94,7 +94,10 @@ export async function preflightRecoverExpiredReviewerCleanup(
         AND (SELECT COUNT(*) FROM exomem_cells AS only_cell
              WHERE only_cell.tenant_id = tenant.id AND only_cell.lifecycle_state <> 'deleted') = 1
         AND assignment.marketplace_reviewer_purpose = true
-        AND assignment.state = 'expired' AND assignment.expires_at <= now()
+        AND (
+          (assignment.state = 'expired' AND assignment.expires_at <= now())
+          OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL)
+        )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
           WHERE live_assignment.tenant_id = tenant.id AND live_assignment.state = 'active'
@@ -196,7 +199,10 @@ export async function recoverExpiredReviewerCleanup(
           AND (SELECT COUNT(*) FROM exomem_cells AS only_cell
                WHERE only_cell.tenant_id = source.tenant_id AND only_cell.lifecycle_state <> 'deleted') = 1
           AND assignment.marketplace_reviewer_purpose = true
-          AND assignment.state = 'expired' AND assignment.expires_at <= now()
+          AND (
+            (assignment.state = 'expired' AND assignment.expires_at <= now())
+            OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL)
+          )
           AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
                           WHERE live_assignment.tenant_id = source.tenant_id AND live_assignment.state = 'active'
                             AND live_assignment.expires_at > now())

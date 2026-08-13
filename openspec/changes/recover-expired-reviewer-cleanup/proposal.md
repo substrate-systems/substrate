@@ -4,8 +4,8 @@ An expired marketplace-reviewer assignment can leave its unbound candidate in ma
 
 ## What Changes
 
-- Add one authenticated operator action that recovers exactly this expired reviewer state by applying the existing deletion boundary at a new tenant fence.
-- Require a caller-pinned lifecycle operation and expected current fence plus fail-closed database predicates: reviewer-purpose tenant, unbound candidate, mandatory cleanup, expired target assignment, no live reviewer authority/session, and no conflicting current-fence operation.
+- Add one authenticated operator action that recovers exactly this expired reviewer state, or its exact terminal failed-assignment equivalent, by applying the existing deletion boundary at a new tenant fence.
+- Require a caller-pinned lifecycle operation and expected current fence plus fail-closed database predicates: reviewer-purpose tenant, unbound candidate, mandatory cleanup, an expired target assignment or a terminal failed target assignment with `ended_at`, no live reviewer authority/session, and no conflicting current-fence operation.
 - In one transaction, revoke every Hosted and OAuth authority, supersede older lifecycle work, increment the tenant fence, enqueue the normal target-free tenant deletion operation, and persist a principal-bound audit receipt.
 - Let the existing provisioner DESTROY workflow supply every external absence, key, and capacity-release proof; the operator action cannot finalize or rewrite provider state.
 - Return only content-free outcome and request metadata, and document the exact incident recovery/verification sequence.
