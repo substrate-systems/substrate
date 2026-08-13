@@ -729,23 +729,27 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       "exomem.read",
       "offline_access",
     ]);
-    const admitted = await admitFirstOAuthInviteAtomic({
-      inviteDigest: digest(11),
-      transactionDigest: digest(12),
-      sessionDigest: digest(13),
-      csrfDigest: digest(14),
-      sessionExpiresAt: new Date(Date.now() + 60_000),
-      codeDigest: code.codeDigest,
-      codeExpiresAt: code.record.expiresAt,
-    });
+    const previousV2Issuance = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    const admitted = await (async () => {
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+      try {
+        return await admitFirstOAuthInviteAtomic({
+          inviteDigest: digest(11),
+          transactionDigest: digest(12),
+          sessionDigest: digest(13),
+          csrfDigest: digest(14),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+          codeDigest: code.codeDigest,
+          codeExpiresAt: code.record.expiresAt,
+        });
+      } finally {
+        if (previousV2Issuance === undefined)
+          delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+        else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previousV2Issuance;
+      }
+    })();
     assert.ok(admitted);
     if (!admitted) throw new Error("first OAuth admission was rejected");
-    await pool!.query(
-      `UPDATE exomem_lifecycle_operations
-       SET provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
-       WHERE id = $1`,
-      [admitted.operationId]
-    );
     ownerId = (
       await pool!.query<{ owner_user_id: string }>(
         "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",

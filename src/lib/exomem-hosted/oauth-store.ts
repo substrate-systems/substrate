@@ -1,7 +1,7 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
-import type { ProvisionerWireProtocol } from "./provisioner";
+import { PROVISIONER_PROTOCOL_V2, type ProvisionerWireProtocol } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
 
@@ -1133,6 +1133,16 @@ export async function admitFirstOAuthInviteAtomic(input: {
             GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
                      candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
             HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
+          ),
+          target AS MATERIALIZED (
+            SELECT candidate_id, assignment_id, assignment_generation, source_release, protocol_version,
+                   gateway_contract_digest, command_fingerprint, schema_digest, compatibility_digest
+            FROM live_target
+            WHERE ${provisionerWireProtocol} = ${PROVISIONER_PROTOCOL_V2}
+            UNION ALL
+            SELECT NULL::uuid, NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::text,
+                   NULL::text, NULL::text, NULL::text
+            WHERE ${provisionerWireProtocol} <> ${PROVISIONER_PROTOCOL_V2}
           )
           INSERT INTO exomem_lifecycle_operations (
             tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol,
@@ -1145,7 +1155,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
             target.assignment_generation, target.source_release, target.protocol_version,
             target.gateway_contract_digest, target.command_fingerprint, target.schema_digest,
             target.compatibility_digest
-          FROM live_target AS target
+          FROM target
           RETURNING id
         `;
         const operation = operationResult.rows[0] as { id: string } | undefined;

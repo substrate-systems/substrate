@@ -2,6 +2,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
+import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
 
@@ -542,6 +543,22 @@ export async function redeemInviteAtomic(
                candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
       HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
     ),
+    target_guard AS MATERIALIZED (
+      SELECT CASE
+               WHEN ${provisionerWireProtocol} = ${PROVISIONER_PROTOCOL_V2} AND COUNT(*) <> 1
+               THEN 1 / (COUNT(*) - COUNT(*))
+               ELSE 1
+             END AS valid
+      FROM live_target
+    ),
+    target AS MATERIALIZED (
+      SELECT candidate_id, assignment_id, assignment_generation, source_release, protocol_version,
+             gateway_contract_digest, command_fingerprint, schema_digest, compatibility_digest
+      FROM target_guard
+      LEFT JOIN live_target
+        ON ${provisionerWireProtocol} = ${PROVISIONER_PROTOCOL_V2}
+       AND target_guard.valid = 1
+    ),
     operation AS (
       INSERT INTO exomem_lifecycle_operations (
         tenant_id, operation_type, idempotency_key, fence_generation,
@@ -556,7 +573,7 @@ export async function redeemInviteAtomic(
              target.gateway_contract_digest, target.command_fingerprint, target.schema_digest,
              target.compatibility_digest
       FROM tenant
-      JOIN live_target AS target ON TRUE
+      JOIN target ON TRUE
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       RETURNING id, tenant_id

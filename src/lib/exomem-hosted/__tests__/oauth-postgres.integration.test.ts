@@ -600,6 +600,59 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal(await scalar("SELECT count(*) FROM exomem_lifecycle_operations"), 0);
   });
 
+  it("rolls back v2 legacy invitation redemption without a catalog target", async () => {
+    await createInviteRecord({
+      tokenDigest: digest(400),
+      emailNormalized: "legacy-v2-missing-target@example.test",
+      entitlementSource: "complimentary",
+      capabilities: [],
+      resourceLimits: {},
+      marketplaceReviewerPurpose: false,
+      operatorPrincipalDigest: digest(401),
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
+    const counts = () =>
+      Promise.all([
+        scalar("SELECT count(*) FROM users"),
+        scalar("SELECT count(*) FROM exomem_tenants"),
+        scalar("SELECT count(*) FROM exomem_entitlements"),
+        scalar("SELECT count(*) FROM exomem_sessions"),
+        scalar("SELECT count(*) FROM exomem_lifecycle_operations"),
+      ]);
+    const before = await counts();
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    try {
+      await assert.rejects(
+        redeemInviteAtomic({
+          tokenDigest: digest(400),
+          sessionDigest: digest(402),
+          csrfDigest: digest(403),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+        })
+      );
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+    assert.deepEqual(await counts(), before);
+    assert.equal(
+      await scalar(
+        "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
+        [digest(400)]
+      ),
+      1
+    );
+    assert.ok(
+      await redeemInviteAtomic({
+        tokenDigest: digest(400),
+        sessionDigest: digest(404),
+        csrfDigest: digest(405),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      })
+    );
+  });
+
   it("keeps invitation and tenant purpose immutable while legacy redemption supports ordinary and reviewer tenants", async () => {
     const ordinaryInvite = await createInviteRecord({
       tokenDigest: digest(50),
@@ -1246,6 +1299,47 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     try {
       const internal = await seedClient();
       await seedPool();
+      const candidate = await pool!.query<{
+        source_release: string;
+        protocol_version: string;
+        command_fingerprint: string;
+        schema_digest: string;
+        compatibility_digest: string;
+      }>(
+        `SELECT source_release, protocol_version, command_fingerprint, schema_digest,
+                compatibility_digest
+           FROM exomem_agent_contract_candidates
+          WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'
+          LIMIT 1`
+      );
+      const catalogUser = await pool!.query<{ id: string }>(
+        "INSERT INTO users (email) VALUES ('default-v1-catalog@example.test') RETURNING id"
+      );
+      const catalogTenant = await pool!.query<{ id: string }>(
+        "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+        [catalogUser.rows[0]!.id]
+      );
+      const catalogCell = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
+           tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+           observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+           observed_compatibility_digest
+         ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+         RETURNING id`,
+        [
+          catalogTenant.rows[0]!.id,
+          candidate.rows[0]!.protocol_version,
+          candidate.rows[0]!.source_release,
+          "e".repeat(64),
+          candidate.rows[0]!.command_fingerprint,
+          candidate.rows[0]!.schema_digest,
+          candidate.rows[0]!.compatibility_digest,
+        ]
+      );
+      await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        catalogCell.rows[0]!.id,
+        catalogTenant.rows[0]!.id,
+      ]);
       await seedInviteAndTransaction(internal, "590");
       const admitted = await admitFirstOAuthInviteAtomic({
         inviteDigest: digest(590),
@@ -1258,11 +1352,40 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       });
 
       assert.ok(admitted);
-      const operation = await pool!.query<{ provisioner_wire_protocol: string }>(
-        "SELECT provisioner_wire_protocol FROM exomem_lifecycle_operations WHERE tenant_id = $1",
+      const operation = await pool!.query<{
+        provisioner_wire_protocol: string;
+        target_candidate_id: string | null;
+        target_assignment_id: string | null;
+        target_assignment_generation: string | null;
+        target_source_release: string | null;
+        target_protocol_version: string | null;
+        target_gateway_contract_digest: string | null;
+        target_command_fingerprint: string | null;
+        target_schema_digest: string | null;
+        target_compatibility_digest: string | null;
+      }>(
+        `SELECT provisioner_wire_protocol, target_candidate_id, target_assignment_id,
+                target_assignment_generation, target_source_release, target_protocol_version,
+                target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
+                target_compatibility_digest
+           FROM exomem_lifecycle_operations
+          WHERE tenant_id = $1`,
         [admitted!.tenantId]
       );
-      assert.equal(operation.rows[0]?.provisioner_wire_protocol, "exomem-cell-provisioner.v1");
+      assert.deepEqual(operation.rows, [
+        {
+          provisioner_wire_protocol: "exomem-cell-provisioner.v1",
+          target_candidate_id: null,
+          target_assignment_id: null,
+          target_assignment_generation: null,
+          target_source_release: null,
+          target_protocol_version: null,
+          target_gateway_contract_digest: null,
+          target_command_fingerprint: null,
+          target_schema_digest: null,
+          target_compatibility_digest: null,
+        },
+      ]);
     } finally {
       if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
       else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
