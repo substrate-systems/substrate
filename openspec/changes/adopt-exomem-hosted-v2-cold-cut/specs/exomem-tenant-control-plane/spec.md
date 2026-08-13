@@ -30,8 +30,8 @@ smoke or a verified rollback/restoration ends the window.
 
 ### Requirement: New processes issue only outer v2 work after the cut
 
-After the narrow view migration and v2-only deployment, every newly started
-process SHALL enable `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` and issue
+The system SHALL, after the narrow view migration and v2-only deployment,
+require every newly started process to enable `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` and issue
 the outer `exomem-cell-provisioner.v2` protocol for new work. The runtime
 protocol remains the separately verified runtime value. The system SHALL not
 retain absent/false v1 fallback, a stored v1/v2 coexistence model, or a

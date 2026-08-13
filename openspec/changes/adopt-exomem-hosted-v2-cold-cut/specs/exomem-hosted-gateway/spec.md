@@ -2,8 +2,8 @@
 
 ### Requirement: Private forwarding authenticates and binds the single active v2 route
 
-After the cold-cut fence, zero-state audit, verified release import, and
-v2-only process admission succeed, private forwarding SHALL resolve the one
+Private forwarding SHALL, after the cold-cut fence, zero-state audit, verified
+release import, and v2-only process admission succeed, resolve the one
 verified v2 route only after authoritative tenant/cell mapping. Callers SHALL
 not select a profile or private route. The published public MCP URL remains
 stable, but it resolves only the active v2 catalog. The gateway schema
