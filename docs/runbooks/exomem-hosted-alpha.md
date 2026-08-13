@@ -588,12 +588,55 @@ or mark the tenant/cell deleted. A retry is allowed only as the exact replay of
 the superseded source at the old fence and the one derived-key delete at
 old-fence-plus-one.
 
-After the one invocation, run a bounded authenticated
-`/api/cron/exomem-reconcile` pass until that higher-fence delete records all
-provider DESTROY proofs (`computeDestroyed`, `storageDestroyed`, and
-`keysDestroyed`) and the control plane marks the tenant deleted. Verify the
-capacity allocation changed to `released` only through that provider-verified
-completion; no hand-edited capacity state or empty provider lookup is proof.
+### Terminal reviewer delete replay
+
+Use this narrower recovery only for the one provider-proven reviewer deletion
+that is already terminal as `failed_terminal` / `LIFECYCLE_MAX_ATTEMPTS` at
+checkpoint `destroyed`. Keep the scheduler suspended while checking the exact
+state. Do not use it for another tenant, a new delete, an earlier checkpoint,
+or a capacity repair.
+
+Call `POST /api/exomem/admin/contracts` with exactly one of these bodies,
+first the preflight and then one recovery request:
+
+```json
+{
+  "action": "preflight-recover-terminal-reviewer-delete",
+  "operationId": "<uuid>",
+  "expectedFence": 2
+}
+```
+
+```json
+{ "action": "recover-terminal-reviewer-delete", "operationId": "<uuid>", "expectedFence": 2 }
+```
+
+Both responses are content-free: preflight returns only `eligible` and a
+request ID; recovery returns only `enqueued` or `replayed`, the opaque operation
+ID, and a request ID. A refusal is non-diagnostic: stop and inspect privately;
+never try altered selectors.
+
+The control accepts only the existing target-free delete (`cell_id` and
+`expected_previous_cell_id` are both `NULL`), its current fence, the persisted
+`destroyed` checkpoint as provider proof, and the exact source-derived
+idempotency identity. The superseded source must bind both the owner-confirmed
+source audit and the sole unbound provider-free cell; the delete audit binds
+the delete row. It also requires the exact consumed bootstrap/candidate
+contract lineage, uncertain allocation with checked counters, and no unfinished
+or live reviewer/OAuth authority. It reopens the same operation once at
+`destroyed`; it does not call the provider, create a delete, alter capacity, or
+alter the checkpoint, fence, or idempotency key.
+After one bounded reconcile, verify that the same operation is
+`succeeded/destroyed`, the tenant and cells are deleted, uncertain capacity was
+released by the normal finalizer, all live authority is scrubbed, and the
+consumed bootstrap invite plus revoked outcome session remain retained.
+
+After the one invocation, run one bounded authenticated
+`/api/cron/exomem-reconcile` pass. It resumes only the current local finalizer
+from the already-persisted `destroyed` checkpoint and makes zero provider calls.
+Verify the same operation is `succeeded/destroyed`, the tenant and cells are
+deleted, uncertain capacity was released by that finalizer, and the consumed
+bootstrap invite plus revoked outcome session remain retained.
 Only then resume normal scheduling, prepare a fresh staged candidate and a
 fresh reviewer bootstrap, and issue fresh reviewer authority. Never reopen the
 expired source operation or reuse its client, credential, assignment, or

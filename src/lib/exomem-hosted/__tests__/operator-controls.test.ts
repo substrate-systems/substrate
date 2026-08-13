@@ -10,6 +10,8 @@ import {
   listOperatorOAuthClients,
   listReviewerOAuthBootstrapAuthorities,
   preflightRecoverExpiredReviewerCleanup,
+  preflightRecoverTerminalReviewerDelete,
+  recoverTerminalReviewerDelete,
   recoverExpiredReviewerCleanup,
   registerOperatorOAuthClient,
   revokeOperatorOAuthAccount,
@@ -157,6 +159,64 @@ describe("hosted operator controls", () => {
     assert.match(query, /candidate-cleanup/i);
     assert.match(query, /assignment\.state = 'failed' AND assignment\.ended_at IS NOT NULL/i);
     assert.doesNotMatch(query, /\bUPDATE\b|\bINSERT\b|\bDELETE\b/i);
+  });
+
+  it("preflights and reopens only the terminal provider-proven reviewer delete", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      queries.push(query);
+      return query.includes("/* exomem:recover-terminal-reviewer-delete */")
+        ? { rows: [{ outcome: "enqueued", operation_id: "018f2d91-7c42-7000-8000-000000000001" }] }
+        : { rows: [{ eligible: true }] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+    const operationId = "018f2d91-7c42-7000-8000-000000000001";
+
+    assert.deepEqual(
+      await preflightRecoverTerminalReviewerDelete({ operationId, expectedFence: 7 }),
+      { eligible: true }
+    );
+    assert.match(queries[0]!, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    assert.doesNotMatch(queries[1]!, /(?:^|\n)\s*(?:UPDATE|INSERT|DELETE)\s+/i);
+
+    assert.deepEqual(
+      await recoverTerminalReviewerDelete({
+        operationId,
+        expectedFence: 7,
+        requestId: "018f2d91-7c42-7000-8000-000000000003",
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      { outcome: "enqueued", operationId }
+    );
+    assert.match(queries[2]!, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    const mutation = queries[3]!;
+    assert.match(mutation, /operation_type = 'delete'/i);
+    assert.match(mutation, /state = 'failed_terminal'/i);
+    assert.match(mutation, /error_code = 'LIFECYCLE_MAX_ATTEMPTS'/i);
+    assert.match(mutation, /checkpoint = 'destroyed'/i);
+    assert.match(mutation, /checkpoint = 'destroyed'/i);
+    assert.doesNotMatch(mutation, /provider_result_ref IS NOT NULL/i);
+    assert.match(mutation, /idempotency_key = derived_delete_key\.value/i);
+    assert.match(mutation, /operation\.cell_id IS NULL AND operation\.expected_previous_cell_id IS NULL/i);
+    assert.match(mutation, /source\.cell_id = cell\.id/i);
+    assert.match(mutation, /source_audit\.cell_id = source\.cell_id/i);
+    assert.match(mutation, /operator\.reviewer_cleanup\.delete_enqueued/i);
+    assert.match(mutation, /assignment\.gateway_contract_digest = source\.target_gateway_contract_digest/i);
+    assert.match(mutation, /assignment\.compatibility_digest = source\.target_compatibility_digest/i);
+    assert.match(mutation, /candidate\.schema_digest = source\.target_schema_digest/i);
+    assert.match(mutation, /bootstrap\.candidate_contract_digest = candidate\.schema_digest/i);
+    assert.match(mutation, /bootstrap\.candidate_compatibility_digest = source\.target_compatibility_digest/i);
+    assert.match(mutation, /allocation\.state = 'uncertain'/i);
+    assert.match(mutation, /DELETION_SUPERSEDED/i);
+    assert.match(mutation, /state = 'consumed'/i);
+    assert.match(mutation, /operator\.terminal_reviewer_delete\.authorized/i);
+    assert.match(mutation, /operator\.terminal_reviewer_delete\.replayed/i);
+    assert.match(mutation, /attempts = 0/i);
+    assert.match(mutation, /lease_owner = NULL/i);
+    assert.doesNotMatch(mutation, /INSERT INTO exomem_lifecycle_operations/i);
+    assert.doesNotMatch(mutation, /UPDATE exomem_capacity_allocations/i);
   });
 
   it("permits pending client registration only through an exact current staged declaration", async () => {
