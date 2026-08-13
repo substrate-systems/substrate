@@ -612,14 +612,16 @@ request ID; recovery returns only `enqueued` or `replayed`, the opaque operation
 ID, and a request ID. A refusal is non-diagnostic: stop and inspect privately;
 never try altered selectors.
 
-The control accepts only the existing target-free delete, its current fence,
-the persisted `destroyed` checkpoint as provider proof, the exact
-source-derived idempotency identity and owner-confirmed cleanup audits, exact
-superseded reviewer source and consumed bootstrap/candidate contract lineage,
-one unbound provider-free cell, uncertain allocation with checked counters, and
-no unfinished or live reviewer/OAuth authority. It reopens the same operation
-once at `destroyed`; it does not call the provider, create a delete, alter
-capacity, or alter the checkpoint, fence, or idempotency key.
+The control accepts only the existing target-free delete (`cell_id` and
+`expected_previous_cell_id` are both `NULL`), its current fence, the persisted
+`destroyed` checkpoint as provider proof, and the exact source-derived
+idempotency identity. The superseded source must bind both the owner-confirmed
+source audit and the sole unbound provider-free cell; the delete audit binds
+the delete row. It also requires the exact consumed bootstrap/candidate
+contract lineage, uncertain allocation with checked counters, and no unfinished
+or live reviewer/OAuth authority. It reopens the same operation once at
+`destroyed`; it does not call the provider, create a delete, alter capacity, or
+alter the checkpoint, fence, or idempotency key.
 After one bounded reconcile, verify that the same operation is
 `succeeded/destroyed`, the tenant and cells are deleted, uncertain capacity was
 released by the normal finalizer, all live authority is scrubbed, and the

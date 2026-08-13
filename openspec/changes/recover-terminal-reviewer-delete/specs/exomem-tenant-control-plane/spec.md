@@ -17,7 +17,7 @@ The control plane SHALL permit an authenticated operator to replay only the loca
 
 #### Scenario: Terminal delete shape differs
 
-- **WHEN** the operation is not the exact target-free `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed` delete, its source-derived identity or prior audit is absent, the fence is stale, the tenant is not the exact reviewer deletion state, the cell or allocation graph differs, bootstrap lineage cannot be proven, or live/conflicting authority exists
+- **WHEN** the operation is not the exact target-free (`cell_id` and `expected_previous_cell_id` both `NULL`) `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed` delete, its source-derived identity or source-cell-bound prior audit is absent, the fence is stale, the tenant is not the exact reviewer deletion state, the sole source cell or allocation graph differs, bootstrap lineage cannot be proven, or live/conflicting authority exists
 - **THEN** recovery refuses without changing operation, tenant, cell, authority, provider evidence, or capacity state
 
 #### Scenario: Recovery request is replayed

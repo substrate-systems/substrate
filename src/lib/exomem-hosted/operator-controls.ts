@@ -147,8 +147,7 @@ export async function preflightRecoverTerminalReviewerDelete(
         AND operation.checkpoint = 'destroyed'
         AND operation.completed_at IS NOT NULL AND operation.lease_owner IS NULL
         AND operation.lease_expires_at IS NULL AND operation.fence_generation = ${input.expectedFence}::bigint
-        AND operation.cell_id IS NOT NULL AND operation.expected_previous_cell_id IS NULL
-        AND operation.cell_id = source.cell_id
+        AND operation.cell_id IS NULL AND operation.expected_previous_cell_id IS NULL
         AND operation.target_candidate_id IS NULL AND operation.target_assignment_id IS NULL
         AND operation.target_assignment_generation IS NULL
         AND operation.idempotency_key = derived_delete_key.value
@@ -157,6 +156,7 @@ export async function preflightRecoverTerminalReviewerDelete(
         AND tenant.status = 'deletion_pending' AND tenant.desired_state = 'deleted'
         AND tenant.deleted_at IS NULL AND tenant.bound_cell_id IS NULL
         AND cell.routing_state = 'unbound' AND cell.lifecycle_state <> 'deleted' AND cell.provider_ref IS NULL
+        AND source.cell_id = cell.id
         AND (SELECT count(*) FROM exomem_cells AS only_cell
              WHERE only_cell.tenant_id = tenant.id AND only_cell.lifecycle_state <> 'deleted') = 1
         AND allocation.state = 'uncertain'
@@ -176,7 +176,7 @@ export async function preflightRecoverTerminalReviewerDelete(
                     WHERE source_audit.event_type = 'operator.reviewer_cleanup.authorized'
                       AND source_audit.outcome = 'succeeded'
                       AND source_audit.tenant_id = tenant.id
-                      AND source_audit.cell_id = operation.cell_id
+                      AND source_audit.cell_id = source.cell_id
                       AND source_audit.operation_id = source.id)
         AND EXISTS (SELECT 1 FROM exomem_audit_events AS delete_audit
                     WHERE delete_audit.event_type = 'operator.reviewer_cleanup.delete_enqueued'
@@ -295,8 +295,7 @@ export async function recoverTerminalReviewerDelete(
           AND operation.checkpoint = 'destroyed'
           AND operation.completed_at IS NOT NULL AND operation.lease_owner IS NULL
           AND operation.lease_expires_at IS NULL
-          AND operation.cell_id IS NOT NULL AND operation.expected_previous_cell_id IS NULL
-          AND operation.cell_id = source.cell_id
+          AND operation.cell_id IS NULL AND operation.expected_previous_cell_id IS NULL
           AND operation.target_candidate_id IS NULL AND operation.target_assignment_id IS NULL
           AND operation.target_assignment_generation IS NULL
           AND operation.idempotency_key = derived_delete_key.value
@@ -305,6 +304,7 @@ export async function recoverTerminalReviewerDelete(
           AND operation.tenant_status = 'deletion_pending' AND operation.tenant_desired_state = 'deleted'
           AND operation.tenant_deleted_at IS NULL AND operation.bound_cell_id IS NULL
           AND cell.routing_state = 'unbound' AND cell.lifecycle_state <> 'deleted' AND cell.provider_ref IS NULL
+          AND source.cell_id = cell.id
           AND (SELECT count(*) FROM exomem_cells AS only_cell
                WHERE only_cell.tenant_id = operation.tenant_id AND only_cell.lifecycle_state <> 'deleted') = 1
           AND allocation.state = 'uncertain'
@@ -324,7 +324,7 @@ export async function recoverTerminalReviewerDelete(
                       WHERE source_audit.event_type = 'operator.reviewer_cleanup.authorized'
                         AND source_audit.outcome = 'succeeded'
                         AND source_audit.tenant_id = operation.tenant_id
-                        AND source_audit.cell_id = operation.cell_id
+                        AND source_audit.cell_id = source.cell_id
                         AND source_audit.operation_id = source.id)
           AND EXISTS (SELECT 1 FROM exomem_audit_events AS delete_audit
                       WHERE delete_audit.event_type = 'operator.reviewer_cleanup.delete_enqueued'

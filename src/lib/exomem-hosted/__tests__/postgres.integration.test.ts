@@ -238,9 +238,9 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_lifecycle_operations (
          id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key, fence_generation,
          attempts, error_code, completed_at
-       ) VALUES ($1, $2, $3, 'delete', 'failed_terminal', 'destroyed', $4, 2,
+       ) VALUES ($1, $2, NULL, 'delete', 'failed_terminal', 'destroyed', $3, 2,
                  6, 'LIFECYCLE_MAX_ATTEMPTS', now())`,
-      [operationId, seed.tenantId, seed.cellId, deleteKey]
+      [operationId, seed.tenantId, deleteKey]
     );
     await pool.query(
       `INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, cell_id, operation_id)
@@ -3323,11 +3323,20 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     }> = [
       { name: "stale fence", expectedFence: 1, mutate: async () => undefined },
       {
-        name: "non-target-free delete",
+        name: "delete carries a cell",
         mutate: async (seed) => {
           await pool.query(
-            "UPDATE exomem_lifecycle_operations SET expected_previous_cell_id = cell_id WHERE id = $1",
-            [seed.operationId]
+            "UPDATE exomem_lifecycle_operations SET cell_id = $2 WHERE id = $1",
+            [seed.operationId, seed.cellId]
+          );
+        },
+      },
+      {
+        name: "delete carries an expected previous cell",
+        mutate: async (seed) => {
+          await pool.query(
+            "UPDATE exomem_lifecycle_operations SET expected_previous_cell_id = $2 WHERE id = $1",
+            [seed.operationId, seed.cellId]
           );
         },
       },
@@ -3344,6 +3353,15 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         mutate: async (seed) => {
           await pool.query(
             "DELETE FROM exomem_audit_events WHERE event_type = 'operator.reviewer_cleanup.authorized' AND operation_id = $1",
+            [seed.sourceOperationId]
+          );
+        },
+      },
+      {
+        name: "source audit does not bind the source cell",
+        mutate: async (seed) => {
+          await pool.query(
+            "UPDATE exomem_audit_events SET cell_id = NULL WHERE event_type = 'operator.reviewer_cleanup.authorized' AND operation_id = $1",
             [seed.sourceOperationId]
           );
         },
