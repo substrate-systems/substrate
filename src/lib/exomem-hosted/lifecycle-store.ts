@@ -2482,6 +2482,15 @@ export class SqlLifecycleStore implements LifecycleStore {
         USING tenant_updated
         WHERE ${deleting}
           AND invite.redeemed_tenant_id = tenant_updated.id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+            WHERE authority.state = 'consumed'
+              AND authority.invite_id = invite.id
+              AND authority.outcome_tenant_id = tenant_updated.id
+              AND authority.outcome_session_id = invite.redeemed_session_id
+              AND invite.consumed_at IS NOT NULL
+          )
         RETURNING invite.id
       ),
       sessions_purged AS (
@@ -2490,6 +2499,22 @@ export class SqlLifecycleStore implements LifecycleStore {
               (SELECT count(*) AS purged FROM invites_purged) AS invite_dependency
         WHERE ${deleting}
           AND session.tenant_id = tenant_updated.id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+            WHERE authority.state = 'consumed'
+              AND authority.outcome_session_id = session.id
+              AND authority.outcome_tenant_id = tenant_updated.id
+              AND session.revoked_at IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM exomem_invites AS invite
+                WHERE invite.id = authority.invite_id
+                  AND invite.consumed_at IS NOT NULL
+                  AND invite.redeemed_tenant_id = tenant_updated.id
+                  AND invite.redeemed_session_id = session.id
+              )
+          )
         RETURNING session.id
       ),
       access_tokens_purged AS (

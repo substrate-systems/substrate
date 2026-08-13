@@ -1287,6 +1287,15 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
   it("deletes a consumed invite and scrubs restore secrets after destruction", async () => {
     const session = "44444444-4444-4444-8444-444444444444";
+    const ordinaryInvite = randomUUID();
+    const bootstrapSession = randomUUID();
+    const bootstrapInvite = randomUUID();
+    const bootstrapCandidate = randomUUID();
+    const bootstrapAssignment = randomUUID();
+    const bootstrapStage = randomUUID();
+    const bootstrapClient = randomUUID();
+    const bootstrapGrant = randomUUID();
+    const bootstrapAuthority = randomUUID();
     const restore = "55555555-5555-4555-8555-555555555555";
     const deletion = "66666666-6666-4666-8666-666666666666";
     const exportOperation = "77777777-7777-4777-8777-777777777777";
@@ -1318,11 +1327,19 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
     await pool.query(
       `INSERT INTO exomem_invites (
-         token_digest, email_normalized, entitlement_source,
+         id, token_digest, email_normalized, entitlement_source,
          created_by_principal_digest, expires_at, consumed_at,
          consumed_by_user_id, redeemed_tenant_id, redeemed_session_id
-       ) VALUES ($1, $2, 'complimentary', $3, now() + interval '1 day', now(), $4, $5, $6)`,
-      [Buffer.alloc(32, 0x43), "owner@example.com", Buffer.alloc(32, 0x44), USER, TENANT, session]
+       ) VALUES ($1, $2, $3, 'complimentary', $4, now() + interval '1 day', now(), $5, $6, $7)`,
+      [
+        ordinaryInvite,
+        Buffer.alloc(32, 0x43),
+        "owner@example.com",
+        Buffer.alloc(32, 0x44),
+        USER,
+        TENANT,
+        session,
+      ]
     );
     await pool.query(
       `INSERT INTO exomem_lifecycle_operations (
@@ -1373,6 +1390,93 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        )`,
       [deletion, TENANT, CELL]
     );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+                 $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+      [bootstrapCandidate, "e".repeat(64)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, created_at, expires_at, ended_at
+       ) VALUES ($1, $2, $3, 1, 'expired', 'test', '1', $4, $4, $4, $4,
+                 true, $4, now() - interval '2 hours', now() - interval '1 second', now())`,
+      [bootstrapAssignment, TENANT, bootstrapCandidate, "e".repeat(64)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_staged_client_releases (
+         id, candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest,
+         created_at, expires_at, ended_at
+       ) VALUES ($1, $2, 'claude', 'expired', $3, $3, $3, $3, 'test', $3, $3,
+                 now() - interval '2 hours', now() - interval '1 second', now())`,
+      [bootstrapStage, bootstrapCandidate, "e".repeat(64)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_oauth_clients (id, client_id, admission_mode, redirect_uris, redirect_uris_digest)
+       VALUES ($1, $2, 'pinned', '["http://127.0.0.1"]'::jsonb,
+               digest(convert_to('["http://127.0.0.1"]', 'utf8'), 'sha256'))`,
+      [bootstrapClient, `bootstrap-delete-${bootstrapClient}`]
+    );
+    await pool.query(
+      `INSERT INTO exomem_sessions (
+         id, user_id, tenant_id, session_digest, csrf_digest, expires_at
+       ) VALUES ($1, $2, $3, $4, $5, now() + interval '1 day')`,
+      [bootstrapSession, USER, TENANT, Buffer.alloc(32, 0x51), Buffer.alloc(32, 0x52)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_invites (
+         id, token_digest, email_normalized, entitlement_source, created_by_principal_digest, expires_at,
+         consumed_at, consumed_by_user_id, redeemed_tenant_id, redeemed_session_id
+       ) VALUES ($1, $2, 'bootstrap@example.test', 'complimentary', $3, now() + interval '1 day',
+                 now(), $4, $5, $6)`,
+      [
+        bootstrapInvite,
+        Buffer.alloc(32, 0x53),
+        Buffer.alloc(32, 0x54),
+        USER,
+        TENANT,
+        bootstrapSession,
+      ]
+    );
+    await pool.query(
+      `INSERT INTO exomem_oauth_grants (id, user_id, tenant_id, client_id, resource, scopes)
+       VALUES ($1, $2, $3, $4, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'])`,
+      [bootstrapGrant, USER, TENANT, bootstrapClient]
+    );
+    await pool.query(
+      `INSERT INTO exomem_marketplace_reviewer_oauth_bootstrap_authorities (
+         id, state, invite_id, candidate_id, candidate_profile_id, candidate_contract_digest,
+         candidate_source_release, candidate_protocol_version, candidate_gateway_contract_digest,
+         candidate_command_fingerprint, candidate_schema_digest, candidate_compatibility_digest,
+         staged_client_release_id, stage_platform, stage_config_sha256, oauth_client_id,
+         oauth_client_authority_version, oauth_client_config_sha256, redirect_uri_digest,
+         operator_principal_digest, expires_at, consumed_at, outcome_tenant_id, outcome_assignment_id,
+         outcome_assignment_generation, outcome_operation_id, outcome_session_id, outcome_grant_id
+       ) VALUES ($1, 'consumed', $2, $3, 'hosted-alpha-agent-v1', $4, 'test', '1', $4, $4, $4, $4,
+                 $5, 'claude', $4, $6, $7, $4, $8, $9, now() + interval '1 day', now(),
+                 $10, $11, 1, $12, $13, $14)`,
+      [
+        bootstrapAuthority,
+        bootstrapInvite,
+        bootstrapCandidate,
+        "e".repeat(64),
+        bootstrapStage,
+        bootstrapClient,
+        randomUUID(),
+        Buffer.alloc(32, 0x55),
+        Buffer.alloc(32, 0x56),
+        TENANT,
+        bootstrapAssignment,
+        deletion,
+        bootstrapSession,
+        bootstrapGrant,
+      ]
+    );
     const capacityPool = await pool.query<{ id: string }>(
       "SELECT id FROM exomem_capacity_pools WHERE pool_key = 'exomem-hosted-alpha'"
     );
@@ -1392,6 +1496,13 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
 
     const store = new SqlLifecycleStore();
+    await assert.rejects(
+      () => store.markCellState(deletion, "worker-delete", "deleted"),
+      /exomem_invites_check1|outcome_session_id/
+    );
+    await pool.query("UPDATE exomem_sessions SET revoked_at = now() WHERE id = $1", [
+      bootstrapSession,
+    ]);
     assert.equal(await store.markCellState(deletion, "worker-delete", "deleted"), true);
     assert.deepEqual(
       (
@@ -1406,12 +1517,41 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       { state: "released", reserved_storage_bytes: "0", reserved_runtime_slots: 0 }
     );
 
-    const counts = await pool.query<{ sessions: string; invites: string }>(
-      `SELECT
-         (SELECT count(*)::text FROM exomem_sessions) AS sessions,
-         (SELECT count(*)::text FROM exomem_invites) AS invites`
+    const sessions = await pool.query<{
+      ordinary_purged: boolean;
+      ordinary_invite_purged: boolean;
+      bootstrap_retained_revoked: boolean;
+      bootstrap_linked: boolean;
+      bootstrap_invite_retained_consumed: boolean;
+      bootstrap_invite_linked: boolean;
+    }>(
+      `SELECT NOT EXISTS (SELECT 1 FROM exomem_sessions WHERE id = $1) AS ordinary_purged,
+              NOT EXISTS (SELECT 1 FROM exomem_invites WHERE id = $2) AS ordinary_invite_purged,
+              EXISTS (SELECT 1 FROM exomem_sessions WHERE id = $3 AND revoked_at IS NOT NULL) AS bootstrap_retained_revoked,
+              EXISTS (
+                SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities
+                WHERE id = $4 AND state = 'consumed' AND outcome_session_id = $3
+              ) AS bootstrap_linked,
+              EXISTS (
+                SELECT 1 FROM exomem_invites
+                WHERE id = $5 AND consumed_at IS NOT NULL AND revoked_at IS NULL
+                  AND redeemed_tenant_id = $6 AND redeemed_session_id = $3
+              ) AS bootstrap_invite_retained_consumed,
+              EXISTS (
+                SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities
+                WHERE id = $4 AND state = 'consumed' AND invite_id = $5
+                  AND outcome_tenant_id = $6 AND outcome_session_id = $3
+              ) AS bootstrap_invite_linked`,
+      [session, ordinaryInvite, bootstrapSession, bootstrapAuthority, bootstrapInvite, TENANT]
     );
-    assert.deepEqual(counts.rows[0], { sessions: "0", invites: "0" });
+    assert.deepEqual(sessions.rows[0], {
+      ordinary_purged: true,
+      ordinary_invite_purged: true,
+      bootstrap_retained_revoked: true,
+      bootstrap_linked: true,
+      bootstrap_invite_retained_consumed: true,
+      bootstrap_invite_linked: true,
+    });
     const scrubbed = await pool.query<{
       input_reference_ciphertext: unknown;
       input_reference_digest: Buffer | null;
