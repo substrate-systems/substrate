@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 import {
@@ -6,6 +8,8 @@ import {
   listOperatorClientArtifacts,
   listOperatorOAuthClients,
   listReviewerOAuthBootstrapAuthorities,
+  preflightRecoverExpiredReviewerCleanup,
+  recoverExpiredReviewerCleanup,
   registerOperatorOAuthClient,
   revokeOperatorOAuthAccount,
   revokeOperatorOAuthFamily,
@@ -23,6 +27,110 @@ afterEach(() => {
 });
 
 describe("hosted operator controls", () => {
+  it("requires every reviewer and OAuth issuer to take the cohort lock before authority admission", () => {
+    const reviewerIssuer = readFileSync(
+      resolve(process.cwd(), "src/lib/exomem-hosted/reviewer-access-store.ts"),
+      "utf8"
+    );
+    const oauthIssuer = readFileSync(
+      resolve(process.cwd(), "src/lib/exomem-hosted/oauth-store.ts"),
+      "utf8"
+    );
+    assert.match(
+      reviewerIssuer,
+      /createMarketplaceReviewerOAuthSessionAtomic[\s\S]*?pg_advisory_xact_lock_shared\(hashtext\('exomem-hosted-alpha-cohort'\)\)/
+    );
+    assert.match(
+      oauthIssuer,
+      /async function withCohortLock[\s\S]*?pg_advisory_xact_lock_shared\(hashtext\('exomem-hosted-alpha-cohort'\)\)/
+    );
+    assert.match(oauthIssuer, /resolveApprovedOAuthClient[\s\S]*?return withCohortLock\(/);
+  });
+
+  it("locks and atomically recovers only the caller-pinned expired reviewer cleanup", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      queries.push(query);
+      return query.includes("recover-expired-reviewer-cleanup")
+        ? {
+            rows: [
+              {
+                outcome: "enqueued",
+                operation_id: "018f2d91-7c42-7000-8000-000000000002",
+              },
+            ],
+          }
+        : { rows: [] };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+    const sourceOperationId = "018f2d91-7c42-7000-8000-000000000001";
+
+    assert.deepEqual(
+      await recoverExpiredReviewerCleanup({
+        sourceOperationId,
+        expectedFence: 7,
+        requestId: "018f2d91-7c42-7000-8000-000000000003",
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      { outcome: "enqueued", operationId: "018f2d91-7c42-7000-8000-000000000002" }
+    );
+    assert.match(queries[0]!, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    const mutation = queries[1]!;
+    assert.match(mutation, /operation_type IN \('provision', 'restore'\)/i);
+    assert.match(mutation, /state IN \('waiting', 'failed_retryable'\)/i);
+    assert.match(mutation, /checkpoint = 'candidate-cleanup'/i);
+    assert.match(mutation, /lease_expires_at IS NULL OR source\.lease_expires_at <= now\(\)/i);
+    assert.match(mutation, /marketplace_reviewer_purpose = true/i);
+    assert.match(mutation, /bound_cell_id IS NULL/i);
+    assert.match(mutation, /COUNT\(\*[\s\S]*?\) = 1/i);
+    assert.match(mutation, /assignment\.expires_at <= now\(\)/i);
+    assert.match(mutation, /exomem_oauth_account_blocks/i);
+    assert.match(mutation, /exomem_sessions/i);
+    assert.match(mutation, /exomem_transfer_grants/i);
+    assert.match(
+      mutation,
+      /JOIN users AS owner ON owner\.id = tenant_gated\.owner_user_id[\s\S]*invite\.email_normalized = owner\.email/i
+    );
+    assert.match(mutation, /exomem_marketplace_reviewer_credentials/i);
+    assert.match(mutation, /exomem_marketplace_reviewer_oauth_bootstrap_authorities/i);
+    assert.match(mutation, /exomem_oauth_authorization_transactions/i);
+    assert.match(
+      mutation,
+      /JOIN exomem_sessions AS session ON session\.id = transaction\.redeemed_session_id[\s\S]*?transaction\.consumed_at IS NULL/i
+    );
+    assert.match(mutation, /exomem_oauth_authorization_codes/i);
+    assert.match(mutation, /exomem_oauth_grants/i);
+    assert.match(mutation, /exomem_oauth_token_families/i);
+    assert.match(mutation, /exomem_oauth_access_tokens/i);
+    assert.match(mutation, /exomem_oauth_refresh_tokens/i);
+    assert.match(mutation, /code\.consumed_at IS NULL AND code\.expires_at > now\(\)/i);
+    assert.match(mutation, /family\.revoked_at IS NULL AND family\.expires_at > now\(\)/i);
+    assert.match(mutation, /DELETION_SUPERSEDED/i);
+    assert.match(mutation, /target_candidate_id.*NULL/i);
+    assert.match(mutation, /exomem_audit_events/i);
+    assert.match(mutation, /digest\(convert_to\(source\.id::text/i);
+  });
+
+  it("preflights the same boundary without any mutation clauses", async () => {
+    let query = "";
+    const sql = async (strings: TemplateStringsArray) => {
+      query = strings.join("?");
+      return { rows: [{ eligible: true }] };
+    };
+    __setExomemSqlForTests(sql);
+
+    assert.deepEqual(
+      await preflightRecoverExpiredReviewerCleanup({
+        sourceOperationId: "018f2d91-7c42-7000-8000-000000000001",
+        expectedFence: 7,
+      }),
+      { eligible: true }
+    );
+    assert.match(query, /candidate-cleanup/i);
+    assert.doesNotMatch(query, /\bUPDATE\b|\bINSERT\b|\bDELETE\b/i);
+  });
+
   it("permits pending client registration only through an exact current staged declaration", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {
@@ -96,7 +204,10 @@ describe("hosted operator controls", () => {
       ],
     }));
 
-    assert.equal((await listReviewerOAuthBootstrapAuthorities())[0]?.outcomeAssignmentGeneration, 1);
+    assert.equal(
+      (await listReviewerOAuthBootstrapAuthorities())[0]?.outcomeAssignmentGeneration,
+      1
+    );
   });
 
   it("changes exactly one opaque client record", async () => {

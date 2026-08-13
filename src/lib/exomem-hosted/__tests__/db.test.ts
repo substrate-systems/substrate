@@ -10,6 +10,7 @@ import {
   createTransferGrantRecord,
   recordExomemCheckoutTransaction,
   consumeDeletionConfirmationAtomic,
+  createInviteRecord,
   redeemInviteAtomic,
   resolveActiveCellBinding,
   takeRateLimit,
@@ -75,10 +76,16 @@ describe("Exomem hosted database boundary", () => {
   it("keeps the explicitly documented legacy-unmetered redemption branch separate from OAuth admission", async () => {
     let consumed = false;
     let queryCount = 0;
+    let lockCount = 0;
     let capturedSql = "";
     const sql: ExomemSql = async (strings) => {
       queryCount += 1;
-      capturedSql = strings.join("?");
+      const statement = strings.join("?");
+      if (statement.includes("pg_advisory_xact_lock_shared")) {
+        lockCount += 1;
+        return { rows: [], rowCount: 0 };
+      }
+      capturedSql = statement;
       await Promise.resolve();
       if (consumed) return { rows: [], rowCount: 0 };
       consumed = true;
@@ -95,6 +102,7 @@ describe("Exomem hosted database boundary", () => {
       };
     };
     __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
 
     const params = {
       tokenDigest: Buffer.alloc(32, 1),
@@ -106,7 +114,8 @@ describe("Exomem hosted database boundary", () => {
 
     assert.equal(results.filter(Boolean).length, 1);
     assert.equal(new Set(results.filter(Boolean).map((row) => row?.tenantId)).size, 1);
-    assert.equal(queryCount, 2, "one database statement per redemption attempt");
+    assert.equal(queryCount, 4, "one cohort lock plus one redemption statement per attempt");
+    assert.equal(lockCount, 2);
     assert.match(capturedSql, /FOR UPDATE/i);
     assert.match(capturedSql, /INSERT INTO users/i);
     assert.match(capturedSql, /INSERT INTO exomem_tenants/i);
@@ -132,10 +141,12 @@ describe("Exomem hosted database boundary", () => {
 
   it("propagates immutable invitation purpose into new tenants and refuses mismatched reuse", async () => {
     let statement = "";
-    __setExomemSqlForTests(async (strings) => {
+    const sql: ExomemSql = async (strings) => {
       statement = strings.join("?");
       return { rows: [], rowCount: 0 };
-    });
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
 
     await redeemInviteAtomic({
       tokenDigest: Buffer.alloc(32, 1),
@@ -153,6 +164,62 @@ describe("Exomem hosted database boundary", () => {
       statement,
       /exomem_tenants\.marketplace_reviewer_purpose = EXCLUDED\.marketplace_reviewer_purpose/i
     );
+    assert.match(statement, /status <> 'deletion_pending'/i);
+    assert.match(statement, /exomem_oauth_account_blocks/i);
+  });
+
+  it("keeps ordinary invite issuance outside reviewer cohort serialization", async () => {
+    let transactionUsed = false;
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [{ id: "invite-1" }], rowCount: 1 };
+    });
+    __setExomemTransactionForTests(async (work) => {
+      transactionUsed = true;
+      return work(async () => ({ rows: [{ id: "invite-1" }], rowCount: 1 }));
+    });
+
+    assert.deepEqual(
+      await createInviteRecord({
+        tokenDigest: Buffer.alloc(32, 1),
+        emailNormalized: "ordinary@example.test",
+        entitlementSource: "complimentary",
+        capabilities: [],
+        resourceLimits: {},
+        operatorPrincipalDigest: Buffer.alloc(32, 2),
+        expiresAt: new Date("2026-07-13T00:00:00.000Z"),
+      }),
+      { inviteId: "invite-1" }
+    );
+    assert.equal(transactionUsed, false);
+    assert.match(statement, /INSERT INTO exomem_invites/i);
+  });
+
+  it("serializes reviewer invite issuance and refuses blocked owner authority", async () => {
+    const statements: string[] = [];
+    const sql: ExomemSql = async (strings) => {
+      const statement = strings.join("?");
+      statements.push(statement);
+      return statement.includes("pg_advisory_xact_lock_shared")
+        ? { rows: [], rowCount: 0 }
+        : { rows: [{ id: "invite-1" }], rowCount: 1 };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    await createInviteRecord({
+      tokenDigest: Buffer.alloc(32, 1),
+      emailNormalized: "reviewer@example.test",
+      entitlementSource: "complimentary",
+      capabilities: [],
+      resourceLimits: {},
+      marketplaceReviewerPurpose: true,
+      operatorPrincipalDigest: Buffer.alloc(32, 2),
+      expiresAt: new Date("2026-07-13T00:00:00.000Z"),
+    });
+    assert.match(statements[0]!, /pg_advisory_xact_lock_shared/i);
+    assert.match(statements[1]!, /exomem_oauth_account_blocks/i);
+    assert.match(statements[1]!, /tenant\.status = 'deletion_pending'/i);
   });
 
   it("uses the same invitation purpose guard for capacity-aware OAuth admission", () => {

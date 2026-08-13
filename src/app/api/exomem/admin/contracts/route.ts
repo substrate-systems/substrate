@@ -32,6 +32,8 @@ import {
 import {
   demoteOperatorClientArtifact,
   listOperatorClientArtifacts,
+  preflightRecoverExpiredReviewerCleanup,
+  recoverExpiredReviewerCleanup,
 } from "@/lib/exomem-hosted/operator-controls";
 
 export const runtime = "nodejs";
@@ -45,19 +47,26 @@ const digest = (value: unknown): string | null =>
   typeof value === "string" && SHA256.test(value) ? value : null;
 const idempotencyKey = (value: unknown): string | null =>
   typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : null;
+const fence = (value: unknown): number | null =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     await requireRateLimitedExomemOperator(request, "read");
-    const [agentContracts, clientArtifacts, liveCohortCandidateId, rolloutStatus, contractionReadiness] =
-      await Promise.all([
-        listExomemAgentContractStatus(),
-        listOperatorClientArtifacts(),
-        getLiveExomemHostedCohortCandidateId(),
-        listExomemHostedRolloutStatus(),
-        getExomemHostedContractionReadiness(),
-      ]);
+    const [
+      agentContracts,
+      clientArtifacts,
+      liveCohortCandidateId,
+      rolloutStatus,
+      contractionReadiness,
+    ] = await Promise.all([
+      listExomemAgentContractStatus(),
+      listOperatorClientArtifacts(),
+      getLiveExomemHostedCohortCandidateId(),
+      listExomemHostedRolloutStatus(),
+      getExomemHostedContractionReadiness(),
+    ]);
     operatorSuccessEvent(requestId);
     return NextResponse.json({
       success: true,
@@ -79,7 +88,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const operator = await requireRateLimitedExomemOperator(request);
     const body = await readOperatorJsonRecord(request);
     let response: Record<string, unknown>;
-    if (body.action === "import-agent") {
+    if (
+      body.action === "preflight-recover-expired-reviewer-cleanup" ||
+      body.action === "recover-expired-reviewer-cleanup"
+    ) {
+      const sourceOperationId = uuid(body.sourceOperationId);
+      const expectedFence = fence(body.expectedFence);
+      if (!sourceOperationId || !expectedFence) throw exomemErrors.invalidRequest();
+      if (body.action === "preflight-recover-expired-reviewer-cleanup") {
+        const preflight = await preflightRecoverExpiredReviewerCleanup({
+          sourceOperationId,
+          expectedFence,
+        });
+        response = { eligible: preflight.eligible };
+      } else {
+        const recovered = await recoverExpiredReviewerCleanup({
+          sourceOperationId,
+          expectedFence,
+          requestId,
+          operatorPrincipalDigest: operator.principalDigest,
+        });
+        if (!recovered) throw exomemErrors.invalidRequest();
+        response = { outcome: recovered.outcome, operationId: recovered.operationId };
+      }
+    } else if (body.action === "import-agent") {
       response = { candidateId: await storeExomemAgentContractCandidate() };
     } else if (body.action === "import-retained-agent") {
       if (

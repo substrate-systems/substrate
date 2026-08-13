@@ -161,7 +161,8 @@ export type CreateInviteRecordInput = {
 export async function createInviteRecord(
   input: CreateInviteRecordInput
 ): Promise<{ inviteId: string }> {
-  const { rows } = await sql`
+  const create = async (tx: ExomemSql): Promise<{ inviteId: string }> => {
+    const { rows } = await tx`
     /* exomem:create-invite */
     INSERT INTO exomem_invites (
       token_digest,
@@ -172,7 +173,7 @@ export async function createInviteRecord(
       marketplace_reviewer_purpose,
       created_by_principal_digest,
       expires_at
-    ) VALUES (
+    ) SELECT
       ${input.tokenDigest},
       ${input.emailNormalized},
       ${input.entitlementSource},
@@ -181,12 +182,33 @@ export async function createInviteRecord(
       ${input.marketplaceReviewerPurpose === true},
       ${input.operatorPrincipalDigest},
       ${input.expiresAt.toISOString()}
+    WHERE NOT (
+      ${input.marketplaceReviewerPurpose === true}
+      AND EXISTS (
+        SELECT 1
+        FROM exomem_tenants AS tenant
+        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        LEFT JOIN exomem_oauth_account_blocks AS block
+          ON block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
+        WHERE owner.email = ${input.emailNormalized}
+          AND tenant.marketplace_reviewer_purpose = true
+          AND (tenant.status = 'deletion_pending'
+               OR tenant.desired_state = 'deleted'
+               OR tenant.deleted_at IS NOT NULL
+               OR block.tenant_id IS NOT NULL)
+      )
     )
     RETURNING id
   `;
-  const row = rows[0] as { id: string } | undefined;
-  if (!row) throw new Error("createInviteRecord returned no row");
-  return { inviteId: row.id };
+    const row = rows[0] as { id: string } | undefined;
+    if (!row) throw new Error("createInviteRecord returned no row");
+    return { inviteId: row.id };
+  };
+  if (!input.marketplaceReviewerPurpose) return create(sql);
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    return create(tx);
+  });
 }
 
 export async function markInviteDelivered(inviteId: string): Promise<void> {
@@ -433,7 +455,9 @@ export async function redeemInviteAtomic(
   input: RedeemInviteAtomicInput
 ): Promise<RedeemedAccess | null> {
   const provisionerWireProtocol = provisionerWireProtocolFromEnv();
-  const { rows } = await sql`
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await tx`
     /* exomem:redeem-invite */
     WITH locked_invite AS (
       SELECT id, email_normalized, entitlement_source,
@@ -464,7 +488,15 @@ export async function redeemInviteAtomic(
       ON CONFLICT (owner_user_id) DO UPDATE
       SET updated_at = exomem_tenants.updated_at
       WHERE exomem_tenants.status <> 'deleted'
+        AND exomem_tenants.status <> 'deletion_pending'
+        AND exomem_tenants.desired_state <> 'deleted'
+        AND exomem_tenants.deleted_at IS NULL
         AND exomem_tenants.marketplace_reviewer_purpose = EXCLUDED.marketplace_reviewer_purpose
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_account_blocks AS block
+          WHERE block.tenant_id = exomem_tenants.id
+            AND block.owner_user_id = exomem_tenants.owner_user_id
+        )
       RETURNING id, owner_user_id, fence_generation
     ),
     existing_entitlement AS (
@@ -595,22 +627,23 @@ export async function redeemInviteAtomic(
     SELECT user_id, tenant_id, session_id, operation_id
     FROM consumed
   `;
-  const row = rows[0] as
-    | {
-        user_id: string;
-        tenant_id: string;
-        session_id: string;
-        operation_id: string;
-      }
-    | undefined;
-  return row
-    ? {
-        userId: row.user_id,
-        tenantId: row.tenant_id,
-        sessionId: row.session_id,
-        operationId: row.operation_id,
-      }
-    : null;
+    const row = rows[0] as
+      | {
+          user_id: string;
+          tenant_id: string;
+          session_id: string;
+          operation_id: string;
+        }
+      | undefined;
+    return row
+      ? {
+          userId: row.user_id,
+          tenantId: row.tenant_id,
+          sessionId: row.session_id,
+          operationId: row.operation_id,
+        }
+      : null;
+  });
 }
 
 export type CreateMagicAccessTokenInput = {

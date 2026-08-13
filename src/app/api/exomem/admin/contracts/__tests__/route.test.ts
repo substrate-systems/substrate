@@ -5,6 +5,7 @@ const ADMIN_TOKEN = Buffer.alloc(32, 0x71).toString("base64url");
 let importedRelease: string | null = null;
 let createdAssignment: Record<string, unknown> | null = null;
 let promotionInput: Record<string, unknown> | null = null;
+let recoveryInput: Record<string, unknown> | null = null;
 const queuedOperations: Array<Record<string, unknown>> = [];
 
 before(() => {
@@ -99,6 +100,14 @@ before(() => {
     namedExports: {
       demoteOperatorClientArtifact: async () => true,
       listOperatorClientArtifacts: async () => [],
+      preflightRecoverExpiredReviewerCleanup: async (input: Record<string, unknown>) => {
+        recoveryInput = input;
+        return { eligible: true };
+      },
+      recoverExpiredReviewerCleanup: async (input: Record<string, unknown>) => {
+        recoveryInput = input;
+        return { outcome: "replayed", operationId: "018f2d91-7c42-7000-8000-000000000099" };
+      },
     },
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {
@@ -132,6 +141,70 @@ function request(body: unknown, authorization?: string) {
 }
 
 describe("Exomem operator contract controls", () => {
+  it("keeps reviewer-cleanup preflight and recovery bounded and content-free", async () => {
+    const { POST } = await import("../route");
+    const sourceOperationId = "018f2d91-7c42-7000-8000-000000000091";
+    const expectedFence = 7;
+    const preflight = await POST(
+      request(
+        { action: "preflight-recover-expired-reviewer-cleanup", sourceOperationId, expectedFence },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+    assert.equal(preflight.status, 200);
+    const preflightBody = await preflight.json();
+    assert.deepEqual(Object.keys(preflightBody).sort(), ["eligible", "requestId", "success"]);
+    assert.equal(preflightBody.eligible, true);
+    assert.equal(typeof preflightBody.requestId, "string");
+    assert.equal(recoveryInput?.sourceOperationId, sourceOperationId);
+    assert.equal(recoveryInput?.expectedFence, expectedFence);
+
+    const recovered = await POST(
+      request(
+        { action: "recover-expired-reviewer-cleanup", sourceOperationId, expectedFence },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+    assert.equal(recovered.status, 200);
+    const body = await recovered.json();
+    assert.deepEqual(Object.keys(body).sort(), ["operationId", "outcome", "requestId", "success"]);
+    assert.equal(body.outcome, "replayed");
+    assert.equal(body.operationId, "018f2d91-7c42-7000-8000-000000000099");
+    assert.equal(typeof body.requestId, "string");
+    assert.equal(JSON.stringify(body).includes(sourceOperationId), false);
+  });
+
+  it("rejects unauthenticated or malformed reviewer-cleanup recovery requests", async () => {
+    const { POST } = await import("../route");
+    assert.equal(
+      (
+        await POST(
+          request({
+            action: "recover-expired-reviewer-cleanup",
+            sourceOperationId: "no",
+            expectedFence: 0,
+          })
+        )
+      ).status,
+      401
+    );
+    assert.equal(
+      (
+        await POST(
+          request(
+            {
+              action: "recover-expired-reviewer-cleanup",
+              sourceOperationId: "no",
+              expectedFence: 0,
+            },
+            `Bearer ${ADMIN_TOKEN}`
+          )
+        )
+      ).status,
+      400
+    );
+  });
+
   it("returns only content-free rollout and contraction readiness", async () => {
     const { GET } = await import("../route");
     const response = await GET(
