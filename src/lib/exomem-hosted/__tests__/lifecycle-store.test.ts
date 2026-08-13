@@ -7,6 +7,7 @@ import {
   type ExomemSql,
 } from "../db";
 import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifecycle-store";
+import { exomemContractFixture0490 } from "../gateway-contract-0-49-0";
 import { normalizeProvisionerWireProtocol } from "../provisioner-wire-protocol";
 
 afterEach(() => {
@@ -371,8 +372,10 @@ describe("SQL lifecycle operation store", () => {
 
   it("atomically pins an owner restore to a same-tenant unexpired export", async () => {
     let statement = "";
-    __setExomemSqlForTests(async (strings) => {
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
       statement = strings.join("?");
+      values.push(...parameters);
       return { rows: [] };
     });
     const store = new SqlLifecycleStore();
@@ -401,12 +404,21 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /input_export_id/);
     assert.match(statement, /source_export\.storage_reference_ciphertext/);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    assert.equal(
+      values.includes(
+        `${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`
+      ),
+      true
+    );
+    assert.equal(values.includes(exomemContractFixture0490.digest), true);
   });
 
-  it("snapshots the complete server-selected release target when provision is enqueued", async () => {
+  it("snapshots the exact 0.49.0 server-selected target when provision is enqueued", async () => {
     let statement = "";
-    __setExomemSqlForTests(async (strings) => {
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
       statement = strings.join("?");
+      values.push(...parameters);
       return { rows: [], rowCount: 0 };
     });
 
@@ -428,6 +440,186 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /state = 'preparing'/i);
     assert.match(statement, /state = 'live'/i);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
+    assert.equal(
+      values.includes(
+        `${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`
+      ),
+      true
+    );
+    assert.equal(values.includes(exomemContractFixture0490.digest), true);
+  });
+
+  it("recovers a legacy v1 provision against the exact 0.49.0 target", async () => {
+    const now = new Date();
+    const operation = {
+      id: "018f2d91-7c42-7000-8000-000000000081",
+      tenant_id: "018f2d91-7c42-7000-8000-000000000071",
+      cell_id: null,
+      operation_type: "provision",
+      provisioner_wire_protocol: "exomem-cell-provisioner.v1",
+      state: "running",
+      idempotency_key: "legacy-0490",
+      fence_generation: 1,
+      checkpoint: "created",
+      request_id: "request-0490",
+      attempts: 1,
+      next_attempt_at: now,
+      lease_owner: "worker-0490",
+      lease_expires_at: new Date(now.valueOf() + 60_000),
+      error_code: null,
+      provider_result_ref: null,
+      input_reference_ciphertext: null,
+      input_reference_digest: null,
+      input_export_id: null,
+      export_release_reference_ciphertext: null,
+      export_release_reference_digest: null,
+      export_expires_at: null,
+      export_request_started: false,
+      input_source_cell_id: null,
+      input_archive_sha256: null,
+      input_manifest_sha256: null,
+      input_archive_size: null,
+      resume_after_operation: true,
+      expected_previous_cell_id: null,
+      target_candidate_id: null,
+      target_assignment_id: null,
+      target_assignment_generation: null,
+      target_source_release: null,
+      target_protocol_version: null,
+      target_gateway_contract_digest: null,
+      target_command_fingerprint: null,
+      target_schema_digest: null,
+      target_compatibility_digest: null,
+      created_at: now,
+      updated_at: now,
+    };
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
+      const query = strings.join("?");
+      values.push(...parameters);
+      if (query.includes("lifecycle-claim")) return { rows: [operation] };
+      if (query.includes("lifecycle-snapshot-legacy-target"))
+        return {
+          rows: [
+            {
+              ...operation,
+              target_candidate_id: "018f2d91-7c42-7000-8000-000000000082",
+              target_source_release: exomemContractFixture0490.release,
+              target_protocol_version: exomemContractFixture0490.protocol,
+              target_gateway_contract_digest: exomemContractFixture0490.digest,
+              target_command_fingerprint: "a".repeat(64),
+              target_schema_digest: "b".repeat(64),
+              target_compatibility_digest: "c".repeat(64),
+            },
+          ],
+        };
+      return { rows: [] };
+    });
+
+    const claimed = await new SqlLifecycleStore().claim({
+      owner: "worker-0490",
+      leaseMs: 60_000,
+      maxAttempts: 6,
+    });
+
+    assert.equal(claimed?.target?.sourceRelease, "0.49.0");
+    assert.equal(claimed?.target?.gatewayContractDigest, exomemContractFixture0490.digest);
+    assert.equal(
+      values.includes(
+        `${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`
+      ),
+      true
+    );
+    assert.equal(values.includes(exomemContractFixture0490.digest), true);
+  });
+
+  it("derives a legacy routable v1 target against the exact 0.49.0 gateway contract", async () => {
+    const now = new Date();
+    const operation = {
+      id: "018f2d91-7c42-7000-8000-000000000083",
+      tenant_id: "018f2d91-7c42-7000-8000-000000000071",
+      cell_id: "018f2d91-7c42-7000-8000-000000000084",
+      operation_type: "provision",
+      provisioner_wire_protocol: "exomem-cell-provisioner.v1",
+      state: "running",
+      idempotency_key: "legacy-routable-0490",
+      fence_generation: 1,
+      checkpoint: "created",
+      request_id: "request-routable-0490",
+      attempts: 1,
+      next_attempt_at: now,
+      lease_owner: "worker-routable-0490",
+      lease_expires_at: new Date(now.valueOf() + 60_000),
+      error_code: null,
+      provider_result_ref: "provider-result",
+      input_reference_ciphertext: null,
+      input_reference_digest: null,
+      input_export_id: null,
+      export_release_reference_ciphertext: null,
+      export_release_reference_digest: null,
+      export_expires_at: null,
+      export_request_started: false,
+      input_source_cell_id: null,
+      input_archive_sha256: null,
+      input_manifest_sha256: null,
+      input_archive_size: null,
+      resume_after_operation: true,
+      expected_previous_cell_id: null,
+      target_candidate_id: null,
+      target_assignment_id: null,
+      target_assignment_generation: null,
+      target_source_release: null,
+      target_protocol_version: null,
+      target_gateway_contract_digest: null,
+      target_command_fingerprint: null,
+      target_schema_digest: null,
+      target_compatibility_digest: null,
+      created_at: now,
+      updated_at: now,
+    };
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
+      const query = strings.join("?");
+      values.push(...parameters);
+      if (query.includes("lifecycle-claim")) return { rows: [operation] };
+      if (query.includes("lifecycle-snapshot-legacy-target")) return { rows: [] };
+      if (query.includes("lifecycle-legacy-deployment-gap")) {
+        return { rows: [{ has_contract_catalog: true }] };
+      }
+      if (query.includes("lifecycle-derive-legacy-target-from-routable-cell")) {
+        return {
+          rows: [
+            {
+              ...operation,
+              target_candidate_id: "018f2d91-7c42-7000-8000-000000000085",
+              target_source_release: exomemContractFixture0490.release,
+              target_protocol_version: exomemContractFixture0490.protocol,
+              target_gateway_contract_digest: exomemContractFixture0490.digest,
+              target_command_fingerprint: "a".repeat(64),
+              target_schema_digest: "b".repeat(64),
+              target_compatibility_digest: "c".repeat(64),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const claimed = await new SqlLifecycleStore().claim({
+      owner: "worker-routable-0490",
+      leaseMs: 60_000,
+      maxAttempts: 6,
+    });
+
+    assert.equal(claimed?.target?.sourceRelease, "0.49.0");
+    assert.equal(claimed?.target?.gatewayContractDigest, exomemContractFixture0490.digest);
+    assert.equal(
+      values.includes(
+        `${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`
+      ),
+      true
+    );
+    assert.equal(values.includes(exomemContractFixture0490.digest), true);
   });
 
   it("persists the selected wire protocol with a catalog target for every cell-scoped operation", async () => {

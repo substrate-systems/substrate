@@ -12,6 +12,7 @@ import {
   resolveReviewerCanaryAuthority,
   resolveStagedClientRelease,
 } from "../agent-contract-canaries";
+import { exomemContractFixture0490 } from "../gateway-contract-0-49-0";
 
 const tenantId = "018f2d91-7c42-7000-8000-000000000071";
 const candidateId = "018f2d91-7c42-7000-8000-000000000072";
@@ -60,11 +61,13 @@ describe("Hosted canary assignments", () => {
     assert.doesNotMatch(query, /grant_row\.tenant_id = .*candidate_id =/i);
   });
 
-  it("creates immutable assignment generations under the cohort lock", async () => {
+  it("creates an existing-cohort 0.49.0 assignment with the exact gateway digest", async () => {
     const queries: string[] = [];
-    const sql = async (strings: TemplateStringsArray) => {
+    const values: unknown[] = [];
+    const sql = async (strings: TemplateStringsArray, ...parameters: unknown[]) => {
       const query = strings.join("?");
       queries.push(query);
+      values.push(...parameters);
       return {
         rows: query.includes("create-canary-assignment")
           ? [
@@ -98,6 +101,7 @@ describe("Hosted canary assignments", () => {
     assert.match(queries[0]!, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
     assert.match(queries[1]!, /candidate\.state = 'pending'/i);
     assert.match(queries[1]!, /gateway_contract_digest/i);
+    assert.equal(values.includes(exomemContractFixture0490.digest), true);
     assert.match(queries[1]!, /prior\.generation \+ 1/i);
     assert.doesNotMatch(
       queries[1]!,

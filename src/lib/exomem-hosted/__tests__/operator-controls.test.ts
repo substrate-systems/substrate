@@ -5,6 +5,7 @@ import { afterEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 import {
   demoteOperatorClientArtifact,
+  createReviewerOAuthBootstrapAuthority,
   listOperatorClientArtifacts,
   listOperatorOAuthClients,
   listReviewerOAuthBootstrapAuthorities,
@@ -15,6 +16,7 @@ import {
   revokeOperatorOAuthFamily,
   setOperatorOAuthClientEnabled,
 } from "../operator-controls";
+import { exomemContractFixture0490 } from "../gateway-contract-0-49-0";
 import { operatorOAuthClientFingerprint } from "../oauth-client-admission";
 
 const originalControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
@@ -27,6 +29,32 @@ afterEach(() => {
 });
 
 describe("hosted operator controls", () => {
+  it("stages a virgin bootstrap authority against the exact 0.49.0 gateway contract", async () => {
+    const values: unknown[] = [];
+    const expiresAt = new Date(Date.now() + 5 * 60_000);
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings, ...parameters) => {
+        values.push(...parameters);
+        return strings.join("?").includes("create-reviewer-oauth-bootstrap-authority")
+          ? { rows: [{ id: "018f2d91-7c42-7000-8000-000000000079", expires_at: expiresAt }] }
+          : { rows: [] };
+      })
+    );
+
+    assert.deepEqual(
+      await createReviewerOAuthBootstrapAuthority({
+        inviteId: "018f2d91-7c42-7000-8000-000000000071",
+        stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000072",
+        oauthClientId: "018f2d91-7c42-7000-8000-000000000073",
+        expiresAt,
+        operatorPrincipalDigest: Buffer.alloc(32, 0x49),
+      }),
+      { id: "018f2d91-7c42-7000-8000-000000000079", expiresAt: expiresAt.toISOString() }
+    );
+    assert.equal(values.includes(exomemContractFixture0490.release), true);
+    assert.equal(values.includes(exomemContractFixture0490.digest), true);
+  });
+
   it("requires every reviewer and OAuth issuer to take the cohort lock before authority admission", () => {
     const reviewerIssuer = readFileSync(
       resolve(process.cwd(), "src/lib/exomem-hosted/reviewer-access-store.ts"),

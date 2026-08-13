@@ -17,7 +17,7 @@ configured, invite redemption is safe but the tenant remains in `preparing`.
 Complimentary access does **not** require Paddle or a price. Every route does require:
 
 1. migrations `0017` through `0034_exomem_oauth_client_admission.sql` applied to the production Neon database;
-2. an Exomem `0.39.2` cell image from commit `4e9ba9caabcee985e3371320803c11946cd40cc6` exposing private protocol `1`;
+2. an Exomem `0.49.0` cell image from commit `d6ea0c11224331fb27a45b485091399679e59bbf` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
 4. all required Substrate secrets below;
@@ -36,24 +36,14 @@ the authenticated operator endpoints. Migration `0038_exomem_self_serve_admissio
 and existing rows remain historical records; do not edit, reverse, or reuse them
 to open admission.
 
-The pinned compatibility, schema-contract, and command-surface digests are
+The historical `0.34.0` unit remains an importable rollback artifact only. Its
+compatibility, schema-contract, and command-surface digests were
 `6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c`,
 `c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853`, and
 `eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f`.
-Regenerate both checked-in fixtures only from a clean checkout at the selected
-commit:
-
-```bash
-node scripts/generate-exomem-hosted-contract.mjs \
-  --exomem-repo /path/to/exomem \
-  --output src/lib/exomem-hosted/agent-contract-fixture.ts \
-  --json-output src/lib/exomem-hosted/__tests__/agent-contract-fixture.json \
-  --expected-commit 253c9aa365d7afd8829dc7843f1cac53353ac825 \
-  --source-release 0.34.0
-```
-
-Keep both generated outputs byte-identical to the generator; do not reformat
-either fixture independently.
+Do not regenerate it into either bare current-fixture path; the authoritative
+current `0.49.0` agent-and-gateway projection recipe is in
+[Contract and artifact control](#contract-and-artifact-control).
 
 The fixture's top-level `sourceRelease` is the trusted cell-runtime release;
 it is intentionally separate from the compatibility descriptor. When the
@@ -83,7 +73,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                         |
 | `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                                                                                                                                              |
 | `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                                                                                                                                                  |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.39.2` for this release unit -- the release the hosted deployment lock names. Readiness must echo it, and the gateway contract catalog must carry a fixture pair for it or every command fails closed.                                                                    |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.49.0` for this release unit -- the release the hosted deployment lock names. Readiness must echo it, and the gateway contract catalog must carry a fixture pair for it or every command fails closed.                                                                    |
 | `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                                                                                                                                                       |
 | `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
 | `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                                                                                                                                                   |
@@ -244,7 +234,7 @@ tenant; never redeem a reviewer invite through the ordinary invite path, which
 is legacy-unmetered and does not reserve capacity.
 
 1. Verify privately that the candidate is pending `hosted-alpha-agent-v1`
-   release `0.39.2`, the selected client release is still `staged`, capacity is
+   release `0.49.0`, the selected client release is still `staged`, capacity is
    configured, and there is no live cohort, active reviewer assignment,
    bound/ready reviewer cell, or active internal-canary credential.
 2. Create and deliver one reviewer-purpose operator invite. Confirm the invite
@@ -297,6 +287,41 @@ schema-contract digest, compatibility digest, protocol range, and both client
 package/archive locks. Before promotion, prove every routable cell exposes that
 same private profile. Promotion is atomic: live discovery stays on the current
 contract until the candidate and real clean-client evidence both verify.
+
+The current v1 release is Exomem `0.49.0` at
+`d6ea0c11224331fb27a45b485091399679e59bbf`: command surface
+`eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f`, schema
+`b974fb04b9dca69580dd0b386d0de94b27c6a84543f24faeab684da3cbbbb57e`,
+compatibility `f3cee4e10a9b3b0e87e469710504a0f850982e1e4b4bff5e4bad7eae4d2dec19`,
+Claude package `9d2bba6d14038139bb4120b91c35c17364e88db4f077e69cfb0e5875d14c44ee`,
+Claude archive `0da1055f4bb34d383101011f568b171f73ad4e033c3f3dd575136e1da54a1442`,
+and private gateway `d83781197599c365c09bd9bdc6e07a4743156da49e6c7d214d3c343154c7f0df`.
+From a clean checkout at that exact commit, project both artifacts together:
+
+```bash
+node scripts/generate-exomem-hosted-contract.mjs \
+  --exomem-repo /path/to/clean/exomem \
+  --output src/lib/exomem-hosted/agent-contract-fixture.ts \
+  --json-output src/lib/exomem-hosted/__tests__/agent-contract-fixture.json \
+  --gateway-output src/lib/exomem-hosted/gateway-contract-0-49-0.ts \
+  --gateway-json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-49-0.json \
+  --expected-commit d6ea0c11224331fb27a45b485091399679e59bbf \
+  --source-release 0.49.0
+```
+
+The explicit `-0-39-2` agent and gateway fixtures are retained rollback units;
+do not overwrite or regenerate them while refreshing the current release.
+
+Import the current `0.49.0` catalog unit through the current control only:
+
+```json
+POST /api/exomem/admin/contracts
+{ "action": "import-agent" }
+```
+
+`import-agent` imports the bare current `0.49.0` fixture. Do not send `0.49.0`
+to `import-retained-agent`; that control is reserved for the explicit historical
+`0.34.0`, `0.35.0`, and `0.39.2` release units.
 
 Demotion is fail-closed: it stops new installs/authorizations for the affected
 artifact and does not restore a previous artifact automatically. Operators must
@@ -753,9 +778,19 @@ v1 provisioner until its retained export is deleted. Keep expand mode until both
 counts are zero; never rewrite a stored protocol to make the status appear
 drained.
 
-Emergency demotion stops a live unit; it is not rollback. Forward rollback
-imports a retained coherent 0.34.0, 0.35.0, or 0.39.2 catalog release as a new pending
-candidate UUID, then creates fresh stages, assignment generations, and signed
+Emergency demotion stops a live unit; it is not rollback. To re-import the
+current `0.49.0` catalog unit as a fresh pending candidate, use
+`{ "action": "import-agent" }`. To forward-roll to one of the retained coherent
+units only, use the retained control with exactly one supported release:
+
+```json
+POST /api/exomem/admin/contracts
+{ "action": "import-retained-agent", "sourceRelease": "0.34.0" }
+```
+
+`sourceRelease` for `import-retained-agent` is limited to `0.34.0`, `0.35.0`,
+or `0.39.2`; it must never name `0.49.0`. Each import creates a new pending
+candidate UUID, then requires fresh stages, assignment generations, and signed
 two-client evidence before the normal promotion compare-and-swap. Never revive
 retired candidates, stages, assignments, client artifacts, or historical
 evidence. The historical 0.24 full-contract / 0.34 agent split is not a

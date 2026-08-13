@@ -1,7 +1,7 @@
-// Generated from Exomem compatibility.json at commit d6ea0c11224331fb27a45b485091399679e59bbf for cell release 0.49.0. Do not edit.
+// Generated from Exomem compatibility.json at commit 4e9ba9caabcee985e3371320803c11946cd40cc6 for cell release 0.39.2. Do not edit.
 export const exomemHostedContractFixture = {
-  "sourceCommit": "d6ea0c11224331fb27a45b485091399679e59bbf",
-  "sourceRelease": "0.49.0",
+  "sourceCommit": "4e9ba9caabcee985e3371320803c11946cd40cc6",
+  "sourceRelease": "0.39.2",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -2853,7 +2853,7 @@ export const exomemHostedContractFixture = {
               "readOnlyHint": false,
               "title": "Preserve Evidence"
             },
-            "description": "Preserve text evidence as append-only proof material.\n\nUse for receipts, letters, transcripts, warranty records, legal/dispute\nmaterial, and other factual artifacts. For binary files supplied as client\nfile handles, use `preserve_artifacts`; otherwise use `transfer_artifact`\nplus `/upload`. Bytes never pass through the model.",
+            "description": "Preserve text evidence as append-only proof material.\n\nUse for receipts, letters, transcripts, warranty records, legal/dispute\nmaterial, and other factual artifacts. Binary files use `transfer_artifact`\nplus the `/upload` endpoint so bytes do not pass through the model.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -3029,7 +3029,7 @@ export const exomemHostedContractFixture = {
                 },
                 "limit": {
                   "default": 25,
-                  "description": "Attention/activation result cap. On the topic evolution route, caps returned timelines; the path route returns one selected chain and does not use `limit`.",
+                  "description": "Attention/activation/evolution result cap.",
                   "type": "integer"
                 },
                 "mode": {
@@ -3047,11 +3047,11 @@ export const exomemHostedContractFixture = {
                     }
                   ],
                   "default": null,
-                  "description": "Restrict provenance scan to one path. For evolution, selects the path route and `query` is not used: `topic_anchor` is the requested page and `chain_id` is always the active head. An unresolvable path raises an explicit error."
+                  "description": "Restrict provenance scan to one path."
                 },
                 "query": {
                   "default": "",
-                  "description": "Topic for evolution review when `path` is absent. On the topic route, `topic_anchor` is the retrieval hit that surfaced the chain; `chain_id` is always the active head.",
+                  "description": "Topic for evolution review.",
                   "type": "string"
                 },
                 "ref": {
@@ -3148,13 +3148,13 @@ export const exomemHostedContractFixture = {
               "type": "list[str]"
             },
             {
-              "description": "Attention/activation result cap. On the topic evolution route, caps returned timelines; the path route returns one selected chain and does not use `limit`.",
+              "description": "Attention/activation/evolution result cap.",
               "name": "limit",
               "required": false,
               "type": "int"
             },
             {
-              "description": "Topic for evolution review when `path` is absent. On the topic route, `topic_anchor` is the retrieval hit that surfaced the chain; `chain_id` is always the active head.",
+              "description": "Topic for evolution review.",
               "name": "query",
               "required": false,
               "type": "str"
@@ -3190,7 +3190,7 @@ export const exomemHostedContractFixture = {
               "type": "str"
             },
             {
-              "description": "Restrict provenance scan to one path. For evolution, selects the path route and `query` is not used: `topic_anchor` is the requested page and `chain_id` is always the active head. An unresolvable path raises an explicit error.",
+              "description": "Restrict provenance scan to one path.",
               "name": "path",
               "required": false,
               "type": "str"
@@ -4307,7 +4307,7 @@ export const exomemHostedContractFixture = {
       },
       "digest": {
         "algorithm": "sha256",
-        "value": "b974fb04b9dca69580dd0b386d0de94b27c6a84543f24faeab684da3cbbbb57e"
+        "value": "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c"
       },
       "envelopes": {
         "error": {
@@ -4366,7 +4366,7 @@ export const exomemHostedContractFixture = {
       "triage_memory",
       "connect_memory"
     ],
-    "compatibility_sha256": "f3cee4e10a9b3b0e87e469710504a0f850982e1e4b4bff5e4bad7eae4d2dec19",
+    "compatibility_sha256": "fed9898424ac4b3349af36353a9119b576adb6aa91b4a81cd0abbaaf95c9874c",
     "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery": {
@@ -4526,7 +4526,7 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "b974fb04b9dca69580dd0b386d0de94b27c6a84543f24faeab684da3cbbbb57e",
+    "schema_contract_sha256": "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c",
     "schema_version": 1,
     "skills": {
       "exomem": [
@@ -4563,12 +4563,12 @@ export const exomemHostedContractFixture = {
         "read_memory"
       ]
     },
-    "skills_sha256": "e28cd70b042df14b892644d475830b3977877ff95a367b8c1381b77d94f6d925"
+    "skills_sha256": "69a61bda904b7f48ef6d6da77b952b4e78b1991619e630db7039f0dd259a446f"
   },
   "packageLock": {
-    "artifact_sha256": "9d2bba6d14038139bb4120b91c35c17364e88db4f077e69cfb0e5875d14c44ee",
+    "artifact_sha256": "20adc7f85bc66c3566431de15f7d42d9d24693a32945151a7a3db53b3d2a2469",
     "command_surface_sha256": "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
-    "compatibility_sha256": "f3cee4e10a9b3b0e87e469710504a0f850982e1e4b4bff5e4bad7eae4d2dec19",
+    "compatibility_sha256": "fed9898424ac4b3349af36353a9119b576adb6aa91b4a81cd0abbaaf95c9874c",
     "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery_sha256": "103fefcef3f994cf09aa067f65ad8beb369907b382ea41bb9a49af2a2c446e7b",
@@ -4577,12 +4577,12 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "b974fb04b9dca69580dd0b386d0de94b27c6a84543f24faeab684da3cbbbb57e",
+    "schema_contract_sha256": "8abece817b0b2a6a9f9dfc01e92bfb93b954725d7ead2c399f210eb2f83d745c",
     "schema_version": 1,
-    "skills_sha256": "e28cd70b042df14b892644d475830b3977877ff95a367b8c1381b77d94f6d925"
+    "skills_sha256": "69a61bda904b7f48ef6d6da77b952b4e78b1991619e630db7039f0dd259a446f"
   },
   "archiveLock": {
-    "archive_sha256": "0da1055f4bb34d383101011f568b171f73ad4e033c3f3dd575136e1da54a1442",
+    "archive_sha256": "c4ef2e565fbe30cff342c934d6bbe4f56937907b4ce9f348e6bc748e38285f91",
     "platform": "claude"
   }
 } as const;

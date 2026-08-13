@@ -3,6 +3,7 @@ import { executeExomemSql, executeExomemTransaction, withExomemTransaction } fro
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
+import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -13,8 +14,19 @@ import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-con
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
 /** Releases whose fixtures are pinned here; the bare fixture is the live one. */
-export type TrustedRelease = "0.34.0" | "0.35.0" | "0.39.2";
+export type TrustedRelease = "0.34.0" | "0.35.0" | "0.39.2" | "0.49.0";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.49.0",
+    {
+      sourceCommit: "d6ea0c11224331fb27a45b485091399679e59bbf",
+      command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+      schema_contract_sha256: "b974fb04b9dca69580dd0b386d0de94b27c6a84543f24faeab684da3cbbbb57e",
+      compatibility_sha256: "f3cee4e10a9b3b0e87e469710504a0f850982e1e4b4bff5e4bad7eae4d2dec19",
+      artifact_sha256: "9d2bba6d14038139bb4120b91c35c17364e88db4f077e69cfb0e5875d14c44ee",
+      archive_sha256: "0da1055f4bb34d383101011f568b171f73ad4e033c3f3dd575136e1da54a1442",
+    },
+  ],
   [
     "0.39.2",
     {
@@ -163,6 +175,7 @@ function checkedOpenAiLocks(
     record(exomemHostedContractFixture.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0340.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0350.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0392.packageLock, "Claude package lock"),
   ];
   const expected = [
     "schema_version",
@@ -340,7 +353,9 @@ export async function storeRetainedExomemAgentContractCandidate(
       ? exomemHostedContractFixture0340
       : sourceRelease === "0.35.0"
         ? exomemHostedContractFixture0350
-        : exomemHostedContractFixture;
+        : sourceRelease === "0.39.2"
+          ? exomemHostedContractFixture0392
+          : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

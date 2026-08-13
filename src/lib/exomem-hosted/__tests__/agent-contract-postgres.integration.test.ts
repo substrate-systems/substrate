@@ -11,7 +11,7 @@ import {
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
-import { exomemContractFixture0392 } from "../gateway-contract-0-39-2";
+import { exomemContractFixture0490 } from "../gateway-contract-0-49-0";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
@@ -166,7 +166,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
          observed_compatibility_digest = target.compatibility_digest
      FROM bound_cells, target
      WHERE cell.id = bound_cells.id`,
-    [candidateId, exomemContractFixture0392.digest]
+    [candidateId, exomemContractFixture0490.digest]
   );
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
@@ -185,7 +185,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
      JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
      JOIN exomem_agent_contract_candidates AS target ON target.id = $1::uuid
      WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0392.digest]
+    [candidateId, exomemContractFixture0490.digest]
   );
 }
 

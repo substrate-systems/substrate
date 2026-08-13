@@ -9,6 +9,7 @@ import {
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
+import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
 import {
   attachOpenAiContractLocks,
   getExomemAgentContractForOAuthAccess,
@@ -92,9 +93,9 @@ describe("Exomem Hosted agent contracts", () => {
   it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "4e9ba9caabcee985e3371320803c11946cd40cc6"
+      "d6ea0c11224331fb27a45b485091399679e59bbf"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.39.2");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.49.0");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -128,6 +129,15 @@ describe("Exomem Hosted agent contracts", () => {
     );
   });
 
+  it("retains the 0.39.2 fixture as a distinct exact release unit", () => {
+    assert.equal(retainedFixture0392.sourceCommit, "4e9ba9caabcee985e3371320803c11946cd40cc6");
+    assert.equal(retainedFixture0392.sourceRelease, "0.39.2");
+    assert.notEqual(
+      retainedFixture0392.compatibility.schema_contract_sha256,
+      exomemHostedContractFixture.compatibility.schema_contract_sha256
+    );
+  });
+
   it("re-imports a retained release only as a fresh pending candidate", async () => {
     const queries: string[] = [];
     __setExomemSqlForTests(async (strings) => {
@@ -157,7 +167,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.39.2");
+      assert.equal(fixture.sourceRelease, "0.49.0");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
@@ -261,7 +271,7 @@ describe("Exomem Hosted agent contracts", () => {
             id: "artifact-1",
             tenant_id: "018f2d91-7c42-7000-8000-000000000001",
             candidate_id: "018f2d91-7c42-7000-8000-000000000002",
-            source_release: "0.39.2",
+            source_release: exomemHostedContractFixture.sourceRelease,
             assignment_id: "018f2d91-7c42-7000-8000-000000000004",
             assignment_generation: 1,
             claude_package_lock: exomemHostedContractFixture.packageLock,
@@ -420,7 +430,7 @@ describe("Exomem Hosted agent contracts", () => {
           rows: [
             {
               candidate_id: "018f2d91-7c42-7000-8000-000000000002",
-              source_release: "0.39.2",
+              source_release: exomemHostedContractFixture.sourceRelease,
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,
             },
