@@ -299,7 +299,6 @@ export async function createInternalCanaryReviewerCredentialAtomic(
          ON client.id = ${input.oauthClientId}::uuid
          AND client.client_platform = stage.platform
          AND client.oauth_client_config_sha256 = stage.oauth_client_config_sha256
-         AND client.enabled
         JOIN users ON users.id = tenant.owner_user_id AND users.deleted_at IS NULL
         WHERE tenant.id = ${input.tenantId}::uuid
           AND tenant.marketplace_reviewer_purpose = true

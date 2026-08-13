@@ -192,25 +192,38 @@ test("internal canary issuance seals invite setup state and binds exact staged a
     }
   );
   const query = queries.join("\n");
-  assert.match(query, /provider, credential_kind[\s\S]*candidate_id, assignment_id, assignment_generation/i);
+  assert.match(
+    query,
+    /provider, credential_kind[\s\S]*candidate_id, assignment_id, assignment_generation/i
+  );
   assert.match(query, /credential_kind = 'internal_canary'/i);
   assert.match(
     query,
     /bootstrap\.state = 'consumed'[\s\S]*bootstrap\.outcome_tenant_id = tenant\.id[\s\S]*bootstrap\.outcome_assignment_id = assignment\.id/i
   );
   assert.match(query, /SELECT id, owner_user_id, tenant_id, expires_at FROM created/i);
-  assert.match(query, /prior_sessions_revoked[\s\S]*reviewer_credential_id IN \(SELECT id FROM prior_revoked\)/i);
+  assert.match(
+    query,
+    /prior_sessions_revoked[\s\S]*reviewer_credential_id IN \(SELECT id FROM prior_revoked\)/i
+  );
   assert.match(query, /prior_refresh_consumed[\s\S]*prior_families_revoked/i);
   assert.match(query, /assignment\.state IN \('preparing', 'active'\)/i);
   assert.match(query, /stage\.candidate_id = assignment\.candidate_id/i);
+  assert.doesNotMatch(query, /AND client\.enabled/i);
   assert.match(query, /setup_sessions_revoked[\s\S]*exomem_invites AS invite/i);
   assert.match(query, /invite\.redeemed_session_id/i);
   assert.match(query, /setup_transactions AS \([\s\S]*SELECT transaction\.id/i);
-  assert.match(query, /setup_grants_revoked[\s\S]*authorization_transaction_id IN \(SELECT id FROM setup_transactions\)/i);
+  assert.match(
+    query,
+    /setup_grants_revoked[\s\S]*authorization_transaction_id IN \(SELECT id FROM setup_transactions\)/i
+  );
   assert.match(query, /setup_families_revoked[\s\S]*reviewer_setup_sealed/i);
   assert.match(query, /exomem-hosted-alpha-cohort/i);
   assert.match(query, /exomem-marketplace-reviewer-access/i);
-  assert.ok(queries.findIndex((value) => value.includes("exomem-hosted-alpha-cohort")) < queries.findIndex((value) => value.includes("exomem-marketplace-reviewer-access")));
+  assert.ok(
+    queries.findIndex((value) => value.includes("exomem-hosted-alpha-cohort")) <
+      queries.findIndex((value) => value.includes("exomem-marketplace-reviewer-access"))
+  );
 });
 
 test("reviewer sessions are tagged to the credential without provisioning", async () => {
@@ -386,7 +399,8 @@ test("internal canary status and revocation require the exact lineage and exclud
         ],
       };
     }
-    if (query.includes("lock-internal-canary-reviewer-credential")) return { rows: [{ id: "credential-1" }] };
+    if (query.includes("lock-internal-canary-reviewer-credential"))
+      return { rows: [{ id: "credential-1" }] };
     return { rows: [{ revoked_credentials: 1 }] };
   });
 
@@ -399,7 +413,10 @@ test("internal canary status and revocation require the exact lineage and exclud
     stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000014",
     oauthClientId: "018f2d91-7c42-7000-8000-000000000015",
   };
-  assert.equal((await getMarketplaceReviewerCredentialStatus("openai"))?.fixtureVersion, "provider-review-v1");
+  assert.equal(
+    (await getMarketplaceReviewerCredentialStatus("openai"))?.fixtureVersion,
+    "provider-review-v1"
+  );
   assert.deepEqual(await getInternalCanaryReviewerCredentialStatus(selector), {
     credentialKind: "internal_canary",
     platform: "claude",

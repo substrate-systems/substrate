@@ -10,6 +10,7 @@ The system SHALL terminalize the consumed bootstrap stage, so a fresh same-platf
 
 - **WHEN** a consumed bootstrap outcome has an exact active assignment and two fresh configured sibling stages/clients, one for Claude and one for OpenAI
 - **THEN** the system may issue one internal-canary credential for each platform under that exact assignment lineage
+- **AND** each freshly registered sibling may remain disabled until its exact internal-canary credential authorizes the bounded pre-promotion run
 - **AND** it does not reactivate, select, or register the consumed bootstrap client
 
 #### Scenario: Bootstrap client or unrelated lineage is selected

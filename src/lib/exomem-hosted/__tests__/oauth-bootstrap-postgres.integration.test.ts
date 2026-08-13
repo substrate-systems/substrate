@@ -29,6 +29,7 @@ import {
 import { oauthClientConfigSha256 } from "../oauth-client-admission";
 import {
   createReviewerOAuthBootstrapAuthority,
+  registerOperatorOAuthClient,
   revokeReviewerOAuthBootstrapAuthority,
 } from "../operator-controls";
 import {
@@ -2062,15 +2063,16 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
           digest(91_100 + suffix).toString("hex"),
         ]
       );
-      const client = await pool!.query<{ id: string }>(
-        `INSERT INTO exomem_oauth_clients (
-           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
-           oauth_client_config_sha256
-         ) VALUES ($1, 'pinned', true, $2::jsonb,
-           digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3, $4) RETURNING id`,
-        [clientId, JSON.stringify([redirectUri]), platform, config]
-      );
-      return { stageId: stage.rows[0]!.id, clientId: client.rows[0]!.id };
+      const client = await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform,
+        stagedClientReleaseId: stage.rows[0]!.id,
+        clientId,
+        redirectUris: [redirectUri],
+        ...(platform === "openai" ? { registeredAppIdSha256: "c".repeat(64) } : {}),
+      });
+      assert.equal(client.enabled, false);
+      return { stageId: stage.rows[0]!.id, clientId: client.id };
     };
     const claude = await sibling("claude", 1);
     const openai = await sibling("openai", 2);

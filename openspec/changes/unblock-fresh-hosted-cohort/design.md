@@ -6,7 +6,7 @@ Reviewer bootstrap consumption correctly disables and blocks future registration
 
 ### Fresh sibling reviewer credentials
 
-The consumed-bootstrap predicate remains anchored to the exact outcome tenant, candidate, assignment, and generation. It stops requiring the selected staged client and OAuth client to be the bootstrap client. Instead, the selected client must be enabled, configured for the selected stage, and have no bootstrap-authority history. Existing stage state, expiry, candidate, platform, assignment state, account-block, credential-rotation, and OAuth-lineage constraints remain unchanged. Each platform/client remains independently unique, so exact Claude and OpenAI siblings can coexist.
+The consumed-bootstrap predicate remains anchored to the exact outcome tenant, candidate, assignment, and generation. It stops requiring the selected staged client and OAuth client to be the bootstrap client. Instead, the selected client must be configured for the selected stage and have no bootstrap-authority history. A freshly registered staged client remains disabled until its internal-canary credential supplies the exact pre-promotion authorization lineage; requiring it to be enabled before that credential would make the staged flow circular. Existing stage state, expiry, candidate, platform, assignment state, account-block, credential-rotation, and OAuth-lineage constraints remain unchanged. Each platform/client remains independently unique, so exact Claude and OpenAI siblings can coexist.
 
 Consumption terminalizes the one-shot bootstrap stage along with disabling its client. That releases its platform slot for a genuinely fresh sibling stage while preserving the bootstrap history fence; it does not make the bootstrap stage or client reusable.
 

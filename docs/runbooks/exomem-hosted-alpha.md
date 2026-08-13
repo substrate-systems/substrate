@@ -257,13 +257,15 @@ is legacy-unmetered and does not reserve capacity.
    session, and grant outcomes. A capacity failure leaves the three inputs
    reusable; do not retry through direct invite redemption.
 5. Reconcile the returned operation immediately. Its target is already pinned
-   to the exact candidate and assignment. Create fresh, enabled Claude and
-   OpenAI sibling stages/clients with no bootstrap history, then issue their
-   distinct internal-canary credentials using that exact tenant, candidate,
-   assignment, and generation. The bootstrap client remains disabled and must
-   never be re-enabled, re-registered, or selected. Once either credential is
-   issued, the setup session/grant/code are sealed and each clean client must
-   authorize again with attributed lineage.
+   to the exact candidate and assignment. Create fresh Claude and OpenAI sibling
+   stages/clients with no bootstrap history. They remain disabled after staged
+   registration; issue their distinct internal-canary credentials using that
+   exact tenant, candidate, assignment, and generation to authorize the bounded
+   pre-promotion runs. Enable each sibling only after its exact client artifact
+   has been imported. The bootstrap client remains disabled and must never be
+   re-enabled, re-registered, or selected. Once either credential is issued,
+   the setup session/grant/code are sealed and each clean client must authorize
+   again with attributed lineage.
 
 To stop the attempt, call `revoke_reviewer_bootstrap` with the authority ID.
 Expiry and revocation disable the pinned client. Do not re-enable, re-register,
