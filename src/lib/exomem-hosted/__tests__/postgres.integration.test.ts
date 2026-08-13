@@ -2852,7 +2852,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.equal(deleteCount.rows[0]?.count, "1");
   });
 
-  it("refuses stale, live, bound, ambiguous, healthy, customer, and terminal cleanup without mutation", async () => {
+  it("refuses stale, leased, bound, ambiguous, healthy, customer, and terminal cleanup without mutation", async () => {
     const cases: Array<{
       name: string;
       seed?: Parameters<typeof seedExpiredReviewerCleanup>[0];
@@ -2884,45 +2884,6 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
                tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
              ) VALUES ($1, 'provisioning', 'unbound', 'running', '1', 'test')`,
             [tenantId]
-          );
-        },
-      },
-      {
-        name: "live session",
-        mutate: async ({ userId, tenantId }) => {
-          await pool.query(
-            `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
-             VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
-            [userId, tenantId, Buffer.alloc(32, 0x12), Buffer.alloc(32, 0x13)]
-          );
-        },
-      },
-      {
-        name: "live reviewer credential",
-        mutate: async ({ userId, tenantId }) => {
-          await pool.query(
-            `INSERT INTO exomem_marketplace_reviewer_credentials (
-               provider, username_digest, password_hash, owner_user_id, tenant_id,
-               fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
-             ) VALUES ('openai', $1, '$argon2id$test', $2, $3, 'fixture', $4, $1, now() + interval '1 hour')`,
-            [Buffer.alloc(32, 0x21), userId, tenantId, "b".repeat(64)]
-          );
-        },
-      },
-      {
-        name: "live OAuth grant",
-        mutate: async ({ userId, tenantId }) => {
-          const clientId = randomUUID();
-          await pool.query(
-            `INSERT INTO exomem_oauth_clients (id, client_id, admission_mode, redirect_uris, redirect_uris_digest)
-             VALUES ($1, $2, 'pinned', '["http://127.0.0.1"]'::jsonb,
-                     digest(convert_to('["http://127.0.0.1"]', 'utf8'), 'sha256'))`,
-            [clientId, `recovery-refusal-${clientId}`]
-          );
-          await pool.query(
-            `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
-             VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'])`,
-            [userId, tenantId, clientId]
           );
         },
       },
@@ -3184,7 +3145,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.deepEqual(state.rows, [{ consumed: false, session_count: "0" }]);
   });
 
-  it("does not consume a matching OAuth transaction when recovery is refused", async () => {
+  it("recovers with residual reviewer authority and atomically revokes its complete OAuth lineage", async () => {
     const seed = await seedExpiredReviewerCleanup();
     const clientId = randomUUID();
     const stageId = randomUUID();
@@ -3213,7 +3174,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          fixture_payload_digest, created_by_principal_digest, expires_at, revoked_at, credential_kind,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id
        ) VALUES ($1, 'anthropic', $2, '$argon2id$test', $3, $4, 'fixture', $5, $2,
-                 now() + interval '1 hour', now(), 'internal_canary', $6, $7, 1, $8, $9)`,
+         now() + interval '5 days', NULL, 'internal_canary', $6, $7, 1, $8, $9)`,
       [
         credentialId,
         Buffer.alloc(32, 0x42),
@@ -3228,9 +3189,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
     await pool.query(
       `INSERT INTO exomem_sessions (
-         id, user_id, tenant_id, session_digest, csrf_digest, created_at, last_seen_at, expires_at, revoked_at
-       ) VALUES ($1, $2, $3, $4, $5, now() - interval '2 hours', now() - interval '2 hours',
-                 now() - interval '1 hour', now() - interval '1 minute')`,
+         id, user_id, tenant_id, session_digest, csrf_digest, expires_at
+       ) VALUES ($1, $2, $3, $4, $5, now() + interval '5 days')`,
       [sessionId, seed.userId, seed.tenantId, Buffer.alloc(32, 0x44), Buffer.alloc(32, 0x45)]
     );
     await pool.query(
@@ -3253,55 +3213,155 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       ]
     );
 
+    const graph = await pool.query<{ grant_id: string; family_id: string; code_id: string }>(
+      `WITH grant_row AS (
+         INSERT INTO exomem_oauth_grants (
+           user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id,
+           reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
+         ) VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'], true,
+                   $4, $5, $6, $7, 1, $8) RETURNING id
+       ), family AS (
+         INSERT INTO exomem_oauth_token_families (
+           grant_id, client_id, expires_at, candidate_id, assignment_id, assignment_generation,
+           staged_client_release_id, reviewer_credential_id
+         ) SELECT id, $3, now() + interval '5 days', $6, $7, 1, $8, $5 FROM grant_row RETURNING id, grant_id
+       ), code AS (
+         INSERT INTO exomem_oauth_authorization_codes (
+           code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at,
+           reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
+         ) SELECT $9, grant_id, $3, 'http://127.0.0.1', 'https://substratesystems.io/api/exomem/mcp/v1',
+                  'verifier', true, now() + interval '5 days', $5, $6, $7, 1, $8 FROM family RETURNING id
+       ), refresh AS (
+         INSERT INTO exomem_oauth_refresh_tokens (
+           refresh_digest, family_id, expires_at, candidate_id, assignment_id, assignment_generation,
+           staged_client_release_id, oauth_client_id, reviewer_credential_id
+         ) SELECT $10, id, now() + interval '5 days', $6, $7, 1, $8, $3, $5 FROM family
+       ), access AS (
+         INSERT INTO exomem_oauth_access_tokens (
+           access_digest, grant_id, family_id, client_id, resource, scopes, expires_at,
+           candidate_id, assignment_id, assignment_generation, staged_client_release_id, reviewer_credential_id
+         ) SELECT $11, grant_id, id, $3, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'],
+                  now() + interval '5 days', $6, $7, 1, $8, $5 FROM family
+       ) SELECT family.grant_id, family.id AS family_id, code.id AS code_id FROM family CROSS JOIN code`,
+      [
+        seed.userId,
+        seed.tenantId,
+        clientId,
+        transactionId,
+        credentialId,
+        seed.candidateId,
+        seed.assignmentId,
+        stageId,
+        Buffer.alloc(32, 0x46),
+        Buffer.alloc(32, 0x47),
+        Buffer.alloc(32, 0x48),
+      ]
+    );
+    const otherUserId = randomUUID();
+    const otherTenantId = randomUUID();
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      otherUserId,
+      `recovery-other-${otherUserId}@example.test`,
+    ]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [otherTenantId, otherUserId]
+    );
+    const crossTenant = await pool.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_grants (
+         user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id
+       ) VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'],
+                 $4, $5, $6, 1, $7) RETURNING id`,
+      [
+        otherUserId,
+        otherTenantId,
+        clientId,
+        credentialId,
+        seed.candidateId,
+        seed.assignmentId,
+        stageId,
+      ]
+    );
+    const unrelated = await pool.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+       VALUES ($1, $2, $3, 'https://unrelated.example.test', ARRAY['exomem.read']) RETURNING id`,
+      [otherUserId, otherTenantId, clientId]
+    );
+
     assert.deepEqual(
       await preflightRecoverExpiredReviewerCleanup({
         sourceOperationId: seed.sourceOperationId,
         expectedFence: 1,
       }),
-      { eligible: false }
-    );
-    assert.equal(
-      await recoverExpiredReviewerCleanup({
-        sourceOperationId: seed.sourceOperationId,
-        expectedFence: 1,
-        requestId: randomUUID(),
-        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
-      }),
-      null
-    );
-    const transaction = await pool.query<{ consumed_at: Date | null }>(
-      "SELECT consumed_at FROM exomem_oauth_authorization_transactions WHERE id = $1",
-      [transactionId]
-    );
-    assert.equal(transaction.rows[0]?.consumed_at, null);
-    const tenant = await pool.query<{ status: string; fence_generation: string }>(
-      "SELECT status, fence_generation::text FROM exomem_tenants WHERE id = $1",
-      [seed.tenantId]
-    );
-    assert.deepEqual(tenant.rows, [{ status: "provisioning", fence_generation: "1" }]);
-
-    await pool.query(
-      "UPDATE exomem_lifecycle_operations SET lease_owner = 'test-worker', lease_expires_at = now() + interval '1 hour' WHERE id = $1",
-      [seed.sourceOperationId]
-    );
-    assert.equal(
-      await recoverExpiredReviewerCleanup({
-        sourceOperationId: seed.sourceOperationId,
-        expectedFence: 1,
-        requestId: randomUUID(),
-        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
-      }),
-      null
+      { eligible: true }
     );
     assert.equal(
       (
-        await pool.query<{ consumed_at: Date | null }>(
-          "SELECT consumed_at FROM exomem_oauth_authorization_transactions WHERE id = $1",
-          [transactionId]
-        )
-      ).rows[0]?.consumed_at,
-      null
+        await recoverExpiredReviewerCleanup({
+          sourceOperationId: seed.sourceOperationId,
+          expectedFence: 1,
+          requestId: randomUUID(),
+          operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+        })
+      )?.outcome,
+      "enqueued"
     );
+    const revoked = await pool.query<{
+      credential_revoked: boolean;
+      session_revoked: boolean;
+      transaction_consumed: boolean;
+      grant_revoked: boolean;
+      code_consumed: boolean;
+      family_revoked: boolean;
+      access_revoked: boolean;
+      refresh_consumed: boolean;
+    }>(
+      `SELECT credential.revoked_at IS NOT NULL AS credential_revoked,
+              session.revoked_at IS NOT NULL AS session_revoked,
+              transaction.consumed_at IS NOT NULL AS transaction_consumed,
+              grant_row.revoked_at IS NOT NULL AS grant_revoked,
+              code.consumed_at IS NOT NULL AS code_consumed,
+              family.revoked_at IS NOT NULL AS family_revoked,
+              access.revoked_at IS NOT NULL AS access_revoked,
+              refresh.consumed_at IS NOT NULL AS refresh_consumed
+       FROM exomem_marketplace_reviewer_credentials AS credential
+       JOIN exomem_sessions AS session ON session.id = $2
+       JOIN exomem_oauth_authorization_transactions AS transaction ON transaction.id = $3
+       JOIN exomem_oauth_grants AS grant_row ON grant_row.id = $4
+       JOIN exomem_oauth_authorization_codes AS code ON code.id = $5
+       JOIN exomem_oauth_token_families AS family ON family.id = $6
+       JOIN exomem_oauth_access_tokens AS access ON access.family_id = family.id
+       JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = family.id
+       WHERE credential.id = $1`,
+      [
+        credentialId,
+        sessionId,
+        transactionId,
+        graph.rows[0]!.grant_id,
+        graph.rows[0]!.code_id,
+        graph.rows[0]!.family_id,
+      ]
+    );
+    assert.deepEqual(revoked.rows, [
+      {
+        credential_revoked: true,
+        session_revoked: true,
+        transaction_consumed: true,
+        grant_revoked: true,
+        code_consumed: true,
+        family_revoked: true,
+        access_revoked: true,
+        refresh_consumed: true,
+      },
+    ]);
+    const crossTenantState = await pool.query<{ exact_revoked: boolean; unrelated_live: boolean }>(
+      `SELECT (SELECT revoked_at IS NOT NULL FROM exomem_oauth_grants WHERE id = $1) AS exact_revoked,
+              (SELECT revoked_at IS NULL FROM exomem_oauth_grants WHERE id = $2) AS unrelated_live`,
+      [crossTenant.rows[0]!.id, unrelated.rows[0]!.id]
+    );
+    assert.deepEqual(crossTenantState.rows, [{ exact_revoked: true, unrelated_live: true }]);
   });
 
   it("refuses a retired pinned candidate without changing the old binding or routability", async () => {

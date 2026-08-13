@@ -101,55 +101,8 @@ export async function preflightRecoverExpiredReviewerCleanup(
             AND live_assignment.expires_at > now()
         )
         AND NOT EXISTS (
-          SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
-          WHERE credential.tenant_id = tenant.id AND credential.revoked_at IS NULL
-            AND credential.expires_at > now()
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_sessions AS session
-          WHERE session.tenant_id = tenant.id AND session.revoked_at IS NULL
-            AND session.expires_at > now()
-        )
-        AND NOT EXISTS (
           SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
           WHERE authority.state = 'active' AND authority.expires_at > now()
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_authorization_transactions AS transaction
-          JOIN exomem_sessions AS session ON session.id = transaction.redeemed_session_id
-          WHERE session.tenant_id = tenant.id AND transaction.consumed_at IS NULL
-            AND transaction.expires_at > now()
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_grants AS grant_row
-          WHERE grant_row.tenant_id = tenant.id AND grant_row.revoked_at IS NULL
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_authorization_codes AS code
-          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = code.grant_id
-          WHERE code.consumed_at IS NULL AND code.expires_at > now()
-            AND (grant_row.tenant_id = tenant.id
-                 OR (code.candidate_id = source.target_candidate_id
-                     AND code.assignment_id = source.target_assignment_id
-                     AND code.assignment_generation = source.target_assignment_generation))
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_token_families AS family
-          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = family.grant_id
-          WHERE family.revoked_at IS NULL AND family.expires_at > now()
-            AND (grant_row.tenant_id = tenant.id
-                 OR (family.candidate_id = source.target_candidate_id
-                     AND family.assignment_id = source.target_assignment_id
-                     AND family.assignment_generation = source.target_assignment_generation))
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_access_tokens AS token
-          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = token.grant_id
-          WHERE token.revoked_at IS NULL AND token.expires_at > now()
-            AND (grant_row.tenant_id = tenant.id
-                 OR (token.candidate_id = source.target_candidate_id
-                     AND token.assignment_id = source.target_assignment_id
-                     AND token.assignment_generation = source.target_assignment_generation))
         )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_lifecycle_operations AS conflicting
@@ -247,40 +200,8 @@ export async function recoverExpiredReviewerCleanup(
           AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
                           WHERE live_assignment.tenant_id = source.tenant_id AND live_assignment.state = 'active'
                             AND live_assignment.expires_at > now())
-          AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
-                          WHERE credential.tenant_id = source.tenant_id AND credential.revoked_at IS NULL
-                            AND credential.expires_at > now())
-          AND NOT EXISTS (SELECT 1 FROM exomem_sessions AS session WHERE session.tenant_id = source.tenant_id
-                          AND session.revoked_at IS NULL AND session.expires_at > now())
           AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
                           WHERE authority.state = 'active' AND authority.expires_at > now())
-          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_authorization_transactions AS transaction
-                          JOIN exomem_sessions AS session ON session.id = transaction.redeemed_session_id
-                          WHERE session.tenant_id = source.tenant_id AND transaction.consumed_at IS NULL
-                            AND transaction.expires_at > now())
-          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_grants AS grant_row WHERE grant_row.tenant_id = source.tenant_id
-                          AND grant_row.revoked_at IS NULL)
-          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_authorization_codes AS code
-                          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = code.grant_id
-                          WHERE code.consumed_at IS NULL AND code.expires_at > now()
-                            AND (grant_row.tenant_id = source.tenant_id
-                                 OR (code.candidate_id = source.target_candidate_id
-                                     AND code.assignment_id = source.target_assignment_id
-                                     AND code.assignment_generation = source.target_assignment_generation)))
-          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_token_families AS family
-                          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = family.grant_id
-                          WHERE family.revoked_at IS NULL AND family.expires_at > now()
-                            AND (grant_row.tenant_id = source.tenant_id
-                                 OR (family.candidate_id = source.target_candidate_id
-                                     AND family.assignment_id = source.target_assignment_id
-                                     AND family.assignment_generation = source.target_assignment_generation)))
-          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_access_tokens AS token
-                          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = token.grant_id
-                          WHERE token.revoked_at IS NULL AND token.expires_at > now()
-                            AND (grant_row.tenant_id = source.tenant_id
-                                 OR (token.candidate_id = source.target_candidate_id
-                                     AND token.assignment_id = source.target_assignment_id
-                                     AND token.assignment_generation = source.target_assignment_generation)))
           AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
                           WHERE conflicting.tenant_id = source.tenant_id
                             AND conflicting.fence_generation = source.tenant_fence_generation
@@ -328,7 +249,15 @@ export async function recoverExpiredReviewerCleanup(
         RETURNING authority.id
       ), oauth_grants_revoked AS (
         UPDATE exomem_oauth_grants AS grant_row SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
-        FROM tenant_gated WHERE grant_row.tenant_id = tenant_gated.id RETURNING grant_row.id, grant_row.authorization_transaction_id
+        WHERE grant_row.tenant_id IN (SELECT id FROM tenant_gated)
+           OR EXISTS (
+             SELECT 1 FROM source
+             JOIN tenant_gated ON tenant_gated.id = source.tenant_id
+             WHERE grant_row.candidate_id = source.target_candidate_id
+               AND grant_row.assignment_id = source.target_assignment_id
+               AND grant_row.assignment_generation = source.target_assignment_generation
+           )
+        RETURNING grant_row.id, grant_row.authorization_transaction_id
       ), oauth_codes_consumed AS (
         UPDATE exomem_oauth_authorization_codes AS code SET consumed_at = COALESCE(code.consumed_at, now())
         WHERE code.grant_id IN (SELECT id FROM oauth_grants_revoked) RETURNING code.id
