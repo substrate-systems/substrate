@@ -61,6 +61,7 @@ function storedExport(overrides: Partial<OwnerExportPrivate> = {}): OwnerExportP
     tenantId: TENANT,
     cellId: CELL,
     fenceGeneration: 1,
+    provisionerWireProtocol: "exomem-cell-provisioner.v1",
     storageReferenceEnvelope: encryptSecret(reference, {
       key: Buffer.alloc(32, 0x31),
       randomBytes: (size) => Buffer.alloc(size, 0x32),
@@ -191,6 +192,7 @@ describe("owner Exomem durability workflows", () => {
             cell_id: CELL,
             operation_id: "018f2d91-7c42-7000-8000-000000000085",
             request_id: "018f2d91-7c42-7000-8000-000000000086",
+            provisioner_wire_protocol: "exomem-cell-provisioner.v2",
             created_at: "2026-07-12T12:00:00.000Z",
             error_code: null,
             export_state: "available",
@@ -210,6 +212,7 @@ describe("owner Exomem durability workflows", () => {
     assert.equal(summaries[0]?.state, "processing");
     const detail = await getOwnerExport(USER, TENANT, EXPORT);
     assert.equal(detail?.fenceGeneration, 7);
+    assert.equal(detail?.provisionerWireProtocol, "exomem-cell-provisioner.v2");
     assert.match(queries[0] ?? "", /export_row\.expires_at > now\(\)/);
     assert.match(queries[1] ?? "", /export_row\.expires_at > now\(\)/);
     assert.match(queries[1] ?? "", /tenant\.fence_generation/);
@@ -247,12 +250,14 @@ describe("owner Exomem durability workflows", () => {
 
   it("issues a short-lived download only after an owner-scoped available lookup", async () => {
     let called = false;
+    let protocol = "";
     const result = await ownerExportDownload(
       { userId: USER, tenantId: TENANT, exportId: EXPORT },
       {
-        getExport: async () => storedExport(),
-        createDownload: async () => {
+        getExport: async () => storedExport({ provisionerWireProtocol: "exomem-cell-provisioner.v2" }),
+        createDownload: async (record) => {
           called = true;
+          protocol = record.provisionerWireProtocol;
           return {
             url: new URL("https://download.invalid/signed-once"),
             expiresAt: new Date("2099-07-12T12:05:00.000Z"),
@@ -262,6 +267,7 @@ describe("owner Exomem durability workflows", () => {
     );
 
     assert.equal(called, true);
+    assert.equal(protocol, "exomem-cell-provisioner.v2");
     assert.equal(result.url.hostname, "download.invalid");
   });
 

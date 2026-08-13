@@ -88,6 +88,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_PROVISIONER_ENDPOINT`                                                    | Private HTTPS base URL implementing the provisioner contract. URLs containing credentials or using HTTP are rejected.                                                                                                                                                                                                |
 | `EXOMEM_PROVISIONER_CREDENTIAL`                                                  | At least 32 characters; authenticates Substrate to the provisioner.                                                                                                                                                                                                                                                  |
 | `EXOMEM_PROVISIONER_TIMEOUT_MS`                                                  | Optional `100..30000`; default `5000`.                                                                                                                                                                                                                                                                               |
+| `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED`                                         | Leave absent or `false` in every shipped environment. Only trimmed, case-normalized `true` selects v2 for a newly inserted lifecycle operation after the reviewed D1 expand proof. Existing operations always retain their persisted outer wire protocol through retries and restarts. |
 | `EXOMEM_CF_ACCESS_CLIENT_ID`, `EXOMEM_CF_ACCESS_CLIENT_SECRET`                   | Active Cloudflare Access service-token pair used only by Vercel for the private provisioner and cell-control hostname. Production fails closed if either half is absent.                                                                                                                                             |
 | `EXOMEM_CF_ACCESS_CLIENT_ID_PREVIOUS`, `EXOMEM_CF_ACCESS_CLIENT_SECRET_PREVIOUS` | Optional complete previous Access pair during a bounded receiver overlap. Never configure only one half.                                                                                                                                                                                                             |
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                         |
@@ -446,7 +447,17 @@ Every call is `POST {EXOMEM_PROVISIONER_ENDPOINT}/cells/{action}` with:
 
 - `Authorization: Bearer <EXOMEM_PROVISIONER_CREDENTIAL>`;
 - `Idempotency-Key: <operation/checkpoint key>`; and
-- `X-Exomem-Provisioner-Protocol: exomem-cell-provisioner.v1`.
+- `X-Exomem-Provisioner-Protocol`, selected only from the lifecycle operation's
+  persisted outer provisioner wire protocol.
+
+The outer provisioner wire protocol is independent from the inner Hosted
+runtime protocol. The v2 wire still targets Hosted runtime protocol `1` and
+the existing private `/private/exomem/v1/...` routes. v1 remains the deployed
+default. A newly created operation uses v2 only when
+`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED` is exactly trimmed, case-normalized
+`true`; missing, empty, malformed, and false values all select v1. Do not turn
+the flag on until the D1 dual-serving expand proof and its reviewed lock pair
+are live.
 
 Actions are `provision`, `health`, `rotate-credential`, `quiesce`, `resume`,
 `stop`, `export`, `export-release`, `export-download`, `export-delete`, `restore`,
@@ -454,17 +465,31 @@ Actions are `provision`, `health`, `rotate-credential`, `quiesce`, `resume`,
 the same idempotency key and input must converge to the same result; reusing a
 key with different input must fail.
 
-The checked Python/TypeScript interoperability corpus has SHA-256
-`ffab7d04c03b261523738087bd22a1a2a24bccc6b0492b8d3973863015dea315`.
-It exercises the real `HttpCellProvisioner` serializer/parser for all 14
-requests, exact pending responses, every final proof (including void results),
-and every content-free server error class. Regenerate it from the companion IaC
-repository; do not hand-edit either copy.
+The v1 Python/TypeScript interoperability corpus is byte-frozen at SHA-256
+`ced714a5aa204a837e22cab831262cc0ae4766e44720b2896e61b8c157ddd3b5`.
+The separate v2 corpus is SHA-256
+`fe4daf1b190e8e4efc737a7197d8df73c28a8672bd8e331fc95dcabf339e0881`.
+Together they exercise the real `HttpCellProvisioner` serializer/parser for all
+14 requests, exact pending responses, every final proof (including void
+results), and every content-free server error class. Regenerate only from the
+companion Exomem source; do not hand-edit either copy.
 
 `health` is binding proof, not a generic 200. It must return the expected cell
 ID, protocol, release, authenticated-service state, mutation authority, read and
-write admissions, and exact worker policy. Substrate does not bind or route a
-candidate that fails any field.
+write admissions, and exact worker policy. For v2 it must additionally return
+exactly the six-field `runtimeIdentity`: releaseVersion, protocolVersion, fixed
+supported agentProfile, gatewayContractDigest, commandFingerprint, and
+schemaDigest. Gateway, command, and schema observations are runtime evidence;
+compatibility remains a local immutable catalog binding and is never accepted
+from health. Substrate does not bind or route a candidate that fails any field.
+
+Cell-scoped v2 calls carry a `runtimeTarget` constructed solely from that
+operation's persisted target snapshot. Candidate IDs, assignment IDs,
+compatibility digests, package/archive locks, plugin provenance, OAuth metadata,
+and image references are never sent. `export-download`, `export-delete`, and
+tenant `destroy` retain the operation's persisted wire protocol but are
+target-free. Destructive cleanup/recovery must not manufacture or require live
+readiness evidence.
 
 The outer provisioner wire protocol is durably recorded on every lifecycle
 operation. The deployed consumer currently accepts only the exact strict-v1
@@ -716,6 +741,18 @@ the reviewer-purpose tenant; expiry and versioned failure are terminal and
 revoke dependent internal-canary lineage. `begin-export` and `begin-restore`
 pin server-selected lifecycle targets under the cohort lock; restore accepts an
 available export ID, never caller-supplied cell or contract identity.
+
+Contraction is an immutable contract-lock deployment, not an environment-flag
+flip. Before it, read `contractionReadiness` from that status view. It contains
+only `unfinishedV1Operations`, `retainedV1Exports`, and `ready`:
+`unfinishedV1Operations` counts stored-v1 lifecycle operations except
+`succeeded` and `failed_terminal`; `retainedV1Exports` counts every non-deleted
+export whose originating lifecycle operation stored v1. Do not deploy the
+contract lock until both counts are zero. This includes v1-origin export download
+and export-GC continuations: a completed export operation can still require the
+v1 provisioner until its retained export is deleted. Keep expand mode until both
+counts are zero; never rewrite a stored protocol to make the status appear
+drained.
 
 Emergency demotion stops a live unit; it is not rollback. Forward rollback
 imports a retained coherent 0.34.0, 0.35.0, or 0.39.2 catalog release as a new pending

@@ -238,6 +238,35 @@ async function seedCohort(): Promise<Cohort> {
     ]
   );
   const candidateId = candidate.rows[0]!.id;
+  const catalogOwner = await pool!.query<{ id: string }>(
+    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    [`paired-catalog-${randomUUID()}@example.test`]
+  );
+  const catalogTenant = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_tenants (owner_user_id, status, desired_state, legacy_unmetered)
+     VALUES ($1, 'active', 'running', true) RETURNING id`,
+    [catalogOwner.rows[0]!.id]
+  );
+  const catalogCell = await pool!.query<{ id: string }>(
+    `INSERT INTO exomem_cells (
+       tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+       readiness_code, observed_gateway_contract_digest, observed_command_fingerprint,
+       observed_schema_digest, observed_compatibility_digest
+     ) VALUES ($1, 'active', 'bound', 'running', '1', $2, 'CELL_READY', $3, $4, $5, $6)
+     RETURNING id`,
+    [
+      catalogTenant.rows[0]!.id,
+      exomemHostedContractFixture.sourceRelease,
+      sha("8"),
+      exomemHostedContractFixture.compatibility.command_surface_sha256,
+      exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      exomemHostedContractFixture.compatibility.compatibility_sha256,
+    ]
+  );
+  await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+    catalogCell.rows[0]!.id,
+    catalogTenant.rows[0]!.id,
+  ]);
   for (const [platform, lock] of [
     ["claude", claudeLock],
     ["openai", { ...openaiPackage, archive_sha256: openaiArchive.archive_sha256 }],
@@ -645,12 +674,14 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       }),
     });
     let privateRoutes = 0;
-    const baseline = await Promise.all([
-      count("exomem_tenants"),
-      count("exomem_capacity_allocations"),
-      count("exomem_lifecycle_operations"),
-      count("exomem_cells"),
-    ]);
+    const baseline = {
+      users: await count("users"),
+      tenants: await count("exomem_tenants"),
+      entitlements: await count("exomem_entitlements"),
+      allocations: await count("exomem_capacity_allocations"),
+      operations: await count("exomem_lifecycle_operations"),
+      cells: await count("exomem_cells"),
+    };
     const { GET: protectedResourceMetadata } =
       await import("../../../app/.well-known/oauth-protected-resource/api/exomem/mcp/v1/route");
     const { GET: authorizationServerMetadata } =
@@ -683,7 +714,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         count("exomem_lifecycle_operations"),
         count("exomem_cells"),
       ]),
-      baseline
+      [baseline.tenants, baseline.allocations, baseline.operations, baseline.cells]
     );
 
     const code = mintAuthorizationCode({
@@ -698,23 +729,27 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       "exomem.read",
       "offline_access",
     ]);
-    const admitted = await admitFirstOAuthInviteAtomic({
-      inviteDigest: digest(11),
-      transactionDigest: digest(12),
-      sessionDigest: digest(13),
-      csrfDigest: digest(14),
-      sessionExpiresAt: new Date(Date.now() + 60_000),
-      codeDigest: code.codeDigest,
-      codeExpiresAt: code.record.expiresAt,
-    });
+    const previousV2Issuance = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    const admitted = await (async () => {
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+      try {
+        return await admitFirstOAuthInviteAtomic({
+          inviteDigest: digest(11),
+          transactionDigest: digest(12),
+          sessionDigest: digest(13),
+          csrfDigest: digest(14),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+          codeDigest: code.codeDigest,
+          codeExpiresAt: code.record.expiresAt,
+        });
+      } finally {
+        if (previousV2Issuance === undefined)
+          delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+        else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previousV2Issuance;
+      }
+    })();
     assert.ok(admitted);
     if (!admitted) throw new Error("first OAuth admission was rejected");
-    await pool!.query(
-      `UPDATE exomem_lifecycle_operations
-       SET provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
-       WHERE id = $1`,
-      [admitted.operationId]
-    );
     ownerId = (
       await pool!.query<{ owner_user_id: string }>(
         "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
@@ -729,7 +764,13 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         count("exomem_capacity_allocations"),
         count("exomem_lifecycle_operations"),
       ]),
-      [1, 1, 1, 1, 1]
+      [
+        baseline.users + 1,
+        baseline.tenants + 1,
+        baseline.entitlements + 1,
+        baseline.allocations + 1,
+        baseline.operations + 1,
+      ]
     );
     assert.deepEqual(
       (
@@ -751,7 +792,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         [admitted.tenantId]
       )
     ).rows[0]!.bound_cell_id;
-    assert.equal(await count("exomem_cells"), 1);
+    assert.equal(await count("exomem_cells"), baseline.cells + 1);
     assert.deepEqual((await pool!.query("SELECT state FROM exomem_capacity_allocations")).rows[0], {
       state: "occupied",
     });
@@ -765,7 +806,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     );
     assert.deepEqual(
       await loadOwnerInstallActions(
-        (await pool!.query("SELECT owner_user_id FROM exomem_tenants")).rows[0].owner_user_id,
+        ownerId,
         admitted.tenantId
       ),
       [
@@ -803,7 +844,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       clientId: claudeIssued.clientId,
       resource: claudeIssued.resource,
       scopes: claudeIssued.scopes,
-      userId: (await pool!.query("SELECT owner_user_id FROM exomem_tenants")).rows[0].owner_user_id,
+      userId: ownerId,
       tenantId: admitted.tenantId,
     });
     const dependencies = {
@@ -911,7 +952,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
         count("exomem_cells"),
         count("exomem_lifecycle_operations"),
       ]),
-      [1, 1, 1]
+      [baseline.allocations + 1, baseline.cells + 1, baseline.operations + 1]
     );
     assert.equal(
       (

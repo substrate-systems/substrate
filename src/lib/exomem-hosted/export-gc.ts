@@ -5,6 +5,7 @@ import {
   ProvisionerFailure,
   provisionerConfigFromEnv,
   type CellProvisioner,
+  type ProvisionerWireProtocol,
 } from "./provisioner";
 import { decryptSecret, type SecretEnvelope } from "./security";
 
@@ -12,6 +13,7 @@ export type ExportGcCandidate = {
   exportId: string;
   tenantId: string;
   fenceGeneration: number;
+  provisionerWireProtocol: ProvisionerWireProtocol;
   storageReferenceEnvelope: SecretEnvelope;
 };
 
@@ -35,9 +37,12 @@ export class SqlExportGcStore implements ExportGcStore {
     const { rows } = await executeExomemSql`
       /* exomem:export-gc-claim */
       WITH candidate AS (
-        SELECT export_row.id
+        SELECT export_row.id, operation.provisioner_wire_protocol
         FROM exomem_exports AS export_row
         JOIN exomem_tenants AS tenant ON tenant.id = export_row.tenant_id
+        JOIN exomem_lifecycle_operations AS operation
+          ON operation.id = export_row.operation_id
+         AND operation.tenant_id = export_row.tenant_id
         WHERE tenant.desired_state <> 'deleted'
           AND export_row.gc_next_attempt_at <= now()
           AND (
@@ -68,6 +73,7 @@ export class SqlExportGcStore implements ExportGcStore {
       RETURNING export_row.id AS export_id,
                 export_row.tenant_id,
                 export_row.storage_reference_ciphertext,
+                candidate.provisioner_wire_protocol,
                 tenant.fence_generation
     `;
     const row = rows[0];
@@ -76,6 +82,7 @@ export class SqlExportGcStore implements ExportGcStore {
       exportId: String(row.export_id),
       tenantId: String(row.tenant_id),
       fenceGeneration: Number(row.fence_generation),
+      provisionerWireProtocol: String(row.provisioner_wire_protocol) as ProvisionerWireProtocol,
       storageReferenceEnvelope: asEnvelope(row.storage_reference_ciphertext),
     };
   }
@@ -169,6 +176,7 @@ export async function runExportGc(input: {
         exportRef: decryptSecret(candidate.storageReferenceEnvelope, {
           key: input.envelopeKey,
         }),
+        provisionerWireProtocol: candidate.provisionerWireProtocol,
       });
       if (proof.objectDestroyed !== true) {
         throw new ProvisionerFailure({

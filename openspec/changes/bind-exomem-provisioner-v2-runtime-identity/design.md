@@ -36,9 +36,9 @@ The client retains one normalized internal lifecycle target but uses separate cl
 
 V2 retains every existing action-specific context, credential, worker-policy, provider-reference, pending, and non-health final field, replacing only the legacy top-level release/protocol identity on cell-scoped calls with `runtimeTarget`. The context-only `export-delete`, `export-download`, and tenant `destroy` calls use explicit target-free v2 codecs. V2 health retains the existing liveness, readiness, cell, authentication, admission, policy, and reason fields while replacing flattened release/protocol identity with the six fields under `runtimeIdentity`. The parser does not inspect body shape to guess a protocol and never accepts a flat v1 response to a v2 request or vice versa. The fake provisioner includes both the stored protocol and canonical envelope in its idempotency identity.
 
-### Migration 0037 stores only the outer discriminator
+### Migration 0045 widens the outer discriminator
 
-Migration 0037 adds `provisioner_wire_protocol` to the lifecycle-operation table, backfills and server-defaults existing rows to `exomem-cell-provisioner.v1`, constrains the two exact supported literals, and makes the selection immutable. It requires every v2 lifecycle operation row to carry a complete existing target snapshot except the narrow case of a `delete` operation whose tenant has no cell and whose only provisioner action is target-free tenant `destroy`; that row retains immutable tenant/fence/idempotency/protocol audit identity and MUST NOT be assigned an unrelated live candidate. The migration creates no provider action, assignment, OAuth state, candidate promotion, or duplicate identity column.
+Migration 0039 adds `provisioner_wire_protocol` to the lifecycle-operation table, backfills and server-defaults existing rows to `exomem-cell-provisioner.v1`, and makes the selection immutable. Migration 0045 widens that existing constraint to the two exact supported literals and requires every v2 lifecycle operation row to carry a complete existing target snapshot except the narrow case of a `delete` operation whose tenant has no cell and whose only provisioner action is target-free tenant `destroy`; that row retains immutable tenant/fence/idempotency/protocol audit identity and MUST NOT be assigned an unrelated live candidate. Migration 0045 creates no provider action, assignment, OAuth state, candidate promotion, duplicate identity column, or replacement immutable trigger.
 
 The v1 default is permanent so old rows and rolling binaries remain compatible. New code explicitly writes v2 only when creating a new operation after the gate is enabled. For every new v2 operation that has a cell, the same creation transaction also fills the existing migration 0036 target columns from the authoritative candidate/assignment or currently bound-cell catalog state. A no-cell tenant deletion records the narrow target-free exception. Reconciler retries always load the stored discriminator and target/exception; they do not evaluate the flag or process release configuration again.
 
@@ -80,8 +80,15 @@ The operational order is:
 3. Prove every cataloged legacy v1 unit plus a synthetic v2 request/health round trip.
 4. Deploy this Substrate migration and consumer with v2 issuance disabled.
 5. Enable v2 for new operations; existing operations retain stored v1.
-6. Prove no new v1 work, drain or audit persisted v1 operations, then deploy the reviewed contract lock.
-7. Canary a fresh v2 lifecycle through readiness, binding, activation, and promotion.
+6. Keep the reviewed expand lock until the content-free operator contraction
+   readiness view reports both `unfinishedV1Operations = 0` and
+   `retainedV1Exports = 0`. The first counts stored-v1 operations excluding
+   `succeeded` and `failed_terminal`; the second counts all non-deleted exports
+   whose origin operation stored v1. This deliberately retains v1-origin export
+   download and export-GC continuations after their export operation completes.
+   Do not rewrite a stored protocol to satisfy either count.
+7. Deploy the reviewed contract lock only after that drain proof.
+8. Canary a fresh v2 lifecycle through readiness, binding, activation, and promotion.
 
 Rollback is not a flag flip for in-flight work. Before acceptance, the exact D0 image, actual pre-D1 manifest, last-known-good Substrate commit, frozen corpus, and both upgraded schemas pass an executable rehearsal. Rollback then uses only that tuple after admission stops, both systems prove no non-final v2 operation exists, and remaining cells/operations match its one legacy unit.
 
@@ -104,7 +111,7 @@ Rollback is not a flag flip for in-flight work. Before acceptance, the exact D0 
 
 1. Land the paired Exomem and Substrate specifications.
 2. Add protocol codecs and tests while v2 issuance remains off.
-3. Apply migration 0037 and deploy the consumer with the flag absent/false.
+3. Apply migration 0045 and deploy the consumer with the flag absent/false.
 4. Follow the exact expand/contract sequence after D1, its authoritative legacy catalog, and the reviewed phase-lock pair are verified.
 5. Keep the migration additive and the v1 default permanent for rollback compatibility.
 
