@@ -600,7 +600,11 @@ Call `POST /api/exomem/admin/contracts` with exactly one of these bodies,
 first the preflight and then one recovery request:
 
 ```json
-{ "action": "preflight-recover-terminal-reviewer-delete", "operationId": "<uuid>", "expectedFence": 2 }
+{
+  "action": "preflight-recover-terminal-reviewer-delete",
+  "operationId": "<uuid>",
+  "expectedFence": 2
+}
 ```
 
 ```json
@@ -627,12 +631,12 @@ After one bounded reconcile, verify that the same operation is
 released by the normal finalizer, all live authority is scrubbed, and the
 consumed bootstrap invite plus revoked outcome session remain retained.
 
-After the one invocation, run a bounded authenticated
-`/api/cron/exomem-reconcile` pass until that higher-fence delete records all
-provider DESTROY proofs (`computeDestroyed`, `storageDestroyed`, and
-`keysDestroyed`) and the control plane marks the tenant deleted. Verify the
-capacity allocation changed to `released` only through that provider-verified
-completion; no hand-edited capacity state or empty provider lookup is proof.
+After the one invocation, run one bounded authenticated
+`/api/cron/exomem-reconcile` pass. It resumes only the current local finalizer
+from the already-persisted `destroyed` checkpoint and makes zero provider calls.
+Verify the same operation is `succeeded/destroyed`, the tenant and cells are
+deleted, uncertain capacity was released by that finalizer, and the consumed
+bootstrap invite plus revoked outcome session remain retained.
 Only then resume normal scheduling, prepare a fresh staged candidate and a
 fresh reviewer bootstrap, and issue fresh reviewer authority. Never reopen the
 expired source operation or reuse its client, credential, assignment, or
