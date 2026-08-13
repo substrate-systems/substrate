@@ -1,7 +1,8 @@
 # Exomem Hosted Alpha — Operator Runbook
 
-This runbook covers Exomem Hosted, now open to self-serve purchase and gated
-on capacity rather than on invitations. Substrate is the
+This runbook covers the friends-only Exomem Hosted v1 alpha. Public visitors
+may express interest, but only authenticated operators issue invitations.
+Paddle checkout and public self-serve/v2 admission remain disabled. Substrate is the
 public account, entitlement, routing, and lifecycle control plane. Every tenant
 is routed to one private Exomem cell with its own vault, state, logs, service
 credential, and provider resource. A cell never receives email, browser
@@ -24,28 +25,16 @@ Complimentary access does **not** require Paddle or a price. Every route does re
    and
 6. a two-cell isolation/export/deletion drill before a real invite is sent.
 
-The friends-tier sandbox lifecycle is approved and drilled. Live paid launch was
-gated on four conditions; three are now closed and one remains an operator step:
+Public launch remains deferred. Do not enable a Hosted Paddle catalog or checkout
+for this alpha. Existing paid records retain their normal reconciliation and
+cancellation paths; they are not authority to admit a new public visitor.
 
-- **Public price** — closed. €12/month founder price, stated on `/exomem` with
-  matching `Service` structured data, and disclosed as time-limited with existing
-  subscriptions keeping their rate.
-- **Terms/tax review** — closed. The terms cover renewal, cancellation, the EU
-  consumer right of withdrawal, and Paddle as merchant of record; Paddle handles
-  VAT as merchant of record.
-- **Checkout domain** — closed. Checkout returns to `EXOMEM_PUBLIC_BASE_URL`,
-  validated by `parseExomemPublicBaseUrl`.
-- **Live webhook + catalog** — **open, operator action.** `paidCheckoutEnabled`
-  stays false until `EXOMEM_PADDLE_PRODUCT_ID` and `EXOMEM_PADDLE_PRICE_ID` are
-  set in production. No code change makes checkout work without them.
-
-Signup is self-serve and capacity-gated: `POST /api/exomem/access/request`
-admits a visitor and emails a setup link when the pool has headroom, and
-waitlists them when it does not. Admission is decided before any payment surface
-appears, so the pool's configured capacity is now a commercial limit as well as
-an operational one — raising it admits more buyers, and leaving it low queues
-them. An unconfigured pool waitlists everybody, which is the intended
-fail-closed behaviour rather than an outage.
+Public interest is captured at `POST /api/exomem/interest`; the former
+`POST /api/exomem/access/request` endpoint returns `410 Gone` and must not
+consult capacity or create invites. Issue cohort and reviewer invites only through
+the authenticated operator endpoints. Migration `0038_exomem_self_serve_admission.sql`
+and existing rows remain historical records; do not edit, reverse, or reuse them
+to open admission.
 
 The pinned compatibility, schema-contract, and command-surface digests are
 `6da6c697c7720b2178d753299ced98f93f440134c2cbcc0fa7d741f3680d5d9c`,
@@ -388,58 +377,31 @@ storage credentials. It must store exports under an opaque tenant scope using
 envelope AES-256-GCM, verify archive and manifest SHA-256 values, and return only
 the opaque reference and integrity metadata described below.
 
-### Optional Paddle sandbox configuration
+### Existing Paddle transaction recovery and reconciliation
 
-Paddle is an operator/billing adapter, never a cell runtime dependency. The
-sandbox product created for this change is `pro_01kxatbjfrehbp0sxbjefcacqs`.
-Keep `EXOMEM_PADDLE_PRICE_ID` unset for complimentary alpha; that makes paid
-checkout fail closed while Home and every memory operation continue to work.
+Paddle is an operator/billing adapter, never a cell runtime dependency. During
+this friends-only alpha, it exists only to reconcile, cancel, and recover
+transactions or subscriptions that already have a stored, tenant-bound provider
+reference. New Exomem checkout remains disabled regardless of Paddle,
+catalog, price, browser-token, or payment-link configuration. Do not use any
+configuration change to create a transaction or reopen a public offer.
 
-The approved friends price is `pri_01kxd05eg20ezcy2ecvrcwv3a6`: **EUR 5 per
-month**, quantity one. The future public tier is intentionally not in the
-catalog yet; choose its exact price within the EUR 10–15 range before creating
-it rather than overloading the friends price.
+An existing transaction return is accepted only when its exact transaction ID
+and provider environment are already bound to the authenticated owner. Home may
+complete that recovery path; it must not offer a new checkout action. A settled
+or canceled return clears or promotes only the recorded binding, and never
+creates a replacement transaction. Keep the stored environment and merchant API
+access available until every existing transaction and paid subscription is
+resolved.
 
-| Variable                            | Complimentary alpha                       | Friends paid sandbox                         |
-| ----------------------------------- | ----------------------------------------- | -------------------------------------------- |
-| `PADDLE_ENVIRONMENT`                | optional                                  | `sandbox`                                    |
-| `PADDLE_API_KEY`                    | optional                                  | sandbox API key                              |
-| `PADDLE_WEBHOOK_SECRET`             | optional unless shared webhook is enabled | active destination's endpoint secret         |
-| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`   | optional                                  | token from `exomem-hosted-sandbox`           |
-| `NEXT_PUBLIC_PADDLE_ENVIRONMENT`    | optional                                  | `sandbox`                                    |
-| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT` | optional                                  | `sandbox`                                    |
-| `EXOMEM_PADDLE_PRODUCT_ID`          | optional                                  | `pro_01kxatbjfrehbp0sxbjefcacqs`             |
-| `EXOMEM_PADDLE_PRICE_ID`            | **unset**                                 | `pri_01kxd05eg20ezcy2ecvrcwv3a6`             |
-| `EXOMEM_PUBLIC_BASE_URL`            | required for normal hosted access         | required; checkout returns to `/exomem/home` |
-
-Sandbox and production identifiers are never interchangeable. The adapter
-checks the API-key prefix, selected environment, catalog environment, product,
-price, and public origin before creating a transaction. It sends an explicit
-checkout URL derived from `EXOMEM_PUBLIC_BASE_URL`; Home removes the returned
-`_ptxn` from browser history and opens Paddle.js only after an authenticated,
-CSRF-protected server check proves that exact transaction is still bound to the
-owner's tenant and provider environment. Until Paddle.js actually opens, Home
-keeps that exact candidate only in session storage; transient validation or
-Paddle initialization failures show retry/dismiss controls, and retry performs
-the authenticated check again. A terminal completed or canceled return needs
-only the stored environment plus merchant API access, so catalog, browser-token,
-or return-origin rotation cannot strand it. A draft or ready return still needs
-the complete current checkout configuration and exact catalog/URL match. Paddle still requires an approved
-account-level default payment link before its transaction API will issue a
-checkout URL. The sandbox default payment link and public checkout domain are
-configured and were exercised successfully; configure and verify the equivalent
-live link before enabling a live price.
-
-For an active paid environment, extend the existing shared Paddle destination
-at `$EXOMEM_PUBLIC_BASE_URL/api/webhooks/paddle`; do not create a second
-destination with a different secret. Preserve its endpoint secret in
-`PADDLE_WEBHOOK_SECRET` and add `transaction.completed` plus subscription
-`created`, `activated`, `updated`, `past_due`, `paused`, `resumed`, and
-`canceled` to its complete event list. A coordinated secret rotation must update
-the destination and deployment together or existing Endstate deliveries will
-fail verification. Provider customer, subscription, transaction, product, and
-price IDs stay in Substrate's control-plane tables; they are never forwarded to
-a tenant cell.
+For existing paid records, preserve the shared Paddle destination at
+`$EXOMEM_PUBLIC_BASE_URL/api/webhooks/paddle`, its `PADDLE_WEBHOOK_SECRET`, and
+the `transaction.completed` plus subscription `created`, `activated`, `updated`,
+`past_due`, `paused`, `resumed`, and `canceled` events. A coordinated secret
+rotation must update the destination and deployment together or existing
+deliveries will fail verification. Provider customer, subscription, transaction,
+product, and price IDs stay in Substrate's control-plane tables; they are never
+forwarded to a tenant cell.
 
 ## Provisioner contract
 
@@ -822,12 +784,12 @@ cell on the prior compatible image, restore into an empty volume, require full
 readiness, then atomically swap the binding. Keep the prior cell sealed but not
 destroyed until the replacement passes recall and sentinel-isolation checks.
 
-Paddle rollback disables new checkout by removing `EXOMEM_PADDLE_PRICE_ID` and
-redeploying. Keep the matching Paddle API, product, and environment configuration
-until every existing transaction and paid subscription is terminated; portal,
-reconciliation, and deletion deliberately fail closed if that configuration is
-removed too early. Existing internal entitlements and complimentary accounts
-continue normal memory operations without a Paddle request.
+Paddle rollback keeps new checkout disabled. Keep the matching Paddle API,
+product, and environment configuration until every existing transaction and paid
+subscription is terminated; portal, reconciliation, and deletion deliberately
+fail closed if that configuration is removed too early. Existing internal
+entitlements and complimentary accounts continue normal memory operations without
+a Paddle request.
 
 ## Honest privacy and ownership boundary
 

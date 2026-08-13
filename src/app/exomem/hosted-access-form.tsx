@@ -7,17 +7,9 @@ const STD_EASE = "cubic-bezier(0.33,1,0.68,1)";
 
 const isValidEmail = (v: string) => v.indexOf("@") >= 1 && v.indexOf(".") > v.indexOf("@");
 
-type Outcome = { kind: "idle" } | { kind: "admitted" } | { kind: "waitlisted"; position: number };
+type Outcome = { kind: "idle" } | { kind: "submitted" };
 
-/**
- * Self-serve admission. Replaces the friends-cohort interest form: capacity, not
- * an operator, decides, and the visitor is told which answer they got before any
- * payment surface appears.
- *
- * There is deliberately no price or checkout in this component. Admission is
- * settled first, and the setup link carries the buyer onward — a visitor who
- * cannot be provisioned must never reach a charge.
- */
+/** Friends-only alpha interest capture; invitation remains operator-issued. */
 export default function HostedAccessForm() {
   const [email, setEmail] = useState("");
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
@@ -34,21 +26,18 @@ export default function HostedAccessForm() {
   const request = async () => {
     const value = email.trim();
     if (!isValidEmail(value)) {
-      setHint("Enter a valid email — your setup link is sent there.");
+      setHint("Enter a valid email to express interest.");
       return;
     }
     setPending(true);
     setHint("");
     try {
-      const response = await fetch("/api/exomem/access/request", {
+      const response = await fetch("/api/exomem/interest", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: value }),
       });
-      const body = (await response.json().catch(() => null)) as {
-        status?: string;
-        position?: number;
-      } | null;
+      const body = (await response.json().catch(() => null)) as { ok?: boolean } | null;
       if (!response.ok || !body) {
         setHint(
           response.status === 429
@@ -57,11 +46,7 @@ export default function HostedAccessForm() {
         );
         return;
       }
-      if (body.status === "waitlisted") {
-        setOutcome({ kind: "waitlisted", position: body.position ?? 1 });
-        return;
-      }
-      setOutcome({ kind: "admitted" });
+      setOutcome({ kind: "submitted" });
     } catch {
       setHint("We couldn’t complete that. Please try again.");
     } finally {
@@ -70,7 +55,6 @@ export default function HostedAccessForm() {
   };
 
   if (outcome.kind !== "idle") {
-    const admitted = outcome.kind === "admitted";
     return (
       <div
         style={{
@@ -83,15 +67,11 @@ export default function HostedAccessForm() {
         }}
       >
         <span aria-hidden="true" style={{ color: "var(--exo-amber)" }}>
-          {admitted ? "✓" : "◷"}
+          ✓
         </span>
         <div>
           <p style={{ margin: 0, color: "var(--fg-primary)" }}>
-            {admitted
-              ? "Check your email — your setup link is on its way."
-              : outcome.kind === "waitlisted" && outcome.position === 1
-                ? "Every place is taken — you’re first in line."
-                : `Every place is taken — you’re number ${outcome.kind === "waitlisted" ? outcome.position : 0} in line.`}
+            We’ll be in touch if there’s a fit.
           </p>
           <p
             style={{
@@ -102,9 +82,8 @@ export default function HostedAccessForm() {
               fontWeight: 300,
             }}
           >
-            {admitted
-              ? "The link expires in seven days. Setting up takes about a minute, and you can connect Claude or ChatGPT straight after."
-              : "We’ll email you the moment one frees up, and you haven’t been charged. Exomem is free and open source if you’d rather run it yourself today."}
+            This is an interest request, not an automatic invitation. Exomem is free and open source
+            if you’d rather run it yourself today.
           </p>
         </div>
       </div>
@@ -173,7 +152,7 @@ export default function HostedAccessForm() {
             if (!pending) e.currentTarget.style.opacity = "1";
           }}
         >
-          {pending ? "Checking…" : "Get started"}
+          {pending ? "Sending…" : "Express interest"}
         </button>
       </div>
       <p

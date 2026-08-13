@@ -137,7 +137,6 @@ export default function HomeClient() {
   const [billing, setBilling] = useState<{
     source: "complimentary" | "paddle";
     state: string;
-    checkoutAvailable: boolean;
     portalAvailable: boolean;
   } | null>(null);
   const [installActions, setInstallActions] = useState<InstallAction[]>([]);
@@ -211,13 +210,11 @@ export default function HomeClient() {
         if (
           (candidate.source === "complimentary" || candidate.source === "paddle") &&
           typeof candidate.state === "string" &&
-          typeof candidate.checkoutAvailable === "boolean" &&
           typeof candidate.portalAvailable === "boolean"
         ) {
           setBilling({
             source: candidate.source,
             state: candidate.state,
-            checkoutAvailable: candidate.checkoutAvailable,
             portalAvailable: candidate.portalAvailable,
           });
         }
@@ -398,12 +395,12 @@ export default function HomeClient() {
     }
   }
 
-  async function openBilling(kind: "checkout" | "portal") {
+  async function openBilling() {
     setNotice("Opening secure billing…");
     setNoticeError(false);
     try {
-      const response = await postPrivateJson(`/api/exomem/billing/${kind}`, {});
-      const destination = kind === "checkout" ? response.checkoutUrl : response.portalUrl;
+      const response = await postPrivateJson("/api/exomem/billing/portal", {});
+      const destination = response.portalUrl;
       if (typeof destination !== "string") throw new Error("missing billing destination");
       window.location.assign(destination);
     } catch (error) {
@@ -673,19 +670,11 @@ export default function HomeClient() {
                   : "Complimentary alpha — no payment needed."}
               </p>
             </div>
-            {billing?.checkoutAvailable ? (
+            {billing?.portalAvailable ? (
               <button
                 className={styles.quietButton}
                 type="button"
-                onClick={() => void openBilling("checkout")}
-              >
-                Continue to checkout
-              </button>
-            ) : billing?.portalAvailable ? (
-              <button
-                className={styles.quietButton}
-                type="button"
-                onClick={() => void openBilling("portal")}
+                onClick={() => void openBilling()}
               >
                 Manage billing
               </button>

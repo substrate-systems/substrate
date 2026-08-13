@@ -11,6 +11,7 @@ let inviteError: Error | null = null;
 let magicRequests = 0;
 let magicRedeems = 0;
 let continuationLookups = 0;
+let selfServeRequests = 0;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/access", {
@@ -55,6 +56,10 @@ before(() => {
           expiresAt: new Date("2026-07-14T00:00:00.000Z"),
         };
       },
+      requestSelfServeAccess: async () => {
+        selfServeRequests += 1;
+        return { outcome: "admitted" as const };
+      },
     },
   });
   mock.module("@/lib/exomem-hosted/oauth-store", {
@@ -78,6 +83,7 @@ beforeEach(() => {
   magicRequests = 0;
   magicRedeems = 0;
   continuationLookups = 0;
+  selfServeRequests = 0;
 });
 
 function post(
@@ -99,6 +105,15 @@ function post(
 }
 
 describe("Exomem access routes", () => {
+  it("does not admit an anonymous visitor through the retired self-serve route", async () => {
+    const { POST } = await import("../request/route");
+
+    const response = await POST();
+
+    assert.equal(response.status, 410);
+    assert.equal(selfServeRequests, 0);
+  });
+
   it("redeems an invite into product-specific session and CSRF cookies", async () => {
     const { POST } = await import("../redeem/route");
     const response = await POST(post("/api/exomem/access/redeem", { token: SENTINEL }));
