@@ -12,4 +12,4 @@
 
 - [x] 3.1 Document the terminal-delete replay and exact postconditions in the Hosted runbook
 - [x] 3.2 Run PostgreSQL, unit, type, lint, build, and strict OpenSpec verification
-- [ ] 3.3 Obtain independent security/correctness review, commit, publish a ready PR, and deploy only after green CI
+- [x] 3.3 Obtain independent security/correctness review, commit, publish a ready PR, and deploy only after green CI
