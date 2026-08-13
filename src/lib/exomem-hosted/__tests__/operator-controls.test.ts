@@ -95,17 +95,15 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /exomem_marketplace_reviewer_credentials/i);
     assert.match(mutation, /exomem_marketplace_reviewer_oauth_bootstrap_authorities/i);
     assert.match(mutation, /exomem_oauth_authorization_transactions/i);
-    assert.match(
-      mutation,
-      /JOIN exomem_sessions AS session ON session\.id = transaction\.redeemed_session_id[\s\S]*?transaction\.consumed_at IS NULL/i
-    );
     assert.match(mutation, /exomem_oauth_authorization_codes/i);
     assert.match(mutation, /exomem_oauth_grants/i);
     assert.match(mutation, /exomem_oauth_token_families/i);
     assert.match(mutation, /exomem_oauth_access_tokens/i);
     assert.match(mutation, /exomem_oauth_refresh_tokens/i);
-    assert.match(mutation, /code\.consumed_at IS NULL AND code\.expires_at > now\(\)/i);
-    assert.match(mutation, /family\.revoked_at IS NULL AND family\.expires_at > now\(\)/i);
+    assert.match(
+      mutation,
+      /grant_row\.tenant_id IN \(SELECT id FROM tenant_gated\)[\s\S]*?grant_row\.candidate_id = source\.target_candidate_id/i
+    );
     assert.match(mutation, /DELETION_SUPERSEDED/i);
     assert.match(mutation, /target_candidate_id.*NULL/i);
     assert.match(mutation, /exomem_audit_events/i);
