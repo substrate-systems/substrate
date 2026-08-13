@@ -40,6 +40,7 @@ import {
   preflightRecoverExpiredReviewerCleanup,
   recoverExpiredReviewerCleanup,
 } from "../operator-controls";
+import { failCanaryAssignment } from "../agent-contract-canaries";
 import { SensitiveSecret, digestSecret, encryptSecret } from "../security";
 import { exomemContractFixture0350 } from "../gateway-contract-0-35-0";
 
@@ -113,7 +114,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   async function seedExpiredReviewerCleanup(
     input: {
       tenantReviewer?: boolean;
-      assignmentState?: "expired" | "active";
+      assignmentReviewer?: boolean;
+      assignmentState?: "preparing" | "expired" | "active" | "failed";
       sourceState?: "waiting" | "failed_terminal";
       liveLease?: boolean;
     } = {}
@@ -161,12 +163,23 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
          marketplace_reviewer_purpose, created_by_principal_digest, created_at, expires_at,
          activated_at, ended_at
-       ) VALUES ($1, $2, $3, 1, $4, 'test', '1', $5, $5, $5, $5, true, $5,
+       ) VALUES ($1, $2, $3, 1, $4, 'test', '1', $5, $5, $5, $5, $6, $5,
                  now() - interval '2 hours',
-                 CASE WHEN $4 = 'expired' THEN now() - interval '1 second' ELSE now() + interval '1 hour' END,
+                 CASE
+                   WHEN $4 = 'expired' THEN now() - interval '1 second'
+                   WHEN $4 = 'failed' THEN now() + interval '60 hours'
+                   ELSE now() + interval '1 hour'
+                 END,
                  CASE WHEN $4 = 'active' THEN now() ELSE NULL END,
-                 CASE WHEN $4 = 'expired' THEN now() ELSE NULL END)`,
-      [assignmentId, tenantId, candidateId, assignmentState, digest]
+                 CASE WHEN $4 IN ('expired', 'failed') THEN now() ELSE NULL END)`,
+      [
+        assignmentId,
+        tenantId,
+        candidateId,
+        assignmentState,
+        digest,
+        input.assignmentReviewer ?? true,
+      ]
     );
     await pool.query(
       `INSERT INTO exomem_lifecycle_operations (
@@ -2992,6 +3005,77 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.equal(deleteCount.rows[0]?.count, "1");
   });
 
+  it("recovers only a terminal failed reviewer assignment without extending its immutable expiry", async () => {
+    const seed = await seedExpiredReviewerCleanup({ assignmentState: "preparing" });
+    const beforeFailure = await pool.query<{ expires_at: Date }>(
+      `SELECT expires_at
+       FROM exomem_agent_contract_rollout_assignments
+       WHERE id = $1::uuid`,
+      [seed.assignmentId]
+    );
+    assert.equal(
+      await failCanaryAssignment({ assignmentId: seed.assignmentId, expectedVersion: 1 }),
+      true
+    );
+    const assignment = await pool.query<{ state: string; expires_at: Date; ended_at: Date | null }>(
+      `SELECT state, expires_at, ended_at
+       FROM exomem_agent_contract_rollout_assignments
+       WHERE id = $1::uuid`,
+      [seed.assignmentId]
+    );
+    assert.equal(assignment.rows[0]?.state, "failed");
+    assert.ok(assignment.rows[0]?.ended_at);
+    assert.ok(assignment.rows[0]!.expires_at.getTime() > Date.now());
+    assert.equal(
+      assignment.rows[0]!.expires_at.getTime(),
+      beforeFailure.rows[0]!.expires_at.getTime()
+    );
+    assert.deepEqual(
+      await preflightRecoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+      }),
+      { eligible: true }
+    );
+
+    const first = await recoverExpiredReviewerCleanup({
+      sourceOperationId: seed.sourceOperationId,
+      expectedFence: 1,
+      requestId: randomUUID(),
+      operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+    });
+    assert.equal(first?.outcome, "enqueued");
+    assert.ok(first?.operationId);
+    const deletion = await pool.query<{
+      fence_generation: string;
+      target_candidate_id: string | null;
+      target_assignment_id: string | null;
+    }>(
+      `SELECT fence_generation::text, target_candidate_id::text, target_assignment_id::text
+       FROM exomem_lifecycle_operations WHERE id = $1::uuid`,
+      [first!.operationId]
+    );
+    assert.deepEqual(deletion.rows, [
+      { fence_generation: "2", target_candidate_id: null, target_assignment_id: null },
+    ]);
+
+    assert.deepEqual(
+      await recoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      { outcome: "replayed", operationId: first!.operationId }
+    );
+    const deleteCount = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM exomem_lifecycle_operations
+       WHERE tenant_id = $1::uuid AND operation_type = 'delete'`,
+      [seed.tenantId]
+    );
+    assert.equal(deleteCount.rows[0]?.count, "1");
+  });
+
   it("refuses stale, leased, bound, ambiguous, healthy, customer, and terminal cleanup without mutation", async () => {
     const cases: Array<{
       name: string;
@@ -3002,6 +3086,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       { name: "stale fence", expectedFence: 2 },
       { name: "live lease", seed: { liveLease: true } },
       { name: "customer tenant", seed: { tenantReviewer: false } },
+      {
+        name: "nonreviewer failed assignment",
+        seed: { assignmentState: "failed", assignmentReviewer: false },
+      },
       { name: "eligible assignment", seed: { assignmentState: "active" } },
       { name: "terminal source", seed: { sourceState: "failed_terminal" } },
       {

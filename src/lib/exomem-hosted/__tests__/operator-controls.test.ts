@@ -113,6 +113,7 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /bound_cell_id IS NULL/i);
     assert.match(mutation, /COUNT\(\*[\s\S]*?\) = 1/i);
     assert.match(mutation, /assignment\.expires_at <= now\(\)/i);
+    assert.match(mutation, /assignment\.state = 'failed' AND assignment\.ended_at IS NOT NULL/i);
     assert.match(mutation, /exomem_oauth_account_blocks/i);
     assert.match(mutation, /exomem_sessions/i);
     assert.match(mutation, /exomem_transfer_grants/i);
@@ -154,6 +155,7 @@ describe("hosted operator controls", () => {
       { eligible: true }
     );
     assert.match(query, /candidate-cleanup/i);
+    assert.match(query, /assignment\.state = 'failed' AND assignment\.ended_at IS NOT NULL/i);
     assert.doesNotMatch(query, /\bUPDATE\b|\bINSERT\b|\bDELETE\b/i);
   });
 

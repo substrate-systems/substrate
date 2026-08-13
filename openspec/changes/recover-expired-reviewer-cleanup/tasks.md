@@ -1,6 +1,6 @@
 ## 1. Lock The Recovery Boundary
 
-- [x] 1.1 Add red-first PostgreSQL tests for the exact expired-reviewer/unbound-cleanup transition; the separate exact replay branch; full Hosted/reviewer/OAuth revocation; principal-bound source/result audit receipt; and no mutation on stale fence, live lease, bound/ambiguous cell, eligible assignment, live authority, customer tenant, terminal state other than exact replay, or mismatched target
+- [x] 1.1 Add red-first PostgreSQL tests for the exact expired- or terminal-failed-reviewer/unbound-cleanup transition; the separate exact replay branch; full Hosted/reviewer/OAuth revocation; principal-bound source/result audit receipt; and no mutation on stale fence, live lease, bound/ambiguous cell, eligible assignment, live authority, customer tenant, terminal state other than exact replay, or mismatched target
 - [x] 1.2 Add a PostgreSQL concurrency test proving every reviewer/OAuth issuer serializes behind the exclusive cohort recovery lock and cannot commit usable authority after recovery
 - [x] 1.3 Add red-first route tests for operator authentication, bounded exact-operation/fence input, read-only content-free preflight, stable refusal, and content-free success/replay responses
 

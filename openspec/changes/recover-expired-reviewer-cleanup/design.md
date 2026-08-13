@@ -8,7 +8,7 @@ The ordinary owner deletion transaction already has the correct recovery semanti
 
 **Goals:**
 
-- Recover only an expired marketplace-reviewer bootstrap whose exact provision/restore operation is stuck in unbound candidate cleanup.
+- Recover only an expired marketplace-reviewer bootstrap, or its exact terminal failed-assignment equivalent, whose provision/restore operation is stuck in unbound candidate cleanup.
 - Reuse the normal higher-fence tenant DESTROY and its provider absence/capacity proofs.
 - Make the authorization atomic, idempotent, authenticated, rate limited, and content free.
 - Refuse stale, active, bound, customer, ambiguous, leased, or otherwise healthy tenants.
@@ -35,7 +35,7 @@ A separate unauthenticated route was rejected because it would duplicate operato
 - operation type is provision or restore, state is `waiting` or `failed_retryable`, checkpoint is `candidate-cleanup`, lease is absent or expired, and its fence equals the caller-pinned current tenant fence;
 - tenant is marketplace-reviewer-purpose, provisioning, desired running, not deleted, and has no bound cell;
 - the operation's cell belongs to the tenant, is unbound, is not deleted, and is the sole non-deleted cell for that tenant;
-- its immutable target assignment/candidate snapshot still matches the joined rows; the assignment is reviewer-purpose, expired, and no longer eligible;
+- its immutable target assignment/candidate snapshot still matches the joined rows; the assignment is reviewer-purpose and either expired at its immutable expiry or terminal `failed` with `ended_at` set by the existing exact fail-assignment transition, without extending that immutable expiry;
 - no active reviewer assignment, bootstrap authority, reviewer credential, session, OAuth transaction/code/grant/token family/access token, or other current-fence lifecycle operation except the selected source can authorize or conflict with the recovery.
 
 On initial success the statement increments the tenant fence exactly once, sets deletion pending/desired deleted, blocks the tenant OAuth account, revokes Hosted sessions/access tokens/transfers and reviewer credentials/bootstrap authority, consumes or revokes OAuth transactions/codes/grants/families/access tokens, revokes outstanding reviewer invites, gates entitlements and exports, terminalizes all lower-fence unfinished operations as `DELETION_SUPERSEDED`, and inserts one target-free delete operation at the new fence. Refresh-token rows may remain immutable only when their revoked family makes every refresh unusable. The delete idempotency key is derived only from the immutable source operation.

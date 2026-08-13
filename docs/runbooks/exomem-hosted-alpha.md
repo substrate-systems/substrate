@@ -560,7 +560,9 @@ stays pending unless all three are true.
 
 This is the one operator-only escape hatch for a reviewer-purpose tenant whose
 exact `provision` or `restore` operation is stranded in `candidate-cleanup`
-after its immutable assignment expired. It is not a force-delete. Keep the
+after its immutable reviewer assignment expired, or after the exact existing
+`fail-assignment` transition terminally failed that assignment without extending
+its immutable expiry. It is not a force-delete. Keep the
 scheduler suspended while investigating and never use a tenant, cell, owner,
 provider operation, or capacity identifier as input.
 
@@ -570,6 +572,10 @@ UUID and the current expected fence, first using
 `recover-expired-reviewer-cleanup`. The preflight is read-only and returns only
 `eligible` plus a request ID. A refusal is deliberately non-diagnostic: stop,
 inspect the exact state privately, and do not retry with altered selectors.
+When the exact assignment has not yet expired, use the existing authenticated
+`fail-assignment` transition for that assignment UUID and its current version
+before this preflight; that transition ends the assignment without extending its
+immutable expiry. Do not use this recovery for any other failed assignment.
 The mutation returns only `enqueued` or `replayed`, an opaque delete operation
 ID, and a request ID.
 
