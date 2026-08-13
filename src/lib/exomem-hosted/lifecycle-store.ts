@@ -30,7 +30,9 @@ import type { BillingDeletionTarget } from "./billing-deletion";
 import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
 import { exomemContractFixture0350 } from "./gateway-contract-0-35-0";
 import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
+import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
 import { revokeTenantOAuthOutsideAssignmentInTransaction } from "./agent-contract-canaries";
+import { refreshRoutableProfileAuthorityInTransaction } from "./agent-contract-store";
 
 type Row = Record<string, unknown>;
 
@@ -322,6 +324,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0350.digest}
                    WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
                      THEN ${exomemContractFixture0392.digest}
+                   WHEN ${exomemContractFixture0490.release + ":" + exomemContractFixture0490.protocol}
+                     THEN ${exomemContractFixture0490.digest}
                    ELSE NULL
                  END AS gateway_contract_digest,
                  candidate.command_fingerprint, candidate.schema_digest,
@@ -430,6 +434,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                    THEN ${exomemContractFixture0350.digest}
                  WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
                    THEN ${exomemContractFixture0392.digest}
+                 WHEN ${exomemContractFixture0490.release + ":" + exomemContractFixture0490.protocol}
+                   THEN ${exomemContractFixture0490.digest}
                  ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint,
@@ -921,9 +927,11 @@ export class SqlLifecycleStore implements LifecycleStore {
                    THEN ${exomemContractFixture0340.digest}
                  WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
                    THEN ${exomemContractFixture0350.digest}
-                 WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
-                   THEN ${exomemContractFixture0392.digest}
-                 ELSE NULL
+                   WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
+                     THEN ${exomemContractFixture0392.digest}
+                   WHEN ${exomemContractFixture0490.release + ":" + exomemContractFixture0490.protocol}
+                     THEN ${exomemContractFixture0490.digest}
+                   ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,
                candidate.compatibility_digest
@@ -1047,9 +1055,11 @@ export class SqlLifecycleStore implements LifecycleStore {
                    THEN ${exomemContractFixture0340.digest}
                  WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
                    THEN ${exomemContractFixture0350.digest}
-                 WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
-                   THEN ${exomemContractFixture0392.digest}
-                 ELSE NULL
+                   WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
+                     THEN ${exomemContractFixture0392.digest}
+                   WHEN ${exomemContractFixture0490.release + ":" + exomemContractFixture0490.protocol}
+                     THEN ${exomemContractFixture0490.digest}
+                   ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,
                candidate.compatibility_digest
@@ -2054,7 +2064,9 @@ export class SqlLifecycleStore implements LifecycleStore {
              owned.tenant_id,
              owned.target_candidate_id,
              owned.target_assignment_id,
-             owned.target_assignment_generation
+             owned.target_assignment_generation,
+             owned.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+               AND owned.target_candidate_id IS NOT NULL AS refresh_promotion_authority
       FROM published
       JOIN tenant_active ON tenant_active.id = published.tenant_id
       JOIN owned ON owned.tenant_id = published.tenant_id
@@ -2063,17 +2075,25 @@ export class SqlLifecycleStore implements LifecycleStore {
              NULL::uuid AS tenant_id,
              NULL::uuid AS target_candidate_id,
              NULL::uuid AS target_assignment_id,
-             NULL::bigint AS target_assignment_generation
+             NULL::bigint AS target_assignment_generation,
+             owned.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+               AND owned.target_candidate_id IS NOT NULL AS refresh_promotion_authority
       FROM already_bound
+      JOIN owned ON owned.cell_id = already_bound.id
       LIMIT 1
       `;
       if (rows.length !== 1) return false;
       const activated = rows[0] as {
+        id?: string;
         tenant_id?: string;
         target_candidate_id?: string;
         target_assignment_id?: string;
         target_assignment_generation?: number;
+        refresh_promotion_authority?: boolean;
       };
+      if (activated.id && activated.refresh_promotion_authority) {
+        await refreshRoutableProfileAuthorityInTransaction(tx, activated.id);
+      }
       if (
         activated.tenant_id &&
         activated.target_candidate_id &&

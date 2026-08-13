@@ -5,10 +5,10 @@ import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/typ
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
-  type ExomemTransaction,
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
+import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
 import {
   attachOpenAiContractLocks,
   getExomemAgentContractForOAuthAccess,
@@ -92,9 +92,9 @@ describe("Exomem Hosted agent contracts", () => {
   it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "4e9ba9caabcee985e3371320803c11946cd40cc6"
+      "d6ea0c11224331fb27a45b485091399679e59bbf"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.39.2");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.49.0");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -128,6 +128,15 @@ describe("Exomem Hosted agent contracts", () => {
     );
   });
 
+  it("retains the 0.39.2 fixture as a distinct exact release unit", () => {
+    assert.equal(retainedFixture0392.sourceCommit, "4e9ba9caabcee985e3371320803c11946cd40cc6");
+    assert.equal(retainedFixture0392.sourceRelease, "0.39.2");
+    assert.notEqual(
+      retainedFixture0392.compatibility.schema_contract_sha256,
+      exomemHostedContractFixture.compatibility.schema_contract_sha256
+    );
+  });
+
   it("re-imports a retained release only as a fresh pending candidate", async () => {
     const queries: string[] = [];
     __setExomemSqlForTests(async (strings) => {
@@ -157,7 +166,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.39.2");
+      assert.equal(fixture.sourceRelease, "0.49.0");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
@@ -261,7 +270,7 @@ describe("Exomem Hosted agent contracts", () => {
             id: "artifact-1",
             tenant_id: "018f2d91-7c42-7000-8000-000000000001",
             candidate_id: "018f2d91-7c42-7000-8000-000000000002",
-            source_release: "0.39.2",
+            source_release: exomemHostedContractFixture.sourceRelease,
             assignment_id: "018f2d91-7c42-7000-8000-000000000004",
             assignment_generation: 1,
             claude_package_lock: exomemHostedContractFixture.packageLock,
@@ -420,7 +429,7 @@ describe("Exomem Hosted agent contracts", () => {
           rows: [
             {
               candidate_id: "018f2d91-7c42-7000-8000-000000000002",
-              source_release: "0.39.2",
+              source_release: exomemHostedContractFixture.sourceRelease,
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,
             },
@@ -508,25 +517,24 @@ describe("Exomem Hosted agent contracts", () => {
   it("writes routable authority with ordered sequential locks on one transaction", async () => {
     const queries: string[] = [];
     __setExomemTransactionForTests(
-      async (work: (transaction: ExomemTransaction) => Promise<void>) =>
-        work({
-          query: async (text) => {
-            queries.push(text);
-            if (/SELECT cell_id::text/i.test(text))
-              return {
-                rows: [
-                  {
-                    cell_id: "00000000-0000-0000-0000-000000000001",
-                    source_release: "0.33.0",
-                    protocol_version: "1",
-                    command_fingerprint: sha("a"),
-                    contract_digest: sha("b"),
-                    compatibility_digest: sha("c"),
-                  },
-                ],
-              };
-            return { rows: [] };
-          },
+      async (work) =>
+        work(async (strings) => {
+          const text = strings.join("?");
+          queries.push(text);
+          if (/SELECT cell_id::text/i.test(text))
+            return {
+              rows: [
+                {
+                  cell_id: "00000000-0000-0000-0000-000000000001",
+                  source_release: "0.33.0",
+                  protocol_version: "1",
+                  command_fingerprint: sha("a"),
+                  contract_digest: sha("b"),
+                  compatibility_digest: sha("c"),
+                },
+              ],
+            };
+          return { rows: [] };
         })
     );
     await recordRoutableCellObservation({
@@ -538,15 +546,33 @@ describe("Exomem Hosted agent contracts", () => {
       compatibilitySha256: sha("c"),
       routable: true,
     });
-    assert.equal(queries.length, 5);
-    assert.match(queries[1], /FOR UPDATE/i);
-    assert.match(queries[3], /ORDER BY cell_id FOR UPDATE/i);
+    assert.equal(queries.length, 6);
+    assert.match(queries[0], /pg_advisory_xact_lock/i);
+    assert.match(queries[2], /ORDER BY cell_id[\s\S]*FOR UPDATE/i);
     assert.match(
-      queries[3],
-      /source_release, protocol_version, command_fingerprint, contract_digest, compatibility_digest/i
+      queries[2],
+      /source_release, protocol_version, command_fingerprint,[\s\S]*contract_digest, compatibility_digest/i
     );
-    assert.match(queries[4], /CASE WHEN \$9 THEN \$4 ELSE source_release END/i);
+    assert.match(queries[4], /FOR UPDATE/i);
+    assert.match(queries[5], /CASE WHEN \? THEN \? ELSE source_release END/i);
     assert.doesNotMatch(queries.join("\n"), /WITH\s+authority_seed|digest\s*\(/i);
+  });
+
+  it("refreshes authority after unrouting the last observed cell", async () => {
+    __setExomemTransactionForTests(async (work) =>
+      work(async () => ({ rows: [] }))
+    );
+    await assert.doesNotReject(
+      recordRoutableCellObservation({
+        cellId: "00000000-0000-0000-0000-000000000001",
+        sourceRelease: "0.33.0",
+        protocolVersion: "1",
+        commandSurfaceSha256: sha("a"),
+        schemaDigest: sha("b"),
+        compatibilitySha256: sha("c"),
+        routable: false,
+      })
+    );
   });
 
   it("stores fixture imports as pending", async () => {

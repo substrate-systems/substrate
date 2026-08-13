@@ -12,10 +12,11 @@ import {
 import { SensitiveSecret, type SecretEnvelope } from "../security";
 import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as agentFixture0350 } from "../agent-contract-fixture-0-35-0";
-import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture-0-39-2";
+import { exomemHostedContractFixture as agentFixture0490 } from "../agent-contract-fixture";
 import fullContract0340 from "./gateway-contract-0-34-0.json";
 import fullContract0350 from "./gateway-contract-0-35-0.json";
-import fullContract0392 from "./gateway-contract-0-39-2.json";
+import fullContract0490 from "./gateway-contract-0-49-0.json";
 
 const USER_A = "018f2d91-7c42-7000-8000-000000000071";
 const TENANT_A = "018f2d91-7c42-7000-8000-000000000072";
@@ -26,7 +27,7 @@ const TENANT_B = "018f2d91-7c42-7000-8000-000000000074";
 const CANONICAL_CONTRACT = fullContract0340 as TestContract;
 const FULL_CONTRACT_0340 = fullContract0340 as TestContract;
 const FULL_CONTRACT_0350 = fullContract0350 as TestContract;
-const FULL_CONTRACT_0392 = fullContract0392 as TestContract;
+const FULL_CONTRACT_0490 = fullContract0490 as TestContract;
 const LIVE_HOSTED_CONTRACT = {
   profile: agentFixture0340.compatibility.profile,
   sourceRelease: agentFixture0340.sourceRelease,
@@ -53,6 +54,14 @@ const DEPLOYED_HOSTED_CONTRACT = {
   commandFingerprint: agentFixture0392.compatibility.command_surface_sha256,
   schemaDigest: agentFixture0392.compatibility.schema_contract_sha256,
   compatibilityDigest: agentFixture0392.compatibility.compatibility_sha256,
+};
+const CURRENT_HOSTED_CONTRACT = {
+  profile: agentFixture0490.compatibility.profile,
+  sourceRelease: agentFixture0490.sourceRelease,
+  protocolVersion: agentFixture0490.compatibility.agent_contract.protocol_version,
+  commandFingerprint: agentFixture0490.compatibility.command_surface_sha256,
+  schemaDigest: agentFixture0490.compatibility.schema_contract_sha256,
+  compatibilityDigest: agentFixture0490.compatibility.compatibility_sha256,
 };
 
 type TestContract = {
@@ -212,6 +221,7 @@ describe("registry-derived Exomem gateway", () => {
       ["0.34.0", LIVE_HOSTED_CONTRACT],
       ["0.35.0", CANDIDATE_HOSTED_CONTRACT],
       ["0.39.2", DEPLOYED_HOSTED_CONTRACT],
+      ["0.49.0", CURRENT_HOSTED_CONTRACT],
     ] as const) {
       const row = target({
         userId: USER_A,
@@ -259,15 +269,15 @@ describe("registry-derived Exomem gateway", () => {
     }
   });
 
-  it("routes the 0.39.2 release the deployment lock pins", async () => {
-    // Until this fixture existed the catalog stopped at 0.35.0, so a cell running
+  it("routes the current 0.49.0 release", async () => {
+    // Until this fixture existed the catalog stopped at 0.39.2, so a cell running
     // the locked runtime matched zero entries and every command failed closed.
     const row = target({
       userId: USER_A,
       tenantId: TENANT_A,
-      cellId: "cell-0392",
-      endpoint: "https://cell-0392.internal/",
-      releaseVersion: "0.39.2",
+      cellId: "cell-0490",
+      endpoint: "https://cell-0490.internal/",
+      releaseVersion: "0.49.0",
     });
     await assert.doesNotReject(
       routeExomemCommand({
@@ -278,7 +288,7 @@ describe("registry-derived Exomem gateway", () => {
           resolveTarget: async () => row,
           fetch: async (input) =>
             String(input).endsWith("/contract")
-              ? Response.json(FULL_CONTRACT_0392)
+              ? Response.json(FULL_CONTRACT_0490)
               : Response.json({ success: true, data: {} }),
           expectedProtocol: "1",
           decrypt,

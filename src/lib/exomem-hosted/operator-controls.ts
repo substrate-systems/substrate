@@ -13,7 +13,7 @@ import {
   type CimdFetchedMetadata,
   type OperatorOAuthClientRegistration,
 } from "./oauth-client-admission";
-import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
+import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
 
 export type OperatorOAuthClient = {
   id: string;
@@ -474,8 +474,8 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
         JOIN exomem_agent_contract_candidates AS candidate
          ON candidate.id = stage.candidate_id
          AND candidate.profile_id = 'hosted-alpha-agent-v1'
-         AND candidate.source_release = ${exomemContractFixture0392.release}
-         AND candidate.protocol_version = ${exomemContractFixture0392.protocol}
+         AND candidate.source_release = ${exomemContractFixture0490.release}
+         AND candidate.protocol_version = ${exomemContractFixture0490.protocol}
          AND candidate.state = 'pending'
         WHERE stage.id = ${input.stagedClientReleaseId}::uuid
          AND stage.state = 'staged' AND stage.expires_at > now()
@@ -530,7 +530,7 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
           operator_principal_digest, expires_at
         )
         SELECT 'active', invite.id, stage.candidate_id, stage.profile_id, stage.contract_sha256,
-               stage.source_release, stage.protocol_version, ${exomemContractFixture0392.digest},
+               stage.source_release, stage.protocol_version, ${exomemContractFixture0490.digest},
                stage.command_fingerprint, stage.contract_sha256, stage.compatibility_digest,
                stage.id, stage.platform, stage.oauth_client_config_sha256, client.id,
                client.authority_version, client.oauth_client_config_sha256, client.redirect_uris_digest,

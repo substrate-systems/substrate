@@ -4,7 +4,10 @@ import { after, before, beforeEach, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
-import { storeRetainedExomemAgentContractCandidate } from "../agent-contract-store";
+import {
+  storeExomemAgentContractCandidate,
+  storeRetainedExomemAgentContractCandidate,
+} from "../agent-contract-store";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
@@ -13,7 +16,7 @@ import {
   type ExomemSql,
 } from "../db";
 import { ExomemHostedError } from "../errors";
-import { exomemContractFixture0392 } from "../gateway-contract-0-39-2";
+import { exomemContractFixture0490 } from "../gateway-contract-0-49-0";
 import { SqlLifecycleStore } from "../lifecycle-store";
 import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
 import {
@@ -163,7 +166,7 @@ type BootstrapFixture = {
 };
 
 async function createBootstrapFixture(sequence: number) {
-  const candidateId = await storeRetainedExomemAgentContractCandidate("0.39.2");
+  const candidateId = await storeExomemAgentContractCandidate();
   const candidate = await pool!.query<BootstrapFixture["candidate"]>(
     `SELECT profile_id, source_release, protocol_version, command_fingerprint,
             schema_digest, compatibility_digest
@@ -182,7 +185,7 @@ async function createBootstrapFixture(sequence: number) {
     `INSERT INTO exomem_staged_client_releases (
        candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
        contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest, expires_at
-     ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.39.2', $6, $7, now() + interval '20 minutes') RETURNING id`,
+     ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.1.0', $6, $7, now() + interval '20 minutes') RETURNING id`,
     [
       candidateId,
       "a".repeat(64),
@@ -348,7 +351,7 @@ async function seedReviewerTenant(
       fixture.candidate.command_fingerprint,
       fixture.candidate.schema_digest,
       fixture.candidate.compatibility_digest,
-      exomemContractFixture0392.digest,
+      exomemContractFixture0490.digest,
       sequence.toString(16).padStart(64, "0"),
       terminal,
     ]
@@ -573,7 +576,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
   });
 
   it("redeems one bounded authority into a complete nonlegacy reviewer graph", async () => {
-    const candidateId = await storeRetainedExomemAgentContractCandidate("0.39.2");
+    const candidateId = await storeExomemAgentContractCandidate();
     const candidate = await pool!.query<{ schema_digest: string; compatibility_digest: string }>(
       "SELECT schema_digest, compatibility_digest FROM exomem_agent_contract_candidates WHERE id = $1",
       [candidateId]
@@ -588,7 +591,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       `INSERT INTO exomem_staged_client_releases (
          candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
          contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest, expires_at
-       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.39.2', $6, $7, now() + interval '20 minutes')
+       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.1.0', $6, $7, now() + interval '20 minutes')
        RETURNING id`,
       [
         candidateId,
@@ -732,7 +735,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       `INSERT INTO exomem_staged_client_releases (
          candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
          contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest, expires_at
-       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.39.2', $6, $7, now() + interval '20 minutes') RETURNING id`,
+       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.1.0', $6, $7, now() + interval '20 minutes') RETURNING id`,
       [
         candidateB.rows[0]!.id,
         "1".repeat(64),
@@ -817,7 +820,9 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         "SELECT provisioner_wire_protocol FROM exomem_lifecycle_operations WHERE id = $1",
         [redeemed.operationId]
       );
-      assert.deepEqual(operation.rows, [{ provisioner_wire_protocol: "exomem-cell-provisioner.v2" }]);
+      assert.deepEqual(operation.rows, [
+        { provisioner_wire_protocol: "exomem-cell-provisioner.v2" },
+      ]);
     } finally {
       if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
       else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
@@ -1679,7 +1684,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
     );
   });
 
-  it("claims the committed operation immediately with the exact 0.39.2 assignment target", async () => {
+  it("claims the committed operation immediately with the exact 0.49.0 assignment target", async () => {
     const prepared = await prepareBootstrap(83);
     const redeemed = await admitFirstOAuthInviteAtomic(prepared.redeemInput);
     assert.ok(redeemed);
@@ -1716,7 +1721,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       assignmentGeneration: 1,
       sourceRelease: prepared.fixture.candidate.source_release,
       protocolVersion: prepared.fixture.candidate.protocol_version,
-      gatewayContractDigest: exomemContractFixture0392.digest,
+      gatewayContractDigest: exomemContractFixture0490.digest,
       commandFingerprint: prepared.fixture.candidate.command_fingerprint,
       schemaDigest: prepared.fixture.candidate.schema_digest,
       compatibilityDigest: prepared.fixture.candidate.compatibility_digest,
