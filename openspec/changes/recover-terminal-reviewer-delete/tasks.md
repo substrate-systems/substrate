@@ -1,7 +1,7 @@
 ## 1. Recovery boundary
 
-- [x] 1.1 Add red-first SQL-shape and real-PostgreSQL tests for exact eligibility, refusal, replay, audit, and no-provider local-finalizer completion
-- [x] 1.2 Implement shared preflight and cohort-locked one-shot recovery for the exact terminal reviewer delete
+- [x] 1.1 Add red-first SQL-shape and real-PostgreSQL tests for owner-confirmation eligibility, refusal, replay, audit, and no-provider local-finalizer completion
+- [x] 1.2 Implement shared preflight and cohort-locked one-shot recovery for the exact owner-confirmed terminal reviewer delete
 
 ## 2. Operator contract
 

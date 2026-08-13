@@ -161,7 +161,7 @@ describe("hosted operator controls", () => {
     assert.doesNotMatch(query, /\bUPDATE\b|\bINSERT\b|\bDELETE\b/i);
   });
 
-  it("preflights and reopens only the terminal provider-proven reviewer delete", async () => {
+  it("preflights and reopens only the owner-confirmed terminal provider-proven reviewer delete", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {
       const query = strings.join("?");
@@ -180,6 +180,11 @@ describe("hosted operator controls", () => {
     );
     assert.match(queries[0]!, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
     assert.doesNotMatch(queries[1]!, /(?:^|\n)\s*(?:UPDATE|INSERT|DELETE)\s+/i);
+    assert.match(queries[1]!, /confirmation\.purpose = 'deletion_confirmation'/i);
+    assert.match(queries[1]!, /confirmation\.consumed_at IS NOT NULL/i);
+    assert.match(queries[1]!, /confirmation\.user_id = tenant\.owner_user_id/i);
+    assert.match(queries[1]!, /'confirmed-deletion-' \|\| confirmation\.id::text/i);
+    assert.doesNotMatch(queries[1]!, /operator\.reviewer_cleanup\.(?:authorized|delete_enqueued)/i);
 
     assert.deepEqual(
       await recoverTerminalReviewerDelete({
@@ -198,11 +203,14 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /checkpoint = 'destroyed'/i);
     assert.match(mutation, /checkpoint = 'destroyed'/i);
     assert.doesNotMatch(mutation, /provider_result_ref IS NOT NULL/i);
-    assert.match(mutation, /idempotency_key = derived_delete_key\.value/i);
+    assert.match(mutation, /exomem_access_tokens AS confirmation/i);
+    assert.match(mutation, /confirmation\.purpose = 'deletion_confirmation'/i);
+    assert.match(mutation, /confirmation\.consumed_at IS NOT NULL/i);
+    assert.match(mutation, /confirmation\.user_id = operation\.tenant_owner_user_id/i);
+    assert.match(mutation, /idempotency_key = 'confirmed-deletion-' \|\| confirmation\.id::text/i);
     assert.match(mutation, /operation\.cell_id IS NULL AND operation\.expected_previous_cell_id IS NULL/i);
     assert.match(mutation, /source\.cell_id = cell\.id/i);
-    assert.match(mutation, /source_audit\.cell_id = source\.cell_id/i);
-    assert.match(mutation, /operator\.reviewer_cleanup\.delete_enqueued/i);
+    assert.doesNotMatch(mutation, /operator\.reviewer_cleanup\.(?:authorized|delete_enqueued)/i);
     assert.match(mutation, /assignment\.gateway_contract_digest = source\.target_gateway_contract_digest/i);
     assert.match(mutation, /assignment\.compatibility_digest = source\.target_compatibility_digest/i);
     assert.match(mutation, /candidate\.schema_digest = source\.target_schema_digest/i);

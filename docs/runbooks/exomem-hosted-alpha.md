@@ -618,12 +618,14 @@ never try altered selectors.
 
 The control accepts only the existing target-free delete (`cell_id` and
 `expected_previous_cell_id` are both `NULL`), its current fence, the persisted
-`destroyed` checkpoint as provider proof, and the exact source-derived
-idempotency identity. The superseded source must bind both the owner-confirmed
-source audit and the sole unbound provider-free cell; the delete audit binds
-the delete row. It also requires the exact consumed bootstrap/candidate
-contract lineage, uncertain allocation with checked counters, and no unfinished
-or live reviewer/OAuth authority. It reopens the same operation once at
+`destroyed` checkpoint as provider proof, and the exact
+`confirmed-deletion-<token-id>` idempotency identity. That token must be a
+consumed `deletion_confirmation` token bound to the same tenant and its
+immutable owner; an expired-reviewer cleanup hash or audit cannot substitute
+for it. The superseded source must bind the sole unbound provider-free cell.
+It also requires the exact consumed bootstrap/candidate contract lineage,
+uncertain allocation with checked counters, and no unfinished or live
+reviewer/OAuth authority. It reopens the same operation once at
 `destroyed`; it does not call the provider, create a delete, alter capacity, or
 alter the checkpoint, fence, or idempotency key.
 After one bounded reconcile, verify that the same operation is

@@ -8,7 +8,7 @@ One owner-confirmed reviewer deletion already received the exact four-field prov
 
 - Finish only this already provider-proven reviewer delete through the normal current local finalizer.
 - Bind authorization to the exact operation UUID and current fence, under the cohort lock.
-- Preserve provider proof, checkpoint, fence, operation identity, and bootstrap audit lineage.
+- Preserve provider proof, checkpoint, fence, operation identity, and owner-confirmation plus bootstrap lineage.
 - Return and persist only content-free recovery evidence.
 
 **Non-Goals:**
@@ -27,7 +27,7 @@ Creating a new delete was rejected because it would create a second provider ide
 
 ### Require the complete one-row incident shape
 
-Preflight and mutation use the same eligibility predicate under the exclusive `exomem-hosted-alpha-cohort` advisory lock. The selected delete MUST be `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed`, target-free (`cell_id` and `expected_previous_cell_id` both `NULL`), completed, lease-free, and at the caller-pinned tenant fence. Its idempotency key MUST equal the exact lower-fence source-derived key. The lower-fence source cell MUST equal the sole nondeleted unbound provider-free cell, and the owner-confirmed source audit MUST bind that source cell; the delete audit binds the delete row. The tenant MUST be reviewer-purpose, deletion-pending with desired deleted, and unbound. The lower-fence source MUST already be `failed_terminal/DELETION_SUPERSEDED` with its exact expired reviewer assignment and immutable target identity. The consumed bootstrap invite/session graph MUST match that candidate contract and satisfy the current retention predicates. The allocation MUST be `uncertain` and pass counter-release arithmetic. There MUST be no other unfinished operation or live reviewer/OAuth authority.
+Preflight and mutation use the same eligibility predicate under the exclusive `exomem-hosted-alpha-cohort` advisory lock. The selected delete MUST be `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed`, target-free (`cell_id` and `expected_previous_cell_id` both `NULL`), completed, lease-free, and at the caller-pinned tenant fence. Its idempotency key MUST equal `confirmed-deletion-<token-id>` for exactly one consumed `deletion_confirmation` token whose tenant and user match the tenant and its immutable owner. The lower-fence source cell MUST equal the sole nondeleted unbound provider-free cell. The tenant MUST be reviewer-purpose, deletion-pending with desired deleted, and unbound. The lower-fence source MUST already be `failed_terminal/DELETION_SUPERSEDED` with its exact expired reviewer assignment and immutable target identity. The consumed bootstrap invite/session graph MUST match that candidate contract and satisfy the current retention predicates. The allocation MUST be `uncertain` and pass counter-release arithmetic. There MUST be no other unfinished operation or live reviewer/OAuth authority. Operator expired-cleanup hashes and audits are neither accepted as substitute authorization nor required as lineage.
 
 The action writes a principal-bound audit event in the same transaction. Exact replay after reopening or success returns a bounded outcome without mutating the row again.
 
@@ -37,7 +37,7 @@ After recovery, one bounded reconcile claims the same delete and executes curren
 
 ## Risks / Trade-offs
 
-- [A generic retry surface emerges] → Encode every exact terminal, reviewer, bootstrap, cell, allocation, source, fence, and authority predicate; expose no caller-controlled checkpoint or state.
+- [A generic retry surface emerges] → Encode every exact terminal, consumed owner-confirmation token, reviewer, bootstrap, cell, allocation, source, fence, and authority predicate; expose no caller-controlled checkpoint or state.
 - [Provider work is repeated] → Preserve checkpoint `destroyed` and assert with tests that recovery reaches only the local-finalizer branch.
 - [Two recoveries race] → Acquire the cohort lock, row-lock the exact delete/tenant graph, and make replay a no-op.
 - [Capacity is released without proof] → Require stored `destroyed` checkpoint, preserve the delete row, and let only current `markCellState` perform the ledger transition.

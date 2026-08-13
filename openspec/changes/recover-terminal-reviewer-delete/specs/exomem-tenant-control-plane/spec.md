@@ -6,7 +6,7 @@ The control plane SHALL permit an authenticated operator to replay only the loca
 
 #### Scenario: Exact terminal delete is recovered
 
-- **WHEN** the operator pins the exact delete operation and current fence and every terminal-delete, tenant, source, expired-assignment, sole-unbound-cell, uncertain-allocation, bootstrap-lineage, no-conflict, and no-live-authority predicate matches
+- **WHEN** the operator pins the exact delete operation and current fence and every terminal-delete, consumed owner-confirmation token, tenant, source, expired-assignment, sole-unbound-cell, uncertain-allocation, bootstrap-lineage, no-conflict, and no-live-authority predicate matches
 - **THEN** one transaction schedules the same operation once at checkpoint `destroyed`, clears only terminal retry metadata and leases, and writes a principal-bound audit receipt
 - **AND** the next bounded reconcile executes the current local finalizer without another provider call
 
@@ -17,7 +17,7 @@ The control plane SHALL permit an authenticated operator to replay only the loca
 
 #### Scenario: Terminal delete shape differs
 
-- **WHEN** the operation is not the exact target-free (`cell_id` and `expected_previous_cell_id` both `NULL`) `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed` delete, its source-derived identity or source-cell-bound prior audit is absent, the fence is stale, the tenant is not the exact reviewer deletion state, the sole source cell or allocation graph differs, bootstrap lineage cannot be proven, or live/conflicting authority exists
+- **WHEN** the operation is not the exact target-free (`cell_id` and `expected_previous_cell_id` both `NULL`) `failed_terminal/LIFECYCLE_MAX_ATTEMPTS/destroyed` delete, its `confirmed-deletion-<token-id>` identity lacks a consumed deletion-confirmation token bound to that tenant and immutable owner, the fence is stale, the tenant is not the exact reviewer deletion state, the sole source cell or allocation graph differs, bootstrap lineage cannot be proven, or live/conflicting authority exists
 - **THEN** recovery refuses without changing operation, tenant, cell, authority, provider evidence, or capacity state
 
 #### Scenario: Recovery request is replayed
