@@ -212,6 +212,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   async function seedTerminalReviewerDelete() {
     const seed = await seedExpiredReviewerCleanup();
     const operationId = randomUUID();
+    const confirmationTokenId = randomUUID();
     const clientId = randomUUID();
     const stageId = randomUUID();
     const sessionId = randomUUID();
@@ -219,9 +220,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const grantId = randomUUID();
     const authorityId = randomUUID();
     const digest = "a".repeat(64);
-    const deleteKey = createHash("sha256")
-      .update(`${seed.sourceOperationId}:recover-expired-reviewer-cleanup`)
-      .digest("hex");
+    const deleteKey = `confirmed-deletion-${confirmationTokenId}`;
     await pool.query(
       `UPDATE exomem_lifecycle_operations
        SET state = 'failed_terminal', error_code = 'DELETION_SUPERSEDED', completed_at = now()
@@ -243,14 +242,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       [operationId, seed.tenantId, deleteKey]
     );
     await pool.query(
-      `INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, cell_id, operation_id)
-       VALUES ('operator.reviewer_cleanup.authorized', 'succeeded', $1, $2, $3)`,
-      [seed.tenantId, seed.cellId, seed.sourceOperationId]
-    );
-    await pool.query(
-      `INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, operation_id)
-       VALUES ('operator.reviewer_cleanup.delete_enqueued', 'pending', $1, $2)`,
-      [seed.tenantId, operationId]
+      `INSERT INTO exomem_access_tokens (
+         id, purpose, token_digest, user_id, tenant_id, expires_at, consumed_at
+       ) VALUES ($1, 'deletion_confirmation', $2, $3, $4, now() + interval '1 day', now())`,
+      [confirmationTokenId, Buffer.alloc(32, 0x50), seed.userId, seed.tenantId]
     );
     await pool.query(
       `INSERT INTO exomem_oauth_clients (id, client_id, admission_mode, redirect_uris, redirect_uris_digest)
@@ -331,7 +326,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        ) VALUES ($1, $2, 5, 1, 0, 'uncertain')`,
       [capacityPool.rows[0]!.id, seed.tenantId]
     );
-    return { ...seed, operationId, clientId, inviteId, sessionId, authorityId };
+    return { ...seed, operationId, confirmationTokenId, clientId, inviteId, sessionId, authorityId };
   }
 
   it("keeps contraction blocked until unfinished v1 work and retained v1 exports drain", async () => {
@@ -3341,7 +3336,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         },
       },
       {
-        name: "wrong source-derived idempotency identity",
+        name: "wrong owner-confirmed idempotency identity",
         mutate: async (seed) => {
           await pool.query("UPDATE exomem_lifecycle_operations SET idempotency_key = 'wrong' WHERE id = $1", [
             seed.operationId,
@@ -3349,38 +3344,67 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         },
       },
       {
-        name: "missing owner-confirmed source audit",
+        name: "unconsumed owner confirmation",
         mutate: async (seed) => {
           await pool.query(
-            "DELETE FROM exomem_audit_events WHERE event_type = 'operator.reviewer_cleanup.authorized' AND operation_id = $1",
-            [seed.sourceOperationId]
+            "UPDATE exomem_access_tokens SET consumed_at = NULL WHERE id = $1",
+            [seed.confirmationTokenId]
           );
         },
       },
       {
-        name: "source audit does not bind the source cell",
+        name: "confirmation belongs to a different owner",
         mutate: async (seed) => {
+          const wrongOwnerId = randomUUID();
           await pool.query(
-            "UPDATE exomem_audit_events SET cell_id = NULL WHERE event_type = 'operator.reviewer_cleanup.authorized' AND operation_id = $1",
-            [seed.sourceOperationId]
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            [wrongOwnerId, `wrong-owner-${wrongOwnerId}@example.test`]
+          );
+          await pool.query(
+            "UPDATE exomem_access_tokens SET user_id = $2 WHERE id = $1",
+            [seed.confirmationTokenId, wrongOwnerId]
           );
         },
       },
       {
-        name: "missing delete enqueue audit",
+        name: "confirmation belongs to a different tenant",
         mutate: async (seed) => {
+          const wrongTenantId = randomUUID();
+          const wrongOwnerId = randomUUID();
           await pool.query(
-            "DELETE FROM exomem_audit_events WHERE event_type = 'operator.reviewer_cleanup.delete_enqueued' AND operation_id = $1",
-            [seed.operationId]
+            "INSERT INTO users (id, email) VALUES ($1, $2)",
+            [wrongOwnerId, `wrong-tenant-owner-${wrongOwnerId}@example.test`]
+          );
+          await pool.query(
+            `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+             VALUES ($1, $2, 'provisioning', 'running')`,
+            [wrongTenantId, wrongOwnerId]
+          );
+          await pool.query(
+            "UPDATE exomem_access_tokens SET tenant_id = $2 WHERE id = $1",
+            [seed.confirmationTokenId, wrongTenantId]
           );
         },
       },
       {
-        name: "wrong superseded source",
+        name: "synthetic operator cleanup lineage",
         mutate: async (seed) => {
+          const operatorKey = createHash("sha256")
+            .update(`${seed.sourceOperationId}:recover-expired-reviewer-cleanup`)
+            .digest("hex");
           await pool.query(
-            "UPDATE exomem_lifecycle_operations SET error_code = 'LIFECYCLE_MAX_ATTEMPTS' WHERE id = $1",
-            [seed.sourceOperationId]
+            "UPDATE exomem_lifecycle_operations SET idempotency_key = $2 WHERE id = $1",
+            [seed.operationId, operatorKey]
+          );
+          await pool.query(
+            `INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, cell_id, operation_id)
+             VALUES ('operator.reviewer_cleanup.authorized', 'succeeded', $1, $2, $3)`,
+            [seed.tenantId, seed.cellId, seed.sourceOperationId]
+          );
+          await pool.query(
+            `INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, operation_id)
+             VALUES ('operator.reviewer_cleanup.delete_enqueued', 'pending', $1, $2)`,
+            [seed.tenantId, seed.operationId]
           );
         },
       },

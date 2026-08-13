@@ -92,12 +92,11 @@ export async function preflightRecoverTerminalReviewerDelete(
        AND source.fence_generation = operation.fence_generation - 1
        AND source.state = 'failed_terminal' AND source.error_code = 'DELETION_SUPERSEDED'
        AND source.operation_type IN ('provision', 'restore')
-      CROSS JOIN LATERAL (
-        SELECT encode(
-          digest(convert_to(source.id::text || ':recover-expired-reviewer-cleanup', 'utf8'), 'sha256'),
-          'hex'
-        ) AS value
-      ) AS derived_delete_key
+      JOIN exomem_access_tokens AS confirmation
+        ON confirmation.tenant_id = tenant.id
+       AND confirmation.user_id = tenant.owner_user_id
+       AND confirmation.purpose = 'deletion_confirmation'
+       AND confirmation.consumed_at IS NOT NULL
       JOIN exomem_agent_contract_rollout_assignments AS assignment
        ON assignment.id = source.target_assignment_id
        AND assignment.tenant_id = tenant.id
@@ -150,7 +149,7 @@ export async function preflightRecoverTerminalReviewerDelete(
         AND operation.cell_id IS NULL AND operation.expected_previous_cell_id IS NULL
         AND operation.target_candidate_id IS NULL AND operation.target_assignment_id IS NULL
         AND operation.target_assignment_generation IS NULL
-        AND operation.idempotency_key = derived_delete_key.value
+        AND operation.idempotency_key = 'confirmed-deletion-' || confirmation.id::text
         AND tenant.fence_generation = ${input.expectedFence}::bigint
         AND tenant.marketplace_reviewer_purpose = true
         AND tenant.status = 'deletion_pending' AND tenant.desired_state = 'deleted'
@@ -172,17 +171,6 @@ export async function preflightRecoverTerminalReviewerDelete(
         AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
                         WHERE conflicting.tenant_id = tenant.id AND conflicting.id <> operation.id
                           AND conflicting.state NOT IN ('succeeded', 'failed_terminal'))
-        AND EXISTS (SELECT 1 FROM exomem_audit_events AS source_audit
-                    WHERE source_audit.event_type = 'operator.reviewer_cleanup.authorized'
-                      AND source_audit.outcome = 'succeeded'
-                      AND source_audit.tenant_id = tenant.id
-                      AND source_audit.cell_id = source.cell_id
-                      AND source_audit.operation_id = source.id)
-        AND EXISTS (SELECT 1 FROM exomem_audit_events AS delete_audit
-                    WHERE delete_audit.event_type = 'operator.reviewer_cleanup.delete_enqueued'
-                      AND delete_audit.outcome = 'pending'
-                      AND delete_audit.tenant_id = tenant.id
-                      AND delete_audit.operation_id = operation.id)
         AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
                         WHERE live_assignment.tenant_id = tenant.id AND live_assignment.state = 'active'
                           AND live_assignment.expires_at > now())
@@ -210,7 +198,8 @@ export async function recoverTerminalReviewerDelete(
     const { rows } = await tx`
       /* exomem:recover-terminal-reviewer-delete */
       WITH operation AS MATERIALIZED (
-        SELECT operation.*, tenant.fence_generation AS tenant_fence_generation,
+        SELECT operation.*, tenant.owner_user_id AS tenant_owner_user_id,
+               tenant.fence_generation AS tenant_fence_generation,
                tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state,
                tenant.marketplace_reviewer_purpose, tenant.deleted_at AS tenant_deleted_at,
                tenant.bound_cell_id
@@ -239,6 +228,11 @@ export async function recoverTerminalReviewerDelete(
          AND source.fence_generation = operation.fence_generation - 1
          AND source.state = 'failed_terminal' AND source.error_code = 'DELETION_SUPERSEDED'
          AND source.operation_type IN ('provision', 'restore')
+        JOIN exomem_access_tokens AS confirmation
+          ON confirmation.tenant_id = operation.tenant_id
+         AND confirmation.user_id = operation.tenant_owner_user_id
+         AND confirmation.purpose = 'deletion_confirmation'
+         AND confirmation.consumed_at IS NOT NULL
         JOIN exomem_agent_contract_rollout_assignments AS assignment
           ON assignment.id = source.target_assignment_id
          AND assignment.tenant_id = operation.tenant_id
@@ -253,12 +247,6 @@ export async function recoverTerminalReviewerDelete(
          AND assignment.compatibility_digest = source.target_compatibility_digest
          AND ((assignment.state = 'expired' AND assignment.expires_at <= now())
            OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL))
-        CROSS JOIN LATERAL (
-          SELECT encode(
-            digest(convert_to(source.id::text || ':recover-expired-reviewer-cleanup', 'utf8'), 'sha256'),
-            'hex'
-          ) AS value
-        ) AS derived_delete_key
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.id = source.target_candidate_id
          AND candidate.profile_id = 'hosted-alpha-agent-v1'
@@ -298,7 +286,7 @@ export async function recoverTerminalReviewerDelete(
           AND operation.cell_id IS NULL AND operation.expected_previous_cell_id IS NULL
           AND operation.target_candidate_id IS NULL AND operation.target_assignment_id IS NULL
           AND operation.target_assignment_generation IS NULL
-          AND operation.idempotency_key = derived_delete_key.value
+          AND operation.idempotency_key = 'confirmed-deletion-' || confirmation.id::text
           AND operation.tenant_fence_generation = ${input.expectedFence}::bigint
           AND operation.marketplace_reviewer_purpose = true
           AND operation.tenant_status = 'deletion_pending' AND operation.tenant_desired_state = 'deleted'
@@ -320,17 +308,6 @@ export async function recoverTerminalReviewerDelete(
           AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
                           WHERE conflicting.tenant_id = operation.tenant_id AND conflicting.id <> operation.id
                             AND conflicting.state NOT IN ('succeeded', 'failed_terminal'))
-          AND EXISTS (SELECT 1 FROM exomem_audit_events AS source_audit
-                      WHERE source_audit.event_type = 'operator.reviewer_cleanup.authorized'
-                        AND source_audit.outcome = 'succeeded'
-                        AND source_audit.tenant_id = operation.tenant_id
-                        AND source_audit.cell_id = source.cell_id
-                        AND source_audit.operation_id = source.id)
-          AND EXISTS (SELECT 1 FROM exomem_audit_events AS delete_audit
-                      WHERE delete_audit.event_type = 'operator.reviewer_cleanup.delete_enqueued'
-                        AND delete_audit.outcome = 'pending'
-                        AND delete_audit.tenant_id = operation.tenant_id
-                        AND delete_audit.operation_id = operation.id)
           AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
                           WHERE live_assignment.tenant_id = operation.tenant_id AND live_assignment.state = 'active'
                             AND live_assignment.expires_at > now())
