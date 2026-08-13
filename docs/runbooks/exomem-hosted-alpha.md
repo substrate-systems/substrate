@@ -249,17 +249,21 @@ is legacy-unmetered and does not reserve capacity.
    `create_reviewer_bootstrap` with only the invite ID, staged release ID,
    client record ID, and an expiry no more than 30 minutes away. Record only
    the returned opaque authority ID and expiry. After consumption, record the
-   opaque assignment ID and returned assignment generation for exact
-   internal-canary issuance; never copy redirects, codes,
+   opaque assignment ID and returned assignment generation for exact fresh
+   sibling internal-canary issuance; never copy redirects, codes,
    or invite tokens into a ticket.
 4. Complete one clean OAuth authorization and redeem the delivered invite. The
    authority must become `consumed` with opaque tenant, assignment, operation,
    session, and grant outcomes. A capacity failure leaves the three inputs
    reusable; do not retry through direct invite redemption.
 5. Reconcile the returned operation immediately. Its target is already pinned
-   to the exact candidate and assignment. Once the exact internal-canary
-   credential is issued, the setup session/grant/code are sealed and a clean
-   client must authorize again with attributed lineage.
+   to the exact candidate and assignment. Create fresh, enabled Claude and
+   OpenAI sibling stages/clients with no bootstrap history, then issue their
+   distinct internal-canary credentials using that exact tenant, candidate,
+   assignment, and generation. The bootstrap client remains disabled and must
+   never be re-enabled, re-registered, or selected. Once either credential is
+   issued, the setup session/grant/code are sealed and each clean client must
+   authorize again with attributed lineage.
 
 To stop the attempt, call `revoke_reviewer_bootstrap` with the authority ID.
 Expiry and revocation disable the pinned client. Do not re-enable, re-register,
@@ -842,8 +846,10 @@ Use the authenticated `/api/exomem/admin/contracts` control only. Its status
 view is content-free: candidate state, observed contract identity, the exact
 `routableSetDigest` required as `expectedRoutableCellDigest` for promotion,
 routable count, `routableObservationFresh`, and the latest lifecycle target.
-Promote only with a fresh observation; a stale observation requires a new cell
-observation before retrying, never a guessed digest. `expire-canary-authority`
+Promotion derives fresh strict outer-v2 health from every current routable cell
+using only persisted lifecycle targets and cell inputs; a timeout, malformed
+response, target mismatch, or route-set change fails closed. Supply the status
+digest unchanged, never a guessed digest. `expire-canary-authority`
 reports expired assignment and stage counts, revoked credential count, and
 whether the bounded sweep is drained. Create stages and assignments only for
 the reviewer-purpose tenant; expiry and versioned failure are terminal and

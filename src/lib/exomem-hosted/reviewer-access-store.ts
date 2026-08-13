@@ -299,6 +299,7 @@ export async function createInternalCanaryReviewerCredentialAtomic(
          ON client.id = ${input.oauthClientId}::uuid
          AND client.client_platform = stage.platform
          AND client.oauth_client_config_sha256 = stage.oauth_client_config_sha256
+         AND client.enabled
         JOIN users ON users.id = tenant.owner_user_id AND users.deleted_at IS NULL
         WHERE tenant.id = ${input.tenantId}::uuid
           AND tenant.marketplace_reviewer_purpose = true
@@ -320,9 +321,14 @@ export async function createInternalCanaryReviewerCredentialAtomic(
                 AND bootstrap.outcome_tenant_id = tenant.id
                 AND bootstrap.outcome_assignment_id = assignment.id
                 AND bootstrap.outcome_assignment_generation = assignment.generation
-                AND bootstrap.staged_client_release_id = stage.id
-                AND bootstrap.oauth_client_id = client.id
+                AND bootstrap.candidate_id = assignment.candidate_id
             )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
+            WHERE bootstrap.staged_client_release_id = stage.id
+               OR bootstrap.oauth_client_id = client.id
           )
           AND NOT EXISTS (
             SELECT 1 FROM exomem_oauth_account_blocks AS block

@@ -1798,6 +1798,39 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       null
     );
 
+    const siblingClientId = "exact-bootstrap-promotion-sibling";
+    const siblingRedirectUri = "http://127.0.0.1:47990/callback";
+    const siblingConfig = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "pinned",
+      clientId: siblingClientId,
+      redirectUris: [siblingRedirectUri],
+    });
+    const siblingStage = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_staged_client_releases (
+         candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest, expires_at
+       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.1.0', $6, $7, now() + interval '20 minutes')
+       RETURNING id`,
+      [
+        prepared.fixture.candidateId,
+        "a".repeat(64),
+        "b".repeat(64),
+        prepared.fixture.candidate.compatibility_digest,
+        prepared.fixture.candidate.schema_digest,
+        siblingConfig,
+        digest(90_039).toString("hex"),
+      ]
+    );
+    const siblingClient = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
+         oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', true, $2::jsonb,
+         digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'claude', $3) RETURNING id`,
+      [siblingClientId, JSON.stringify([siblingRedirectUri]), siblingConfig]
+    );
+
     const exactCredential = await createInternalCanaryReviewerCredentialAtomic({
       platform: "claude",
       usernameDigest: digest(90_040),
@@ -1806,8 +1839,8 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       candidateId: prepared.fixture.candidateId,
       assignmentId: outcome.outcome_assignment_id,
       assignmentGeneration: Number(outcome.outcome_assignment_generation),
-      stagedClientReleaseId: prepared.fixture.stageId,
-      oauthClientId: prepared.fixture.clientIdRecord,
+      stagedClientReleaseId: siblingStage.rows[0]!.id,
+      oauthClientId: siblingClient.rows[0]!.id,
       fixtureVersion: "exact-bootstrap",
       fixturePayloadDigest: "5".repeat(64),
       operatorPrincipalDigest: digest(90_041),
@@ -1863,7 +1896,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       `UPDATE exomem_staged_client_releases
        SET state = 'evidenced', evidenced_at = now(), ended_at = NULL, updated_at = now()
        WHERE id = $1`,
-      [prepared.fixture.stageId]
+      [siblingStage.rows[0]!.id]
     );
 
     const freshTransactionDigest = digest(90_050);
@@ -1880,8 +1913,8 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         },
         formNonceDigest: digest(90_052),
         continuationBinding: digest(90_053),
-        clientId: prepared.fixture.clientId,
-        redirectUri: prepared.fixture.redirectUri,
+        clientId: siblingClientId,
+        redirectUri: siblingRedirectUri,
         resource,
         scopes: ["exomem.read", "offline_access"],
         pkceChallenge: "fresh-bootstrap-credential",
@@ -1919,12 +1952,12 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
           candidate_id: prepared.fixture.candidateId,
           assignment_id: outcome.outcome_assignment_id,
           assignment_generation: outcome.outcome_assignment_generation,
-          staged_client_release_id: prepared.fixture.stageId,
+          staged_client_release_id: siblingStage.rows[0]!.id,
           reviewer_credential_id: exactCredential.credentialId,
           session_candidate_id: prepared.fixture.candidateId,
           session_assignment_id: outcome.outcome_assignment_id,
           session_assignment_generation: outcome.outcome_assignment_generation,
-          session_stage_id: prepared.fixture.stageId,
+          session_stage_id: siblingStage.rows[0]!.id,
           session_credential_id: exactCredential.credentialId,
         },
       ]
@@ -1940,8 +1973,8 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
     assert.ok(attached);
     const tokenContext = await issueOAuthTokensFromCodeAtomic({
       codeDigest: freshCodeDigest,
-      clientId: prepared.fixture.clientId,
-      redirectUri: prepared.fixture.redirectUri,
+      clientId: siblingClientId,
+      redirectUri: siblingRedirectUri,
       resource,
       pkceChallenge: "fresh-bootstrap-credential",
       refreshDigest: digest(90_061),
@@ -1970,9 +2003,161 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
           candidate_id: prepared.fixture.candidateId,
           assignment_id: outcome.outcome_assignment_id,
           assignment_generation: outcome.outcome_assignment_generation,
-          staged_client_release_id: prepared.fixture.stageId,
+          staged_client_release_id: siblingStage.rows[0]!.id,
           reviewer_credential_id: exactCredential.credentialId,
           code_consumed: true,
+        },
+      ]
+    );
+  });
+
+  it("issues exact Claude and OpenAI sibling credentials after bootstrap consumption", async () => {
+    const prepared = await prepareBootstrap(91);
+    const redeemed = await admitFirstOAuthInviteAtomic(prepared.redeemInput);
+    assert.ok(redeemed);
+    const outcome = (
+      await pool!.query<{
+        outcome_tenant_id: string;
+        outcome_assignment_id: string;
+        outcome_assignment_generation: string;
+      }>(
+        `SELECT outcome_tenant_id, outcome_assignment_id, outcome_assignment_generation
+         FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = $1`,
+        [prepared.authority.id]
+      )
+    ).rows[0]!;
+    assert.deepEqual(
+      (
+        await pool!.query("SELECT state FROM exomem_staged_client_releases WHERE id = $1", [
+          prepared.fixture.stageId,
+        ])
+      ).rows,
+      [{ state: "failed" }]
+    );
+    const sibling = async (platform: "claude" | "openai", suffix: number) => {
+      const clientId = `promotion-sibling-${platform}-${suffix}`;
+      const redirectUri = `http://127.0.0.1:${49000 + suffix}/callback`;
+      const config = oauthClientConfigSha256({
+        platform,
+        admissionMode: "pinned",
+        clientId,
+        redirectUris: [redirectUri],
+      });
+      const stage = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_staged_client_releases (
+           candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+           contract_sha256, plugin_version, oauth_client_config_sha256, registered_app_id_sha256,
+           created_by_principal_digest, expires_at
+         ) VALUES ($1, $2, 'staged', $3, $4, $5, $6, '0.1.0', $7, $8, $9, now() + interval '20 minutes')
+         RETURNING id`,
+        [
+          prepared.fixture.candidateId,
+          platform,
+          "a".repeat(64),
+          "b".repeat(64),
+          prepared.fixture.candidate.compatibility_digest,
+          prepared.fixture.candidate.schema_digest,
+          config,
+          platform === "openai" ? "c".repeat(64) : null,
+          digest(91_100 + suffix).toString("hex"),
+        ]
+      );
+      const client = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
+           oauth_client_config_sha256
+         ) VALUES ($1, 'pinned', true, $2::jsonb,
+           digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), $3, $4) RETURNING id`,
+        [clientId, JSON.stringify([redirectUri]), platform, config]
+      );
+      return { stageId: stage.rows[0]!.id, clientId: client.rows[0]!.id };
+    };
+    const claude = await sibling("claude", 1);
+    const openai = await sibling("openai", 2);
+    const base = {
+      tenantId: outcome.outcome_tenant_id,
+      candidateId: prepared.fixture.candidateId,
+      assignmentId: outcome.outcome_assignment_id,
+      assignmentGeneration: Number(outcome.outcome_assignment_generation),
+      passwordHash: "$argon2id$fresh-promotion-sibling",
+      fixtureVersion: "fresh-promotion-sibling",
+      fixturePayloadDigest: "d".repeat(64),
+      operatorPrincipalDigest: digest(91_200),
+      expiresAt: new Date(Date.now() + 10 * 60_000),
+    };
+    assert.ok(
+      await createInternalCanaryReviewerCredentialAtomic({
+        ...base,
+        platform: "claude",
+        usernameDigest: digest(91_201),
+        stagedClientReleaseId: claude.stageId,
+        oauthClientId: claude.clientId,
+      })
+    );
+    assert.ok(
+      await createInternalCanaryReviewerCredentialAtomic({
+        ...base,
+        platform: "openai",
+        usernameDigest: digest(91_202),
+        stagedClientReleaseId: openai.stageId,
+        oauthClientId: openai.clientId,
+      })
+    );
+    const mismatchedCandidateId = await storeRetainedExomemAgentContractCandidate("0.34.0");
+    await pool!.query(
+      `ALTER TABLE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+       DISABLE TRIGGER exomem_marketplace_reviewer_oauth_bootstrap_immutable`
+    );
+    await pool!.query(
+      `UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+       SET candidate_id = $2::uuid
+       WHERE id = $1::uuid`,
+      [prepared.authority.id, mismatchedCandidateId]
+    );
+    await pool!.query(
+      `ALTER TABLE exomem_marketplace_reviewer_oauth_bootstrap_authorities
+       ENABLE TRIGGER exomem_marketplace_reviewer_oauth_bootstrap_immutable`
+    );
+    await pool!.query(
+      `UPDATE exomem_staged_client_releases
+       SET state = 'failed', ended_at = now(), version = version + 1, updated_at = now()
+       WHERE id = $1::uuid`,
+      [claude.stageId]
+    );
+    const mismatched = await sibling("claude", 3);
+    assert.equal(
+      await createInternalCanaryReviewerCredentialAtomic({
+        ...base,
+        platform: "claude",
+        usernameDigest: digest(91_203),
+        stagedClientReleaseId: mismatched.stageId,
+        oauthClientId: mismatched.clientId,
+      }),
+      null
+    );
+    assert.equal(
+      await createInternalCanaryReviewerCredentialAtomic({
+        ...base,
+        platform: "claude",
+        usernameDigest: digest(91_204),
+        stagedClientReleaseId: prepared.fixture.stageId,
+        oauthClientId: prepared.fixture.clientIdRecord,
+      }),
+      null
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT client_id, enabled, reviewer_bootstrap_ever_authorized
+           FROM exomem_oauth_clients WHERE id = $1`,
+          [prepared.fixture.clientIdRecord]
+        )
+      ).rows,
+      [
+        {
+          client_id: prepared.fixture.clientId,
+          enabled: false,
+          reviewer_bootstrap_ever_authorized: true,
         },
       ]
     );

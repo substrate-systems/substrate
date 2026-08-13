@@ -893,12 +893,21 @@ async function admitReviewerOAuthBootstrapInTransaction(
           outcome_operation_id = ${operation.id}::uuid, outcome_session_id = ${session.id}::uuid,
           outcome_grant_id = ${grant.id}::uuid
       WHERE id = ${authorityId}::uuid AND state = 'active' AND expires_at > clock_timestamp()
-      RETURNING oauth_client_id
+      RETURNING oauth_client_id, staged_client_release_id
+    ), consumed_stage AS (
+      UPDATE exomem_staged_client_releases AS stage
+      SET state = 'failed', ended_at = now(), version = version + 1, updated_at = now()
+      WHERE stage.id IN (SELECT staged_client_release_id FROM consumed)
+        AND stage.state IN ('staged', 'evidenced')
+      RETURNING stage.id
+    ), disabled_client AS (
+      UPDATE exomem_oauth_clients AS client
+      SET enabled = false, authority_version = gen_random_uuid(), updated_at = now()
+      WHERE client.id IN (SELECT oauth_client_id FROM consumed)
+      RETURNING client.id
     )
-    UPDATE exomem_oauth_clients AS client
-    SET enabled = false, authority_version = gen_random_uuid(), updated_at = now()
-    WHERE client.id IN (SELECT oauth_client_id FROM consumed)
-    RETURNING id
+    SELECT disabled_client.id
+    FROM disabled_client CROSS JOIN consumed_stage
   `;
   if (!consumedInvite.rows[0] || !consumedTransaction.rows[0] || !consumedAuthority.rows[0]) {
     throw new OAuthAdmissionRejected();
