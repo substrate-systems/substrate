@@ -39,7 +39,7 @@
 - [x] 6.2 Run ESLint, TypeScript checking, operations-contract tests, and strict OpenSpec validation
 - [x] 6.3 Obtain independent code/security review and exact-HEAD verification
 - [x] 6.4 Commit, integrate current remote main, push, and open a ready PR with v2 issuance still disabled by default
-- [ ] 6.5 Merge only after required checks pass and record exact forward and rollback commits
+- [x] 6.5 Merge only after required checks pass and record exact forward and rollback commits (`a2e6c810b33042bb6559a92e6ec758f0f553ee49` forward; `878fc673963fa7d41e88da813918662182eb2be1` rollback)
 
 ## 7. Expand And Contract With Exomem
 

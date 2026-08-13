@@ -37,6 +37,375 @@ export type ReviewerOAuthBootstrapAuthority = {
   outcomeGrantId: string | null;
 };
 
+export type ExpiredReviewerCleanupRecovery = {
+  outcome: "enqueued" | "replayed";
+  operationId: string;
+} | null;
+
+type ExpiredReviewerCleanupInput = {
+  sourceOperationId: string;
+  expectedFence: number;
+};
+
+function assertExpiredReviewerCleanupInput(input: ExpiredReviewerCleanupInput): void {
+  if (
+    !UUID.test(input.sourceOperationId) ||
+    !Number.isSafeInteger(input.expectedFence) ||
+    input.expectedFence < 1
+  ) {
+    throw exomemErrors.invalidRequest();
+  }
+}
+
+/** Read-only fail-closed eligibility check for the single expired-reviewer recovery. */
+export async function preflightRecoverExpiredReviewerCleanup(
+  input: ExpiredReviewerCleanupInput
+): Promise<{ eligible: boolean }> {
+  assertExpiredReviewerCleanupInput(input);
+  const { rows } = await executeExomemSql`
+    /* exomem:preflight-recover-expired-reviewer-cleanup */
+    SELECT EXISTS (
+      SELECT 1
+      FROM exomem_lifecycle_operations AS source
+      JOIN exomem_tenants AS tenant ON tenant.id = source.tenant_id
+      JOIN exomem_cells AS cell ON cell.id = source.cell_id AND cell.tenant_id = tenant.id
+      JOIN exomem_agent_contract_rollout_assignments AS assignment
+        ON assignment.id = source.target_assignment_id
+       AND assignment.tenant_id = tenant.id
+       AND assignment.candidate_id = source.target_candidate_id
+       AND assignment.generation = source.target_assignment_generation
+       AND assignment.source_release = source.target_source_release
+       AND assignment.protocol_version = source.target_protocol_version
+       AND assignment.gateway_contract_digest = source.target_gateway_contract_digest
+       AND assignment.command_fingerprint = source.target_command_fingerprint
+       AND assignment.schema_digest = source.target_schema_digest
+       AND assignment.compatibility_digest = source.target_compatibility_digest
+      WHERE source.id = ${input.sourceOperationId}::uuid
+        AND source.operation_type IN ('provision', 'restore')
+        AND source.state IN ('waiting', 'failed_retryable')
+        AND source.checkpoint = 'candidate-cleanup'
+        AND (source.lease_expires_at IS NULL OR source.lease_expires_at <= now())
+        AND source.fence_generation = ${input.expectedFence}::bigint
+        AND tenant.fence_generation = ${input.expectedFence}::bigint
+        AND tenant.marketplace_reviewer_purpose = true
+        AND tenant.status = 'provisioning' AND tenant.desired_state = 'running'
+        AND tenant.deleted_at IS NULL AND tenant.bound_cell_id IS NULL
+        AND cell.routing_state = 'unbound' AND cell.lifecycle_state <> 'deleted'
+        AND (SELECT COUNT(*) FROM exomem_cells AS only_cell
+             WHERE only_cell.tenant_id = tenant.id AND only_cell.lifecycle_state <> 'deleted') = 1
+        AND assignment.marketplace_reviewer_purpose = true
+        AND assignment.state = 'expired' AND assignment.expires_at <= now()
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
+          WHERE live_assignment.tenant_id = tenant.id AND live_assignment.state = 'active'
+            AND live_assignment.expires_at > now()
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
+          WHERE credential.tenant_id = tenant.id AND credential.revoked_at IS NULL
+            AND credential.expires_at > now()
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_sessions AS session
+          WHERE session.tenant_id = tenant.id AND session.revoked_at IS NULL
+            AND session.expires_at > now()
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+          WHERE authority.state = 'active' AND authority.expires_at > now()
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_authorization_transactions AS transaction
+          JOIN exomem_sessions AS session ON session.id = transaction.redeemed_session_id
+          WHERE session.tenant_id = tenant.id AND transaction.consumed_at IS NULL
+            AND transaction.expires_at > now()
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_grants AS grant_row
+          WHERE grant_row.tenant_id = tenant.id AND grant_row.revoked_at IS NULL
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_authorization_codes AS code
+          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = code.grant_id
+          WHERE code.consumed_at IS NULL AND code.expires_at > now()
+            AND (grant_row.tenant_id = tenant.id
+                 OR (code.candidate_id = source.target_candidate_id
+                     AND code.assignment_id = source.target_assignment_id
+                     AND code.assignment_generation = source.target_assignment_generation))
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_token_families AS family
+          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = family.grant_id
+          WHERE family.revoked_at IS NULL AND family.expires_at > now()
+            AND (grant_row.tenant_id = tenant.id
+                 OR (family.candidate_id = source.target_candidate_id
+                     AND family.assignment_id = source.target_assignment_id
+                     AND family.assignment_generation = source.target_assignment_generation))
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_access_tokens AS token
+          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = token.grant_id
+          WHERE token.revoked_at IS NULL AND token.expires_at > now()
+            AND (grant_row.tenant_id = tenant.id
+                 OR (token.candidate_id = source.target_candidate_id
+                     AND token.assignment_id = source.target_assignment_id
+                     AND token.assignment_generation = source.target_assignment_generation))
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_lifecycle_operations AS conflicting
+          WHERE conflicting.tenant_id = tenant.id
+            AND conflicting.fence_generation = tenant.fence_generation
+            AND conflicting.id <> source.id
+            AND conflicting.state NOT IN ('succeeded', 'failed_terminal')
+        )
+    ) AS eligible
+  `;
+  return { eligible: rows[0]?.eligible === true };
+}
+
+/**
+ * Authorize exactly one stranded reviewer cleanup.  This is deliberately one
+ * SQL statement so access revocation cannot commit without a higher-fence
+ * target-free DESTROY operation and its durable receipt.
+ */
+export async function recoverExpiredReviewerCleanup(
+  input: ExpiredReviewerCleanupInput & { requestId: string; operatorPrincipalDigest: Buffer }
+): Promise<ExpiredReviewerCleanupRecovery> {
+  assertExpiredReviewerCleanupInput(input);
+  if (!UUID.test(input.requestId) || input.operatorPrincipalDigest.byteLength !== 32)
+    throw exomemErrors.invalidRequest();
+  return withCohortControlLock(async (tx) => {
+    const { rows } = await tx`
+      /* exomem:recover-expired-reviewer-cleanup */
+      WITH source AS MATERIALIZED (
+        SELECT source.*, tenant.owner_user_id, tenant.fence_generation AS tenant_fence_generation,
+               tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state,
+               tenant.marketplace_reviewer_purpose, tenant.deleted_at AS tenant_deleted_at,
+               tenant.bound_cell_id, cell.id AS matched_cell_id
+        FROM exomem_lifecycle_operations AS source
+        JOIN exomem_tenants AS tenant ON tenant.id = source.tenant_id
+        JOIN exomem_cells AS cell ON cell.id = source.cell_id AND cell.tenant_id = tenant.id
+        WHERE source.id = ${input.sourceOperationId}::uuid
+          AND source.fence_generation = ${input.expectedFence}::bigint
+        FOR UPDATE OF source, tenant, cell
+      ), delete_key AS MATERIALIZED (
+        SELECT source.id, encode(digest(convert_to(source.id::text || ':recover-expired-reviewer-cleanup', 'utf8'), 'sha256'), 'hex') AS value
+        FROM source
+      ), replay AS MATERIALIZED (
+        SELECT delete_operation.id AS operation_id
+        FROM source
+        JOIN delete_key ON delete_key.id = source.id
+        JOIN exomem_lifecycle_operations AS delete_operation
+          ON delete_operation.tenant_id = source.tenant_id
+         AND delete_operation.operation_type = 'delete'
+         AND delete_operation.idempotency_key = delete_key.value
+         AND delete_operation.fence_generation = ${input.expectedFence}::bigint + 1
+         AND delete_operation.target_candidate_id IS NULL
+         AND delete_operation.target_assignment_id IS NULL
+         AND delete_operation.target_assignment_generation IS NULL
+        WHERE source.state = 'failed_terminal' AND source.error_code = 'DELETION_SUPERSEDED'
+          AND source.tenant_status = 'deletion_pending'
+          AND source.tenant_desired_state = 'deleted'
+          AND source.tenant_fence_generation = ${input.expectedFence}::bigint + 1
+          AND (SELECT COUNT(*) FROM exomem_lifecycle_operations AS exact_delete
+               WHERE exact_delete.tenant_id = source.tenant_id
+                 AND exact_delete.operation_type = 'delete'
+                 AND exact_delete.idempotency_key = delete_key.value
+                 AND exact_delete.fence_generation = ${input.expectedFence}::bigint + 1
+                 AND exact_delete.target_candidate_id IS NULL
+                 AND exact_delete.target_assignment_id IS NULL
+                 AND exact_delete.target_assignment_generation IS NULL) = 1
+      ), eligible AS MATERIALIZED (
+        SELECT source.*
+        FROM source
+        JOIN exomem_cells AS cell ON cell.id = source.matched_cell_id
+        JOIN exomem_agent_contract_rollout_assignments AS assignment
+          ON assignment.id = source.target_assignment_id
+         AND assignment.tenant_id = source.tenant_id
+         AND assignment.candidate_id = source.target_candidate_id
+         AND assignment.generation = source.target_assignment_generation
+         AND assignment.source_release = source.target_source_release
+         AND assignment.protocol_version = source.target_protocol_version
+         AND assignment.gateway_contract_digest = source.target_gateway_contract_digest
+         AND assignment.command_fingerprint = source.target_command_fingerprint
+         AND assignment.schema_digest = source.target_schema_digest
+         AND assignment.compatibility_digest = source.target_compatibility_digest
+        WHERE NOT EXISTS (SELECT 1 FROM replay)
+          AND source.operation_type IN ('provision', 'restore')
+          AND source.state IN ('waiting', 'failed_retryable')
+          AND source.checkpoint = 'candidate-cleanup'
+          AND (source.lease_expires_at IS NULL OR source.lease_expires_at <= now())
+          AND source.tenant_fence_generation = ${input.expectedFence}::bigint
+          AND source.marketplace_reviewer_purpose = true
+          AND source.tenant_status = 'provisioning' AND source.tenant_desired_state = 'running'
+          AND source.tenant_deleted_at IS NULL AND source.bound_cell_id IS NULL
+          AND cell.routing_state = 'unbound' AND cell.lifecycle_state <> 'deleted'
+          AND (SELECT COUNT(*) FROM exomem_cells AS only_cell
+               WHERE only_cell.tenant_id = source.tenant_id AND only_cell.lifecycle_state <> 'deleted') = 1
+          AND assignment.marketplace_reviewer_purpose = true
+          AND assignment.state = 'expired' AND assignment.expires_at <= now()
+          AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS live_assignment
+                          WHERE live_assignment.tenant_id = source.tenant_id AND live_assignment.state = 'active'
+                            AND live_assignment.expires_at > now())
+          AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
+                          WHERE credential.tenant_id = source.tenant_id AND credential.revoked_at IS NULL
+                            AND credential.expires_at > now())
+          AND NOT EXISTS (SELECT 1 FROM exomem_sessions AS session WHERE session.tenant_id = source.tenant_id
+                          AND session.revoked_at IS NULL AND session.expires_at > now())
+          AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+                          WHERE authority.state = 'active' AND authority.expires_at > now())
+          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_authorization_transactions AS transaction
+                          JOIN exomem_sessions AS session ON session.id = transaction.redeemed_session_id
+                          WHERE session.tenant_id = source.tenant_id AND transaction.consumed_at IS NULL
+                            AND transaction.expires_at > now())
+          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_grants AS grant_row WHERE grant_row.tenant_id = source.tenant_id
+                          AND grant_row.revoked_at IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_authorization_codes AS code
+                          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = code.grant_id
+                          WHERE code.consumed_at IS NULL AND code.expires_at > now()
+                            AND (grant_row.tenant_id = source.tenant_id
+                                 OR (code.candidate_id = source.target_candidate_id
+                                     AND code.assignment_id = source.target_assignment_id
+                                     AND code.assignment_generation = source.target_assignment_generation)))
+          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_token_families AS family
+                          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = family.grant_id
+                          WHERE family.revoked_at IS NULL AND family.expires_at > now()
+                            AND (grant_row.tenant_id = source.tenant_id
+                                 OR (family.candidate_id = source.target_candidate_id
+                                     AND family.assignment_id = source.target_assignment_id
+                                     AND family.assignment_generation = source.target_assignment_generation)))
+          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_access_tokens AS token
+                          JOIN exomem_oauth_grants AS grant_row ON grant_row.id = token.grant_id
+                          WHERE token.revoked_at IS NULL AND token.expires_at > now()
+                            AND (grant_row.tenant_id = source.tenant_id
+                                 OR (token.candidate_id = source.target_candidate_id
+                                     AND token.assignment_id = source.target_assignment_id
+                                     AND token.assignment_generation = source.target_assignment_generation)))
+          AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
+                          WHERE conflicting.tenant_id = source.tenant_id
+                            AND conflicting.fence_generation = source.tenant_fence_generation
+                            AND conflicting.id <> source.id
+                            AND conflicting.state NOT IN ('succeeded', 'failed_terminal'))
+      ), tenant_gated AS (
+        UPDATE exomem_tenants AS tenant
+        SET status = 'deletion_pending', desired_state = 'deleted',
+            fence_generation = tenant.fence_generation + 1, updated_at = now()
+        FROM eligible WHERE tenant.id = eligible.tenant_id
+        RETURNING tenant.id, tenant.owner_user_id, tenant.fence_generation
+      ), oauth_blocked AS (
+        INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason)
+        SELECT id, owner_user_id, 'lifecycle_deleted' FROM tenant_gated
+        ON CONFLICT (tenant_id) DO UPDATE SET owner_user_id = EXCLUDED.owner_user_id
+        RETURNING tenant_id
+      ), sessions_revoked AS (
+        UPDATE exomem_sessions AS session SET revoked_at = COALESCE(session.revoked_at, now())
+        FROM tenant_gated WHERE session.tenant_id = tenant_gated.id RETURNING session.id
+      ), tokens_revoked AS (
+        UPDATE exomem_access_tokens AS token SET revoked_at = COALESCE(token.revoked_at, now())
+        FROM tenant_gated WHERE token.tenant_id = tenant_gated.id RETURNING token.id
+      ), transfers_revoked AS (
+        UPDATE exomem_transfer_grants AS transfer SET revoked_at = COALESCE(transfer.revoked_at, now()),
+            outcome_code = COALESCE(transfer.outcome_code, 'DELETION_REVOKED')
+        FROM tenant_gated WHERE transfer.tenant_id = tenant_gated.id RETURNING transfer.id
+      ), invites_revoked AS (
+        UPDATE exomem_invites AS invite SET revoked_at = COALESCE(invite.revoked_at, now())
+        FROM tenant_gated
+        JOIN users AS owner ON owner.id = tenant_gated.owner_user_id
+        WHERE invite.email_normalized = owner.email
+          AND invite.marketplace_reviewer_purpose = true
+          AND invite.consumed_at IS NULL
+          AND invite.revoked_at IS NULL
+        RETURNING invite.id
+      ), credentials_revoked AS (
+        UPDATE exomem_marketplace_reviewer_credentials AS credential
+        SET revoked_at = COALESCE(credential.revoked_at, now()),
+            revoked_by_principal_digest = COALESCE(credential.revoked_by_principal_digest, ${input.operatorPrincipalDigest})
+        FROM tenant_gated WHERE credential.tenant_id = tenant_gated.id RETURNING credential.id
+      ), bootstrap_revoked AS (
+        UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+        SET state = 'revoked', revoked_at = now()
+        FROM tenant_gated WHERE authority.state = 'active' AND authority.outcome_tenant_id = tenant_gated.id
+        RETURNING authority.id
+      ), oauth_grants_revoked AS (
+        UPDATE exomem_oauth_grants AS grant_row SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
+        FROM tenant_gated WHERE grant_row.tenant_id = tenant_gated.id RETURNING grant_row.id, grant_row.authorization_transaction_id
+      ), oauth_codes_consumed AS (
+        UPDATE exomem_oauth_authorization_codes AS code SET consumed_at = COALESCE(code.consumed_at, now())
+        WHERE code.grant_id IN (SELECT id FROM oauth_grants_revoked) RETURNING code.id
+      ), oauth_transactions_consumed AS (
+        UPDATE exomem_oauth_authorization_transactions AS transaction SET consumed_at = COALESCE(transaction.consumed_at, now())
+        WHERE transaction.id IN (SELECT authorization_transaction_id FROM oauth_grants_revoked WHERE authorization_transaction_id IS NOT NULL)
+           OR EXISTS (SELECT 1 FROM exomem_sessions AS session JOIN tenant_gated ON tenant_gated.id = session.tenant_id
+                      WHERE session.id = transaction.redeemed_session_id)
+           OR EXISTS (SELECT 1 FROM source
+                      JOIN tenant_gated ON tenant_gated.id = source.tenant_id
+                      WHERE transaction.candidate_id = source.target_candidate_id
+                        AND transaction.assignment_id = source.target_assignment_id
+                        AND transaction.assignment_generation = source.target_assignment_generation)
+        RETURNING transaction.id
+      ), oauth_families_revoked AS (
+        UPDATE exomem_oauth_token_families AS family SET revoked_at = COALESCE(family.revoked_at, now()),
+            revoked_reason = COALESCE(family.revoked_reason, 'lifecycle_deleted')
+        WHERE family.grant_id IN (SELECT id FROM oauth_grants_revoked) RETURNING family.id
+      ), oauth_access_revoked AS (
+        UPDATE exomem_oauth_access_tokens AS token SET revoked_at = COALESCE(token.revoked_at, now())
+        WHERE token.grant_id IN (SELECT id FROM oauth_grants_revoked)
+           OR token.family_id IN (SELECT id FROM oauth_families_revoked) RETURNING token.id
+      ), oauth_refresh_consumed AS (
+        UPDATE exomem_oauth_refresh_tokens AS refresh SET consumed_at = COALESCE(refresh.consumed_at, now())
+        WHERE refresh.family_id IN (SELECT id FROM oauth_families_revoked) RETURNING refresh.id
+      ), entitlement_gated AS (
+        UPDATE exomem_entitlements AS entitlement SET effective_state = 'deleted', capabilities = '[]'::jsonb, updated_at = now()
+        FROM tenant_gated WHERE entitlement.tenant_id = tenant_gated.id RETURNING entitlement.id
+      ), exports_gated AS (
+        UPDATE exomem_exports AS export_row SET state = 'deleting'
+        FROM tenant_gated WHERE export_row.tenant_id = tenant_gated.id AND export_row.state <> 'deleted'
+        RETURNING export_row.id
+      ), operations_superseded AS (
+        UPDATE exomem_lifecycle_operations AS pending
+        SET state = 'failed_terminal', error_code = 'DELETION_SUPERSEDED', lease_owner = NULL,
+            lease_expires_at = NULL, completed_at = now(), updated_at = now()
+        FROM tenant_gated WHERE pending.tenant_id = tenant_gated.id
+          AND pending.fence_generation < tenant_gated.fence_generation
+          AND pending.state NOT IN ('succeeded', 'failed_terminal')
+        RETURNING pending.id
+      ), delete_enqueued AS (
+        INSERT INTO exomem_lifecycle_operations (
+          tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol, request_id
+        )
+        SELECT tenant_gated.id, 'delete', delete_key.value, tenant_gated.fence_generation,
+               source.provisioner_wire_protocol, ${input.requestId}::uuid
+        FROM tenant_gated JOIN source ON source.tenant_id = tenant_gated.id
+        JOIN delete_key ON delete_key.id = source.id
+        RETURNING id
+      ), authorized_audit AS (
+        INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, cell_id, operation_id, request_id, principal_scope_digest)
+        SELECT 'operator.reviewer_cleanup.authorized', 'succeeded', eligible.tenant_id, eligible.matched_cell_id,
+               eligible.id, ${input.requestId}::uuid, ${input.operatorPrincipalDigest}
+        FROM eligible RETURNING id
+      ), result_audit AS (
+        INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, operation_id, request_id, principal_scope_digest)
+        SELECT 'operator.reviewer_cleanup.delete_enqueued', 'pending', tenant_gated.id, delete_enqueued.id,
+               ${input.requestId}::uuid, ${input.operatorPrincipalDigest}
+        FROM tenant_gated JOIN delete_enqueued ON true RETURNING id
+      ), replay_audit AS (
+        INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, operation_id, request_id, principal_scope_digest)
+        SELECT 'operator.reviewer_cleanup.replayed', 'succeeded', source.tenant_id, replay.operation_id,
+               ${input.requestId}::uuid, ${input.operatorPrincipalDigest}
+        FROM source JOIN replay ON true RETURNING id
+      )
+      SELECT 'enqueued'::text AS outcome, id::text AS operation_id FROM delete_enqueued
+      UNION ALL
+      SELECT 'replayed'::text AS outcome, operation_id::text FROM replay
+    `;
+    const row = rows[0] as { outcome?: unknown; operation_id?: unknown } | undefined;
+    return (row?.outcome === "enqueued" || row?.outcome === "replayed") &&
+      typeof row.operation_id === "string"
+      ? { outcome: row.outcome, operationId: row.operation_id }
+      : null;
+  });
+}
+
 async function withCohortControlLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;

@@ -88,7 +88,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_PROVISIONER_ENDPOINT`                                                    | Private HTTPS base URL implementing the provisioner contract. URLs containing credentials or using HTTP are rejected.                                                                                                                                                                                                |
 | `EXOMEM_PROVISIONER_CREDENTIAL`                                                  | At least 32 characters; authenticates Substrate to the provisioner.                                                                                                                                                                                                                                                  |
 | `EXOMEM_PROVISIONER_TIMEOUT_MS`                                                  | Optional `100..30000`; default `5000`.                                                                                                                                                                                                                                                                               |
-| `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED`                                         | Leave absent or `false` in every shipped environment. Only trimmed, case-normalized `true` selects v2 for a newly inserted lifecycle operation after the reviewed D1 expand proof. Existing operations always retain their persisted outer wire protocol through retries and restarts. |
+| `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED`                                         | Leave absent or `false` in every shipped environment. Only trimmed, case-normalized `true` selects v2 for a newly inserted lifecycle operation after the reviewed D1 expand proof. Existing operations always retain their persisted outer wire protocol through retries and restarts.                               |
 | `EXOMEM_CF_ACCESS_CLIENT_ID`, `EXOMEM_CF_ACCESS_CLIENT_SECRET`                   | Active Cloudflare Access service-token pair used only by Vercel for the private provisioner and cell-control hostname. Production fails closed if either half is absent.                                                                                                                                             |
 | `EXOMEM_CF_ACCESS_CLIENT_ID_PREVIOUS`, `EXOMEM_CF_ACCESS_CLIENT_SECRET_PREVIOUS` | Optional complete previous Access pair during a bounded receiver overlap. Never configure only one half.                                                                                                                                                                                                             |
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                         |
@@ -534,6 +534,43 @@ scrubs the encrypted reference and integrity metadata into a tombstone.
 `export-download` returns an HTTPS URL expiring within 15 minutes. `destroy`
 must prove `computeDestroyed`, `storageDestroyed`, and `keysDestroyed`; deletion
 stays pending unless all three are true.
+
+### Expired reviewer cleanup recovery
+
+This is the one operator-only escape hatch for a reviewer-purpose tenant whose
+exact `provision` or `restore` operation is stranded in `candidate-cleanup`
+after its immutable assignment expired. It is not a force-delete. Keep the
+scheduler suspended while investigating and never use a tenant, cell, owner,
+provider operation, or capacity identifier as input.
+
+Call the authenticated contracts endpoint with only the opaque source operation
+UUID and the current expected fence, first using
+`preflight-recover-expired-reviewer-cleanup`, then once with
+`recover-expired-reviewer-cleanup`. The preflight is read-only and returns only
+`eligible` plus a request ID. A refusal is deliberately non-diagnostic: stop,
+inspect the exact state privately, and do not retry with altered selectors.
+The mutation returns only `enqueued` or `replayed`, an opaque delete operation
+ID, and a request ID.
+
+The recovery transaction blocks the OAuth account, revokes Hosted sessions,
+access tokens, transfers, reviewer credentials/bootstrap authority, outstanding
+reviewer invites, and OAuth authority, gates entitlement and exports, and
+creates the normal target-free tenant `delete` operation at the next fence. It
+does not edit provider state, manufacture a provider proof, release capacity,
+or mark the tenant/cell deleted. A retry is allowed only as the exact replay of
+the superseded source at the old fence and the one derived-key delete at
+old-fence-plus-one.
+
+After the one invocation, run a bounded authenticated
+`/api/cron/exomem-reconcile` pass until that higher-fence delete records all
+provider DESTROY proofs (`computeDestroyed`, `storageDestroyed`, and
+`keysDestroyed`) and the control plane marks the tenant deleted. Verify the
+capacity allocation changed to `released` only through that provider-verified
+completion; no hand-edited capacity state or empty provider lookup is proof.
+Only then resume normal scheduling, prepare a fresh staged candidate and a
+fresh reviewer bootstrap, and issue fresh reviewer authority. Never reopen the
+expired source operation or reuse its client, credential, assignment, or
+bootstrap authority.
 
 ## Issue an invite
 

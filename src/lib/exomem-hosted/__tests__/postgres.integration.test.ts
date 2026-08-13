@@ -8,12 +8,14 @@ import {
   claimMagicLinkDelivery,
   clearExomemCheckoutTransaction,
   consumeDeletionConfirmationAtomic,
+  createInviteRecord,
   createDeletionConfirmationToken,
   createMagicAccessToken,
   createTransferGrantRecord,
   markMagicLinkDeliverySent,
   pruneStaleRateLimitBuckets,
   recordExomemCheckoutTransaction,
+  redeemInviteAtomic,
   redeemMagicAccessTokenAtomic,
   releaseMagicLinkDelivery,
   takeRateLimit,
@@ -34,6 +36,10 @@ import {
   type LifecycleOperationType,
 } from "../reconciler";
 import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
+import {
+  preflightRecoverExpiredReviewerCleanup,
+  recoverExpiredReviewerCleanup,
+} from "../operator-controls";
 import { SensitiveSecret, digestSecret, encryptSecret } from "../security";
 import { exomemContractFixture0350 } from "../gateway-contract-0-35-0";
 
@@ -104,6 +110,90 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     await pool.query("TRUNCATE TABLE exomem_rate_limit_buckets");
   });
 
+  async function seedExpiredReviewerCleanup(
+    input: {
+      tenantReviewer?: boolean;
+      assignmentState?: "expired" | "active";
+      sourceState?: "waiting" | "failed_terminal";
+      liveLease?: boolean;
+    } = {}
+  ) {
+    const userId = randomUUID();
+    const tenantId = randomUUID();
+    const cellId = randomUUID();
+    const candidateId = randomUUID();
+    const assignmentId = randomUUID();
+    const sourceOperationId = randomUUID();
+    const digest = "a".repeat(64);
+    const assignmentState = input.assignmentState ?? "expired";
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      userId,
+      `recovery-${userId}@example.test`,
+    ]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (
+         id, owner_user_id, status, desired_state, marketplace_reviewer_purpose
+       ) VALUES ($1, $2, 'provisioning', 'running', $3)`,
+      [tenantId, userId, input.tenantReviewer ?? true]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+       VALUES ($1, 'complimentary', 'active', 'provisioning')`,
+      [tenantId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+       ) VALUES ($1, $2, 'provisioning', 'unbound', 'running', '1', 'test')`,
+      [cellId, tenantId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+                 $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+      [candidateId, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, created_at, expires_at,
+         activated_at, ended_at
+       ) VALUES ($1, $2, $3, 1, $4, 'test', '1', $5, $5, $5, $5, true, $5,
+                 now() - interval '2 hours',
+                 CASE WHEN $4 = 'expired' THEN now() - interval '1 second' ELSE now() + interval '1 hour' END,
+                 CASE WHEN $4 = 'active' THEN now() ELSE NULL END,
+                 CASE WHEN $4 = 'expired' THEN now() ELSE NULL END)`,
+      [assignmentId, tenantId, candidateId, assignmentState, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+         fence_generation, provisioner_wire_protocol, lease_owner, lease_expires_at,
+         target_candidate_id, target_assignment_id, target_assignment_generation,
+         target_source_release, target_protocol_version, target_gateway_contract_digest,
+         target_command_fingerprint, target_schema_digest, target_compatibility_digest
+       ) VALUES ($1, $2, $3, 'provision', $4, 'candidate-cleanup', 'expired-reviewer-source',
+                 1, 'exomem-cell-provisioner.v2',
+                 CASE WHEN $5 THEN 'recovery-test-worker' ELSE NULL END,
+                 CASE WHEN $5 THEN now() + interval '1 hour' ELSE NULL END,
+                 $6, $7, 1, 'test', '1', $8, $8, $8, $8)`,
+      [
+        sourceOperationId,
+        tenantId,
+        cellId,
+        input.sourceState ?? "waiting",
+        input.liveLease ?? false,
+        candidateId,
+        assignmentId,
+        digest,
+      ]
+    );
+    return { userId, tenantId, cellId, candidateId, assignmentId, sourceOperationId };
+  }
+
   it("keeps contraction blocked until unfinished v1 work and retained v1 exports drain", async () => {
     const candidate = "44444444-4444-4444-8444-444444444444";
     const activeOperation = "55555555-5555-4555-8555-555555555555";
@@ -151,7 +241,16 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
           'exomem-cell-provisioner.v1', $7, 'test', '1', $8, $8, $8, $8, now()),
          ($4, $5, $6, 'export', 'succeeded', 'readiness-proved', 'v1-export', 1,
           'exomem-cell-provisioner.v1', $7, 'test', '1', $8, $8, $8, $8, now())`,
-      [activeOperation, completedOperation, terminalOperation, exportOperation, TENANT, CELL, candidate, digest]
+      [
+        activeOperation,
+        completedOperation,
+        terminalOperation,
+        exportOperation,
+        TENANT,
+        CELL,
+        candidate,
+        digest,
+      ]
     );
     await pool.query(
       `INSERT INTO exomem_exports (
@@ -1795,7 +1894,11 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
     process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
     try {
-      const operation = await new SqlLifecycleStore().enqueue(TENANT, "seal", "v2-pending-assignment");
+      const operation = await new SqlLifecycleStore().enqueue(
+        TENANT,
+        "seal",
+        "v2-pending-assignment"
+      );
       assert.deepEqual(operation.target, {
         candidateId,
         assignmentId,
@@ -1909,7 +2012,11 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
     process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
     try {
-      const maintenance = await new SqlLifecycleStore().enqueue(TENANT, "seal", "origin-bound-seal");
+      const maintenance = await new SqlLifecycleStore().enqueue(
+        TENANT,
+        "seal",
+        "origin-bound-seal"
+      );
       assert.equal(maintenance.target?.candidateId, originalCandidateId);
       const deletionDigest = Buffer.alloc(32, 0x74);
       assert.ok(
@@ -2414,11 +2521,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        ) VALUES
          ($1, $3, 'retired', 'retiring', 'quiesced', '0', '2026.07.11', 'CELL_READY', NULL, NULL, NULL, NULL),
          ($2, $3, 'active', 'bound', 'running', '0', '2026.07.11', 'CELL_READY', NULL, NULL, NULL, NULL)`,
-      [
-        prior,
-        replacement,
-        TENANT,
-      ]
+      [prior, replacement, TENANT]
     );
     await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
       replacement,
@@ -2626,6 +2729,579 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         scenario.name
       );
     }
+  });
+
+  it("atomically recovers the exact expired reviewer cleanup and replays its target-free delete", async () => {
+    const userId = randomUUID();
+    const tenantId = randomUUID();
+    const cellId = randomUUID();
+    const candidateId = randomUUID();
+    const assignmentId = randomUUID();
+    const sourceOperationId = randomUUID();
+    const requestId = randomUUID();
+    const digest = "a".repeat(64);
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      userId,
+      `recovery-${userId}@example.test`,
+    ]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (
+         id, owner_user_id, status, desired_state, marketplace_reviewer_purpose
+       ) VALUES ($1, $2, 'provisioning', 'running', true)`,
+      [tenantId, userId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+       VALUES ($1, 'complimentary', 'active', 'provisioning')`,
+      [tenantId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+       ) VALUES ($1, $2, 'provisioning', 'unbound', 'running', '1', 'test')`,
+      [cellId, tenantId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+                 $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+      [candidateId, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, created_at, expires_at, ended_at
+       ) VALUES ($1, $2, $3, 1, 'expired', 'test', '1', $4, $4, $4, $4,
+                 true, $4, now() - interval '2 hours', now() - interval '1 second', now())`,
+      [assignmentId, tenantId, candidateId, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_lifecycle_operations (
+         id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+         fence_generation, provisioner_wire_protocol, target_candidate_id, target_assignment_id,
+         target_assignment_generation, target_source_release, target_protocol_version,
+         target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
+         target_compatibility_digest
+       ) VALUES ($1, $2, $3, 'provision', 'waiting', 'candidate-cleanup', 'expired-reviewer-source',
+                 1, 'exomem-cell-provisioner.v2', $4, $5, 1, 'test', '1', $6, $6, $6, $6)`,
+      [sourceOperationId, tenantId, cellId, candidateId, assignmentId, digest]
+    );
+
+    const first = await recoverExpiredReviewerCleanup({
+      sourceOperationId,
+      expectedFence: 1,
+      requestId,
+      operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+    });
+    assert.equal(first?.outcome, "enqueued");
+    assert.ok(first?.operationId);
+    const state = await pool.query<{
+      status: string;
+      desired_state: string;
+      fence_generation: string;
+      source_state: string;
+      source_error: string;
+      operation_type: string;
+      target_candidate_id: string | null;
+      target_assignment_id: string | null;
+      audit_count: string;
+      deleted_at: Date | null;
+      cell_lifecycle_state: string;
+    }>(
+      `SELECT tenant.status, tenant.desired_state, tenant.fence_generation::text,
+              source.state AS source_state, source.error_code AS source_error,
+              deletion.operation_type, deletion.target_candidate_id::text, deletion.target_assignment_id::text,
+              (SELECT count(*)::text FROM exomem_audit_events WHERE request_id = $3::uuid) AS audit_count,
+              tenant.deleted_at, cell.lifecycle_state AS cell_lifecycle_state
+       FROM exomem_tenants AS tenant
+       JOIN exomem_lifecycle_operations AS source ON source.id = $1::uuid
+       JOIN exomem_lifecycle_operations AS deletion ON deletion.id = $2::uuid
+       JOIN exomem_cells AS cell ON cell.id = $5::uuid
+       WHERE tenant.id = $4::uuid`,
+      [sourceOperationId, first!.operationId, requestId, tenantId, cellId]
+    );
+    assert.deepEqual(state.rows[0], {
+      status: "deletion_pending",
+      desired_state: "deleted",
+      fence_generation: "2",
+      source_state: "failed_terminal",
+      source_error: "DELETION_SUPERSEDED",
+      operation_type: "delete",
+      target_candidate_id: null,
+      target_assignment_id: null,
+      audit_count: "2",
+      deleted_at: null,
+      cell_lifecycle_state: "provisioning",
+    });
+
+    const replay = await recoverExpiredReviewerCleanup({
+      sourceOperationId,
+      expectedFence: 1,
+      requestId: randomUUID(),
+      operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+    });
+    assert.deepEqual(replay, { outcome: "replayed", operationId: first!.operationId });
+    const deleteCount = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM exomem_lifecycle_operations
+       WHERE tenant_id = $1::uuid AND operation_type = 'delete'`,
+      [tenantId]
+    );
+    assert.equal(deleteCount.rows[0]?.count, "1");
+  });
+
+  it("refuses stale, live, bound, ambiguous, healthy, customer, and terminal cleanup without mutation", async () => {
+    const cases: Array<{
+      name: string;
+      seed?: Parameters<typeof seedExpiredReviewerCleanup>[0];
+      expectedFence?: number;
+      mutate?: (seed: Awaited<ReturnType<typeof seedExpiredReviewerCleanup>>) => Promise<void>;
+    }> = [
+      { name: "stale fence", expectedFence: 2 },
+      { name: "live lease", seed: { liveLease: true } },
+      { name: "customer tenant", seed: { tenantReviewer: false } },
+      { name: "eligible assignment", seed: { assignmentState: "active" } },
+      { name: "terminal source", seed: { sourceState: "failed_terminal" } },
+      {
+        name: "bound cell",
+        mutate: async ({ tenantId, cellId }) => {
+          await pool.query(`UPDATE exomem_cells SET routing_state = 'bound' WHERE id = $1`, [
+            cellId,
+          ]);
+          await pool.query(`UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2`, [
+            cellId,
+            tenantId,
+          ]);
+        },
+      },
+      {
+        name: "ambiguous cell",
+        mutate: async ({ tenantId }) => {
+          await pool.query(
+            `INSERT INTO exomem_cells (
+               tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+             ) VALUES ($1, 'provisioning', 'unbound', 'running', '1', 'test')`,
+            [tenantId]
+          );
+        },
+      },
+      {
+        name: "live session",
+        mutate: async ({ userId, tenantId }) => {
+          await pool.query(
+            `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+             VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
+            [userId, tenantId, Buffer.alloc(32, 0x12), Buffer.alloc(32, 0x13)]
+          );
+        },
+      },
+      {
+        name: "live reviewer credential",
+        mutate: async ({ userId, tenantId }) => {
+          await pool.query(
+            `INSERT INTO exomem_marketplace_reviewer_credentials (
+               provider, username_digest, password_hash, owner_user_id, tenant_id,
+               fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
+             ) VALUES ('openai', $1, '$argon2id$test', $2, $3, 'fixture', $4, $1, now() + interval '1 hour')`,
+            [Buffer.alloc(32, 0x21), userId, tenantId, "b".repeat(64)]
+          );
+        },
+      },
+      {
+        name: "live OAuth grant",
+        mutate: async ({ userId, tenantId }) => {
+          const clientId = randomUUID();
+          await pool.query(
+            `INSERT INTO exomem_oauth_clients (id, client_id, admission_mode, redirect_uris, redirect_uris_digest)
+             VALUES ($1, $2, 'pinned', '["http://127.0.0.1"]'::jsonb,
+                     digest(convert_to('["http://127.0.0.1"]', 'utf8'), 'sha256'))`,
+            [clientId, `recovery-refusal-${clientId}`]
+          );
+          await pool.query(
+            `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+             VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'])`,
+            [userId, tenantId, clientId]
+          );
+        },
+      },
+    ];
+    for (const scenario of cases) {
+      await pool.query("TRUNCATE TABLE users CASCADE");
+      const seed = await seedExpiredReviewerCleanup(scenario.seed);
+      await scenario.mutate?.(seed);
+      const before = await pool.query<{
+        status: string;
+        desired_state: string;
+        fence_generation: string;
+        operation_count: string;
+      }>(
+        `SELECT tenant.status, tenant.desired_state, tenant.fence_generation::text,
+                (SELECT count(*)::text FROM exomem_lifecycle_operations WHERE tenant_id = tenant.id) AS operation_count
+         FROM exomem_tenants AS tenant WHERE tenant.id = $1`,
+        [seed.tenantId]
+      );
+      assert.deepEqual(
+        await preflightRecoverExpiredReviewerCleanup({
+          sourceOperationId: seed.sourceOperationId,
+          expectedFence: scenario.expectedFence ?? 1,
+        }),
+        { eligible: false },
+        scenario.name
+      );
+      assert.equal(
+        await recoverExpiredReviewerCleanup({
+          sourceOperationId: seed.sourceOperationId,
+          expectedFence: scenario.expectedFence ?? 1,
+          requestId: randomUUID(),
+          operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+        }),
+        null,
+        scenario.name
+      );
+      const after = await pool.query(
+        `SELECT tenant.status, tenant.desired_state, tenant.fence_generation::text,
+                (SELECT count(*)::text FROM exomem_lifecycle_operations WHERE tenant_id = tenant.id) AS operation_count
+         FROM exomem_tenants AS tenant WHERE tenant.id = $1`,
+        [seed.tenantId]
+      );
+      assert.deepEqual(after.rows, before.rows, scenario.name);
+    }
+  });
+
+  it("serializes recovery behind a shared reviewer or OAuth cohort issuer lock", async () => {
+    const seed = await seedExpiredReviewerCleanup();
+    const issuer = await pool.connect();
+    try {
+      await issuer.query("BEGIN");
+      await issuer.query(
+        "SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))"
+      );
+      const recovery = recoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      });
+      await waitForBlockedQuery(
+        pool,
+        "%pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))%"
+      );
+      await issuer.query("COMMIT");
+      assert.equal((await recovery)?.outcome, "enqueued");
+      const authority = await pool.query<{ blocked: boolean; usable_session_count: string }>(
+        `SELECT EXISTS (
+            SELECT 1 FROM exomem_oauth_account_blocks WHERE tenant_id = $1::uuid
+          ) AS blocked,
+          (SELECT count(*)::text FROM exomem_sessions
+           WHERE tenant_id = $1::uuid AND revoked_at IS NULL AND expires_at > now()) AS usable_session_count`,
+        [seed.tenantId]
+      );
+      assert.deepEqual(authority.rows, [{ blocked: true, usable_session_count: "0" }]);
+    } finally {
+      await issuer.query("ROLLBACK").catch(() => undefined);
+      issuer.release();
+    }
+  });
+
+  it("revokes an outstanding reviewer invite for the stranded tenant owner", async () => {
+    const seed = await seedExpiredReviewerCleanup();
+    const tokenDigest = Buffer.alloc(32, 0x61);
+    const invite = await createInviteRecord({
+      tokenDigest,
+      emailNormalized: `recovery-${seed.userId}@example.test`,
+      entitlementSource: "complimentary",
+      capabilities: [],
+      resourceLimits: {},
+      marketplaceReviewerPurpose: true,
+      operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    assert.equal(
+      (
+        await recoverExpiredReviewerCleanup({
+          sourceOperationId: seed.sourceOperationId,
+          expectedFence: 1,
+          requestId: randomUUID(),
+          operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+        })
+      )?.outcome,
+      "enqueued"
+    );
+    const state = await pool.query<{ revoked: boolean; consumed: boolean }>(
+      `SELECT revoked_at IS NOT NULL AS revoked, consumed_at IS NOT NULL AS consumed
+       FROM exomem_invites WHERE id = $1`,
+      [invite.inviteId]
+    );
+    assert.deepEqual(state.rows, [{ revoked: true, consumed: false }]);
+    await assert.rejects(
+      () =>
+        createInviteRecord({
+          tokenDigest: Buffer.alloc(32, 0x62),
+          emailNormalized: `recovery-${seed.userId}@example.test`,
+          entitlementSource: "complimentary",
+          capabilities: [],
+          resourceLimits: {},
+          marketplaceReviewerPurpose: true,
+          operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+          expiresAt: new Date(Date.now() + 60_000),
+        }),
+      /createInviteRecord returned no row/
+    );
+  });
+
+  it("serializes reviewer invite issuance ahead of recovery and revokes the issued invite", async () => {
+    const seed = await seedExpiredReviewerCleanup();
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
+      const issued = createInviteRecord({
+        tokenDigest: Buffer.alloc(32, 0x62),
+        emailNormalized: `recovery-${seed.userId}@example.test`,
+        entitlementSource: "complimentary",
+        capabilities: [],
+        resourceLimits: {},
+        marketplaceReviewerPurpose: true,
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await waitForBlockedQuery(
+        pool,
+        "%pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))%"
+      );
+      const recovery = recoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      });
+      await waitForBlockedQuery(
+        pool,
+        "%pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))%"
+      );
+      await blocker.query("COMMIT");
+      const invite = await issued;
+      assert.equal((await recovery)?.outcome, "enqueued");
+      const state = await pool.query<{ revoked: boolean }>(
+        "SELECT revoked_at IS NOT NULL AS revoked FROM exomem_invites WHERE id = $1",
+        [invite.inviteId]
+      );
+      assert.deepEqual(state.rows, [{ revoked: true }]);
+    } finally {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      blocker.release();
+    }
+  });
+
+  it("serializes reviewer invite redemption behind recovery and creates no session", async () => {
+    const seed = await seedExpiredReviewerCleanup();
+    const tokenDigest = Buffer.alloc(32, 0x63);
+    await createInviteRecord({
+      tokenDigest,
+      emailNormalized: `recovery-${seed.userId}@example.test`,
+      entitlementSource: "complimentary",
+      capabilities: [],
+      resourceLimits: {},
+      marketplaceReviewerPurpose: true,
+      operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
+      const recovery = recoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      });
+      await waitForBlockedQuery(
+        pool,
+        "%pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))%"
+      );
+      const redemption = redeemInviteAtomic({
+        tokenDigest,
+        sessionDigest: Buffer.alloc(32, 0x64),
+        csrfDigest: Buffer.alloc(32, 0x65),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      });
+      await blocker.query("COMMIT");
+      assert.equal((await recovery)?.outcome, "enqueued");
+      assert.equal(await redemption, null);
+      const sessions = await pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM exomem_sessions WHERE tenant_id = $1",
+        [seed.tenantId]
+      );
+      assert.equal(sessions.rows[0]?.count, "0");
+    } finally {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      blocker.release();
+    }
+  });
+
+  it("refuses reviewer invite redemption for a deletion-pending blocked tenant", async () => {
+    const seed = await seedExpiredReviewerCleanup();
+    const tokenDigest = Buffer.alloc(32, 0x66);
+    const invite = await createInviteRecord({
+      tokenDigest,
+      emailNormalized: `recovery-${seed.userId}@example.test`,
+      entitlementSource: "complimentary",
+      capabilities: [],
+      resourceLimits: {},
+      marketplaceReviewerPurpose: true,
+      operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await pool.query(
+      "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+      [seed.tenantId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason)
+       VALUES ($1, $2, 'lifecycle_deleted')`,
+      [seed.tenantId, seed.userId]
+    );
+
+    assert.equal(
+      await redeemInviteAtomic({
+        tokenDigest,
+        sessionDigest: Buffer.alloc(32, 0x67),
+        csrfDigest: Buffer.alloc(32, 0x68),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      }),
+      null
+    );
+    const state = await pool.query<{ consumed: boolean; session_count: string }>(
+      `SELECT invite.consumed_at IS NOT NULL AS consumed,
+              (SELECT count(*)::text FROM exomem_sessions WHERE tenant_id = $2) AS session_count
+       FROM exomem_invites AS invite WHERE invite.id = $1`,
+      [invite.inviteId, seed.tenantId]
+    );
+    assert.deepEqual(state.rows, [{ consumed: false, session_count: "0" }]);
+  });
+
+  it("does not consume a matching OAuth transaction when recovery is refused", async () => {
+    const seed = await seedExpiredReviewerCleanup();
+    const clientId = randomUUID();
+    const stageId = randomUUID();
+    const credentialId = randomUUID();
+    const sessionId = randomUUID();
+    const transactionId = randomUUID();
+    const digest = "a".repeat(64);
+    await pool.query(
+      `INSERT INTO exomem_oauth_clients (id, client_id, admission_mode, redirect_uris, redirect_uris_digest)
+       VALUES ($1, $2, 'pinned', '["http://127.0.0.1"]'::jsonb,
+               digest(convert_to('["http://127.0.0.1"]', 'utf8'), 'sha256'))`,
+      [clientId, `recovery-transaction-${clientId}`]
+    );
+    await pool.query(
+      `INSERT INTO exomem_staged_client_releases (
+         id, candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest,
+         created_at, expires_at, ended_at
+       ) VALUES ($1, $2, 'claude', 'expired', $3, $3, $3, $3, 'test', $3, $3,
+                 now() - interval '2 hours', now() - interval '1 second', now())`,
+      [stageId, seed.candidateId, digest]
+    );
+    await pool.query(
+      `INSERT INTO exomem_marketplace_reviewer_credentials (
+         id, provider, username_digest, password_hash, owner_user_id, tenant_id, fixture_version,
+         fixture_payload_digest, created_by_principal_digest, expires_at, revoked_at, credential_kind,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id
+       ) VALUES ($1, 'anthropic', $2, '$argon2id$test', $3, $4, 'fixture', $5, $2,
+                 now() + interval '1 hour', now(), 'internal_canary', $6, $7, 1, $8, $9)`,
+      [
+        credentialId,
+        Buffer.alloc(32, 0x42),
+        seed.userId,
+        seed.tenantId,
+        digest,
+        seed.candidateId,
+        seed.assignmentId,
+        stageId,
+        clientId,
+      ]
+    );
+    await pool.query(
+      `INSERT INTO exomem_sessions (
+         id, user_id, tenant_id, session_digest, csrf_digest, created_at, last_seen_at, expires_at, revoked_at
+       ) VALUES ($1, $2, $3, $4, $5, now() - interval '2 hours', now() - interval '2 hours',
+                 now() - interval '1 hour', now() - interval '1 minute')`,
+      [sessionId, seed.userId, seed.tenantId, Buffer.alloc(32, 0x44), Buffer.alloc(32, 0x45)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_oauth_authorization_transactions (
+         id, transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at,
+         redeemed_session_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id, reviewer_credential_id
+       ) VALUES ($1, $2, $3, 'http://127.0.0.1', 'https://substratesystems.io/api/exomem/mcp/v1',
+                 ARRAY['exomem.read'], $2, '{}'::jsonb, $2, $2, 'verifier', now() + interval '1 hour',
+                 $4, $5, $6, 1, $7, $8)`,
+      [
+        transactionId,
+        Buffer.alloc(32, 0x43),
+        clientId,
+        sessionId,
+        seed.candidateId,
+        seed.assignmentId,
+        stageId,
+        credentialId,
+      ]
+    );
+
+    assert.deepEqual(
+      await preflightRecoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+      }),
+      { eligible: false }
+    );
+    assert.equal(
+      await recoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      null
+    );
+    const transaction = await pool.query<{ consumed_at: Date | null }>(
+      "SELECT consumed_at FROM exomem_oauth_authorization_transactions WHERE id = $1",
+      [transactionId]
+    );
+    assert.equal(transaction.rows[0]?.consumed_at, null);
+    const tenant = await pool.query<{ status: string; fence_generation: string }>(
+      "SELECT status, fence_generation::text FROM exomem_tenants WHERE id = $1",
+      [seed.tenantId]
+    );
+    assert.deepEqual(tenant.rows, [{ status: "provisioning", fence_generation: "1" }]);
+
+    await pool.query(
+      "UPDATE exomem_lifecycle_operations SET lease_owner = 'test-worker', lease_expires_at = now() + interval '1 hour' WHERE id = $1",
+      [seed.sourceOperationId]
+    );
+    assert.equal(
+      await recoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+      }),
+      null
+    );
+    assert.equal(
+      (
+        await pool.query<{ consumed_at: Date | null }>(
+          "SELECT consumed_at FROM exomem_oauth_authorization_transactions WHERE id = $1",
+          [transactionId]
+        )
+      ).rows[0]?.consumed_at,
+      null
+    );
   });
 
   it("refuses a retired pinned candidate without changing the old binding or routability", async () => {
