@@ -20,6 +20,7 @@ function candidate(): ExportGcCandidate {
     exportId: EXPORT,
     tenantId: TENANT,
     fenceGeneration: 4,
+    provisionerWireProtocol: "exomem-cell-provisioner.v2",
     storageReferenceEnvelope: encryptSecret("provider-export-object-1", {
       key: Buffer.alloc(32, 0x41),
       randomBytes: (size) => Buffer.alloc(size, 0x42),
@@ -49,6 +50,31 @@ class MemoryGcStore implements ExportGcStore {
 }
 
 describe("expired Exomem export garbage collection", () => {
+  it("keeps the originating operation protocol on a target-free provider delete", async () => {
+    class ProtocolRecordingProvisioner extends FakeCellProvisioner {
+      readonly protocols: string[] = [];
+
+      override async deleteExport(
+        request: Parameters<FakeCellProvisioner["deleteExport"]>[0]
+      ) {
+        this.protocols.push(request.provisionerWireProtocol ?? "missing");
+        return super.deleteExport(request);
+      }
+    }
+
+    const provisioner = new ProtocolRecordingProvisioner();
+    await runExportGc({
+      store: new MemoryGcStore(),
+      provisioner,
+      owner: "gc-worker",
+      maxExports: 1,
+      timeBudgetMs: 1_000,
+      envelopeKey: Buffer.alloc(32, 0x41),
+    });
+
+    assert.deepEqual(provisioner.protocols, ["exomem-cell-provisioner.v2"]);
+  });
+
   it("converges after a lost provider deletion acknowledgement before scrubbing the tombstone", async () => {
     const store = new MemoryGcStore();
     const provisioner = new FakeCellProvisioner();

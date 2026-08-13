@@ -116,7 +116,7 @@ A lifecycle operation SHALL bind a replacement cell and activate an assignment o
 
 ### Requirement: Rollout preserves v1 until proven contraction
 
-Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provisioner, its bounded verified legacy-v1 catalog, and reviewed expand lock are live and every authoritative legacy unit plus synthetic v2 behavior are verified. Immediately before D1 takes traffic, the control plane SHALL hold the cohort/admission lock, freeze assignment and promotion changes, recompute the canonical routable/assigned/unfinished-v1 release-set digest, and require equality with the reviewed expand lock; mismatch SHALL abort cutover for regenerated/reviewed locks. Contraction SHALL deploy the reviewed contract lock only after the v2 consumer is deployed, new operations use v2, no fresh v1 operations are observed, and legacy operations are drained or audited. Rollback SHALL be blocked while any v2 operation remains non-final, while any remaining cell/operation differs from the one rollback runtime unit, or until the exact D0/manifest/consumer tuple has passed its executable upgraded-schema replay rehearsal.
+Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provisioner, its bounded verified legacy-v1 catalog, and reviewed expand lock are live and every authoritative legacy unit plus synthetic v2 behavior are verified. Immediately before D1 takes traffic, the control plane SHALL hold the cohort/admission lock, freeze assignment and promotion changes, recompute the canonical routable/assigned/unfinished-v1 release-set digest, and require equality with the reviewed expand lock; mismatch SHALL abort cutover for regenerated/reviewed locks. The authenticated operator status SHALL expose only content-free contraction readiness: `unfinishedV1Operations` counts stored-v1 lifecycle operations other than `succeeded` and `failed_terminal`; `retainedV1Exports` counts non-deleted exports whose origin lifecycle operation stored v1; and `ready` is true only when both counts are zero. Contraction SHALL keep the expand lock and forbid deploying the reviewed contract lock while either count is nonzero, including v1-origin export download and export-GC continuations after their origin operation succeeds. Stored protocols MUST NOT be rewritten to satisfy the gate. Rollback SHALL be blocked while any v2 operation remains non-final, while any remaining cell/operation differs from the one rollback runtime unit, or until the exact D0/manifest/consumer tuple has passed its executable upgraded-schema replay rehearsal.
 
 #### Scenario: D1 is not yet proven
 
@@ -138,6 +138,11 @@ Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provis
 - **WHEN** fresh v1 work is still appearing or a v1 operation cannot be accounted for
 - **THEN** the rollout remains in expansion and cannot claim contraction complete
 
+#### Scenario: A retained v1 export remains after its operation succeeds
+
+- **WHEN** an export whose origin operation stored v1 is not deleted, even if its lifecycle operation is `succeeded`
+- **THEN** `retainedV1Exports` remains nonzero, `ready` is false, and contraction remains forbidden until its download/GC continuation drains
+
 #### Scenario: Non-final v2 exists during rollback
 
 - **WHEN** rollback preflight finds any unfinished v2 lifecycle operation
@@ -150,12 +155,12 @@ Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provis
 
 ### Requirement: Migration and errors are side-effect-free
 
-Migration 0037 and all protocol-admission failures SHALL create no assignment, provider action, OAuth lineage, candidate promotion, or tenant resource. Errors SHALL use bounded content-free diagnostics and MUST NOT reflect tenant data, credentials, contract bodies, package metadata, or provider details.
+Migration 0045 and all protocol-admission failures SHALL create no assignment, provider action, OAuth lineage, candidate promotion, or tenant resource. Errors SHALL use bounded content-free diagnostics and MUST NOT reflect tenant data, credentials, contract bodies, package metadata, or provider details.
 
 #### Scenario: Migration runs on an active database
 
-- **WHEN** migration 0037 backfills and constrains existing lifecycle operations
-- **THEN** only the wire discriminator changes and no external or control-plane action is triggered
+- **WHEN** migration 0045 widens and constrains existing lifecycle operations
+- **THEN** only the wire-protocol constraint and v2 target safeguards change and no external or control-plane action is triggered
 
 #### Scenario: Mixed envelope contains sensitive text
 

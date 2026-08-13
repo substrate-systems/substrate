@@ -37,6 +37,10 @@ const MIGRATION_0035 = resolve(
   "migrations/0035_exomem_marketplace_reviewer_access.sql"
 );
 const MIGRATION_0036 = resolve(process.cwd(), "migrations/0036_exomem_agent_contract_canaries.sql");
+const MIGRATION_0045 = resolve(
+  process.cwd(),
+  "migrations/0045_exomem_provisioner_v2_runtime_identity.sql"
+);
 const MIGRATION_0039 = resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql");
 const MIGRATION_0044 = resolve(
   process.cwd(),
@@ -746,5 +750,265 @@ describe("migration 0044 bootstrap authority upgrade safety", { skip: !DATABASE_
       await pool.query(`DROP SCHEMA IF EXISTS ${upgradeSchema} CASCADE`).catch(() => undefined);
       await pool.end();
     }
+  });
+});
+
+describe("migration 0045 provisioner wire protocol upgrade safety", { skip: !DATABASE_URL }, () => {
+  it("backfills v1, preserves legacy inserts, and constrains immutable v2 target identity", async () => {
+    await with0017Schema("exomem_upgrade_0045_wire_protocol", async (client) => {
+      await applyMigration(client, MIGRATION_0025);
+      await applyMigration(client, MIGRATION_0028);
+      await applyMigration(client, MIGRATION_0032);
+      await applyMigration(client, MIGRATION_0033);
+      await applyMigration(client, MIGRATION_0034);
+
+      const migrationsDir = mkdtempSync(resolve(tmpdir(), "exomem-0045-upgrade-"));
+      const scoped = new URL(DATABASE_URL!);
+      scoped.searchParams.set("options", "-c search_path=exomem_upgrade_0045_wire_protocol,public");
+      try {
+        copyFileSync(
+          MIGRATION_0035,
+          resolve(migrationsDir, "0035_exomem_marketplace_reviewer_access.sql")
+        );
+        copyFileSync(
+          MIGRATION_0036,
+          resolve(migrationsDir, "0036_exomem_agent_contract_canaries.sql")
+        );
+        copyFileSync(
+          MIGRATION_0039,
+          resolve(migrationsDir, "0039_exomem_provisioner_wire_protocol.sql")
+        );
+        await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
+
+        await client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key, fence_generation
+           ) VALUES ($1, $2, $3, 'seal', 'waiting', 'created', 'legacy-before-0045', 1)`,
+          [SOURCE_OPERATION, TENANT, CELL]
+        );
+        const before = await client.query<{
+          cells: string;
+          candidates: string;
+          assignments: string;
+        }>(
+          `SELECT
+             (SELECT count(*) FROM exomem_cells)::text AS cells,
+             (SELECT count(*) FROM exomem_agent_contract_candidates)::text AS candidates,
+             (SELECT count(*) FROM exomem_agent_contract_rollout_assignments)::text AS assignments`
+        );
+
+        copyFileSync(
+          MIGRATION_0045,
+          resolve(migrationsDir, "0045_exomem_provisioner_v2_runtime_identity.sql")
+        );
+        await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
+
+        assert.equal(
+          (
+            await client.query<{ provisioner_wire_protocol: string }>(
+              "SELECT provisioner_wire_protocol FROM exomem_lifecycle_operations WHERE id = $1",
+              [SOURCE_OPERATION]
+            )
+          ).rows[0]?.provisioner_wire_protocol,
+          "exomem-cell-provisioner.v1"
+        );
+        assert.deepEqual(
+          (
+            await client.query<{ cells: string; candidates: string; assignments: string }>(
+              `SELECT
+                 (SELECT count(*) FROM exomem_cells)::text AS cells,
+                 (SELECT count(*) FROM exomem_agent_contract_candidates)::text AS candidates,
+                 (SELECT count(*) FROM exomem_agent_contract_rollout_assignments)::text AS assignments`
+            )
+          ).rows,
+          before.rows
+        );
+        const claimedLegacy = await client.query<{
+          state: string;
+          checkpoint: string;
+          lease_owner: string;
+        }>(
+          `UPDATE exomem_lifecycle_operations
+              SET state = 'running',
+                  checkpoint = 'resolving_target',
+                  lease_owner = 'legacy-worker',
+                  lease_expires_at = now() + interval '1 minute'
+            WHERE id = $1
+          RETURNING state, checkpoint, lease_owner`,
+          [SOURCE_OPERATION]
+        );
+        assert.deepEqual(claimedLegacy.rows, [
+          { state: 'running', checkpoint: 'resolving_target', lease_owner: 'legacy-worker' },
+        ]);
+        const checkpointedLegacy = await client.query<{ checkpoint: string }>(
+          `UPDATE exomem_lifecycle_operations
+              SET checkpoint = 'awaiting_provider'
+            WHERE id = $1
+              AND state = 'running'
+              AND lease_owner = 'legacy-worker'
+          RETURNING checkpoint`,
+          [SOURCE_OPERATION]
+        );
+        assert.deepEqual(checkpointedLegacy.rows, [{ checkpoint: 'awaiting_provider' }]);
+
+        await client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, operation_type, idempotency_key, fence_generation
+           ) VALUES ($1, 'delete', 'legacy-omits-wire-protocol', 1)`,
+          [TENANT]
+        );
+        assert.equal(
+          (
+            await client.query<{ provisioner_wire_protocol: string }>(
+              `SELECT provisioner_wire_protocol
+                 FROM exomem_lifecycle_operations
+                WHERE tenant_id = $1 AND idempotency_key = 'legacy-omits-wire-protocol'`,
+              [TENANT]
+            )
+          ).rows[0]?.provisioner_wire_protocol,
+          "exomem-cell-provisioner.v1"
+        );
+
+        await assert.rejects(
+          client.query(
+            `INSERT INTO exomem_lifecycle_operations (
+               tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol
+             ) VALUES ($1, 'delete', 'invalid-wire-protocol', 1, 'exomem-cell-provisioner.v3')`,
+            [TENANT]
+          ),
+          /exomem_lifecycle_operations_provisioner_wire_protocol_check/i
+        );
+        await assert.rejects(
+          client.query(
+            `INSERT INTO exomem_lifecycle_operations (
+               tenant_id, cell_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol
+             ) VALUES ($1, $2, 'seal', 'v2-missing-target', 1, 'exomem-cell-provisioner.v2')`,
+            [TENANT, CELL]
+          ),
+          /exomem_lifecycle_v2_target_check/i
+        );
+        const rollingV1 = await client.query<{ provisioner_wire_protocol: string }>(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, cell_id, operation_type, idempotency_key, fence_generation
+           ) VALUES ($1, $2, 'seal', 'v1-missing-target', 1)
+           RETURNING provisioner_wire_protocol`,
+          [TENANT, CELL]
+        );
+        assert.deepEqual(rollingV1.rows, [{ provisioner_wire_protocol: "exomem-cell-provisioner.v1" }]);
+        await client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol
+           ) VALUES ($1, 'delete', 'v2-no-cell-delete', 1, 'exomem-cell-provisioner.v2')`,
+          [TENANT]
+        );
+        await assert.rejects(
+          client.query(
+            `INSERT INTO exomem_lifecycle_operations (
+               tenant_id, expected_previous_cell_id, operation_type, idempotency_key,
+               fence_generation, provisioner_wire_protocol
+             ) VALUES ($1, $2, 'delete', 'v2-retained-cell-delete', 1, 'exomem-cell-provisioner.v2')`,
+            [TENANT, CELL]
+          ),
+          /exomem_lifecycle_v2_target_check/i
+        );
+
+        const candidate = await client.query<{ id: string }>(
+          `INSERT INTO exomem_agent_contract_candidates (
+             state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+             compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+             promoted_at
+           ) VALUES (
+             'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '2026.07.30',
+             $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
+           ) RETURNING id`,
+          ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
+        );
+        await client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, cell_id, operation_type, idempotency_key, fence_generation,
+             provisioner_wire_protocol, target_candidate_id, target_source_release,
+             target_protocol_version, target_gateway_contract_digest, target_command_fingerprint,
+             target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, $2, 'seal', 'v2-complete-target', 1, 'exomem-cell-provisioner.v2',
+                     $3, '2026.07.30', '1', $4, $5, $6, $7)`,
+          [
+            TENANT,
+            CELL,
+            candidate.rows[0]!.id,
+            "d".repeat(64),
+            "a".repeat(64),
+            "b".repeat(64),
+            "c".repeat(64),
+          ]
+        );
+        await assert.rejects(
+          client.query(
+            `INSERT INTO exomem_lifecycle_operations (
+               tenant_id, operation_type, idempotency_key, fence_generation,
+               provisioner_wire_protocol, target_candidate_id, target_source_release,
+               target_protocol_version, target_gateway_contract_digest, target_command_fingerprint,
+               target_schema_digest, target_compatibility_digest
+             ) VALUES ($1, 'delete', 'v2-no-cell-target', 1, 'exomem-cell-provisioner.v2',
+                       $2, '2026.07.30', '1', $3, $4, $5, $6)`,
+            [
+              TENANT,
+              candidate.rows[0]!.id,
+              "d".repeat(64),
+              "a".repeat(64),
+              "b".repeat(64),
+              "c".repeat(64),
+            ]
+          ),
+          /exomem_lifecycle_v2_target_check/i
+        );
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_lifecycle_operations
+                SET target_candidate_id = $1,
+                    target_source_release = '2026.07.30',
+                    target_protocol_version = '1',
+                    target_gateway_contract_digest = $2,
+                    target_command_fingerprint = $3,
+                    target_schema_digest = $4,
+                    target_compatibility_digest = $5
+              WHERE tenant_id = $6 AND idempotency_key = 'v2-no-cell-delete'`,
+            [
+              candidate.rows[0]!.id,
+              "d".repeat(64),
+              "a".repeat(64),
+              "b".repeat(64),
+              "c".repeat(64),
+              TENANT,
+            ]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_lifecycle_operations
+                SET idempotency_key = 'mutated-v2-idempotency-key'
+              WHERE tenant_id = $1 AND idempotency_key = 'v2-complete-target'`,
+            [TENANT]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+        await client.query(
+          `UPDATE exomem_lifecycle_operations
+              SET checkpoint = 'resolving_target',
+                  updated_at = now()
+            WHERE tenant_id = $1 AND idempotency_key = 'v2-complete-target'`,
+          [TENANT]
+        );
+        await assert.rejects(
+          client.query(
+            "UPDATE exomem_lifecycle_operations SET provisioner_wire_protocol = 'exomem-cell-provisioner.v2' WHERE id = $1",
+            [SOURCE_OPERATION]
+          ),
+          /provisioner wire protocol is immutable/i
+        );
+      } finally {
+        rmSync(migrationsDir, { recursive: true, force: true });
+      }
+    });
   });
 });

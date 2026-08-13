@@ -129,7 +129,7 @@ describe("Exomem lifecycle reconciler", () => {
 
   it("refuses to bind a targeted replacement whose health omits its contract locks", async () => {
     const provisioner = new FakeCellProvisioner();
-    provisioner.readinessOverride.contractIdentity = undefined;
+    provisioner.readinessOverride.runtimeIdentity = undefined;
     const { store, reconciler } = harness(undefined, async () => true, provisioner);
     const operation = await store.enqueue(TENANT, "provision", "targeted-health");
     const stored = store.operations.get(operation.id);
@@ -244,6 +244,136 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.cells.get(cellId)?.protocolVersion, "0");
     assert.equal(store.operations.get(operation.id)?.state, "succeeded");
   });
+
+  it("issues a v2 provision from the operation's stored runtime target", async () => {
+    const { store, reconciler, provisioner } = harness();
+    const operation = await store.enqueue(TENANT, "provision", "stored-v2-target");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+    stored.target = {
+      candidateId: "018f2d91-7c42-7000-8000-000000000063",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000064",
+      assignmentGeneration: 2,
+      sourceRelease: "2026.07.11",
+      protocolVersion: "1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+
+    await convergeProvision(reconciler);
+
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    assert.equal(provisioner.resources.get(cellId)?.provisionerWireProtocol, "exomem-cell-provisioner.v2");
+    assert.deepEqual(provisioner.resources.get(cellId)?.runtimeTarget, {
+      releaseVersion: "2026.07.11",
+      protocolVersion: "1",
+      agentProfile: "hosted-alpha-agent-v1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+    });
+  });
+
+  it("fails a v2 operation without a persisted target before calling the provisioner", async () => {
+    const { store, reconciler, provisioner } = harness();
+    const operation = await store.enqueue(TENANT, "provision", "missing-v2-target");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+
+    await reconciler.reconcileOne({ owner: "missing-target", tenantId: TENANT });
+
+    assert.equal(provisioner.calls.length, 0);
+    assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
+    assert.equal(store.operations.get(operation.id)?.errorCode, "PROVISIONER_CONFIGURATION_INVALID");
+  });
+
+  it("retries a stored v2 operation with its original wire identity after the issuance flag changes", async () => {
+    const { store, reconciler, provisioner } = harness();
+    const operation = await store.enqueue(TENANT, "provision", "retry-stored-v2-target");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+    stored.target = {
+      candidateId: "018f2d91-7c42-7000-8000-000000000069",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000070",
+      assignmentGeneration: 5,
+      sourceRelease: "2026.07.11",
+      protocolVersion: "1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+    provisioner.loseNextAcknowledgement("provision");
+
+    await reconciler.reconcileOne({ owner: "candidate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "first-provision", tenantId: TENANT });
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    try {
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "false";
+      await store.makeRunnable(TENANT);
+      await convergeProvision(reconciler);
+
+      const cellId = store.tenants.get(TENANT)?.boundCellId;
+      assert.ok(cellId);
+      assert.equal(
+        provisioner.resources.get(cellId)?.provisionerWireProtocol,
+        "exomem-cell-provisioner.v2"
+      );
+      assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+  });
+
+  for (
+    const mismatch of [
+      "releaseVersion",
+      "protocolVersion",
+      "agentProfile",
+      "gatewayContractDigest",
+      "commandFingerprint",
+      "schemaDigest",
+    ] as const
+  ) {
+    it(`never binds a v2 cell when runtime identity ${mismatch} differs`, async () => {
+      const { store, reconciler, provisioner } = harness();
+      const operation = await store.enqueue(TENANT, "provision", `v2-mismatch-${mismatch}`);
+      const stored = store.operations.get(operation.id);
+      assert.ok(stored);
+      stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+      stored.target = {
+        candidateId: "018f2d91-7c42-7000-8000-000000000065",
+        assignmentId: "018f2d91-7c42-7000-8000-000000000066",
+        assignmentGeneration: 3,
+        sourceRelease: "2026.07.11",
+        protocolVersion: "1",
+        gatewayContractDigest: "a".repeat(64),
+        commandFingerprint: "b".repeat(64),
+        schemaDigest: "c".repeat(64),
+        compatibilityDigest: "d".repeat(64),
+      };
+
+      await reconciler.reconcileOne({ owner: "candidate", tenantId: TENANT });
+      await reconciler.reconcileOne({ owner: "provision", tenantId: TENANT });
+      const cell = provisioner.resources.get(stored.cellId ?? "");
+      assert.ok(cell?.runtimeTarget);
+      provisioner.readinessOverride = {
+        runtimeIdentity: { ...cell.runtimeTarget, [mismatch]: "wrong-value" },
+      };
+
+      await reconciler.reconcileOne({ owner: "readiness", tenantId: TENANT });
+
+      assert.equal(store.operations.get(operation.id)?.checkpoint, "candidate-cleanup");
+      assert.equal(store.tenants.get(TENANT)?.boundCellId, null);
+    });
+  }
 
   it("allows only one concurrent reconciler to advance a leased checkpoint", async () => {
     const { store, reconciler } = harness();
@@ -379,11 +509,13 @@ describe("Exomem lifecycle reconciler", () => {
     const v1 = await replay("exomem-cell-provisioner.v1");
     assert.equal(v1.contractIdentity, undefined);
     const v2 = await replay("exomem-cell-provisioner.v2");
-    assert.deepEqual(v2.contractIdentity, {
+    assert.deepEqual(v2.runtimeTarget, {
       gatewayContractDigest: "a".repeat(64),
       commandFingerprint: "b".repeat(64),
       schemaDigest: "c".repeat(64),
-      compatibilityDigest: "d".repeat(64),
+      releaseVersion: "2026.07.12",
+      protocolVersion: "1",
+      agentProfile: "hosted-alpha-agent-v1",
     });
   });
 
@@ -631,6 +763,32 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.operations.get(operation.id)?.state, "waiting");
     assert.equal(store.operations.get(operation.id)?.attempts, 0);
     assert.equal(store.operations.get(operation.id)?.errorCode, null);
+  });
+
+  it("uses the stored v2 protocol for target-free tenant destruction without a health probe", async () => {
+    class DestroyRecordingProvisioner extends FakeCellProvisioner {
+      readonly destroyProtocols: string[] = [];
+
+      override async destroy(request: Parameters<FakeCellProvisioner["destroy"]>[0]) {
+        this.destroyProtocols.push(request.provisionerWireProtocol ?? "missing");
+        return super.destroy(request);
+      }
+    }
+
+    const provisioner = new DestroyRecordingProvisioner();
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    const operation = await store.enqueue(TENANT, "delete", "v2-no-cell-delete");
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+
+    await convergeProvision(reconciler, TENANT, 8);
+
+    assert.deepEqual(provisioner.destroyProtocols, ["exomem-cell-provisioner.v2"]);
+    assert.equal(
+      provisioner.calls.some((call) => call.action === "health" && call.idempotencyKey.startsWith(operation.id)),
+      false
+    );
   });
 
   it("adopts an already-published binding when the checkpoint acknowledgement is lost", async () => {
@@ -1648,6 +1806,48 @@ describe("Exomem lifecycle reconciler", () => {
         .map((call) => call.action),
       ["quiesce", "seal", "destroy"]
     );
+  });
+
+  it("uses the stored v2 protocol for a cell-backed tenant destroy", async () => {
+    class DestroyRecordingProvisioner extends FakeCellProvisioner {
+      readonly destroyProtocols: string[] = [];
+
+      override async destroy(request: Parameters<FakeCellProvisioner["destroy"]>[0]) {
+        this.destroyProtocols.push(request.provisionerWireProtocol ?? "missing");
+        return super.destroy(request);
+      }
+    }
+
+    const provisioner = new DestroyRecordingProvisioner();
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    const provision = await store.enqueue(TENANT, "provision", "v2-cell-backed-provision");
+    const target = {
+      candidateId: "018f2d91-7c42-7000-8000-000000000067",
+      assignmentId: "018f2d91-7c42-7000-8000-000000000068",
+      assignmentGeneration: 4,
+      sourceRelease: "2026.07.11",
+      protocolVersion: "1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    };
+    const storedProvision = store.operations.get(provision.id);
+    assert.ok(storedProvision);
+    storedProvision.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+    storedProvision.target = target;
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const deletion = await store.enqueue(TENANT, "delete", "v2-cell-backed-delete", cellId);
+    const storedDeletion = store.operations.get(deletion.id);
+    assert.ok(storedDeletion);
+    storedDeletion.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+    storedDeletion.target = target;
+    await convergeProvision(reconciler, TENANT, 16);
+
+    assert.deepEqual(provisioner.destroyProtocols, ["exomem-cell-provisioner.v2"]);
   });
 
   it("quiesces a pre-deploy billing-terminated deletion before sealing it", async () => {

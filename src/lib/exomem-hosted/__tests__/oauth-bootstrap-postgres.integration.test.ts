@@ -5,7 +5,13 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 import { storeRetainedExomemAgentContractCandidate } from "../agent-contract-store";
-import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import {
+  __setExomemSqlForTests,
+  __setExomemTransactionForTests,
+  consumeDeletionConfirmationAtomic,
+  createDeletionConfirmationToken,
+  type ExomemSql,
+} from "../db";
 import { ExomemHostedError } from "../errors";
 import { exomemContractFixture0392 } from "../gateway-contract-0-39-2";
 import { SqlLifecycleStore } from "../lifecycle-store";
@@ -26,6 +32,8 @@ import {
   createInternalCanaryReviewerCredentialAtomic,
   createMarketplaceReviewerOAuthSessionAtomic,
 } from "../reviewer-access-store";
+import { FakeCellProvisioner } from "../provisioner";
+import { expectedCellConfiguration, LifecycleReconciler } from "../reconciler";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const clientId = "bootstrap-reviewer-client";
@@ -796,6 +804,148 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       ),
       /immutable/
     );
+  });
+
+  it("persists v2 for a bootstrap provision when issuance is enabled", async () => {
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    try {
+      const prepared = await prepareBootstrap(94);
+      const redeemed = await admitFirstOAuthInviteAtomic(prepared.redeemInput);
+      assert.ok(redeemed);
+      const operation = await pool!.query<{ provisioner_wire_protocol: string }>(
+        "SELECT provisioner_wire_protocol FROM exomem_lifecycle_operations WHERE id = $1",
+        [redeemed.operationId]
+      );
+      assert.deepEqual(operation.rows, [{ provisioner_wire_protocol: "exomem-cell-provisioner.v2" }]);
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+  });
+
+  it("resolves an expired strict-v1 reviewer bind target for maintenance and deletion", async () => {
+    const prepared = await prepareBootstrap(95);
+    const redeemed = await admitFirstOAuthInviteAtomic(prepared.redeemInput);
+    assert.ok(redeemed);
+    const store = new SqlLifecycleStore();
+    const reconciler = new LifecycleReconciler({
+      store,
+      provisioner: new FakeCellProvisioner(),
+      config: expectedCellConfiguration({
+        protocolVersion: "1",
+        releaseVersion: prepared.fixture.candidate.source_release,
+        workerPolicy: { workerCount: 0, semantic: false, media: false },
+      }),
+      envelopeKey: Buffer.alloc(32, 0x95),
+      randomBytes: (size) => Buffer.alloc(size, 0x95),
+    });
+    for (let index = 0; index < 16; index += 1) {
+      const result = await reconciler.reconcileOne({
+        owner: `expired-reviewer-v1-${index}`,
+        tenantId: redeemed.tenantId,
+      });
+      if (result.kind === "idle") break;
+    }
+
+    const bound = await pool!.query<{
+      owner_user_id: string;
+      bound_cell_id: string;
+      target_candidate_id: string;
+      target_assignment_id: string;
+      target_assignment_generation: string;
+      target_source_release: string;
+      target_protocol_version: string;
+      target_gateway_contract_digest: string;
+      target_command_fingerprint: string;
+      target_schema_digest: string;
+      target_compatibility_digest: string;
+    }>(
+      `SELECT tenant.owner_user_id::text, tenant.bound_cell_id::text,
+              operation.target_candidate_id::text, operation.target_assignment_id::text,
+              operation.target_assignment_generation::text, operation.target_source_release,
+              operation.target_protocol_version, operation.target_gateway_contract_digest,
+              operation.target_command_fingerprint, operation.target_schema_digest,
+              operation.target_compatibility_digest
+       FROM exomem_tenants AS tenant
+       JOIN exomem_lifecycle_operations AS operation ON operation.id = $1
+       WHERE tenant.id = $2`,
+      [redeemed.operationId, redeemed.tenantId]
+    );
+    assert.equal(bound.rows.length, 1);
+    const target = bound.rows[0]!;
+    await pool!.query(
+      "UPDATE exomem_agent_contract_rollout_assignments SET state = 'expired', activated_at = NULL, ended_at = now(), version = version + 1, updated_at = now() WHERE id = $1",
+      [target.target_assignment_id]
+    );
+    await pool!.query(
+      "UPDATE exomem_agent_contract_candidates SET state = 'retired', promoted_at = COALESCE(promoted_at, now()), retired_at = now() WHERE id = $1",
+      [target.target_candidate_id]
+    );
+
+    const maintenance = await store.enqueue(
+      redeemed.tenantId,
+      "suspend",
+      "expired-reviewer-v1-maintenance",
+      target.bound_cell_id
+    );
+    assert.deepEqual(maintenance.target, {
+      candidateId: target.target_candidate_id,
+      assignmentId: target.target_assignment_id,
+      assignmentGeneration: Number(target.target_assignment_generation),
+      sourceRelease: target.target_source_release,
+      protocolVersion: target.target_protocol_version,
+      gatewayContractDigest: target.target_gateway_contract_digest,
+      commandFingerprint: target.target_command_fingerprint,
+      schemaDigest: target.target_schema_digest,
+      compatibilityDigest: target.target_compatibility_digest,
+    });
+
+    const tokenDigest = digest(95_001);
+    assert.ok(
+      await createDeletionConfirmationToken({
+        userId: target.owner_user_id,
+        tenantId: redeemed.tenantId,
+        tokenDigest,
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+    );
+    const deletion = await consumeDeletionConfirmationAtomic({
+      userId: target.owner_user_id,
+      tenantId: redeemed.tenantId,
+      tokenDigest,
+    });
+    assert.ok(deletion);
+    const deletionTarget = await pool!.query<{
+      target_candidate_id: string;
+      target_assignment_id: string;
+      target_assignment_generation: string;
+      target_source_release: string;
+      target_protocol_version: string;
+      target_gateway_contract_digest: string;
+      target_command_fingerprint: string;
+      target_schema_digest: string;
+      target_compatibility_digest: string;
+    }>(
+      `SELECT target_candidate_id::text, target_assignment_id::text, target_assignment_generation::text,
+              target_source_release, target_protocol_version, target_gateway_contract_digest,
+              target_command_fingerprint, target_schema_digest, target_compatibility_digest
+       FROM exomem_lifecycle_operations WHERE id = $1`,
+      [deletion!.operationId]
+    );
+    assert.deepEqual(deletionTarget.rows, [
+      {
+        target_candidate_id: target.target_candidate_id,
+        target_assignment_id: target.target_assignment_id,
+        target_assignment_generation: target.target_assignment_generation,
+        target_source_release: target.target_source_release,
+        target_protocol_version: target.target_protocol_version,
+        target_gateway_contract_digest: target.target_gateway_contract_digest,
+        target_command_fingerprint: target.target_command_fingerprint,
+        target_schema_digest: target.target_schema_digest,
+        target_compatibility_digest: target.target_compatibility_digest,
+      },
+    ]);
   });
 
   it("serializes concurrent authority creation without mutating the losing client", async () => {

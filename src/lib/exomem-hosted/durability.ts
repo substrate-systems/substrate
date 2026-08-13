@@ -5,6 +5,7 @@ import {
   HttpCellProvisioner,
   provisionerConfigFromEnv,
   type ExportDownloadResult,
+  type ProvisionerWireProtocol,
 } from "./provisioner";
 import { immediateBestEffortReconcile } from "./reconcile-runtime";
 import { exportTtlMsFromEnv } from "./reconciler";
@@ -30,6 +31,7 @@ export type OwnerExportPrivate = OwnerExportSummary & {
   tenantId: string;
   cellId: string;
   fenceGeneration: number;
+  provisionerWireProtocol: ProvisionerWireProtocol;
   storageReferenceEnvelope: SecretEnvelope;
   storageReferenceDigest: Buffer;
 };
@@ -64,6 +66,7 @@ function defaults(): DurabilityDependencies {
         },
         tenantId: record.tenantId,
         exportRef: decryptSecret(record.storageReferenceEnvelope),
+        provisionerWireProtocol: record.provisionerWireProtocol,
       });
     },
   };
@@ -266,6 +269,7 @@ export async function getOwnerExport(
            export_row.cell_id,
            export_row.operation_id,
            operation.request_id,
+           operation.provisioner_wire_protocol,
            operation.created_at,
            operation.error_code,
            export_row.state AS export_state,
@@ -309,6 +313,7 @@ export async function getOwnerExport(
     tenantId: String(row.tenant_id),
     cellId: String(row.cell_id),
     fenceGeneration: Number(row.fence_generation),
+    provisionerWireProtocol: String(row.provisioner_wire_protocol) as ProvisionerWireProtocol,
     storageReferenceEnvelope: envelope,
     storageReferenceDigest: Buffer.from(row.storage_reference_digest as Uint8Array),
   };
