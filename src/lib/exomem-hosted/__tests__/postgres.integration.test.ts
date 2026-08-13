@@ -211,8 +211,6 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
   async function seedTerminalReviewerDelete() {
     const seed = await seedExpiredReviewerCleanup();
-    const operationId = randomUUID();
-    const confirmationTokenId = randomUUID();
     const clientId = randomUUID();
     const stageId = randomUUID();
     const sessionId = randomUUID();
@@ -220,32 +218,28 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const grantId = randomUUID();
     const authorityId = randomUUID();
     const digest = "a".repeat(64);
-    const deleteKey = `confirmed-deletion-${confirmationTokenId}`;
+    const confirmationDigest = Buffer.alloc(32, 0x50);
+    const confirmation = await createDeletionConfirmationToken({
+      userId: seed.userId,
+      tenantId: seed.tenantId,
+      tokenDigest: confirmationDigest,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    });
+    assert.ok(confirmation);
+    const consumed = await consumeDeletionConfirmationAtomic({
+      userId: seed.userId,
+      tenantId: seed.tenantId,
+      tokenDigest: confirmationDigest,
+    });
+    assert.ok(consumed);
+    const operationId = consumed.operationId;
+    const confirmationTokenId = confirmation.tokenId;
     await pool.query(
       `UPDATE exomem_lifecycle_operations
-       SET state = 'failed_terminal', error_code = 'DELETION_SUPERSEDED', completed_at = now()
+       SET state = 'failed_terminal', checkpoint = 'destroyed', attempts = 6,
+           error_code = 'LIFECYCLE_MAX_ATTEMPTS', completed_at = now()
        WHERE id = $1`,
-      [seed.sourceOperationId]
-    );
-    await pool.query(
-      `UPDATE exomem_tenants
-       SET status = 'deletion_pending', desired_state = 'deleted', fence_generation = 2
-       WHERE id = $1`,
-      [seed.tenantId]
-    );
-    await pool.query(
-      `INSERT INTO exomem_lifecycle_operations (
-         id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key, fence_generation,
-         attempts, error_code, completed_at
-       ) VALUES ($1, $2, NULL, 'delete', 'failed_terminal', 'destroyed', $3, 2,
-                 6, 'LIFECYCLE_MAX_ATTEMPTS', now())`,
-      [operationId, seed.tenantId, deleteKey]
-    );
-    await pool.query(
-      `INSERT INTO exomem_access_tokens (
-         id, purpose, token_digest, user_id, tenant_id, expires_at, consumed_at
-       ) VALUES ($1, 'deletion_confirmation', $2, $3, $4, now() + interval '1 day', now())`,
-      [confirmationTokenId, Buffer.alloc(32, 0x50), seed.userId, seed.tenantId]
+      [operationId]
     );
     await pool.query(
       `INSERT INTO exomem_oauth_clients (id, client_id, admission_mode, redirect_uris, redirect_uris_digest)
