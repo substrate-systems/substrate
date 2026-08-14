@@ -26,6 +26,7 @@
 - [x] 4.4 Resolve compatibility and package/archive/plugin/OAuth lineage only through existing candidate and staged-client records
 - [x] 4.5 Preserve offline recovery and destruction when live runtime health is unavailable
 - [x] 4.6 Bind only the exact reviewer-purpose v1 assignment with NULL observations and categorically exclude it from cohort promotion evidence
+- [x] 4.7 Add a forward-only migration and real PostgreSQL regression permitting exactly one same-tenant candidate attachment for a running v2 provision/restore at checkpoint `created`, while preserving every other immutable identity fence
 
 ## 5. Share The Cross-Language Corpus
 

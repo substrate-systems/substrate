@@ -26,6 +26,10 @@ const provisionerWireProtocolPath = resolve(
   process.cwd(),
   "migrations/0045_exomem_provisioner_v2_runtime_identity.sql"
 );
+const provisionerCandidateAttachmentPath = resolve(
+  process.cwd(),
+  "migrations/0047_exomem_v2_candidate_attachment.sql"
+);
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -238,5 +242,34 @@ describe("Exomem hosted migration contract", () => {
       sql,
       /(?:UPDATE|INSERT INTO|DELETE FROM)\s+exomem_(?:agent_contract_candidates|agent_contract_rollout_assignments|oauth|cells)/i
     );
+  });
+
+  it("permits only one leased same-tenant v2 candidate attachment before provider work", () => {
+    const sql = readFileSync(provisionerCandidateAttachmentPath, "utf8");
+
+    assert.match(
+      sql,
+      /CREATE OR REPLACE FUNCTION exomem_lifecycle_provisioner_wire_protocol_is_immutable/i
+    );
+    assert.match(sql, /OLD\.operation_type IN \('provision', 'restore'\)/i);
+    assert.match(sql, /OLD\.state = 'running'/i);
+    assert.match(sql, /OLD\.checkpoint = 'created'/i);
+    assert.match(sql, /OLD\.lease_expires_at > now\(\)/i);
+    assert.match(sql, /OLD\.cell_id IS NULL/i);
+    assert.match(sql, /NEW\.cell_id IS NOT NULL/i);
+    assert.match(sql, /candidate\.tenant_id = tenant\.id/i);
+    assert.match(sql, /candidate\.routing_state = 'unbound'/i);
+    assert.match(sql, /candidate\.release_version = NEW\.target_source_release/i);
+    assert.match(sql, /candidate\.protocol_version = NEW\.target_protocol_version/i);
+    assert.match(sql, /candidate\.provider_ref IS NULL/i);
+    assert.match(sql, /candidate\.service_credential_ciphertext IS NOT NULL/i);
+    assert.match(sql, /octet_length\(candidate\.service_credential_digest\) = 32/i);
+    assert.match(sql, /candidate\.created_at = transaction_timestamp\(\)/i);
+    assert.match(sql, /candidate\.updated_at = transaction_timestamp\(\)/i);
+    assert.match(sql, /other_operation\.cell_id = candidate\.id/i);
+    assert.match(sql, /tenant\.fence_generation = NEW\.fence_generation/i);
+    assert.match(sql, /COALESCE\(OLD\.expected_previous_cell_id, tenant\.bound_cell_id\)/i);
+    assert.doesNotMatch(sql, /ALTER TABLE|ADD COLUMN|DROP COLUMN/i);
+    assert.doesNotMatch(sql, /(?:UPDATE|INSERT INTO|DELETE FROM)\s+exomem_/i);
   });
 });
