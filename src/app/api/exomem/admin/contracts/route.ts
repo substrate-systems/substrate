@@ -149,7 +149,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (
         body.sourceRelease !== "0.34.0" &&
         body.sourceRelease !== "0.35.0" &&
-        body.sourceRelease !== "0.39.2"
+        body.sourceRelease !== "0.39.2" &&
+        body.sourceRelease !== "0.49.0"
       )
         throw exomemErrors.invalidRequest();
       response = {

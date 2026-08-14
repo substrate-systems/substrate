@@ -2,7 +2,8 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
-import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
+import { exomemHostedContractFixture as exomemHostedContractFixture0500 } from "./agent-contract-fixture";
 import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
@@ -222,6 +223,8 @@ export async function loadClientArtifactLocks(
           ? exomemHostedContractFixture0392
           : row.source_release === "0.49.0"
             ? exomemHostedContractFixture0490
+            : row.source_release === "0.50.0"
+              ? exomemHostedContractFixture0500
             : null;
   if (platform === "claude") {
     if (

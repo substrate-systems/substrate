@@ -3,8 +3,9 @@ import { exomemHostedContractFixture as liveFixture } from "../agent-contract-fi
 import { exomemHostedContractFixture as candidateFixture0340 } from "../agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
+import { exomemHostedContractFixture as retainedFixture0490 } from "../agent-contract-fixture-0-49-0";
 
-export type PromotionFixtureRelease = "0.34.0" | "0.35.0" | "0.39.2" | "0.49.0";
+export type PromotionFixtureRelease = "0.34.0" | "0.35.0" | "0.39.2" | "0.49.0" | "0.50.0";
 
 export function canonicalPromotionJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalPromotionJson).join(",")}]`;
@@ -22,7 +23,8 @@ export function canonicalPromotionJson(value: unknown): string {
 export function promotionContractFixture(release: PromotionFixtureRelease) {
   if (release === "0.34.0") return candidateFixture0340;
   if (release === "0.35.0") return candidateFixture0350;
-  return release === "0.39.2" ? retainedFixture0392 : liveFixture;
+  if (release === "0.39.2") return retainedFixture0392;
+  return release === "0.49.0" ? retainedFixture0490 : liveFixture;
 }
 
 export function testOpenAiLocks(
@@ -50,7 +52,7 @@ export function testOpenAiLocks(
 }
 
 // The live release, which is what the live-import tests exercise.
-export const testOnlyOpenAiLocks = testOpenAiLocks("0.49.0");
+export const testOnlyOpenAiLocks = testOpenAiLocks("0.50.0");
 
 export function signedPromotionEvidence(input: {
   platform: "claude" | "openai";
@@ -136,7 +138,7 @@ export function evidence(
 ): Record<string, unknown> {
   return signedPromotionEvidence({
     platform,
-    release: "0.49.0",
+    release: "0.50.0",
     secret,
     suffix,
     ...binding,

@@ -42,7 +42,7 @@ function lockPairBytes(): Buffer {
     schemaVersion: 2,
     admissionMode,
     runtimeTarget: {
-      releaseVersion: "0.49.0",
+      releaseVersion: "0.50.0",
       protocolVersion: "1",
       agentProfile: "hosted-alpha-agent-v1",
     },
@@ -79,7 +79,7 @@ describe("Hosted Exomem D1 expand preflight", () => {
         { releaseVersion: "0.39.2", protocolVersion: "1" },
         { releaseVersion: "0.49.0", protocolVersion: "1" },
       ],
-      forwardPair: { releaseVersion: "0.49.0", protocolVersion: "1" },
+      forwardPair: { releaseVersion: "0.50.0", protocolVersion: "1" },
     });
     assert.throws(
       () => verifyExpandDeploymentLockPair(bytes, "0".repeat(64)),
@@ -101,7 +101,7 @@ describe("Hosted Exomem D1 expand preflight", () => {
               ...(body.locks as Array<Record<string, unknown>>)[1],
               runtimeTarget: {
                 ...((body.locks as Array<Record<string, unknown>>)[1]!.runtimeTarget as object),
-                releaseVersion: "0.50.0",
+                releaseVersion: "0.51.0",
               },
             },
           ],
@@ -141,7 +141,7 @@ describe("Hosted Exomem D1 expand preflight", () => {
     }
   });
 
-  it("holds the cohort lock after exact under-lock release-set proof until explicitly released", async () => {
+  it("holds the cohort lock after the under-lock current set is proven inside the reviewed catalog", async () => {
     const bytes = lockPairBytes();
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     const statements: string[] = [];
@@ -155,10 +155,7 @@ describe("Hosted Exomem D1 expand preflight", () => {
         statements.push(text);
         if (text.includes("exomem:d1-current-release-set")) {
           return {
-            rows: [
-              { release_version: "0.39.2", protocol_version: "1" },
-              { release_version: "0.49.0", protocol_version: "1" },
-            ],
+            rows: [{ release_version: "0.39.2", protocol_version: "1" }],
           };
         }
         return { rows: [] };
@@ -192,56 +189,68 @@ describe("Hosted Exomem D1 expand preflight", () => {
     assert.match(releaseSetQuery, /exomem_exports/i);
     assert.match(releaseSetQuery, /export_row\.state <> 'deleted'/i);
     assert.match(releaseSetQuery, /COLLATE "C"/i);
+    assert.doesNotMatch(releaseSetQuery, /SELECT \$1::text AS release_version/i);
     assert.deepEqual(statuses, [
       {
         status: "held",
         lockPairSha256: sha256,
-        releaseSetSha256: releaseSetDigest([
+        catalogReleaseSetSha256: releaseSetDigest([
           { releaseVersion: "0.39.2", protocolVersion: "1" },
           { releaseVersion: "0.49.0", protocolVersion: "1" },
         ]),
-        releasePairCount: 2,
+        catalogReleasePairCount: 2,
+        currentReleaseSetSha256: releaseSetDigest([
+          { releaseVersion: "0.39.2", protocolVersion: "1" },
+        ]),
+        currentReleasePairCount: 1,
       },
     ]);
     release();
     assert.deepEqual(await held, {
       status: "released",
       lockPairSha256: sha256,
-      releaseSetSha256: releaseSetDigest([
+      catalogReleaseSetSha256: releaseSetDigest([
         { releaseVersion: "0.39.2", protocolVersion: "1" },
         { releaseVersion: "0.49.0", protocolVersion: "1" },
       ]),
-      releasePairCount: 2,
+      catalogReleasePairCount: 2,
+      currentReleaseSetSha256: releaseSetDigest([
+        { releaseVersion: "0.39.2", protocolVersion: "1" },
+      ]),
+      currentReleasePairCount: 1,
     });
     assert.equal(statements.at(-1)?.includes("pg_advisory_unlock"), true);
   });
 
-  it("aborts and unlocks when the under-lock release set differs", async () => {
+  it("aborts and unlocks when the current set is empty, unresolved, or outside the catalog", async () => {
     const bytes = lockPairBytes();
     const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const statements: string[] = [];
-    const client = {
-      query: async (text: string) => {
-        statements.push(text);
-        if (text.includes("exomem:d1-current-release-set")) {
-          return { rows: [{ release_version: "0.49.0", protocol_version: "1" }] };
-        }
-        return { rows: [] };
-      },
-    };
-    await assert.rejects(
-      holdD1ExpandPreflight({
-        client,
-        deploymentLockPairBytes: bytes,
-        expectedLockPairSha256: sha256,
-        waitForRelease: async () => undefined,
-      }),
-      /current release-set digest does not match/i
-    );
-    assert.equal(
-      statements.some((statement) => statement.includes("ROLLBACK")),
-      true
-    );
-    assert.equal(statements.at(-1)?.includes("pg_advisory_unlock"), true);
+    for (const [rows, expected] of [
+      [[], /current release set is empty/i],
+      [[{ release_version: null, protocol_version: "1" }], /current release pair/i],
+      [[{ release_version: "0.50.0", protocol_version: "1" }], /outside the reviewed catalog/i],
+    ] as const) {
+      const statements: string[] = [];
+      const client = {
+        query: async (text: string) => {
+          statements.push(text);
+          return text.includes("exomem:d1-current-release-set") ? { rows: [...rows] } : { rows: [] };
+        },
+      };
+      await assert.rejects(
+        holdD1ExpandPreflight({
+          client,
+          deploymentLockPairBytes: bytes,
+          expectedLockPairSha256: sha256,
+          waitForRelease: async () => undefined,
+        }),
+        expected
+      );
+      assert.equal(
+        statements.some((statement) => statement.includes("ROLLBACK")),
+        true
+      );
+      assert.equal(statements.at(-1)?.includes("pg_advisory_unlock"), true);
+    }
   });
 });

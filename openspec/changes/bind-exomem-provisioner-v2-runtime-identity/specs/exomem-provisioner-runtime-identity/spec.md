@@ -122,7 +122,7 @@ A lifecycle operation SHALL bind a replacement cell and activate an assignment o
 
 ### Requirement: Rollout preserves v1 until proven contraction
 
-Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provisioner, its bounded verified legacy-v1 catalog, and reviewed expand lock are live and every authoritative legacy unit plus synthetic v2 behavior are verified. Immediately before D1 takes traffic, the control plane SHALL hold the cohort/admission lock, freeze assignment and promotion changes, recompute the canonical routable/assigned/unfinished-v1 release-set digest, and require equality with the reviewed expand lock; mismatch SHALL abort cutover for regenerated/reviewed locks. The authenticated operator status SHALL expose only content-free contraction readiness: `unfinishedV1Operations` counts stored-v1 lifecycle operations other than `succeeded` and `failed_terminal`; `retainedV1Exports` counts non-deleted exports whose origin lifecycle operation stored v1; and `ready` is true only when both counts are zero. Contraction SHALL keep the expand lock and forbid deploying the reviewed contract lock while either count is nonzero, including v1-origin export download and export-GC continuations after their origin operation succeeds. Stored protocols MUST NOT be rewritten to satisfy the gate. Rollback SHALL be blocked while any v2 operation remains non-final, while any remaining cell/operation differs from the one rollback runtime unit, or until the exact D0/manifest/consumer tuple has passed its executable upgraded-schema replay rehearsal.
+Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provisioner, its bounded verified legacy-v1 catalog, and reviewed expand lock are live and every catalogued legacy unit plus synthetic v2 behavior are verified. The reviewed catalog MAY retain a dormant rollback unit that is not currently routable, assigned, or referenced by unfinished v1 work. Immediately before D1 takes traffic, the control plane SHALL hold the cohort/admission lock, freeze assignment and promotion changes, recompute the canonical current routable/assigned/unfinished-v1 and retained-export release set, require that set to be non-empty and fully resolved, and require every current pair to belong to the reviewed catalog. An empty, unresolved, or uncatalogued current set SHALL abort cutover; the evidence SHALL keep separate content-free catalog and current counts and digests. The distinct forward runtime target SHALL NOT be injected into either legacy set. The authenticated operator status SHALL expose only content-free contraction readiness: `unfinishedV1Operations` counts stored-v1 lifecycle operations other than `succeeded` and `failed_terminal`; `retainedV1Exports` counts non-deleted exports whose origin lifecycle operation stored v1; and `ready` is true only when both counts are zero. Contraction SHALL keep the expand lock and forbid deploying the reviewed contract lock while either count is nonzero, including v1-origin export download and export-GC continuations after their origin operation succeeds. Stored protocols MUST NOT be rewritten to satisfy the gate. Rollback SHALL be blocked while any v2 operation remains non-final, while any remaining cell/operation differs from the one rollback runtime unit, or until the exact D0/manifest/consumer tuple has passed its executable upgraded-schema replay rehearsal.
 
 #### Scenario: D1 is not yet proven
 
@@ -134,10 +134,15 @@ Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provis
 - **WHEN** a routable, assigned, or unfinished-v1 release/protocol pair has no unique verified entry in the expand lock
 - **THEN** expansion preflight fails before D1 can replace the current provisioner
 
-#### Scenario: Release set changes after lock review
+#### Scenario: Current release set is not covered by the reviewed catalog
 
-- **WHEN** the canonical under-lock release-set digest differs from the digest stored in the reviewed expand lock
+- **WHEN** the canonical under-lock current set is empty, contains an unresolved identity, or includes a pair absent from the reviewed catalog
 - **THEN** D1 does not take traffic and the lock pair is regenerated and reviewed before retry
+
+#### Scenario: Reviewed catalog retains a dormant rollback unit
+
+- **WHEN** every non-empty resolved current pair belongs to the reviewed catalog but another reviewed catalog pair is currently dormant
+- **THEN** preflight records separate catalog/current counts and digests and MAY proceed while D1 acceptance still proves every catalogued unit
 
 #### Scenario: Legacy work remains
 
