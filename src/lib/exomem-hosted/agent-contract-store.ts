@@ -4,6 +4,7 @@ import { exomemHostedContractFixture } from "./agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
+import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -20,8 +21,19 @@ import {
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
 /** Releases whose fixtures are pinned here; the bare fixture is the live one. */
-export type TrustedRelease = "0.34.0" | "0.35.0" | "0.39.2" | "0.49.0";
+export type TrustedRelease = "0.34.0" | "0.35.0" | "0.39.2" | "0.49.0" | "0.50.0";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.50.0",
+    {
+      sourceCommit: "9c862c2bd851cf72921a545239ae5c8b45594c31",
+      command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+      schema_contract_sha256: "b974fb04b9dca69580dd0b386d0de94b27c6a84543f24faeab684da3cbbbb57e",
+      compatibility_sha256: "f3cee4e10a9b3b0e87e469710504a0f850982e1e4b4bff5e4bad7eae4d2dec19",
+      artifact_sha256: "9d2bba6d14038139bb4120b91c35c17364e88db4f077e69cfb0e5875d14c44ee",
+      archive_sha256: "0da1055f4bb34d383101011f568b171f73ad4e033c3f3dd575136e1da54a1442",
+    },
+  ],
   [
     "0.49.0",
     {
@@ -335,7 +347,9 @@ export async function storeRetainedExomemAgentContractCandidate(
         ? exomemHostedContractFixture0350
         : sourceRelease === "0.39.2"
           ? exomemHostedContractFixture0392
-          : exomemHostedContractFixture;
+          : sourceRelease === "0.49.0"
+            ? exomemHostedContractFixture0490
+            : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

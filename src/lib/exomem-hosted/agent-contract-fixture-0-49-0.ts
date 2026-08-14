@@ -1,6 +1,7 @@
-{
-  "sourceCommit": "9c862c2bd851cf72921a545239ae5c8b45594c31",
-  "sourceRelease": "0.50.0",
+// Generated from Exomem compatibility.json at commit d6ea0c11224331fb27a45b485091399679e59bbf for cell release 0.49.0. Do not edit.
+export const exomemHostedContractFixture = {
+  "sourceCommit": "d6ea0c11224331fb27a45b485091399679e59bbf",
+  "sourceRelease": "0.49.0",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -4584,4 +4585,4 @@
     "archive_sha256": "0da1055f4bb34d383101011f568b171f73ad4e033c3f3dd575136e1da54a1442",
     "platform": "claude"
   }
-}
+} as const;

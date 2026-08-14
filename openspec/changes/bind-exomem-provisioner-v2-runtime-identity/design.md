@@ -81,8 +81,8 @@ The existing v1 fixture remains byte-for-byte unchanged and retains SHA-256 `ced
 
 The operational order is:
 
-1. Compose D1's bounded legacy-v1 catalog from every release/protocol unit currently routable, assigned, or referenced by unfinished v1 work and record the canonical set digest in both phase locks.
-2. Immediately before cutover, hold the cohort/admission lock, freeze assignment and promotion changes, recompute the set digest, and abort for lock regeneration/review on mismatch; on match, move traffic to D1 with the reviewed expand lock before releasing the freeze.
+1. Compose D1's bounded legacy-v1 catalog from every release/protocol unit currently routable, assigned, or referenced by unfinished v1 work plus any deliberately retained rollback unit, and record the complete canonical catalog digest in both phase locks.
+2. Immediately before cutover, hold the cohort/admission lock, freeze assignment and promotion changes, recompute the non-empty fully resolved current set, and require every current pair to belong to the reviewed catalog. Abort when the current set is empty, unresolved, or contains a pair outside the catalog; otherwise record separate catalog/current counts and digests, move traffic to D1 with the reviewed expand lock, and only then release the freeze.
 3. Prove every cataloged legacy v1 unit plus a synthetic v2 request/health round trip.
 4. Deploy this Substrate migration and consumer with v2 issuance disabled.
 5. Enable v2 for new operations; existing operations retain stored v1.
@@ -106,7 +106,7 @@ Rollback is not a flag flip for in-flight work. Before acceptance, the exact D0 
 - [A fourth release-to-contract mapping appears] -> Build v2 targets from the existing lifecycle snapshot and candidate/catalog joins rather than a new hard-coded map.
 - [The gate enables before D1] -> Default off, require the documented expand preflight, and have mixed-envelope requests fail closed.
 - [D1 rejects a currently live v1 release] -> Require its verified legacy catalog to cover authoritative routable/assigned/in-flight state before expansion.
-- [The legacy release set changes after review] -> Compare the canonical set digest under the cohort/admission lock with assignment/promotion changes frozen through traffic cutover; regenerate/review on mismatch.
+- [The current legacy set changes after review] -> Under the cohort/admission lock require the non-empty fully resolved current set to remain a subset of the reviewed catalog. A dormant reviewed rollback unit may remain in the catalog; an unresolved or uncatalogued current unit aborts cutover.
 - [A maintenance operation lacks migration 0036 target data] -> Snapshot the bound cell's authoritative candidate target for every cell-scoped action; use target-free v2 only for the three context-only calls.
 - [A tenant deletion has no cell] -> Allow only the exact no-cell delete exception and retain tenant/fence/idempotency/protocol audit identity without inventing candidate lineage.
 - [The immutable trigger blocks first provision] -> Separate immutable target provenance from the one-time same-tenant physical candidate attachment and permit that attachment only at the existing pre-provider `created` transition.

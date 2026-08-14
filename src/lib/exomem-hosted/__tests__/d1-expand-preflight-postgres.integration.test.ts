@@ -47,7 +47,7 @@ function lockPairBytes(): Buffer {
     schemaVersion: 2,
     admissionMode,
     runtimeTarget: {
-      releaseVersion: "0.49.0",
+      releaseVersion: "0.50.0",
       protocolVersion: "1",
       agentProfile: "hosted-alpha-agent-v1",
     },
@@ -86,6 +86,38 @@ describe("Hosted Exomem D1 expand PostgreSQL preflight", { skip: !databaseUrl },
          '{}'::jsonb, '{}'::jsonb, now()
        )`
     );
+    const owner = await admin.query<{ id: string }>(
+      `INSERT INTO "${schema}".users (email) VALUES ('d1-duplicate-039@example.test')
+       RETURNING id::text AS id`
+    );
+    const tenant = await admin.query<{ id: string }>(
+      `INSERT INTO "${schema}".exomem_tenants (owner_user_id)
+       VALUES ($1::uuid) RETURNING id::text AS id`,
+      [owner.rows[0]!.id]
+    );
+    const candidate = await admin.query<{ id: string }>(
+      `INSERT INTO "${schema}".exomem_agent_contract_candidates (
+         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock,
+         claude_archive_lock
+       ) VALUES (
+         'pending', 'hosted-alpha-agent-v1', 'https://duplicate.example.invalid', '0.39.2',
+         repeat('d', 64), repeat('e', 64), repeat('f', 64), '1', '{}'::jsonb,
+         '{}'::jsonb, '{}'::jsonb
+       ) RETURNING id::text AS id`
+    );
+    await admin.query(
+      `INSERT INTO "${schema}".exomem_agent_contract_rollout_assignments (
+         tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at
+       ) VALUES (
+         $1::uuid, $2::uuid, 1, 'preparing', '0.39.2', '1', repeat('d', 64),
+         repeat('e', 64), repeat('f', 64), repeat('a', 64), false, repeat('9', 64),
+         now() + interval '1 hour'
+       )`,
+      [tenant.rows[0]!.id, candidate.rows[0]!.id]
+    );
   });
 
   after(async () => {
@@ -93,7 +125,7 @@ describe("Hosted Exomem D1 expand PostgreSQL preflight", { skip: !databaseUrl },
     await admin?.end();
   });
 
-  it("holds the real cohort lock from exact repeatable-read proof through D1 release", async () => {
+  it("holds the real cohort lock while duplicate current sources collapse inside a larger reviewed catalog", async () => {
     const bytes = lockPairBytes();
     const expectedLockPairSha256 = createHash("sha256").update(bytes).digest("hex");
     const preflightClient = new Client({ connectionString: scopedDatabaseUrl });
@@ -102,6 +134,7 @@ describe("Hosted Exomem D1 expand PostgreSQL preflight", { skip: !databaseUrl },
     await competingClient.connect();
     let release!: () => void;
     let held!: () => void;
+    let heldStatus: Record<string, unknown> | undefined;
     const releaseSignal = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -114,7 +147,10 @@ describe("Hosted Exomem D1 expand PostgreSQL preflight", { skip: !databaseUrl },
         deploymentLockPairBytes: bytes,
         expectedLockPairSha256,
         waitForRelease: () => releaseSignal,
-        onStatus: () => held(),
+        onStatus: (status) => {
+          heldStatus = status;
+          held();
+        },
       });
       await Promise.race([
         heldSignal,
@@ -122,6 +158,19 @@ describe("Hosted Exomem D1 expand PostgreSQL preflight", { skip: !databaseUrl },
           throw new Error("preflight released before reporting its held state");
         }),
       ]);
+      assert.deepEqual(heldStatus, {
+        status: "held",
+        lockPairSha256: expectedLockPairSha256,
+        catalogReleaseSetSha256: releaseSetDigest([
+          { releaseVersion: "0.39.2", protocolVersion: "1" },
+          { releaseVersion: "0.49.0", protocolVersion: "1" },
+        ]),
+        catalogReleasePairCount: 2,
+        currentReleaseSetSha256: releaseSetDigest([
+          { releaseVersion: "0.39.2", protocolVersion: "1" },
+        ]),
+        currentReleasePairCount: 1,
+      });
       await competingClient.query("BEGIN");
       const competing = competingClient.query(
         "SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))"

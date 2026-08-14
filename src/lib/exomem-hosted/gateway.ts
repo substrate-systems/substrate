@@ -9,11 +9,13 @@ import { exomemErrors } from "./errors";
 import { exomemHostedContractFixture as agentFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as agentFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as agentFixture0392 } from "./agent-contract-fixture-0-39-2";
-import { exomemHostedContractFixture as agentFixture0490 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0490 } from "./agent-contract-fixture-0-49-0";
+import { exomemHostedContractFixture as agentFixture0500 } from "./agent-contract-fixture";
 import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
 import { exomemContractFixture0350 } from "./gateway-contract-0-35-0";
 import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
 import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
+import { exomemContractFixture0500 } from "./gateway-contract-0-50-0";
 import {
   decryptSecret,
   opaquePrincipalScope,
@@ -300,6 +302,7 @@ const gatewayContractCatalog = Object.freeze([
   Object.freeze({ full: exomemContractFixture0350, agent: agentFixture0350 }),
   Object.freeze({ full: exomemContractFixture0392, agent: agentFixture0392 }),
   Object.freeze({ full: exomemContractFixture0490, agent: agentFixture0490 }),
+  Object.freeze({ full: exomemContractFixture0500, agent: agentFixture0500 }),
 ]);
 
 function contractFixture(

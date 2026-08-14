@@ -27,8 +27,10 @@ export type D1ExpandPreflightClient = {
 export type D1ExpandPreflightStatus = {
   status: "held" | "released";
   lockPairSha256: string;
-  releaseSetSha256: string;
-  releasePairCount: number;
+  catalogReleaseSetSha256: string;
+  catalogReleasePairCount: number;
+  currentReleaseSetSha256: string;
+  currentReleasePairCount: number;
 };
 
 function object(value: unknown, name: string): JsonObject {
@@ -157,9 +159,6 @@ export function verifyExpandDeploymentLockPair(
   }
 
   const forwardPair = pairFrom(expand.runtimeTarget, "expand.runtimeTarget");
-  if (!releasePairs.some((entry) => JSON.stringify(entry) === JSON.stringify(forwardPair))) {
-    throw new Error("expand runtime target is absent from the legacy catalog");
-  }
   return {
     lockPairSha256: actualSha256,
     releaseSetSha256,
@@ -233,9 +232,6 @@ export async function holdD1ExpandPreflight(input: {
          WHERE export_row.state <> 'deleted'
            AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v1'
 
-         UNION ALL
-
-         SELECT $1::text AS release_version, $2::text AS protocol_version
        )
        SELECT release_version, protocol_version
        FROM (
@@ -244,7 +240,7 @@ export async function holdD1ExpandPreflight(input: {
        ) AS canonical_release_pairs
        ORDER BY release_version COLLATE "C" NULLS FIRST,
                 protocol_version COLLATE "C" NULLS FIRST`,
-      [verified.forwardPair.releaseVersion, verified.forwardPair.protocolVersion]
+      []
     );
     const currentPairs = rows.map((row, index) =>
       pairFrom(
@@ -252,17 +248,23 @@ export async function holdD1ExpandPreflight(input: {
         `current release pair ${index}`
       )
     );
+    if (currentPairs.length === 0) {
+      throw new Error("current release set is empty");
+    }
     const currentDigest = sha256(canonicalJson(currentPairs));
-    if (currentDigest !== verified.releaseSetSha256) {
-      throw new Error("current release-set digest does not match the reviewed expand lock");
+    const catalogPairKeys = new Set(verified.releasePairs.map((pair) => JSON.stringify(pair)));
+    if (currentPairs.some((pair) => !catalogPairKeys.has(JSON.stringify(pair)))) {
+      throw new Error("current release pair is outside the reviewed catalog");
     }
     await input.client.query("COMMIT");
     transactionOpen = false;
     const held: D1ExpandPreflightStatus = {
       status: "held",
       lockPairSha256: verified.lockPairSha256,
-      releaseSetSha256: verified.releaseSetSha256,
-      releasePairCount: currentPairs.length,
+      catalogReleaseSetSha256: verified.releaseSetSha256,
+      catalogReleasePairCount: verified.releasePairs.length,
+      currentReleaseSetSha256: currentDigest,
+      currentReleasePairCount: currentPairs.length,
     };
     input.onStatus?.(held);
     await input.waitForRelease();

@@ -16,7 +16,7 @@ import {
   type ExomemSql,
 } from "../db";
 import { ExomemHostedError } from "../errors";
-import { exomemContractFixture0490 } from "../gateway-contract-0-49-0";
+import { exomemContractFixture0500 } from "../gateway-contract-0-50-0";
 import { SqlLifecycleStore } from "../lifecycle-store";
 import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
 import {
@@ -352,7 +352,7 @@ async function seedReviewerTenant(
       fixture.candidate.command_fingerprint,
       fixture.candidate.schema_digest,
       fixture.candidate.compatibility_digest,
-      exomemContractFixture0490.digest,
+      exomemContractFixture0500.digest,
       sequence.toString(16).padStart(64, "0"),
       terminal,
     ]
@@ -1685,7 +1685,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
     );
   });
 
-  it("claims the committed operation immediately with the exact 0.49.0 assignment target", async () => {
+  it("claims the committed operation immediately with the exact 0.50.0 assignment target", async () => {
     const prepared = await prepareBootstrap(83);
     const redeemed = await admitFirstOAuthInviteAtomic(prepared.redeemInput);
     assert.ok(redeemed);
@@ -1722,7 +1722,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       assignmentGeneration: 1,
       sourceRelease: prepared.fixture.candidate.source_release,
       protocolVersion: prepared.fixture.candidate.protocol_version,
-      gatewayContractDigest: exomemContractFixture0490.digest,
+      gatewayContractDigest: exomemContractFixture0500.digest,
       commandFingerprint: prepared.fixture.candidate.command_fingerprint,
       schemaDigest: prepared.fixture.candidate.schema_digest,
       compatibilityDigest: prepared.fixture.candidate.compatibility_digest,

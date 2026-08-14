@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
+import { existsSync } from "node:fs";
 import { afterEach, describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   __setExomemSqlForTests,
@@ -9,6 +11,7 @@ import {
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
+import { exomemHostedContractFixture as retainedFixture0490 } from "../agent-contract-fixture-0-49-0";
 import {
   attachOpenAiContractLocks,
   getExomemAgentContractForOAuthAccess,
@@ -89,12 +92,20 @@ describe("Exomem Hosted agent contracts", () => {
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
-  it("imports only the exact checked fixture and preserves its ordered raw schemas", () => {
+  it("ships the retained 0.49 fixture beside the exact current 0.50 fixture", () => {
+    assert.equal(
+      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-49-0.ts", import.meta.url))),
+      true
+    );
+    assert.equal(
+      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-49-0.json", import.meta.url))),
+      true
+    );
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "d6ea0c11224331fb27a45b485091399679e59bbf"
+      "9c862c2bd851cf72921a545239ae5c8b45594c31"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.49.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.50.0");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -137,6 +148,12 @@ describe("Exomem Hosted agent contracts", () => {
     );
   });
 
+  it("retains the 0.49 fixture as a distinct exact release unit", () => {
+    assert.equal(retainedFixture0490.sourceCommit, "d6ea0c11224331fb27a45b485091399679e59bbf");
+    assert.equal(retainedFixture0490.sourceRelease, "0.49.0");
+    assert.notEqual(retainedFixture0490.sourceCommit, exomemHostedContractFixture.sourceCommit);
+  });
+
   it("re-imports a retained release only as a fresh pending candidate", async () => {
     const queries: string[] = [];
     __setExomemSqlForTests(async (strings) => {
@@ -166,7 +183,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.49.0");
+      assert.equal(fixture.sourceRelease, "0.50.0");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
