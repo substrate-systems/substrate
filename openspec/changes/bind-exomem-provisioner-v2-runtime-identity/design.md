@@ -42,6 +42,12 @@ Migration 0039 adds `provisioner_wire_protocol` to the lifecycle-operation table
 
 The v1 default is permanent so old rows and rolling binaries remain compatible. New code explicitly writes v2 only when creating a new operation after the gate is enabled. For every new v2 operation that has a cell, the same creation transaction also fills the existing migration 0036 target columns from the authoritative candidate/assignment or currently bound-cell catalog state. A no-cell tenant deletion records the narrow target-free exception. Reconciler retries always load the stored discriminator and target/exception; they do not evaluate the flag or process release configuration again.
 
+### Migration 0047 permits only operation-owned candidate attachment
+
+Migration 0045 correctly made the v2 target and operation identity immutable, but it also made `cell_id` and `expected_previous_cell_id` unconditionally immutable. Provision and restore deliberately persist the target before a physical candidate exists; `ensureCandidate` then creates that operation-owned cell and attaches it in one transaction while the leased operation is still `running` at checkpoint `created`. The unconditional trigger therefore rejects the only valid first attachment before any provider call.
+
+Migration 0047 replaces only that trigger function; migration number 0046 remains reserved by the already-reviewed v2 cold-cut view plan. Tenant, operation type, idempotency key, fence, wire protocol, and the complete target tuple remain categorically immutable. A change to cell identity is permitted only when all of the following hold: the stored operation is v2 provision or restore; both old and new rows are `running` at checkpoint `created`; `cell_id` moves exactly once from NULL to a non-NULL cell created in the current transaction and owned by the same tenant; and `expected_previous_cell_id` is either unchanged or moves from NULL to a same-tenant cell during that same attachment. Detach, retarget, cross-tenant attachment, later-checkpoint mutation, and independent previous-cell mutation remain rejected. The migration rewrites no rows and creates no provider or control-plane side effect.
+
 ### V2 issuance is fail-closed and default-off
 
 `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED` follows the existing environment pattern: only a trimmed, case-normalized `true` enables v2. Missing, empty, malformed, or false values select v1. The setting affects new lifecycle-operation creation only.
@@ -103,6 +109,7 @@ Rollback is not a flag flip for in-flight work. Before acceptance, the exact D0 
 - [The legacy release set changes after review] -> Compare the canonical set digest under the cohort/admission lock with assignment/promotion changes frozen through traffic cutover; regenerate/review on mismatch.
 - [A maintenance operation lacks migration 0036 target data] -> Snapshot the bound cell's authoritative candidate target for every cell-scoped action; use target-free v2 only for the three context-only calls.
 - [A tenant deletion has no cell] -> Allow only the exact no-cell delete exception and retain tenant/fence/idempotency/protocol audit identity without inventing candidate lineage.
+- [The immutable trigger blocks first provision] -> Separate immutable target provenance from the one-time same-tenant physical candidate attachment and permit that attachment only at the existing pre-provider `created` transition.
 - [Old rows fail during rolling migration] -> Backfill and retain a server-side v1 default with an allowed-value constraint.
 - [Contraction strands v1 work] -> Observe creation rates and durable operation state before deploying the immutable contract lock.
 - [Pinned rollback metadata is not executable] -> Rehearse the exact D0/manifest/consumer unit against upgraded schemas and corpus before accepting it.
@@ -111,9 +118,9 @@ Rollback is not a flag flip for in-flight work. Before acceptance, the exact D0 
 
 1. Land the paired Exomem and Substrate specifications.
 2. Add protocol codecs and tests while v2 issuance remains off.
-3. Apply migration 0045 and deploy the consumer with the flag absent/false.
+3. Apply migrations 0045 and 0047 and deploy the consumer with the flag absent/false.
 4. Follow the exact expand/contract sequence after D1, its authoritative legacy catalog, and the reviewed phase-lock pair are verified.
-5. Keep the migration additive and the v1 default permanent for rollback compatibility.
+5. Keep both migrations additive and the v1 default permanent for rollback compatibility.
 
 ## Open Questions
 

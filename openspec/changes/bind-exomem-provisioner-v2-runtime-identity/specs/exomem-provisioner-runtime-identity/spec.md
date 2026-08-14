@@ -24,6 +24,12 @@ Every Exomem Hosted lifecycle operation SHALL durably store exactly one outer pr
 - **WHEN** a v2 delete operation is created for a tenant with no bound or retained cell and its only provisioner call is tenant `destroy`
 - **THEN** the database accepts the exact target-free exception without assigning live-candidate lineage
 
+#### Scenario: Provision attaches its operation-owned candidate
+
+- **WHEN** a running v2 provision or restore operation at checkpoint `created` has already persisted its complete immutable target but has not yet created a cell
+- **THEN** the database permits exactly one atomic attachment from a NULL `cell_id` to a newly selected same-tenant cell and may snapshot that tenant's same-tenant previously bound cell
+- **AND** every detach, retarget, cross-tenant attachment, later-checkpoint attachment, or change to any other immutable operation identity remains rejected
+
 ### Requirement: V2 issuance is explicit and default-off
 
 Only a trimmed case-normalized `true` value for the documented v2 issuance setting SHALL select v2 for a newly created operation. Missing, empty, malformed, or false values SHALL select v1. The setting MUST NOT retroactively alter an existing operation or act as runtime-protocol authority.
@@ -155,12 +161,17 @@ Substrate SHALL keep v2 issuance disabled until the exact dual-serving D1 provis
 
 ### Requirement: Migration and errors are side-effect-free
 
-Migration 0045 and all protocol-admission failures SHALL create no assignment, provider action, OAuth lineage, candidate promotion, or tenant resource. Errors SHALL use bounded content-free diagnostics and MUST NOT reflect tenant data, credentials, contract bodies, package metadata, or provider details.
+Migrations 0045 and 0047 and all protocol-admission failures SHALL create no assignment, provider action, OAuth lineage, candidate promotion, or tenant resource. Migration 0047 SHALL only correct the immutable trigger so the existing atomic candidate-creation path can attach one same-tenant cell to an otherwise immutable v2 provision or restore operation. Errors SHALL use bounded content-free diagnostics and MUST NOT reflect tenant data, credentials, contract bodies, package metadata, or provider details.
 
 #### Scenario: Migration runs on an active database
 
 - **WHEN** migration 0045 widens and constrains existing lifecycle operations
 - **THEN** only the wire-protocol constraint and v2 target safeguards change and no external or control-plane action is triggered
+
+#### Scenario: Attachment correction runs on an active database
+
+- **WHEN** migration 0047 replaces the immutable trigger on a database containing existing v1 and v2 lifecycle rows
+- **THEN** no row or external resource changes during migration and only the exact one-time candidate attachment transition becomes admissible
 
 #### Scenario: Mixed envelope contains sensitive text
 

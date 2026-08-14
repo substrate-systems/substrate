@@ -6,7 +6,8 @@ import { describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { getLiveExomemAgentContract } from "../agent-contract-store";
-import { __setExomemSqlForTests } from "../db";
+import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { SqlLifecycleStore } from "../lifecycle-store";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
@@ -41,6 +42,7 @@ const MIGRATION_0045 = resolve(
   process.cwd(),
   "migrations/0045_exomem_provisioner_v2_runtime_identity.sql"
 );
+const MIGRATION_0047 = resolve(process.cwd(), "migrations/0047_exomem_v2_candidate_attachment.sql");
 const MIGRATION_0039 = resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql");
 const MIGRATION_0044 = resolve(
   process.cwd(),
@@ -50,6 +52,8 @@ const MIGRATION_0044 = resolve(
 const USER = "11111111-1111-4111-8111-111111111191";
 const TENANT = "22222222-2222-4222-8222-222222222291";
 const CELL = "33333333-3333-4333-8333-333333333391";
+const CANDIDATE_CELL = "33333333-3333-4333-8333-333333333392";
+const CROSS_TENANT_CELL = "33333333-3333-4333-8333-333333333393";
 const SOURCE_OPERATION = "44444444-4444-4444-8444-444444444491";
 const DELETED_OPERATION = "44444444-4444-4444-8444-444444444492";
 const RESTORE_OPERATION = "44444444-4444-4444-8444-444444444493";
@@ -83,6 +87,16 @@ async function applyMigration(client: PoolClient, path: string): Promise<void> {
     await client.query("ROLLBACK");
     throw error;
   }
+}
+
+function taggedSql(client: PoolClient): ExomemSql {
+  return async (strings, ...values) => {
+    let text = strings[0];
+    for (let index = 0; index < values.length; index += 1)
+      text += `$${index + 1}${strings[index + 1]}`;
+    const result = await client.query(text, values);
+    return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+  };
 }
 
 async function create0017Schema(client: PoolClient, schema: string): Promise<void> {
@@ -802,6 +816,11 @@ describe("migration 0045 provisioner wire protocol upgrade safety", { skip: !DAT
           resolve(migrationsDir, "0045_exomem_provisioner_v2_runtime_identity.sql")
         );
         await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
+        copyFileSync(
+          MIGRATION_0047,
+          resolve(migrationsDir, "0047_exomem_v2_candidate_attachment.sql")
+        );
+        await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
 
         assert.equal(
           (
@@ -922,6 +941,193 @@ describe("migration 0045 provisioner wire protocol upgrade safety", { skip: !DAT
              $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
            ) RETURNING id`,
           ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
+        );
+        await client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation,
+             lease_owner, lease_expires_at, provisioner_wire_protocol, target_candidate_id,
+             target_source_release, target_protocol_version, target_gateway_contract_digest,
+             target_command_fingerprint, target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, 'provision', 'running', 'created', 'v2-candidate-attachment', 1,
+                     'candidate-worker', now() + interval '1 minute',
+                     'exomem-cell-provisioner.v2', $2, '2026.07.30', '1', $3, $4, $5, $6)`,
+          [
+            TENANT,
+            candidate.rows[0]!.id,
+            "d".repeat(64),
+            "a".repeat(64),
+            "b".repeat(64),
+            "c".repeat(64),
+          ]
+        );
+        __setExomemSqlForTests(taggedSql(client));
+        let attachedCandidate;
+        try {
+          attachedCandidate = await new SqlLifecycleStore().ensureCandidate({
+            operationId: (
+              await client.query<{ id: string }>(
+                `SELECT id FROM exomem_lifecycle_operations
+                  WHERE tenant_id = $1 AND idempotency_key = 'v2-candidate-attachment'`,
+                [TENANT]
+              )
+            ).rows[0]!.id,
+            owner: "candidate-worker",
+            protocolVersion: "1",
+            releaseVersion: "2026.07.30",
+            workerPolicy: { workerCount: 0, semantic: false, media: false },
+            credential: {
+              plaintext: "candidate-secret",
+              envelope: {
+                version: 1,
+                algorithm: "A256GCM",
+                iv: "candidate-iv",
+                ciphertext: "candidate-ciphertext",
+                tag: "candidate-tag",
+              },
+              digest: Buffer.alloc(32, 0x72),
+            },
+            lifecycleState: "provisioning",
+          });
+        } finally {
+          __setExomemSqlForTests(null);
+        }
+        assert.ok(attachedCandidate);
+        assert.equal(attachedCandidate.tenantId, TENANT);
+        const attached = await client.query<{
+          cell_id: string;
+          expected_previous_cell_id: string;
+        }>(
+          `SELECT cell_id, expected_previous_cell_id
+             FROM exomem_lifecycle_operations
+            WHERE tenant_id = $1 AND idempotency_key = 'v2-candidate-attachment'`,
+          [TENANT]
+        );
+        assert.deepEqual(attached.rows, [
+          { cell_id: attachedCandidate.id, expected_previous_cell_id: CELL },
+        ]);
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_lifecycle_operations
+                SET cell_id = NULL
+              WHERE tenant_id = $1 AND idempotency_key = 'v2-candidate-attachment'`,
+            [TENANT]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_lifecycle_operations
+                SET cell_id = $1
+              WHERE tenant_id = $2 AND idempotency_key = 'v2-candidate-attachment'`,
+            [CELL, TENANT]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+        await assert.rejects(
+          client.query(
+            `UPDATE exomem_lifecycle_operations
+                SET expected_previous_cell_id = NULL
+              WHERE tenant_id = $1 AND idempotency_key = 'v2-candidate-attachment'`,
+            [TENANT]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+        await client.query(
+          `INSERT INTO exomem_cells (
+             id, tenant_id, lifecycle_state, routing_state, desired_state,
+             protocol_version, release_version, service_credential_ciphertext,
+             service_credential_digest
+           ) VALUES ($1, $2, 'provisioning', 'unbound', 'running', '1', '2026.07.30',
+                     '{}'::jsonb, $3)`,
+          [CANDIDATE_CELL, TENANT, Buffer.alloc(32, 0x73)]
+        );
+        await client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation,
+             lease_owner, lease_expires_at, provisioner_wire_protocol, target_candidate_id,
+             target_source_release, target_protocol_version, target_gateway_contract_digest,
+             target_command_fingerprint, target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, 'provision', 'running', 'candidate-created', 'v2-late-attachment', 1,
+                     'late-worker', now() + interval '1 minute',
+                     'exomem-cell-provisioner.v2', $2, '2026.07.30', '1', $3, $4, $5, $6)`,
+          [
+            TENANT,
+            candidate.rows[0]!.id,
+            "d".repeat(64),
+            "a".repeat(64),
+            "b".repeat(64),
+            "c".repeat(64),
+          ]
+        );
+        await assert.rejects(
+          client.query(
+            `WITH refreshed AS (
+               UPDATE exomem_cells
+                  SET created_at = transaction_timestamp(),
+                      updated_at = transaction_timestamp()
+                WHERE id = $1
+              RETURNING id
+             )
+             UPDATE exomem_lifecycle_operations
+                SET cell_id = refreshed.id, expected_previous_cell_id = $2
+               FROM refreshed
+              WHERE tenant_id = $3 AND idempotency_key = 'v2-late-attachment'`,
+            [CANDIDATE_CELL, CELL, TENANT]
+          ),
+          /v2 lifecycle identity is immutable/i
+        );
+
+        await client.query("INSERT INTO users (id, email) VALUES ($1, 'other@example.com')", [
+          USER_TWO,
+        ]);
+        await client.query(
+          `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+           VALUES ($1, $2, 'active', 'running')`,
+          [TENANT_TWO, USER_TWO]
+        );
+        await client.query(
+          `INSERT INTO exomem_cells (
+             id, tenant_id, lifecycle_state, routing_state, desired_state,
+             protocol_version, release_version, service_credential_ciphertext,
+             service_credential_digest
+           ) VALUES ($1, $2, 'provisioning', 'unbound', 'running', '1', '2026.07.30',
+                     '{}'::jsonb, $3)`,
+          [CROSS_TENANT_CELL, TENANT_TWO, Buffer.alloc(32, 0x74)]
+        );
+        await client.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation,
+             lease_owner, lease_expires_at, provisioner_wire_protocol, target_candidate_id,
+             target_source_release, target_protocol_version, target_gateway_contract_digest,
+             target_command_fingerprint, target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, 'provision', 'running', 'created', 'v2-cross-tenant-attachment', 1,
+                     'cross-worker', now() + interval '1 minute',
+                     'exomem-cell-provisioner.v2', $2, '2026.07.30', '1', $3, $4, $5, $6)`,
+          [
+            TENANT,
+            candidate.rows[0]!.id,
+            "d".repeat(64),
+            "a".repeat(64),
+            "b".repeat(64),
+            "c".repeat(64),
+          ]
+        );
+        await assert.rejects(
+          client.query(
+            `WITH refreshed AS (
+               UPDATE exomem_cells
+                  SET created_at = transaction_timestamp(),
+                      updated_at = transaction_timestamp()
+                WHERE id = $1
+              RETURNING id
+             )
+             UPDATE exomem_lifecycle_operations
+                SET cell_id = refreshed.id, expected_previous_cell_id = $2
+               FROM refreshed
+              WHERE tenant_id = $3 AND idempotency_key = 'v2-cross-tenant-attachment'`,
+            [CROSS_TENANT_CELL, CELL, TENANT]
+          ),
+          /v2 lifecycle identity is immutable/i
         );
         await client.query(
           `INSERT INTO exomem_lifecycle_operations (
