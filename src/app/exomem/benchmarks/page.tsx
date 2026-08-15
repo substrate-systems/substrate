@@ -132,12 +132,16 @@ export default function ExomemBenchmarksPage() {
         </p>
 
         <h2>What that means in practice</h2>
-        {rules.map((rule) => (
-          <div key={rule.title}>
-            <h3>{rule.title}</h3>
-            <p>{rule.body}</p>
-          </div>
-        ))}
+        {/* An ordered list, not h3 blocks: `exo-prose` styles direct children only, so
+            wrapped headings render as undifferentiated body text. These are numbered
+            rules in the source contract, so a list is also the more accurate shape. */}
+        <ol>
+          {rules.map((rule) => (
+            <li key={rule.title}>
+              <strong>{rule.title}.</strong> {rule.body}
+            </li>
+          ))}
+        </ol>
 
         <h2>What is not here yet</h2>
         <p>
