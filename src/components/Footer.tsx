@@ -5,7 +5,7 @@ const navLinks = [
   { label: "Work", href: "/work" },
   { label: "Writing", href: "/blog" },
   { label: "Photography", href: "/photography" },
-  { label: "Q", href: "https://useq.ai", external: true },
+  { label: "Q", href: "/q" },
   { label: "Endstate", href: "/endstate" },
   { label: "Exomem", href: "/exomem" },
   { label: "GitHub", href: "https://github.com/Artexis10", external: true },

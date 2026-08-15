@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import sitemap from "../../app/sitemap";
@@ -178,5 +178,61 @@ describe("SEO crawl signals", () => {
     assert.match(winget, new RegExp(`/blog/${slug}`));
     assert.match(endstate, new RegExp(`/blog/${slug}`));
     assert.match(llms, new RegExp(`https://substratesystems\\.io/blog/${slug}`));
+  });
+
+  // Regression guard for a live defect: /exomem/{setup,support,privacy,terms} declared
+  // raw `Metadata` with only title+description, so they inherited the root layout's
+  // `alternates: { canonical: "/" }` and shipped pointing at the homepage — four
+  // indexable, sitemap-listed pages disowning themselves.
+  //
+  // Asserting `buildMetadata` in isolation would not have caught this, exactly as the
+  // Article-image bug passed a builder test while every call site stayed broken. So
+  // this walks the sitemap and checks the call sites instead.
+  it("gives every sitemap route a self-referencing canonical, not the inherited root one", () => {
+    const routes = sitemap()
+      .map((entry) => entry.url.replace("https://substratesystems.io", ""))
+      // Blog posts resolve through blog/[slug]/generateMetadata, which is asserted above.
+      .filter((path) => !/^\/blog\/.+/.test(path));
+
+    assert.ok(routes.length >= 15, "expected the static route set, got " + routes.length);
+
+    // The homepage legitimately carries its canonical on the root layout.
+    assert.match(source("src/app/layout.tsx"), /alternates:\s*\{\s*canonical:\s*"\/"/);
+
+    for (const path of routes) {
+      if (path === "") continue;
+
+      const candidates = [`src/app${path}/page.tsx`, `src/app${path}/layout.tsx`].filter((file) =>
+        existsSync(resolve(process.cwd(), file))
+      );
+      assert.ok(candidates.length > 0, `${path} is in the sitemap but has no page or layout`);
+
+      const declaresOwnPath = candidates.some((file) =>
+        source(file).includes(`path: "${path}"`)
+      );
+      assert.ok(
+        declaresOwnPath,
+        `${path} is in the sitemap but no page/layout passes path: "${path}" to buildMetadata — ` +
+          "it will inherit the root canonical and point at the homepage"
+      );
+    }
+  });
+
+  it("keeps Q reachable from the site's internal graph rather than only useq.ai", () => {
+    assert.equal(
+      sitemap().some((entry) => entry.url === "https://substratesystems.io/q"),
+      true
+    );
+    // Publishing a page without inbound links is not shipping it.
+    assert.match(source("src/components/Products.tsx"), /href: "\/q"/);
+    assert.match(source("src/components/Footer.tsx"), /href: "\/q"/);
+    assert.match(source("public/llms.txt"), /https:\/\/substratesystems\.io\/q\)/);
+
+    // Q is the only closed-source product and has no public pricing; the entity page
+    // must not imply self-serve purchase.
+    const qPage = source("src/app/q/page.tsx");
+    assert.match(qPage, /Proprietary/);
+    assert.match(qPage, /no public signup|no self-serve|operator-led/i);
+    assert.match(qPage, /hello@useq\.ai/);
   });
 });

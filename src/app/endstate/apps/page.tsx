@@ -18,6 +18,11 @@ export const metadata = buildMetadata({
 export default async function AppsPage() {
   const apps = await getSupportedApps();
 
+  // The live catalog is the truth, and it only grows. Print the real figure when the
+  // GitHub listing succeeded; if it fell back to the short offline list, degrade to
+  // the conservative "300+" rather than publishing a wrong, much smaller number.
+  const appCount = apps.length >= 300 ? `${apps.length}` : "300+";
+
   const breadcrumb = breadcrumbJsonLd([
     { name: "Home", path: "/" },
     { name: "Endstate", path: "/endstate" },
@@ -52,7 +57,7 @@ export default async function AppsPage() {
           Endstate
         </span>
         <h1 className="mt-6 text-display-sm font-light tracking-tight text-fg-primary sm:text-display">
-          Settings backup for 300+ Windows apps
+          Settings backup for {appCount} Windows apps
         </h1>
         <p className="mt-6 max-w-2xl text-body font-light text-fg-secondary">
           Endstate reinstalls your apps on a new Windows PC and restores their

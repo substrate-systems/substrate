@@ -8,8 +8,8 @@ const products = [
     name: "Q",
     description:
       "Source-grounded AI for content libraries. Turn original material into a branded knowledge system with answers that cite their sources.",
-    href: "https://useq.ai",
-    external: true,
+    href: "/q",
+    external: false,
   },
   {
     name: "Endstate",

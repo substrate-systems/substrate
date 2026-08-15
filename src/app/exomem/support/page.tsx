@@ -1,10 +1,12 @@
-import type { Metadata } from "next";
+import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata: Metadata = {
+export const metadata = buildMetadata({
   title: "Exomem Hosted Support",
-  description: "Setup, account, privacy, and incident support for Exomem Hosted.",
-};
+  description:
+    "Setup, account, privacy, and incident support for Exomem Hosted — how to reach Substrate Systems OÜ, and what to include so an access or service issue can be resolved quickly.",
+  path: "/exomem/support",
+});
 
 export default function ExomemSupportPage() {
   return (
