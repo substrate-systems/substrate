@@ -21,6 +21,7 @@ const staticRoutes: Array<{
   { path: "/exomem/terms", changeFrequency: "yearly", priority: 0.3 },
   { path: "/exomem/support", changeFrequency: "monthly", priority: 0.4 },
   { path: "/exomem/setup", changeFrequency: "monthly", priority: 0.5 },
+  { path: "/exomem/benchmarks", changeFrequency: "monthly", priority: 0.7 },
   { path: "/endstate/apps", changeFrequency: "weekly", priority: 0.7 },
   { path: "/endstate/why", changeFrequency: "monthly", priority: 0.7 },
   { path: "/endstate/supporters", changeFrequency: "monthly", priority: 0.4 },

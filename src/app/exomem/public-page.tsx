@@ -72,6 +72,9 @@ export function ExomemPublicPage({
           <Link href="/exomem/setup" className="exo-link-ts">
             Setup
           </Link>
+          <Link href="/exomem/benchmarks" className="exo-link-ts">
+            Benchmarks
+          </Link>
           <Link href="/exomem/privacy" className="exo-link-ts">
             Privacy
           </Link>
