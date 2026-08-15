@@ -34,10 +34,18 @@ export default async function AppsPage() {
     "@type": "ItemList",
     name: "Windows apps Endstate backs up settings for",
     numberOfItems: apps.length,
+    // Each ListItem needs `item` or `url`; carrying only `name` made the list invalid.
+    // The entries genuinely are applications, so `item` is the accurate shape.
     itemListElement: apps.map((app, index) => ({
       "@type": "ListItem",
       position: index + 1,
       name: app.name,
+      item: {
+        "@type": "SoftwareApplication",
+        name: app.name,
+        applicationCategory: "UtilitiesApplication",
+        operatingSystem: "Windows",
+      },
     })),
   };
 

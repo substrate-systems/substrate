@@ -218,6 +218,47 @@ describe("SEO crawl signals", () => {
     }
   });
 
+  // Semrush Site Audit (2026-08-01) reported all three of the site's product-schema
+  // items invalid: `codeRepository` and `programmingLanguage` were emitted on
+  // SoftwareApplication, where schema.org does not define them, and the supported-apps
+  // ItemList carried ListItems with neither `item` nor `url`. An invalid item is
+  // discarded whole, so the markup was inert — identical to the Article-image bug.
+  it("keeps SoftwareSourceCode properties off SoftwareApplication items", () => {
+    for (const file of ["src/app/endstate/page.tsx", "src/app/exomem/page.tsx"]) {
+      const text = source(file);
+      const sourceCodeAt = text.indexOf('"@type": "SoftwareSourceCode"');
+      assert.ok(
+        sourceCodeAt > -1,
+        `${file} should model the repository as SoftwareSourceCode, not inline on the app`
+      );
+
+      for (const property of ["codeRepository", "programmingLanguage"]) {
+        const first = text.indexOf(`${property}:`);
+        if (first === -1) continue;
+        assert.ok(
+          first > sourceCodeAt,
+          `${file} emits ${property} outside SoftwareSourceCode — schema.org does not ` +
+            "define it on SoftwareApplication, and the whole item is rejected"
+        );
+      }
+
+      assert.match(text, /sameAs: \[/, `${file} should link its repository via sameAs`);
+    }
+  });
+
+  it("gives every supported-app ListItem an item, not just a name", () => {
+    const text = source("src/app/endstate/apps/page.tsx");
+    const listAt = text.indexOf("itemListElement:");
+    assert.ok(listAt > -1);
+    const block = text.slice(listAt, listAt + 700);
+    assert.match(block, /"@type": "ListItem"/);
+    assert.match(
+      block,
+      /item: \{/,
+      "ListItem entries need `item` or `url`; name alone makes the ItemList invalid"
+    );
+  });
+
   it("keeps Q reachable from the site's internal graph rather than only useq.ai", () => {
     assert.equal(
       sitemap().some((entry) => entry.url === "https://substratesystems.io/q"),

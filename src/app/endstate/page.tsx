@@ -51,7 +51,20 @@ const softwareJsonLd = {
     url: siteConfig.url,
   },
   license: `${siteConfig.url}/terms`,
-  codeRepository: "https://github.com/Artexis10/endstate",
+  sameAs: ["https://github.com/Artexis10/endstate"],
+  // `codeRepository` and `programmingLanguage` are SoftwareSourceCode properties, not
+  // SoftwareApplication ones — emitting them on the app made the whole item invalid,
+  // the same way a missing Article `image` did. The engine is the canonical artifact
+  // the app is built on, so isBasedOn is both valid and accurate.
+  isBasedOn: {
+    "@type": "SoftwareSourceCode",
+    name: "Endstate provisioning engine",
+    description:
+      "Open-source Go CLI that performs app detection, installation, and settings backup and restore. Windows via winget, Linux and macOS via Nix.",
+    codeRepository: "https://github.com/Artexis10/endstate",
+    programmingLanguage: "Go",
+    license: "https://www.apache.org/licenses/LICENSE-2.0",
+  },
 };
 
 const faqJsonLd = {
