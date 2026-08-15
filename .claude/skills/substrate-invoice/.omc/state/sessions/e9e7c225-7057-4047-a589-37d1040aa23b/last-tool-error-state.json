@@ -1,7 +1,0 @@
-{
-  "tool_name": "mcp__exomem-polly__remember",
-  "tool_input_preview": "{\"title\":\"The executed consultancy agreement is missing from the POLLY cell\",\"note_type\":\"insight\",\"project\":\"polly\",\"tags\":[\"governance\",\"commercial\",\"evidence\",\"invoicing\"],\"content\":\"The fully exec...",
-  "error": "Error calling tool 'remember': SEMANTIC_CONTRACT_BLOCKED: semantic contract has blocking findings: RELATION_DISPOSITION_MISSING at Knowledge Base/Notes/Insights/the-executed-consultancy-agreement-is-missing-from-the-polly-cell.md: the compiled page needs a qualifying relation or explicit current review (fix: Add a qualifying typed relation, or validate_only=true then commit unchanged draft_id, draft_hash, draft_token, relation_disposition=\"reviewed_none\", relation_review_hash=<returned>, and rel...",
-  "timestamp": "2026-08-03T12:10:20.529Z",
-  "retry_count": 1
-}
