@@ -1,11 +1,13 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata: Metadata = {
+export const metadata = buildMetadata({
   title: "Exomem Hosted Privacy Policy",
-  description: "How Substrate Systems OÜ processes and protects data in Exomem Hosted.",
-};
+  description:
+    "How Substrate Systems OÜ collects, processes, and protects data in Exomem Hosted, covering your knowledge store, account records, OAuth session metadata, and your rights as a data subject.",
+  path: "/exomem/privacy",
+});
 
 export default function ExomemPrivacyPage() {
   return (

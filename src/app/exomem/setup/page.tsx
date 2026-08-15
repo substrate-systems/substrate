@@ -1,10 +1,12 @@
-import type { Metadata } from "next";
+import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata: Metadata = {
+export const metadata = buildMetadata({
   title: "Set Up Exomem Hosted",
-  description: "Install Exomem for Claude, ChatGPT, or Codex and sign in once with OAuth.",
-};
+  description:
+    "Install Exomem Hosted for Claude, ChatGPT, or Codex, sign in once through OAuth, and start retrieving and preserving context from a governed Markdown vault you own.",
+  path: "/exomem/setup",
+});
 
 export default function ExomemSetupPage() {
   return (

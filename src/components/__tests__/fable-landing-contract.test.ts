@@ -124,7 +124,10 @@ describe("approved Fable landing contract", () => {
       "/work",
       "/blog",
       "/photography",
-      "https://useq.ai",
+      // Q points at its own entity page, not straight out to useq.ai, so the
+      // footer feeds /q internally. The restrained-eight contract is about
+      // footer composition, not about Q being an external destination.
+      "/q",
       "/endstate",
       "/exomem",
       "https://github.com/Artexis10",

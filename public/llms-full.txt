@@ -49,7 +49,7 @@ Endstate is a free, open-source desktop app for Windows that captures your insta
 
 ### System Requirements
 
-- Windows (uses winget)
+- Windows (uses winget; optional Chocolatey lanes)
 - Internet connection required for restoring apps (downloading installers)
 - Scanning and saving works offline; the local product never phones home
 

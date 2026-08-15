@@ -48,8 +48,18 @@ const softwareJsonLd = {
     url: siteConfig.url,
   },
   license: "https://github.com/Artexis10/exomem/blob/main/LICENSE",
-  codeRepository: "https://github.com/Artexis10/exomem",
-  programmingLanguage: "Python",
+  sameAs: ["https://github.com/Artexis10/exomem", "https://pypi.org/project/exomem/"],
+  // SoftwareApplication does not carry `codeRepository` or `programmingLanguage`; both
+  // belong to SoftwareSourceCode, and emitting them here invalidated the entire item.
+  isBasedOn: {
+    "@type": "SoftwareSourceCode",
+    name: "Exomem",
+    description:
+      "Open-source MCP server exposing a Markdown or Obsidian vault as a governed, searchable knowledge substrate.",
+    codeRepository: "https://github.com/Artexis10/exomem",
+    programmingLanguage: "Python",
+    license: "https://www.gnu.org/licenses/agpl-3.0.html",
+  },
 };
 
 const breadcrumb = breadcrumbJsonLd([

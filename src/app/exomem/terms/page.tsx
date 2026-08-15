@@ -1,11 +1,13 @@
-import type { Metadata } from "next";
 import Link from "next/link";
+import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
-export const metadata: Metadata = {
+export const metadata = buildMetadata({
   title: "Exomem Hosted Terms of Service",
-  description: "Terms for the friends-only Exomem Hosted alpha from Substrate Systems OÜ.",
-};
+  description:
+    "The agreement between you and Substrate Systems OÜ for the invitation-only Exomem Hosted alpha. The open-source Exomem software remains governed by the licence in its own repository.",
+  path: "/exomem/terms",
+});
 
 export default function ExomemTermsPage() {
   return (

@@ -4,3 +4,7 @@ Allow: /api/og
 Disallow: /api/
 
 Sitemap: https://substratesystems.io/sitemap.xml
+
+# Structured summaries for LLMs and answer engines (llmstxt.org)
+# https://substratesystems.io/llms.txt
+# https://substratesystems.io/llms-full.txt
