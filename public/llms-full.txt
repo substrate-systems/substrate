@@ -49,8 +49,7 @@ Endstate is a free, open-source desktop app for Windows that captures your insta
 
 ### System Requirements
 
-- Desktop app: Windows only (uses winget; optional Chocolatey lanes)
-- Engine (CLI): Windows via winget, plus Linux and macOS via Nix, with an optional Homebrew lane on macOS. Prebuilt binaries are published for windows, linux-amd64, linux-arm64, darwin-amd64 and darwin-arm64.
+- Windows (uses winget; optional Chocolatey lanes)
 - Internet connection required for restoring apps (downloading installers)
 - Scanning and saving works offline; the local product never phones home
 

@@ -60,7 +60,7 @@ const softwareJsonLd = {
     "@type": "SoftwareSourceCode",
     name: "Endstate provisioning engine",
     description:
-      "Open-source Go CLI that performs app detection, installation, and settings backup and restore. Windows via winget, Linux and macOS via Nix.",
+      "Open-source Go CLI that performs app detection, installation, and settings backup and restore on Windows via winget.",
     codeRepository: "https://github.com/Artexis10/endstate",
     programmingLanguage: "Go",
     license: "https://www.apache.org/licenses/LICENSE-2.0",
