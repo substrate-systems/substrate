@@ -858,6 +858,10 @@ export default function ExomemPage() {
               <Link href="/blog/exomem-vs-claude-mem" className="exo-underline-pp">
                 Exomem vs claude-mem: session continuity vs durable knowledge →
               </Link>
+              <br />
+              <Link href="/exomem/benchmarks" className="exo-underline-pp">
+                How we benchmark memory systems — the fairness rules, before the results →
+              </Link>
             </p>
           </div>
         </section>
@@ -1143,6 +1147,9 @@ export default function ExomemPage() {
             <a href="https://pypi.org/project/exomem/" {...externalLink} className="exo-link-ts">
               PyPI
             </a>
+            <Link href="/exomem/benchmarks" className="exo-link-ts">
+              Benchmarks
+            </Link>
             <Link href="/exomem/privacy" className="exo-link-ts">
               Privacy
             </Link>

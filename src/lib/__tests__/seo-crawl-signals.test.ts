@@ -259,6 +259,26 @@ describe("SEO crawl signals", () => {
     );
   });
 
+  it("ships the benchmark method page wired into the Exomem cluster", () => {
+    assert.equal(
+      sitemap().some((entry) => entry.url === "https://substratesystems.io/exomem/benchmarks"),
+      true
+    );
+
+    // Inbound links from the product page and the shared sub-page nav — the pillar
+    // shipped orphaned once already, so reachability is asserted rather than assumed.
+    assert.match(source("src/app/exomem/page.tsx"), /href="\/exomem\/benchmarks"/);
+    assert.match(source("src/app/exomem/public-page.tsx"), /href="\/exomem\/benchmarks"/);
+    assert.match(source("public/llms.txt"), /substratesystems\.io\/exomem\/benchmarks\)/);
+
+    // The page's whole value is that it precedes results and admits the withdrawal.
+    // If either disappears it has become marketing.
+    const page = source("src/app/exomem/benchmarks/page.tsx");
+    assert.match(page, /withdrawn/i);
+    assert.match(page, /competitor-authored/i);
+    assert.match(page, /no replacement has been published|What is not here yet/i);
+  });
+
   it("keeps Q reachable from the site's internal graph rather than only useq.ai", () => {
     assert.equal(
       sitemap().some((entry) => entry.url === "https://substratesystems.io/q"),
