@@ -96,6 +96,28 @@ function exactStringList(value: unknown): value is string[] {
   );
 }
 
+/**
+ * A CIMD document qualifies when the client can authenticate the way this server
+ * actually works: PKCE with no client credential.
+ *
+ * `token_endpoint_auth_method` is the client's *preference*, not a demand. Our
+ * authorization-server metadata advertises `token_endpoint_auth_methods_supported:
+ * ["none"]`, and RFC 8414 negotiation says a client picks a method the server
+ * supports — so a document declaring `private_key_jwt` while also listing `none`
+ * among its supported methods is admissible and will use `none` here. ChatGPT's
+ * connector documents are exactly that shape, and requiring the declared method to
+ * be literally `none` locked every OpenAI-side client out of the product.
+ *
+ * A document that cannot do `none` at all is still refused: this server has no
+ * client-credential verification path, so admitting one would produce an
+ * authorization that can never complete a token exchange.
+ */
+function advertisesUnauthenticatedToken(candidate: Record<string, unknown>): boolean {
+  if (candidate.token_endpoint_auth_method === "none") return true;
+  const supported = candidate.token_endpoint_auth_methods_supported;
+  return Array.isArray(supported) && supported.includes("none");
+}
+
 export function normalizeOperatorOAuthClientRegistration(
   input: OperatorOAuthClientRegistration,
   options: AdmissionOptions = {}
@@ -312,6 +334,14 @@ export async function fetchCimdMetadata(clientId: string): Promise<CimdFetchedMe
     request.once("error", () => settle(() => reject(exomemErrors.invalidRequest())));
     request.end();
   });
+  return parseCimdDocument(raw, clientId);
+}
+
+/**
+ * Validate a fetched CIMD body. Split out from the transport so the admission rules
+ * are unit-testable without standing up a TLS server.
+ */
+export function parseCimdDocument(raw: string, clientId: string): CimdFetchedMetadata {
   let document: unknown;
   try {
     document = JSON.parse(raw);
@@ -322,7 +352,7 @@ export async function fetchCimdMetadata(clientId: string): Promise<CimdFetchedMe
   if (
     !candidate ||
     candidate.client_id !== clientId ||
-    candidate.token_endpoint_auth_method !== "none" ||
+    !advertisesUnauthenticatedToken(candidate) ||
     !exactStringList(candidate.redirect_uris)
   ) {
     throw exomemErrors.invalidRequest();

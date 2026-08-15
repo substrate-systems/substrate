@@ -6,6 +6,7 @@ import {
   isCimdNetworkAddressAllowed,
   oauthClientConfigSha256,
   operatorOAuthClientFingerprint,
+  parseCimdDocument,
 } from "../oauth-client-admission";
 
 function isInvalidRequest(error: unknown): boolean {
@@ -109,6 +110,78 @@ describe("operator OAuth client admission", () => {
       }),
       "3c8bbd83906d29816f59d21b48a7e5a859379b124108b2abb1aa9a309ec3a339"
     );
+  });
+
+  it("admits a CIMD document that prefers private_key_jwt but also supports none", () => {
+    // ChatGPT connector documents are exactly this shape. `token_endpoint_auth_method`
+    // is the client's preference; our metadata advertises only `none`, so under RFC 8414
+    // negotiation `none` is what it will actually use.
+    const clientId = "https://chatgpt.example.test/oauth/AbCdEf/client.json";
+    const raw = JSON.stringify({
+      client_id: clientId,
+      redirect_uris: ["https://chatgpt.example.test/connector/oauth/AbCdEf"],
+      token_endpoint_auth_method: "private_key_jwt",
+      token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+      jwks_uri: "https://chatgpt.example.test/oauth/jwks.json",
+    });
+    assert.deepEqual(parseCimdDocument(raw, clientId).document, {
+      client_id: clientId,
+      redirect_uris: ["https://chatgpt.example.test/connector/oauth/AbCdEf"],
+      token_endpoint_auth_method: "none",
+    });
+  });
+
+  it("still refuses a CIMD document that cannot authenticate as a public client", () => {
+    // No `none` anywhere: this server has no client-credential verification path, so an
+    // authorization for such a client could never complete a token exchange.
+    const clientId = "https://chatgpt.example.test/oauth/AbCdEf/client.json";
+    assert.throws(
+      () =>
+        parseCimdDocument(
+          JSON.stringify({
+            client_id: clientId,
+            redirect_uris: ["https://chatgpt.example.test/connector/oauth/AbCdEf"],
+            token_endpoint_auth_method: "private_key_jwt",
+            token_endpoint_auth_methods_supported: ["private_key_jwt", "client_secret_basic"],
+          }),
+          clientId
+        ),
+      isInvalidRequest
+    );
+  });
+
+  it("keeps rejecting a CIMD document whose client_id does not match the fetched URL", () => {
+    const clientId = "https://chatgpt.example.test/oauth/AbCdEf/client.json";
+    assert.throws(
+      () =>
+        parseCimdDocument(
+          JSON.stringify({
+            client_id: "https://chatgpt.example.test/oauth/Other/client.json",
+            redirect_uris: ["https://chatgpt.example.test/connector/oauth/AbCdEf"],
+            token_endpoint_auth_method: "none",
+          }),
+          clientId
+        ),
+      isInvalidRequest
+    );
+  });
+
+  it("keeps rejecting a CIMD document with no usable redirect list", () => {
+    const clientId = "https://chatgpt.example.test/oauth/AbCdEf/client.json";
+    for (const redirectUris of [[], ["a", "a"], "not-a-list", [1]]) {
+      assert.throws(
+        () =>
+          parseCimdDocument(
+            JSON.stringify({
+              client_id: clientId,
+              redirect_uris: redirectUris,
+              token_endpoint_auth_method: "none",
+            }),
+            clientId
+          ),
+        isInvalidRequest
+      );
+    }
   });
 
   it("anchors initial CIMD expiry to the database clock rather than app-clock skew", () => {
