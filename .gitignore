@@ -62,3 +62,11 @@ next-env.d.ts
 
 # Local implementation/drill briefs and disposable provider fixtures
 .task/
+
+# OMC (oh-my-claudecode) runtime state — session HUD caches, throttles, agent
+# replay logs. Regenerated every session, so tracking them means a permanently
+# dirty tree and merge collisions on pull. Matches at any depth: these dirs also
+# appear under .claude/skills/*/ when a skill is authored from a session cwd.
+# .omc/skills/ is the documented exception — project-scoped skills are committable.
+**/.omc/*
+!**/.omc/skills/

@@ -1,7 +1,0 @@
-{
-  "tool_name": "mcp__claude_ai_Exomem__remember",
-  "tool_input_preview": "{\"title\":\"Soft reservations are what make a capacity gate honest before payment\",\"note_type\":\"pattern\",\"pattern_type\":\"architecture\",\"project\":\"exomem\",\"tags\":[\"capacity\",\"admission-control\",\"billing\"...",
-  "error": "Error calling tool 'remember': INVALID_NOTE: pattern_type 'architecture' not valid. Valid: ['architectural', 'workflow', 'prompting', 'governance', 'pedagogical'] (missing: ['pattern_type'])",
-  "timestamp": "2026-08-08T12:47:32.291Z",
-  "retry_count": 1
-}
