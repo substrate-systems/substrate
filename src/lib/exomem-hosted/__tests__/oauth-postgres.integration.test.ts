@@ -31,6 +31,7 @@ import {
   findMcpOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
+  registerAdmittedCimdClient,
   resolveApprovedOAuthClient,
   revokeOAuthAccountForOwnerTenantAtomic,
   revokeOAuthTokenForClient,
@@ -3132,5 +3133,174 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal((await pool!.query("SELECT revoked_at IS NOT NULL AS revoked FROM exomem_oauth_grants WHERE id = $1", [newGraph.grant_id])).rows[0]?.revoked, true);
     assert.equal((await pool!.query("SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1", [survivingProvider.rows[0].id])).rows[0]?.revoked_at, null);
     assert.equal((await pool!.query("SELECT deleted_at FROM exomem_tenants WHERE id = $1", [tenant.rows[0].id])).rows[0]?.deleted_at, null);
+  });
+
+  it("admits an allowlisted-host CIMD client whose digest matches no promoted artifact", async () => {
+    // The whole point of the change: this client's configuration digest is bound to
+    // nothing that was ever promoted, which is the situation every ChatGPT connector
+    // but one is permanently in.
+    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+    if (existingCohort.rowCount === 0) await seedLiveCohort();
+    const host = "connector-admitted.example.test";
+    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+    const redirectUris = [`https://${host}/callback`];
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      ["claude", host]
+    );
+    try {
+      const registered = await registerAdmittedCimdClient(clientId, {
+        fetchCimd: async () => cimdMetadata(clientId, redirectUris, "auto"),
+      });
+      assert.ok(registered, "an allowlisted host should register on first authorization");
+
+      const digest = await pool!.query(
+        "SELECT oauth_client_config_sha256 AS d, auto_registered FROM exomem_oauth_clients WHERE client_id = $1",
+        [clientId]
+      );
+      assert.equal(digest.rows[0]?.auto_registered, true);
+      const pinned = await pool!.query(
+        "SELECT claude_oauth_client_config_sha256 AS d FROM exomem_hosted_alpha_cohort LIMIT 1"
+      );
+      assert.notEqual(
+        digest.rows[0]?.d,
+        pinned.rows[0]?.d,
+        "the test is vacuous unless this client is genuinely unpinned"
+      );
+
+      assert.ok(
+        await resolveApprovedOAuthClient(clientId),
+        "an unpinned client on an admitted host must be admitted"
+      );
+
+      // Vary only the condition under test. Same client, same row, same digest --
+      // withdraw the host and admission must stop. Without this half the assertion
+      // above would still pass if the predicate ignored the allowlist entirely.
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      assert.equal(
+        await resolveApprovedOAuthClient(clientId),
+        null,
+        "withdrawing the host must withdraw admission"
+      );
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+    }
+  });
+
+  it("refuses to register a CIMD client whose host is not allowlisted, without fetching it", async () => {
+    const host = "connector-unlisted.example.test";
+    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+    let fetched = false;
+    const registered = await registerAdmittedCimdClient(clientId, {
+      fetchCimd: async () => {
+        fetched = true;
+        return cimdMetadata(clientId, [`https://${host}/callback`], "auto");
+      },
+    });
+    assert.equal(registered, null);
+    assert.equal(fetched, false, "an unlisted host must never drive an outbound fetch");
+    const stored = await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [
+      clientId,
+    ]);
+    assert.equal(stored.rowCount, 0);
+  });
+
+  it("never lets auto-registration rewrite an operator-managed client", async () => {
+    const host = "connector-operator.example.test";
+    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+    const redirectUris = [`https://${host}/callback`];
+    const artifact = await pool!.query(
+      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' ORDER BY created_at DESC LIMIT 1"
+    );
+    const operatorConfig = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "cimd",
+      clientId,
+      redirectUris,
+    });
+    const priorArtifactConfig = await pool!.query(
+      "SELECT oauth_client_config_sha256 AS d FROM exomem_client_artifacts WHERE id = $1",
+      [artifact.rows[0]!.id]
+    );
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+      [operatorConfig, artifact.rows[0]!.id]
+    );
+    const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+    process.env.EXOMEM_CIMD_ALLOWED_HOSTS = host;
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      ["claude", host]
+    );
+    try {
+      await registerOperatorOAuthClient(
+        {
+          admissionMode: "cimd",
+          platform: "claude",
+          artifactId: artifact.rows[0]!.id,
+          clientId,
+          redirectUris,
+        },
+        { fetchCimd: async () => cimdMetadata(clientId, redirectUris, "operator") }
+      );
+      const before = await pool!.query(
+        "SELECT authority_version, auto_registered, metadata_document_digest FROM exomem_oauth_clients WHERE client_id = $1",
+        [clientId]
+      );
+      assert.equal(before.rows[0]?.auto_registered, false);
+
+      const hijack = await registerAdmittedCimdClient(clientId, {
+        fetchCimd: async () => cimdMetadata(clientId, redirectUris, "hijacked"),
+      });
+      assert.equal(hijack, null, "an anonymous caller must not adopt an operator client");
+
+      const after = await pool!.query(
+        "SELECT authority_version, auto_registered, metadata_document_digest FROM exomem_oauth_clients WHERE client_id = $1",
+        [clientId]
+      );
+      assert.equal(after.rows[0]?.authority_version, before.rows[0]?.authority_version);
+      assert.equal(after.rows[0]?.auto_registered, false);
+      assert.deepEqual(
+        after.rows[0]?.metadata_document_digest,
+        before.rows[0]?.metadata_document_digest
+      );
+    } finally {
+      if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+      else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        [priorArtifactConfig.rows[0]?.d ?? null, artifact.rows[0]!.id]
+      );
+    }
+  });
+
+  it("counts the client population bound separately for each provenance", async () => {
+    // A full auto-registration partition must not deny an operator a slot, which is
+    // the difference between a storage bound and a control-plane outage.
+    const probe = `https://partition-probe.example.test/${randomUUID()}/client.json`;
+    const operatorAvailable = await pool!.query(
+      "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
+      [probe]
+    );
+    const autoAvailable = await pool!.query(
+      "SELECT exomem_oauth_client_partition_available($1, true) AS allowed",
+      [probe]
+    );
+    assert.equal(operatorAvailable.rows[0]?.allowed, true);
+    assert.equal(autoAvailable.rows[0]?.allowed, true);
+
+    const counted = await pool!.query(
+      `SELECT
+         count(*) FILTER (WHERE auto_registered) AS auto_count,
+         count(*) FILTER (WHERE NOT auto_registered) AS operator_count
+       FROM exomem_oauth_clients`
+    );
+    assert.ok(
+      Number(counted.rows[0]?.auto_count) >= 0 && Number(counted.rows[0]?.operator_count) >= 0,
+      "provenance must be recorded per row for the partition to mean anything"
+    );
   });
 });

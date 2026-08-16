@@ -49,6 +49,14 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 120,
     windowSeconds: 10 * 60,
   },
+  // First-authorization CIMD registration is an unauthenticated write that also
+  // drives an outbound fetch, so it is bounded far tighter than authorization
+  // itself. A real user registers once per connector, not repeatedly.
+  oauthClientAutoRegisterIp: {
+    scope: "exomem:oauth-client-auto-register:ip",
+    limit: 5,
+    windowSeconds: 10 * 60,
+  },
   oauthTokenIp: {
     scope: "exomem:oauth-token:ip",
     limit: 30,

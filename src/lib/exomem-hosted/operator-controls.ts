@@ -919,10 +919,7 @@ export async function registerOperatorOAuthClient(
     const { rows } = await tx`
       /* exomem:register-operator-oauth-client */
       WITH available AS (
-        SELECT count(*) < 32
-          OR EXISTS (SELECT 1 FROM exomem_oauth_clients WHERE client_id = ${registration.clientId})
-          AS allowed
-        FROM exomem_oauth_clients
+        SELECT exomem_oauth_client_partition_available(${registration.clientId}, false) AS allowed
       ), artifact AS (
         SELECT id FROM exomem_client_artifacts
         WHERE id = ${registration.artifactId}::uuid
