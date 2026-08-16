@@ -654,11 +654,23 @@ export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
              OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
           )) OR (
             credential.credential_kind = 'internal_canary'
-            AND transaction.candidate_id IS NULL
-            AND transaction.assignment_id IS NULL
-            AND transaction.assignment_generation IS NULL
-            AND transaction.staged_client_release_id IS NULL
-            AND transaction.reviewer_credential_id IS NULL
+            -- Unbound, or already bound to THIS credential. Re-authenticating as
+            -- yourself on a transaction you already bound must be idempotent: the
+            -- first success binds these columns, so requiring them to be NULL made
+            -- every retry a guaranteed failure reported as "check the credentials",
+            -- which cost the 2026-08-16 promotion window. Binding to a DIFFERENT
+            -- credential is still refused -- that would be taking someone else's
+            -- authorization transaction.
+            AND (transaction.candidate_id IS NULL
+                 OR transaction.candidate_id = credential.candidate_id)
+            AND (transaction.assignment_id IS NULL
+                 OR transaction.assignment_id = credential.assignment_id)
+            AND (transaction.assignment_generation IS NULL
+                 OR transaction.assignment_generation = credential.assignment_generation)
+            AND (transaction.staged_client_release_id IS NULL
+                 OR transaction.staged_client_release_id = credential.staged_client_release_id)
+            AND (transaction.reviewer_credential_id IS NULL
+                 OR transaction.reviewer_credential_id = credential.id)
             AND credential.oauth_client_id = client.id
             AND EXISTS (
               SELECT 1

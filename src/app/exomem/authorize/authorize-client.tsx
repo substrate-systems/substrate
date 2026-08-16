@@ -22,6 +22,7 @@ export default function AuthorizeClient({
   const [reviewerUsername, setReviewerUsername] = useState("");
   const [reviewerPassword, setReviewerPassword] = useState("");
   const [reviewerSubmitting, setReviewerSubmitting] = useState(false);
+  const [reviewerSignedIn, setReviewerSignedIn] = useState(false);
   const [reviewerError, setReviewerError] = useState("");
 
   async function useInvitation(event: FormEvent<HTMLFormElement>) {
@@ -62,10 +63,16 @@ export default function AuthorizeClient({
       if (typeof result.destination !== "string" || !result.destination) {
         throw new Error("invalid reviewer authentication response");
       }
+      // Say so before navigating. The redirect is the only signal a success used
+      // to produce, so a slow one read as a dead button -- and the natural retry
+      // then hit a failure the operator could not fix by re-typing anything.
+      setReviewerSignedIn(true);
       window.location.assign(result.destination);
     } catch {
       setReviewerPassword("");
-      setReviewerError("Reviewer sign-in failed. Check the credentials and try again.");
+      setReviewerError(
+        "Reviewer sign-in did not complete. If you have already signed in on this page, the connection request may have expired — start again from the client you are connecting."
+      );
       setReviewerSubmitting(false);
     }
   }
@@ -102,15 +109,23 @@ export default function AuthorizeClient({
             value={reviewerPassword}
             onChange={(event) => setReviewerPassword(event.target.value)}
           />
-          <button className={styles.quietButton} type="submit" disabled={reviewerSubmitting}>
-            {reviewerSubmitting ? "Signing in…" : "Sign in as reviewer"}
+          <button
+            className={styles.quietButton}
+            type="submit"
+            disabled={reviewerSubmitting || reviewerSignedIn}
+          >
+            {reviewerSignedIn
+              ? "Signed in — continuing…"
+              : reviewerSubmitting
+                ? "Signing in…"
+                : "Sign in as reviewer"}
           </button>
           <p
             className={`${styles.status} ${reviewerError ? styles.error : ""}`}
             role={reviewerError ? "alert" : undefined}
             aria-live="polite"
           >
-            {reviewerError}
+            {reviewerSignedIn ? "Signed in. Taking you to the confirmation step…" : reviewerError}
           </p>
         </form>
       ) : null}
