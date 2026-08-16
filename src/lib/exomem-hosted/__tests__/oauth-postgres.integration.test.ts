@@ -1973,6 +1973,39 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.ok(sessionA);
     assert.ok(sessionB);
 
+    // Re-authenticating as YOURSELF on a transaction you already bound must work.
+    // This returned null before 2026-08-16: the first success binds the transaction,
+    // and the canary branch demanded an unbound one, so the retry was structurally
+    // impossible and surfaced as "check the credentials". It cost a promotion window.
+    const sessionARepeat = await createMarketplaceReviewerOAuthSessionAtomic({
+      credentialId: credentialA!.credentialId,
+      transactionDigest: transactionAInput.transactionDigest,
+      sessionDigest: digest(460),
+      csrfDigest: digest(461),
+      expiresAt: new Date(Date.now() + 30 * 60_000),
+    });
+    assert.ok(sessionARepeat, "re-authenticating the same credential must be idempotent");
+    assert.notEqual(
+      sessionARepeat!.sessionId,
+      sessionA!.sessionId,
+      "a repeat sign-in mints fresh session material rather than resurrecting the old one"
+    );
+
+    // The other half of the condition. Without this the assertion above would pass
+    // even if the binding check had been removed outright rather than narrowed.
+    const hijack = await createMarketplaceReviewerOAuthSessionAtomic({
+      credentialId: credentialB!.credentialId,
+      transactionDigest: transactionAInput.transactionDigest,
+      sessionDigest: digest(470),
+      csrfDigest: digest(471),
+      expiresAt: new Date(Date.now() + 30 * 60_000),
+    });
+    assert.equal(
+      hijack,
+      null,
+      "a different credential must never bind a transaction already bound to another"
+    );
+
     const bound = await pool!.query(
       `SELECT session.id AS session_id, session.tenant_id, session.reviewer_credential_id,
               session.candidate_id, session.assignment_id, session.assignment_generation::text,
