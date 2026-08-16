@@ -109,6 +109,47 @@ describe("Exomem Hosted OAuth protocol", () => {
     assert.equal(request.offlineAccess, true);
   });
 
+  it("ignores unrecognized authorize parameters so real clients can authorize", () => {
+    // The exact shape ChatGPT sends for a connector authorization. `ui_locales`
+    // is an OpenID Connect hint we have no use for; rejecting the request over
+    // it made every ChatGPT connector fail before client resolution ran.
+    const parsed = parseAuthorizeParameters(
+      new URLSearchParams(
+        "response_type=code&client_id=https%3A%2F%2Fchatgpt.example.test%2Foauth%2FAbCdEf%2Fclient.json" +
+          "&redirect_uri=https%3A%2F%2Fchatgpt.example.test%2Fconnector%2Foauth%2FAbCdEf" +
+          "&scope=exomem.read+exomem.write&code_challenge=" +
+          "L5XfmKp2ZvLU82AqsU-Ssq28mQhQm4iUogPLGBgh_n4&code_challenge_method=S256" +
+          "&resource=https%3A%2F%2Fhosted.example.test%2Fapi%2Fexomem%2Fmcp%2Fv1" +
+          "&state=oauth_s_6a80db778bfc8191a9d862f42d497e75&ui_locales=en-US"
+      )
+    );
+    assert.equal(parsed.ui_locales, undefined);
+    assert.equal(parsed.code_challenge_method, "S256");
+    assert.equal(parsed.scope, "exomem.read exomem.write");
+    assert.equal(parsed.state, "oauth_s_6a80db778bfc8191a9d862f42d497e75");
+    assert.equal(parsed.resource, "https://hosted.example.test/api/exomem/mcp/v1");
+  });
+
+  it("still rejects a duplicated recognized parameter hidden among ignored ones", () => {
+    // Dropping unknown names must not become a way to smuggle a second value
+    // for a name that IS read.
+    assert.throws(
+      () =>
+        parseAuthorizeParameters(
+          new URLSearchParams(
+            "ui_locales=en-US&redirect_uri=https%3A%2F%2Fa.test%2Fx&redirect_uri=https%3A%2F%2Fevil.test%2Fx"
+          )
+        ),
+      /OAUTH_INVALID_REQUEST/
+    );
+  });
+
+  it("refuses an absurd number of authorize parameters", () => {
+    const many = new URLSearchParams();
+    for (let index = 0; index < 65; index += 1) many.append(`pad_${index}`, "x");
+    assert.throws(() => parseAuthorizeParameters(many), /OAUTH_INVALID_REQUEST/);
+  });
+
   it("keeps the authorization envelope bound to every authorization input", () => {
     const source = readFileSync("src/lib/exomem-hosted/oauth-continuity.ts", "utf8");
     for (const field of [

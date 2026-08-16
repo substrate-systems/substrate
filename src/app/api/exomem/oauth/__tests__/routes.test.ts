@@ -860,6 +860,78 @@ describe("Exomem OAuth routes", () => {
     assert.deepEqual(await replay.json(), { error: "invalid_grant" });
   });
 
+  it("exchanges a code from a client that also sent an unverified client assertion", async () => {
+    // A client whose metadata prefers private_key_jwt may still send a client
+    // assertion after negotiating down to the `none` we advertise. We discard
+    // it rather than reject the exchange; PKCE remains the proof that binds.
+    const { POST } = await import("../token/route");
+    const code = Buffer.alloc(32, 0x63).toString("base64url");
+    seedCode(code);
+    const response = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: CLIENT_ID,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: VERIFIER,
+          resource: RESOURCE,
+          client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+          client_assertion: "e30.e30.not-verified",
+          scope: "exomem.read",
+        }),
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.equal(codes.get(tokenKey(code))?.consumed, true);
+  });
+
+  it("still refuses a token request whose recognized fields are wrong for the grant", async () => {
+    // Dropping unknown fields must not weaken the grant-shape check: a
+    // refresh_token riding along with an authorization_code stays fatal.
+    const { POST } = await import("../token/route");
+    const code = Buffer.alloc(32, 0x64).toString("base64url");
+    seedCode(code);
+    const response = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: CLIENT_ID,
+          redirect_uri: REDIRECT_URI,
+          code_verifier: VERIFIER,
+          resource: RESOURCE,
+          refresh_token: "should-not-be-here",
+        }),
+      })
+    );
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "invalid_request" });
+    assert.equal(codes.get(tokenKey(code))?.consumed, false);
+  });
+
+  it("still refuses a duplicated token field even when unknown fields are ignored", async () => {
+    const { POST } = await import("../token/route");
+    const code = Buffer.alloc(32, 0x65).toString("base64url");
+    seedCode(code);
+    const response = await POST(
+      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body:
+          `grant_type=authorization_code&code=${code}&client_id=${encodeURIComponent(CLIENT_ID)}` +
+          `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code_verifier=${VERIFIER}` +
+          `&resource=${encodeURIComponent(RESOURCE)}&client_assertion=a&client_assertion=b`,
+      })
+    );
+    assert.equal(response.status, 400);
+    assert.equal(codes.get(tokenKey(code))?.consumed, false);
+  });
+
   it("rotates a refresh token, revokes its family on replay, and leaves policy denial unconsumed", async () => {
     const { POST } = await import("../token/route");
     const refreshToken = Buffer.alloc(32, 0x71).toString("base64url");

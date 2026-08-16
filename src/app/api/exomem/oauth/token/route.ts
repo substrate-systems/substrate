@@ -88,7 +88,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       clientAddressKey(request) ?? "unavailable"
     );
     if (!allowed) return rateLimited();
-    const form = await readOAuthForm(request, TOKEN_FIELDS);
+    const form = await readOAuthForm(request, TOKEN_FIELDS, { ignoreUnrecognized: true });
     const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
     if (form.grant_type === "authorization_code") {
       if (

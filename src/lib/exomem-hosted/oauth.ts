@@ -48,12 +48,32 @@ const AUTHORIZE_PARAMETER_NAMES = new Set([
   "code_challenge_method",
 ]);
 
+/**
+ * Bounds the work an unauthenticated caller can ask of us now that unrecognized
+ * parameters are dropped rather than rejected. Far above any real client: the
+ * widest request we have seen carries nine.
+ */
+const MAX_AUTHORIZE_PARAMETERS = 64;
+
+/**
+ * RFC 6749 section 3.1 requires the authorization endpoint to ignore parameters
+ * it does not understand, and real clients rely on it. ChatGPT appends the
+ * OpenID Connect `ui_locales` hint to every connector authorization; rejecting
+ * the request outright made every ChatGPT connector fail at parameter parsing,
+ * before client resolution could even run.
+ *
+ * Ignoring is not loosening: a dropped parameter cannot reach any decision.
+ * Every recognized parameter is still validated exactly as before, and a
+ * repeated recognized parameter is still fatal, because that is the ambiguity
+ * an attacker would use to smuggle a second value past validation.
+ */
 export function parseAuthorizeParameters(params: URLSearchParams): Record<string, string> {
   const result: Record<string, string> = {};
+  let seen = 0;
   for (const [name] of params) {
-    if (!AUTHORIZE_PARAMETER_NAMES.has(name) || params.getAll(name).length !== 1) {
-      return invalidRequest();
-    }
+    if (++seen > MAX_AUTHORIZE_PARAMETERS) return invalidRequest();
+    if (!AUTHORIZE_PARAMETER_NAMES.has(name)) continue;
+    if (params.getAll(name).length !== 1) return invalidRequest();
     result[name] = params.get(name) ?? "";
   }
   return result;
