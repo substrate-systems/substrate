@@ -11,7 +11,10 @@ import {
   resolveOAuthContinuation,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import { resolveApprovedOAuthClient } from "@/lib/exomem-hosted/oauth-store";
+import {
+  registerAdmittedCimdClient,
+  resolveApprovedOAuthClient,
+} from "@/lib/exomem-hosted/oauth-store";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import {
   clientAddressKey,
@@ -157,7 +160,28 @@ export async function GET(request: Request): Promise<NextResponse> {
     const clientId = parameter(url.searchParams, "client_id");
     if (!clientId || clientId.length > 2048) return error();
     stage = "client_resolution";
-    const client = await resolveApprovedOAuthClient(clientId);
+    let client = await resolveApprovedOAuthClient(clientId);
+    if (!client) {
+      // A client we cannot admit may simply be one we have never met. Register it
+      // when its host is allowlisted, then re-resolve so admission stays the single
+      // authority on whether it is eligible -- registration grants a row, not access.
+      //
+      // Opportunistic on purpose: every failure here, including a rate-limit or
+      // storage failure, must be indistinguishable from an unknown client. A 503
+      // would tell an unauthenticated caller that the host was allowlisted and the
+      // attempt got as far as our database.
+      try {
+        const registerAllowed = await takeExomemRateLimit(
+          EXOMEM_RATE_LIMITS.oauthClientAutoRegisterIp,
+          clientAddressKey(request) ?? "unavailable"
+        );
+        if (registerAllowed && (await registerAdmittedCimdClient(clientId))) {
+          client = await resolveApprovedOAuthClient(clientId);
+        }
+      } catch {
+        client = null;
+      }
+    }
     if (!client) {
       logAuthorizeRejection("client_resolution");
       return error();

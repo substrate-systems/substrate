@@ -1,11 +1,16 @@
 ## Context
 
 Exomem Hosted admits an OAuth client through one entry point,
-`resolveApprovedOAuthClient` (`src/lib/exomem-hosted/oauth-store.ts:46`), plus five
+`resolveApprovedOAuthClient` (`src/lib/exomem-hosted/oauth-store.ts:46`), plus eight
 sibling queries that re-evaluate the same admission predicate at later stages of the
 flow (token exchange, refresh, revocation, MCP call, artifact storage). Each of the
-six carries the same three-way disjunction: **live cohort**, **reviewer bootstrap
+nine carries the same three-way disjunction: **live cohort**, **reviewer bootstrap
 authority**, or **internal canary credential**.
+
+The count matters more than it looks. The nine sites sit at three different
+indentation depths, and the clause is otherwise character-identical at each; a
+hand-edit that misses one produces a client that authorizes and then fails at token
+exchange, which reads as an intermittent client bug rather than a missed edit.
 
 The live-cohort arm is the one real users travel, and it reads:
 
@@ -44,7 +49,7 @@ Constraints inherited from the existing system:
 **Goals:**
 
 - Any ChatGPT connector, including ones never seen before, can authorize.
-- One admission predicate, evaluated identically in all six queries.
+- One admission predicate, evaluated identically in all nine queries.
 - The new unauthenticated write path cannot exhaust operator client capacity, cannot
   be used to enumerate admitted hosts, and cannot touch user or tenant state.
 - Pinned-digest admission, reviewer bootstrap, and canary flows behave exactly as
@@ -65,12 +70,12 @@ Constraints inherited from the existing system:
 
 `EXOMEM_CIMD_ALLOWED_HOSTS` already gates operator registration in TypeScript, and the
 obvious move is to reuse it. It does not work here: the predicate is evaluated inside
-SQL in six places. Threading an env-derived array through six queries means six
+SQL in nine places. Threading an env-derived array through nine queries means nine
 parameter lists that can drift, and it makes the admission rule invisible to anyone
 reading the database.
 
 Instead, `exomem_oauth_admitted_cimd_hosts(platform, host)` is server state seeded by
-migration. The six predicates each gain one `EXISTS` against it. The env var keeps its
+migration. The nine predicates each gain one `EXISTS` against it. The env var keeps its
 current job — gating *operator* registration — and the table governs *admission*.
 
 The table is keyed by `(platform, host)` rather than host alone because
@@ -79,7 +84,7 @@ to be non-null whenever a config digest is present. Deriving platform from the h
 the only signal available at first contact, and putting the mapping in the same row
 that grants admission keeps the two from disagreeing.
 
-*Alternative considered:* a hardcoded SQL `IN ('chatgpt.com', ...)` list repeated six
+*Alternative considered:* a hardcoded SQL `IN ('chatgpt.com', ...)` list repeated nine
 times. Rejected — same drift problem as the env approach, plus it requires a migration
 to add a host anyway, without gaining the platform mapping.
 
@@ -140,7 +145,7 @@ host, through the existing `isCimdNetworkAddressAllowed` guard, with the existin
 bounds. The allowlist is checked *before* any network call, so an unlisted host costs
 one string comparison.
 
-**Six predicates must stay identical.** → They already must, and already do by
+**Nine predicates must stay identical.** → They already must, and already do by
 convention. This change adds one clause to each. A test that asserts a client admitted
 at `/authorize` is also admitted at token exchange, refresh and MCP call is the guard
 against drift; a shared SQL fragment is the alternative but the queries differ enough

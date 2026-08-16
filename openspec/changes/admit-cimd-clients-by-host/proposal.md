@@ -29,7 +29,7 @@ remains is admission for connectors we have never seen before.
   and a live cohort exists for its platform.
 - The admitted-host allowlist becomes **server state** (`exomem_oauth_admitted_cimd_hosts`)
   rather than environment configuration, because the admission predicate is
-  evaluated in SQL in six separate queries.
+  evaluated in SQL in nine separate queries.
 - The `exomem_oauth_clients` population cap is raised **and split**, so
   auto-registered clients cannot exhaust the slots operator-managed clients need.
 - `/authorize` gains a per-IP rate limit covering the new unauthenticated write.
@@ -62,8 +62,8 @@ by name, it is independent of this work, and it does **not** help ChatGPT.
 - `migrations/0048_exomem_oauth_admitted_cimd_hosts.sql` — new table, seeded with
   the hosts already trusted via `EXOMEM_CIMD_ALLOWED_HOSTS`; raised and split
   client population cap.
-- `src/lib/exomem-hosted/oauth-store.ts` — the live-cohort branch of six admission
-  predicates (`resolveApprovedOAuthClient` and five siblings).
+- `src/lib/exomem-hosted/oauth-store.ts` — the live-cohort branch of nine admission
+  predicates (`resolveApprovedOAuthClient` and eight siblings).
 - `src/lib/exomem-hosted/oauth-client-admission.ts` — auto-registration entry point,
   reusing `fetchCimdMetadata`, `normalizeOperatorOAuthClientRegistration` and
   `isCimdNetworkAddressAllowed` unchanged.
