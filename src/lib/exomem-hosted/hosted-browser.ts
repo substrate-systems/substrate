@@ -3,12 +3,16 @@ export type HostedErrorBody = {
   message: string;
   retryable?: boolean;
   requestId?: string;
+  remediation?: string;
 };
 
 export class HostedBrowserError extends Error {
   readonly code: string;
   readonly retryable: boolean;
   readonly status: number;
+  // The cell computes a remediation for refusals a person can act on. It was
+  // being dropped here, so a fixable refusal read as an unexplained failure.
+  readonly remediation?: string;
 
   constructor(error: HostedErrorBody, status: number) {
     super(error.message || "That did not work. Please try again.");
@@ -16,6 +20,7 @@ export class HostedBrowserError extends Error {
     this.code = error.code || "REQUEST_FAILED";
     this.retryable = Boolean(error.retryable);
     this.status = status;
+    if (error.remediation) this.remediation = error.remediation;
   }
 }
 
@@ -33,6 +38,7 @@ function errorFrom(value: unknown): HostedErrorBody {
             : "That did not work. Please try again.",
         retryable: error.retryable === true,
         requestId: typeof error.requestId === "string" ? error.requestId : undefined,
+        remediation: typeof error.remediation === "string" ? error.remediation : undefined,
       };
     }
   }
@@ -542,5 +548,9 @@ export function friendlyHostedError(error: unknown): string {
   if (error.code === "HOSTED_MUTATION_BUSY") {
     return "Another memory is being saved. Try once more in a moment.";
   }
+  // Where the cell said what would fix it, say that. The cases above are the
+  // ones we can phrase better than the cell can, because they are about the
+  // session or the service rather than about the request.
+  if (error.remediation) return `${error.message} ${error.remediation}`;
   return error.message;
 }

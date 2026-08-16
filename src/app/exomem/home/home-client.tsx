@@ -1,6 +1,14 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   friendlyHostedError,
   getPrivateJson,
@@ -20,6 +28,7 @@ import {
   parseInstallActions,
   parseLifecycleResponse,
 } from "./home-state";
+import { type ConnectRoute, type HomeSection, connectRoutes, homeSections } from "./home-sections";
 
 type Tab = "remember" | "recall";
 
@@ -112,7 +121,7 @@ function readableResult(value: unknown): string {
   return "No matching memory yet.";
 }
 
-export default function HomeClient() {
+export default function HomeClient({ serverUrl }: { serverUrl: string }) {
   const [lifecycle, setLifecycle] = useState<Lifecycle>({
     state: "loading",
     code: "TENANT_PREPARING",
@@ -140,6 +149,7 @@ export default function HomeClient() {
     portalAvailable: boolean;
   } | null>(null);
   const [installActions, setInstallActions] = useState<InstallAction[]>([]);
+  const [urlCopied, setUrlCopied] = useState(false);
   const retryKeyRef = useRef(newRetryKey());
   const retryContentRef = useRef("");
   const uploadRetryRef = useRef<{ file: File } | null>(null);
@@ -236,9 +246,20 @@ export default function HomeClient() {
     setResult(null);
     try {
       const title = inferMemoryTitle(memory);
+      // The capture lane, deliberately — NOT `remember`. Exomem has two write
+      // lanes and they are the right two: `capture_source` takes raw material
+      // with no semantic contract, while `remember` takes a governed, citable
+      // conclusion and enforces the contract on it. This box routed to
+      // `remember`, so a person typing "dentist on Thursday" was treated as
+      // authoring a conclusion that other conclusions may cite, supersede or
+      // contradict — and refused for having no semantic unit, and then, from
+      // the second memory onward, for having no qualifying typed relation.
+      // Recovering from either needs a validate/retry loop with a disposition
+      // token, which is an agent's job and something a person typing into a box
+      // cannot do. The contract is not wrong; it was aimed at the wrong lane.
       await postPrivateJson(
-        "/api/exomem/commands/remember",
-        { title, content: memory, note_type: "insight", suggestions: false },
+        "/api/exomem/commands/capture_source",
+        { title, content: memory },
         { idempotencyKey: retryKeyRef.current }
       );
       setNotice("Saved. Checking that it is ready to find…");
@@ -492,98 +513,156 @@ export default function HomeClient() {
     );
   }
 
-  return (
-    <section className={styles.card} aria-labelledby="home-title">
-      <div className={styles.workspaceHeader}>
-        <div>
-          <p className={styles.eyebrow}>
-            <span className={styles.stateDot} aria-hidden="true" /> Ready
-          </p>
-          <h1 className={styles.title} id="home-title">
-            What should I remember?
-          </h1>
+  const sections = homeSections();
+  const routes: ConnectRoute[] = connectRoutes(installActions.map((action) => action.platform));
+
+  async function copyServerUrl() {
+    try {
+      await navigator.clipboard.writeText(serverUrl);
+      setUrlCopied(true);
+      window.setTimeout(() => mountedRef.current && setUrlCopied(false), 2000);
+    } catch {
+      // Clipboard access can be refused outright (permissions, insecure
+      // context). The URL is rendered in full beside the button, so a refusal
+      // costs a manual selection rather than a dead end — say nothing.
+    }
+  }
+
+  // Every section is rendered by mapping over `sections`, not written out in
+  // source order — so the ordering asserted in `home-sections.test.ts` is the
+  // ordering that ships, and moving one back below capture takes a deliberate
+  // edit to the data rather than an accidental one to the markup.
+  const rendered: Record<HomeSection, ReactNode> = {
+    connect: (
+      <div className={styles.connect}>
+        <p className={styles.connectTitle}>Connect an assistant</p>
+        <p className={styles.resultBody}>
+          Exomem is most useful inside the assistant you already talk to. Connect it once and
+          Claude, ChatGPT, or Codex can recall and preserve your context without you leaving the
+          conversation.
+        </p>
+        <div className={styles.connectRoutes}>
+          {routes.map((route) => {
+            const action =
+              route === "claude-install"
+                ? installActions.find((candidate) => candidate.platform === "claude")
+                : route === "chatgpt-install"
+                  ? installActions.find((candidate) => candidate.platform === "openai")
+                  : undefined;
+            if (route !== "manual-url") {
+              if (!action) return null;
+              const label = route === "claude-install" ? "Claude" : "ChatGPT";
+              return (
+                <div className={styles.secondaryRow} key={route}>
+                  <div>
+                    <strong>{label}</strong>
+                    <p className={styles.secondaryCopy}>
+                      One-click install · version {action.version}
+                    </p>
+                  </div>
+                  <a className={styles.quietButton} href={action.installUrl}>
+                    Install in {label}
+                  </a>
+                </div>
+              );
+            }
+            return (
+              <div key={route}>
+                <strong>Codex, or any other MCP client</strong>
+                <p className={styles.secondaryCopy}>
+                  Add this as a remote MCP server and sign in once when prompted.
+                </p>
+                <p className={styles.serverUrl}>
+                  <span className={styles.serverUrlValue}>{serverUrl}</span>
+                  <button
+                    className={styles.quietButton}
+                    type="button"
+                    onClick={() => void copyServerUrl()}
+                  >
+                    {urlCopied ? "Copied" : "Copy"}
+                  </button>
+                </p>
+              </div>
+            );
+          })}
         </div>
-        <button
-          className={styles.quietButton}
-          type="button"
-          onClick={() => void signOut()}
-          disabled={signingOut}
-        >
-          {signingOut ? "Signing out…" : "Sign out"}
-        </button>
       </div>
-
-      <div className={styles.tabs} role="tablist" aria-label="Exomem actions">
-        <button
-          className={`${styles.tab} ${tab === "remember" ? styles.activeTab : ""}`}
-          role="tab"
-          aria-selected={tab === "remember"}
-          type="button"
-          onClick={() => setTab("remember")}
-        >
-          Remember
-        </button>
-        <button
-          className={`${styles.tab} ${tab === "recall" ? styles.activeTab : ""}`}
-          role="tab"
-          aria-selected={tab === "recall"}
-          type="button"
-          onClick={() => setTab("recall")}
-        >
-          Find something
-        </button>
-      </div>
-
-      {tab === "remember" ? (
-        <form className={styles.form} onSubmit={remember}>
-          <label className={styles.label} htmlFor="memory-content">
-            A thought, decision, detail, or anything you want later
-          </label>
-          <textarea
-            className={styles.textarea}
-            id="memory-content"
-            name="memory"
-            autoFocus
-            required
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            placeholder="Kim prefers the morning train. The reference number is…"
-          />
-          <button className={styles.button} type="submit" disabled={busy || !content.trim()}>
-            {busy ? "Remembering…" : "Remember this"}
+    ),
+    capture: (
+      <>
+        <div className={styles.tabs} role="tablist" aria-label="Exomem actions">
+          <button
+            className={`${styles.tab} ${tab === "remember" ? styles.activeTab : ""}`}
+            role="tab"
+            aria-selected={tab === "remember"}
+            type="button"
+            onClick={() => setTab("remember")}
+          >
+            Remember
           </button>
-        </form>
-      ) : (
-        <form className={styles.form} onSubmit={recall}>
-          <label className={styles.label} htmlFor="memory-query">
-            What are you trying to remember?
-          </label>
-          <input
-            className={styles.input}
-            id="memory-query"
-            name="query"
-            autoFocus
-            required
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="When does the locksmith arrive?"
-          />
-          <button className={styles.button} type="submit" disabled={busy || !query.trim()}>
-            {busy ? "Looking…" : "Find it"}
+          <button
+            className={`${styles.tab} ${tab === "recall" ? styles.activeTab : ""}`}
+            role="tab"
+            aria-selected={tab === "recall"}
+            type="button"
+            onClick={() => setTab("recall")}
+          >
+            Find something
           </button>
-        </form>
-      )}
-
-      <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
-        {notice}
-      </p>
-      {result !== null && (
-        <div className={styles.result} aria-live="polite">
-          <p className={styles.resultTitle}>From your Exomem</p>
-          <p className={styles.resultBody}>{result}</p>
         </div>
-      )}
 
+        {tab === "remember" ? (
+          <form className={styles.form} onSubmit={remember}>
+            <label className={styles.label} htmlFor="memory-content">
+              A thought, decision, detail, or anything you want later
+            </label>
+            <textarea
+              className={styles.textarea}
+              id="memory-content"
+              name="memory"
+              autoFocus
+              required
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="The spare key is with the upstairs neighbour. The booking reference is…"
+            />
+            <button className={styles.button} type="submit" disabled={busy || !content.trim()}>
+              {busy ? "Remembering…" : "Remember this"}
+            </button>
+          </form>
+        ) : (
+          <form className={styles.form} onSubmit={recall}>
+            <label className={styles.label} htmlFor="memory-query">
+              What are you trying to remember?
+            </label>
+            <input
+              className={styles.input}
+              id="memory-query"
+              name="query"
+              autoFocus
+              required
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="When does the locksmith arrive?"
+            />
+            <button className={styles.button} type="submit" disabled={busy || !query.trim()}>
+              {busy ? "Looking…" : "Find it"}
+            </button>
+          </form>
+        )}
+
+        <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
+          {notice}
+        </p>
+        {result !== null && (
+          <div className={styles.result} aria-live="polite">
+            <p className={styles.resultTitle}>From your Exomem</p>
+            <p className={styles.resultBody}>{result}</p>
+          </div>
+        )}
+      </>
+    ),
+    account: (
       <details className={styles.secondary}>
         <summary className={styles.summary}>Files, status, and account</summary>
         <div className={styles.secondaryBody}>
@@ -680,17 +759,8 @@ export default function HomeClient() {
               </button>
             ) : null}
           </div>
-          {installActions.map((action) => (
-            <div className={styles.secondaryRow} key={action.platform}>
-              <div>
-                <strong>Connect with {action.platform === "claude" ? "Claude" : "ChatGPT"}</strong>
-                <p className={styles.secondaryCopy}>Native install · version {action.version}</p>
-              </div>
-              <a className={styles.quietButton} href={action.installUrl}>
-                Install in {action.platform === "claude" ? "Claude" : "ChatGPT"}
-              </a>
-            </div>
-          ))}
+          {/* Install actions used to live here, inside a collapsed panel below
+              capture and search. They are now the first thing on the page. */}
           <div className={styles.secondaryRow}>
             <div>
               <strong>Verified export</strong>
@@ -733,6 +803,33 @@ export default function HomeClient() {
           </div>
         </div>
       </details>
+    ),
+  };
+
+  return (
+    <section className={styles.card} aria-labelledby="home-title">
+      <div className={styles.workspaceHeader}>
+        <div>
+          <p className={styles.eyebrow}>
+            <span className={styles.stateDot} aria-hidden="true" /> Ready
+          </p>
+          <h1 className={styles.title} id="home-title">
+            What should I remember?
+          </h1>
+        </div>
+        <button
+          className={styles.quietButton}
+          type="button"
+          onClick={() => void signOut()}
+          disabled={signingOut}
+        >
+          {signingOut ? "Signing out…" : "Sign out"}
+        </button>
+      </div>
+
+      {sections.map((section) => (
+        <Fragment key={section}>{rendered[section]}</Fragment>
+      ))}
     </section>
   );
 }
