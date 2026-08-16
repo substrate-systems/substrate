@@ -47,7 +47,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       clientAddressKey(request) ?? "unavailable"
     );
     if (!allowed) return rateLimited();
-    const form = await readOAuthForm(request, REVOCATION_FIELDS);
+    const form = await readOAuthForm(request, REVOCATION_FIELDS, { ignoreUnrecognized: true });
     if (!form.token || !form.client_id) return invalidRequest();
     await revokeForClient({
       tokenDigest: digestSecret(form.token),
