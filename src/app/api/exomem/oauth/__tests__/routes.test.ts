@@ -601,7 +601,7 @@ describe("Exomem OAuth routes", () => {
     assert.notEqual(nonce, transaction);
   });
 
-  it("keeps concurrent first continuations distinct and rejects a stale confirmation", async () => {
+  it("keeps concurrent first continuations distinct and re-renders a stale confirmation", async () => {
     const { GET } = await import("../authorize/route");
     const { POST } = await import("../authorize/complete/route");
     const [first, second] = await Promise.all([
@@ -619,7 +619,17 @@ describe("Exomem OAuth routes", () => {
         confirmation: confirmation(first),
       })
     );
-    assert.equal(stale.status, 400);
+    // The invariant this test exists for is unchanged and asserted below: a
+    // mismatched confirmation mints nothing. What changed is the affordance --
+    // a stale confirmation is now answered with the consent page for the
+    // transaction the caller's OWN cookie names, rather than a bare 400 the
+    // operator cannot act on. No cross-transaction disclosure: the handle sent
+    // back is derived from the cookie they already presented.
+    assert.equal(stale.status, 303);
+    assert.equal(
+      new URL(stale.headers.get("location")!).searchParams.get("confirmation"),
+      confirmation(second)
+    );
     assert.equal(attached.length, 0);
   });
 
