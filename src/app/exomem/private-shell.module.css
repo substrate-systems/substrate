@@ -286,8 +286,45 @@
 
 .connectRoutes {
   display: grid;
-  gap: 16px;
-  margin-top: 18px;
+  gap: 20px;
+  margin-top: 22px;
+}
+
+.connectLabel {
+  margin: 20px 0 0;
+  color: var(--faint);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.connectCommands {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  white-space: pre;
+}
+
+.connectFallback {
+  margin-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.connectQuote {
+  margin: 10px 0 4px;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--line);
+  color: var(--faint);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .serverUrl {

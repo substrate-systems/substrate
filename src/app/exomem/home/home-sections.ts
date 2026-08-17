@@ -21,18 +21,37 @@ export function homeSections(): HomeSection[] {
   return ["connect", "capture", "account"];
 }
 
-export type ConnectRoute = "claude-install" | "chatgpt-install" | "manual-url";
+export type ConnectClient = "claude" | "chatgpt" | "codex";
 
-export function connectRoutes(installPlatforms: readonly ("claude" | "openai")[]): ConnectRoute[] {
-  const routes: ConnectRoute[] = [];
-  if (installPlatforms.includes("claude")) routes.push("claude-install");
-  if (installPlatforms.includes("openai")) routes.push("chatgpt-install");
-  // Always last, and always present: Codex has no marketplace install action,
-  // and a one-click route can be absent while the cell is perfectly reachable —
-  // the install actions are gated on a live artifact matching the promoted
-  // contract digest, which is a release-pipeline fact, not a tenant fact. A
-  // first run that offered nothing because a digest had not been promoted would
-  // be the same dead end the consent page had.
-  routes.push("manual-url");
-  return routes;
+export type ConnectStep = {
+  client: ConnectClient;
+  /** A one-click marketplace install exists for this client right now. */
+  oneClick: boolean;
+};
+
+/**
+ * Every supported client, always, each with manual steps when no one-click
+ * install is available for it.
+ *
+ * The first version of this returned install actions plus a single fallback
+ * headed "Codex, or any other MCP client". That was a dead end for the people
+ * it mattered most to. Install actions come from `loadOwnerInstallActions`,
+ * which requires a *live* client artifact whose contract, compatibility,
+ * package and archive digests all match the currently promoted candidate — a
+ * release-pipeline fact, not a tenant fact, and one that is false for both
+ * platforms until a promotion window has run. So the common case for a newly
+ * invited person is zero install actions, and the only instruction on their
+ * screen would have been headed "Codex" no matter which assistant they use.
+ *
+ * Hence: never fewer than three named paths, and the one-click install is an
+ * upgrade to a client's card rather than the precondition for having one.
+ */
+export function connectSteps(installPlatforms: readonly ("claude" | "openai")[]): ConnectStep[] {
+  return [
+    { client: "claude", oneClick: installPlatforms.includes("claude") },
+    { client: "chatgpt", oneClick: installPlatforms.includes("openai") },
+    // Codex is CLI-only and has no marketplace action to promote, so its card
+    // is always the manual one.
+    { client: "codex", oneClick: false },
+  ];
 }

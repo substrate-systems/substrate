@@ -97,8 +97,27 @@ describe("private Exomem Home contract", () => {
     // this pins that the component actually renders from it rather than
     // hardcoding an order that could drift from the tested one.
     assert.match(home, /const sections = homeSections\(\)/);
-    assert.match(home, /connectRoutes\(/);
+    assert.match(home, /connectSteps\(/);
     assert.match(sections, /return \["connect", "capture", "account"\]/);
+
+    // Every assistant is named on the page, whether or not a one-click install
+    // exists for it. The first version rendered install actions plus a single
+    // fallback headed "Codex, or any other MCP client" — and since install
+    // actions require a live artifact matching the promoted contract digest,
+    // which is false until a promotion window has run, a newly invited Claude
+    // user's only instruction was headed Codex.
+    for (const label of ["Claude", "ChatGPT", "Codex CLI"]) {
+      assert.ok(home.includes(`"${label}"`), `${label} needs its own named path`);
+    }
+    assert.doesNotMatch(home, /Codex, or any other MCP client/);
+    assert.match(home, /codex mcp add exomem --url/);
+    assert.match(home, /codex mcp login exomem/);
+    // The server address is shown once, above the per-client paths, not buried
+    // inside whichever card happens to render last.
+    assert.ok(
+      home.indexOf("Your Exomem server address") < home.indexOf("steps.map"),
+      "the address belongs above the per-client paths"
+    );
 
     // Render order comes from the data, not from where the markup happens to
     // sit in the file — so this asserts the seam rather than the source order,
