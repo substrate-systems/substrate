@@ -70,3 +70,8 @@ next-env.d.ts
 # .omc/skills/ is the documented exception — project-scoped skills are committable.
 **/.omc/*
 !**/.omc/skills/
+
+# Playwright end-to-end run output
+/test-results/
+/playwright-report/
+/blob-report/
