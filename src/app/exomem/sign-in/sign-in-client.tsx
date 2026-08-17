@@ -1,12 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   friendlyHostedError,
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
 import styles from "../private-shell.module.css";
+import { RESEND_COOLDOWN_SECONDS, sentScreen } from "./sign-in-copy";
 
 type SignInMode = "checking" | "form" | "sending" | "sent" | "confirm" | "redeeming" | "error";
 
@@ -16,6 +17,7 @@ export default function SignInClient() {
   const [mode, setMode] = useState<SignInMode>("checking");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
+  const [cooldown, setCooldown] = useState(0);
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -27,6 +29,26 @@ export default function SignInClient() {
     }
     tokenRef.current = token;
     setMode("confirm");
+  }, []);
+
+  // Only ticks while the "sent" screen is holding a resend back.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setTimeout(() => setCooldown((left) => left - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
+
+  const sendLink = useCallback(async (address: string) => {
+    setMode("sending");
+    setMessage("");
+    try {
+      await postPublicJson("/api/exomem/access/magic-link", { email: address });
+      setCooldown(RESEND_COOLDOWN_SECONDS);
+      setMode("sent");
+    } catch (error) {
+      setMessage(friendlyHostedError(error));
+      setMode("error");
+    }
   }, []);
 
   function redeemLink() {
@@ -47,15 +69,7 @@ export default function SignInClient() {
 
   async function requestLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMode("sending");
-    setMessage("");
-    try {
-      await postPublicJson("/api/exomem/access/magic-link", { email });
-      setMode("sent");
-    } catch (error) {
-      setMessage(friendlyHostedError(error));
-      setMode("error");
-    }
+    await sendLink(email);
   }
 
   const busy = mode === "checking" || mode === "redeeming";
@@ -71,12 +85,25 @@ export default function SignInClient() {
           <div className={styles.spinner} role="status" aria-label="Signing in" />
         </>
       ) : mode === "sent" ? (
-        <>
-          <p className={styles.lede}>
-            Check your email. If that address has an Exomem, a private sign-in link is on its way.
-          </p>
-          <p className={styles.status}>You can close this page.</p>
-        </>
+        (() => {
+          const screen = sentScreen(cooldown);
+          return (
+            <>
+              <p className={styles.lede}>{screen.lede}</p>
+              <p className={styles.status}>{screen.expiry}</p>
+              <div className={styles.form}>
+                <button
+                  className={styles.button}
+                  type="button"
+                  disabled={screen.resendLabel === null}
+                  onClick={() => void sendLink(email)}
+                >
+                  {screen.resendLabel ?? screen.waitingLabel}
+                </button>
+              </div>
+            </>
+          );
+        })()
       ) : mode === "confirm" ? (
         <>
           <p className={styles.lede}>
