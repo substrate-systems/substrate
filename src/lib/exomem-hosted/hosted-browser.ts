@@ -542,6 +542,13 @@ export function friendlyHostedError(error: unknown): string {
     return "Something went wrong. Please try again.";
   }
   if (error.code === "EXOMEM_SESSION_INVALID") return "Your sign-in has expired.";
+  if (error.code === "ACCESS_TOKEN_INVALID") {
+    // Sign-in links last 15 minutes and work once, so this is nearly always one
+    // of those two rather than anything the person did wrong. The bare cell
+    // message ("the access link is invalid or unavailable") named neither cause
+    // nor cure, which reads as a broken product rather than a stale link.
+    return "That link has expired or was already used. Enter your email below for a new one.";
+  }
   if (error.code === "CELL_UNAVAILABLE" || error.code === "CELL_MAPPING_MISSING") {
     return "Your Exomem is waking up. Give it a moment, then try again.";
   }
