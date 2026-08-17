@@ -1,6 +1,8 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
+// Type-only in the other direction, so this pair does not form a runtime cycle.
+import { hasLiveHostedCohortTarget } from "./hosted-cohort-target";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
@@ -455,8 +457,21 @@ export async function redeemInviteAtomic(
   input: RedeemInviteAtomicInput
 ): Promise<RedeemedAccess | null> {
   const provisionerWireProtocol = provisionerWireProtocolFromEnv();
+  const pinsAnExactContract = provisionerWireProtocol === PROVISIONER_PROTOCOL_V2;
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    // Under v2 a provision must name an exact live contract, and this has to be
+    // settled before the statement below rather than inside it: its owner,
+    // tenant, entitlement and session CTEs all modify data, and PostgreSQL runs
+    // every data-modifying CTE exactly once whether or not the primary query
+    // reads it. So a target discovered missing mid-statement can only be
+    // expressed as an abort. It used to be spelled `1 / (COUNT(*) - COUNT(*))`
+    // — a deliberate division by zero, which did roll the transaction back but
+    // reached the invited person as a bare 500 INTERNAL_ERROR. Refuse in the
+    // open instead: the invitation is untouched, admission is shut.
+    if (pinsAnExactContract && !(await hasLiveHostedCohortTarget(tx))) {
+      throw exomemErrors.admissionClosed();
+    }
     const { rows } = await tx`
     /* exomem:redeem-invite */
     WITH locked_invite AS (
@@ -575,21 +590,15 @@ export async function redeemInviteAtomic(
                candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
       HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
     ),
-    target_guard AS MATERIALIZED (
-      SELECT CASE
-               WHEN ${provisionerWireProtocol} = ${PROVISIONER_PROTOCOL_V2} AND COUNT(*) <> 1
-               THEN 1 / (COUNT(*) - COUNT(*))
-               ELSE 1
-             END AS valid
-      FROM live_target
-    ),
     target AS MATERIALIZED (
       SELECT candidate_id, assignment_id, assignment_generation, source_release, protocol_version,
              gateway_contract_digest, command_fingerprint, schema_digest, compatibility_digest
-      FROM target_guard
-      LEFT JOIN live_target
-        ON ${provisionerWireProtocol} = ${PROVISIONER_PROTOCOL_V2}
-       AND target_guard.valid = 1
+      FROM live_target
+      WHERE ${provisionerWireProtocol} = ${PROVISIONER_PROTOCOL_V2}
+      UNION ALL
+      SELECT NULL::uuid, NULL::uuid, NULL::bigint, NULL::text, NULL::text, NULL::text,
+             NULL::text, NULL::text, NULL::text
+      WHERE ${provisionerWireProtocol} <> ${PROVISIONER_PROTOCOL_V2}
     ),
     operation AS (
       INSERT INTO exomem_lifecycle_operations (
@@ -635,14 +644,24 @@ export async function redeemInviteAtomic(
           operation_id: string;
         }
       | undefined;
-    return row
-      ? {
-          userId: row.user_id,
-          tenantId: row.tenant_id,
-          sessionId: row.session_id,
-          operationId: row.operation_id,
-        }
-      : null;
+    if (!row) {
+      // Normally this is "no redeemable invite", and the modifying CTEs above
+      // selected from an empty `locked_invite`, so nothing was written. But if
+      // the live target were lost after the pre-check, the owner, tenant and
+      // session rows would exist with no provision pinned to them, and
+      // returning would commit them. Re-ask, and abort rather than admit a
+      // tenant that nothing will ever provision.
+      if (pinsAnExactContract && !(await hasLiveHostedCohortTarget(tx))) {
+        throw exomemErrors.admissionClosed();
+      }
+      return null;
+    }
+    return {
+      userId: row.user_id,
+      tenantId: row.tenant_id,
+      sessionId: row.session_id,
+      operationId: row.operation_id,
+    };
   });
 }
 

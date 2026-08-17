@@ -119,6 +119,17 @@ export const exomemErrors = {
       retryAfterMs: 1000,
       remediation: "retry_later",
     }),
+  admissionClosed: () =>
+    new ExomemHostedError({
+      code: "HOSTED_ADMISSION_CLOSED",
+      status: 503,
+      message: "hosted admission is temporarily closed",
+      retryable: true,
+      remediation:
+        "Your invitation is still valid and has not been used. Exomem Hosted is not admitting " +
+        "new accounts until its service catalogue is updated. Open the link again later, or " +
+        "tell whoever invited you.",
+    }),
   emailDeliveryUnavailable: () =>
     new ExomemHostedError({
       code: "EMAIL_DELIVERY_UNAVAILABLE",
