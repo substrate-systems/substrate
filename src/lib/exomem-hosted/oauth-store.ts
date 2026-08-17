@@ -1,5 +1,6 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
+import { hasLiveHostedCohortTarget } from "./hosted-cohort-target";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import {
   CIMD_DEFAULT_TTL_SECONDS,
@@ -777,6 +778,13 @@ export async function pruneExpiredOAuthState(): Promise<void> {
 
 class OAuthAdmissionRejected extends Error {}
 export class OAuthAdmissionCapacityUnavailable extends Error {}
+/**
+ * No live Hosted contract cohort, so a v2 provision has no exact contract to
+ * pin. Distinguished from `OAuthAdmissionRejected` because that one surfaces as
+ * "the access link is invalid or unavailable", which would be false: the
+ * invitation is valid and unconsumed, and it is admission that is shut.
+ */
+export class OAuthAdmissionCohortClosed extends Error {}
 
 type OAuthInviteAdmission = {
   tenantId: string;
@@ -1338,7 +1346,17 @@ export async function admitFirstOAuthInviteAtomic(input: {
           RETURNING id
         `;
         const operation = operationResult.rows[0] as { id: string } | undefined;
-        if (!operation) throw new OAuthAdmissionRejected();
+        if (!operation) {
+          // Under v2 the only way `target` is empty is that no cohort is live.
+          // Say that, rather than blaming the invitation.
+          if (
+            provisionerWireProtocol === PROVISIONER_PROTOCOL_V2 &&
+            !(await hasLiveHostedCohortTarget(tx))
+          ) {
+            throw new OAuthAdmissionCohortClosed();
+          }
+          throw new OAuthAdmissionRejected();
+        }
         operationId = operation.id;
 
         const allocationResult = await tx`
@@ -1412,6 +1430,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
   } catch (error) {
     if (error instanceof OAuthAdmissionCapacityUnavailable)
       throw exomemErrors.capacityUnavailable();
+    if (error instanceof OAuthAdmissionCohortClosed) throw exomemErrors.admissionClosed();
     if (error instanceof OAuthAdmissionRejected) return null;
     if (typeof error === "object" && error && "code" in error && error.code === "23505")
       return null;
