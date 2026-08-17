@@ -10,6 +10,11 @@
 //
 // Expressing the decision as data lets it be asserted directly, without
 // rendering, so what the tests pin cannot drift from what ships.
+//
+// The per-client list deliberately does NOT live here. It lives with the copy it
+// belongs to, in `assistant-instructions.ts` (`CLIENT_GUIDES`), because an
+// earlier split had one module naming three clients and the other five — a
+// mismatch that silently decided a client got the manual path.
 
 export type HomeSection = "connect" | "capture" | "account";
 
@@ -19,39 +24,4 @@ export function homeSections(): HomeSection[] {
   // it wrongly, the section stays compact enough to sit above capture
   // permanently.
   return ["connect", "capture", "account"];
-}
-
-export type ConnectClient = "claude" | "chatgpt" | "codex";
-
-export type ConnectStep = {
-  client: ConnectClient;
-  /** A one-click marketplace install exists for this client right now. */
-  oneClick: boolean;
-};
-
-/**
- * Every supported client, always, each with manual steps when no one-click
- * install is available for it.
- *
- * The first version of this returned install actions plus a single fallback
- * headed "Codex, or any other MCP client". That was a dead end for the people
- * it mattered most to. Install actions come from `loadOwnerInstallActions`,
- * which requires a *live* client artifact whose contract, compatibility,
- * package and archive digests all match the currently promoted candidate — a
- * release-pipeline fact, not a tenant fact, and one that is false for both
- * platforms until a promotion window has run. So the common case for a newly
- * invited person is zero install actions, and the only instruction on their
- * screen would have been headed "Codex" no matter which assistant they use.
- *
- * Hence: never fewer than three named paths, and the one-click install is an
- * upgrade to a client's card rather than the precondition for having one.
- */
-export function connectSteps(installPlatforms: readonly ("claude" | "openai")[]): ConnectStep[] {
-  return [
-    { client: "claude", oneClick: installPlatforms.includes("claude") },
-    { client: "chatgpt", oneClick: installPlatforms.includes("openai") },
-    // Codex is CLI-only and has no marketplace action to promote, so its card
-    // is always the manual one.
-    { client: "codex", oneClick: false },
-  ];
 }
