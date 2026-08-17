@@ -97,26 +97,22 @@ describe("private Exomem Home contract", () => {
     // this pins that the component actually renders from it rather than
     // hardcoding an order that could drift from the tested one.
     assert.match(home, /const sections = homeSections\(\)/);
-    assert.match(home, /connectSteps\(/);
     assert.match(sections, /return \["connect", "capture", "account"\]/);
 
-    // Every assistant is named on the page, whether or not a one-click install
-    // exists for it. The first version rendered install actions plus a single
-    // fallback headed "Codex, or any other MCP client" — and since install
-    // actions require a live artifact matching the promoted contract digest,
-    // which is false until a promotion window has run, a newly invited Claude
-    // user's only instruction was headed Codex.
-    for (const label of ["Claude", "ChatGPT", "Codex CLI"]) {
-      assert.ok(home.includes(`"${label}"`), `${label} needs its own named path`);
-    }
+    // Every assistant is named, whether or not a one-click install exists for
+    // it. The first version rendered install actions plus a single fallback
+    // headed "Codex, or any other MCP client" — and since install actions
+    // require a live artifact matching the promoted contract digest, which is
+    // false until a promotion window has run, a newly invited Claude user's
+    // only instruction was headed Codex.
+    assert.match(home, /CLIENT_GUIDES\.map/);
     assert.doesNotMatch(home, /Codex, or any other MCP client/);
-    assert.match(home, /codex mcp add exomem --url/);
-    assert.match(home, /codex mcp login exomem/);
-    // The server address is shown once, above the per-client paths, not buried
-    // inside whichever card happens to render last.
+
+    // Both onboarding steps present and ordered: connect, then instruct.
     assert.ok(
-      home.indexOf("Your Exomem server address") < home.indexOf("steps.map"),
-      "the address belongs above the per-client paths"
+      home.indexOf("Step 1 \u00b7 Your Exomem server address") <
+        home.indexOf("Step 2 \u00b7 How involved should it be?"),
+      "the address comes before the instructions block"
     );
 
     // Render order comes from the data, not from where the markup happens to
@@ -131,6 +127,27 @@ describe("private Exomem Home contract", () => {
       assert.ok(home.includes(key), `the rendered record must cover ${key}`);
     }
     assert.match(home, /Connect an assistant/);
+  });
+
+  it("hands over the instructions block, because no plugin ships skills yet", () => {
+    const home = source("src/app/exomem/home/home-client.tsx");
+    const instructions = source("src/app/exomem/home/assistant-instructions.ts");
+
+    // A bare MCP connection gives the assistant tools and no reason to use
+    // them. Until a marketplace plugin ships skills, this block is the whole
+    // behavioural layer, so the page must actually hand it over.
+    assert.match(home, /PROM_LEVELS\.map/);
+    assert.match(home, /Copy instructions/);
+    assert.match(home, /assistantInstructions\(promLevel\)/);
+    assert.match(instructions, /long-term governed knowledge store/);
+
+    // Five flows, each naming where its own instructions live.
+    for (const name of ["Claude", "ChatGPT", "Claude Code", "Codex CLI", "Any other MCP client"]) {
+      assert.ok(instructions.includes(`"${name}"`), `${name} needs a guide`);
+    }
+    assert.match(instructions, /claude mcp add --transport http exomem/);
+    assert.match(instructions, /codex mcp add exomem --url/);
+    assert.match(instructions, /pasteTarget/);
   });
 
   it("opens a server-created Paddle transaction on the private Exomem return page", () => {

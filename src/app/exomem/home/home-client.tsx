@@ -28,7 +28,15 @@ import {
   parseInstallActions,
   parseLifecycleResponse,
 } from "./home-state";
-import { type ConnectStep, type HomeSection, connectSteps, homeSections } from "./home-sections";
+import { type HomeSection, homeSections } from "./home-sections";
+import {
+  type PromLevel,
+  assistantInstructions,
+  CLIENT_GUIDES,
+  DEFAULT_PROM_LEVEL,
+  PROM_CONTRACTS,
+  PROM_LEVELS,
+} from "./assistant-instructions";
 
 type Tab = "remember" | "recall";
 
@@ -150,6 +158,8 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
   } | null>(null);
   const [installActions, setInstallActions] = useState<InstallAction[]>([]);
   const [urlCopied, setUrlCopied] = useState(false);
+  const [promLevel, setPromLevel] = useState<PromLevel>(DEFAULT_PROM_LEVEL);
+  const [instructionsCopied, setInstructionsCopied] = useState(false);
   const retryKeyRef = useRef(newRetryKey());
   const retryContentRef = useRef("");
   const uploadRetryRef = useRef<{ file: File } | null>(null);
@@ -514,7 +524,17 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
   }
 
   const sections = homeSections();
-  const steps: ConnectStep[] = connectSteps(installActions.map((action) => action.platform));
+
+  async function copyInstructions() {
+    try {
+      await navigator.clipboard.writeText(assistantInstructions(promLevel));
+      setInstructionsCopied(true);
+      window.setTimeout(() => mountedRef.current && setInstructionsCopied(false), 2000);
+    } catch {
+      // Same reasoning as the server address: the text is on screen and
+      // selectable, so a refused clipboard costs a manual selection.
+    }
+  }
 
   async function copyServerUrl() {
     try {
@@ -542,7 +562,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
           conversation.
         </p>
 
-        <p className={styles.connectLabel}>Your Exomem server address</p>
+        <p className={styles.connectLabel}>Step 1 · Your Exomem server address</p>
         <p className={styles.serverUrl}>
           <span className={styles.serverUrlValue}>{serverUrl}</span>
           <button className={styles.quietButton} type="button" onClick={() => void copyServerUrl()}>
@@ -554,66 +574,79 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
           asks.
         </p>
 
+        <p className={styles.connectLabel}>Step 2 · How involved should it be?</p>
+        <div className={styles.levelPicker} role="radiogroup" aria-label="How involved Exomem is">
+          {PROM_LEVELS.map((level) => (
+            <button
+              key={level}
+              type="button"
+              role="radio"
+              aria-checked={promLevel === level}
+              className={`${styles.tab} ${promLevel === level ? styles.activeTab : ""}`}
+              onClick={() => setPromLevel(level)}
+            >
+              {PROM_CONTRACTS[level].label}
+            </button>
+          ))}
+        </div>
+        <p className={styles.secondaryCopy}>{PROM_CONTRACTS[promLevel].summary}</p>
+
+        <p className={styles.secondaryCopy}>
+          There is no plugin yet, so this text is what tells your assistant to use Exomem at all —
+          connecting alone gives it the tools and no reason to reach for them. Paste it once.
+        </p>
+        <pre className={styles.connectCommands}>
+          <code>{assistantInstructions(promLevel)}</code>
+        </pre>
+        <p className={styles.serverUrl}>
+          <button
+            className={styles.quietButton}
+            type="button"
+            onClick={() => void copyInstructions()}
+          >
+            {instructionsCopied ? "Copied" : "Copy instructions"}
+          </button>
+        </p>
+
+        <p className={styles.connectLabel}>Where each step goes</p>
         <div className={styles.connectRoutes}>
-          {steps.map(({ client, oneClick }) => {
-            const action = oneClick
+          {CLIENT_GUIDES.map((guide) => {
+            // One source of truth: a client can show an install button only if
+            // it is installable at all AND the server actually published an
+            // action for its platform.
+            const action = guide.installable
               ? installActions.find(
-                  (candidate) => candidate.platform === (client === "claude" ? "claude" : "openai")
+                  (candidate) =>
+                    candidate.platform === (guide.client === "claude" ? "claude" : "openai")
                 )
               : undefined;
-            const label =
-              client === "claude" ? "Claude" : client === "chatgpt" ? "ChatGPT" : "Codex CLI";
             return (
-              <div key={client}>
+              <div key={guide.client}>
                 <div className={styles.secondaryRow}>
                   <div>
-                    <strong>{label}</strong>
-                    {action ? (
-                      <p className={styles.secondaryCopy}>
-                        One-click install · version {action.version}
-                      </p>
-                    ) : client === "codex" ? (
-                      <p className={styles.secondaryCopy}>Two commands in your terminal.</p>
-                    ) : (
-                      <p className={styles.secondaryCopy}>
-                        Settings → Connectors → add a custom connector, paste the address above,
-                        then sign in when prompted. If {label} already lists Exomem in its
-                        directory, use that instead.
-                      </p>
-                    )}
+                    <strong>{guide.name}</strong>
+                    <p className={styles.secondaryCopy}>
+                      {action
+                        ? `One-click install · version ${action.version}`
+                        : `Connect: ${guide.connect}`}
+                    </p>
+                    <p className={styles.secondaryCopy}>Instructions go in: {guide.pasteTarget}</p>
                   </div>
                   {action ? (
                     <a className={styles.quietButton} href={action.installUrl}>
-                      Install in {label}
+                      Install in {guide.name}
                     </a>
                   ) : null}
                 </div>
-                {client === "codex" && !action ? (
+                {guide.commands && !action ? (
                   <pre className={styles.connectCommands}>
-                    <code>{`codex mcp add exomem --url ${serverUrl}\ncodex mcp login exomem`}</code>
+                    <code>{guide.commands(serverUrl)}</code>
                   </pre>
                 ) : null}
               </div>
             );
           })}
         </div>
-
-        <details className={styles.connectFallback}>
-          <summary className={styles.summary}>
-            If your assistant connects but never uses Exomem
-          </summary>
-          <p className={styles.secondaryCopy}>
-            Some chat clients connect the tools without switching on the bundled skills. Paste this
-            once into that client&apos;s custom instructions:
-          </p>
-          <blockquote className={styles.connectQuote}>
-            Use Exomem quietly as my long-term governed knowledge store. Retrieve relevant Exomem
-            context when it can improve the answer, and preserve durable decisions or reusable
-            conclusions when appropriate. Do not capture transient chat, secrets, or anything I
-            explicitly say not to save. Treat the assistant&apos;s native memory as short-term
-            behavioral context and Exomem as the durable store.
-          </blockquote>
-        </details>
       </div>
     ),
     capture: (

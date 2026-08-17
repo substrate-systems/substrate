@@ -312,6 +312,13 @@
   white-space: pre;
 }
 
+.levelPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 8px;
+}
+
 .connectFallback {
   margin-top: 22px;
   border-top: 1px solid var(--line);
