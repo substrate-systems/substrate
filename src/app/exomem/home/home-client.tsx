@@ -630,7 +630,13 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
                         ? `One-click install · version ${action.version}`
                         : `Connect: ${guide.connect}`}
                     </p>
-                    <p className={styles.secondaryCopy}>Instructions go in: {guide.pasteTarget}</p>
+                    {guide.blocked ? (
+                      <p className={styles.secondaryCopy}>{guide.blocked}</p>
+                    ) : (
+                      <p className={styles.secondaryCopy}>
+                        Instructions go in: {guide.pasteTarget}
+                      </p>
+                    )}
                   </div>
                   {action ? (
                     <a className={styles.quietButton} href={action.installUrl}>

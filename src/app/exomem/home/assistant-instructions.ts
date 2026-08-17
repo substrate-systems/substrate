@@ -116,6 +116,14 @@ export type ClientGuide = {
   pasteTarget: string;
   /** True when a marketplace one-click install could exist for this client. */
   installable: boolean;
+  /**
+   * Set when this client cannot connect at all yet, with the reason.
+   *
+   * A client listed with steps that cannot work is worse than one listed as
+   * unsupported: the person follows them, fails, and has no way to tell whether
+   * they made a mistake. So the blocker is stated instead of the steps.
+   */
+  blocked?: string;
 };
 
 /**
@@ -155,9 +163,16 @@ export const CLIENT_GUIDES: readonly ClientGuide[] = [
   {
     client: "codex",
     name: "Codex CLI",
-    connect: "Two commands, then authenticate in the browser it opens.",
-    commands: (serverUrl) => `codex mcp add exomem --url ${serverUrl}\ncodex mcp login exomem`,
-    pasteTarget: "AGENTS.md, in your home directory or the project you want it in",
+    // `codex mcp add` succeeds and `codex mcp login` then fails: Codex registers
+    // itself through RFC 7591 Dynamic Client Registration, and Exomem has no
+    // registration endpoint, so there is no identity for it to authorize as.
+    // This shipped as two commands and a browser sign-in that never arrives.
+    connect: "Not connectable yet.",
+    blocked:
+      "Codex CLI signs in by registering itself dynamically (RFC 7591), which Exomem does not " +
+      "support yet, so there is nothing for it to authenticate as. Use Claude Code for terminal " +
+      "work in the meantime — it connects over the same server address.",
+    pasteTarget: "AGENTS.md, once Codex can connect",
     installable: false,
   },
   {

@@ -80,10 +80,11 @@ describe("every client is named with its own paste target", () => {
 
   it("uses the real CLI syntax, verified against the installed tools", () => {
     const url = "https://example.test/api/exomem/mcp/v1";
-    const codex = CLIENT_GUIDES.find((g) => g.client === "codex")?.commands?.(url) ?? "";
-    assert.match(codex, /codex mcp add exomem --url https:\/\/example\.test/);
-    assert.match(codex, /codex mcp login exomem/);
-
+    // This used to assert the Codex pair too. Those commands were removed rather
+    // than corrected: `codex mcp add` works and `codex mcp login` cannot, because
+    // Codex authenticates by registering itself through RFC 7591 and Exomem has
+    // no registration endpoint. The test was pinning syntax for a flow that never
+    // completed, which is exactly the kind of green that hides a dead end.
     const claudeCode = CLIENT_GUIDES.find((g) => g.client === "claude-code")?.commands?.(url) ?? "";
     // `claude mcp add --transport http <name> <url>` is the documented HTTP form.
     assert.match(claudeCode, /claude mcp add --transport http exomem https:\/\/example\.test/);
@@ -92,5 +93,34 @@ describe("every client is named with its own paste target", () => {
   it("marks only the chat clients installable, since no CLI has a marketplace listing", () => {
     const installable = CLIENT_GUIDES.filter((g) => g.installable).map((g) => g.client);
     assert.deepEqual(installable, ["claude", "chatgpt"]);
+  });
+});
+
+describe("a client that cannot connect says so instead of giving steps", () => {
+  it("does not hand Codex CLI a login command that cannot succeed", () => {
+    const codex = CLIENT_GUIDES.find((guide) => guide.client === "codex");
+    assert.ok(codex);
+    // `codex mcp login` fails: Codex registers itself via RFC 7591 dynamic
+    // registration and Exomem has no registration endpoint. Shipping the command
+    // sends someone into a browser sign-in that never arrives, with no way to
+    // tell whether they made a mistake.
+    assert.equal(codex.commands, undefined);
+    assert.ok(codex.blocked);
+    assert.match(codex.blocked, /register/i);
+    // And it points somewhere that does work today.
+    assert.match(codex.blocked, /Claude Code/);
+  });
+
+  it("leaves every connectable client with a way in", () => {
+    for (const guide of CLIENT_GUIDES.filter((candidate) => !candidate.blocked)) {
+      assert.ok(guide.connect.length > 0, `${guide.client} has no connect step`);
+      assert.ok(guide.pasteTarget.length > 0, `${guide.client} has no paste target`);
+    }
+  });
+
+  it("never carries both a blocker and steps", () => {
+    for (const guide of CLIENT_GUIDES) {
+      if (guide.blocked) assert.equal(guide.commands, undefined, `${guide.client} contradicts itself`);
+    }
   });
 });
