@@ -107,8 +107,9 @@ describe("a client that cannot connect says so instead of giving steps", () => {
     assert.equal(codex.commands, undefined);
     assert.ok(codex.blocked);
     assert.match(codex.blocked, /register/i);
-    // And it points somewhere that does work today.
-    assert.match(codex.blocked, /Claude Code/);
+    // And it does not name a workaround that has not been observed working:
+    // recommending another client on faith is the same defect one row down.
+    assert.doesNotMatch(codex.blocked, /Claude Code/);
   });
 
   it("leaves every connectable client with a way in", () => {
@@ -120,7 +121,8 @@ describe("a client that cannot connect says so instead of giving steps", () => {
 
   it("never carries both a blocker and steps", () => {
     for (const guide of CLIENT_GUIDES) {
-      if (guide.blocked) assert.equal(guide.commands, undefined, `${guide.client} contradicts itself`);
+      if (guide.blocked)
+        assert.equal(guide.commands, undefined, `${guide.client} contradicts itself`);
     }
   });
 });

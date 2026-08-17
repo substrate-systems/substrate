@@ -168,10 +168,15 @@ export const CLIENT_GUIDES: readonly ClientGuide[] = [
     // registration endpoint, so there is no identity for it to authorize as.
     // This shipped as two commands and a browser sign-in that never arrives.
     connect: "Not connectable yet.",
+    // Deliberately does not recommend a specific alternative. Claude Code is the
+    // obvious candidate and is listed directly above, but whether it authorizes
+    // without a registration endpoint has not been observed here, and naming it
+    // as the workaround would repeat, one row down, the exact mistake this entry
+    // exists to correct.
     blocked:
       "Codex CLI signs in by registering itself dynamically (RFC 7591), which Exomem does not " +
-      "support yet, so there is nothing for it to authenticate as. Use Claude Code for terminal " +
-      "work in the meantime — it connects over the same server address.",
+      "support yet, so there is nothing for it to authenticate as. Adding it needs a " +
+      "registration endpoint on the Exomem side.",
     pasteTarget: "AGENTS.md, once Codex can connect",
     installable: false,
   },
