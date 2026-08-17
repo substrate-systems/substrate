@@ -146,7 +146,16 @@ describe("private Exomem Home contract", () => {
       assert.ok(instructions.includes(`"${name}"`), `${name} needs a guide`);
     }
     assert.match(instructions, /claude mcp add --transport http exomem/);
-    assert.match(instructions, /codex mcp add exomem --url/);
+    // Codex is still listed, but carries its blocker instead of commands: it
+    // signs in through RFC 7591 dynamic registration, which Exomem does not
+    // implement. This used to assert `codex mcp add exomem --url`, pinning a
+    // dead end as though it worked.
+    //
+    // Only the mechanism is asserted here. Whether Codex specifically has a
+    // blocker and no commands is a question about values, not file text, so it
+    // lives in `assistant-instructions.test.ts` — a `doesNotMatch` on source
+    // would be satisfied by the comment explaining the removal.
+    assert.match(instructions, /blocked\?: string/);
     assert.match(instructions, /pasteTarget/);
   });
 

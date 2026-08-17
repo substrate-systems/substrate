@@ -228,6 +228,69 @@ allocation, claim lease, operation checkpoint, and stable error code together;
 never free capacity because a provider response timed out or an operator cannot
 find a cell by hand.
 
+### Promotion run sheet (start here)
+
+The procedure below is the specification. Drive it with the harness in the
+`exomem` repository rather than by hand — `scripts/reviewer_bootstrap.py`
+(`preflight`, `prepare`, `run`) and `scripts/promotion_evidence.py` (`observe`,
+`sign`, `import`, `promote`). Every step run by hand has been got wrong at least
+once, and each failure burns a single-use invite, an email alias, a stage, a
+client, and usually strands a tenant that then blocks the retry.
+
+Order matters more than anything else here, because two of the steps are timed
+and one input has to exist before them:
+
+1. **Create the ChatGPT connector first**, pointing at the Hosted MCP endpoint,
+   and keep its connector id. `run` needs it: the OpenAI sibling stage must be
+   built from the client-metadata document that connector publishes at
+   `https://chatgpt.com/oauth/<connectorId>/client.json`. A sibling built any
+   other way carries a digest the connector can never present, and evidence
+   signed against it is refused at `import-artifact` — after the window is gone.
+2. `preflight`. Read-only, spends nothing. All four gates must be green: no live
+   cohort, the candidate `pending` at the intended release, no active bootstrap
+   authority, free runtime and provision-claim capacity.
+3. `prepare`. Creates the stage, pinned client and invite. Still reversible: the
+   invite keeps its full expiry until an authority exists.
+4. `run`, with the emailed invite token and `--openai-connector`. **This starts
+   the clock.** Creating the authority spends the invite whether it then
+   succeeds, expires or is revoked, and the outcome assignment the canary
+   credentials hang off expires while the cell provisions. Do not start it
+   without both real clients open and a clear half hour.
+5. The clean-client runs, in real Claude and real ChatGPT. Nothing automates
+   this, and nothing should: the evidence attests that a genuine client
+   completed install, authorization, tool discovery, recall, citation, durable
+   capture and fresh-chat recall. Signing those assertions without performing
+   them would forge the gate rather than pass it.
+6. `observe` → `sign` → `import` per platform, then `promote`.
+
+Failure modes that have each cost a window, and are now reported rather than
+guessed at:
+
+- A bare `500` from `create-stage` is the one-staged-release-per-candidate-and-
+  platform collision, left by an earlier attempt. Retrying cannot clear it; fail
+  the leftover stage off first.
+- Evidence must be signed against the **sibling** stage, never the bootstrap
+  stage. They look alike and the wrong one validates at signing time, failing
+  only at import. `run` prints both ids and writes them to
+  `sibling-stage-ids.json`; take them from there, never from prose.
+- `expectedRoutableCellDigest` is a compare-and-swap over the live routable set.
+  Read it immediately before promoting — destroying or adding any cell moves it,
+  including the reviewer tenant cleaned up afterwards.
+- `routableObservationFresh` is informational. Promotion takes its own live
+  probe and refreshes the authority inside its transaction, so gating tooling on
+  that flag refuses promotions that would in fact succeed.
+- A routable row whose cell is `lifecycle_state = deleted` is a ghost, and
+  promotion live-probes every routable cell. One ghost blocks all future
+  promotions with an unhelpful `precondition_failed`. Reconcile
+  `exomem_routable_cell_contracts` against `exomem_cells` before starting.
+
+Capacity is a separate gate from all of the above, and it binds earlier than
+expected: the reviewer tenant holds a runtime slot for the whole window, and
+each invited person holds one afterwards. Check
+`GET /api/exomem/admin/capacity` against the number of people actually being
+invited before opening a window, and raise the pool to match real node headroom
+rather than discovering the ceiling on the fourth invitation.
+
 ### Virgin-install reviewer OAuth bootstrap
 
 Use this procedure only when Hosted has no live cohort and no usable
