@@ -46,7 +46,14 @@ describe("private Exomem Home contract", () => {
 
   it("offers retry-safe capture, immediate recall, and progressive owner actions", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
-    assert.match(home, /commands\/remember/);
+    // Deliberately NOT `commands/remember`, which this asserted until
+    // 2026-08-16. `remember` is the governed-conclusion lane and enforces the
+    // semantic contract; routing a person's typed sentence there refused their
+    // first memory for having no semantic unit and every memory after it for
+    // having no qualifying relation. `capture_source` is the raw-capture lane
+    // and takes ordinary prose. The assertion was pinning the defect.
+    assert.match(home, /commands\/capture_source/);
+    assert.doesNotMatch(home, /commands\/remember/);
     assert.match(home, /idempotencyKey: retryKeyRef\.current/);
     assert.match(home, /commands\/ask_memory/);
     assert.match(home, /commands\/browse_memory/);
@@ -59,15 +66,52 @@ describe("private Exomem Home contract", () => {
     assert.doesNotMatch(home, /tenantId|cellId|vaultRoot|privateEndpoint/);
   });
 
-  it("renders only server-provided native install actions", () => {
+  it("renders only server-provided connection routes", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
     const state = source("src/app/exomem/home/home-state.ts");
+    const page = source("src/app/exomem/home/page.tsx");
     assert.match(home, /setInstallActions\(parseInstallActions\(response\)\)/);
-    assert.match(home, /installActions\.map/);
     assert.match(home, /Install in/);
-    assert.doesNotMatch(home, /mcpUrl|manual connector|tenantId/);
+    assert.doesNotMatch(home, /mcpUrl|tenantId/);
     assert.match(state, /platform !== "claude" && candidate\.platform !== "openai"/);
     assert.match(state, /installUrl\.protocol !== "https:"/);
+
+    // The manual server URL is a route this page now offers, because Codex has
+    // no marketplace install action and install actions are additionally gated
+    // on a live artifact matching the promoted contract digest — a
+    // release-pipeline fact that can legitimately leave a healthy tenant with
+    // no one-click route at all. It is still server-provided: the page computes
+    // it from `EXOMEM_PUBLIC_BASE_URL` and passes it in, so the client never
+    // builds an endpoint of its own, and it is the same public origin for every
+    // tenant.
+    assert.match(page, /exomemPublicBaseUrlFromEnv\(\)/);
+    assert.match(page, /serverUrl=/);
+    assert.match(home, /serverUrl: string/);
+    assert.doesNotMatch(home, /https:\/\/[a-z]/);
+  });
+
+  it("leads the ready view with connecting an assistant, not with a capture box", () => {
+    const home = source("src/app/exomem/home/home-client.tsx");
+    const sections = source("src/app/exomem/home/home-sections.ts");
+    // The ordering lives in `home-sections.ts` and is asserted directly there;
+    // this pins that the component actually renders from it rather than
+    // hardcoding an order that could drift from the tested one.
+    assert.match(home, /const sections = homeSections\(\)/);
+    assert.match(home, /connectRoutes\(/);
+    assert.match(sections, /return \["connect", "capture", "account"\]/);
+
+    // Render order comes from the data, not from where the markup happens to
+    // sit in the file — so this asserts the seam rather than the source order,
+    // which the restructure deliberately decoupled.
+    assert.match(home, /const rendered: Record<HomeSection, ReactNode>/);
+    assert.match(
+      home,
+      /sections\.map\(\(section\) => \(\s*<Fragment key=\{section\}>\{rendered\[section\]\}<\/Fragment>/
+    );
+    for (const key of ["connect:", "capture:", "account:"]) {
+      assert.ok(home.includes(key), `the rendered record must cover ${key}`);
+    }
+    assert.match(home, /Connect an assistant/);
   });
 
   it("opens a server-created Paddle transaction on the private Exomem return page", () => {

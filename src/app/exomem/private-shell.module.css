@@ -269,6 +269,43 @@
   line-height: 1.65;
 }
 
+.connect {
+  margin: 0 0 26px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.connectTitle {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--amber);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.connectRoutes {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.serverUrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.serverUrlValue {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-size: 13px;
+}
+
 .secondary {
   margin-top: 18px;
   border-top: 1px solid var(--line);

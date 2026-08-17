@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PaddleTransactionOpener } from "@/components/PaddleTransactionOpener";
+import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import { PrivateShell } from "../private-shell";
 import HomeClient from "./home-client";
 
@@ -16,7 +17,7 @@ export default function ExomemHomePage() {
   return (
     <PrivateShell>
       <PaddleTransactionOpener validationEndpoint="/api/exomem/billing/checkout" />
-      <HomeClient />
+      <HomeClient serverUrl={`${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`} />
     </PrivateShell>
   );
 }
