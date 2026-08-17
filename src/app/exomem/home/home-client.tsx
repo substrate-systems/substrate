@@ -28,7 +28,7 @@ import {
   parseInstallActions,
   parseLifecycleResponse,
 } from "./home-state";
-import { type ConnectRoute, type HomeSection, connectRoutes, homeSections } from "./home-sections";
+import { type ConnectStep, type HomeSection, connectSteps, homeSections } from "./home-sections";
 
 type Tab = "remember" | "recall";
 
@@ -514,7 +514,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
   }
 
   const sections = homeSections();
-  const routes: ConnectRoute[] = connectRoutes(installActions.map((action) => action.platform));
+  const steps: ConnectStep[] = connectSteps(installActions.map((action) => action.platform));
 
   async function copyServerUrl() {
     try {
@@ -541,51 +541,79 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
           Claude, ChatGPT, or Codex can recall and preserve your context without you leaving the
           conversation.
         </p>
+
+        <p className={styles.connectLabel}>Your Exomem server address</p>
+        <p className={styles.serverUrl}>
+          <span className={styles.serverUrlValue}>{serverUrl}</span>
+          <button className={styles.quietButton} type="button" onClick={() => void copyServerUrl()}>
+            {urlCopied ? "Copied" : "Copy"}
+          </button>
+        </p>
+        <p className={styles.secondaryCopy}>
+          The same address for every client. You sign in once, in the browser, when your assistant
+          asks.
+        </p>
+
         <div className={styles.connectRoutes}>
-          {routes.map((route) => {
-            const action =
-              route === "claude-install"
-                ? installActions.find((candidate) => candidate.platform === "claude")
-                : route === "chatgpt-install"
-                  ? installActions.find((candidate) => candidate.platform === "openai")
-                  : undefined;
-            if (route !== "manual-url") {
-              if (!action) return null;
-              const label = route === "claude-install" ? "Claude" : "ChatGPT";
-              return (
-                <div className={styles.secondaryRow} key={route}>
+          {steps.map(({ client, oneClick }) => {
+            const action = oneClick
+              ? installActions.find(
+                  (candidate) => candidate.platform === (client === "claude" ? "claude" : "openai")
+                )
+              : undefined;
+            const label =
+              client === "claude" ? "Claude" : client === "chatgpt" ? "ChatGPT" : "Codex CLI";
+            return (
+              <div key={client}>
+                <div className={styles.secondaryRow}>
                   <div>
                     <strong>{label}</strong>
-                    <p className={styles.secondaryCopy}>
-                      One-click install · version {action.version}
-                    </p>
+                    {action ? (
+                      <p className={styles.secondaryCopy}>
+                        One-click install · version {action.version}
+                      </p>
+                    ) : client === "codex" ? (
+                      <p className={styles.secondaryCopy}>Two commands in your terminal.</p>
+                    ) : (
+                      <p className={styles.secondaryCopy}>
+                        Settings → Connectors → add a custom connector, paste the address above,
+                        then sign in when prompted. If {label} already lists Exomem in its
+                        directory, use that instead.
+                      </p>
+                    )}
                   </div>
-                  <a className={styles.quietButton} href={action.installUrl}>
-                    Install in {label}
-                  </a>
+                  {action ? (
+                    <a className={styles.quietButton} href={action.installUrl}>
+                      Install in {label}
+                    </a>
+                  ) : null}
                 </div>
-              );
-            }
-            return (
-              <div key={route}>
-                <strong>Codex, or any other MCP client</strong>
-                <p className={styles.secondaryCopy}>
-                  Add this as a remote MCP server and sign in once when prompted.
-                </p>
-                <p className={styles.serverUrl}>
-                  <span className={styles.serverUrlValue}>{serverUrl}</span>
-                  <button
-                    className={styles.quietButton}
-                    type="button"
-                    onClick={() => void copyServerUrl()}
-                  >
-                    {urlCopied ? "Copied" : "Copy"}
-                  </button>
-                </p>
+                {client === "codex" && !action ? (
+                  <pre className={styles.connectCommands}>
+                    <code>{`codex mcp add exomem --url ${serverUrl}\ncodex mcp login exomem`}</code>
+                  </pre>
+                ) : null}
               </div>
             );
           })}
         </div>
+
+        <details className={styles.connectFallback}>
+          <summary className={styles.summary}>
+            If your assistant connects but never uses Exomem
+          </summary>
+          <p className={styles.secondaryCopy}>
+            Some chat clients connect the tools without switching on the bundled skills. Paste this
+            once into that client&apos;s custom instructions:
+          </p>
+          <blockquote className={styles.connectQuote}>
+            Use Exomem quietly as my long-term governed knowledge store. Retrieve relevant Exomem
+            context when it can improve the answer, and preserve durable decisions or reusable
+            conclusions when appropriate. Do not capture transient chat, secrets, or anything I
+            explicitly say not to save. Treat the assistant&apos;s native memory as short-term
+            behavioral context and Exomem as the durable store.
+          </blockquote>
+        </details>
       </div>
     ),
     capture: (
@@ -814,7 +842,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
             <span className={styles.stateDot} aria-hidden="true" /> Ready
           </p>
           <h1 className={styles.title} id="home-title">
-            What should I remember?
+            Your Exomem is ready.
           </h1>
         </div>
         <button

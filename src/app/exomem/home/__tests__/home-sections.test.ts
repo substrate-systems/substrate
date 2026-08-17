@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { connectRoutes, homeSections } from "../home-sections";
+import { connectSteps, homeSections } from "../home-sections";
 
 describe("the authenticated first run leads with connecting an assistant", () => {
   it("puts connect above capture", () => {
@@ -20,25 +20,44 @@ describe("the authenticated first run leads with connecting an assistant", () =>
   });
 });
 
-describe("the connect section always leaves a route forward", () => {
-  it("offers the manual server URL even when no install action exists", () => {
-    // Install actions require a live client artifact matching the promoted
-    // contract digest. That is a release-pipeline fact, so a perfectly healthy
-    // tenant can legitimately see none, and must not be left with nothing.
-    assert.deepEqual(connectRoutes([]), ["manual-url"]);
+describe("every assistant gets its own named path", () => {
+  const clients = (platforms: readonly ("claude" | "openai")[]) =>
+    connectSteps(platforms).map((step) => step.client);
+
+  it("names all three clients even when no install action exists", () => {
+    // This is the case that matters most and the one the first version got
+    // wrong. Install actions require a live artifact matching the promoted
+    // contract digest, which is false for both platforms until a promotion
+    // window has run — so a newly invited person normally sees none. They must
+    // still find their own assistant by name.
+    assert.deepEqual(clients([]), ["claude", "chatgpt", "codex"]);
   });
 
-  it("leads with a one-click install where one is available", () => {
-    const routes = connectRoutes(["claude"]);
-    assert.equal(routes[0], "claude-install");
-    assert.ok(routes.includes("manual-url"), "the manual route is never dropped");
+  it("never leaves a Claude user reading instructions headed Codex", () => {
+    const steps = connectSteps([]);
+    const claude = steps.find((step) => step.client === "claude");
+    assert.ok(claude, "Claude must always have its own card");
+    assert.equal(claude.oneClick, false, "with no install action it is the manual path");
   });
 
-  it("orders the platforms deterministically regardless of input order", () => {
-    assert.deepEqual(connectRoutes(["openai", "claude"]), connectRoutes(["claude", "openai"]));
+  it("marks a client one-click only when its own install action exists", () => {
+    const steps = connectSteps(["claude"]);
+    assert.equal(steps.find((s) => s.client === "claude")?.oneClick, true);
+    assert.equal(steps.find((s) => s.client === "chatgpt")?.oneClick, false);
   });
 
-  it("keeps the manual URL last so it reads as the fallback it is", () => {
-    assert.equal(connectRoutes(["claude", "openai"]).at(-1), "manual-url");
+  it("maps the openai platform key to the ChatGPT card", () => {
+    // The database calls it `openai`; the person calls it ChatGPT.
+    assert.equal(connectSteps(["openai"]).find((s) => s.client === "chatgpt")?.oneClick, true);
+  });
+
+  it("never offers Codex a one-click install, which does not exist", () => {
+    for (const platforms of [[], ["claude"], ["openai"], ["claude", "openai"]] as const) {
+      assert.equal(connectSteps(platforms).find((s) => s.client === "codex")?.oneClick, false);
+    }
+  });
+
+  it("orders the clients deterministically regardless of input order", () => {
+    assert.deepEqual(clients(["openai", "claude"]), clients(["claude", "openai"]));
   });
 });
