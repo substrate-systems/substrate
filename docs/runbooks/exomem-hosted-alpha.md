@@ -416,15 +416,34 @@ authority for authorize, code exchange, refresh, continuations, or MCP.
 
 The repository's paired fixture composes schema-isolated PostgreSQL admission,
 OAuth issuance, lifecycle, deletion, and the fake provider/MCP seams. It is
-local seam proof only and is never sufficient to promote a client artifact. A
-real registered OpenAI `asdk_app_*` artifact and a clean-client,
-content-bearing cross-client run remain external release gates. Promotion requires separately
-recorded, signed evidence from a clean real Claude client and a clean real
-OpenAI client: native install, one OAuth
-authorization, static discovery without infrastructure creation, seeded recall,
-citation, governed capture, fresh-chat recall, lifecycle/revocation handling,
-and same-owner attachment to one tenant/cell/volume. Do not represent a mocked
-route or a test fixture as a client run.
+local seam proof only and is never sufficient to promote a client artifact.
+Promotion requires separately recorded, signed evidence from a clean real client
+on **each platform being promoted**: native install, one OAuth authorization,
+static discovery without infrastructure creation, seeded recall, citation,
+governed capture, fresh-chat recall, lifecycle/revocation handling, and
+same-owner attachment to one tenant/cell/volume. Do not represent a mocked route
+or a test fixture as a client run.
+
+Two gates live here and they are not the same gate.
+
+The **admission gate** is a live cohort for the requesting client's own platform.
+A Claude client is admitted on the strength of the Claude artifact; an OpenAI
+client on the OpenAI artifact. Promoting a single platform is supported: omit the
+OpenAI artifact and evidence, and the cohort goes live for Claude alone. Until
+2026-08-18 this was implicitly a paired gate, which meant no Claude user could be
+admitted until a real registered OpenAI `asdk_app_*` existed -- a coupling that
+never described the requesting client and that blocked the invite-only alpha.
+
+The **marketplace-launch gate** is the paired one, and it is unchanged: a real
+registered OpenAI `asdk_app_*` artifact plus a clean-client, content-bearing
+cross-client run remain external release gates before claiming public
+two-platform support. When both platforms are promoted together, their evidence
+must still name the same cohort -- the paired run, Exomem identity, and tenant
+digests are compared and a mismatch refuses the promotion.
+
+A single-platform promotion does not retire the other platform's artifact when it
+is later promoted against the same candidate; adding the second platform is an
+ordinary promotion of that artifact.
 
 ### External hosted scheduler
 

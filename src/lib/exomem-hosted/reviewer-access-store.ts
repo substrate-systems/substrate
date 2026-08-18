@@ -649,9 +649,9 @@ export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
         AND transaction.expires_at > now()
         AND (
           (credential.credential_kind = 'provider_review' AND client.enabled = true AND EXISTS (
-          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
+          SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+          WHERE cohort.platform = client.client_platform
+            AND client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
           )) OR (
             credential.credential_kind = 'internal_canary'
             -- Unbound, or already bound to THIS credential. Re-authenticating as

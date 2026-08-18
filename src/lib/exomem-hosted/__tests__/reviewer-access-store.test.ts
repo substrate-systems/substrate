@@ -281,15 +281,18 @@ test("reviewer OAuth session creation atomically binds the matching provider tra
   );
   assert.match(query, /reviewer_credential_id = credential\.id/i);
   assert.match(query, /pg_advisory_xact_lock_shared\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
-  assert.match(query, /exomem_hosted_alpha_cohort/i);
+  assert.match(query, /exomem_hosted_alpha_platform_cohort/i);
+  // Scoped to the client's own platform: another platform's live cohort
+  // must never admit this client.
+  assert.match(query, /cohort\.platform = client\.client_platform/i);
+  // One digest column now, selected by the platform predicate above, rather than
+  // a per-platform column pair.
   assert.match(
     query,
-    /client\.oauth_client_config_sha256 = cohort\.claude_oauth_client_config_sha256/i
+    /client\.oauth_client_config_sha256 = cohort\.oauth_client_config_sha256/i
   );
-  assert.match(
-    query,
-    /client\.oauth_client_config_sha256 = cohort\.openai_oauth_client_config_sha256/i
-  );
+  assert.doesNotMatch(query, /cohort\.claude_oauth_client_config_sha256/i);
+  assert.doesNotMatch(query, /cohort\.openai_oauth_client_config_sha256/i);
   assert.doesNotMatch(
     query,
     /INSERT INTO users|INSERT INTO exomem_tenants|INSERT INTO exomem_entitlements|INSERT INTO exomem_cells/i

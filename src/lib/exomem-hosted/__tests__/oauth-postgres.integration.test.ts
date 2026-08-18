@@ -1779,15 +1779,27 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal(await findMcpOAuthAccessToken(digest(269)), null);
   });
 
-  it("fails authorization client resolution closed when either live artifact no longer matches", async () => {
+  it("fails authorization client resolution closed when its own platform's artifact no longer matches", async () => {
     await seedClient();
     assert.ok(await resolveApprovedOAuthClient(clientId));
+    // Another platform's artifact is not this client's business. A Claude client is
+    // admitted on the strength of the Claude artifact, so retiring the OpenAI one
+    // must leave it admitted -- that coupling is what blocked Claude admission on
+    // an OpenAI app registration.
     await pool!.query(
       "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'openai'"
     );
-    assert.equal(await resolveApprovedOAuthClient(clientId), null);
+    assert.ok(await resolveApprovedOAuthClient(clientId));
     await pool!.query(
       "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
+    );
+    // Its own platform's artifact is its business: demoting that still fails closed.
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'claude'"
+    );
+    assert.equal(await resolveApprovedOAuthClient(clientId), null);
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'claude'"
     );
   });
 
@@ -2594,7 +2606,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       await lock.query("BEGIN");
       await lock.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
       await lock.query(
-        "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'openai'"
+        "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'claude'"
       );
       transactionApplicationName = applicationName;
       let settled = false;
@@ -2611,7 +2623,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       await lock.query("ROLLBACK").catch(() => undefined);
       lock.release();
       await pool!.query(
-        "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
+        "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'claude'"
       );
     }
   });

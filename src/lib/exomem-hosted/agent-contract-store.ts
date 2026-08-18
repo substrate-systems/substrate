@@ -458,7 +458,8 @@ export async function getExomemAgentContractForOAuthAccess(input: {
              candidate.protocol_version, candidate.mcp_protocol_versions, candidate.contract
       FROM exomem_agent_contract_candidates AS candidate
       JOIN access_tenant ON true
-      LEFT JOIN exomem_hosted_alpha_cohort AS cohort ON cohort.id = candidate.id
+      LEFT JOIN (SELECT DISTINCT candidate_id AS id FROM exomem_hosted_alpha_platform_cohort) AS cohort
+        ON cohort.id = candidate.id
       LEFT JOIN exomem_agent_contract_rollout_assignments AS assignment
         ON assignment.id = ${input.assignmentId ?? null}::uuid
        AND assignment.tenant_id = access_tenant.id
@@ -541,7 +542,7 @@ export async function getExomemAgentContractForOAuthAccess(input: {
 export async function getLiveExomemHostedCohortCandidateId(): Promise<string | null> {
   const { rows } = await executeExomemSql`
     /* exomem:get-live-hosted-cohort-candidate */
-    SELECT id::text AS id FROM exomem_hosted_alpha_cohort LIMIT 2
+    SELECT DISTINCT candidate_id::text AS id FROM exomem_hosted_alpha_platform_cohort LIMIT 2
   `;
   return rows.length === 1 && typeof rows[0]?.id === "string" ? rows[0].id : null;
 }
@@ -874,12 +875,18 @@ export type ExomemHostedCohortPromotionResult = "promoted" | "already_live" | "p
 export async function promoteExomemHostedCohort(input: {
   candidateId: string;
   claudeArtifactId: string;
-  openaiArtifactId: string;
+  /**
+   * Omit to promote a Claude-only cohort. Paired promotion is unchanged: when an
+   * OpenAI artifact is supplied, every OpenAI precondition and the cross-client
+   * evidence equality below are enforced exactly as before.
+   */
+  openaiArtifactId?: string | null;
   expectedLiveCandidateId: string | null;
   expectedRoutableCellDigest: string;
   claudeEvidence: unknown;
-  openaiEvidence: unknown;
+  openaiEvidence?: unknown;
 }): Promise<ExomemHostedCohortPromotionResult> {
+  const promoteOpenai = typeof input.openaiArtifactId === "string";
   const expected = sha256(input.expectedRoutableCellDigest, "routable cell digest");
   const { rows: candidateRows } = await executeExomemSql`
     SELECT state
@@ -923,17 +930,61 @@ export async function promoteExomemHostedCohort(input: {
       )
         return preconditionFailed();
       const claudeLocks = await loadClientArtifactLocks("claude", input.candidateId, transaction);
-      const openaiLocks = await loadClientArtifactLocks("openai", input.candidateId, transaction);
       const claudeEvidence = validatePromotionEvidence(input.claudeEvidence, "claude", claudeLocks);
-      const openaiEvidence = validatePromotionEvidence(input.openaiEvidence, "openai", openaiLocks);
-      for (const key of [
-        "paired_run_hmac_sha256",
-        "exomem_identity_hmac_sha256",
-        "tenant_hmac_sha256",
-      ]) {
-        if (claudeEvidence[key] !== openaiEvidence[key])
-          throw new Error("paired client evidence must name the same Hosted cohort");
+      const openaiEvidence = promoteOpenai
+        ? validatePromotionEvidence(
+            input.openaiEvidence,
+            "openai",
+            await loadClientArtifactLocks("openai", input.candidateId, transaction)
+          )
+        : null;
+      // Cross-client equality is what proves both clients attached to ONE cohort.
+      // It is meaningful only when two platforms are promoted together, and is
+      // enforced in full in exactly that case.
+      if (openaiEvidence) {
+        for (const key of [
+          "paired_run_hmac_sha256",
+          "exomem_identity_hmac_sha256",
+          "tenant_hmac_sha256",
+        ]) {
+          if (claudeEvidence[key] !== openaiEvidence[key])
+            throw new Error("paired client evidence must name the same Hosted cohort");
+        }
       }
+      // Locked in its own statement rather than through FOR UPDATE on the queries
+      // below: PostgreSQL refuses FOR UPDATE on the nullable side of an outer
+      // join, and the OpenAI artifact is now optional.
+      if (openaiEvidence) {
+        await transaction`
+          /* exomem:lock-promoted-openai-artifact */
+          SELECT 1 FROM exomem_client_artifacts
+          WHERE id = ${input.openaiArtifactId}::uuid
+            AND platform = 'openai' AND state IN ('pending', 'live')
+          FOR UPDATE
+        `;
+      }
+      const openaiDigests = openaiEvidence
+        ? {
+            evidence: promotionEvidenceDigest(openaiEvidence),
+            result: sha256(openaiEvidence.result_sha256, "OpenAI result digest"),
+            packageArtifact: sha256(openaiEvidence.package_artifact_sha256, "OpenAI package digest"),
+            archive: sha256(openaiEvidence.archive_sha256, "OpenAI archive digest"),
+            clientIdentity: sha256(
+              openaiEvidence.clean_client_identity_hmac_sha256,
+              "OpenAI identity digest"
+            ),
+            pairedRun: sha256(openaiEvidence.paired_run_hmac_sha256, "OpenAI paired-run digest"),
+            exomemIdentity: sha256(
+              openaiEvidence.exomem_identity_hmac_sha256,
+              "OpenAI Exomem identity digest"
+            ),
+            tenant: sha256(openaiEvidence.tenant_hmac_sha256, "OpenAI tenant digest"),
+            oauthClientConfig: sha256(
+              openaiEvidence.oauth_client_config_sha256,
+              "OpenAI OAuth client configuration digest"
+            ),
+          }
+        : null;
       const { rows: terminalRows } = await transaction`
         /* exomem:lock-terminal-hosted-cohort-replay */
         SELECT candidate.state AS candidate_state, claude.state AS claude_state, openai.state AS openai_state
@@ -943,20 +994,20 @@ export async function promoteExomemHostedCohort(input: {
          AND claude.platform = 'claude'
          AND claude.contract_candidate_id = candidate.id
          AND claude.evidence_sha256 = ${promotionEvidenceDigest(claudeEvidence)}
-        JOIN exomem_client_artifacts AS openai
-          ON openai.id = ${input.openaiArtifactId}::uuid
+        LEFT JOIN exomem_client_artifacts AS openai
+          ON openai.id = ${input.openaiArtifactId ?? null}::uuid
          AND openai.platform = 'openai'
          AND openai.contract_candidate_id = candidate.id
-         AND openai.evidence_sha256 = ${promotionEvidenceDigest(openaiEvidence)}
+         AND openai.evidence_sha256 = ${openaiDigests?.evidence ?? null}
         WHERE candidate.id = ${input.candidateId}::uuid
           AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
-        FOR UPDATE OF candidate, claude, openai
+        FOR UPDATE OF candidate, claude
       `;
       const terminal = terminalRows[0];
       if (
         terminal?.candidate_state === "live" &&
         terminal.claude_state === "live" &&
-        terminal.openai_state === "live" &&
+        (promoteOpenai ? terminal.openai_state === "live" : true) &&
         (input.expectedLiveCandidateId === null ||
           input.expectedLiveCandidateId === input.candidateId)
       )
@@ -1065,14 +1116,13 @@ export async function promoteExomemHostedCohort(input: {
       FOR UPDATE
     ), openai AS (
       SELECT * FROM exomem_client_artifacts
-      WHERE id = ${input.openaiArtifactId}::uuid AND platform = 'openai' AND state IN ('pending', 'live')
-      FOR UPDATE
+      WHERE id = ${input.openaiArtifactId ?? null}::uuid AND platform = 'openai' AND state IN ('pending', 'live')
     ), exact_cells AS (
       SELECT candidate.state AS candidate_state, claude.state AS claude_state, openai.state AS openai_state
       FROM candidate
       JOIN authority ON authority.profile_id = candidate.profile_id
       JOIN claude ON true
-      JOIN openai ON true
+      LEFT JOIN openai ON true
       WHERE EXISTS (SELECT 1 FROM cells)
         AND (SELECT count(*) FROM cells) = (
           SELECT count(*) FROM exomem_routable_cell_contracts AS route
@@ -1122,25 +1172,24 @@ export async function promoteExomemHostedCohort(input: {
         )}
         AND claude.oauth_client_config_sha256 IS NOT NULL
         AND claude.observed_at <= now() AND claude.observed_at > now() - interval '24 hours'
-        AND openai.evidence_sha256 = ${promotionEvidenceDigest(openaiEvidence)}
-        AND openai.result_sha256 = ${sha256(openaiEvidence.result_sha256, "OpenAI result digest")}
-        AND openai.package_sha256 = ${sha256(openaiEvidence.package_artifact_sha256, "OpenAI package digest")}
-        AND openai.archive_sha256 = ${sha256(openaiEvidence.archive_sha256, "OpenAI archive digest")}
-        AND openai.compatibility_sha256 = candidate.compatibility_digest
-        AND openai.contract_sha256 = candidate.schema_digest
-        AND openai.plugin_version = candidate.openai_package_lock->>'plugin_version'
-        AND openai.contract_candidate_id = candidate.id
-        AND openai.registered_app_id_sha256 = candidate.openai_package_lock->>'registered_app_id_sha256'
-        AND openai.client_identity_sha256 = ${sha256(openaiEvidence.clean_client_identity_hmac_sha256, "OpenAI identity digest")}
-        AND openai.paired_run_hmac_sha256 = ${sha256(openaiEvidence.paired_run_hmac_sha256, "OpenAI paired-run digest")}
-        AND openai.exomem_identity_hmac_sha256 = ${sha256(openaiEvidence.exomem_identity_hmac_sha256, "OpenAI Exomem identity digest")}
-        AND openai.tenant_hmac_sha256 = ${sha256(openaiEvidence.tenant_hmac_sha256, "OpenAI tenant digest")}
-        AND openai.oauth_client_config_sha256 = ${sha256(
-          openaiEvidence.oauth_client_config_sha256,
-          "OpenAI OAuth client configuration digest"
-        )}
-        AND openai.oauth_client_config_sha256 IS NOT NULL
-        AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
+        AND (${!promoteOpenai} OR (
+          openai.evidence_sha256 = ${openaiDigests?.evidence ?? null}
+          AND openai.result_sha256 = ${openaiDigests?.result ?? null}
+          AND openai.package_sha256 = ${openaiDigests?.packageArtifact ?? null}
+          AND openai.archive_sha256 = ${openaiDigests?.archive ?? null}
+          AND openai.compatibility_sha256 = candidate.compatibility_digest
+          AND openai.contract_sha256 = candidate.schema_digest
+          AND openai.plugin_version = candidate.openai_package_lock->>'plugin_version'
+          AND openai.contract_candidate_id = candidate.id
+          AND openai.registered_app_id_sha256 = candidate.openai_package_lock->>'registered_app_id_sha256'
+          AND openai.client_identity_sha256 = ${openaiDigests?.clientIdentity ?? null}
+          AND openai.paired_run_hmac_sha256 = ${openaiDigests?.pairedRun ?? null}
+          AND openai.exomem_identity_hmac_sha256 = ${openaiDigests?.exomemIdentity ?? null}
+          AND openai.tenant_hmac_sha256 = ${openaiDigests?.tenant ?? null}
+          AND openai.oauth_client_config_sha256 = ${openaiDigests?.oauthClientConfig ?? null}
+          AND openai.oauth_client_config_sha256 IS NOT NULL
+          AND openai.observed_at <= now() AND openai.observed_at > now() - interval '24 hours'
+        ))
         AND EXISTS (
           SELECT 1 FROM exomem_oauth_clients AS claude_client
           WHERE claude_client.enabled
@@ -1155,20 +1204,22 @@ export async function promoteExomemHostedCohort(input: {
               AND claude_client.cimd_host IS NOT NULL
             ))
         )
-        AND EXISTS (
-          SELECT 1 FROM exomem_oauth_clients AS openai_client
-          WHERE openai_client.enabled
-            AND openai_client.client_platform = 'openai'
-            AND openai_client.oauth_client_config_sha256 = openai.oauth_client_config_sha256
-            AND openai_client.redirect_uris_digest = digest(convert_to(openai_client.redirect_uris::text, 'utf8'), 'sha256')
-            AND (openai_client.admission_mode = 'pinned' OR (
-              openai_client.metadata_document_digest IS NOT NULL
-              AND openai_client.metadata_fetched_at IS NOT NULL
-              AND openai_client.metadata_ttl_seconds BETWEEN 300 AND 604800
-              AND openai_client.metadata_expires_at > now()
-              AND openai_client.cimd_host IS NOT NULL
-            ))
-        )
+        AND (${!promoteOpenai} OR (
+          EXISTS (
+            SELECT 1 FROM exomem_oauth_clients AS openai_client
+            WHERE openai_client.enabled
+              AND openai_client.client_platform = 'openai'
+              AND openai_client.oauth_client_config_sha256 = openai.oauth_client_config_sha256
+              AND openai_client.redirect_uris_digest = digest(convert_to(openai_client.redirect_uris::text, 'utf8'), 'sha256')
+              AND (openai_client.admission_mode = 'pinned' OR (
+                openai_client.metadata_document_digest IS NOT NULL
+                AND openai_client.metadata_fetched_at IS NOT NULL
+                AND openai_client.metadata_ttl_seconds BETWEEN 300 AND 604800
+                AND openai_client.metadata_expires_at > now()
+                AND openai_client.cimd_host IS NOT NULL
+              ))
+          )
+        ))
       ) SELECT candidate_state, claude_state, openai_state FROM exact_cells
     `;
       const states = rows[0];
@@ -1176,14 +1227,14 @@ export async function promoteExomemHostedCohort(input: {
       if (
         states.candidate_state === "live" &&
         states.claude_state === "live" &&
-        states.openai_state === "live"
+        (promoteOpenai ? states.openai_state === "live" : true)
       ) {
         return "already_live";
       }
       if (
         states.candidate_state !== "pending" ||
         states.claude_state !== "pending" ||
-        states.openai_state !== "pending"
+        (promoteOpenai && states.openai_state !== "pending")
       ) {
         return preconditionFailed();
       }
@@ -1209,7 +1260,8 @@ export async function promoteExomemHostedCohort(input: {
       /* exomem:promote-hosted-cohort-client-artifacts */
       UPDATE exomem_client_artifacts
       SET state = 'live', promoted_at = now()
-      WHERE id IN (${input.claudeArtifactId}::uuid, ${input.openaiArtifactId}::uuid)
+      WHERE (id = ${input.claudeArtifactId}::uuid
+             OR id = ${input.openaiArtifactId ?? null}::uuid)
         AND state = 'pending'
     `;
       await transaction`
@@ -1231,7 +1283,7 @@ export async function promoteExomemHostedCohort(input: {
       await revokeConflictingCandidateOAuthLineageInTransaction(transaction, input.candidateId);
       const { rows: cohortRows } = await transaction`
       /* exomem:assert-promoted-hosted-cohort */
-      SELECT id::text AS id FROM exomem_hosted_alpha_cohort
+      SELECT DISTINCT candidate_id::text AS id FROM exomem_hosted_alpha_platform_cohort
     `;
       if (cohortRows.length !== 1 || cohortRows[0]?.id !== input.candidateId)
         throw new Error("atomic Hosted cohort promotion produced a partial cohort");
