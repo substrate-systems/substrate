@@ -53,6 +53,7 @@ jobs:
           src/lib/exomem-hosted/__tests__/capacity-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/migration-upgrade.integration.test.ts
           src/lib/exomem-hosted/__tests__/hosted-paired-acceptance.test.ts
+          src/lib/exomem-hosted/__tests__/platform-cohort-postgres.integration.test.ts
       - name: Hosted Backup version-commit and lifecycle PostgreSQL authority
         env:
           EXOMEM_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/substrate_test

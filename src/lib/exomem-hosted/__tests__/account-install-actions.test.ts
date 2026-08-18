@@ -48,7 +48,7 @@ describe("owner install actions", () => {
     ]);
     assert.match(queries[0], /state = 'live'/i);
     assert.match(queries[0], /artifact\.state = 'live'/i);
-    assert.match(queries[0], /FROM exomem_hosted_alpha_cohort AS cohort/i);
+    assert.match(queries[0], /FROM \(SELECT DISTINCT candidate_id AS id FROM exomem_hosted_alpha_platform_cohort\) AS cohort/i);
     assert.match(queries[0], /artifact\.contract_sha256 = candidate\.schema_digest/i);
     assert.match(queries[0], /artifact\.compatibility_sha256 = candidate\.compatibility_digest/i);
     assert.match(queries[0], /artifact\.package_sha256 =/i);
@@ -132,7 +132,7 @@ describe("owner install actions", () => {
       ),
       []
     );
-    assert.match(queries[0], /FROM exomem_hosted_alpha_cohort AS cohort/i);
+    assert.match(queries[0], /FROM \(SELECT DISTINCT candidate_id AS id FROM exomem_hosted_alpha_platform_cohort\) AS cohort/i);
   });
 
   it("requires exact contract, compatibility, package, archive, version, and endpoint identity", async () => {

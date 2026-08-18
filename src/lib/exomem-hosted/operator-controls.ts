@@ -792,7 +792,7 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
           AND client.redirect_uris->>0 ~ '^http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]{1,5})?(/|$)'
           AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
           AND NOT EXISTS (
-            SELECT 1 FROM exomem_hosted_alpha_cohort
+            SELECT 1 FROM exomem_hosted_alpha_platform_cohort
           )
           AND NOT EXISTS (
             SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities

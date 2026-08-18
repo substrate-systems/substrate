@@ -71,16 +71,18 @@ export async function resolveApprovedOAuthClient(
       ))
       AND (
         (client.enabled = true AND EXISTS (
-          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-             OR (client.admission_mode = 'cimd'
-                 AND client.metadata_expires_at > now()
-                 AND EXISTS (
-                   SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                   WHERE admitted.host = client.cimd_host
-                     AND admitted.platform = client.client_platform
-                 ))
+          SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+          WHERE cohort.platform = client.client_platform
+            AND (
+              client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+              OR (client.admission_mode = 'cimd'
+                  AND client.metadata_expires_at > now()
+                  AND EXISTS (
+                    SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                    WHERE admitted.host = client.cimd_host
+                      AND admitted.platform = client.client_platform
+                  ))
+            )
         )) OR EXISTS (
           SELECT 1
           FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS bootstrap
@@ -332,16 +334,18 @@ export async function createAuthorizationTransaction(input: {
       ))
       AND (
         (client.enabled = true AND EXISTS (
-          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-             OR (client.admission_mode = 'cimd'
-                 AND client.metadata_expires_at > now()
-                 AND EXISTS (
-                   SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                   WHERE admitted.host = client.cimd_host
-                     AND admitted.platform = client.client_platform
-                 ))
+          SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+          WHERE cohort.platform = client.client_platform
+            AND (
+              client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+              OR (client.admission_mode = 'cimd'
+                  AND client.metadata_expires_at > now()
+                  AND EXISTS (
+                    SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                    WHERE admitted.host = client.cimd_host
+                      AND admitted.platform = client.client_platform
+                  ))
+            )
         )) OR EXISTS (
           SELECT 1
           FROM exomem_marketplace_reviewer_credentials AS credential
@@ -423,16 +427,18 @@ export async function findPendingOAuthAuthorization(
         ) OR (transaction.reviewer_bootstrap_authority_id IS NULL AND
         (transaction.candidate_id IS NULL AND (
           (client.enabled = true AND EXISTS (
-          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-             OR (client.admission_mode = 'cimd'
-                 AND client.metadata_expires_at > now()
-                 AND EXISTS (
-                   SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                   WHERE admitted.host = client.cimd_host
-                     AND admitted.platform = client.client_platform
-                 ))
+          SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+          WHERE cohort.platform = client.client_platform
+            AND (
+              client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+              OR (client.admission_mode = 'cimd'
+                  AND client.metadata_expires_at > now()
+                  AND EXISTS (
+                    SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                    WHERE admitted.host = client.cimd_host
+                      AND admitted.platform = client.client_platform
+                  ))
+            )
           )) OR EXISTS (
             SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
             JOIN exomem_staged_client_releases AS stage
@@ -597,16 +603,18 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
         )
         AND (
           (transaction.candidate_id IS NULL AND client.enabled = true AND EXISTS (
-          SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-          WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-             OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-             OR (client.admission_mode = 'cimd'
-                 AND client.metadata_expires_at > now()
-                 AND EXISTS (
-                   SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                   WHERE admitted.host = client.cimd_host
-                     AND admitted.platform = client.client_platform
-                 ))
+          SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+          WHERE cohort.platform = client.client_platform
+            AND (
+              client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+              OR (client.admission_mode = 'cimd'
+                  AND client.metadata_expires_at > now()
+                  AND EXISTS (
+                    SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                    WHERE admitted.host = client.cimd_host
+                      AND admitted.platform = client.client_platform
+                  ))
+            )
           )) OR (
             transaction.candidate_id IS NOT NULL
             AND credential.credential_kind = 'internal_canary'
@@ -921,7 +929,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
 
   const blocked = await tx`
     SELECT 1
-    WHERE EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort)
+    WHERE EXISTS (SELECT 1 FROM exomem_hosted_alpha_platform_cohort)
        OR EXISTS (
          SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
          WHERE assignment.marketplace_reviewer_purpose = true
@@ -1182,16 +1190,18 @@ export async function admitFirstOAuthInviteAtomic(input: {
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
           AND EXISTS (
-            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-               OR (client.admission_mode = 'cimd'
-                   AND client.metadata_expires_at > now()
-                   AND EXISTS (
-                     SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                     WHERE admitted.host = client.cimd_host
-                       AND admitted.platform = client.client_platform
-                   ))
+            SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+            WHERE cohort.platform = client.client_platform
+              AND (
+                client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+                OR (client.admission_mode = 'cimd'
+                    AND client.metadata_expires_at > now()
+                    AND EXISTS (
+                      SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                      WHERE admitted.host = client.cimd_host
+                        AND admitted.platform = client.client_platform
+                    ))
+              )
           )
         FOR UPDATE OF transaction
       `;
@@ -1491,16 +1501,18 @@ export async function findActiveOAuthAccessToken(
           AND client.enabled = true
           AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
           AND EXISTS (
-            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-               OR (client.admission_mode = 'cimd'
-                   AND client.metadata_expires_at > now()
-                   AND EXISTS (
-                     SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                     WHERE admitted.host = client.cimd_host
-                       AND admitted.platform = client.client_platform
-                   ))
+            SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+            WHERE cohort.platform = client.client_platform
+              AND (
+                client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+                OR (client.admission_mode = 'cimd'
+                    AND client.metadata_expires_at > now()
+                    AND EXISTS (
+                      SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                      WHERE admitted.host = client.cimd_host
+                        AND admitted.platform = client.client_platform
+                    ))
+              )
           )
         ) OR (
           token.candidate_id IS NOT NULL
@@ -1645,16 +1657,18 @@ export async function findMcpOAuthAccessToken(
           AND client.enabled = true
           AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
           AND EXISTS (
-            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-               OR (client.admission_mode = 'cimd'
-                   AND client.metadata_expires_at > now()
-                   AND EXISTS (
-                     SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                     WHERE admitted.host = client.cimd_host
-                       AND admitted.platform = client.client_platform
-                   ))
+            SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+            WHERE cohort.platform = client.client_platform
+              AND (
+                client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+                OR (client.admission_mode = 'cimd'
+                    AND client.metadata_expires_at > now()
+                    AND EXISTS (
+                      SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                      WHERE admitted.host = client.cimd_host
+                        AND admitted.platform = client.client_platform
+                    ))
+              )
           )
         ) OR (
           token.candidate_id IS NOT NULL
@@ -1965,16 +1979,18 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
             AND client.enabled = true
             AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
             AND EXISTS (
-              SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-              WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-                 OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-                 OR (client.admission_mode = 'cimd'
-                     AND client.metadata_expires_at > now()
-                     AND EXISTS (
-                       SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                       WHERE admitted.host = client.cimd_host
-                         AND admitted.platform = client.client_platform
-                     ))
+              SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+              WHERE cohort.platform = client.client_platform
+                AND (
+                  client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+                  OR (client.admission_mode = 'cimd'
+                      AND client.metadata_expires_at > now()
+                      AND EXISTS (
+                        SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                        WHERE admitted.host = client.cimd_host
+                          AND admitted.platform = client.client_platform
+                      ))
+                )
             )
           ) OR (
             code.candidate_id IS NOT NULL
@@ -2191,16 +2207,18 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
           AND client.enabled = true
           AND (oauth_grant.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
           AND EXISTS (
-            SELECT 1 FROM exomem_hosted_alpha_cohort AS cohort
-            WHERE (client.client_platform = 'claude' AND client.oauth_client_config_sha256 = cohort.claude_oauth_client_config_sha256)
-               OR (client.client_platform = 'openai' AND client.oauth_client_config_sha256 = cohort.openai_oauth_client_config_sha256)
-               OR (client.admission_mode = 'cimd'
-                   AND client.metadata_expires_at > now()
-                   AND EXISTS (
-                     SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
-                     WHERE admitted.host = client.cimd_host
-                       AND admitted.platform = client.client_platform
-                   ))
+            SELECT 1 FROM exomem_hosted_alpha_platform_cohort AS cohort
+            WHERE cohort.platform = client.client_platform
+              AND (
+                client.oauth_client_config_sha256 = cohort.oauth_client_config_sha256
+                OR (client.admission_mode = 'cimd'
+                    AND client.metadata_expires_at > now()
+                    AND EXISTS (
+                      SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
+                      WHERE admitted.host = client.cimd_host
+                        AND admitted.platform = client.client_platform
+                    ))
+              )
           )
         ) OR (
           credential.candidate_id IS NOT NULL
