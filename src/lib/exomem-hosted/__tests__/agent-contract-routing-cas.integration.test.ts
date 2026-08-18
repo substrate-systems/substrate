@@ -10,7 +10,12 @@ import {
   type ExomemTransaction,
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
-import { promoteExomemHostedCohort, recordRoutableCellObservation } from "../agent-contract-store";
+import {
+  EXOMEM_HOSTED_PROFILE,
+  promoteExomemHostedCohort,
+  recordRoutableCellObservation,
+} from "../agent-contract-store";
+import { routableSetDigest, type RoutableCellIdentity } from "../routable-authority";
 import { SqlLifecycleStore } from "../lifecycle-store";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
@@ -133,6 +138,19 @@ async function createDestroyableCell(): Promise<{ cellId: string; operationId: s
     [poolRow.rows[0]!.id]
   );
   return { cellId, operationId };
+}
+
+/** The routable-set digest promotion compares against, read straight from the table. */
+async function currentRoutableSetDigest(): Promise<string> {
+  const { rows } = await pool!.query<RoutableCellIdentity>(
+    `SELECT cell_id::text AS cell_id, source_release, protocol_version,
+            command_fingerprint, contract_digest, compatibility_digest
+     FROM exomem_routable_cell_contracts
+     WHERE profile_id = $1 AND routable = true
+     ORDER BY cell_id`,
+    [EXOMEM_HOSTED_PROFILE]
+  );
+  return routableSetDigest(EXOMEM_HOSTED_PROFILE, rows);
 }
 
 describe("agent contract routable-set CAS", { skip: !databaseUrl }, () => {
@@ -259,6 +277,8 @@ describe("agent contract routable-set CAS", { skip: !databaseUrl }, () => {
       "the cell is routable before it is destroyed"
     );
 
+    const digestBefore = await currentRoutableSetDigest();
+
     assert.equal(
       await new SqlLifecycleStore().markCellState(operationId, "worker-destroy", "deleted"),
       true
@@ -276,6 +296,15 @@ describe("agent contract routable-set CAS", { skip: !databaseUrl }, () => {
       ).rows,
       [{ routable: false }],
       "destroying the tenant clears the routable flag on its cell"
+    );
+
+    // Promotion's compare-and-swap is taken over exactly this set, so a destroy
+    // has to move it. If it did not, a promotion could still be authorised
+    // against a fleet that no longer exists.
+    assert.notEqual(
+      await currentRoutableSetDigest(),
+      digestBefore,
+      "the routable-set digest promotion compares against moves when a cell is destroyed"
     );
   });
 });
