@@ -121,7 +121,7 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runbook, /New Exomem checkout remains disabled regardless of Paddle/i);
     assert.match(
       runbook,
-      /set\s+`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` for the 0\.50\.0\s+reviewer canary/i
+      /set\s+`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` for the 0\.54\.1\s+reviewer canary/i
     );
     assert.match(
       runbook,
@@ -147,8 +147,8 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runbook, /v1-origin export download\s+and export-GC continuations/i);
     assert.match(runbook, /Keep expand mode until both\s+counts are zero/i);
     assert.match(runbook, /scripts\/exomem-d1-expand-preflight\.ts/);
-    assert.match(runbook, /f6c4543cf429da392949866445170450d0146152c2d3ac5c7d4f5616308dc1ce/);
-    assert.match(runbook, /02ec4eda1fed39e485dfabc2457d5b268686b74747a3249ec041f9b8dfdc2f3e/);
+    assert.match(runbook, /7eeac57b3457846d00974da0e4d8dd3ddb2819687634fc2cf70dd43d2c5a840c/);
+    assert.match(runbook, /85cdcbac931f3aa9357bf59c5530a1ba73ce1c81176286aa2b56b421276bdd79/);
     assert.match(runbook, /type the exact line\s+`release`/i);
   });
 
