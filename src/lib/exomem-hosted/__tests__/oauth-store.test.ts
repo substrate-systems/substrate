@@ -154,7 +154,7 @@ describe("Exomem OAuth token store", () => {
 
     assert.equal((await findMcpOAuthAccessToken(Buffer.alloc(32, 1)))?.tenantId, "tenant-1");
     assert.match(queries[0] ?? "", /pg_advisory_xact_lock_shared/i);
-    assert.match(queries[1] ?? "", /exomem_hosted_alpha_cohort/i);
+    assert.match(queries[1] ?? "", /exomem_hosted_alpha_platform_cohort/i);
     assert.match(queries[1] ?? "", /exomem_oauth_account_blocks/i);
     assert.match(queries[1] ?? "", /tenant\.status <> 'deleted'/i);
     assert.doesNotMatch(queries[1] ?? "", /tenant\.status IN \('provisioning', 'active'\)/i);
@@ -360,7 +360,10 @@ describe("Exomem OAuth token store", () => {
     });
 
     assert.equal(await resolveApprovedOAuthClient("client-1"), null);
-    assert.match(query, /exomem_hosted_alpha_cohort/i);
+    assert.match(query, /exomem_hosted_alpha_platform_cohort/i);
+    // The predicate must judge a client against its OWN platform's cohort:
+    // a live cohort for another platform must never admit it.
+    assert.match(query, /cohort\.platform = client\.client_platform/i);
     assert.match(
       query,
       /redirect_uris_digest = digest\(convert_to\(redirect_uris::text, 'utf8'\), 'sha256'\)/i

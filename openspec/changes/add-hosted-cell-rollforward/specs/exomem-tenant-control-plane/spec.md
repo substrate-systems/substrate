@@ -2,10 +2,7 @@
 
 ### Requirement: Lifecycle operations are leased, checkpointed, and replay safe
 
-Provision, suspend, resume, rotate, export, restore, rollforward, stop, and delete
-operations SHALL have durable idempotency keys, explicit states, bounded leases, retry
-metadata, and stable content-free failure codes. Two reconcilers MUST NOT advance the same
-checkpoint concurrently.
+Provision, suspend, resume, rotate, export, restore, rollforward, stop, and delete operations SHALL have durable idempotency keys, explicit states, bounded leases, retry metadata, and stable content-free failure codes. Two reconcilers MUST NOT advance the same checkpoint concurrently.
 
 #### Scenario: Two reconcilers claim one operation
 

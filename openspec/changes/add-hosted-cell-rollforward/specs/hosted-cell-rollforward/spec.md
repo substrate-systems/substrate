@@ -28,9 +28,7 @@ successor cell.
 
 ### Requirement: The rollforward target is operator authorized and never self asserted
 
-The target release, protocol, command fingerprint, schema digest, and compatibility digest
-SHALL be carried by the operator-authorized operation, fenced exactly as provisioning is. A
-cell MUST NOT be able to originate, widen, or alter the contract identity recorded for it.
+The target release, protocol, command fingerprint, schema digest, and compatibility digest SHALL be carried by the operator-authorized operation, fenced exactly as provisioning is. A cell MUST NOT be able to originate, widen, or alter the contract identity recorded for it.
 
 #### Scenario: Operation carries the authorized target
 

@@ -45,7 +45,7 @@ export async function loadOwnerInstallActions(
   const { rows } = await executeExomemSql`
     /* exomem:owner-install-actions */
     SELECT artifact.platform, artifact.state, artifact.plugin_version, artifact.install_url
-    FROM exomem_hosted_alpha_cohort AS cohort
+    FROM (SELECT DISTINCT candidate_id AS id FROM exomem_hosted_alpha_platform_cohort) AS cohort
     JOIN exomem_agent_contract_candidates AS candidate ON candidate.id = cohort.id
     JOIN exomem_client_artifacts AS artifact ON artifact.platform IN ('claude', 'openai')
       AND artifact.state = 'live'
