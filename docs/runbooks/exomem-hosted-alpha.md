@@ -737,6 +737,71 @@ fresh reviewer bootstrap, and issue fresh reviewer authority. Never reopen the
 expired source operation or reuse its client, credential, assignment, or
 bootstrap authority.
 
+### Correct a cell whose runtime moved out of band
+
+Symptom: a lifecycle operation is `failed_terminal` / `PROVISIONER_REJECTED` at an
+early checkpoint after one attempt, and the provisioner's own `operations` table has
+**no row for it at all**. That combination means the request was refused in admission
+before it was ever persisted, and the usual cause is a runtime that was upgraded
+without the control plane's record following it.
+
+The mechanism is worth stating plainly, because nothing in the wire response says it.
+A cell's recorded `release_version` pins the `runtimeTarget` of every operation the
+tenant can mint, and the provisioner admits a v2 request only when that target is
+byte-equal to the deployment lock's active runtime. Once the two disagree the cell
+cannot be quiesced, sealed, or destroyed, and no request shape escapes it — health
+carries the same stale target. Retrying is pointless; the operation is terminal for a
+reason.
+
+Confirm the divergence against the cluster before correcting anything. The control
+takes your word that the runtime already moved, so that word has to be earned:
+
+- read the serving pod's image in the cell namespace, and
+- compare it with `components.runtime.image` in the provisioner's deployment lock
+  (`$EXOMEM_PROVISIONER_DEPLOYMENT_LOCK_PATH`), and
+- confirm the lock's `runtimeTarget` matches a cataloged candidate in Substrate on
+  release, protocol, command fingerprint, schema digest and compatibility digest.
+
+If the image does *not* match the lock, stop: the cell is diverged in some other
+direction and this control is the wrong tool.
+
+Then call `POST /api/exomem/admin/contracts`, preflight first:
+
+```json
+{ "action": "preflight-correct-diverged-cell-release", "cellId": "<uuid>", "candidateId": "<uuid>", "expectedCurrentRelease": "<stale release>", "expectedFence": 2 }
+```
+
+```json
+{ "action": "correct-diverged-cell-release", "cellId": "<uuid>", "candidateId": "<uuid>", "expectedCurrentRelease": "<stale release>", "expectedFence": 2 }
+```
+
+`expectedCurrentRelease` is the release the cell records *now*, not the one it should
+record. It exists so a ticket written before somebody else corrected the same cell
+refuses instead of moving it twice.
+
+The control moves the cell's recorded release and its four observed digests onto the
+candidate's identity, moves the routable observation with it, and installs one active
+30-minute assignment on that candidate. It installs the assignment itself rather than
+leaving it to `create-assignment` because the two are one fact: a delete derives its
+target from the active assignment matched against the cell's recorded identity, so
+correcting either alone leaves the tenant with no derivable target and a worse stall
+than the one being repaired. Ordinary activation is not reachable here — it runs only
+from a succeeding provision, which is exactly what a diverged cell cannot do.
+
+It refuses, content-free, unless the cell is the tenant's only live cell, the tenant is
+reviewer-purpose at the stated fence, the candidate is cataloged and genuinely differs
+from what the cell records, a terminal assignment already exists for that tenant on
+that candidate (it is the only source of the gateway digest — the control never
+composes one), nothing is in flight, and no assignment is live. A refusal is not a
+diagnosis: inspect privately, never retry with altered selectors.
+
+It never calls the provider and never touches capacity. Re-issuing the same request
+after it succeeds returns `replayed` with the same assignment.
+
+Afterwards, confirm the recorded release matches the lock, then re-issue the lifecycle
+operation that was stuck. The assignment expires in 30 minutes, so do the re-issue in
+the same sitting.
+
 ## Issue an invite
 
 Issue complimentary invites one at a time and keep the operator token out of

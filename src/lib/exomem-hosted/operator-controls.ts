@@ -47,6 +47,11 @@ export type TerminalReviewerDeleteRecovery = {
   operationId: string;
 } | null;
 
+export type DivergedCellReleaseCorrection = {
+  outcome: "corrected" | "replayed";
+  assignmentId: string;
+} | null;
+
 type ExpiredReviewerCleanupInput = {
   sourceOperationId: string;
   expectedFence: number;
@@ -54,6 +59,13 @@ type ExpiredReviewerCleanupInput = {
 
 type TerminalReviewerDeleteInput = {
   operationId: string;
+  expectedFence: number;
+};
+
+type DivergedCellReleaseInput = {
+  cellId: string;
+  candidateId: string;
+  expectedCurrentRelease: string;
   expectedFence: number;
 };
 
@@ -70,6 +82,85 @@ function assertExpiredReviewerCleanupInput(input: ExpiredReviewerCleanupInput): 
 function assertTerminalReviewerDeleteInput(input: TerminalReviewerDeleteInput): void {
   if (!UUID.test(input.operationId) || !Number.isSafeInteger(input.expectedFence) || input.expectedFence < 1)
     throw exomemErrors.invalidRequest();
+}
+
+function assertDivergedCellReleaseInput(input: DivergedCellReleaseInput): void {
+  if (
+    !UUID.test(input.cellId) ||
+    !UUID.test(input.candidateId) ||
+    !RELEASE.test(input.expectedCurrentRelease) ||
+    !Number.isSafeInteger(input.expectedFence) ||
+    input.expectedFence < 1
+  ) {
+    throw exomemErrors.invalidRequest();
+  }
+}
+
+/**
+ * The facts a diverged cell must satisfy before its recorded release may be moved.
+ *
+ * Every clause is a corroboration, not a convenience: the correction never invents an
+ * identity, it only copies one that was already minted for this tenant and cataloged as
+ * a candidate. `prior` is the terminal assignment carrying that identity, and it is the
+ * only source of `gateway_contract_digest` — that digest is not on the candidate row,
+ * and synthesising one here would let the control plane assert a contract nobody
+ * reviewed.
+ *
+ * The correction repeats this predicate inside its own single statement rather than
+ * calling this. The duplication is deliberate: the reconciler does not take the cohort
+ * lock, so it can create a lifecycle operation between a preflight read and a later
+ * write, and only a predicate evaluated in the same statement as the mutation is sound.
+ * A stale preflight can therefore produce a refusal but never an unsafe write.
+ * `correctionAgreesWithPreflight` in the integration suite holds the two together.
+ */
+function divergedCellReleaseEligibility(tx: ExomemSql, input: DivergedCellReleaseInput) {
+  return tx`
+    SELECT cell.id AS cell_id, cell.tenant_id, tenant.marketplace_reviewer_purpose,
+           prior.id AS prior_assignment_id, prior.candidate_id,
+           prior.source_release, prior.protocol_version, prior.gateway_contract_digest,
+           prior.command_fingerprint, prior.schema_digest, prior.compatibility_digest
+    FROM exomem_cells AS cell
+    JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+    JOIN exomem_agent_contract_candidates AS candidate
+      ON candidate.id = ${input.candidateId}::uuid
+     AND candidate.profile_id = 'hosted-alpha-agent-v1'
+     AND candidate.state = 'pending'
+     AND candidate.protocol_version = cell.protocol_version
+     AND candidate.source_release <> cell.release_version
+    JOIN exomem_agent_contract_rollout_assignments AS prior
+      ON prior.tenant_id = cell.tenant_id
+     AND prior.candidate_id = candidate.id
+     AND prior.marketplace_reviewer_purpose = true
+     AND prior.source_release = candidate.source_release
+     AND prior.protocol_version = candidate.protocol_version
+     AND prior.command_fingerprint = candidate.command_fingerprint
+     AND prior.schema_digest = candidate.schema_digest
+     AND prior.compatibility_digest = candidate.compatibility_digest
+     AND (
+       (prior.state = 'expired' AND prior.expires_at <= now())
+       OR (prior.state = 'failed' AND prior.ended_at IS NOT NULL)
+     )
+    WHERE cell.id = ${input.cellId}::uuid
+      AND cell.release_version = ${input.expectedCurrentRelease}
+      AND cell.lifecycle_state <> 'deleted'
+      AND cell.routing_state IN ('bound', 'retiring')
+      AND cell.observed_gateway_contract_digest IS NOT NULL
+      AND cell.observed_command_fingerprint IS NOT NULL
+      AND cell.observed_schema_digest IS NOT NULL
+      AND cell.observed_compatibility_digest IS NOT NULL
+      AND tenant.deleted_at IS NULL
+      AND tenant.marketplace_reviewer_purpose = true
+      AND tenant.fence_generation = ${input.expectedFence}::bigint
+      AND (SELECT count(*) FROM exomem_cells AS only_cell
+           WHERE only_cell.tenant_id = cell.tenant_id
+             AND only_cell.lifecycle_state <> 'deleted') = 1
+      AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS inflight
+                      WHERE inflight.tenant_id = cell.tenant_id
+                        AND inflight.state NOT IN ('succeeded', 'failed_terminal'))
+      AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS current
+                      WHERE current.tenant_id = cell.tenant_id
+                        AND current.state IN ('preparing', 'active'))
+  `;
 }
 
 /** Read-only fail-closed eligibility check for the single terminal reviewer delete replay. */
@@ -632,6 +723,183 @@ export async function recoverExpiredReviewerCleanup(
   });
 }
 
+/** Read-only fail-closed eligibility check for correcting one diverged cell's release. */
+export async function preflightCorrectDivergedCellRelease(
+  input: DivergedCellReleaseInput
+): Promise<{ eligible: boolean }> {
+  assertDivergedCellReleaseInput(input);
+  return withCohortControlLock(async (tx) => {
+    /* exomem:preflight-correct-diverged-cell-release */
+    const { rows } = await divergedCellReleaseEligibility(tx, input);
+    return { eligible: rows.length === 1 };
+  });
+}
+
+/**
+ * Move a cell's recorded runtime identity onto a cataloged candidate it already serves.
+ *
+ * A cell's recorded `release_version` pins the `runtimeTarget` of every later lifecycle
+ * operation, and the provisioner admits a v2 request only when that target is byte-equal
+ * to the deployment lock's active runtime. So once a runtime moves out of band, the
+ * control plane's stale record makes the cell impossible to quiesce, seal, or destroy —
+ * every request it can mint is rejected with a content-free `PROVISIONER_REJECTED`, and
+ * there is no request shape that escapes it, because health carries the stale target too.
+ *
+ * The correction is what breaks that circle. It also installs the active assignment,
+ * rather than leaving that to `create-assignment`, because the two facts are one fact:
+ * a delete derives its target from `bound_assignment_target`, which matches an active
+ * assignment against the cell's recorded identity. Correcting either alone leaves the
+ * tenant with no derivable target at all, which is a worse stall than the one being
+ * repaired. Ordinary assignment activation cannot be reused here — it is reachable only
+ * from a succeeding provision, which is precisely what a diverged cell cannot run.
+ *
+ * This does not touch the provider. It asserts that the runtime already moved; the
+ * operator is responsible for having verified that against the cluster first, and the
+ * runbook says how. What the control enforces is that the identity being recorded was
+ * genuinely minted and cataloged, never one composed at the call site.
+ */
+export async function correctDivergedCellRelease(
+  input: DivergedCellReleaseInput & { requestId: string; operatorPrincipalDigest: Buffer }
+): Promise<DivergedCellReleaseCorrection> {
+  assertDivergedCellReleaseInput(input);
+  if (!UUID.test(input.requestId) || input.operatorPrincipalDigest.byteLength !== 32)
+    throw exomemErrors.invalidRequest();
+  return withCohortControlLock(async (tx) => {
+    const { rows } = await tx`
+      /* exomem:correct-diverged-cell-release */
+      WITH replay AS MATERIALIZED (
+        SELECT assignment.id AS assignment_id
+        FROM exomem_cells AS cell
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = ${input.candidateId}::uuid
+         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+        JOIN exomem_agent_contract_rollout_assignments AS assignment
+          ON assignment.tenant_id = cell.tenant_id
+         AND assignment.candidate_id = candidate.id
+         AND assignment.state = 'active'
+         AND assignment.expires_at > now()
+        WHERE cell.id = ${input.cellId}::uuid
+          AND cell.release_version = candidate.source_release
+          AND cell.protocol_version = candidate.protocol_version
+          AND cell.observed_command_fingerprint = candidate.command_fingerprint
+          AND cell.observed_schema_digest = candidate.schema_digest
+          AND cell.observed_compatibility_digest = candidate.compatibility_digest
+          AND EXISTS (SELECT 1 FROM exomem_audit_events AS audit
+                      WHERE audit.cell_id = cell.id
+                        AND audit.event_type = 'operator.diverged_cell_release.corrected')
+      ), eligible AS MATERIALIZED (
+        SELECT cell.id AS cell_id, cell.tenant_id,
+               prior.source_release, prior.protocol_version, prior.gateway_contract_digest,
+               prior.command_fingerprint, prior.schema_digest, prior.compatibility_digest
+        FROM exomem_cells AS cell
+        JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = ${input.candidateId}::uuid
+         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.state = 'pending'
+         AND candidate.protocol_version = cell.protocol_version
+         AND candidate.source_release <> cell.release_version
+        JOIN exomem_agent_contract_rollout_assignments AS prior
+          ON prior.tenant_id = cell.tenant_id
+         AND prior.candidate_id = candidate.id
+         AND prior.marketplace_reviewer_purpose = true
+         AND prior.source_release = candidate.source_release
+         AND prior.protocol_version = candidate.protocol_version
+         AND prior.command_fingerprint = candidate.command_fingerprint
+         AND prior.schema_digest = candidate.schema_digest
+         AND prior.compatibility_digest = candidate.compatibility_digest
+         AND (
+           (prior.state = 'expired' AND prior.expires_at <= now())
+           OR (prior.state = 'failed' AND prior.ended_at IS NOT NULL)
+         )
+        WHERE NOT EXISTS (SELECT 1 FROM replay)
+          AND cell.id = ${input.cellId}::uuid
+          AND cell.release_version = ${input.expectedCurrentRelease}
+          AND cell.lifecycle_state <> 'deleted'
+          AND cell.routing_state IN ('bound', 'retiring')
+          AND cell.observed_gateway_contract_digest IS NOT NULL
+          AND cell.observed_command_fingerprint IS NOT NULL
+          AND cell.observed_schema_digest IS NOT NULL
+          AND cell.observed_compatibility_digest IS NOT NULL
+          AND tenant.deleted_at IS NULL
+          AND tenant.marketplace_reviewer_purpose = true
+          AND tenant.fence_generation = ${input.expectedFence}::bigint
+          AND (SELECT count(*) FROM exomem_cells AS only_cell
+               WHERE only_cell.tenant_id = cell.tenant_id
+                 AND only_cell.lifecycle_state <> 'deleted') = 1
+          AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS inflight
+                          WHERE inflight.tenant_id = cell.tenant_id
+                            AND inflight.state NOT IN ('succeeded', 'failed_terminal'))
+          AND NOT EXISTS (SELECT 1 FROM exomem_agent_contract_rollout_assignments AS current
+                          WHERE current.tenant_id = cell.tenant_id
+                            AND current.state IN ('preparing', 'active'))
+        FOR UPDATE OF cell, tenant, candidate, prior
+      ), corrected_cell AS (
+        UPDATE exomem_cells AS cell
+        SET release_version = eligible.source_release,
+            observed_gateway_contract_digest = eligible.gateway_contract_digest,
+            observed_command_fingerprint = eligible.command_fingerprint,
+            observed_schema_digest = eligible.schema_digest,
+            observed_compatibility_digest = eligible.compatibility_digest,
+            updated_at = now()
+        FROM eligible
+        WHERE cell.id = eligible.cell_id
+        RETURNING cell.id, cell.tenant_id
+      ), corrected_observation AS (
+        UPDATE exomem_routable_cell_contracts AS observation
+        SET source_release = eligible.source_release,
+            protocol_version = eligible.protocol_version,
+            command_fingerprint = eligible.command_fingerprint,
+            contract_digest = eligible.schema_digest,
+            compatibility_digest = eligible.compatibility_digest,
+            observed_at = now()
+        FROM eligible
+        WHERE observation.cell_id = eligible.cell_id
+          AND observation.profile_id = 'hosted-alpha-agent-v1'
+        RETURNING observation.cell_id
+      ), installed_assignment AS (
+        INSERT INTO exomem_agent_contract_rollout_assignments (
+          tenant_id, candidate_id, generation, state, source_release, protocol_version,
+          command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+          marketplace_reviewer_purpose, created_by_principal_digest, activated_at, expires_at
+        )
+        SELECT eligible.tenant_id, ${input.candidateId}::uuid,
+               COALESCE((SELECT max(prior.generation)
+                         FROM exomem_agent_contract_rollout_assignments AS prior
+                         WHERE prior.tenant_id = eligible.tenant_id), 0) + 1,
+               'active', eligible.source_release, eligible.protocol_version,
+               eligible.command_fingerprint, eligible.schema_digest, eligible.compatibility_digest,
+               eligible.gateway_contract_digest, true,
+               encode(${input.operatorPrincipalDigest}, 'hex'), now(),
+               now() + interval '30 minutes'
+        FROM eligible
+        WHERE EXISTS (SELECT 1 FROM corrected_cell)
+        RETURNING id, tenant_id
+      ), corrected_audit AS (
+        INSERT INTO exomem_audit_events (
+          event_type, outcome, tenant_id, cell_id, request_id, principal_scope_digest,
+          release_version, protocol_version
+        )
+        SELECT 'operator.diverged_cell_release.corrected', 'succeeded',
+               eligible.tenant_id, eligible.cell_id, ${input.requestId}::uuid,
+               ${input.operatorPrincipalDigest}, eligible.source_release,
+               eligible.protocol_version
+        FROM eligible
+        WHERE EXISTS (SELECT 1 FROM installed_assignment)
+        RETURNING id
+      )
+      SELECT 'corrected'::text AS outcome, id::text AS assignment_id FROM installed_assignment
+      UNION ALL
+      SELECT 'replayed'::text AS outcome, assignment_id::text FROM replay
+    `;
+    const row = rows[0] as { outcome?: unknown; assignment_id?: unknown } | undefined;
+    return (row?.outcome === "corrected" || row?.outcome === "replayed") &&
+      typeof row.assignment_id === "string"
+      ? { outcome: row.outcome, assignmentId: row.assignment_id }
+      : null;
+  });
+}
+
 async function withCohortControlLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
@@ -873,6 +1141,12 @@ type StagedOperatorOAuthClientRegistration = OperatorOAuthClientRegistration & {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * The release the operator states the cell currently records, so a ticket written before
+ * someone else corrected the same cell refuses instead of moving it a second time.
+ */
+const RELEASE = /^(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})$/;
 
 function metadataProvenance(input: {
   mode: "pinned" | "cimd";

@@ -37,6 +37,8 @@ import {
 } from "../reconciler";
 import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
 import {
+  correctDivergedCellRelease,
+  preflightCorrectDivergedCellRelease,
   preflightRecoverExpiredReviewerCleanup,
   preflightRecoverTerminalReviewerDelete,
   recoverExpiredReviewerCleanup,
@@ -1821,7 +1823,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.50.0',
                  $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
@@ -1830,7 +1832,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
          observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
          observed_compatibility_digest
-       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', 'test', $3, $4, $5, $6)`,
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '0.50.0', $3, $4, $5, $6)`,
       [CELL, TENANT, "d".repeat(64), "a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
     await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
@@ -2664,7 +2666,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.50.0',
                  $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
@@ -2675,7 +2677,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          service_credential_ciphertext, service_credential_digest,
          observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
          observed_compatibility_digest
-       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', 'test', 'provider-ref', $3, $4, $5, $6, $7, $8)`,
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '0.50.0', 'provider-ref', $3, $4, $5, $6, $7, $8)`,
       [
         CELL,
         TENANT,
@@ -4353,5 +4355,316 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       codeExpiresAt: new Date(Date.now() + 60_000),
     });
     assert.equal(attached?.tenantId, TENANT);
+  });
+
+  // A cell whose runtime moved out of band keeps recording the release it was
+  // provisioned at, and that recorded release is what every later lifecycle operation
+  // sends as its `runtimeTarget`. The provisioner admits a v2 request only when that
+  // target equals the deployment lock's active runtime, so the stale record is not a
+  // cosmetic inaccuracy — it makes the cell impossible to quiesce, seal, or destroy.
+  describe("diverged cell release correction", () => {
+    const STALE = "0.50.0";
+    const SERVED = "0.54.1";
+
+    async function seedDivergedCell(
+      input: {
+        tenantReviewer?: boolean;
+        priorAssignmentState?: "expired" | "failed" | "active" | "preparing";
+        inflightOperation?: boolean;
+        recordedRelease?: string;
+        candidateRelease?: string;
+      } = {}
+    ) {
+      const userId = randomUUID();
+      const tenantId = randomUUID();
+      const cellId = randomUUID();
+      const candidateId = randomUUID();
+      const staleCandidateId = randomUUID();
+      const assignmentId = randomUUID();
+      const stale = createHash("sha256").update(`stale-${cellId}`).digest("hex");
+      const served = createHash("sha256").update(`served-${cellId}`).digest("hex");
+      const gateway = createHash("sha256").update(`gateway-${cellId}`).digest("hex");
+      const principal = createHash("sha256").update(`principal-${cellId}`).digest("hex");
+      const priorState = input.priorAssignmentState ?? "expired";
+      await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+        userId,
+        `diverged-${userId}@example.test`,
+      ]);
+      await pool.query(
+        `INSERT INTO exomem_tenants (
+           id, owner_user_id, status, desired_state, marketplace_reviewer_purpose,
+           bound_cell_id, fence_generation
+         ) VALUES ($1, $2, 'active', 'running', $3, NULL, 1)`,
+        [tenantId, userId, input.tenantReviewer ?? true]
+      );
+      await pool.query(
+        `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+         VALUES ($1, 'complimentary', 'active', 'active')`,
+        [tenantId]
+      );
+      await pool.query(
+        `INSERT INTO exomem_cells (
+           id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
+           release_version, observed_gateway_contract_digest, observed_command_fingerprint,
+           observed_schema_digest, observed_compatibility_digest
+         ) VALUES ($1, $2, 'active', 'bound', 'running', '1', $3, $4, $4, $4, $4)`,
+        [cellId, tenantId, input.recordedRelease ?? STALE, stale]
+      );
+      await pool.query("UPDATE exomem_tenants SET bound_cell_id = $2 WHERE id = $1", [
+        tenantId,
+        cellId,
+      ]);
+      await pool.query(
+        `INSERT INTO exomem_routable_cell_contracts (
+           cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+           contract_digest, compatibility_digest, routable
+         ) VALUES ($1, 'hosted-alpha-agent-v1', $2, '1', $3, $3, $3, true)`,
+        [cellId, input.recordedRelease ?? STALE, stale]
+      );
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_candidates (
+           id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+           compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', $2,
+                   $3, $3, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+        [candidateId, input.candidateRelease ?? SERVED, served]
+      );
+      // The origin provision is what a diverged cell still derives its target from, so
+      // the fixture is only faithful with one present: without it the "before" case
+      // would have no target at all rather than the stale one production actually sends.
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_candidates (
+           id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+           compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', $2,
+                   $3, $3, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+        [staleCandidateId, input.recordedRelease ?? STALE, stale]
+      );
+      await pool.query(
+        `INSERT INTO exomem_lifecycle_operations (
+           id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+           fence_generation, provisioner_wire_protocol, completed_at,
+           target_candidate_id, target_source_release, target_protocol_version,
+           target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
+           target_compatibility_digest
+         ) VALUES ($1, $2, $3, 'provision', 'succeeded', 'bound', 'diverged-origin-provision',
+                   1, 'exomem-cell-provisioner.v2', now() - interval '1 day',
+                   $4, $5, '1', $6, $6, $6, $6)`,
+        [randomUUID(), tenantId, cellId, staleCandidateId, input.recordedRelease ?? STALE, stale]
+      );
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_rollout_assignments (
+           id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+           command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+           marketplace_reviewer_purpose, created_by_principal_digest, created_at, expires_at,
+           activated_at, ended_at
+         ) VALUES ($1, $2, $3, 1, $4, $5, '1', $6, $6, $6, $7, true, $8,
+                   now() - interval '2 hours',
+                   CASE WHEN $4 = 'expired' THEN now() - interval '1 second'
+                        ELSE now() + interval '1 hour' END,
+                   CASE WHEN $4 = 'active' THEN now() ELSE NULL END,
+                   CASE WHEN $4 IN ('expired', 'failed') THEN now() ELSE NULL END)`,
+        [
+          assignmentId,
+          tenantId,
+          candidateId,
+          priorState,
+          input.candidateRelease ?? SERVED,
+          served,
+          gateway,
+          principal,
+        ]
+      );
+      if (input.inflightOperation) {
+        await pool.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+             fence_generation, provisioner_wire_protocol, target_candidate_id,
+             target_source_release, target_protocol_version, target_gateway_contract_digest,
+             target_command_fingerprint, target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, $2, $3, 'suspend', 'waiting', 'created', 'diverged-inflight', 1,
+                     'exomem-cell-provisioner.v2', $4, $5, '1', $6, $6, $6, $6)`,
+          [randomUUID(), tenantId, cellId, staleCandidateId, input.recordedRelease ?? STALE, stale]
+        );
+      }
+      return { userId, tenantId, cellId, candidateId, assignmentId, gateway, served, stale };
+    }
+
+    function correction(seed: { cellId: string; candidateId: string }, overrides = {}) {
+      return {
+        cellId: seed.cellId,
+        candidateId: seed.candidateId,
+        expectedCurrentRelease: STALE,
+        expectedFence: 1,
+        ...overrides,
+      };
+    }
+
+    it("moves the recorded identity onto the candidate the cell already serves", async () => {
+      const seed = await seedDivergedCell();
+      assert.deepEqual(await preflightCorrectDivergedCellRelease(correction(seed)), {
+        eligible: true,
+      });
+
+      const corrected = await correctDivergedCellRelease({
+        ...correction(seed),
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x5a),
+      });
+      assert.equal(corrected?.outcome, "corrected");
+
+      const cell = await pool.query(
+        `SELECT release_version, observed_gateway_contract_digest, observed_command_fingerprint,
+                observed_schema_digest, observed_compatibility_digest
+         FROM exomem_cells WHERE id = $1`,
+        [seed.cellId]
+      );
+      assert.equal(cell.rows[0]!.release_version, SERVED);
+      assert.equal(cell.rows[0]!.observed_gateway_contract_digest, seed.gateway);
+      assert.equal(cell.rows[0]!.observed_command_fingerprint, seed.served);
+      assert.equal(cell.rows[0]!.observed_schema_digest, seed.served);
+      assert.equal(cell.rows[0]!.observed_compatibility_digest, seed.served);
+
+      // The routable observation is what promotion live-probes, so leaving it behind
+      // would trade one stale record for another.
+      const observation = await pool.query(
+        `SELECT source_release, command_fingerprint, contract_digest, compatibility_digest
+         FROM exomem_routable_cell_contracts WHERE cell_id = $1`,
+        [seed.cellId]
+      );
+      assert.equal(observation.rows[0]!.source_release, SERVED);
+      assert.equal(observation.rows[0]!.contract_digest, seed.served);
+
+      const installed = await pool.query(
+        `SELECT id, state, generation, source_release, gateway_contract_digest, expires_at
+         FROM exomem_agent_contract_rollout_assignments
+         WHERE tenant_id = $1 AND state = 'active'`,
+        [seed.tenantId]
+      );
+      assert.equal(installed.rowCount, 1);
+      assert.equal(installed.rows[0]!.id, corrected?.assignmentId);
+      assert.equal(installed.rows[0]!.generation, "2");
+      assert.equal(installed.rows[0]!.source_release, SERVED);
+      assert.equal(installed.rows[0]!.gateway_contract_digest, seed.gateway);
+
+      const audit = await pool.query(
+        `SELECT outcome, release_version FROM exomem_audit_events
+         WHERE cell_id = $1 AND event_type = 'operator.diverged_cell_release.corrected'`,
+        [seed.cellId]
+      );
+      assert.equal(audit.rowCount, 1);
+      assert.equal(audit.rows[0]!.release_version, SERVED);
+    });
+
+    // The point of the whole control: before it runs, every operation the tenant can
+    // mint carries the stale release and is rejected by the lock; after it runs they
+    // carry the release the runtime actually serves.
+    it("moves the target a later lifecycle operation will send to the provisioner", async () => {
+      const seed = await seedDivergedCell();
+      const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+      try {
+        const before = await new SqlLifecycleStore().enqueue(
+          seed.tenantId,
+          "seal",
+          "diverged-seal-before"
+        );
+        assert.equal(before.target?.sourceRelease, STALE);
+        // Retire only the probe. The origin provision stays, so the assertion below is
+        // that the correction outranks it rather than that it was quietly removed.
+        await pool.query(
+          "DELETE FROM exomem_lifecycle_operations WHERE tenant_id = $1 AND idempotency_key = $2",
+          [seed.tenantId, "diverged-seal-before"]
+        );
+
+        assert.equal(
+          (
+            await correctDivergedCellRelease({
+              ...correction(seed),
+              requestId: randomUUID(),
+              operatorPrincipalDigest: Buffer.alloc(32, 0x5a),
+            })
+          )?.outcome,
+          "corrected"
+        );
+
+        const after = await new SqlLifecycleStore().enqueue(
+          seed.tenantId,
+          "seal",
+          "diverged-seal-after"
+        );
+        assert.equal(after.target?.sourceRelease, SERVED);
+        assert.equal(after.target?.gatewayContractDigest, seed.gateway);
+        assert.equal(after.target?.candidateId, seed.candidateId);
+      } finally {
+        if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+        else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+      }
+    });
+
+    it("replays without installing a second assignment", async () => {
+      const seed = await seedDivergedCell();
+      const first = await correctDivergedCellRelease({
+        ...correction(seed),
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x5a),
+      });
+      const second = await correctDivergedCellRelease({
+        ...correction(seed),
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x5a),
+      });
+      assert.equal(second?.outcome, "replayed");
+      assert.equal(second?.assignmentId, first?.assignmentId);
+      const assignments = await pool.query(
+        "SELECT count(*)::int AS total FROM exomem_agent_contract_rollout_assignments WHERE tenant_id = $1",
+        [seed.tenantId]
+      );
+      assert.equal(assignments.rows[0]!.total, 2);
+    });
+
+    // Each refusal is a distinct way the control could otherwise record an identity the
+    // cluster never served, or move a cell somebody else is already working on.
+    const refusals: { name: string; seed?: object; overrides?: object }[] = [
+      { name: "a stale ticket naming the wrong current release", overrides: { expectedCurrentRelease: "0.49.0" } },
+      { name: "a fence the tenant has moved past", overrides: { expectedFence: 2 } },
+      { name: "a tenant that is not reviewer-purpose", seed: { tenantReviewer: false } },
+      { name: "an operation still in flight for the tenant", seed: { inflightOperation: true } },
+      { name: "an assignment that is still live", seed: { priorAssignmentState: "active" } },
+      { name: "an assignment that is still preparing", seed: { priorAssignmentState: "preparing" } },
+      { name: "a candidate the cell already records", seed: { candidateRelease: STALE } },
+    ];
+
+    for (const refusal of refusals) {
+      it(`refuses ${refusal.name}, and the preflight agrees`, async () => {
+        const seed = await seedDivergedCell(refusal.seed ?? {});
+        const input = correction(seed, refusal.overrides ?? {});
+        assert.deepEqual(await preflightCorrectDivergedCellRelease(input), { eligible: false });
+        assert.equal(
+          await correctDivergedCellRelease({
+            ...input,
+            requestId: randomUUID(),
+            operatorPrincipalDigest: Buffer.alloc(32, 0x5a),
+          }),
+          null
+        );
+        const cell = await pool.query("SELECT release_version FROM exomem_cells WHERE id = $1", [
+          seed.cellId,
+        ]);
+        assert.equal(cell.rows[0]!.release_version, STALE);
+        const active = await pool.query(
+          `SELECT count(*)::int AS total FROM exomem_agent_contract_rollout_assignments
+           WHERE tenant_id = $1 AND state = 'active'`,
+          [seed.tenantId]
+        );
+        assert.equal(
+          active.rows[0]!.total,
+          (refusal.seed as { priorAssignmentState?: string } | undefined)
+            ?.priorAssignmentState === "active"
+            ? 1
+            : 0
+        );
+      });
+    }
   });
 });
