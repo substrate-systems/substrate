@@ -32,6 +32,7 @@ import { exomemContractFixture0350 } from "./gateway-contract-0-35-0";
 import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
 import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
 import { exomemContractFixture0500 } from "./gateway-contract-0-50-0";
+import { exomemContractFixture0541 } from "./gateway-contract-0-54-1";
 import { revokeTenantOAuthOutsideAssignmentInTransaction } from "./agent-contract-canaries";
 import { refreshRoutableProfileAuthorityInTransaction } from "./agent-contract-store";
 
@@ -329,6 +330,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0490.digest}
                    WHEN ${exomemContractFixture0500.release + ":" + exomemContractFixture0500.protocol}
                      THEN ${exomemContractFixture0500.digest}
+                   WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
+                     THEN ${exomemContractFixture0541.digest}
                    ELSE NULL
                  END AS gateway_contract_digest,
                  candidate.command_fingerprint, candidate.schema_digest,
@@ -441,6 +444,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                    THEN ${exomemContractFixture0490.digest}
                  WHEN ${exomemContractFixture0500.release + ":" + exomemContractFixture0500.protocol}
                    THEN ${exomemContractFixture0500.digest}
+                 WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
+                   THEN ${exomemContractFixture0541.digest}
                  ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint,
@@ -938,6 +943,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0490.digest}
                    WHEN ${exomemContractFixture0500.release + ":" + exomemContractFixture0500.protocol}
                      THEN ${exomemContractFixture0500.digest}
+                   WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
+                     THEN ${exomemContractFixture0541.digest}
                    ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,
@@ -1068,6 +1075,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0490.digest}
                    WHEN ${exomemContractFixture0500.release + ":" + exomemContractFixture0500.protocol}
                      THEN ${exomemContractFixture0500.digest}
+                   WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
+                     THEN ${exomemContractFixture0541.digest}
                    ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,

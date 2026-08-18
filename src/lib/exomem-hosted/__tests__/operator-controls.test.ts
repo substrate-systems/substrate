@@ -18,7 +18,7 @@ import {
   revokeOperatorOAuthFamily,
   setOperatorOAuthClientEnabled,
 } from "../operator-controls";
-import { exomemContractFixture0500 } from "../gateway-contract-0-50-0";
+import { exomemContractFixture0541 } from "../gateway-contract-0-54-1";
 import { operatorOAuthClientFingerprint } from "../oauth-client-admission";
 
 const originalControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe("hosted operator controls", () => {
-  it("stages a virgin bootstrap authority against the exact 0.50.0 gateway contract", async () => {
+  it("stages a virgin bootstrap authority against the exact 0.54.1 gateway contract", async () => {
     const values: unknown[] = [];
     const expiresAt = new Date(Date.now() + 5 * 60_000);
     __setExomemTransactionForTests(async (work) =>
@@ -53,8 +53,8 @@ describe("hosted operator controls", () => {
       }),
       { id: "018f2d91-7c42-7000-8000-000000000079", expiresAt: expiresAt.toISOString() }
     );
-    assert.equal(values.includes(exomemContractFixture0500.release), true);
-    assert.equal(values.includes(exomemContractFixture0500.digest), true);
+    assert.equal(values.includes(exomemContractFixture0541.release), true);
+    assert.equal(values.includes(exomemContractFixture0541.digest), true);
   });
 
   it("requires every reviewer and OAuth issuer to take the cohort lock before authority admission", () => {
