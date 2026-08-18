@@ -4,10 +4,7 @@ import { existsSync } from "node:fs";
 import { afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
-import {
-  __setExomemSqlForTests,
-  __setExomemTransactionForTests,
-} from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
@@ -92,20 +89,20 @@ describe("Exomem Hosted agent contracts", () => {
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
-  it("ships the retained 0.49 fixture beside the exact current 0.50 fixture", () => {
+  it("ships the retained 0.50 fixture beside the exact current 0.54.1 fixture", () => {
     assert.equal(
-      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-49-0.ts", import.meta.url))),
+      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-50-0.ts", import.meta.url))),
       true
     );
     assert.equal(
-      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-49-0.json", import.meta.url))),
+      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-50-0.json", import.meta.url))),
       true
     );
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "9c862c2bd851cf72921a545239ae5c8b45594c31"
+      "b41906384ac187cc4877abfc204639fb3b6f8d48"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.50.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.54.1");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -183,7 +180,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.50.0");
+      assert.equal(fixture.sourceRelease, "0.54.1");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
@@ -533,26 +530,25 @@ describe("Exomem Hosted agent contracts", () => {
 
   it("writes routable authority with ordered sequential locks on one transaction", async () => {
     const queries: string[] = [];
-    __setExomemTransactionForTests(
-      async (work) =>
-        work(async (strings) => {
-          const text = strings.join("?");
-          queries.push(text);
-          if (/SELECT cell_id::text/i.test(text))
-            return {
-              rows: [
-                {
-                  cell_id: "00000000-0000-0000-0000-000000000001",
-                  source_release: "0.33.0",
-                  protocol_version: "1",
-                  command_fingerprint: sha("a"),
-                  contract_digest: sha("b"),
-                  compatibility_digest: sha("c"),
-                },
-              ],
-            };
-          return { rows: [] };
-        })
+    __setExomemTransactionForTests(async (work) =>
+      work(async (strings) => {
+        const text = strings.join("?");
+        queries.push(text);
+        if (/SELECT cell_id::text/i.test(text))
+          return {
+            rows: [
+              {
+                cell_id: "00000000-0000-0000-0000-000000000001",
+                source_release: "0.33.0",
+                protocol_version: "1",
+                command_fingerprint: sha("a"),
+                contract_digest: sha("b"),
+                compatibility_digest: sha("c"),
+              },
+            ],
+          };
+        return { rows: [] };
+      })
     );
     await recordRoutableCellObservation({
       cellId: "00000000-0000-0000-0000-000000000001",
@@ -576,9 +572,7 @@ describe("Exomem Hosted agent contracts", () => {
   });
 
   it("refreshes authority after unrouting the last observed cell", async () => {
-    __setExomemTransactionForTests(async (work) =>
-      work(async () => ({ rows: [] }))
-    );
+    __setExomemTransactionForTests(async (work) => work(async () => ({ rows: [] })));
     await assert.doesNotReject(
       recordRoutableCellObservation({
         cellId: "00000000-0000-0000-0000-000000000001",

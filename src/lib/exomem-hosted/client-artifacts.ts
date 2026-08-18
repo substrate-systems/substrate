@@ -3,7 +3,8 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as exomemHostedContractFixture0500 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0541 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0500 } from "./agent-contract-fixture-0-50-0";
 import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
 
 export type ClientArtifactState = "pending" | "live" | "failed" | "retired";
@@ -225,7 +226,9 @@ export async function loadClientArtifactLocks(
             ? exomemHostedContractFixture0490
             : row.source_release === "0.50.0"
               ? exomemHostedContractFixture0500
-            : null;
+              : row.source_release === "0.54.1"
+                ? exomemHostedContractFixture0541
+                : null;
   if (platform === "claude") {
     if (
       !fixture ||
