@@ -11,6 +11,7 @@ import {
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { promoteExomemHostedCohort, recordRoutableCellObservation } from "../agent-contract-store";
+import { SqlLifecycleStore } from "../lifecycle-store";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
@@ -72,6 +73,66 @@ async function createCell(): Promise<string> {
     tenant.rows[0]!.id,
   ]);
   return cell.rows[0]!.id;
+}
+
+/**
+ * A bound cell plus the capacity allocation and running, leased delete operation
+ * that `markCellState` requires, so the destroy can actually complete.
+ */
+async function createDestroyableCell(): Promise<{ cellId: string; operationId: string }> {
+  const user = await pool!.query<{ id: string }>(
+    "INSERT INTO users (email) VALUES ($1) RETURNING id",
+    [`routing-cas-destroy-${randomUUID()}@example.test`]
+  );
+  const tenantId = (
+    await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_tenants (owner_user_id, status, desired_state, fence_generation)
+       VALUES ($1, 'active', 'running', 1) RETURNING id`,
+      [user.rows[0]!.id]
+    )
+  ).rows[0]!.id;
+  const cellId = (
+    await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
+       ) VALUES ($1, 'active', 'bound', 'running', '1', '0.34.0') RETURNING id`,
+      [tenantId]
+    )
+  ).rows[0]!.id;
+  await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+    cellId,
+    tenantId,
+  ]);
+  const operationId = (
+    await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_lifecycle_operations (
+         tenant_id, cell_id, operation_type, state, idempotency_key, fence_generation,
+         checkpoint, lease_owner, lease_expires_at
+       ) VALUES ($1, $2, 'delete', 'running', $3, 1, 'cell-draining', 'worker-destroy',
+                 now() + interval '1 hour')
+       RETURNING id`,
+      [tenantId, cellId, randomUUID()]
+    )
+  ).rows[0]!.id;
+  const poolRow = await pool!.query<{ id: string }>(
+    "SELECT id FROM exomem_capacity_pools WHERE pool_key = 'exomem-hosted-alpha'"
+  );
+  await pool!.query(
+    `INSERT INTO exomem_capacity_allocations (
+       pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state
+     ) VALUES ($1, $2, 5, 1, 0, 'occupied')`,
+    [poolRow.rows[0]!.id, tenantId]
+  );
+  // The release transition subtracts this allocation from the pool, so the pool
+  // must actually be carrying it or the transition is rejected.
+  await pool!.query(
+    `UPDATE exomem_capacity_pools
+     SET reserved_storage_bytes = reserved_storage_bytes + 5,
+         reserved_runtime_slots = reserved_runtime_slots + 1
+     WHERE id = $1`,
+    [poolRow.rows[0]!.id]
+  );
+  return { cellId, operationId };
 }
 
 describe("agent contract routable-set CAS", { skip: !databaseUrl }, () => {
@@ -173,6 +234,48 @@ describe("agent contract routable-set CAS", { skip: !databaseUrl }, () => {
         openaiEvidence: {},
       }),
       "precondition_failed"
+    );
+  });
+  it("clears the routable observation when a cell is destroyed", async () => {
+    const { cellId, operationId } = await createDestroyableCell();
+    const fixture = exomemHostedContractFixture.compatibility;
+    await recordRoutableCellObservation({
+      cellId,
+      sourceRelease: exomemHostedContractFixture.sourceRelease,
+      protocolVersion: fixture.agent_contract.protocol_version,
+      commandSurfaceSha256: fixture.command_surface_sha256,
+      schemaDigest: fixture.schema_contract_sha256,
+      compatibilitySha256: fixture.compatibility_sha256,
+      routable: true,
+    });
+    assert.equal(
+      (
+        await pool!.query(
+          "SELECT 1 FROM exomem_routable_cell_contracts WHERE cell_id = $1 AND routable",
+          [cellId]
+        )
+      ).rowCount,
+      1,
+      "the cell is routable before it is destroyed"
+    );
+
+    assert.equal(
+      await new SqlLifecycleStore().markCellState(operationId, "worker-destroy", "deleted"),
+      true
+    );
+
+    // The row is kept but no longer routable. Promotion live-probes every
+    // routable row, so a destroyed cell left routable is a ghost that fails the
+    // probe and blocks all future promotions.
+    assert.deepEqual(
+      (
+        await pool!.query<{ routable: boolean }>(
+          "SELECT routable FROM exomem_routable_cell_contracts WHERE cell_id = $1",
+          [cellId]
+        )
+      ).rows,
+      [{ routable: false }],
+      "destroying the tenant clears the routable flag on its cell"
     );
   });
 });

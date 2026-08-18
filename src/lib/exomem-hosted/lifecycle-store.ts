@@ -2447,6 +2447,22 @@ export class SqlLifecycleStore implements LifecycleStore {
           AND (${deleting} OR cell.id = owned.cell_id)
         RETURNING cell.tenant_id, cell.id
       ),
+      -- A destroyed cell must stop being routable in the same statement that
+      -- retires it. Promotion live-probes every row where routable is true, so a
+      -- row left behind by a destroyed cell is a ghost that fails the probe and
+      -- blocks every future promotion with an unhelpful precondition_failed.
+      -- Until now routable = false was set in exactly one place, the cell
+      -- replacement path, which is keyed on expected_previous_cell_id and so
+      -- never runs for a destroy.
+      routable_cleared AS (
+        UPDATE exomem_routable_cell_contracts AS observation
+        SET routable = false, observed_at = now()
+        FROM cell_updated
+        WHERE ${deleting}
+          AND observation.cell_id = cell_updated.id
+          AND observation.routable
+        RETURNING observation.cell_id
+      ),
       affected_tenant AS (
         SELECT DISTINCT tenant_id FROM cell_updated
         UNION
