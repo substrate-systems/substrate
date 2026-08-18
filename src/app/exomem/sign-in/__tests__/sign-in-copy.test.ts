@@ -24,6 +24,32 @@ describe("the sent screen is not a dead end", () => {
     assert.match(screen.expiry, /works once/);
   });
 
+  it("says that resending retires the link already sent", () => {
+    // Delivery is queued and was measured at ~40 seconds, so the resend button
+    // gets pressed while the first mail is still in flight. Redeeming the older
+    // link then fails with SUPERSEDED_MAGIC_LINK — a failure nobody can attribute
+    // unless the screen said, before they clicked, that this would happen.
+    const screen = sentScreen(0);
+    assert.match(screen.supersedes, /stops the previous one working/);
+    assert.match(screen.supersedes, /newest/);
+  });
+
+  it("gives a next step when no mail arrives, without confirming the address exists", () => {
+    // requestMagicLink answers `if_eligible_email_sent` for a typo and for a live
+    // account alike, so the screen must not resolve which one happened. It can
+    // still name what a person can check.
+    const screen = sentScreen(0);
+    assert.match(screen.notArriving, /spam/i);
+    assert.match(screen.notArriving, /address matches/i);
+    for (const revealing of [/no account/i, /not registered/i, /does not exist/i, /unknown/i]) {
+      assert.doesNotMatch(
+        screen.notArriving,
+        revealing,
+        "the sent screen must never disclose whether an address has an Exomem"
+      );
+    }
+  });
+
   it("holds the resend back while cooling down, and counts down visibly", () => {
     // The server's limit is silent: requestMagicLink answers
     // `if_eligible_email_sent` whether it queued a mail or refused one. Without

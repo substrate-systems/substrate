@@ -731,7 +731,14 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
     ),
     account: (
       <details className={styles.secondary}>
-        <summary className={styles.summary}>Files, status, and account</summary>
+        {/*
+          Names export and deletion explicitly. "Files, status, and account" gave
+          no hint that leaving lives here, and the founder could not find it on
+          their own workspace. A destructive action being hard to trigger by
+          accident is good; being hard to find on purpose is not, and someone who
+          wants their memory gone should not have to guess which heading hides it.
+        */}
+        <summary className={styles.summary}>Files, status, export, and deleting your Exomem</summary>
         <div className={styles.secondaryBody}>
           <div className={styles.secondaryRow}>
             <div>

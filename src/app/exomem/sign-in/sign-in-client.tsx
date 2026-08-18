@@ -91,6 +91,8 @@ export default function SignInClient() {
             <>
               <p className={styles.lede}>{screen.lede}</p>
               <p className={styles.status}>{screen.expiry}</p>
+              <p className={styles.status}>{screen.supersedes}</p>
+              <p className={styles.status}>{screen.notArriving}</p>
               <div className={styles.form}>
                 <button
                   className={styles.button}
