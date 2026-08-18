@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
+import { applyMigrations } from "../../../../scripts/migrate";
+import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
@@ -100,8 +102,20 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     }
   }
 
-  before(() => {
-    pool = new Pool({ connectionString: DATABASE_URL, max: 12 });
+  // Own schema, own migrations, like every other suite in this CI step. This one used
+  // to assume a hand-migrated `public`, which was invisible for as long as it never ran
+  // in CI; the isolation also keeps its `TRUNCATE ... CASCADE` off other suites' rows
+  // when the runner schedules them together.
+  before(async () => {
+    const schema = `hosted_contracts_${randomUUID().replaceAll("-", "")}`;
+    await ensureExomemPostgresTestExtensions(DATABASE_URL!);
+    const admin = new Pool({ connectionString: DATABASE_URL });
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    const scoped = new URL(DATABASE_URL!);
+    scoped.searchParams.set("options", `-c search_path=${schema},public`);
+    await applyMigrations({ databaseUrl: scoped.toString() });
+    await admin.end();
+    pool = new Pool({ connectionString: scoped.toString(), max: 12 });
     __setExomemSqlForTests(taggedSql(pool));
     __setExomemTransactionForTests(interactiveTransaction);
   });
