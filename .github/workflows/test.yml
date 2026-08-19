@@ -67,7 +67,7 @@ jobs:
   e2e:
     name: onboarding end-to-end
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -75,8 +75,20 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # `--with-deps` shells out to apt-get, which blocks indefinitely whenever the
+      # Ubuntu archive is degraded rather than failing: on 2026-08-19 two consecutive
+      # runs sat fourteen minutes fetching InRelease and were killed by the job
+      # timeout, reporting a red e2e job for a diff that never reached a test.
+      # Bound the apt path so a stalled archive cannot consume the job, and fall back
+      # to the browser binary alone. The runner image already carries chromium's
+      # system libraries; if one is genuinely absent, `npx playwright test` says so
+      # loudly on launch, which is a far better failure than a silent fifteen-minute
+      # hang that looks like the change under test.
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 8
+        run: >-
+          timeout 300 npx playwright install --with-deps chromium
+          || npx playwright install chromium
       # Built here rather than left to the Playwright web server, so a stale
       # `.next` can never serve old code to a passing assertion. No database:
       # every spec stubs the API routes it drives.
