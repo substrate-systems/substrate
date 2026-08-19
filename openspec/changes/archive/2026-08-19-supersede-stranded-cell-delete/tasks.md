@@ -25,6 +25,9 @@
 
 ## 5. Apply to the stranded tenant
 
-- [ ] 5.1 Supersede the stranded delete for tenant `1809ce5c` and confirm the replacement reaches `succeeded`
-- [ ] 5.2 Confirm the routable set is empty and the capacity slot released
-- [ ] 5.3 Confirm a promotion probe set can then be built, which it cannot while that cell is routable
+- [x] 5.1 Supersede the stranded delete for tenant `1809ce5c` and confirm the replacement reaches `succeeded`
+  - Applied in production 2026-08-19T09:34Z. The pinned operation became `failed_terminal` / `DELETION_SUPERSEDED` at fence 2, the target-free replacement was enqueued at fence 3, and the ordinary reconciler carried it `pending` → `billing-quiesced` → `succeeded` at checkpoint `destroyed` in under five minutes. Deployment-lock admission never saw a `runtimeTarget` to reject, exactly as the shape predicts.
+- [x] 5.2 Confirm the routable set is empty and the capacity slot released
+  - Tenant `deleted`, its cell `deleted`, zero routable cells, zero occupied capacity allocations, and `reserved_runtime_slots` back to 0 of 4.
+- [x] 5.3 Confirm a promotion probe set can then be built, which it cannot while that cell is routable
+  - `reviewer_bootstrap.py preflight` against candidate `eb88eedb` (0.54.1) is green on all four visible gates with `routable=0` and four runtime slots free, and the fifth gate it warns about but cannot see — a reviewer-purpose tenant holding a bound cell — is now provably clear: no reviewer tenant has a non-deleted cell, there are no ghost routable rows, and no lifecycle operation anywhere is unfinished.
