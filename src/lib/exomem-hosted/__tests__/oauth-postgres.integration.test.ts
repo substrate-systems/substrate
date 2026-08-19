@@ -3348,4 +3348,384 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       "provenance must be recorded per row for the partition to mean anything"
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // Host-allowlisted CIMD admission: the claims the change is actually for.
+  // ---------------------------------------------------------------------------
+
+  /** Seed a code for an arbitrary client and redirect, unlike the module-level helper. */
+  async function seedCodeForClient(input: {
+    clientInternalId: string;
+    redirectUri: string;
+    sequence: number;
+    offlineAccess: boolean;
+  }) {
+    const codeDigest = digest(input.sequence);
+    const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+      `cimd-${input.sequence}-${randomUUID()}@example.test`,
+    ]);
+    const tenant = await pool!.query(
+      "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
+      [user.rows[0].id]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+       VALUES ($1, 'complimentary', 'active', 'active')`,
+      [tenant.rows[0].id]
+    );
+    const grant = await pool!.query(
+      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
+       VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5) RETURNING id`,
+      [user.rows[0].id, tenant.rows[0].id, input.clientInternalId, resource, input.offlineAccess]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_oauth_authorization_codes (
+         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
+       ) VALUES ($1, $2, $3, $4, $5, 'challenge', $6, now() + interval '1 hour')`,
+      [codeDigest, grant.rows[0].id, input.clientInternalId, input.redirectUri, resource, input.offlineAccess]
+    );
+    return { codeDigest, grantId: grant.rows[0].id as string, tenantId: tenant.rows[0].id as string };
+  }
+
+  it("admits two distinct connectors on the same allowlisted host", async () => {
+    // The user-facing claim. Every ChatGPT connector publishes its own client.json
+    // under its own connector id, so each carries a different configuration digest.
+    // Pinned admission can therefore admit at most one connector on earth; this is
+    // the assertion that more than one works, which is what "invite four people"
+    // requires.
+    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+    if (existingCohort.rowCount === 0) await seedLiveCohort();
+    const host = "connector-siblings.example.test";
+    const first = `https://${host}/oauth/${randomUUID()}/client.json`;
+    const second = `https://${host}/oauth/${randomUUID()}/client.json`;
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      ["openai", host]
+    );
+    try {
+      for (const clientId of [first, second]) {
+        const registered = await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, [`https://${host}/callback`], clientId),
+        });
+        assert.ok(registered, `connector ${clientId} should register on an admitted host`);
+      }
+
+      const digests = await pool!.query<{ client_id: string; d: string; platform: string }>(
+        `SELECT client_id, oauth_client_config_sha256 AS d, client_platform AS platform
+         FROM exomem_oauth_clients WHERE client_id = ANY($1::text[]) ORDER BY client_id`,
+        [[first, second]]
+      );
+      assert.equal(digests.rowCount, 2);
+      assert.notEqual(
+        digests.rows[0]!.d,
+        digests.rows[1]!.d,
+        "the test is vacuous unless the two connectors really do carry different digests"
+      );
+      for (const row of digests.rows) {
+        assert.equal(row.platform, "openai", "platform must come from the allowlist row");
+      }
+
+      assert.ok(await resolveApprovedOAuthClient(first), "first connector must be admitted");
+      assert.ok(await resolveApprovedOAuthClient(second), "second connector must be admitted");
+
+      // Neither is the pinned one, so pinned admission alone could not have done this.
+      const pinned = await pool!.query<{ d: string | null }>(
+        "SELECT openai_oauth_client_config_sha256 AS d FROM exomem_hosted_alpha_cohort LIMIT 1"
+      );
+      for (const row of digests.rows) {
+        assert.notEqual(row.d, pinned.rows[0]?.d);
+      }
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1::text[])", [
+        [first, second],
+      ]);
+    }
+  });
+
+  it("refuses a client_id that is not an https URL, without fetching it", async () => {
+    // This is an unauthenticated write path, so the shape check has to come before
+    // anything that touches the network. Each of these would otherwise reach the
+    // host lookup with a host this code never meant to parse.
+    for (const clientId of [
+      "http://connector-plain.example.test/oauth/x/client.json",
+      "ftp://connector-scheme.example.test/client.json",
+      "connector-relative.example.test/client.json",
+      "not a url at all",
+      "",
+    ]) {
+      let fetched = false;
+      const registered = await registerAdmittedCimdClient(clientId, {
+        fetchCimd: async () => {
+          fetched = true;
+          return cimdMetadata(clientId, ["https://connector-plain.example.test/callback"], "shape");
+        },
+      });
+      assert.equal(registered, null, `${clientId} must not register`);
+      assert.equal(fetched, false, `${clientId} must never drive an outbound fetch`);
+    }
+  });
+
+  it("re-admits a connector whose cached metadata went stale and disabled", async () => {
+    // Design decision 2: registration must fire for an expired-disabled row as well
+    // as an absent one. A connector that goes quiet past its TTL is disabled by the
+    // cache, and without this path it could never come back without an operator.
+    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+    if (existingCohort.rowCount === 0) await seedLiveCohort();
+    const host = "connector-stale.example.test";
+    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+    const redirectUris = [`https://${host}/callback`];
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      ["openai", host]
+    );
+    try {
+      assert.ok(
+        await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "fresh"),
+        })
+      );
+      assert.ok(await resolveApprovedOAuthClient(clientId));
+
+      // Age it out exactly the way the cache does.
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
+         SET metadata_expires_at = now() - interval '1 hour', enabled = false
+         WHERE client_id = $1`,
+        [clientId]
+      );
+      assert.equal(
+        await resolveApprovedOAuthClient(clientId),
+        null,
+        "a stale disabled row must not admit on its own"
+      );
+
+      assert.ok(
+        await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "refetched"),
+        }),
+        "an admitted host must be able to revive its own stale row"
+      );
+      assert.ok(
+        await resolveApprovedOAuthClient(clientId),
+        "the revived row must admit again"
+      );
+      const revived = await pool!.query<{ auto_registered: boolean; enabled: boolean }>(
+        "SELECT auto_registered, enabled FROM exomem_oauth_clients WHERE client_id = $1",
+        [clientId]
+      );
+      assert.equal(revived.rows[0]?.auto_registered, true);
+      assert.equal(revived.rows[0]?.enabled, true);
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+    }
+  });
+
+  it("refuses a further auto-registration at its bound while leaving operator slots free", async () => {
+    // The reason the bound was partitioned at all: anonymous registration is an
+    // unauthenticated write path, and a full one must degrade into "no more
+    // connectors" rather than "no more operator control".
+    const host = "connector-bound.example.test";
+    const filler = `cimd-bound-${randomUUID()}`;
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      ["openai", host]
+    );
+    try {
+      const existing = await pool!.query<{ n: string }>(
+        "SELECT count(*) AS n FROM exomem_oauth_clients WHERE auto_registered"
+      );
+      const shortfall = 128 - Number(existing.rows[0]!.n);
+      assert.ok(shortfall > 0, "fixture assumes the auto partition starts below its bound");
+      await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, auto_registered, redirect_uris, redirect_uris_digest,
+           client_platform, oauth_client_config_sha256, cimd_host, metadata_document_digest,
+           metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance
+         )
+         SELECT
+           format('https://%s/oauth/%s-%s/client.json', $1::text, $2::text, step),
+           'cimd', true, true,
+           '["https://filler.example.test/callback"]'::jsonb,
+           digest(convert_to('["https://filler.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+           'openai',
+           encode(digest(convert_to(format('%s-%s', $2::text, step), 'utf8'), 'sha256'), 'hex'),
+           $1::text,
+           digest(convert_to(format('doc-%s-%s', $2::text, step), 'utf8'), 'sha256'),
+           now(), 3600, now() + interval '1 hour', '{}'::jsonb
+         FROM generate_series(1, $3::int) AS step`,
+        [host, filler, shortfall]
+      );
+
+      const overflow = `https://${host}/oauth/${randomUUID()}/client.json`;
+      assert.equal(
+        await registerAdmittedCimdClient(overflow, {
+          fetchCimd: async () => cimdMetadata(overflow, [`https://${host}/callback`], "overflow"),
+        }),
+        null,
+        "a full auto partition must refuse a new connector"
+      );
+      assert.equal(
+        (await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [overflow]))
+          .rowCount,
+        0
+      );
+
+      // The whole point: operators are unaffected.
+      const operatorProbe = `https://operator-unaffected.example.test/${randomUUID()}/client.json`;
+      const operatorAvailable = await pool!.query<{ allowed: boolean }>(
+        "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
+        [operatorProbe]
+      );
+      assert.equal(
+        operatorAvailable.rows[0]?.allowed,
+        true,
+        "a full auto partition must not consume operator slots"
+      );
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id LIKE $1", [
+        `%${filler}%`,
+      ]);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
+
+  it("admits a host-allowlisted connector at every stage, and withdraws it at every stage", async () => {
+    // The clause lives in nine separate predicates. A missed one does not fail at
+    // authorize -- it fails later, as a connector that signs in and then cannot call
+    // a tool, which reads as an intermittent client bug. Drive one client through
+    // the stages a real connector traverses, then withdraw the host and require
+    // every stage to stop. The negative half is the actual drift guard: if a
+    // predicate ignored the allowlist it would keep admitting after withdrawal.
+    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+    if (existingCohort.rowCount === 0) await seedLiveCohort();
+    const host = "connector-crossstage.example.test";
+    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+    const redirectUri = `https://${host}/callback`;
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      ["openai", host]
+    );
+    try {
+      assert.ok(
+        await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, [redirectUri], "cross-stage"),
+        })
+      );
+      const internal = await pool!.query<{ id: string }>(
+        "SELECT id FROM exomem_oauth_clients WHERE client_id = $1",
+        [clientId]
+      );
+      const clientInternalId = internal.rows[0]!.id;
+
+      // 1. /authorize
+      assert.ok(await resolveApprovedOAuthClient(clientId), "authorize must admit");
+
+      // 2. token exchange
+      const first = await seedCodeForClient({
+        clientInternalId,
+        redirectUri,
+        sequence: 900,
+        offlineAccess: true,
+      });
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: first.codeDigest,
+        clientId,
+        redirectUri,
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(901),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(902),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(issued, "token exchange must admit");
+
+      // 3. bearer use, and 4. the MCP call itself
+      assert.ok(await findActiveOAuthAccessToken(digest(902)), "access-token use must admit");
+      assert.equal(
+        (await findMcpOAuthAccessToken(digest(902)))?.grantId,
+        first.grantId,
+        "the MCP lookup must admit"
+      );
+
+      // 5. refresh
+      assert.ok(
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(901),
+          replacementRefreshDigest: digest(903),
+          accessDigest: digest(904),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId,
+          resource,
+        }),
+        "refresh must admit"
+      );
+      assert.ok(await findMcpOAuthAccessToken(digest(904)), "the rotated token must admit");
+
+      // Vary only the condition under test.
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+
+      assert.equal(
+        await resolveApprovedOAuthClient(clientId),
+        null,
+        "authorize must stop admitting once the host is withdrawn"
+      );
+      assert.equal(
+        await findActiveOAuthAccessToken(digest(904)),
+        null,
+        "access-token use must stop admitting once the host is withdrawn"
+      );
+      assert.equal(
+        await findMcpOAuthAccessToken(digest(904)),
+        null,
+        "the MCP lookup must stop admitting once the host is withdrawn"
+      );
+      assert.equal(
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(903),
+          replacementRefreshDigest: digest(905),
+          accessDigest: digest(906),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId,
+          resource,
+        }),
+        null,
+        "refresh must stop admitting once the host is withdrawn"
+      );
+      const second = await seedCodeForClient({
+        clientInternalId,
+        redirectUri,
+        sequence: 910,
+        offlineAccess: true,
+      });
+      assert.equal(
+        await issueOAuthTokensFromCodeAtomic({
+          codeDigest: second.codeDigest,
+          clientId,
+          redirectUri,
+          resource,
+          pkceChallenge: "challenge",
+          refreshDigest: digest(911),
+          refreshExpiresAt: new Date(Date.now() + 3_600_000),
+          accessDigest: digest(912),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+        }),
+        null,
+        "token exchange must stop admitting once the host is withdrawn"
+      );
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      // The client now owns a grant graph, and the foreign keys say so. Unwind it in
+      // dependency order rather than leaving the row behind, so the population-bound
+      // test that follows still counts a clean partition.
+      await pool!.query(
+        `DELETE FROM exomem_oauth_grants WHERE client_id IN (
+           SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+        [clientId]
+      );
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+    }
+  });
 });
