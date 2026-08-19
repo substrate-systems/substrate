@@ -38,6 +38,8 @@ import {
   recoverTerminalReviewerDelete,
   preflightCorrectDivergedCellRelease,
   correctDivergedCellRelease,
+  preflightSupersedeStrandedCellDelete,
+  supersedeStrandedCellDelete,
 } from "@/lib/exomem-hosted/operator-controls";
 
 export const runtime = "nodejs";
@@ -149,6 +151,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               });
         if (!recovered) throw exomemErrors.invalidRequest();
         response = { outcome: recovered.outcome, operationId: recovered.operationId };
+      }
+    } else if (
+      body.action === "preflight-supersede-stranded-cell-delete" ||
+      body.action === "supersede-stranded-cell-delete"
+    ) {
+      // Exactly three keys, so a body carrying an extra selector is refused rather than
+      // superseding the operation the caller did not name.
+      if (
+        Object.keys(body).length !== 3 ||
+        !Object.prototype.hasOwnProperty.call(body, "operationId") ||
+        !Object.prototype.hasOwnProperty.call(body, "expectedFence")
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
+      const operationId = uuid(body.operationId);
+      const expectedFence = fence(body.expectedFence);
+      if (!operationId || !expectedFence) throw exomemErrors.invalidRequest();
+      if (body.action === "preflight-supersede-stranded-cell-delete") {
+        const preflight = await preflightSupersedeStrandedCellDelete({
+          operationId,
+          expectedFence,
+        });
+        response = { eligible: preflight.eligible };
+      } else {
+        const superseded = await supersedeStrandedCellDelete({
+          operationId,
+          expectedFence,
+          requestId,
+          operatorPrincipalDigest: operator.principalDigest,
+        });
+        if (!superseded) throw exomemErrors.invalidRequest();
+        response = { outcome: superseded.outcome, operationId: superseded.operationId };
       }
     } else if (
       body.action === "preflight-correct-diverged-cell-release" ||

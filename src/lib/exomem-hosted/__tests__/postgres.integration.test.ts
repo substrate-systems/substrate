@@ -40,6 +40,8 @@ import {
 import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
 import {
   correctDivergedCellRelease,
+  preflightSupersedeStrandedCellDelete,
+  supersedeStrandedCellDelete,
   preflightCorrectDivergedCellRelease,
   preflightRecoverExpiredReviewerCleanup,
   preflightRecoverTerminalReviewerDelete,
@@ -4678,6 +4680,256 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
             ? 1
             : 0
         );
+      });
+    }
+  });
+
+  // A delete created before a runtime moved out of band carries a `runtimeTarget` frozen
+  // at creation, and the reconciler builds the request from the operation rather than the
+  // cell. So it is inadmissible forever: correcting the cell underneath it changes
+  // nothing, and reopening it re-sends the target the lock already refused. The escape is
+  // that tenant destruction has a target-free shape which admission cannot reject.
+  describe("stranded cell delete supersession", () => {
+    async function seedStrandedDelete(
+      input: {
+        checkpoint?: string;
+        errorCode?: string;
+        tenantStatus?: string;
+        extraCell?: boolean;
+        inflightOperation?: boolean;
+      } = {}
+    ) {
+      const userId = randomUUID();
+      const tenantId = randomUUID();
+      const cellId = randomUUID();
+      const candidateId = randomUUID();
+      const operationId = randomUUID();
+      const digest = createHash("sha256").update(`stranded-${cellId}`).digest("hex");
+      await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+        userId,
+        `stranded-${userId}@example.test`,
+      ]);
+      await pool.query(
+        `INSERT INTO exomem_tenants (
+           id, owner_user_id, status, desired_state, marketplace_reviewer_purpose, fence_generation
+         ) VALUES ($1, $2, $3, 'deleted', true, 2)`,
+        [tenantId, userId, input.tenantStatus ?? "deletion_pending"]
+      );
+      await pool.query(
+        `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+         VALUES ($1, 'complimentary', 'active', 'active')`,
+        [tenantId]
+      );
+      await pool.query(
+        `INSERT INTO exomem_cells (
+           id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
+           release_version, observed_gateway_contract_digest, observed_command_fingerprint,
+           observed_schema_digest, observed_compatibility_digest
+         ) VALUES ($1, $2, 'draining', 'bound', 'running', '1', '0.54.1', $3, $3, $3, $3)`,
+        [cellId, tenantId, digest]
+      );
+      if (input.extraCell) {
+        await pool.query(
+          `INSERT INTO exomem_cells (
+             id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
+             release_version
+           ) VALUES ($1, $2, 'active', 'unbound', 'running', '1', '0.54.1')`,
+          [randomUUID(), tenantId]
+        );
+      }
+      await pool.query(
+        `INSERT INTO exomem_routable_cell_contracts (
+           cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+           contract_digest, compatibility_digest, routable
+         ) VALUES ($1, 'hosted-alpha-agent-v1', '0.54.1', '1', $2, $2, $2, true)`,
+        [cellId, digest]
+      );
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_candidates (
+           id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+           compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.50.0',
+                   $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+        [candidateId, digest]
+      );
+      await pool.query(
+        `INSERT INTO exomem_lifecycle_operations (
+           id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+           fence_generation, provisioner_wire_protocol, error_code, completed_at,
+           target_candidate_id, target_source_release, target_protocol_version,
+           target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
+           target_compatibility_digest
+         ) VALUES ($1, $2, $3, 'delete', 'failed_terminal', $4, 'confirmed-deletion-stranded',
+                   2, 'exomem-cell-provisioner.v2', $5, now(),
+                   $6, '0.50.0', '1', $7, $7, $7, $7)`,
+        [
+          operationId,
+          tenantId,
+          cellId,
+          input.checkpoint ?? "local-gated",
+          input.errorCode ?? "PROVISIONER_REJECTED",
+          candidateId,
+          digest,
+        ]
+      );
+      if (input.inflightOperation) {
+        await pool.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             id, tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+             fence_generation, provisioner_wire_protocol, target_candidate_id,
+             target_source_release, target_protocol_version, target_gateway_contract_digest,
+             target_command_fingerprint, target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, $2, $3, 'suspend', 'waiting', 'created', 'stranded-inflight', 2,
+                     'exomem-cell-provisioner.v2', $4, '0.50.0', '1', $5, $5, $5, $5)`,
+          [randomUUID(), tenantId, cellId, candidateId, digest]
+        );
+      }
+      return { userId, tenantId, cellId, candidateId, operationId };
+    }
+
+    it("supersedes the stranded delete with a target-free one at the next fence", async () => {
+      const seed = await seedStrandedDelete();
+      assert.deepEqual(
+        await preflightSupersedeStrandedCellDelete({
+          operationId: seed.operationId,
+          expectedFence: 2,
+        }),
+        { eligible: true }
+      );
+
+      const superseded = await supersedeStrandedCellDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x6b),
+      });
+      assert.equal(superseded?.outcome, "enqueued");
+
+      // The whole point: the replacement carries no runtimeTarget, so there is nothing
+      // for the deployment lock to refuse.
+      const enqueued = await pool.query(
+        `SELECT operation_type, state, checkpoint, fence_generation, cell_id,
+                expected_previous_cell_id, target_candidate_id, target_assignment_id,
+                target_source_release, target_protocol_version, target_gateway_contract_digest,
+                target_command_fingerprint, target_schema_digest, target_compatibility_digest
+         FROM exomem_lifecycle_operations WHERE id = $1`,
+        [superseded!.operationId]
+      );
+      const row = enqueued.rows[0]!;
+      assert.equal(row.operation_type, "delete");
+      assert.equal(row.state, "pending");
+      assert.equal(row.checkpoint, "created");
+      assert.equal(row.fence_generation, "3");
+      for (const column of [
+        "cell_id",
+        "expected_previous_cell_id",
+        "target_candidate_id",
+        "target_assignment_id",
+        "target_source_release",
+        "target_protocol_version",
+        "target_gateway_contract_digest",
+        "target_command_fingerprint",
+        "target_schema_digest",
+        "target_compatibility_digest",
+      ]) {
+        assert.equal(row[column], null, `${column} must be null on a target-free delete`);
+      }
+
+      const stranded = await pool.query(
+        "SELECT state, error_code FROM exomem_lifecycle_operations WHERE id = $1",
+        [seed.operationId]
+      );
+      assert.equal(stranded.rows[0]!.state, "failed_terminal");
+      assert.equal(stranded.rows[0]!.error_code, "DELETION_SUPERSEDED");
+
+      const tenant = await pool.query(
+        "SELECT fence_generation FROM exomem_tenants WHERE id = $1",
+        [seed.tenantId]
+      );
+      assert.equal(tenant.rows[0]!.fence_generation, "3");
+
+      const audit = await pool.query(
+        `SELECT event_type FROM exomem_audit_events
+         WHERE tenant_id = $1 AND event_type LIKE 'operator.stranded_cell_delete.%'
+         ORDER BY event_type`,
+        [seed.tenantId]
+      );
+      assert.deepEqual(
+        audit.rows.map((r) => r.event_type),
+        [
+          "operator.stranded_cell_delete.delete_enqueued",
+          "operator.stranded_cell_delete.superseded",
+        ]
+      );
+    });
+
+    it("replays without enqueueing a second delete", async () => {
+      const seed = await seedStrandedDelete();
+      const first = await supersedeStrandedCellDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x6b),
+      });
+      const second = await supersedeStrandedCellDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+        requestId: randomUUID(),
+        operatorPrincipalDigest: Buffer.alloc(32, 0x6b),
+      });
+      assert.equal(second?.outcome, "replayed");
+      assert.equal(second?.operationId, first?.operationId);
+      const deletes = await pool.query(
+        `SELECT count(*)::int AS total FROM exomem_lifecycle_operations
+         WHERE tenant_id = $1 AND operation_type = 'delete' AND cell_id IS NULL`,
+        [seed.tenantId]
+      );
+      assert.equal(deletes.rows[0]!.total, 1);
+    });
+
+    // `local-gated` is the last checkpoint before the first provider call. Superseding an
+    // operation past it could orphan destruction the provider already began, which is the
+    // one irreversible mistake available here.
+    const refusals: { name: string; seed: object; fence?: number }[] = [
+      { name: "an operation that already reached the provider", seed: { checkpoint: "quiesced" } },
+      { name: "an operation stranded for a different reason", seed: { errorCode: "LIFECYCLE_MAX_ATTEMPTS" } },
+      { name: "a tenant that is not deletion-pending", seed: { tenantStatus: "active" } },
+      { name: "a tenant with more than one live cell", seed: { extraCell: true } },
+      { name: "an operation still in flight for the tenant", seed: { inflightOperation: true } },
+      { name: "a fence the tenant has moved past", seed: {}, fence: 3 },
+    ];
+
+    for (const refusal of refusals) {
+      it(`refuses ${refusal.name}, and the preflight agrees`, async () => {
+        const seed = await seedStrandedDelete(refusal.seed);
+        const expectedFence = refusal.fence ?? 2;
+        assert.deepEqual(
+          await preflightSupersedeStrandedCellDelete({
+            operationId: seed.operationId,
+            expectedFence,
+          }),
+          { eligible: false }
+        );
+        assert.equal(
+          await supersedeStrandedCellDelete({
+            operationId: seed.operationId,
+            expectedFence,
+            requestId: randomUUID(),
+            operatorPrincipalDigest: Buffer.alloc(32, 0x6b),
+          }),
+          null
+        );
+        const tenant = await pool.query(
+          "SELECT fence_generation FROM exomem_tenants WHERE id = $1",
+          [seed.tenantId]
+        );
+        assert.equal(tenant.rows[0]!.fence_generation, "2");
+        const deletes = await pool.query(
+          `SELECT count(*)::int AS total FROM exomem_lifecycle_operations
+           WHERE tenant_id = $1 AND cell_id IS NULL`,
+          [seed.tenantId]
+        );
+        assert.equal(deletes.rows[0]!.total, 0);
       });
     }
   });

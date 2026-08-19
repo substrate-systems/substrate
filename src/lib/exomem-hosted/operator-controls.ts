@@ -42,6 +42,16 @@ export type ExpiredReviewerCleanupRecovery = {
   operationId: string;
 } | null;
 
+export type StrandedCellDeleteSupersession = {
+  outcome: "enqueued" | "replayed";
+  operationId: string;
+} | null;
+
+type StrandedCellDeleteInput = {
+  operationId: string;
+  expectedFence: number;
+};
+
 export type TerminalReviewerDeleteRecovery = {
   outcome: "enqueued" | "replayed";
   operationId: string;
@@ -709,6 +719,226 @@ export async function recoverExpiredReviewerCleanup(
         INSERT INTO exomem_audit_events (event_type, outcome, tenant_id, operation_id, request_id, principal_scope_digest)
         SELECT 'operator.reviewer_cleanup.replayed', 'succeeded', source.tenant_id, replay.operation_id,
                ${input.requestId}::uuid, ${input.operatorPrincipalDigest}
+        FROM source JOIN replay ON true RETURNING id
+      )
+      SELECT 'enqueued'::text AS outcome, id::text AS operation_id FROM delete_enqueued
+      UNION ALL
+      SELECT 'replayed'::text AS outcome, operation_id::text FROM replay
+    `;
+    const row = rows[0] as { outcome?: unknown; operation_id?: unknown } | undefined;
+    return (row?.outcome === "enqueued" || row?.outcome === "replayed") &&
+      typeof row.operation_id === "string"
+      ? { outcome: row.outcome, operationId: row.operation_id }
+      : null;
+  });
+}
+
+function assertStrandedCellDeleteInput(input: StrandedCellDeleteInput): void {
+  if (
+    !UUID.test(input.operationId) ||
+    !Number.isSafeInteger(input.expectedFence) ||
+    input.expectedFence < 1
+  ) {
+    throw exomemErrors.invalidRequest();
+  }
+}
+
+/**
+ * The facts a stranded cell-scoped delete must satisfy before it may be superseded.
+ *
+ * `checkpoint = 'local-gated'` is the load-bearing clause, not a detail. It is the last
+ * checkpoint before the first provider call, so an operation sitting there is one whose
+ * quiesce never succeeded and whose cell the provider has not begun tearing down.
+ * Superseding it therefore cannot orphan destructive work that already happened, which
+ * is the only irreversible mistake available here.
+ *
+ * `PROVISIONER_REJECTED` narrows it further to the admission failure this exists for.
+ * A delete stranded for some other reason may need its provider state inspected first
+ * and is deliberately out of scope.
+ */
+function strandedCellDeleteEligibility(tx: ExomemSql, input: StrandedCellDeleteInput) {
+  return tx`
+    SELECT source.id, source.tenant_id, source.cell_id
+    FROM exomem_lifecycle_operations AS source
+    JOIN exomem_tenants AS tenant ON tenant.id = source.tenant_id
+    JOIN exomem_cells AS cell ON cell.id = source.cell_id AND cell.tenant_id = tenant.id
+    WHERE source.id = ${input.operationId}::uuid
+      AND source.operation_type = 'delete'
+      AND source.state = 'failed_terminal'
+      AND source.error_code = 'PROVISIONER_REJECTED'
+      AND source.checkpoint = 'local-gated'
+      AND source.completed_at IS NOT NULL
+      AND source.lease_owner IS NULL
+      AND source.lease_expires_at IS NULL
+      AND source.cell_id IS NOT NULL
+      AND source.target_candidate_id IS NOT NULL
+      AND source.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+      AND source.fence_generation = ${input.expectedFence}::bigint
+      AND tenant.fence_generation = ${input.expectedFence}::bigint
+      AND tenant.marketplace_reviewer_purpose = true
+      AND tenant.status = 'deletion_pending'
+      AND tenant.desired_state = 'deleted'
+      AND tenant.deleted_at IS NULL
+      AND cell.lifecycle_state <> 'deleted'
+      AND (SELECT count(*) FROM exomem_cells AS only_cell
+           WHERE only_cell.tenant_id = tenant.id
+             AND only_cell.lifecycle_state <> 'deleted') = 1
+      AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
+                      WHERE conflicting.tenant_id = tenant.id
+                        AND conflicting.id <> source.id
+                        AND conflicting.state NOT IN ('succeeded', 'failed_terminal'))
+  `;
+}
+
+/** Read-only fail-closed eligibility check for superseding one stranded cell-scoped delete. */
+export async function preflightSupersedeStrandedCellDelete(
+  input: StrandedCellDeleteInput
+): Promise<{ eligible: boolean }> {
+  assertStrandedCellDeleteInput(input);
+  return withCohortControlLock(async (tx) => {
+    /* exomem:preflight-supersede-stranded-cell-delete */
+    const { rows } = await strandedCellDeleteEligibility(tx, input);
+    return { eligible: rows.length === 1 };
+  });
+}
+
+/**
+ * Replace a cell-scoped delete that admission can never accept with a target-free one.
+ *
+ * A v2 request carries a `runtimeTarget` copied from the operation's own columns at
+ * creation, and the provisioner admits it only when that target is byte-equal to the
+ * deployment lock's active runtime. Once a runtime moves out of band, an operation
+ * created before the move is permanently inadmissible: its target is frozen, the
+ * reconciler builds the request from the operation rather than the cell, and correcting
+ * the cell underneath it changes nothing. Reopening it re-sends the rejected target.
+ *
+ * Tenant destruction has an admissible shape and this restores the operation to it.
+ * A target-free delete — `cell_id` and every `target_*` column NULL — carries no
+ * `runtimeTarget` at all, so there is nothing for admission to compare and the lock is
+ * irrelevant to it. The reconciler already routes such an operation past the per-cell
+ * quiesce and seal straight to the tenant destroy, and `markCellState` on the destroy
+ * matches every cell of the tenant rather than the operation's own `cell_id`, so the
+ * cell is still marked deleted and its routable observation still cleared.
+ *
+ * This does not call the provider and does not itself destroy anything. It supersedes
+ * the stranded operation, advances the tenant fence so nothing at the old fence can
+ * still act, and enqueues the delete that the normal reconciler can actually run.
+ */
+export async function supersedeStrandedCellDelete(
+  input: StrandedCellDeleteInput & { requestId: string; operatorPrincipalDigest: Buffer }
+): Promise<StrandedCellDeleteSupersession> {
+  assertStrandedCellDeleteInput(input);
+  if (!UUID.test(input.requestId) || input.operatorPrincipalDigest.byteLength !== 32)
+    throw exomemErrors.invalidRequest();
+  return withCohortControlLock(async (tx) => {
+    const { rows } = await tx`
+      /* exomem:supersede-stranded-cell-delete */
+      WITH source AS MATERIALIZED (
+        SELECT source.*, tenant.fence_generation AS tenant_fence_generation,
+               tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state,
+               tenant.marketplace_reviewer_purpose, tenant.deleted_at AS tenant_deleted_at
+        FROM exomem_lifecycle_operations AS source
+        JOIN exomem_tenants AS tenant ON tenant.id = source.tenant_id
+        WHERE source.id = ${input.operationId}::uuid
+        FOR UPDATE OF source, tenant
+      ), delete_key AS MATERIALIZED (
+        SELECT source.id,
+               encode(digest(convert_to(source.id::text || ':supersede-stranded-cell-delete', 'utf8'), 'sha256'), 'hex') AS value
+        FROM source
+      ), replay AS MATERIALIZED (
+        SELECT delete_operation.id AS operation_id
+        FROM source
+        JOIN delete_key ON delete_key.id = source.id
+        JOIN exomem_lifecycle_operations AS delete_operation
+          ON delete_operation.tenant_id = source.tenant_id
+         AND delete_operation.operation_type = 'delete'
+         AND delete_operation.idempotency_key = delete_key.value
+        WHERE source.state = 'failed_terminal' AND source.error_code = 'DELETION_SUPERSEDED'
+      ), eligible AS MATERIALIZED (
+        SELECT source.*
+        FROM source
+        JOIN exomem_cells AS cell ON cell.id = source.cell_id AND cell.tenant_id = source.tenant_id
+        WHERE NOT EXISTS (SELECT 1 FROM replay)
+          AND source.operation_type = 'delete'
+          AND source.state = 'failed_terminal'
+          AND source.error_code = 'PROVISIONER_REJECTED'
+          AND source.checkpoint = 'local-gated'
+          AND source.completed_at IS NOT NULL
+          AND source.lease_owner IS NULL
+          AND source.lease_expires_at IS NULL
+          AND source.cell_id IS NOT NULL
+          AND source.target_candidate_id IS NOT NULL
+          AND source.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+          AND source.fence_generation = ${input.expectedFence}::bigint
+          AND source.tenant_fence_generation = ${input.expectedFence}::bigint
+          AND source.marketplace_reviewer_purpose = true
+          AND source.tenant_status = 'deletion_pending'
+          AND source.tenant_desired_state = 'deleted'
+          AND source.tenant_deleted_at IS NULL
+          AND cell.lifecycle_state <> 'deleted'
+          AND (SELECT count(*) FROM exomem_cells AS only_cell
+               WHERE only_cell.tenant_id = source.tenant_id
+                 AND only_cell.lifecycle_state <> 'deleted') = 1
+          AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
+                          WHERE conflicting.tenant_id = source.tenant_id
+                            AND conflicting.id <> source.id
+                            AND conflicting.state NOT IN ('succeeded', 'failed_terminal'))
+      ), tenant_fenced AS (
+        UPDATE exomem_tenants AS tenant
+        SET fence_generation = tenant.fence_generation + 1, updated_at = now()
+        FROM eligible WHERE tenant.id = eligible.tenant_id
+        RETURNING tenant.id, tenant.fence_generation
+      ), operations_superseded AS (
+        UPDATE exomem_lifecycle_operations AS stale
+        SET state = 'failed_terminal', error_code = 'DELETION_SUPERSEDED', lease_owner = NULL,
+            lease_expires_at = NULL, completed_at = COALESCE(stale.completed_at, now()),
+            updated_at = now()
+        FROM tenant_fenced
+        WHERE stale.tenant_id = tenant_fenced.id
+          AND stale.fence_generation < tenant_fenced.fence_generation
+          AND (stale.state NOT IN ('succeeded', 'failed_terminal')
+               OR stale.id = ${input.operationId}::uuid)
+        RETURNING stale.id
+      ), assignments_ended AS (
+        UPDATE exomem_agent_contract_rollout_assignments AS assignment
+        SET state = 'expired', ended_at = COALESCE(assignment.ended_at, now()),
+            activated_at = NULL, updated_at = now()
+        FROM tenant_fenced
+        WHERE assignment.tenant_id = tenant_fenced.id
+          AND assignment.state IN ('preparing', 'active')
+        RETURNING assignment.id
+      ), delete_enqueued AS (
+        INSERT INTO exomem_lifecycle_operations (
+          tenant_id, operation_type, idempotency_key, fence_generation,
+          provisioner_wire_protocol, request_id
+        )
+        SELECT tenant_fenced.id, 'delete', delete_key.value, tenant_fenced.fence_generation,
+               eligible.provisioner_wire_protocol, ${input.requestId}::uuid
+        FROM tenant_fenced
+        JOIN eligible ON eligible.tenant_id = tenant_fenced.id
+        JOIN delete_key ON delete_key.id = eligible.id
+        RETURNING id
+      ), authorized_audit AS (
+        INSERT INTO exomem_audit_events (
+          event_type, outcome, tenant_id, cell_id, operation_id, request_id, principal_scope_digest
+        )
+        SELECT 'operator.stranded_cell_delete.superseded', 'succeeded', eligible.tenant_id,
+               eligible.cell_id, eligible.id, ${input.requestId}::uuid,
+               ${input.operatorPrincipalDigest}
+        FROM eligible WHERE EXISTS (SELECT 1 FROM delete_enqueued) RETURNING id
+      ), result_audit AS (
+        INSERT INTO exomem_audit_events (
+          event_type, outcome, tenant_id, operation_id, request_id, principal_scope_digest
+        )
+        SELECT 'operator.stranded_cell_delete.delete_enqueued', 'pending', tenant_fenced.id,
+               delete_enqueued.id, ${input.requestId}::uuid, ${input.operatorPrincipalDigest}
+        FROM tenant_fenced JOIN delete_enqueued ON true RETURNING id
+      ), replay_audit AS (
+        INSERT INTO exomem_audit_events (
+          event_type, outcome, tenant_id, operation_id, request_id, principal_scope_digest
+        )
+        SELECT 'operator.stranded_cell_delete.replayed', 'succeeded', source.tenant_id,
+               replay.operation_id, ${input.requestId}::uuid, ${input.operatorPrincipalDigest}
         FROM source JOIN replay ON true RETURNING id
       )
       SELECT 'enqueued'::text AS outcome, id::text AS operation_id FROM delete_enqueued

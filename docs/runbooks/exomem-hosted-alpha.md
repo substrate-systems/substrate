@@ -802,6 +802,52 @@ Afterwards, confirm the recorded release matches the lock, then re-issue the lif
 operation that was stuck. The assignment expires in 30 minutes, so do the re-issue in
 the same sitting.
 
+### Supersede a delete the deployment lock can never admit
+
+Correcting a diverged cell does **not** unstick its deletion, and the previous
+section should not be read as implying it does. A lifecycle operation copies its
+target into `target_*` columns when it is created, and the reconciler builds the
+provisioner request from the operation rather than the cell
+(`runtimeTarget: this.#runtimeTarget(operation)`). So an operation created before
+a runtime moved keeps presenting the release the lock already refused, whatever
+the cell underneath it now says. Reopening it re-sends the same rejection, and no
+fresh delete can be minted either: `consumeDeletionConfirmationAtomic` accepts
+only `provisioning`, `active` or `suspended`, never `deletion_pending`.
+
+The escape is that tenant destruction has a shape admission cannot reject. A
+target-free delete carries `cell_id` and every `target_*` column NULL, so there
+is no `runtimeTarget` to compare. This control restores the tenant to it.
+
+Preflight first, then supersede:
+
+```json
+{ "action": "preflight-supersede-stranded-cell-delete", "operationId": "<uuid>", "expectedFence": 2 }
+```
+
+```json
+{ "action": "supersede-stranded-cell-delete", "operationId": "<uuid>", "expectedFence": 2 }
+```
+
+It refuses, content-free, unless the pinned operation is a delete that is
+`failed_terminal` with `PROVISIONER_REJECTED` **at checkpoint `local-gated`**,
+unleased, on wire v2, carrying a cell and a target candidate, at a fence the
+tenant also holds; and unless the tenant is reviewer-purpose, deletion-pending,
+desired-deleted, holds exactly one live cell, and has nothing else unfinished.
+
+The checkpoint clause is the safety boundary, not a formality. `local-gated` is
+the last checkpoint before the first provider call, so an operation sitting there
+provably has no destruction in flight. Past it the provider may hold partial
+state that the control plane cannot see, and the control refuses rather than
+guess. Do not widen it.
+
+On success the tenant fence advances once, the pinned operation becomes
+`DELETION_SUPERSEDED`, any live rollout assignment is ended, and one target-free
+delete is enqueued at the new fence. Then run the ordinary reconcile and confirm
+the replacement reaches `succeeded`, the cell is `deleted`, its routable
+observation is gone, and the capacity slot is released. The cell is still cleaned
+up despite the operation naming no cell, because `markCellState` matches every
+cell of the tenant when deleting.
+
 ## Issue an invite
 
 Issue complimentary invites one at a time and keep the operator token out of
