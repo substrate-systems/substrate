@@ -27,7 +27,9 @@
 - [x] 4.3 Enforce cross-client HMAC equality only when two platforms are promoted together, unchanged in that case
 - [x] 4.4 Allow adding a second platform to an already-live candidate without retiring the first
 - [x] 4.5 Leave routable-cell strictness untouched: every routable cell must still match the promoted candidate
-- [ ] 4.6 Integration tests for single-platform promotion, failed evidence, paired promotion cross-check, and later pairing
+- [x] 4.6 Integration tests for single-platform promotion, failed evidence, paired promotion cross-check, and later pairing
+  - Single-platform promotion and per-platform admission scoping are covered.
+  - **Later pairing does not exist, and the test now says so.** Promotion retires the rollout assignment, and the `cells` precondition every promotion rests on requires that same assignment to be `active`, so a live candidate no longer holds its own bound proof. With every OpenAI input present and correct — locks, stage, signed evidence, imported artifact, enabled pinned client — pairing onto a live candidate returns `precondition_failed` and changes nothing. Enabling a second platform requires a fresh candidate and a full new promotion window. Recorded in the runbook's run sheet, because a founder reading step 6.5 would otherwise foreclose ChatGPT without knowing it.
   - Done: single-platform promotion (`platform-cohort-postgres`), paired cross-check (`hosted-paired-acceptance`, 4/4, including atomic paired promotion and rollforward).
   - Not done: failed-evidence rejection for a single-platform promotion, and adding a second platform to an already-live candidate. Neither is on the Claude-only alpha path; both should land before OpenAI is promoted.
 
@@ -38,8 +40,10 @@
 
 ## 6. Ship the alpha on Claude
 
-- [ ] 6.1 Clear the routable set: destroy or roll forward tenant `1809ce5c`, whose binding operation targeted 0.50.0 and which therefore cannot satisfy a 0.54.1 promotion
-- [ ] 6.2 Land the destroy-path `routable` clear first if destroying, so the dead cell does not become a promotion-blocking ghost
+- [x] 6.1 Clear the routable set: destroy or roll forward tenant `1809ce5c`, whose binding operation targeted 0.50.0 and which therefore cannot satisfy a 0.54.1 promotion
+  - Destroyed 2026-08-19T09:34Z via `supersede-stranded-cell-delete`, after `correct-diverged-cell-release` moved its cell onto the runtime it actually served. Tenant `deleted`, cell `deleted`, zero routable cells, all four runtime slots free.
+- [x] 6.2 Land the destroy-path `routable` clear first if destroying, so the dead cell does not become a promotion-blocking ghost
+  - Landed ahead of the destroy, and the destroy confirmed it: no ghost row remains, and a check for routable rows whose cell is `deleted` returns none.
 - [ ] 6.3 Provision a fresh tenant so its binding operation names the 0.54.1 candidate `eb88eedb-7f18-4aeb-b02e-c670772c76d5`, and confirm it is the only routable cell
 - [ ] 6.4 Record one clean real Claude client run and its signed evidence
 - [ ] 6.5 Promote the Claude-only cohort and confirm `liveCohortCandidateId` is no longer null

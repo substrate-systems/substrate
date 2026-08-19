@@ -23,7 +23,11 @@ import { createStagedClientRelease } from "../agent-contract-canaries";
 import { __setPromotionProvisionerForTests } from "../promotion-runtime";
 import { digestSecret, encryptSecret } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
-import { evidence, pendingArtifactFromEvidence } from "./agent-contract-promotion-fixture";
+import {
+  evidence,
+  pendingArtifactFromEvidence,
+  testOnlyOpenAiLocks,
+} from "./agent-contract-promotion-fixture";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
@@ -256,7 +260,7 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
     }
   });
 
-  it("promotes a Claude-only cohort and admits Claude without any OpenAI artifact", async () => {
+  it("promotes Claude alone, and then cannot pair OpenAI onto that candidate at all", async () => {
     const fixture = exomemHostedContractFixture.compatibility;
     const cellId = await seedBoundCell();
     await recordRoutableCellObservation({
@@ -288,6 +292,36 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
        WHERE candidate_id = $1::uuid AND state = 'active' LIMIT 1`,
       [candidateId]
     );
+    // The checked fixture deliberately ships no OpenAI lock, so attach one while
+    // the candidate is still pending. Signed import is covered by the contract
+    // tests; what matters here is only that the locks exist before promotion.
+    await pool!.query(
+      `UPDATE exomem_agent_contract_candidates
+       SET openai_package_lock = $2::jsonb, openai_archive_lock = $3::jsonb
+       WHERE id = $1::uuid`,
+      [
+        candidateId,
+        JSON.stringify(testOnlyOpenAiLocks.packageLock),
+        JSON.stringify(testOnlyOpenAiLocks.archiveLock),
+      ]
+    );
+    const openAiStage = await createStagedClientRelease({
+      candidateId,
+      platform: "openai",
+      packageSha256: testOnlyOpenAiLocks.packageLock.artifact_sha256,
+      archiveSha256: testOnlyOpenAiLocks.archiveLock.archive_sha256,
+      compatibilitySha256: fixture.compatibility_sha256,
+      contractSha256: fixture.schema_contract_sha256,
+      pluginVersion: testOnlyOpenAiLocks.packageLock.plugin_version,
+      // The promotion evidence fixture signs `oauth_client_config_sha256` as
+      // sha("a") for both platforms, and the artifact import compares the stage
+      // against the signed value rather than against the platform.
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: testOnlyOpenAiLocks.packageLock.registered_app_id_sha256,
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+      operatorPrincipalDigest: sha("9"),
+    });
+
     const claudeEvidence = evidence("claude", "integration-secret", randomUUID(), {
       candidateId,
       stageId: claudeStage.id,
@@ -296,6 +330,21 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
     });
     const claudeArtifactId = await storeClientArtifact(
       pendingArtifactFromEvidence("claude", claudeEvidence)
+    );
+    // Every OpenAI step below requires `candidate.state = 'pending'` -- the lock
+    // attach, the stage, and the artifact import all say so -- so the whole OpenAI
+    // evidence chain has to be built now, before the Claude-only promotion flips
+    // the candidate to `live`. Only `promoteExomemHostedCohort` itself is
+    // deferrable. Building it afterwards is not merely awkward; it is impossible
+    // on this candidate.
+    const openAiEvidence = evidence("openai", "integration-secret", randomUUID(), {
+      candidateId,
+      stageId: openAiStage.id,
+      assignmentId: assignment.rows[0]!.id,
+      assignmentGeneration: Number(assignment.rows[0]!.generation),
+    });
+    const openAiArtifactId = await storeClientArtifact(
+      pendingArtifactFromEvidence("openai", openAiEvidence)
     );
     const claudeClientId = await registerPinnedClient("claude");
     // Deliberately the SAME configuration digest as the Claude client. Under the
@@ -360,6 +409,84 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
       null,
       "a host-allowlisted ChatGPT connector is still refused while OpenAI has no cohort: " +
         "the allowlist widens which client, never which platform"
+    );
+
+    // ---- Later pairing -------------------------------------------------------
+    // The alpha run sheet promotes Claude first and adds OpenAI in a separate
+    // sitting, so this second half is not a variant -- it is the second half of
+    // the only sequence anyone actually performs. Nothing proved it worked, and
+    // discovering otherwise costs a promotion window.
+    //
+    // The OpenAI stage was created above, while the candidate was still pending,
+    // and it had to be: both `attachOpenAiContractLocks` and
+    // `createStagedClientRelease` require `state = 'pending'`, which a promoted
+    // candidate no longer is. Everything OpenAI therefore has to be prepared
+    // BEFORE the Claude-only promotion, even though it is used after it. Only
+    // the promotion itself is genuinely deferrable.
+    // Read the CAS digest again: the routable set is what it is *now*, and
+    // pairing must compare against that rather than a value carried over.
+    const pairingStatus = (await listExomemHostedRolloutStatus()).find(
+      (entry) => entry.candidateId === candidateId
+    );
+    assert.ok(pairingStatus?.routableSetDigest);
+
+    // Every OpenAI input is present and correct -- locks on the candidate, a
+    // staged release, signed evidence, an imported artifact, and an enabled
+    // pinned client carrying the artifact's own configuration digest. Pairing
+    // still cannot happen, and the reason is structural rather than a missing
+    // input: promotion RETIRES the rollout assignment, and the `cells` CTE that
+    // every promotion's precondition rests on requires that same assignment to
+    // be `active`. Once a candidate is live its own bound proof is gone.
+    assert.equal(
+      (
+        await pool!.query<{ state: string }>(
+          `SELECT state FROM exomem_agent_contract_rollout_assignments WHERE candidate_id = $1`,
+          [candidateId]
+        )
+      ).rows[0]?.state,
+      "retired",
+      "promotion retires the assignment its own precondition needs"
+    );
+
+    assert.equal(
+      await promoteExomemHostedCohort({
+        candidateId,
+        claudeArtifactId,
+        openaiArtifactId: openAiArtifactId,
+        expectedLiveCandidateId: candidateId,
+        expectedRoutableCellDigest: pairingStatus.routableSetDigest,
+        claudeEvidence,
+        openaiEvidence: openAiEvidence,
+      }),
+      "precondition_failed",
+      "a live candidate cannot have a second platform paired onto it afterwards"
+    );
+
+    // Nothing moved. The refusal is clean, not half-applied.
+    assert.deepEqual(
+      (
+        await pool!.query<{ platform: string }>(
+          "SELECT platform FROM exomem_hosted_alpha_platform_cohort ORDER BY platform"
+        )
+      ).rows,
+      [{ platform: "claude" }],
+      "the Claude cohort is untouched by the refused pairing"
+    );
+    assert.equal(
+      (await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort")).rowCount,
+      0,
+      "and the paired view stays empty"
+    );
+    assert.equal(
+      await resolveApprovedOAuthClient(openAiCimdClientId),
+      null,
+      "so a ChatGPT connector is still refused, and there is no way to change that " +
+        "on this candidate: enabling OpenAI needs a fresh candidate and a whole new " +
+        "promotion window, including a fresh Claude evidence run"
+    );
+    assert.ok(
+      await resolveApprovedOAuthClient(claudeClientId),
+      "Claude admission is unaffected"
     );
   });
 });

@@ -237,6 +237,24 @@ The procedure below is the specification. Drive it with the harness in the
 once, and each failure burns a single-use invite, an email alias, a stage, a
 client, and usually strands a tenant that then blocks the retry.
 
+**Promotion is one-shot per candidate, and the choice of platforms is made at
+that moment, permanently.** Promoting Claude alone does not leave OpenAI to be
+added later — it forecloses it on that candidate. Promotion retires the rollout
+assignment, and the `cells` precondition every promotion rests on requires that
+same assignment to be `active`, so once a candidate is live its own bound proof
+is gone and no second platform can be paired onto it. Every OpenAI input can be
+present and correct — locks on the candidate, a staged release, signed evidence,
+an imported artifact, an enabled client — and the pairing still returns
+`precondition_failed`. Enabling ChatGPT afterwards means a fresh candidate, a
+fresh routable proof, a fresh reviewer tenant and a fresh evidence run for
+*both* platforms: the whole window again.
+
+So decide before step 2 whether the alpha needs ChatGPT. If it does, both
+clean-client runs happen in the same sitting and the promotion carries both
+artifacts. If it does not, promote Claude alone knowing ChatGPT waits for a
+later candidate. `openspec/changes/scope-cohort-admission-per-platform` proves
+this refusal as a test rather than leaving it to be rediscovered mid-window.
+
 Order matters more than anything else here, because two of the steps are timed
 and one input has to exist before them:
 
@@ -261,7 +279,11 @@ and one input has to exist before them:
    completed install, authorization, tool discovery, recall, citation, durable
    capture and fresh-chat recall. Signing those assertions without performing
    them would forge the gate rather than pass it.
-6. `observe` → `sign` → `import` per platform, then `promote`.
+6. `observe` → `sign` → `import` per platform, then `promote`. Everything that
+   touches a platform before `promote` — attaching locks, staging a release,
+   importing an artifact — requires the candidate to still be `pending`, so all
+   of it must be finished for every platform being promoted before the single
+   `promote` call.
 
 Failure modes that have each cost a window, and are now reported rather than
 guessed at:
