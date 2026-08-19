@@ -39,7 +39,10 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Run the full test suite and lint in the worktree
-- [ ] 5.2 Review the diff specifically as a security change: confirm PKCE S256, redirect-URI host validation, SSRF protection and the `none` normalisation are all untouched
-- [ ] 5.3 Open a PR whose description states plainly that this widens an admission predicate, and links the design's Risks section
+- [x] 5.1 Run the full test suite and lint in the worktree — 165/165 hosted integration, 1185/1185 unit, `tsc` clean, `eslint` 0 errors
+- [x] 5.2 Review the diff specifically as a security change: confirm PKCE S256, redirect-URI host validation, SSRF protection and the `none` normalisation are all untouched
+  - PKCE S256, SSRF protection (`isCimdNetworkAddressAllowed`, record cap, deadline) and the `none` normalisation (`advertisesUnauthenticatedToken`) are all reached unchanged, because the path fetches through `fetchCimdMetadata` rather than reimplementing it. The allowlist lookup precedes the fetch, so an unlisted host costs one indexed read and never an outbound request.
+  - **Redirect-URI validation was not untouched, and this review is what found it.** `registerAdmittedCimdClient` bypasses `normalizeOperatorOAuthClientRegistration`, so the only redirect check on the self-registration path was list length. `parseCimdDocument` proves `redirect_uris` is a list of strings and does not judge their contents. An operator-registered client is vouched for by the operator; a self-registering one is vouched for by nothing but its host, so the document — the one input an admitted host fully controls — was deciding where authorization codes get delivered. Closed by requiring every redirect to be https on the host that served the document, which is what the proposal already claimed. Both real connectors already satisfy it (`chatgpt.com` → `chatgpt.com`, `claude.ai` → `claude.ai`), so the rule costs nothing real.
+  - Not exploitable as deployed: only `chatgpt.com` is seeded, and OpenAI generates those documents. It was a defence-in-depth gap resting entirely on an allowlisted host's own correctness, and on the assumption that no future host is added carelessly.
+- [x] 5.3 Open a PR whose description states plainly that this widens an admission predicate, and links the design's Risks section — carried by the follow-up PRs that closed the test gaps and the redirect finding, since the implementation had already merged
 - [ ] 5.4 After deploy, verify against production that a second, fresh ChatGPT connector — not the one used for promotion evidence — reaches the consent screen, since that is the observation this change exists to make possible

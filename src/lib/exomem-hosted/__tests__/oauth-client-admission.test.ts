@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   normalizeOperatorOAuthClientRegistration,
   isCimdNetworkAddressAllowed,
+  isSameHostHttpsRedirect,
   oauthClientConfigSha256,
   operatorOAuthClientFingerprint,
   parseCimdDocument,
@@ -192,5 +193,36 @@ describe("operator OAuth client admission", () => {
       /now\(\) \+ \(\$\{fetched \? registration\.ttlSeconds : 0\} \* interval '1 second'\)/
     );
     assert.doesNotMatch(source, /new Date\(Date\.now\(\) \+ registration\.ttlSeconds/);
+  });
+
+  it("admits a self-registering client's redirect only on its own host over https", () => {
+    // Both connectors this path exists for, taken from the real documents.
+    assert.equal(
+      isSameHostHttpsRedirect("https://chatgpt.com/connector/oauth/6UNqc_HaufBZ", "chatgpt.com"),
+      true
+    );
+    assert.equal(
+      isSameHostHttpsRedirect("https://claude.ai/api/mcp/auth_callback", "claude.ai"),
+      true
+    );
+    assert.equal(isSameHostHttpsRedirect("https://ChatGPT.com/cb", "chatgpt.com"), true);
+
+    for (const [uri, host] of [
+      // A different host is the whole risk: whoever can place a document on an
+      // admitted host would otherwise name any delivery address for the code.
+      ["https://evil.example/callback", "chatgpt.com"],
+      ["https://chatgpt.com.evil.example/callback", "chatgpt.com"],
+      ["https://sub.chatgpt.com/callback", "chatgpt.com"],
+      // Cleartext, even on the right host.
+      ["http://chatgpt.com/callback", "chatgpt.com"],
+      // Loopback is fine for an operator-vouched client, never for a self-registered one.
+      ["http://127.0.0.1:8976/callback", "chatgpt.com"],
+      ["https://user:pw@chatgpt.com/callback", "chatgpt.com"],
+      ["https://chatgpt.com/callback#fragment", "chatgpt.com"],
+      ["not a url", "chatgpt.com"],
+      ["", "chatgpt.com"],
+    ] as const) {
+      assert.equal(isSameHostHttpsRedirect(uri, host), false, `${uri} must be refused`);
+    }
   });
 });
