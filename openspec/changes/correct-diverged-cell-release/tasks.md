@@ -28,6 +28,9 @@
 
 ## 5. Apply to the stranded tenant
 
-- [ ] 5.1 Correct cell `c73e5620` from 0.50.0 to candidate `eb88eedb` (0.54.1), after confirming the serving image against the deployment lock
+- [x] 5.1 Correct cell `c73e5620` from 0.50.0 to candidate `eb88eedb` (0.54.1), after confirming the serving image against the deployment lock
+  - Applied in production 2026-08-19T07:30Z. The serving pod ran the lock's exact `components.runtime.image`; the cell, its four observed digests and the routable observation all moved to 0.54.1.
 - [ ] 5.2 Re-issue the deletion for tenant `1809ce5c` and confirm it reaches `succeeded`
+  - **This change cannot do it, and the premise that it could was wrong.** An operation copies its target at creation and the reconciler builds the request from the operation, not the cell, so the stranded delete still presents 0.50.0. A fresh delete cannot be minted either, because `consumeDeletionConfirmationAtomic` refuses a `deletion_pending` tenant. Moved to `supersede-stranded-cell-delete`, which restores the tenant to the target-free delete shape admission cannot reject.
 - [ ] 5.3 Confirm the routable set is empty and capacity is released before provisioning the alpha tenants
+  - Now known to be load-bearing rather than tidiness: promotion health-probes every routable cell and requires every probe to succeed, and this cell yields no probe at all (its origin provision is at the old fence and the old candidate). Measured `probeable_ops = 0` on 2026-08-19.
