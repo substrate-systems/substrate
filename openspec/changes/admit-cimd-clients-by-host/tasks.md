@@ -27,13 +27,14 @@
 
 ## 4. Tests
 
-- [x] 4.1 Covered at integration level: an unlisted host is refused with an assertion that no fetch was attempted. **Gap:** non-HTTPS and non-URL `client_id` shapes are guarded in code but not yet asserted by a test
+- [x] 4.1 Covered at integration level: an unlisted host is refused with an assertion that no fetch was attempted, and every non-HTTPS or non-URL `client_id` shape is refused with the same no-fetch assertion
 - [x] 4.2 Postgres integration tests (pattern: `oauth-postgres.integration.test.ts`) proving an allowlisted-host CIMD client is admitted with a live cohort and refused without one
-- [ ] 4.3 **Not written.** The two-distinct-connectors case is the actual user-facing claim of this change and is still unproven by test
-- [ ] 4.4 **Not written.** The stale-disabled-row path from design decision 2 is implemented but untested
-- [ ] 4.5 **Not written.** Only the partition function's per-provenance counting is asserted; filling the partition to its bound and proving operator registration still succeeds is untested
+- [x] 4.3 Two connectors on one allowlisted host both register and both admit, asserting their configuration digests differ from each other and from the pinned cohort digest, so the test cannot pass vacuously
+- [x] 4.4 A row aged past its TTL and disabled stops admitting, is revived by a re-registration from the same admitted host, and admits again
+- [x] 4.5 The auto partition is filled to its bound of 128, a further auto-registration is refused and writes no row, and the operator partition still reports a free slot
 - [x] 4.6 Test proving an auto-registration upsert cannot modify an operator-managed or bootstrap-pinned client row
-- [ ] 4.7 Cross-stage test proving a client admitted at `/authorize` is also admitted at token exchange, refresh and MCP call — the guard against the nine predicates drifting
+- [x] 4.7 Cross-stage test proving a client admitted at `/authorize` is also admitted at token exchange, bearer use, the MCP lookup and refresh — then, with only the allowlist row withdrawn, that every one of those stages stops admitting
+  - Mutation-checked: deleting the allowlist clause from the MCP predicate alone fails exactly this test and nothing else (35 tests, 34 pass, 1 fail), which is the drift class that would otherwise ship as a connector that signs in and then cannot call a tool
 - [x] 4.8 Confirm existing pinned-digest, reviewer-bootstrap and canary admission tests still pass unchanged
 
 ## 5. Verification
