@@ -41,6 +41,8 @@
 
 ## 6. Reconcile the existing divergence
 
-- [ ] 6.1 Decide whether reconciling an already-diverged cell is in scope for the operation or needs a separate repair path (see design Open Questions)
+- [x] 6.1 Decide whether reconciling an already-diverged cell is in scope for the operation or needs a separate repair path (see design Open Questions)
+  - Separate repair path: `correct-diverged-cell-release`. A rollforward moves a runtime and then records it; a diverged cell needs only the record moved, and cannot run a rollforward anyway because every request it can mint carries the stale target the lock refuses. Folding the repair into the operation would have made the operation depend on the state it exists to prevent.
 - [ ] 6.2 Correct tenant `1809ce5c`, which serves 0.54.1 while recorded as 0.50.0 after the 2026-08-18 out-of-band upgrade
+  - Tracked as task 5 of `correct-diverged-cell-release`. The divergence is not cosmetic: it left the tenant's deletion `failed_terminal` with no provisioner operations row, because admission rejects a mismatched `runtimeTarget` before persisting anything.
 - [ ] 6.3 Confirm the routable set digest afterwards matches the live fleet before any promotion is attempted

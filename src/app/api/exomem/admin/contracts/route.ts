@@ -36,6 +36,8 @@ import {
   preflightRecoverTerminalReviewerDelete,
   recoverExpiredReviewerCleanup,
   recoverTerminalReviewerDelete,
+  preflightCorrectDivergedCellRelease,
+  correctDivergedCellRelease,
 } from "@/lib/exomem-hosted/operator-controls";
 
 export const runtime = "nodejs";
@@ -51,6 +53,11 @@ const idempotencyKey = (value: unknown): string | null =>
   typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value) ? value : null;
 const fence = (value: unknown): number | null =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+const release = (value: unknown): string | null =>
+  typeof value === "string" &&
+  /^(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,3})$/.test(value)
+    ? value
+    : null;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
@@ -142,6 +149,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               });
         if (!recovered) throw exomemErrors.invalidRequest();
         response = { outcome: recovered.outcome, operationId: recovered.operationId };
+      }
+    } else if (
+      body.action === "preflight-correct-diverged-cell-release" ||
+      body.action === "correct-diverged-cell-release"
+    ) {
+      // Exactly five keys, so a body carrying an extra selector is refused rather than
+      // silently corrected against the one the caller did not mean.
+      if (
+        Object.keys(body).length !== 5 ||
+        !Object.prototype.hasOwnProperty.call(body, "cellId") ||
+        !Object.prototype.hasOwnProperty.call(body, "candidateId") ||
+        !Object.prototype.hasOwnProperty.call(body, "expectedCurrentRelease") ||
+        !Object.prototype.hasOwnProperty.call(body, "expectedFence")
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
+      const cellId = uuid(body.cellId);
+      const candidateId = uuid(body.candidateId);
+      const expectedCurrentRelease = release(body.expectedCurrentRelease);
+      const expectedFence = fence(body.expectedFence);
+      if (!cellId || !candidateId || !expectedCurrentRelease || !expectedFence)
+        throw exomemErrors.invalidRequest();
+      if (body.action === "preflight-correct-diverged-cell-release") {
+        const preflight = await preflightCorrectDivergedCellRelease({
+          cellId,
+          candidateId,
+          expectedCurrentRelease,
+          expectedFence,
+        });
+        response = { eligible: preflight.eligible };
+      } else {
+        const corrected = await correctDivergedCellRelease({
+          cellId,
+          candidateId,
+          expectedCurrentRelease,
+          expectedFence,
+          requestId,
+          operatorPrincipalDigest: operator.principalDigest,
+        });
+        if (!corrected) throw exomemErrors.invalidRequest();
+        response = { outcome: corrected.outcome, assignmentId: corrected.assignmentId };
       }
     } else if (body.action === "import-agent") {
       response = { candidateId: await storeExomemAgentContractCandidate() };
