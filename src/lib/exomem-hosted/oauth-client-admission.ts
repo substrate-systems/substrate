@@ -69,6 +69,33 @@ function safeRedirectUri(value: string, customHosts: readonly string[]): boolean
   );
 }
 
+/**
+ * Redirect rule for a self-registering CIMD client, deliberately stricter than
+ * `safeRedirectUri`.
+ *
+ * An operator-registered client is vouched for by the operator, so its redirects
+ * only have to be safe. A client that registers itself off a host allowlist is
+ * vouched for by nothing but the host, so the host has to be the whole of the
+ * claim: the redirect must be https and must live on the same host that served
+ * the metadata document. Anything looser would let whoever can place a document
+ * on an admitted host name an arbitrary delivery address for authorization
+ * codes, which is precisely the trust the allowlist was not asked to extend.
+ *
+ * Both connectors this path exists for already satisfy it — ChatGPT redirects to
+ * `chatgpt.com` and Claude to `claude.ai` — so the rule costs nothing real.
+ */
+export function isSameHostHttpsRedirect(value: string, host: string): boolean {
+  if (value.length === 0 || value.length > MAX_OAUTH_REDIRECT_URI_LENGTH) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password || url.hash) return false;
+  return url.protocol === "https:" && url.hostname.toLowerCase() === host.toLowerCase();
+}
+
 /** Bootstrap is intentionally narrower than ordinary client admission. */
 export function isSafeLoopbackOAuthRedirect(value: string): boolean {
   if (value.length === 0 || value.length > MAX_OAUTH_REDIRECT_URI_LENGTH) return false;

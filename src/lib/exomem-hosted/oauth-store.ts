@@ -8,6 +8,7 @@ import {
   MAX_OAUTH_CLIENT_REDIRECTS,
   documentDigest,
   fetchCimdMetadata,
+  isSameHostHttpsRedirect,
   oauthClientConfigSha256,
   type CimdFetchedMetadata,
 } from "./oauth-client-admission";
@@ -190,6 +191,12 @@ export async function registerAdmittedCimdClient(
   }
   const redirectUris = fetched.document.redirect_uris;
   if (redirectUris.length === 0 || redirectUris.length > MAX_OAUTH_CLIENT_REDIRECTS) return null;
+  // `parseCimdDocument` proves the list is a list of strings; it does not judge
+  // what is in it, and this path never reaches the operator normaliser that
+  // would. Without this the only thing deciding where an authorization code is
+  // delivered is the document itself, which is the one input an admitted host
+  // controls entirely.
+  if (redirectUris.some((uri) => !isSameHostHttpsRedirect(uri, host))) return null;
 
   const configSha256 = oauthClientConfigSha256({
     platform,

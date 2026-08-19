@@ -3443,6 +3443,59 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     }
   });
 
+  it("refuses a fetched document whose redirect leaves the host that served it", async () => {
+    // The one input an admitted host controls entirely is its own document. If the
+    // redirect list is not held to the host, placing a document on an admitted host
+    // is enough to name any delivery address for an authorization code -- which is
+    // a trust the allowlist was never asked to extend.
+    const host = "connector-offhost.example.test";
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      ["openai", host]
+    );
+    try {
+      for (const redirect of [
+        "https://attacker.example.test/callback",
+        `https://${host}.attacker.example.test/callback`,
+        `http://${host}/callback`,
+        "http://127.0.0.1:8976/callback",
+      ]) {
+        const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+        const registered = await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, [redirect], "offhost"),
+        });
+        assert.equal(registered, null, `${redirect} must not register`);
+        assert.equal(
+          (await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [clientId]))
+            .rowCount,
+          0,
+          `${redirect} must leave no row behind`
+        );
+      }
+
+      // One redirect off-host is enough to refuse the whole document.
+      const mixed = `https://${host}/oauth/${randomUUID()}/client.json`;
+      assert.equal(
+        await registerAdmittedCimdClient(mixed, {
+          fetchCimd: async () =>
+            cimdMetadata(mixed, [`https://${host}/callback`, "https://attacker.example.test/cb"], "mixed"),
+        }),
+        null
+      );
+
+      // And the honest shape still registers, so the rule is not merely refusing everything.
+      const good = `https://${host}/oauth/${randomUUID()}/client.json`;
+      assert.ok(
+        await registerAdmittedCimdClient(good, {
+          fetchCimd: async () => cimdMetadata(good, [`https://${host}/callback`], "onhost"),
+        })
+      );
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [good]);
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
+
   it("refuses a client_id that is not an https URL, without fetching it", async () => {
     // This is an unauthenticated write path, so the shape check has to come before
     // anything that touches the network. Each of these would otherwise reach the
