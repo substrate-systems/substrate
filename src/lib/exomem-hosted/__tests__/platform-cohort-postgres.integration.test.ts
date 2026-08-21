@@ -3,13 +3,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
-import {
-  __setExomemSqlForTests,
-  __setExomemTransactionForTests,
-  type ExomemSql,
-} from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
-import { exomemContractFixture0541 } from "../gateway-contract-0-54-1";
+import { exomemContractFixture0572 } from "../gateway-contract-0-57-2";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
   getLiveExomemHostedCohortCandidateId,
@@ -107,7 +103,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
      JOIN exomem_cells AS cell ON cell.id = route.cell_id
      JOIN exomem_agent_contract_candidates AS target ON target.id = $1::uuid
      WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0541.digest, sha("9")]
+    [candidateId, exomemContractFixture0572.digest, sha("9")]
   );
   await pool!.query(
     `UPDATE exomem_cells AS cell
@@ -120,7 +116,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
           exomem_routable_cell_contracts AS route
      WHERE target.id = $1::uuid AND route.cell_id = cell.id
        AND route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0541.digest]
+    [candidateId, exomemContractFixture0572.digest]
   );
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
@@ -144,7 +140,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        ON assignment.tenant_id = cell.tenant_id AND assignment.candidate_id = target.id
       AND assignment.state = 'active' AND assignment.expires_at > now()
      WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0541.digest]
+    [candidateId, exomemContractFixture0572.digest]
   );
 }
 
@@ -154,10 +150,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
  * whole reason the host allowlist exists, since every connector has its own
  * connectorId and therefore its own digest, which can never match a pinned one.
  */
-async function registerCimdClient(
-  platform: "claude" | "openai",
-  host: string
-): Promise<string> {
+async function registerCimdClient(platform: "claude" | "openai", host: string): Promise<string> {
   const clientId = `https://${host}/connectors/${randomUUID()}`;
   await pool!.query(
     `INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host)
@@ -484,9 +477,6 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
         "on this candidate: enabling OpenAI needs a fresh candidate and a whole new " +
         "promotion window, including a fresh Claude evidence run"
     );
-    assert.ok(
-      await resolveApprovedOAuthClient(claudeClientId),
-      "Claude admission is unaffected"
-    );
+    assert.ok(await resolveApprovedOAuthClient(claudeClientId), "Claude admission is unaffected");
   });
 });

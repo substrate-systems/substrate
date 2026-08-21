@@ -14,8 +14,9 @@ import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contra
 import { exomemHostedContractFixture as agentFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as agentFixture0490 } from "../agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as agentFixture0541 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0572 } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as agentFixture0500 } from "../agent-contract-fixture-0-50-0";
+import { exomemHostedContractFixture as agentFixture0541 } from "../agent-contract-fixture-0-54-1";
 import fullContract0340 from "./gateway-contract-0-34-0.json";
 import fullContract0350 from "./gateway-contract-0-35-0.json";
 import fullContract0500 from "./gateway-contract-0-50-0.json";
@@ -65,13 +66,21 @@ const RETAINED_0500_HOSTED_CONTRACT = {
   schemaDigest: agentFixture0500.compatibility.schema_contract_sha256,
   compatibilityDigest: agentFixture0500.compatibility.compatibility_sha256,
 };
-const CURRENT_HOSTED_CONTRACT = {
+const RETAINED_0541_HOSTED_CONTRACT = {
   profile: agentFixture0541.compatibility.profile,
   sourceRelease: agentFixture0541.sourceRelease,
   protocolVersion: agentFixture0541.compatibility.agent_contract.protocol_version,
   commandFingerprint: agentFixture0541.compatibility.command_surface_sha256,
   schemaDigest: agentFixture0541.compatibility.schema_contract_sha256,
   compatibilityDigest: agentFixture0541.compatibility.compatibility_sha256,
+};
+const CURRENT_HOSTED_CONTRACT = {
+  profile: agentFixture0572.compatibility.profile,
+  sourceRelease: agentFixture0572.sourceRelease,
+  protocolVersion: agentFixture0572.compatibility.agent_contract.protocol_version,
+  commandFingerprint: agentFixture0572.compatibility.command_surface_sha256,
+  schemaDigest: agentFixture0572.compatibility.schema_contract_sha256,
+  compatibilityDigest: agentFixture0572.compatibility.compatibility_sha256,
 };
 
 type TestContract = {
@@ -243,7 +252,8 @@ describe("registry-derived Exomem gateway", () => {
         },
       ],
       ["0.50.0", RETAINED_0500_HOSTED_CONTRACT],
-      ["0.54.1", CURRENT_HOSTED_CONTRACT],
+      ["0.54.1", RETAINED_0541_HOSTED_CONTRACT],
+      ["0.57.2", CURRENT_HOSTED_CONTRACT],
     ] as const) {
       const row = target({
         userId: USER_A,

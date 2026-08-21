@@ -6,6 +6,7 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0500 } from "./agent-contract-fixture-0-50-0";
+import { exomemHostedContractFixture as exomemHostedContractFixture0541 } from "./agent-contract-fixture-0-54-1";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -22,8 +23,26 @@ import {
 export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
 /** Releases whose fixtures are pinned here; the bare fixture is the live one. */
-export type TrustedRelease = "0.34.0" | "0.35.0" | "0.39.2" | "0.49.0" | "0.50.0" | "0.54.1";
+export type TrustedRelease =
+  | "0.34.0"
+  | "0.35.0"
+  | "0.39.2"
+  | "0.49.0"
+  | "0.50.0"
+  | "0.54.1"
+  | "0.57.2";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.57.2",
+    {
+      sourceCommit: "d4bbef7725d55f3bb6e8c288deadddb15ef7855f",
+      command_surface_sha256: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+      schema_contract_sha256: "30c65de187984940a57a122638d42a85989b7409e1eccb026a828fd1d785d788",
+      compatibility_sha256: "9e028c9e2001378a4ab5fc6f2c3a421e5502cf9e59fb043d6066055f115c08ea",
+      artifact_sha256: "9d2bba6d14038139bb4120b91c35c17364e88db4f077e69cfb0e5875d14c44ee",
+      archive_sha256: "0da1055f4bb34d383101011f568b171f73ad4e033c3f3dd575136e1da54a1442",
+    },
+  ],
   [
     "0.54.1",
     {
@@ -180,6 +199,7 @@ function checkedOpenAiLocks(
     record(exomemHostedContractFixture0340.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0350.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0392.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0541.packageLock, "Claude package lock"),
   ];
   const expected = [
     "schema_version",
@@ -363,7 +383,9 @@ export async function storeRetainedExomemAgentContractCandidate(
             ? exomemHostedContractFixture0490
             : sourceRelease === "0.50.0"
               ? exomemHostedContractFixture0500
-              : exomemHostedContractFixture;
+              : sourceRelease === "0.54.1"
+                ? exomemHostedContractFixture0541
+                : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 
@@ -967,7 +989,10 @@ export async function promoteExomemHostedCohort(input: {
         ? {
             evidence: promotionEvidenceDigest(openaiEvidence),
             result: sha256(openaiEvidence.result_sha256, "OpenAI result digest"),
-            packageArtifact: sha256(openaiEvidence.package_artifact_sha256, "OpenAI package digest"),
+            packageArtifact: sha256(
+              openaiEvidence.package_artifact_sha256,
+              "OpenAI package digest"
+            ),
             archive: sha256(openaiEvidence.archive_sha256, "OpenAI archive digest"),
             clientIdentity: sha256(
               openaiEvidence.clean_client_identity_hmac_sha256,

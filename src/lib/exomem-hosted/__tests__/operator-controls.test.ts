@@ -18,7 +18,7 @@ import {
   revokeOperatorOAuthFamily,
   setOperatorOAuthClientEnabled,
 } from "../operator-controls";
-import { exomemContractFixture0541 } from "../gateway-contract-0-54-1";
+import { exomemContractFixture0572 } from "../gateway-contract-0-57-2";
 import { operatorOAuthClientFingerprint } from "../oauth-client-admission";
 
 const originalControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe("hosted operator controls", () => {
-  it("stages a virgin bootstrap authority against the exact 0.54.1 gateway contract", async () => {
+  it("stages a virgin bootstrap authority against the exact 0.57.2 gateway contract", async () => {
     const values: unknown[] = [];
     const expiresAt = new Date(Date.now() + 5 * 60_000);
     __setExomemTransactionForTests(async (work) =>
@@ -53,8 +53,8 @@ describe("hosted operator controls", () => {
       }),
       { id: "018f2d91-7c42-7000-8000-000000000079", expiresAt: expiresAt.toISOString() }
     );
-    assert.equal(values.includes(exomemContractFixture0541.release), true);
-    assert.equal(values.includes(exomemContractFixture0541.digest), true);
+    assert.equal(values.includes(exomemContractFixture0572.release), true);
+    assert.equal(values.includes(exomemContractFixture0572.digest), true);
   });
 
   it("requires every reviewer and OAuth issuer to take the cohort lock before authority admission", () => {
@@ -208,14 +208,26 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /confirmation\.consumed_at IS NOT NULL/i);
     assert.match(mutation, /confirmation\.user_id = operation\.tenant_owner_user_id/i);
     assert.match(mutation, /idempotency_key = 'confirmed-deletion-' \|\| confirmation\.id::text/i);
-    assert.match(mutation, /operation\.cell_id IS NULL AND operation\.expected_previous_cell_id IS NULL/i);
+    assert.match(
+      mutation,
+      /operation\.cell_id IS NULL AND operation\.expected_previous_cell_id IS NULL/i
+    );
     assert.match(mutation, /source\.cell_id = cell\.id/i);
     assert.doesNotMatch(mutation, /operator\.reviewer_cleanup\.(?:authorized|delete_enqueued)/i);
-    assert.match(mutation, /assignment\.gateway_contract_digest = source\.target_gateway_contract_digest/i);
-    assert.match(mutation, /assignment\.compatibility_digest = source\.target_compatibility_digest/i);
+    assert.match(
+      mutation,
+      /assignment\.gateway_contract_digest = source\.target_gateway_contract_digest/i
+    );
+    assert.match(
+      mutation,
+      /assignment\.compatibility_digest = source\.target_compatibility_digest/i
+    );
     assert.match(mutation, /candidate\.schema_digest = source\.target_schema_digest/i);
     assert.match(mutation, /bootstrap\.candidate_contract_digest = candidate\.schema_digest/i);
-    assert.match(mutation, /bootstrap\.candidate_compatibility_digest = source\.target_compatibility_digest/i);
+    assert.match(
+      mutation,
+      /bootstrap\.candidate_compatibility_digest = source\.target_compatibility_digest/i
+    );
     assert.match(mutation, /allocation\.state = 'uncertain'/i);
     assert.match(mutation, /DELETION_SUPERSEDED/i);
     assert.match(mutation, /state = 'consumed'/i);
