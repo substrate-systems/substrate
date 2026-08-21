@@ -11,6 +11,7 @@ import {
   createReviewerOAuthBootstrapAuthority,
   listOperatorOAuthClients,
   listReviewerOAuthBootstrapAuthorities,
+  preflightReusablePinnedOAuthClient,
   refreshOperatorCimdOAuthClient,
   registerOperatorOAuthClient,
   revokeReviewerOAuthBootstrapAuthority,
@@ -78,6 +79,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await readOperatorJsonRecord(request);
     let result: { id: string; enabled: boolean };
     if (
+      body.action === "preflight_reuse_pinned" &&
+      Object.keys(body).length === 4 &&
+      (body.platform === "claude" || body.platform === "openai") &&
+      typeof body.clientId === "string" &&
+      Array.isArray(body.redirectUris) &&
+      body.redirectUris.every((redirectUri) => typeof redirectUri === "string")
+    ) {
+      const preflight = await preflightReusablePinnedOAuthClient({
+        platform: body.platform,
+        clientId: body.clientId,
+        redirectUris: body.redirectUris,
+      });
+      operatorSuccessEvent(requestId);
+      return NextResponse.json({ success: true, ...preflight, requestId });
+    } else if (
       (body.action === "register_pinned" || body.action === "register_cimd") &&
       (body.platform === "claude" || body.platform === "openai") &&
       ((typeof body.artifactId === "string" &&
@@ -92,7 +108,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       (body.registeredAppIdSha256 === undefined ||
         (typeof body.registeredAppIdSha256 === "string" &&
           SHA256.test(body.registeredAppIdSha256))) &&
-      (body.ttlSeconds === undefined || typeof body.ttlSeconds === "number")
+      (body.ttlSeconds === undefined || typeof body.ttlSeconds === "number") &&
+      (body.existingClientRecordId === undefined ||
+        (body.action === "register_pinned" &&
+          typeof body.existingClientRecordId === "string" &&
+          UUID.test(body.existingClientRecordId)))
     ) {
       result = await registerOperatorOAuthClient({
         admissionMode: body.action === "register_pinned" ? "pinned" : "cimd",
@@ -105,6 +125,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         redirectUris: body.redirectUris,
         ...(typeof body.registeredAppIdSha256 === "string"
           ? { registeredAppIdSha256: body.registeredAppIdSha256 }
+          : {}),
+        ...(typeof body.existingClientRecordId === "string"
+          ? { existingClientRecordId: body.existingClientRecordId }
           : {}),
         ttlSeconds: body.ttlSeconds as number | undefined,
       });

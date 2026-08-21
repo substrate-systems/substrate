@@ -9,6 +9,7 @@ import {
   listOperatorClientArtifacts,
   listOperatorOAuthClients,
   listReviewerOAuthBootstrapAuthorities,
+  preflightReusablePinnedOAuthClient,
   preflightRecoverExpiredReviewerCleanup,
   preflightRecoverTerminalReviewerDelete,
   recoverTerminalReviewerDelete,
@@ -260,6 +261,58 @@ describe("hosted operator controls", () => {
     assert.match(queries[1]!, /state IN \('staged', 'evidenced'\)/i);
     assert.match(queries[1]!, /expires_at > now\(\)/i);
     assert.match(queries[1]!, /oauth_client_config_sha256/i);
+  });
+
+  it("preflights only one disabled exact pinned client with no reviewer history", async () => {
+    let query = "";
+    const sql = async (strings: TemplateStringsArray) => {
+      query = strings.join("?");
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000091" }] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.deepEqual(
+      await preflightReusablePinnedOAuthClient({
+        platform: "claude",
+        clientId: "exomem-reviewer-bootstrap-018f2d91-7c42-7000-8000-000000000090",
+        redirectUris: ["http://localhost:47831/callback"],
+      }),
+      { eligible: true, clientRecordId: "018f2d91-7c42-7000-8000-000000000091" }
+    );
+    assert.match(query, /admission_mode = 'pinned'/i);
+    assert.match(query, /enabled = false/i);
+    assert.match(query, /reviewer_bootstrap_ever_authorized = false/i);
+    assert.match(query, /oauth_client_config_sha256 = /i);
+    assert.match(query, /metadata_provenance->>'mode' = 'pinned'/i);
+    assert.doesNotMatch(query, /\b(?:INSERT|UPDATE|DELETE)\b/i);
+  });
+
+  it("reuses only the explicitly named eligible record without inserting a client", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000091", enabled: false }] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.deepEqual(
+      await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform: "claude",
+        clientId: "exomem-reviewer-bootstrap-018f2d91-7c42-7000-8000-000000000090",
+        redirectUris: ["http://localhost:47831/callback"],
+        stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000092",
+        existingClientRecordId: "018f2d91-7c42-7000-8000-000000000091",
+      }),
+      { id: "018f2d91-7c42-7000-8000-000000000091", enabled: false }
+    );
+    assert.match(queries[1]!, /id = \?::uuid/i);
+    assert.match(queries[1]!, /exomem_staged_client_releases/i);
+    assert.match(queries[1]!, /reviewer_bootstrap_ever_authorized = false/i);
+    assert.match(queries[1]!, /enabled = false/i);
+    assert.doesNotMatch(queries[1]!, /INSERT INTO exomem_oauth_clients/i);
   });
 
   it("lists approved clients without returning their raw client identity or redirects", async () => {
