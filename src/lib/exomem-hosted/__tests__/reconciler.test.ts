@@ -33,6 +33,15 @@ class ContractIdentityRecordingProvisioner extends FakeCellProvisioner {
   }
 }
 
+class RollforwardRecordingProvisioner extends FakeCellProvisioner {
+  readonly rollforwardRequests: Array<Parameters<FakeCellProvisioner["rollforward"]>[0]> = [];
+
+  override async rollforward(request: Parameters<FakeCellProvisioner["rollforward"]>[0]) {
+    this.rollforwardRequests.push(request);
+    return super.rollforward(request);
+  }
+}
+
 function billingProof(tenantId: string) {
   return {
     tenantId,
@@ -80,7 +89,202 @@ async function convergeProvision(reconciler: LifecycleReconciler, tenantId = TEN
   }
 }
 
+function setV2RollforwardTarget(
+  store: InMemoryLifecycleStore,
+  operationId: string,
+  sourceRelease: string
+) {
+  const operation = store.operations.get(operationId);
+  assert.ok(operation);
+  operation.provisionerWireProtocol = "exomem-cell-provisioner.v2";
+  operation.target = {
+    candidateId: "018f2d91-7c42-7000-8000-000000000070",
+    assignmentId: "018f2d91-7c42-7000-8000-000000000071",
+    assignmentGeneration: 1,
+    sourceRelease,
+    protocolVersion: "1",
+    gatewayContractDigest: "a".repeat(64),
+    commandFingerprint: "b".repeat(64),
+    schemaDigest: "c".repeat(64),
+    compatibilityDigest: "d".repeat(64),
+  };
+  return operation;
+}
+
 describe("Exomem lifecycle reconciler", () => {
+  it("rolls a bound cell forward in place under an exact v2 assignment target", async () => {
+    const provisioner = new RollforwardRecordingProvisioner();
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "rollforward-source");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "rollforward", "rollforward-target", cellId);
+    setV2RollforwardTarget(store, operation.id, "2026.07.13");
+
+    const claimed = await reconciler.reconcileOne({ owner: "rollforward-gate", tenantId: TENANT });
+    assert.deepEqual(claimed, {
+      kind: "advanced",
+      operationId: operation.id,
+      checkpoint: "claimed",
+    });
+    assert.equal(store.tenants.get(TENANT)?.status, "suspended");
+    assert.equal(store.cells.get(cellId)?.lifecycleState, "draining");
+
+    for (let step = 0; step < 6; step += 1) {
+      await reconciler.reconcileOne({ owner: `rollforward-${step}`, tenantId: TENANT });
+    }
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "complete");
+    assert.equal(store.tenants.get(TENANT)?.boundCellId, cellId);
+    assert.equal(store.tenants.get(TENANT)?.status, "active");
+    assert.equal(store.cells.get(cellId)?.releaseVersion, "2026.07.13");
+    assert.equal(store.cells.get(cellId)?.routingState, "bound");
+    assert.equal(provisioner.resources.get(cellId)?.releaseVersion, "2026.07.13");
+    assert.equal(provisioner.rollforwardRequests.length, 1);
+    assert.equal(provisioner.rollforwardRequests[0]?.runtimeTarget?.releaseVersion, "2026.07.13");
+    assert.deepEqual(
+      store.checkpointHistory
+        .filter((entry) => entry.operationId === operation.id)
+        .map((entry) => entry.checkpoint),
+      ["claimed", "migrated", "upgraded", "verified", "recorded", "complete"]
+    );
+  });
+
+  it("rejects an older rollforward target before gating or calling the provider", async () => {
+    const provisioner = new RollforwardRecordingProvisioner();
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "rollforward-source-old");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "rollforward", "rollforward-older", cellId);
+    setV2RollforwardTarget(store, operation.id, "2026.07.11");
+
+    const result = await reconciler.reconcileOne({ owner: "rollforward-old", tenantId: TENANT });
+
+    assert.deepEqual(result, {
+      kind: "terminal",
+      operationId: operation.id,
+      code: "CELL_ROLLFORWARD_NOT_FORWARD",
+    });
+    assert.equal(store.tenants.get(TENANT)?.status, "active");
+    assert.equal(store.cells.get(cellId)?.releaseVersion, "2026.07.12");
+    assert.equal(provisioner.rollforwardRequests.length, 0);
+  });
+
+  it("does not record a rollforward identity that the cell fails to confirm", async () => {
+    const provisioner = new RollforwardRecordingProvisioner();
+    const { store, reconciler } = harness(undefined, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "rollforward-source-mismatch");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "rollforward", "rollforward-mismatch", cellId);
+    setV2RollforwardTarget(store, operation.id, "2026.07.13");
+    provisioner.readinessOverride.runtimeIdentity = {
+      releaseVersion: "2026.07.14",
+      protocolVersion: "1",
+      agentProfile: "hosted-alpha-agent-v1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+    };
+
+    await reconciler.reconcileOne({ owner: "rollforward-gate", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "rollforward-provider", tenantId: TENANT });
+    await reconciler.reconcileOne({ owner: "rollforward-migrated", tenantId: TENANT });
+    const result = await reconciler.reconcileOne({ owner: "rollforward-health", tenantId: TENANT });
+
+    assert.deepEqual(result, {
+      kind: "terminal",
+      operationId: operation.id,
+      code: "CELL_READINESS_MISMATCH",
+    });
+    assert.equal(store.cells.get(cellId)?.releaseVersion, "2026.07.12");
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "upgraded");
+  });
+
+  it("replays the exact rollforward after the runtime moved but its acknowledgement was lost", async () => {
+    const provisioner = new RollforwardRecordingProvisioner();
+    const { store, reconciler, nowState } = harness(undefined, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "rollforward-source-lost-ack");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    const operation = await store.enqueue(TENANT, "rollforward", "rollforward-lost-ack", cellId);
+    setV2RollforwardTarget(store, operation.id, "2026.07.13");
+    provisioner.loseNextAcknowledgement("rollforward");
+
+    await reconciler.reconcileOne({ owner: "rollforward-gate", tenantId: TENANT });
+    const lost = await reconciler.reconcileOne({ owner: "rollforward-lost", tenantId: TENANT });
+    assert.deepEqual(lost, {
+      kind: "retry_scheduled",
+      operationId: operation.id,
+      code: "PROVISIONER_TIMEOUT",
+    });
+    assert.equal(provisioner.resources.get(cellId)?.releaseVersion, "2026.07.13");
+
+    nowState.value = new Date(nowState.value.getTime() + 1_000);
+    for (let step = 0; step < 7; step += 1) {
+      await reconciler.reconcileOne({ owner: `rollforward-replay-${step}`, tenantId: TENANT });
+    }
+
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(provisioner.rollforwardRequests.length, 2);
+    assert.equal(
+      provisioner.rollforwardRequests[0]?.context.idempotencyKey,
+      provisioner.rollforwardRequests[1]?.context.idempotencyKey
+    );
+  });
+
+  it("idempotently re-records the same-cell observation after a lost database acknowledgement", async () => {
+    class LostRecordAcknowledgementStore extends InMemoryLifecycleStore {
+      lost = false;
+
+      override async recordRollforward(
+        input: Parameters<InMemoryLifecycleStore["recordRollforward"]>[0]
+      ) {
+        const recorded = await super.recordRollforward(input);
+        if (!this.lost) {
+          this.lost = true;
+          return false;
+        }
+        return recorded;
+      }
+    }
+    const store = new LostRecordAcknowledgementStore();
+    const provisioner = new RollforwardRecordingProvisioner();
+    const { reconciler, nowState } = harness(store, async () => true, provisioner);
+    await store.enqueue(TENANT, "provision", "rollforward-source-record-ack");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    const operation = await store.enqueue(TENANT, "rollforward", "rollforward-record-ack", cellId);
+    setV2RollforwardTarget(store, operation.id, "2026.07.13");
+
+    for (let step = 0; step < 5; step += 1) {
+      await reconciler.reconcileOne({ owner: `rollforward-record-${step}`, tenantId: TENANT });
+    }
+    assert.equal(store.cells.get(cellId)?.releaseVersion, "2026.07.13");
+    assert.equal(store.operations.get(operation.id)?.state, "failed_retryable");
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "verified");
+
+    nowState.value = new Date(nowState.value.getTime() + 1_000);
+    for (let step = 0; step < 3; step += 1) {
+      await reconciler.reconcileOne({
+        owner: `rollforward-record-replay-${step}`,
+        tenantId: TENANT,
+      });
+    }
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    assert.equal(store.tenants.get(TENANT)?.boundCellId, cellId);
+  });
+
   it("converges duplicate initial provision to one candidate and one active binding", async () => {
     const { store, provisioner, reconciler } = harness();
     const first = await store.enqueue(TENANT, "provision", "initial-provision");

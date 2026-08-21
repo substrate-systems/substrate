@@ -3,12 +3,12 @@
 - [x] 1.1 Clear `routable` on the tenant-destroy terminal checkpoint in `lifecycle-store.ts`, so a destroyed cell leaves the routable set
 - [x] 1.2 Add a PostgreSQL integration test proving a destroyed tenant's cell is absent from the routable set and that promotion's routable digest moves accordingly
   - In `agent-contract-routing-cas.integration.test.ts`, which was also added to CI — it had never been run there, so the guard would not have guarded anything. Verified to catch the bug: with the fix removed the assertion fails with `routable: true`.
-- [ ] 1.3 Add the `rollforward` operation kind, with a migration for any operation-kind constraint or enum
-- [ ] 1.4 Extend the routable observation write so a rollforward operation upserts `exomem_routable_cell_contracts` for the **same** `cell_id`, keyed on `(cell_id, profile_id)`
-- [ ] 1.5 Allow assignment activation from a rollforward operation without an `expected_previous_cell_id`, preserving every existing digest equality check
-- [ ] 1.6 Reject a rollforward whose target release is older than the cell's recorded release, with a stable content-free code
-- [ ] 1.7 Fail routing closed for a cell between its authorized transition and verified completion
-- [ ] 1.8 Add an operator-authenticated read-only fleet observation containing routable cells, bindings, assignments, unfinished operations, capacity claims, and reviewer-purpose state without owner identity, content, or secrets
+- [x] 1.3 Add the `rollforward` operation kind, with a migration for any operation-kind constraint or enum
+- [x] 1.4 Extend the routable observation write so a rollforward operation upserts `exomem_routable_cell_contracts` for the **same** `cell_id`, keyed on `(cell_id, profile_id)`
+- [x] 1.5 Allow assignment activation from a rollforward operation without an `expected_previous_cell_id`, preserving every existing digest equality check
+- [x] 1.6 Reject a rollforward whose target release is older than the cell's recorded release, with a stable content-free code
+- [x] 1.7 Fail routing closed for a cell between its authorized transition and verified completion
+- [x] 1.8 Add an operator-authenticated read-only fleet observation containing routable cells, bindings, assignments, unfinished operations, capacity claims, and reviewer-purpose state without owner identity, content, or secrets
 
 ## 2. Provisioner lifecycle action (exomem)
 

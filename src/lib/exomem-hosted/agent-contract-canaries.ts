@@ -494,7 +494,7 @@ export async function createCanaryAssignment(input: {
         FROM candidate CROSS JOIN tenant CROSS JOIN prior
         WHERE NOT EXISTS (
           SELECT 1 FROM exomem_agent_contract_rollout_assignments AS current
-          WHERE current.tenant_id = tenant.id AND current.state IN ('preparing', 'active')
+          WHERE current.tenant_id = tenant.id AND current.state = 'preparing'
         )
         RETURNING id::text AS id, generation, version, state, expires_at
       ) SELECT * FROM inserted

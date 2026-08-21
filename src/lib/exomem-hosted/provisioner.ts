@@ -67,6 +67,10 @@ export type CellTargetRequest = CellRequest & {
   providerRef: string;
 };
 
+export type RollforwardCellRequest = CellTargetRequest & {
+  compatibilityDigest: string;
+};
+
 export type RotateCredentialRequest = CellTargetRequest & {
   phase: "stage" | "finalize";
   credentialVersion: number;
@@ -165,6 +169,7 @@ export type ExportDownloadResult = {
 
 export interface CellProvisioner {
   provision(request: ProvisionCellRequest): Promise<ProvisionedCell>;
+  rollforward(request: RollforwardCellRequest): Promise<void>;
   health(request: CellTargetRequest): Promise<CellReadiness>;
   rotateCredential(request: RotateCredentialRequest): Promise<CredentialRotationResult>;
   quiesce(request: CellTargetRequest): Promise<void>;
@@ -294,7 +299,9 @@ function contextBody(context: ProvisionerCallContext): Record<string, unknown> {
   };
 }
 
-function wireProtocol(request: { provisionerWireProtocol?: ProvisionerWireProtocol }): ProvisionerWireProtocol {
+function wireProtocol(request: {
+  provisionerWireProtocol?: ProvisionerWireProtocol;
+}): ProvisionerWireProtocol {
   if (request.provisionerWireProtocol === undefined) return PROVISIONER_PROTOCOL_V1;
   if (
     request.provisionerWireProtocol === PROVISIONER_PROTOCOL_V1 ||
@@ -364,6 +371,18 @@ function targetBody(request: CellTargetRequest): Record<string, unknown> {
   return {
     ...baseCellBody(request),
     providerRef: request.providerRef,
+  };
+}
+
+function rollforwardBody(request: RollforwardCellRequest): Record<string, unknown> {
+  const compatibilityDigest = boundedLabel(request.compatibilityDigest, 64);
+  if (!compatibilityDigest || !/^[a-f0-9]{64}$/.test(compatibilityDigest)) {
+    throw configurationFailure();
+  }
+  if (wireProtocol(request) !== PROVISIONER_PROTOCOL_V2) throw configurationFailure();
+  return {
+    ...targetBody(request),
+    compatibilityDigest,
   };
 }
 
@@ -611,7 +630,9 @@ export class HttpCellProvisioner implements CellProvisioner {
       }
       if (
         wireProtocol(request) === PROVISIONER_PROTOCOL_V2 &&
-        ["quiesce", "resume", "stop", "export-release", "restore", "seal"].includes(action) &&
+        ["rollforward", "quiesce", "resume", "stop", "export-release", "restore", "seal"].includes(
+          action
+        ) &&
         response.status !== 202 &&
         response.status !== 204
       ) {
@@ -679,6 +700,10 @@ export class HttpCellProvisioner implements CellProvisioner {
       });
     }
     return { providerRef, privateEndpoint: new SensitiveSecret(privateEndpoint) };
+  }
+
+  async rollforward(request: RollforwardCellRequest): Promise<void> {
+    await this.#call("rollforward", request, rollforwardBody(request));
   }
 
   async health(request: CellTargetRequest): Promise<CellReadiness> {
@@ -1009,6 +1034,7 @@ type FakeResource = {
 
 type ProvisionerAction =
   | "provision"
+  | "rollforward"
   | "health"
   | "rotate-credential"
   | "quiesce"
@@ -1162,6 +1188,30 @@ export class FakeCellProvisioner implements CellProvisioner {
       state: "running",
     });
     return this.#after("provision", key, { providerRef, privateEndpoint: endpoint });
+  }
+
+  async rollforward(request: RollforwardCellRequest): Promise<void> {
+    const selectedRuntimeTarget = runtimeTarget(request);
+    const body = rollforwardBody(request);
+    const key = this.#before("rollforward", request, {
+      providerRef: request.providerRef,
+      compatibilityDigest: body.compatibilityDigest,
+    });
+    if (this.#results.has(key)) return;
+    const resource = this.#resource(request);
+    resource.protocolVersion = selectedRuntimeTarget.protocolVersion;
+    resource.releaseVersion = selectedRuntimeTarget.releaseVersion;
+    resource.provisionerWireProtocol = PROVISIONER_PROTOCOL_V2;
+    resource.agentProfile = selectedRuntimeTarget.agentProfile;
+    resource.runtimeTarget = selectedRuntimeTarget;
+    resource.contractIdentity = {
+      gatewayContractDigest: selectedRuntimeTarget.gatewayContractDigest,
+      commandFingerprint: selectedRuntimeTarget.commandFingerprint,
+      schemaDigest: selectedRuntimeTarget.schemaDigest,
+      compatibilityDigest: request.compatibilityDigest,
+    };
+    resource.state = "running";
+    this.#after("rollforward", key, true);
   }
 
   async health(request: CellTargetRequest): Promise<CellReadiness> {

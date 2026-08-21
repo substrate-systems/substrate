@@ -29,6 +29,7 @@ import type { BillingDeletionTarget } from "./billing-deletion";
 
 export type LifecycleOperationType =
   | "provision"
+  | "rollforward"
   | "suspend"
   | "resume"
   | "rotate_credential"
@@ -231,6 +232,12 @@ export interface LifecycleStore {
     contractIdentity?: CellContractIdentity;
     runtimeIdentity?: RuntimeTarget;
   }): Promise<boolean>;
+  recordRollforward(input: {
+    operationId: string;
+    owner: string;
+    code: string;
+    runtimeIdentity: RuntimeTarget;
+  }): Promise<boolean>;
   recordOperationReference(
     operationId: string,
     owner: string,
@@ -432,6 +439,25 @@ function pendingCheckpointMatches(operation: LifecycleOperation, checkpoint: str
     sealed: ["tenant-destroy"],
   };
   return actionCheckpoints[operation.checkpoint]?.includes(checkpoint) === true;
+}
+
+function compareReleaseVersions(left: string, right: string): number | null {
+  const parse = (value: string): [number, number, number] | null => {
+    if (!/^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(value)) return null;
+    const parts = value.split(".").map(Number);
+    return parts.length === 3 && parts.every(Number.isSafeInteger)
+      ? (parts as [number, number, number])
+      : null;
+  };
+  const leftParts = parse(left);
+  const rightParts = parse(right);
+  if (!leftParts || !rightParts) return null;
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) {
+      return leftParts[index]! < rightParts[index]! ? -1 : 1;
+    }
+  }
+  return 0;
 }
 
 function mandatoryRecoveryCode(operation: LifecycleOperation): string | null {
@@ -1056,6 +1082,80 @@ export class LifecycleReconciler {
     return this.#terminal(operation, owner, "LIFECYCLE_CHECKPOINT_INVALID");
   }
 
+  async #rollforward(operation: LifecycleOperation, owner: string): Promise<ReconcileResult> {
+    if (
+      operation.provisionerWireProtocol !== PROVISIONER_PROTOCOL_V2 ||
+      !operation.target?.assignmentId ||
+      !operation.target.assignmentGeneration
+    ) {
+      return this.#terminal(operation, owner, "CELL_ROLLFORWARD_TARGET_INVALID");
+    }
+    const cell = await this.#cell(operation);
+    if (operation.checkpoint === "created") {
+      const comparison = compareReleaseVersions(
+        cell.releaseVersion,
+        operation.target.sourceRelease
+      );
+      if (comparison === null) {
+        return this.#terminal(operation, owner, "CELL_ROLLFORWARD_RELEASE_INVALID");
+      }
+      if (comparison >= 0) {
+        return this.#terminal(operation, owner, "CELL_ROLLFORWARD_NOT_FORWARD");
+      }
+      this.#requireStored(await this.#store.applyLocalGate(operation.id, owner, "suspended"));
+      return this.#advance(operation, owner, "claimed");
+    }
+    if (operation.checkpoint === "claimed") {
+      await this.#provisioner.rollforward({
+        ...this.#target(operation, cell),
+        compatibilityDigest: operation.target.compatibilityDigest,
+      });
+      return this.#advance(operation, owner, "migrated");
+    }
+    if (operation.checkpoint === "migrated") {
+      return this.#advance(operation, owner, "upgraded");
+    }
+    if (operation.checkpoint === "upgraded" || operation.checkpoint === "verified") {
+      const readiness = await this.#provisioner.health(this.#target(operation, cell));
+      if (readinessMismatch(readiness, cell, this.#config, operation)) {
+        return this.#terminal(operation, owner, "CELL_READINESS_MISMATCH");
+      }
+      if (!readiness.live || !readiness.ready || !readiness.runtimeIdentity) {
+        const code = readiness.code === "CELL_READY" ? "CELL_NOT_READY" : readiness.code;
+        const retried = await this.#store.retry(
+          operation.id,
+          owner,
+          code,
+          this.#backoff(operation.attempts)
+        );
+        return retried
+          ? { kind: "retry_scheduled", operationId: operation.id, code }
+          : { kind: "idle" };
+      }
+      if (operation.checkpoint === "upgraded") {
+        return this.#advance(operation, owner, "verified");
+      }
+      this.#requireStored(
+        await this.#store.recordRollforward({
+          operationId: operation.id,
+          owner,
+          code: readiness.code,
+          runtimeIdentity: readiness.runtimeIdentity,
+        })
+      );
+      return this.#advance(operation, owner, "recorded");
+    }
+    if (operation.checkpoint === "recorded") {
+      this.#requireStored(await this.#store.activateAfterReadiness(operation.id, owner));
+      return this.#advance(operation, owner, "complete");
+    }
+    if (operation.checkpoint === "complete") {
+      this.#requireStored(await this.#store.succeed(operation.id, owner));
+      return { kind: "succeeded", operationId: operation.id };
+    }
+    return this.#terminal(operation, owner, "LIFECYCLE_CHECKPOINT_INVALID");
+  }
+
   async #suspend(operation: LifecycleOperation, owner: string): Promise<ReconcileResult> {
     if (operation.checkpoint === "created") {
       this.#requireStored(await this.#store.applyLocalGate(operation.id, owner, "suspended"));
@@ -1511,6 +1611,8 @@ export class LifecycleReconciler {
       switch (operation.operationType) {
         case "provision":
           return await this.#provision(operation, input.owner);
+        case "rollforward":
+          return await this.#rollforward(operation, input.owner);
         case "restore":
           return await this.#restore(operation, input.owner);
         case "suspend":
@@ -2119,6 +2221,42 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     const operation = this.#owned(input.operationId, input.owner);
     const cell = operation?.cellId ? this.cells.get(operation.cellId) : null;
     if (!cell) return false;
+    cell.readinessCode = input.code;
+    return true;
+  }
+
+  async recordRollforward(input: {
+    operationId: string;
+    owner: string;
+    code: string;
+    runtimeIdentity: RuntimeTarget;
+  }): Promise<boolean> {
+    const operation = this.#owned(input.operationId, input.owner);
+    const tenant = operation ? this.tenants.get(operation.tenantId) : null;
+    const cell = operation?.cellId ? this.cells.get(operation.cellId) : null;
+    const target = operation?.target;
+    if (
+      !operation ||
+      operation.operationType !== "rollforward" ||
+      operation.provisionerWireProtocol !== PROVISIONER_PROTOCOL_V2 ||
+      !tenant ||
+      !cell ||
+      !target?.assignmentId ||
+      !target.assignmentGeneration ||
+      tenant.boundCellId !== cell.id ||
+      cell.routingState !== "bound" ||
+      input.code !== "CELL_READY" ||
+      input.runtimeIdentity.releaseVersion !== target.sourceRelease ||
+      input.runtimeIdentity.protocolVersion !== target.protocolVersion ||
+      input.runtimeIdentity.agentProfile !== EXOMEM_HOSTED_PROFILE ||
+      input.runtimeIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
+      input.runtimeIdentity.commandFingerprint !== target.commandFingerprint ||
+      input.runtimeIdentity.schemaDigest !== target.schemaDigest
+    ) {
+      return false;
+    }
+    cell.releaseVersion = target.sourceRelease;
+    cell.protocolVersion = target.protocolVersion;
     cell.readinessCode = input.code;
     return true;
   }

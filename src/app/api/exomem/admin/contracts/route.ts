@@ -116,10 +116,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ) {
         throw exomemErrors.invalidRequest();
       }
-      const sourceOperationId =
-        terminalDeleteRecovery
-          ? uuid(body.operationId)
-          : uuid(body.sourceOperationId);
+      const sourceOperationId = terminalDeleteRecovery
+        ? uuid(body.operationId)
+        : uuid(body.sourceOperationId);
       const expectedFence = fence(body.expectedFence);
       if (!sourceOperationId || !expectedFence) throw exomemErrors.invalidRequest();
       if (
@@ -295,6 +294,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       };
     } else if (body.action === "expire-canary-authority") {
       response = { expired: await expireCanaryAuthority() };
+    } else if (body.action === "begin-rollforward") {
+      if (
+        Object.keys(body).length !== 4 ||
+        !Object.prototype.hasOwnProperty.call(body, "tenantId") ||
+        !Object.prototype.hasOwnProperty.call(body, "cellId") ||
+        !Object.prototype.hasOwnProperty.call(body, "idempotencyKey")
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
+      const tenantId = uuid(body.tenantId);
+      const cellId = uuid(body.cellId);
+      const key = idempotencyKey(body.idempotencyKey);
+      if (!tenantId || !cellId || !key) throw exomemErrors.invalidRequest();
+      const operation = await new SqlLifecycleStore().enqueue(tenantId, "rollforward", key, cellId);
+      response = {
+        operation: { id: operation.id, state: operation.state, target: operation.target },
+      };
     } else if (body.action === "begin-export") {
       const tenantId = uuid(body.tenantId);
       const key = idempotencyKey(body.idempotencyKey);
