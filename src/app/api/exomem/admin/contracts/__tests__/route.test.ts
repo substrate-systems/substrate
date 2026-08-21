@@ -428,18 +428,18 @@ describe("Exomem operator contract controls", () => {
     });
   });
 
-  it("requires operator authority to re-import a retained release as a fresh candidate", async () => {
+  it("requires operator authority to re-import 0.54.1 as a fresh retained candidate", async () => {
     const { POST } = await import("../route");
     assert.equal(
-      (await POST(request({ action: "import-retained-agent", sourceRelease: "0.49.0" }))).status,
+      (await POST(request({ action: "import-retained-agent", sourceRelease: "0.54.1" }))).status,
       401
     );
     const response = await POST(
-      request({ action: "import-retained-agent", sourceRelease: "0.49.0" }, `Bearer ${ADMIN_TOKEN}`)
+      request({ action: "import-retained-agent", sourceRelease: "0.54.1" }, `Bearer ${ADMIN_TOKEN}`)
     );
     assert.equal(response.status, 200);
     assert.equal((await response.json()).candidateId, "candidate-fresh");
-    assert.equal(importedRelease, "0.49.0");
+    assert.equal(importedRelease, "0.54.1");
   });
 
   it("rejects releases outside the immutable retained catalog", async () => {
@@ -448,6 +448,6 @@ describe("Exomem operator contract controls", () => {
       request({ action: "import-retained-agent", sourceRelease: "0.24.0" }, `Bearer ${ADMIN_TOKEN}`)
     );
     assert.equal(response.status, 400);
-    assert.equal(importedRelease, "0.49.0");
+    assert.equal(importedRelease, "0.54.1");
   });
 });
