@@ -46,8 +46,9 @@ of it is not movable at all except by replacing the cell.
 - Downgrade. Rollforward moves forward only; recovering a bad release is the existing
   restore/replacement path.
 - Fleet orchestration policy (batching, canary percentages, pacing). This change adds the
-  per-cell operation; who calls it and in what order is deliberately left to the operator
-  and a later change.
+  per-cell operation and its read-only inventory surface. The cross-repository
+  `standardize-hosted-runtime-upgrades` workflow owns explicit canary selection and
+  sequential fleet execution.
 - Changing how the deployment lock is composed or how `expand`/`contract` admission works.
 
 ## Decisions
@@ -107,6 +108,14 @@ read, and the observation write is an upsert keyed on `(cell_id, profile_id)`. T
 satisfies the existing requirement that a reconciler resuming from a verified checkpoint
 does not unsafely replay completed destructive work.
 
+### Assignment and initiation are explicit
+
+Rollforward requires a pre-created operator assignment for the exact tenant and target,
+and the operator explicitly initiates one cell operation at a time. Moving the deployment
+lock never auto-enrols a tenant and the reconciler never scans for old releases to mutate.
+This keeps adoption authority separate from tenant-mutation authority and gives the fleet
+workflow a hard stop after any failed canary.
+
 ### Fix the destroy-path ghost in this change
 
 Destroying a tenant leaves `routable = true` for a dead cell, and promotion live-probes
@@ -146,21 +155,14 @@ deletion away from being stuck.
 4. Roll the remaining fleet in sequence under `expand`.
 5. Compose a `contract` lock once no cell is left behind.
 
-Rollback: `helm upgrade --atomic` self-reverts a failed cell upgrade; a cell already moved
-can be returned with `helm rollback` to its prior revision, and the control-plane record is
-corrected by re-running rollforward against the earlier target only if that target is still
-in the lock's catalog.
+Recovery: before the routable observation moves, `helm upgrade --atomic` returns a failed
+cell transition to its recorded prior revision and the operation fails terminal. After the
+observation moves, the workflow keeps expand mode active and stops; it does not run reverse
+rollforward, relabel the cell, or downgrade it automatically. Any later restore or recovery
+is separately reviewed and authorized.
 
 ## Open Questions
 
-- Does rollforward require a pre-created rollout assignment, or should the operation create
-  one implicitly? Requiring one keeps canary semantics explicit; creating one implicitly
-  makes a fleet roll a single call per tenant.
-- Should rollforward be operator-initiated per tenant, or driven by the reconciler once the
-  deployment lock's runtime target moves? The latter is closer to "seamless" but removes the
-  operator's per-tenant gate.
-- **Concrete first case:** tenant `1809ce5c` was upgraded out of band on 2026-08-18 and is
-  now serving 0.54.1 while recorded as 0.50.0. The first rollforward against it will be a
-  no-op at the Helm layer but must still correct the record. This is a useful acceptance
-  case, and it should be decided whether reconciling an already-diverged cell is in scope
-  for the operation or needs a separate repair path.
+None. Assignment creation and per-cell initiation are explicit, rollforward is forward
+only, and the already-diverged production cell was handled by the separately governed
+`correct-diverged-cell-release` repair rather than weakening this operation.

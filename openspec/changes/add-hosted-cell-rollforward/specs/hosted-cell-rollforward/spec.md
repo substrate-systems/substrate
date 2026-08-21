@@ -119,3 +119,23 @@ retained row for a destroyed cell blocks all future promotion.
 
 - **WHEN** a cohort promotion is attempted after a tenant has been destroyed
 - **THEN** the routable set contains only live cells and the destroyed cell is absent
+
+### Requirement: Operators can reconcile complete fleet authority before mutation
+
+The control plane SHALL expose an authenticated, read-only, transactionally coherent
+fleet observation containing routable contract observations, tenant-to-cell bindings,
+active rollout assignments, unfinished lifecycle operations, capacity claims, and
+reviewer-purpose state. The observation SHALL contain only opaque cell and operation
+identifiers plus exact runtime identities and bounded state codes; it MUST NOT contain an
+owner identifier, email, credential, browser token, note title, vault path, or tenant
+content.
+
+#### Scenario: Empty control-plane fleet is observed
+
+- **WHEN** no active binding, routable cell, assignment, unfinished operation, capacity claim, reviewer authority, or reviewer-purpose tenant exists
+- **THEN** the observation returns each authority set explicitly as empty and reports zero active capacity claims
+
+#### Scenario: A ghost or unfinished transition exists
+
+- **WHEN** any routable cell lacks an active binding or any assignment, lifecycle operation, capacity claim, or reviewer-purpose tenant remains
+- **THEN** the observation includes that exact opaque state so the cross-repository inventory can refuse an unsafe upgrade phase
