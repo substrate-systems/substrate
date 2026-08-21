@@ -42,7 +42,7 @@ type V2ContractFixture = Omit<ContractFixture, "errors"> & {
 const fixture = rawFixture as ContractFixture;
 const v2Fixture = rawV2Fixture as unknown as V2ContractFixture;
 const FIXTURE_SHA256 = "ced714a5aa204a837e22cab831262cc0ae4766e44720b2896e61b8c157ddd3b5";
-const V2_FIXTURE_SHA256 = "fe4daf1b190e8e4efc737a7197d8df73c28a8672bd8e331fc95dcabf339e0881";
+const V2_FIXTURE_SHA256 = "738cb8e774ee9634545b1b48c38dee5112f8cfeb29f28b99bd5267c923204f09";
 
 function credential(seed: string): string {
   return createHash("sha256").update(seed).digest("base64url");
@@ -141,6 +141,7 @@ function v2ProvisionRequest(): ProvisionCellRequest {
       gatewayContractDigest: String(runtimeTarget.gatewayContractDigest),
       commandFingerprint: String(runtimeTarget.commandFingerprint),
       schemaDigest: String(runtimeTarget.schemaDigest),
+      compatibilityDigest: String(runtimeTarget.compatibilityDigest),
     },
     contractIdentity: {
       gatewayContractDigest: String(runtimeTarget.gatewayContractDigest),
@@ -254,7 +255,18 @@ async function invoke(
 }
 
 function normalizedResult(action: string, result: unknown): unknown {
-  if (["quiesce", "resume", "stop", "export-release", "restore", "seal"].includes(action)) {
+  if (
+    [
+      "rollforward",
+      "rollback-rollforward",
+      "quiesce",
+      "resume",
+      "stop",
+      "export-release",
+      "restore",
+      "seal",
+    ].includes(action)
+  ) {
     return null;
   }
   if (action === "provision") {
@@ -501,6 +513,7 @@ describe("Python provisioner v2 interoperability corpus", () => {
           gatewayContractDigest: string;
           commandFingerprint: string;
           schemaDigest: string;
+          compatibilityDigest: string;
         },
         contractIdentity: {
           gatewayContractDigest: String(runtimeTarget?.gatewayContractDigest),
@@ -536,6 +549,18 @@ describe("Python provisioner v2 interoperability corpus", () => {
           return adapter.provision({ ...base, provisionMode: "serve" } as ProvisionCellRequest);
         case "health":
           return adapter.health({ ...base, providerRef: String(body.providerRef) } as CellTargetRequest);
+        case "rollforward":
+          return adapter.rollforward({
+            ...base,
+            providerRef: String(body.providerRef),
+            compatibilityDigest: String(body.compatibilityDigest),
+          } as never);
+        case "rollback-rollforward":
+          return adapter.rollbackRollforward({
+            ...base,
+            providerRef: String(body.providerRef),
+            compatibilityDigest: String(body.compatibilityDigest),
+          } as never);
         case "rotate-credential":
           return adapter.rotateCredential({
             ...base,

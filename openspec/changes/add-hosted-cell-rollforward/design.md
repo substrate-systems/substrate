@@ -21,7 +21,7 @@ contents form the routable set digest promotion compares against — is written 
 a provisioning operation. Nothing probes the cell. The control plane still records 0.50.0
 for a cell demonstrably serving 0.54.1.
 
-That asymmetry is the design problem: the runtime is trivially movable, and the *record*
+That asymmetry is the design problem: the runtime is trivially movable, and the _record_
 of it is not movable at all except by replacing the cell.
 
 ## Goals / Non-Goals
@@ -79,12 +79,15 @@ The two previous decisions are in tension: we must not take the cell's word for 
 record, yet recording pure intent would let the record run ahead of reality exactly as it
 currently lags behind it.
 
-Resolution: intent *authorizes* and observation *confirms*. After the Helm upgrade the
+Resolution: intent _authorizes_ and observation _confirms_. After the Helm upgrade the
 operation reads the cell's advertised release, protocol, command fingerprint, schema and
 compatibility digests and requires them to equal the authorized target. Equal, and the
-routable observation is written for the same `cell_id`. Not equal, and the operation rolls
-back and fails terminal without writing. The cell can therefore veto a claim about itself
-but can never originate one.
+routable observation is written for the same `cell_id`. Not equal, and the control plane
+invokes an operation-scoped rollback action that the provisioner accepts only while that
+same operation's retained Helm marker and prior revision remain authoritative; it then
+fails terminal without writing. The cell can therefore veto a claim about itself but can
+never originate one, and neither a fresh operation nor reconstructed target can authorize
+rollback.
 
 ### A distinct `migrate` workload mode for root-run migrations
 
@@ -102,11 +105,19 @@ declares a migration, and required to succeed before the serving pod is moved.
 
 ### Checkpoints mirror the existing operation model
 
-`claimed → migrated → upgraded → verified → recorded → complete`. Each step is idempotent
-on replay: a Helm upgrade already at the target revision is a no-op, verification is a
-read, and the observation write is an upsert keyed on `(cell_id, profile_id)`. This
-satisfies the existing requirement that a reconciler resuming from a verified checkpoint
-does not unsafely replay completed destructive work.
+`claimed → migrated → upgraded → verified → recorded → complete`. A pre-record failure
+through `upgraded` moves to `rollforward-recovery`; that checkpoint replays the same
+operation's rollback until completion, then atomically restores the tenant and cell to
+running while recording the original terminal code. `verified` is already on the
+forward-only side of the boundary because the observation write and checkpoint advance
+are separate transactions: a lost write acknowledgement may mean the target is recorded.
+Failures at `verified`, `recorded`, or `complete` therefore replay mandatory forward
+completion and never initiate rollback. Each forward step is idempotent on replay: a Helm
+upgrade already at the target revision is a no-op, verification is a read, and the
+observation write is an upsert keyed on `(cell_id, profile_id)`.
+
+Promotion accepts either a successful provision/restore at `bound` or a successful
+rollforward at `complete` as the persisted operation proof for the exact candidate.
 
 ### Assignment and initiation are explicit
 
@@ -156,10 +167,12 @@ deletion away from being stuck.
 5. Compose a `contract` lock once no cell is left behind.
 
 Recovery: before the routable observation moves, `helm upgrade --atomic` returns a failed
-cell transition to its recorded prior revision and the operation fails terminal. After the
-observation moves, the workflow keeps expand mode active and stops; it does not run reverse
-rollforward, relabel the cell, or downgrade it automatically. Any later restore or recovery
-is separately reviewed and authorized.
+transition to its recorded prior revision. If the Helm transition committed but the control
+plane's independent exact-target check then fails, the same lifecycle operation invokes the
+bounded provisioner rollback action against its retained marker and prior revision. After
+the observation moves, the workflow keeps expand mode active and stops; it does not run
+reverse rollforward, relabel the cell, or downgrade it automatically. Any later restore or
+recovery is separately reviewed and authorized.
 
 ## Open Questions
 

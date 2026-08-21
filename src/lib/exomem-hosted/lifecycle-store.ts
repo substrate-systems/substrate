@@ -894,7 +894,8 @@ export class SqlLifecycleStore implements LifecycleStore {
               'export-stored', 'export-expired-release',
               'export-expired-released', 'export-expired-resumed',
               'export-expired-readiness-proved',
-              'prior-retirement', 'prior-retired'
+              'prior-retirement', 'prior-retired',
+              'rollforward-recovery', 'verified', 'recorded', 'complete'
             )
             OR (
               operation.operation_type = 'export'
@@ -1391,7 +1392,9 @@ export class SqlLifecycleStore implements LifecycleStore {
       SET state = 'failed_retryable',
           attempts = CASE WHEN ${errorCode} = 'CAPACITY_UNAVAILABLE' THEN GREATEST(attempts - 1, 0) ELSE attempts END,
           error_code = CASE
-            WHEN operation.checkpoint IN ('candidate-cleanup', 'export-failure-resume')
+            WHEN operation.checkpoint IN (
+              'candidate-cleanup', 'export-failure-resume', 'rollforward-recovery'
+            )
               THEN operation.error_code
             ELSE ${errorCode}
           END,
@@ -1424,7 +1427,10 @@ export class SqlLifecycleStore implements LifecycleStore {
       UPDATE exomem_lifecycle_operations AS operation
       SET state = 'waiting',
           attempts = GREATEST(attempts - 1, 0),
-          error_code = NULL,
+          error_code = CASE
+            WHEN operation.checkpoint = 'rollforward-recovery' THEN operation.error_code
+            ELSE NULL
+          END,
           next_attempt_at = ${nextAttemptAt.toISOString()},
           lease_owner = NULL,
           lease_expires_at = NULL,
@@ -1722,6 +1728,7 @@ export class SqlLifecycleStore implements LifecycleStore {
             AND ${input.runtimeIdentity.gatewayContractDigest} = operation.target_gateway_contract_digest
             AND ${input.runtimeIdentity.commandFingerprint} = operation.target_command_fingerprint
             AND ${input.runtimeIdentity.schemaDigest} = operation.target_schema_digest
+            AND ${input.runtimeIdentity.compatibilityDigest} = operation.target_compatibility_digest
           FOR UPDATE OF operation, tenant, cell, candidate, assignment
         ), retired_assignment AS (
           UPDATE exomem_agent_contract_rollout_assignments AS assignment
@@ -2459,6 +2466,91 @@ export class SqlLifecycleStore implements LifecycleStore {
             AND tenant.fence_generation = operation.fence_generation
         )
       RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async prepareRollforwardRecovery(
+    operationId: string,
+    owner: string,
+    errorCode: string
+  ): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-prepare-rollforward-recovery */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET checkpoint = 'rollforward-recovery',
+          state = 'waiting',
+          attempts = 0,
+          error_code = ${errorCode},
+          next_attempt_at = now(),
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          updated_at = now()
+      FROM exomem_tenants AS tenant, exomem_cells AS cell
+      WHERE operation.id = ${operationId}
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.operation_type = 'rollforward'
+        AND operation.checkpoint NOT IN ('created', 'rollforward-recovery')
+        AND tenant.id = operation.tenant_id
+        AND tenant.bound_cell_id = operation.cell_id
+        AND tenant.fence_generation = operation.fence_generation
+        AND tenant.desired_state = 'suspended'
+        AND cell.id = operation.cell_id
+        AND cell.tenant_id = operation.tenant_id
+      RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async completeRollforwardRecovery(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-complete-rollforward-recovery */
+      WITH owned AS MATERIALIZED (
+        SELECT operation.id, operation.tenant_id, operation.cell_id
+        FROM exomem_lifecycle_operations AS operation
+        JOIN exomem_tenants AS tenant
+          ON tenant.id = operation.tenant_id
+         AND tenant.bound_cell_id = operation.cell_id
+         AND tenant.desired_state <> 'deleted'
+        JOIN exomem_cells AS cell
+          ON cell.id = operation.cell_id
+         AND cell.tenant_id = operation.tenant_id
+        WHERE operation.id = ${operationId}
+          AND operation.operation_type = 'rollforward'
+          AND operation.checkpoint = 'rollforward-recovery'
+          AND operation.error_code IS NOT NULL
+          AND operation.state = 'running'
+          AND operation.lease_owner = ${owner}
+          AND operation.lease_expires_at > now()
+          AND operation.fence_generation = tenant.fence_generation
+        FOR UPDATE OF operation, tenant, cell
+      ), cell_active AS (
+        UPDATE exomem_cells AS cell
+        SET lifecycle_state = 'active', desired_state = 'running', updated_at = now()
+        FROM owned
+        WHERE cell.id = owned.cell_id
+        RETURNING cell.tenant_id
+      ), tenant_active AS (
+        UPDATE exomem_tenants AS tenant
+        SET status = 'active', desired_state = 'running', updated_at = now()
+        FROM cell_active
+        WHERE tenant.id = cell_active.tenant_id
+        RETURNING tenant.id
+      ), operation_failed AS (
+        UPDATE exomem_lifecycle_operations AS operation
+        SET state = 'failed_terminal',
+            completed_at = now(),
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            updated_at = now()
+        FROM owned, tenant_active
+        WHERE operation.id = owned.id
+          AND tenant_active.id = owned.tenant_id
+        RETURNING operation.id
+      )
+      SELECT id FROM operation_failed
     `;
     return rows.length === 1;
   }

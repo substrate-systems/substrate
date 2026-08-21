@@ -266,6 +266,12 @@ export interface LifecycleStore {
   bindCandidate(operationId: string, owner: string): Promise<boolean>;
   prepareCandidateCleanup(operationId: string, owner: string, errorCode: string): Promise<boolean>;
   prepareExportRecovery(operationId: string, owner: string, errorCode: string): Promise<boolean>;
+  prepareRollforwardRecovery(
+    operationId: string,
+    owner: string,
+    errorCode: string
+  ): Promise<boolean>;
+  completeRollforwardRecovery(operationId: string, owner: string): Promise<boolean>;
   markUnboundCellDestroyed(operationId: string, owner: string, cellId: string): Promise<boolean>;
   applyLocalGate(
     operationId: string,
@@ -434,6 +440,7 @@ function pendingCheckpointMatches(operation: LifecycleOperation, checkpoint: str
     "rotation-staged": ["rotation-pending-readiness"],
     "export-stored": ["export-release"],
     "prior-retirement": ["restored-prior-discard"],
+    "rollforward-recovery": ["rollback-readiness-mismatch"],
     "billing-terminated": ["tenant-destroy"],
     "billing-quiesced": ["tenant-destroy"],
     sealed: ["tenant-destroy"],
@@ -461,6 +468,14 @@ function compareReleaseVersions(left: string, right: string): number | null {
 }
 
 function mandatoryRecoveryCode(operation: LifecycleOperation): string | null {
+  if (operation.operationType === "rollforward") {
+    if (operation.checkpoint === "rollforward-recovery") {
+      return "ROLLFORWARD_RECOVERY_PENDING";
+    }
+    if (operation.checkpoint === "verified") return "ROLLFORWARD_RECORDING_PENDING";
+    if (operation.checkpoint === "recorded") return "ROLLFORWARD_ACTIVATION_PENDING";
+    if (operation.checkpoint === "complete") return "ROLLFORWARD_COMPLETION_PENDING";
+  }
   if (operation.checkpoint === "candidate-cleanup") return "CANDIDATE_CLEANUP_PENDING";
   if (operation.checkpoint === "export-requested") return "EXPORT_RESULT_RECOVERY_PENDING";
   if (operation.checkpoint === "export-stored") return "EXPORT_RELEASE_PENDING";
@@ -576,6 +591,19 @@ export class LifecycleReconciler {
     code: string
   ): Promise<ReconcileResult> {
     if (
+      operation.operationType === "rollforward" &&
+      ["claimed", "migrated", "upgraded"].includes(operation.checkpoint)
+    ) {
+      const prepared = await this.#store.prepareRollforwardRecovery(operation.id, owner, code);
+      if (prepared) {
+        return {
+          kind: "advanced",
+          operationId: operation.id,
+          checkpoint: "rollforward-recovery",
+        };
+      }
+    }
+    if (
       ["provision", "restore"].includes(operation.operationType) &&
       operation.checkpoint !== "candidate-cleanup" &&
       operation.cellId
@@ -665,6 +693,7 @@ export class LifecycleReconciler {
       gatewayContractDigest: target.gatewayContractDigest,
       commandFingerprint: target.commandFingerprint,
       schemaDigest: target.schemaDigest,
+      compatibilityDigest: target.compatibilityDigest,
     };
   }
 
@@ -1091,6 +1120,15 @@ export class LifecycleReconciler {
       return this.#terminal(operation, owner, "CELL_ROLLFORWARD_TARGET_INVALID");
     }
     const cell = await this.#cell(operation);
+    if (operation.checkpoint === "rollforward-recovery") {
+      const originalCode = operation.errorCode ?? "CELL_ROLLFORWARD_FAILED";
+      await this.#provisioner.rollbackRollforward({
+        ...this.#targetForAction(operation, cell, "rollback-readiness-mismatch"),
+        compatibilityDigest: operation.target.compatibilityDigest,
+      });
+      this.#requireStored(await this.#store.completeRollforwardRecovery(operation.id, owner));
+      return { kind: "terminal", operationId: operation.id, code: originalCode };
+    }
     if (operation.checkpoint === "created") {
       const comparison = compareReleaseVersions(
         cell.releaseVersion,
@@ -1118,6 +1156,18 @@ export class LifecycleReconciler {
     if (operation.checkpoint === "upgraded" || operation.checkpoint === "verified") {
       const readiness = await this.#provisioner.health(this.#target(operation, cell));
       if (readinessMismatch(readiness, cell, this.#config, operation)) {
+        if (operation.checkpoint === "verified") {
+          const code = "ROLLFORWARD_RECORDING_PENDING";
+          const retried = await this.#store.retry(
+            operation.id,
+            owner,
+            code,
+            this.#backoff(operation.attempts)
+          );
+          return retried
+            ? { kind: "retry_scheduled", operationId: operation.id, code }
+            : { kind: "idle" };
+        }
         return this.#terminal(operation, owner, "CELL_READINESS_MISMATCH");
       }
       if (!readiness.live || !readiness.ready || !readiness.runtimeIdentity) {
@@ -1958,6 +2008,10 @@ export class InMemoryLifecycleStore implements LifecycleStore {
               "export-expired-readiness-proved",
               "prior-retirement",
               "prior-retired",
+              "rollforward-recovery",
+              "verified",
+              "recorded",
+              "complete",
             ].includes(operation.checkpoint) ||
             (operation.operationType === "export" &&
               operation.checkpoint === "quiesced" &&
@@ -2102,7 +2156,11 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     if (errorCode === "CAPACITY_UNAVAILABLE") {
       operation.attempts = Math.max(0, operation.attempts - 1);
     }
-    if (!["candidate-cleanup", "export-failure-resume"].includes(operation.checkpoint)) {
+    if (
+      !["candidate-cleanup", "export-failure-resume", "rollforward-recovery"].includes(
+        operation.checkpoint
+      )
+    ) {
       operation.errorCode = errorCode;
     }
     operation.nextAttemptAt = nextAttemptAt;
@@ -2122,7 +2180,7 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     if (!operation || operation.checkpoint !== expectedCheckpoint) return false;
     operation.state = "waiting";
     operation.attempts = Math.max(0, operation.attempts - 1);
-    operation.errorCode = null;
+    if (operation.checkpoint !== "rollforward-recovery") operation.errorCode = null;
     operation.nextAttemptAt = nextAttemptAt;
     operation.leaseOwner = null;
     operation.leaseExpiresAt = null;
@@ -2251,7 +2309,8 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       input.runtimeIdentity.agentProfile !== EXOMEM_HOSTED_PROFILE ||
       input.runtimeIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
       input.runtimeIdentity.commandFingerprint !== target.commandFingerprint ||
-      input.runtimeIdentity.schemaDigest !== target.schemaDigest
+      input.runtimeIdentity.schemaDigest !== target.schemaDigest ||
+      input.runtimeIdentity.compatibilityDigest !== target.compatibilityDigest
     ) {
       return false;
     }
@@ -2356,6 +2415,65 @@ export class InMemoryLifecycleStore implements LifecycleStore {
     operation.leaseExpiresAt = null;
     operation.updatedAt = this.#now();
     this.checkpointHistory.push({ operationId, checkpoint: "export-failure-resume" });
+    return true;
+  }
+
+  async prepareRollforwardRecovery(
+    operationId: string,
+    owner: string,
+    errorCode: string
+  ): Promise<boolean> {
+    const operation = this.#owned(operationId, owner);
+    const tenant = operation ? this.tenants.get(operation.tenantId) : null;
+    const cell = operation?.cellId ? this.cells.get(operation.cellId) : null;
+    if (
+      !operation ||
+      operation.operationType !== "rollforward" ||
+      operation.checkpoint === "created" ||
+      operation.checkpoint === "rollforward-recovery" ||
+      !tenant ||
+      !cell ||
+      tenant.boundCellId !== cell.id ||
+      tenant.desiredState !== "suspended"
+    ) {
+      return false;
+    }
+    operation.checkpoint = "rollforward-recovery";
+    operation.state = "waiting";
+    operation.attempts = 0;
+    operation.errorCode = errorCode;
+    operation.nextAttemptAt = this.#now();
+    operation.leaseOwner = null;
+    operation.leaseExpiresAt = null;
+    operation.updatedAt = this.#now();
+    this.checkpointHistory.push({ operationId, checkpoint: "rollforward-recovery" });
+    return true;
+  }
+
+  async completeRollforwardRecovery(operationId: string, owner: string): Promise<boolean> {
+    const operation = this.#owned(operationId, owner);
+    const tenant = operation ? this.tenants.get(operation.tenantId) : null;
+    const cell = operation?.cellId ? this.cells.get(operation.cellId) : null;
+    if (
+      !operation ||
+      operation.operationType !== "rollforward" ||
+      operation.checkpoint !== "rollforward-recovery" ||
+      !operation.errorCode ||
+      !tenant ||
+      !cell ||
+      tenant.boundCellId !== cell.id ||
+      tenant.desiredState === "deleted"
+    ) {
+      return false;
+    }
+    cell.lifecycleState = "active";
+    cell.desiredState = "running";
+    tenant.status = "active";
+    tenant.desiredState = "running";
+    operation.state = "failed_terminal";
+    operation.leaseOwner = null;
+    operation.leaseExpiresAt = null;
+    operation.updatedAt = this.#now();
     return true;
   }
 

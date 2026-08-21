@@ -56,6 +56,7 @@ function rollforwardRequest(
       gatewayContractDigest: "a".repeat(64),
       commandFingerprint: "b".repeat(64),
       schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
     },
     compatibilityDigest: "d".repeat(64),
   };
@@ -103,6 +104,50 @@ describe("CellProvisioner", () => {
     assert.equal(fake.resources.size, 1);
     assert.equal(fake.resources.get(initial.cellId)?.releaseVersion, "2026.07.13");
     assert.equal(fake.calls.filter((call) => call.action === "rollforward").length, 2);
+  });
+
+  it("rolls a failed governed rollforward back through the same operation", async () => {
+    const fake = new FakeCellProvisioner();
+    const initial = provisionRequest();
+    const provisioned = await fake.provision(initial);
+    const request = {
+      ...rollforwardRequest(initial),
+      providerRef: provisioned.providerRef,
+    };
+    await fake.rollforward(request);
+    const rollback = {
+      ...request,
+      context: {
+        ...request.context,
+        checkpoint: "rollback-readiness-mismatch",
+        idempotencyKey: `${request.context.operationId}:rollback-readiness-mismatch:${request.cellId}`,
+      },
+    };
+
+    await fake.rollbackRollforward(rollback);
+    await fake.rollbackRollforward(rollback);
+
+    assert.equal(fake.resources.get(initial.cellId)?.releaseVersion, initial.releaseVersion);
+    assert.equal(fake.calls.filter((call) => call.action === "rollback-rollforward").length, 2);
+  });
+
+  it("sends a bounded rollback-rollforward request", async () => {
+    let capturedUrl = "";
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("provider-secret"),
+        timeoutMs: 500,
+      },
+      async (input) => {
+        capturedUrl = String(input);
+        return new Response(null, { status: 204 });
+      }
+    );
+
+    await adapter.rollbackRollforward(rollforwardRequest(provisionRequest()));
+
+    assert.equal(capturedUrl, "https://provisioner.internal.example/v1/cells/rollback-rollforward");
   });
 
   it("converges duplicate provision calls to one deterministic fake cell", async () => {

@@ -68,7 +68,8 @@ export function strictOuterV2ReadinessMismatch(
     readiness.runtimeIdentity.agentProfile !== EXOMEM_HOSTED_PROFILE ||
     readiness.runtimeIdentity.gatewayContractDigest !== target.gatewayContractDigest ||
     readiness.runtimeIdentity.commandFingerprint !== target.commandFingerprint ||
-    readiness.runtimeIdentity.schemaDigest !== target.schemaDigest
+    readiness.runtimeIdentity.schemaDigest !== target.schemaDigest ||
+    readiness.runtimeIdentity.compatibilityDigest !== target.compatibilityDigest
   );
 }
 
@@ -113,6 +114,7 @@ export function promotionHealthTarget(input: {
       gatewayContractDigest: target.gatewayContractDigest,
       commandFingerprint: target.commandFingerprint,
       schemaDigest: target.schemaDigest,
+      compatibilityDigest: target.compatibilityDigest,
     },
     providerRef: cell.providerRef,
   };
@@ -188,16 +190,17 @@ function operationFromRow(row: Record<string, unknown>): LifecycleOperation | nu
     assignmentGeneration < 1
   )
     return null;
+  const operationType = String(row.operation_type) as LifecycleOperation["operationType"];
   return {
     id: String(row.operation_id),
     tenantId: String(row.operation_tenant_id),
     cellId: string(row.cell_id),
-    operationType: String(row.operation_type) as LifecycleOperation["operationType"],
+    operationType,
     provisionerWireProtocol: PROVISIONER_PROTOCOL_V2,
     state: "succeeded",
     idempotencyKey: `promotion-runtime:${String(row.operation_id)}`,
     fenceGeneration,
-    checkpoint: "bound",
+    checkpoint: operationType === "rollforward" ? "complete" : "bound",
     requestId: "promotion-runtime",
     attempts: 0,
     nextAttemptAt: new Date(0),
@@ -326,9 +329,11 @@ async function loadPromotionProbes(
         AND operation.tenant_id = cell.tenant_id
         AND operation.fence_generation = tenant.fence_generation
         AND operation.state = 'succeeded'
-        AND operation.checkpoint = 'bound'
+        AND (
+          (operation.operation_type IN ('provision', 'restore') AND operation.checkpoint = 'bound')
+          OR (operation.operation_type = 'rollforward' AND operation.checkpoint = 'complete')
+        )
         AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
-        AND operation.operation_type IN ('provision', 'restore')
         AND operation.target_candidate_id = ${candidateId}::uuid
         AND route.source_release = operation.target_source_release
         AND route.protocol_version = operation.target_protocol_version
@@ -460,9 +465,12 @@ export async function recordPromotionRuntimeAuthorityInTransaction(input: {
                 AND operation.cell_id = exomem_cells.id
                 AND operation.tenant_id = exomem_cells.tenant_id
                 AND operation.fence_generation = tenant.fence_generation
-                AND operation.state = 'succeeded' AND operation.checkpoint = 'bound'
+                AND operation.state = 'succeeded'
+                AND (
+                  (operation.operation_type IN ('provision', 'restore') AND operation.checkpoint = 'bound')
+                  OR (operation.operation_type = 'rollforward' AND operation.checkpoint = 'complete')
+                )
                 AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
-                AND operation.operation_type IN ('provision', 'restore')
                 AND operation.target_candidate_id = ${input.candidateId}::uuid
                 AND operation.target_source_release = ${target.sourceRelease}
                 AND operation.target_protocol_version = ${target.protocolVersion}

@@ -30,7 +30,7 @@ export type ExomemHostedFleetObservation = {
     cellId: string;
     kind: string;
     status: string;
-    targetRuntime: HostedRuntimeIdentity;
+    targetRuntime: HostedRuntimeIdentity | null;
   }>;
   capacityClaims: Array<{ cellId: string }>;
   capacityActiveCellCount: number;
@@ -67,6 +67,22 @@ function runtime(row: Row): HostedRuntimeIdentity {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error("fleet observation row is invalid");
   }
   return identity;
+}
+
+function optionalRuntime(row: Row): HostedRuntimeIdentity | null {
+  const fields = [
+    "source_release",
+    "protocol_version",
+    "gateway_contract_digest",
+    "command_fingerprint",
+    "schema_digest",
+    "compatibility_digest",
+  ] as const;
+  if (fields.every((field) => row[field] === null || row[field] === undefined)) return null;
+  if (fields.some((field) => row[field] === null || row[field] === undefined)) {
+    throw new Error("fleet observation row is invalid");
+  }
+  return runtime(row);
 }
 
 function bounded(rows: Row[]): Row[] {
@@ -253,7 +269,7 @@ async function snapshot(tx: ExomemSql): Promise<ExomemHostedFleetObservation> {
       cellId: text(row, "cell_id"),
       kind: text(row, "operation_type"),
       status: text(row, "state"),
-      targetRuntime: runtime(row),
+      targetRuntime: optionalRuntime(row),
     })),
     capacityClaims: capacityClaims.map((row) => ({ cellId: text(row, "cell_id") })),
     capacityActiveCellCount: count,

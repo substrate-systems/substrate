@@ -100,6 +100,7 @@ const readiness: CellReadiness = {
     gatewayContractDigest: target.gatewayContractDigest,
     commandFingerprint: target.commandFingerprint,
     schemaDigest: target.schemaDigest,
+    compatibilityDigest: target.compatibilityDigest,
   },
   code: "CELL_READY",
 };
@@ -119,6 +120,7 @@ describe("promotion runtime", () => {
       gatewayContractDigest: target.gatewayContractDigest,
       commandFingerprint: target.commandFingerprint,
       schemaDigest: target.schemaDigest,
+      compatibilityDigest: target.compatibilityDigest,
     });
     assert.deepEqual(request.context, {
       operationId: operation.id,
@@ -126,6 +128,16 @@ describe("promotion runtime", () => {
       idempotencyKey: `${operation.id}:promote-cohort-health:${cell.id}`,
       fenceGeneration: operation.fenceGeneration,
     });
+  });
+
+  it("accepts a completed rollforward as persisted promotion authority", () => {
+    const request = promotionHealthTarget({
+      operation: { ...operation, operationType: "rollforward", checkpoint: "complete" },
+      cell,
+      envelopeKey: key,
+    });
+    assert.ok(request);
+    assert.equal(request.runtimeTarget?.releaseVersion, target.sourceRelease);
   });
 
   it("rejects non-v2 or targetless cells before health", () => {
@@ -185,6 +197,20 @@ describe("promotion runtime", () => {
     );
     assert.equal(
       strictOuterV2ReadinessMismatch(
+        {
+          ...readiness,
+          runtimeIdentity: {
+            ...readiness.runtimeIdentity!,
+            compatibilityDigest: "e".repeat(64),
+          },
+        },
+        cell,
+        operation
+      ),
+      true
+    );
+    assert.equal(
+      strictOuterV2ReadinessMismatch(
         { ...readiness, workerPolicy: { ...cell.workerPolicy, media: true } },
         cell,
         operation
@@ -194,7 +220,11 @@ describe("promotion runtime", () => {
   });
 
   it("fails closed before health when no current routable outer-v2 proof exists", async () => {
-    __setExomemSqlForTests(async () => ({ rows: [] }));
+    let statement = "";
+    __setExomemSqlForTests(async (strings) => {
+      statement = strings.join("?");
+      return { rows: [] };
+    });
     let healthCalled = false;
     assert.equal(
       await preparePromotionRuntimeHealth({
@@ -211,6 +241,8 @@ describe("promotion runtime", () => {
       null
     );
     assert.equal(healthCalled, false);
+    assert.match(statement, /operation_type = 'rollforward'/i);
+    assert.match(statement, /operation\.checkpoint = 'complete'/i);
   });
 
   it("does not refresh authority when the route set changes after health and before promotion", async () => {

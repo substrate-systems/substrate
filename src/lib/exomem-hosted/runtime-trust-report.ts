@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
+import ts from "typescript";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -30,6 +31,19 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const RELEASE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/;
 const IMAGE = /^ghcr\.io\/artexis10\/exomem@sha256:[a-f0-9]{64}$/;
+const REVIEWED_TARGET: HostedRuntimeTrustTarget = {
+  releaseVersion: "0.57.2",
+  sourceCommit: "d4bbef7725d55f3bb6e8c288deadddb15ef7855f",
+  runtimeImage:
+    "ghcr.io/artexis10/exomem@sha256:d706cd09d153f8316d3834b000b567f2925380474a5071cbae4d0accd8781fa9",
+  runtimeCandidateSha256: "c0ece957e5bee3a28ac007df89c84cab3d28b674358921bd0bd921e295ab08b9",
+  protocolVersion: "1",
+  agentProfile: "hosted-alpha-agent-v1",
+  gatewayContractDigest: "33c461c0d38c70acd415020363bfdce589041fa038702d8c9021663009e33ec3",
+  commandFingerprint: "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
+  schemaDigest: "30c65de187984940a57a122638d42a85989b7409e1eccb026a828fd1d785d788",
+  compatibilityDigest: "9e028c9e2001378a4ab5fc6f2c3a421e5502cf9e59fb043d6066055f115c08ea",
+};
 
 function record(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -88,6 +102,23 @@ function sha256(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+function committedBytes(repository: string, commit: string, path: string): Buffer {
+  try {
+    const type = execFileSync("git", ["-C", repository, "cat-file", "-t", commit], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (type !== "commit") throw new Error("not a commit");
+    return execFileSync("git", ["-C", repository, "show", `${commit}:${path}`], {
+      encoding: "buffer",
+      maxBuffer: 1_048_576,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    throw new Error("consumer commit or pinned file is unavailable");
+  }
+}
+
 function canonicalValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalValue);
   if (value && typeof value === "object") {
@@ -104,9 +135,67 @@ export function canonicalHostedRuntimeTrustReport(report: HostedRuntimeTrustRepo
   return `${JSON.stringify(canonicalValue(report))}\n`;
 }
 
-function requireMarkers(source: string, label: string, markers: string[]): void {
-  if (markers.some((marker) => !source.includes(marker))) {
-    throw new Error(`${label} does not trust the exact runtime target`);
+type TrustedImport = { module: string; symbol: string };
+
+export function assertRuntimeTrustImport(
+  source: string,
+  label: string,
+  trustedImport: TrustedImport
+): void {
+  const fileName = resolve("/runtime-trust", `${label}.ts`);
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.Latest,
+    module: ts.ModuleKind.ESNext,
+    noResolve: true,
+  };
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const host = ts.createCompilerHost(options);
+  host.fileExists = (path) => path === fileName;
+  host.readFile = (path) => (path === fileName ? source : undefined);
+  host.getSourceFile = (path) => (path === fileName ? sourceFile : undefined);
+  const program = ts.createProgram([fileName], options, host);
+  const checker = program.getTypeChecker();
+  let importedSymbol: ts.Symbol | null = null;
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== trustedImport.module
+    )
+      continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    const imported = bindings.elements.find(
+      (element) => (element.propertyName?.text ?? element.name.text) === trustedImport.symbol
+    );
+    if (imported && !statement.importClause?.isTypeOnly && !imported.isTypeOnly) {
+      importedSymbol = checker.getSymbolAtLocation(imported.name) ?? null;
+    }
+  }
+  if (!importedSymbol) throw new Error(`${label} does not import the exact runtime target`);
+
+  let used = false;
+  const isTypePosition = (node: ts.Node): boolean => {
+    for (let current = node.parent; current && !ts.isStatement(current); current = current.parent) {
+      if (ts.isTypeNode(current)) return true;
+    }
+    return false;
+  };
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isIdentifier(node) &&
+      checker.getSymbolAtLocation(node) === importedSymbol &&
+      !isTypePosition(node)
+    ) {
+      used = true;
+    }
+    if (!used) ts.forEachChild(node, visit);
+  };
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) visit(statement);
+  }
+  if (!used) {
+    throw new Error(`${label} does not use the exact runtime target`);
   }
 }
 
@@ -117,19 +206,23 @@ export async function buildHostedRuntimeTrustReport(input: {
 }): Promise<HostedRuntimeTrustReport> {
   if (!COMMIT.test(input.consumerCommit)) throw new Error("consumer commit is invalid");
   const target = exactTarget(input.target);
+  if (JSON.stringify(canonicalValue(target)) !== JSON.stringify(canonicalValue(REVIEWED_TARGET))) {
+    throw new Error("runtime target differs from the reviewed release pin");
+  }
   const versionSlug = target.releaseVersion.replaceAll(".", "-");
   const fixtureIdentifier = `exomemContractFixture${versionSlug.replaceAll("-", "")}`;
-  const agentFixtureIdentifier = `exomemHostedContractFixture${versionSlug.replaceAll("-", "")}`;
   const root = resolve(input.repository);
   const agentPath = resolve(root, "src/lib/exomem-hosted/__tests__/agent-contract-fixture.json");
   const gatewayPath = resolve(
     root,
     `src/lib/exomem-hosted/__tests__/gateway-contract-${versionSlug}.json`
   );
-  const [agentBytes, gatewayBytes] = await Promise.all([
-    readFile(agentPath),
-    readFile(gatewayPath),
-  ]);
+  const agentBytes = committedBytes(root, input.consumerCommit, agentPath.slice(root.length + 1));
+  const gatewayBytes = committedBytes(
+    root,
+    input.consumerCommit,
+    gatewayPath.slice(root.length + 1)
+  );
   const agent = record(JSON.parse(agentBytes.toString("utf8")), "agent fixture");
   const compatibility = record(agent.compatibility, "agent compatibility");
   if (
@@ -155,61 +248,45 @@ export async function buildHostedRuntimeTrustReport(input: {
 
   const sites = [
     {
-      name: "admin-catalog",
-      path: "src/app/api/exomem/admin/contracts/route.ts",
-      markers: ["storeExomemAgentContractCandidate", "listExomemAgentContractStatus"],
-    },
-    {
       name: "agent-canaries",
       path: "src/lib/exomem-hosted/agent-contract-canaries.ts",
-      markers: [`gateway-contract-${versionSlug}`, "gatewayContractDigests"],
+      imports: [{ module: `./gateway-contract-${versionSlug}`, symbol: fixtureIdentifier }],
     },
     {
       name: "agent-contract-store",
       path: "src/lib/exomem-hosted/agent-contract-store.ts",
-      markers: [
-        target.releaseVersion,
-        target.sourceCommit,
-        target.commandFingerprint,
-        target.schemaDigest,
-        target.compatibilityDigest,
-      ],
+      imports: [{ module: "./agent-contract-fixture", symbol: "exomemHostedContractFixture" }],
     },
     {
       name: "client-artifacts",
       path: "src/lib/exomem-hosted/client-artifacts.ts",
-      markers: ["agent-contract-fixture", agentFixtureIdentifier],
+      imports: [{ module: "./agent-contract-fixture", symbol: "exomemHostedContractFixture" }],
     },
     {
       name: "gateway-store",
       path: "src/lib/exomem-hosted/gateway.ts",
-      markers: [`gateway-contract-${versionSlug}`, "agent-contract-fixture"],
+      imports: [
+        { module: "./agent-contract-fixture", symbol: "exomemHostedContractFixture" },
+        { module: `./gateway-contract-${versionSlug}`, symbol: fixtureIdentifier },
+      ],
     },
     {
       name: "lifecycle-store",
       path: "src/lib/exomem-hosted/lifecycle-store.ts",
-      markers: [`gateway-contract-${versionSlug}`, `${fixtureIdentifier}.digest`],
-    },
-    {
-      name: "oauth-bootstrap",
-      path: "src/lib/exomem-hosted/__tests__/oauth-bootstrap-postgres.integration.test.ts",
-      markers: [`gateway-contract-${versionSlug}`, `${fixtureIdentifier}.digest`],
-    },
-    {
-      name: "platform-cohort",
-      path: "src/lib/exomem-hosted/__tests__/platform-cohort-postgres.integration.test.ts",
-      markers: [`gateway-contract-${versionSlug}`, "agent-contract-fixture"],
+      imports: [{ module: `./gateway-contract-${versionSlug}`, symbol: fixtureIdentifier }],
     },
     {
       name: "reviewer-operator",
       path: "src/lib/exomem-hosted/operator-controls.ts",
-      markers: [`gateway-contract-${versionSlug}`, "createReviewerOAuthBootstrapAuthority"],
+      imports: [{ module: `./gateway-contract-${versionSlug}`, symbol: fixtureIdentifier }],
     },
   ];
   await Promise.all(
     sites.map(async (site) => {
-      const source = await readFile(resolve(root, site.path), "utf8");
-      requireMarkers(source, site.name, site.markers);
+      const source = committedBytes(root, input.consumerCommit, site.path).toString("utf8");
+      for (const trustedImport of site.imports) {
+        assertRuntimeTrustImport(source, site.name, trustedImport);
+      }
     })
   );
   return {

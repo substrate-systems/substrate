@@ -127,4 +127,48 @@ describe("Exomem hosted fleet observation", () => {
 
     await assert.rejects(getExomemHostedFleetObservation(), /fleet observation exceeds bound/);
   });
+
+  it("reports a valid targetless unfinished delete without crashing", async () => {
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      if (query.includes("fleet-observed-at")) {
+        return { rows: [{ observed_at: new Date("2026-08-21T12:34:56.000Z") }] };
+      }
+      if (query.includes("fleet-unfinished-operations")) {
+        return {
+          rows: [
+            {
+              operation_id: OPERATION,
+              cell_id: CELL,
+              operation_type: "delete",
+              state: "running",
+              source_release: null,
+              protocol_version: null,
+              gateway_contract_digest: null,
+              command_fingerprint: null,
+              schema_digest: null,
+              compatibility_digest: null,
+            },
+          ],
+        };
+      }
+      if (query.includes("fleet-capacity-active-count")) {
+        return { rows: [{ active_cell_count: 0 }] };
+      }
+      return { rows: [] };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    const observation = await getExomemHostedFleetObservation();
+
+    assert.deepEqual(observation.unfinishedOperations, [
+      {
+        operationId: OPERATION,
+        cellId: CELL,
+        kind: "delete",
+        status: "running",
+        targetRuntime: null,
+      },
+    ]);
+  });
 });

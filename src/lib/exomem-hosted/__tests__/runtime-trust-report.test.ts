@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { describe, it } from "node:test";
-import { buildHostedRuntimeTrustReport } from "../runtime-trust-report";
+import { assertRuntimeTrustImport, buildHostedRuntimeTrustReport } from "../runtime-trust-report";
 
 const target = {
   releaseVersion: "0.57.2",
@@ -15,39 +16,116 @@ const target = {
   schemaDigest: "30c65de187984940a57a122638d42a85989b7409e1eccb026a828fd1d785d788",
   compatibilityDigest: "9e028c9e2001378a4ab5fc6f2c3a421e5502cf9e59fb043d6066055f115c08ea",
 };
+const consumerCommit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
 describe("hosted runtime trust report", () => {
   it("proves the exact target at every release-pinned consumer site", async () => {
     const report = await buildHostedRuntimeTrustReport({
       repository: process.cwd(),
-      consumerCommit: "a".repeat(40),
+      consumerCommit,
       target,
     });
 
     assert.equal(report.target, target);
     assert.deepEqual(report.pinnedSites, [
-      "admin-catalog",
       "agent-canaries",
       "agent-contract-store",
       "client-artifacts",
       "gateway-store",
       "lifecycle-store",
-      "oauth-bootstrap",
-      "platform-cohort",
       "reviewer-operator",
     ]);
     assert.match(report.fixtureSha256s.agent, /^[a-f0-9]{64}$/);
     assert.match(report.fixtureSha256s.gateway, /^[a-f0-9]{64}$/);
   });
 
-  it("rejects a target that differs from the imported fixtures", async () => {
+  it("reads every trust input from the named repository commit", async () => {
+    await assert.rejects(
+      buildHostedRuntimeTrustReport({
+        repository: process.cwd(),
+        consumerCommit: "a".repeat(40),
+        target,
+      }),
+      /consumer commit or pinned file is unavailable/
+    );
+  });
+
+  it("rejects a target that differs from the reviewed release pin", async () => {
     await assert.rejects(
       buildHostedRuntimeTrustReport({
         repository: process.cwd(),
         consumerCommit: "a".repeat(40),
         target: { ...target, schemaDigest: "0".repeat(64) },
       }),
-      /agent fixture differs/
+      /runtime target differs from the reviewed release pin/
+    );
+  });
+
+  for (const field of ["runtimeImage", "runtimeCandidateSha256"] as const) {
+    it(`rejects a target whose ${field} differs from the reviewed release pin`, async () => {
+      await assert.rejects(
+        buildHostedRuntimeTrustReport({
+          repository: process.cwd(),
+          consumerCommit: "a".repeat(40),
+          target: {
+            ...target,
+            [field]:
+              field === "runtimeImage"
+                ? `ghcr.io/artexis10/exomem@sha256:${"0".repeat(64)}`
+                : "0".repeat(64),
+          },
+        }),
+        /runtime target differs from the reviewed release pin/
+      );
+    });
+  }
+
+  it("rejects comments and unused imports as runtime trust evidence", () => {
+    assert.throws(
+      () =>
+        assertRuntimeTrustImport(
+          "// import { exact } from './target';\nconst active = true;\n",
+          "comment-only",
+          { module: "./target", symbol: "exact" }
+        ),
+      /does not import/
+    );
+    assert.throws(
+      () =>
+        assertRuntimeTrustImport(
+          "import { exact } from './target';\nconst active = true;\n",
+          "unused-import",
+          { module: "./target", symbol: "exact" }
+        ),
+      /does not use/
+    );
+    assert.doesNotThrow(() =>
+      assertRuntimeTrustImport(
+        "import { exact as selected } from './target';\nexport const live = selected;\n",
+        "live-import",
+        { module: "./target", symbol: "exact" }
+      )
+    );
+  });
+
+  it("rejects shadowed and type-only names as runtime trust evidence", () => {
+    assert.throws(
+      () =>
+        assertRuntimeTrustImport(
+          "import { exact } from './target';\nfunction fake(exact: string) { return exact; }\n",
+          "shadowed-import",
+          { module: "./target", symbol: "exact" }
+        ),
+      /does not use/
+    );
+    assert.throws(
+      () =>
+        assertRuntimeTrustImport(
+          "import { exact } from './target';\nexport type Selected = typeof exact;\n",
+          "type-only-import",
+          { module: "./target", symbol: "exact" }
+        ),
+      /does not use/
     );
   });
 });

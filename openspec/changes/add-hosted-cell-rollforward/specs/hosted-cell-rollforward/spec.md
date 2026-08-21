@@ -59,14 +59,31 @@ observation MUST be written for the same `cell_id` that was rolled forward.
 
 - **WHEN** the upgraded cell advertises any release, fingerprint, or digest that differs
   from the authorized target
-- **THEN** the operation rolls the cell back and fails terminal
+- **THEN** the same lifecycle operation invokes the bounded rollback action against its retained Helm marker and prior revision, then fails terminal
+- **AND** rollback completion atomically restores the tenant and cell to running before the operation becomes terminal
 - **AND** the previously recorded contract identity is left unchanged
+
+#### Scenario: Rollback is asynchronous or replayed
+
+- **WHEN** the operation-scoped rollback is pending or its completion acknowledgement is lost
+- **THEN** the recovery checkpoint preserves the original failure and replays the same rollback authority
+- **AND** the tenant remains gated until rollback succeeds
+
+#### Scenario: Rollback authority is stale or absent
+
+- **WHEN** a readiness mismatch tries to roll back without the same operation's retained Helm marker and prior revision
+- **THEN** rollback fails closed without accepting a fresh operation, reconstructed target, or unrelated predecessor as authority
 
 #### Scenario: Operation replays after recording
 
-- **WHEN** a reconciler resumes a rollforward whose observation was already written
+- **WHEN** a reconciler resumes at or after the verified checkpoint and the observation
+  write may already have committed
 - **THEN** the observation upsert is idempotent for that `cell_id` and the operation
   completes without a second runtime transition
+- **AND** the reconciler does not roll back a runtime whose target observation may already
+  be authoritative
+- **AND** a stale or mismatched readiness response at `verified` remains gated and
+  forward-retryable rather than terminalizing the operation
 
 ### Requirement: Declared root migrations run before the serving runtime moves
 
@@ -119,6 +136,11 @@ retained row for a destroyed cell blocks all future promotion.
 
 - **WHEN** a cohort promotion is attempted after a tenant has been destroyed
 - **THEN** the routable set contains only live cells and the destroyed cell is absent
+
+#### Scenario: Promotion after an in-place rollforward
+
+- **WHEN** a rollforward completed for the candidate now recorded by a routable cell
+- **THEN** that completed rollforward is accepted as the cell's persisted candidate authority
 
 ### Requirement: Operators can reconcile complete fleet authority before mutation
 

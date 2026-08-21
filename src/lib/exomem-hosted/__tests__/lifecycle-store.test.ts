@@ -32,7 +32,10 @@ describe("SQL lifecycle operation store", () => {
       unfinishedV1Operations: 2,
       retainedV1Exports: 1,
     });
-    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i);
+    assert.match(
+      statement,
+      /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i
+    );
     assert.match(statement, /operation\.state NOT IN \('succeeded', 'failed_terminal'\)/i);
     assert.match(statement, /export_row\.state <> 'deleted'/i);
     assert.match(statement, /JOIN exomem_lifecycle_operations AS operation/i);
@@ -70,7 +73,10 @@ describe("SQL lifecycle operation store", () => {
     });
 
     assert.equal(recorded, true);
-    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v2'/i);
+    assert.match(
+      statement,
+      /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v2'/i
+    );
     assert.match(statement, /operation\.target_compatibility_digest/i);
     assert.equal(values.includes("a".repeat(64)), true);
     assert.equal(values.includes("b".repeat(64)), true);
@@ -138,8 +144,33 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /state = 'waiting'/i);
     assert.match(statement, /attempts = GREATEST\(attempts - 1, 0\)/i);
     assert.match(statement, /checkpoint =/i);
-    assert.match(statement, /error_code = NULL/i);
+    assert.match(statement, /error_code = CASE/i);
+    assert.match(statement, /rollforward-recovery/i);
     assert.match(statement, /lease_owner = NULL/i);
+  });
+
+  it("atomically restores availability only after rollforward recovery completes", async () => {
+    const statements: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      statements.push(strings.join("?"));
+      return { rows: [{ id: "operation-1" }], rowCount: 1 };
+    });
+    const store = new SqlLifecycleStore();
+
+    assert.equal(
+      await store.prepareRollforwardRecovery("operation-1", "worker-a", "CELL_READINESS_MISMATCH"),
+      true
+    );
+    assert.match(statements[0]!, /checkpoint = 'rollforward-recovery'/i);
+    assert.match(statements[0]!, /tenant\.desired_state = 'suspended'/i);
+    assert.match(statements[0]!, /state = 'waiting'/i);
+
+    assert.equal(await store.completeRollforwardRecovery("operation-1", "worker-b"), true);
+    assert.match(statements[1]!, /WITH owned AS MATERIALIZED/i);
+    assert.match(statements[1]!, /cell_active AS/i);
+    assert.match(statements[1]!, /tenant_active AS/i);
+    assert.match(statements[1]!, /operation_failed AS/i);
+    assert.match(statements[1]!, /state = 'failed_terminal'/i);
   });
 
   it("persists export intent under the active lease before the provider call", async () => {
@@ -406,16 +437,12 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /source_export\.storage_reference_ciphertext/);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
     assert.equal(
-      values.includes(
-        `${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`
-      ),
+      values.includes(`${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`),
       true
     );
     assert.equal(values.includes(exomemContractFixture0490.digest), true);
     assert.equal(
-      values.includes(
-        `${exomemContractFixture0500.release}:${exomemContractFixture0500.protocol}`
-      ),
+      values.includes(`${exomemContractFixture0500.release}:${exomemContractFixture0500.protocol}`),
       true
     );
     assert.equal(values.includes(exomemContractFixture0500.digest), true);
@@ -449,9 +476,7 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /state = 'live'/i);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
     assert.equal(
-      values.includes(
-        `${exomemContractFixture0500.release}:${exomemContractFixture0500.protocol}`
-      ),
+      values.includes(`${exomemContractFixture0500.release}:${exomemContractFixture0500.protocol}`),
       true
     );
     assert.equal(values.includes(exomemContractFixture0500.digest), true);
@@ -533,9 +558,7 @@ describe("SQL lifecycle operation store", () => {
     assert.equal(claimed?.target?.sourceRelease, "0.49.0");
     assert.equal(claimed?.target?.gatewayContractDigest, exomemContractFixture0490.digest);
     assert.equal(
-      values.includes(
-        `${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`
-      ),
+      values.includes(`${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`),
       true
     );
     assert.equal(values.includes(exomemContractFixture0490.digest), true);
@@ -622,9 +645,7 @@ describe("SQL lifecycle operation store", () => {
     assert.equal(claimed?.target?.sourceRelease, "0.49.0");
     assert.equal(claimed?.target?.gatewayContractDigest, exomemContractFixture0490.digest);
     assert.equal(
-      values.includes(
-        `${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`
-      ),
+      values.includes(`${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`),
       true
     );
     assert.equal(values.includes(exomemContractFixture0490.digest), true);
@@ -661,7 +682,10 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /tenant\.bound_cell_id/i);
     assert.match(statement, /operation\.target_source_release = bound_cell\.release_version/i);
     assert.match(statement, /operation\.target_protocol_version = bound_cell\.protocol_version/i);
-    assert.match(statement, /candidate\.compatibility_digest = bound_cell\.observed_compatibility_digest/i);
+    assert.match(
+      statement,
+      /candidate\.compatibility_digest = bound_cell\.observed_compatibility_digest/i
+    );
     assert.match(statement, /JOIN target ON TRUE/i);
   });
 
@@ -700,10 +724,7 @@ describe("SQL lifecycle operation store", () => {
       assert.doesNotMatch(strictV1Target, /assignment\.state = 'active'/i);
       assert.doesNotMatch(strictV1Target, /assignment\.expires_at > now\(\)/i);
       assert.doesNotMatch(strictV1Target, /candidate\.state IN \('pending', 'live'\)/i);
-      assert.doesNotMatch(
-        strictV1Target,
-        /observed_gateway_contract_digest/i
-      );
+      assert.doesNotMatch(strictV1Target, /observed_gateway_contract_digest/i);
     }
   });
 
@@ -761,7 +782,10 @@ describe("SQL lifecycle operation store", () => {
       statement,
       /operation\.provisioner_wire_protocol <> 'exomem-cell-provisioner\.v1'[\s\S]*candidate\.observed_gateway_contract_digest = operation\.target_gateway_contract_digest/i
     );
-    assert.match(statement, /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i);
+    assert.match(
+      statement,
+      /operation\.provisioner_wire_protocol = 'exomem-cell-provisioner\.v1'/i
+    );
     assert.match(statement, /tenant\.marketplace_reviewer_purpose = true/i);
     assert.match(statement, /target_assignment\.marketplace_reviewer_purpose = true/i);
     assert.match(statement, /candidate\.observed_gateway_contract_digest IS NULL/i);
