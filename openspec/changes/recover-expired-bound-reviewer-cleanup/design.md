@@ -9,7 +9,7 @@ The current operator recovery already provides the correct destructive boundary:
 **Goals:**
 
 - Recover one exact successful reviewer provision after its immutable assignment expires or is terminally failed.
-- Prove the source, tenant, assignment, bound cell, readiness, routing, and absence of live authority before mutation.
+- Prove the source, tenant, assignment, bound cell, readiness, routing, and absence of live assignment/bootstrap authority before mutation; revoke any residual tenant-bound session, credential, transfer, or OAuth lineage inside the deletion transaction.
 - Reuse the existing higher-fence target-free delete and externally verified provider finalization.
 - Keep requests and responses content free and make retries exact.
 
@@ -41,6 +41,8 @@ The caller never supplies tenant, cell, owner, provider, or volume identity. All
 ### Reuse the existing atomic deletion transaction
 
 Recovery takes the cohort advisory lock and then the reviewer-access advisory lock before evaluating its mutation statement, matching the canonical internal-canary order. Reviewer credential and direct reviewer-session writers take the matching reviewer lock. Magic-link redemption and transfer-grant mint/consume take the shared cohort lock, so cleanup cannot miss newly committed Hosted authority after its mutation snapshot. Session lookup rejects a deletion-pending, deleted, or account-blocked tenant, and transfer consumption rechecks the active/running tenant, exact active/bound cell, ownership, and absence of an account block. After eligibility, the same transaction gates the tenant, increments its fence once, blocks and revokes Hosted/reviewer/OAuth authority, gates entitlement and exports, and inserts one normal target-free delete using the source-derived key. The successful source remains truthful as `succeeded/bound`; unlike an unfinished cleanup source, it is not rewritten as `DELETION_SUPERSEDED`.
+
+Residual tenant-bound credentials, sessions, transfer grants, and OAuth grants are revocation inputs, not eligibility blockers. Because their writers are serialized ahead of the cleanup snapshot, recovery either sees and revokes the committed authority or gates first and makes the writer fail closed. Consumed access tokens remain consumed rather than being marked revoked, preserving the database's mutually exclusive terminal-state invariant; their resulting session is revoked and the tenant/account gate independently prevents reuse.
 
 Exact replay therefore accepts either the existing superseded cleanup source or the unchanged successful-bound source, but only when the tenant is already deletion-pending at exactly `old fence + 1` and exactly one derived-key target-free delete exists at that fence. It cannot authorize a new transition.
 

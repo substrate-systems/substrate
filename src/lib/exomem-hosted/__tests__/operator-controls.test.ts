@@ -149,6 +149,15 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /exomem_oauth_refresh_tokens/i);
     assert.match(
       mutation,
+      /tokens_revoked AS \([\s\S]*token\.consumed_at IS NULL[\s\S]*token\.revoked_at IS NULL/i
+    );
+    assert.doesNotMatch(
+      mutation,
+      /NOT EXISTS \(SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential/i
+    );
+    assert.doesNotMatch(mutation, /NOT EXISTS \(SELECT 1 FROM exomem_oauth_grants AS grant_row/i);
+    assert.match(
+      mutation,
       /grant_row\.tenant_id IN \(SELECT id FROM tenant_gated\)[\s\S]*?grant_row\.candidate_id = source\.target_candidate_id/i
     );
     assert.match(mutation, /DELETION_SUPERSEDED/i);
@@ -185,8 +194,11 @@ describe("hosted operator controls", () => {
     assert.match(query, /cell\.provider_ref IS NOT NULL/i);
     assert.match(query, /exomem_routable_cell_contracts/i);
     assert.match(query, /assignment\.state = 'failed' AND assignment\.ended_at IS NOT NULL/i);
-    assert.match(query, /exomem_marketplace_reviewer_credentials/i);
-    assert.match(query, /exomem_oauth_grants/i);
+    assert.doesNotMatch(
+      query,
+      /NOT EXISTS \([\s\S]*exomem_marketplace_reviewer_credentials AS credential/i
+    );
+    assert.doesNotMatch(query, /NOT EXISTS \([\s\S]*exomem_oauth_grants AS grant_row/i);
     assert.doesNotMatch(query, /\bUPDATE\b|\bINSERT\b|\bDELETE\b/i);
   });
 

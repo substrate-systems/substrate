@@ -702,8 +702,10 @@ ID, and a request ID.
 Before accepting the successful-bound branch, preflight also requires the
 source cell to equal `tenant.bound_cell_id`, exactly one non-deleted cell, an
 expired or terminal-failed reviewer-purpose assignment with matching runtime
-identity, and no live reviewer credential, OAuth grant, bootstrap authority,
-assignment, lease, or conflicting current-fence lifecycle operation. Any
+identity, and no live bootstrap authority, assignment, lease, or conflicting
+current-fence lifecycle operation. Residual tenant-bound credentials, sessions,
+transfers, and OAuth grants do not make the tenant ineligible: recovery must see
+and revoke their complete lineage inside its locked transaction. Any
 customer, restore-success, stale-fence, multi-cell, non-ready, non-routable, or
 other bound state must refuse without mutation.
 

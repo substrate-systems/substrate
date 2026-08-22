@@ -1,6 +1,6 @@
 ## 1. Eligibility and Refusal Coverage
 
-- [x] 1.1 Add red-first unit coverage for the exact succeeded/bound reviewer state, exact replay, and refusal of customer, stale-fence, restore, non-ready, mismatched, multi-cell, live-authority, and conflicting-operation states
+- [x] 1.1 Add red-first unit coverage for the exact succeeded/bound reviewer state, exact replay, and refusal of customer, stale-fence, restore, non-ready, mismatched, multi-cell, live-assignment/bootstrap-authority, and conflicting-operation states
 - [x] 1.2 Add PostgreSQL integration coverage proving the successful-bound recovery transaction gates authority and enqueues exactly one higher-fence target-free delete without rewriting the successful source
 - [x] 1.3 Prove the existing request shape remains `{sourceOperationId, expectedFence}` and rejects tenant, cell, and volume selectors
 

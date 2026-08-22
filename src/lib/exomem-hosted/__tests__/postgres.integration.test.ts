@@ -3507,39 +3507,6 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       { name: "customer tenant", seed: { tenantReviewer: false } },
       { name: "active assignment", seed: { assignmentState: "active" } },
       {
-        name: "live reviewer credential",
-        mutate: async (seed) => {
-          await pool.query(
-            `INSERT INTO exomem_marketplace_reviewer_credentials (
-               provider, username_digest, password_hash, owner_user_id, tenant_id,
-               fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
-             ) VALUES ('openai', $1, '$argon2id$test', $2, $3, 'test', $4, $1,
-                       now() + interval '1 hour')`,
-            [Buffer.alloc(32, 0x73), seed.userId, seed.tenantId, "a".repeat(64)]
-          );
-        },
-      },
-      {
-        name: "live OAuth grant",
-        mutate: async (seed) => {
-          const clientId = randomUUID();
-          const redirectUris = '["http://localhost/callback"]';
-          await pool.query(
-            `INSERT INTO exomem_oauth_clients (
-               id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest
-             ) VALUES ($1, $1::text, 'pinned', false, $2::jsonb,
-                       digest(convert_to(($2::jsonb)::text, 'utf8'), 'sha256'))`,
-            [clientId, redirectUris]
-          );
-          await pool.query(
-            `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
-             VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1',
-                     ARRAY['exomem.read'])`,
-            [seed.userId, seed.tenantId, clientId]
-          );
-        },
-      },
-      {
         name: "successful restore",
         mutate: async (seed) => {
           await pool.query(
@@ -4181,7 +4148,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     }
   });
 
-  it("serializes bound recovery behind provider-review authority issuance", async () => {
+  it("serializes bound recovery behind provider-review authority issuance and revokes it", async () => {
     const seed = await seedBoundExpiredReviewerCleanup();
     const issuer = await pool.connect();
     try {
@@ -4208,7 +4175,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         "%pg_advisory_xact_lock(hashtext('exomem-marketplace-reviewer-access'))%"
       );
       await issuer.query("COMMIT");
-      assert.equal(await recovery, null);
+      assert.equal((await recovery)?.outcome, "enqueued");
       const state = await pool.query<{
         status: string;
         desired_state: string;
@@ -4226,11 +4193,11 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       );
       assert.deepEqual(state.rows, [
         {
-          status: "active",
-          desired_state: "running",
-          fence_generation: "1",
-          live_credentials: "1",
-          delete_count: "0",
+          status: "deletion_pending",
+          desired_state: "deleted",
+          fence_generation: "2",
+          live_credentials: "0",
+          delete_count: "1",
         },
       ]);
     } finally {

@@ -543,15 +543,6 @@ export async function preflightRecoverExpiredReviewerCleanup(
           WHERE authority.state = 'active' AND authority.expires_at > now()
         )
         AND NOT EXISTS (
-          SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
-          WHERE credential.tenant_id = tenant.id AND credential.revoked_at IS NULL
-            AND credential.expires_at > now()
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM exomem_oauth_grants AS grant_row
-          WHERE grant_row.tenant_id = tenant.id AND grant_row.revoked_at IS NULL
-        )
-        AND NOT EXISTS (
           SELECT 1 FROM exomem_lifecycle_operations AS conflicting
           WHERE conflicting.tenant_id = tenant.id
             AND conflicting.fence_generation = tenant.fence_generation
@@ -719,11 +710,6 @@ export async function recoverExpiredReviewerCleanup(
                             AND live_assignment.expires_at > now())
           AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
                           WHERE authority.state = 'active' AND authority.expires_at > now())
-          AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
-                          WHERE credential.tenant_id = source.tenant_id AND credential.revoked_at IS NULL
-                            AND credential.expires_at > now())
-          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_grants AS grant_row
-                          WHERE grant_row.tenant_id = source.tenant_id AND grant_row.revoked_at IS NULL)
           AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
                           WHERE conflicting.tenant_id = source.tenant_id
                             AND conflicting.fence_generation = source.tenant_fence_generation
@@ -745,7 +731,11 @@ export async function recoverExpiredReviewerCleanup(
         FROM tenant_gated WHERE session.tenant_id = tenant_gated.id RETURNING session.id
       ), tokens_revoked AS (
         UPDATE exomem_access_tokens AS token SET revoked_at = COALESCE(token.revoked_at, now())
-        FROM tenant_gated WHERE token.tenant_id = tenant_gated.id RETURNING token.id
+        FROM tenant_gated
+        WHERE token.tenant_id = tenant_gated.id
+          AND token.consumed_at IS NULL
+          AND token.revoked_at IS NULL
+        RETURNING token.id
       ), transfers_revoked AS (
         UPDATE exomem_transfer_grants AS transfer SET revoked_at = COALESCE(transfer.revoked_at, now()),
             outcome_code = COALESCE(transfer.outcome_code, 'DELETION_REVOKED')

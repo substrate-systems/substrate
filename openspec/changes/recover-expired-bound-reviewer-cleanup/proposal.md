@@ -5,9 +5,9 @@ A reviewer bootstrap can provision and bind its dedicated cell before the human-
 ## What Changes
 
 - Extend the authenticated expired-reviewer cleanup preflight and recovery to accept one caller-pinned, successfully bound reviewer `provision` operation at its exact current fence.
-- Require fail-closed proof that the tenant and assignment are immutable reviewer-purpose records, the assignment is expired or exactly terminal-failed, the provision operation succeeded at `bound`, the tenant has exactly one matching active/routable/ready bound cell, and no live reviewer or conflicting lifecycle authority remains.
+- Require fail-closed proof that the tenant and assignment are immutable reviewer-purpose records, the assignment is expired or exactly terminal-failed, the provision operation succeeded at `bound`, the tenant has exactly one matching active/routable/ready bound cell, and no live assignment, bootstrap, or conflicting lifecycle authority remains.
 - Reuse the existing atomic authority revocation, product gate, higher-fence target-free tenant deletion, derived idempotency key, replay, and principal-bound audit boundary.
-- Continue to refuse customer tenants, arbitrary tenant/cell/volume selectors, ambiguous cells, active assignments or authority, stale fences, incomplete provisions, and any other bound lifecycle state.
+- Continue to refuse customer tenants, arbitrary tenant/cell/volume selectors, ambiguous cells, active assignments or bootstrap authority, stale fences, incomplete provisions, and any other bound lifecycle state. Residual tenant-bound credentials, sessions, and OAuth grants are accepted only because the locked recovery transaction revokes their complete lineage atomically.
 - Document the exact fail-assignment, preflight, recovery, reconcile, and externally verified destruction sequence before another reviewer ceremony.
 
 ## Capabilities
