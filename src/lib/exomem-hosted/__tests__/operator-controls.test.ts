@@ -9,6 +9,7 @@ import {
   listOperatorClientArtifacts,
   listOperatorOAuthClients,
   listReviewerOAuthBootstrapAuthorities,
+  preflightReusablePinnedOAuthClient,
   preflightRecoverExpiredReviewerCleanup,
   preflightRecoverTerminalReviewerDelete,
   recoverTerminalReviewerDelete,
@@ -18,7 +19,7 @@ import {
   revokeOperatorOAuthFamily,
   setOperatorOAuthClientEnabled,
 } from "../operator-controls";
-import { exomemContractFixture0541 } from "../gateway-contract-0-54-1";
+import { exomemContractFixture0572 } from "../gateway-contract-0-57-2";
 import { operatorOAuthClientFingerprint } from "../oauth-client-admission";
 
 const originalControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
@@ -31,7 +32,7 @@ afterEach(() => {
 });
 
 describe("hosted operator controls", () => {
-  it("stages a virgin bootstrap authority against the exact 0.54.1 gateway contract", async () => {
+  it("stages a virgin bootstrap authority against the exact 0.57.2 gateway contract", async () => {
     const values: unknown[] = [];
     const expiresAt = new Date(Date.now() + 5 * 60_000);
     __setExomemTransactionForTests(async (work) =>
@@ -53,8 +54,8 @@ describe("hosted operator controls", () => {
       }),
       { id: "018f2d91-7c42-7000-8000-000000000079", expiresAt: expiresAt.toISOString() }
     );
-    assert.equal(values.includes(exomemContractFixture0541.release), true);
-    assert.equal(values.includes(exomemContractFixture0541.digest), true);
+    assert.equal(values.includes(exomemContractFixture0572.release), true);
+    assert.equal(values.includes(exomemContractFixture0572.digest), true);
   });
 
   it("requires every reviewer and OAuth issuer to take the cohort lock before authority admission", () => {
@@ -208,14 +209,26 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /confirmation\.consumed_at IS NOT NULL/i);
     assert.match(mutation, /confirmation\.user_id = operation\.tenant_owner_user_id/i);
     assert.match(mutation, /idempotency_key = 'confirmed-deletion-' \|\| confirmation\.id::text/i);
-    assert.match(mutation, /operation\.cell_id IS NULL AND operation\.expected_previous_cell_id IS NULL/i);
+    assert.match(
+      mutation,
+      /operation\.cell_id IS NULL AND operation\.expected_previous_cell_id IS NULL/i
+    );
     assert.match(mutation, /source\.cell_id = cell\.id/i);
     assert.doesNotMatch(mutation, /operator\.reviewer_cleanup\.(?:authorized|delete_enqueued)/i);
-    assert.match(mutation, /assignment\.gateway_contract_digest = source\.target_gateway_contract_digest/i);
-    assert.match(mutation, /assignment\.compatibility_digest = source\.target_compatibility_digest/i);
+    assert.match(
+      mutation,
+      /assignment\.gateway_contract_digest = source\.target_gateway_contract_digest/i
+    );
+    assert.match(
+      mutation,
+      /assignment\.compatibility_digest = source\.target_compatibility_digest/i
+    );
     assert.match(mutation, /candidate\.schema_digest = source\.target_schema_digest/i);
     assert.match(mutation, /bootstrap\.candidate_contract_digest = candidate\.schema_digest/i);
-    assert.match(mutation, /bootstrap\.candidate_compatibility_digest = source\.target_compatibility_digest/i);
+    assert.match(
+      mutation,
+      /bootstrap\.candidate_compatibility_digest = source\.target_compatibility_digest/i
+    );
     assert.match(mutation, /allocation\.state = 'uncertain'/i);
     assert.match(mutation, /DELETION_SUPERSEDED/i);
     assert.match(mutation, /state = 'consumed'/i);
@@ -248,6 +261,58 @@ describe("hosted operator controls", () => {
     assert.match(queries[1]!, /state IN \('staged', 'evidenced'\)/i);
     assert.match(queries[1]!, /expires_at > now\(\)/i);
     assert.match(queries[1]!, /oauth_client_config_sha256/i);
+  });
+
+  it("preflights only one disabled exact pinned client with no reviewer history", async () => {
+    let query = "";
+    const sql = async (strings: TemplateStringsArray) => {
+      query = strings.join("?");
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000091" }] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.deepEqual(
+      await preflightReusablePinnedOAuthClient({
+        platform: "claude",
+        clientId: "exomem-reviewer-bootstrap-018f2d91-7c42-7000-8000-000000000090",
+        redirectUris: ["http://localhost:47831/callback"],
+      }),
+      { eligible: true, clientRecordId: "018f2d91-7c42-7000-8000-000000000091" }
+    );
+    assert.match(query, /admission_mode = 'pinned'/i);
+    assert.match(query, /enabled = false/i);
+    assert.match(query, /reviewer_bootstrap_ever_authorized = false/i);
+    assert.match(query, /oauth_client_config_sha256 = /i);
+    assert.match(query, /metadata_provenance->>'mode' = 'pinned'/i);
+    assert.doesNotMatch(query, /\b(?:INSERT|UPDATE|DELETE)\b/i);
+  });
+
+  it("reuses only the explicitly named eligible record without inserting a client", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000091", enabled: false }] };
+    };
+    __setExomemSqlForTests(sql);
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    assert.deepEqual(
+      await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform: "claude",
+        clientId: "exomem-reviewer-bootstrap-018f2d91-7c42-7000-8000-000000000090",
+        redirectUris: ["http://localhost:47831/callback"],
+        stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000092",
+        existingClientRecordId: "018f2d91-7c42-7000-8000-000000000091",
+      }),
+      { id: "018f2d91-7c42-7000-8000-000000000091", enabled: false }
+    );
+    assert.match(queries[1]!, /id = \?::uuid/i);
+    assert.match(queries[1]!, /exomem_staged_client_releases/i);
+    assert.match(queries[1]!, /reviewer_bootstrap_ever_authorized = false/i);
+    assert.match(queries[1]!, /enabled = false/i);
+    assert.doesNotMatch(queries[1]!, /INSERT INTO exomem_oauth_clients/i);
   });
 
   it("lists approved clients without returning their raw client identity or redirects", async () => {

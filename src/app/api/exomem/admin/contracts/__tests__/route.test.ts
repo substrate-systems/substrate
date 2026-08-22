@@ -223,7 +223,11 @@ describe("Exomem operator contract controls", () => {
       )
     );
     assert.equal(preflight.status, 200);
-    assert.deepEqual(Object.keys(await preflight.json()).sort(), ["eligible", "requestId", "success"]);
+    assert.deepEqual(Object.keys(await preflight.json()).sort(), [
+      "eligible",
+      "requestId",
+      "success",
+    ]);
     assert.deepEqual(recoveryInput, { operationId, expectedFence: 7 });
 
     const replay = await POST(
@@ -392,18 +396,50 @@ describe("Exomem operator contract controls", () => {
     );
   });
 
-  it("requires operator authority to re-import a retained release as a fresh candidate", async () => {
+  it("initiates one explicit same-cell rollforward through its preparing assignment", async () => {
+    const { POST } = await import("../route");
+    const tenantId = "018f2d91-7c42-7000-8000-000000000011";
+    const cellId = "018f2d91-7c42-7000-8000-000000000012";
+    const response = await POST(
+      request(
+        {
+          action: "begin-rollforward",
+          tenantId,
+          cellId,
+          idempotencyKey: "operator-rollforward-1",
+        },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.operation, {
+      id: "operation-1",
+      state: "pending",
+      target: { sourceRelease: "0.35.0" },
+    });
+    assert.deepEqual(queuedOperations.at(-1), {
+      tenantId,
+      operationType: "rollforward",
+      idempotencyKey: "operator-rollforward-1",
+      cellId,
+      options: undefined,
+    });
+  });
+
+  it("requires operator authority to re-import 0.54.1 as a fresh retained candidate", async () => {
     const { POST } = await import("../route");
     assert.equal(
-      (await POST(request({ action: "import-retained-agent", sourceRelease: "0.49.0" }))).status,
+      (await POST(request({ action: "import-retained-agent", sourceRelease: "0.54.1" }))).status,
       401
     );
     const response = await POST(
-      request({ action: "import-retained-agent", sourceRelease: "0.49.0" }, `Bearer ${ADMIN_TOKEN}`)
+      request({ action: "import-retained-agent", sourceRelease: "0.54.1" }, `Bearer ${ADMIN_TOKEN}`)
     );
     assert.equal(response.status, 200);
     assert.equal((await response.json()).candidateId, "candidate-fresh");
-    assert.equal(importedRelease, "0.49.0");
+    assert.equal(importedRelease, "0.54.1");
   });
 
   it("rejects releases outside the immutable retained catalog", async () => {
@@ -412,6 +448,6 @@ describe("Exomem operator contract controls", () => {
       request({ action: "import-retained-agent", sourceRelease: "0.24.0" }, `Bearer ${ADMIN_TOKEN}`)
     );
     assert.equal(response.status, 400);
-    assert.equal(importedRelease, "0.49.0");
+    assert.equal(importedRelease, "0.54.1");
   });
 });

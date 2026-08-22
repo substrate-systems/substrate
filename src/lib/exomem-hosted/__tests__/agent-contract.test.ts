@@ -89,20 +89,20 @@ describe("Exomem Hosted agent contracts", () => {
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
-  it("ships the retained 0.50 fixture beside the exact current 0.54.1 fixture", () => {
+  it("ships the retained 0.54.1 fixture beside the exact current 0.57.2 fixture", () => {
     assert.equal(
-      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-50-0.ts", import.meta.url))),
+      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-54-1.ts", import.meta.url))),
       true
     );
     assert.equal(
-      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-50-0.json", import.meta.url))),
+      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-54-1.json", import.meta.url))),
       true
     );
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "b41906384ac187cc4877abfc204639fb3b6f8d48"
+      "d4bbef7725d55f3bb6e8c288deadddb15ef7855f"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.54.1");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.57.2");
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -166,6 +166,20 @@ describe("Exomem Hosted agent contracts", () => {
     assert.doesNotMatch(queries[0]!, /UPDATE exomem_agent_contract_candidates/i);
   });
 
+  it("re-imports 0.54.1 from its retained fixture after 0.57.2 becomes current", async () => {
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (_strings, ...parameters) => {
+      values.push(...parameters);
+      return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000098" }] };
+    });
+    assert.equal(
+      await storeRetainedExomemAgentContractCandidate("0.54.1"),
+      "018f2d91-7c42-7000-8000-000000000098"
+    );
+    assert.equal(values.includes("0.54.1"), true);
+    assert.equal(values.includes("0.57.2"), false);
+  });
+
   it("trusts the fixture source release independently of descriptor source_release", async () => {
     const fixture = exomemHostedContractFixture as unknown as {
       sourceRelease: string;
@@ -180,7 +194,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.54.1");
+      assert.equal(fixture.sourceRelease, "0.57.2");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);

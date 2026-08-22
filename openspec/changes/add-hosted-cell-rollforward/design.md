@@ -21,7 +21,7 @@ contents form the routable set digest promotion compares against — is written 
 a provisioning operation. Nothing probes the cell. The control plane still records 0.50.0
 for a cell demonstrably serving 0.54.1.
 
-That asymmetry is the design problem: the runtime is trivially movable, and the *record*
+That asymmetry is the design problem: the runtime is trivially movable, and the _record_
 of it is not movable at all except by replacing the cell.
 
 ## Goals / Non-Goals
@@ -46,8 +46,9 @@ of it is not movable at all except by replacing the cell.
 - Downgrade. Rollforward moves forward only; recovering a bad release is the existing
   restore/replacement path.
 - Fleet orchestration policy (batching, canary percentages, pacing). This change adds the
-  per-cell operation; who calls it and in what order is deliberately left to the operator
-  and a later change.
+  per-cell operation and its read-only inventory surface. The cross-repository
+  `standardize-hosted-runtime-upgrades` workflow owns explicit canary selection and
+  sequential fleet execution.
 - Changing how the deployment lock is composed or how `expand`/`contract` admission works.
 
 ## Decisions
@@ -78,12 +79,15 @@ The two previous decisions are in tension: we must not take the cell's word for 
 record, yet recording pure intent would let the record run ahead of reality exactly as it
 currently lags behind it.
 
-Resolution: intent *authorizes* and observation *confirms*. After the Helm upgrade the
+Resolution: intent _authorizes_ and observation _confirms_. After the Helm upgrade the
 operation reads the cell's advertised release, protocol, command fingerprint, schema and
 compatibility digests and requires them to equal the authorized target. Equal, and the
-routable observation is written for the same `cell_id`. Not equal, and the operation rolls
-back and fails terminal without writing. The cell can therefore veto a claim about itself
-but can never originate one.
+routable observation is written for the same `cell_id`. Not equal, and the control plane
+invokes an operation-scoped rollback action that the provisioner accepts only while that
+same operation's retained Helm marker and prior revision remain authoritative; it then
+fails terminal without writing. The cell can therefore veto a claim about itself but can
+never originate one, and neither a fresh operation nor reconstructed target can authorize
+rollback.
 
 ### A distinct `migrate` workload mode for root-run migrations
 
@@ -101,11 +105,27 @@ declares a migration, and required to succeed before the serving pod is moved.
 
 ### Checkpoints mirror the existing operation model
 
-`claimed → migrated → upgraded → verified → recorded → complete`. Each step is idempotent
-on replay: a Helm upgrade already at the target revision is a no-op, verification is a
-read, and the observation write is an upsert keyed on `(cell_id, profile_id)`. This
-satisfies the existing requirement that a reconciler resuming from a verified checkpoint
-does not unsafely replay completed destructive work.
+`claimed → migrated → upgraded → verified → recorded → complete`. A pre-record failure
+through `upgraded` moves to `rollforward-recovery`; that checkpoint replays the same
+operation's rollback until completion, then atomically restores the tenant and cell to
+running while recording the original terminal code. `verified` is already on the
+forward-only side of the boundary because the observation write and checkpoint advance
+are separate transactions: a lost write acknowledgement may mean the target is recorded.
+Failures at `verified`, `recorded`, or `complete` therefore replay mandatory forward
+completion and never initiate rollback. Each forward step is idempotent on replay: a Helm
+upgrade already at the target revision is a no-op, verification is a read, and the
+observation write is an upsert keyed on `(cell_id, profile_id)`.
+
+Promotion accepts either a successful provision/restore at `bound` or a successful
+rollforward at `complete` as the persisted operation proof for the exact candidate.
+
+### Assignment and initiation are explicit
+
+Rollforward requires a pre-created operator assignment for the exact tenant and target,
+and the operator explicitly initiates one cell operation at a time. Moving the deployment
+lock never auto-enrols a tenant and the reconciler never scans for old releases to mutate.
+This keeps adoption authority separate from tenant-mutation authority and gives the fleet
+workflow a hard stop after any failed canary.
 
 ### Fix the destroy-path ghost in this change
 
@@ -146,21 +166,16 @@ deletion away from being stuck.
 4. Roll the remaining fleet in sequence under `expand`.
 5. Compose a `contract` lock once no cell is left behind.
 
-Rollback: `helm upgrade --atomic` self-reverts a failed cell upgrade; a cell already moved
-can be returned with `helm rollback` to its prior revision, and the control-plane record is
-corrected by re-running rollforward against the earlier target only if that target is still
-in the lock's catalog.
+Recovery: before the routable observation moves, `helm upgrade --atomic` returns a failed
+transition to its recorded prior revision. If the Helm transition committed but the control
+plane's independent exact-target check then fails, the same lifecycle operation invokes the
+bounded provisioner rollback action against its retained marker and prior revision. After
+the observation moves, the workflow keeps expand mode active and stops; it does not run
+reverse rollforward, relabel the cell, or downgrade it automatically. Any later restore or
+recovery is separately reviewed and authorized.
 
 ## Open Questions
 
-- Does rollforward require a pre-created rollout assignment, or should the operation create
-  one implicitly? Requiring one keeps canary semantics explicit; creating one implicitly
-  makes a fleet roll a single call per tenant.
-- Should rollforward be operator-initiated per tenant, or driven by the reconciler once the
-  deployment lock's runtime target moves? The latter is closer to "seamless" but removes the
-  operator's per-tenant gate.
-- **Concrete first case:** tenant `1809ce5c` was upgraded out of band on 2026-08-18 and is
-  now serving 0.54.1 while recorded as 0.50.0. The first rollforward against it will be a
-  no-op at the Helm layer but must still correct the record. This is a useful acceptance
-  case, and it should be decided whether reconciling an already-diverged cell is in scope
-  for the operation or needs a separate repair path.
+None. Assignment creation and per-cell initiation are explicit, rollforward is forward
+only, and the already-diverged production cell was handled by the separately governed
+`correct-diverged-cell-release` repair rather than weakening this operation.

@@ -12,7 +12,7 @@ import {
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
-import { exomemContractFixture0541 } from "../gateway-contract-0-54-1";
+import { exomemContractFixture0572 } from "../gateway-contract-0-57-2";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
@@ -205,7 +205,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
        WHERE assignment.tenant_id = routed_cells.tenant_id AND assignment.state IN ('preparing', 'active')
      )`,
-    [candidateId, exomemContractFixture0541.digest, sha("9")]
+    [candidateId, exomemContractFixture0572.digest, sha("9")]
   );
   await pool!.query(
     `WITH target AS (
@@ -226,7 +226,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
          observed_compatibility_digest = target.compatibility_digest
      FROM bound_cells, target
      WHERE cell.id = bound_cells.id`,
-    [candidateId, exomemContractFixture0541.digest]
+    [candidateId, exomemContractFixture0572.digest]
   );
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
@@ -250,7 +250,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        ON assignment.tenant_id = cell.tenant_id AND assignment.candidate_id = target.id
       AND assignment.state = 'active' AND assignment.expires_at > now()
      WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0541.digest]
+    [candidateId, exomemContractFixture0572.digest]
   );
 }
 
@@ -1661,7 +1661,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           candidate.command_fingerprint,
           candidate.schema_digest,
           candidate.compatibility_digest,
-          exomemContractFixture0541.digest,
+          exomemContractFixture0572.digest,
           sha("9"),
         ]
       );
@@ -1697,7 +1697,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           assignment.rows[0]!.generation,
           candidate.source_release,
           candidate.protocol_version,
-          exomemContractFixture0541.digest,
+          exomemContractFixture0572.digest,
           candidate.command_fingerprint,
           candidate.schema_digest,
           candidate.compatibility_digest,

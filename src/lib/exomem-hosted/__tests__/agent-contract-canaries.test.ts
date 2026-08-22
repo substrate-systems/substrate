@@ -103,6 +103,8 @@ describe("Hosted canary assignments", () => {
     assert.match(queries[1]!, /gateway_contract_digest/i);
     assert.equal(values.includes(exomemContractFixture0500.digest), true);
     assert.match(queries[1]!, /prior\.generation \+ 1/i);
+    assert.match(queries[1]!, /current\.state = 'preparing'/i);
+    assert.doesNotMatch(queries[1]!, /current\.state IN \('preparing', 'active'\)/i);
     assert.doesNotMatch(
       queries[1]!,
       /UPDATE exomem_agent_contract_rollout_assignments\s+SET[^;]*(?:candidate_id|source_release|protocol_version)/i

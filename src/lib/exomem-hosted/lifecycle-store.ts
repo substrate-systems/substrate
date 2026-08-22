@@ -33,6 +33,7 @@ import { exomemContractFixture0392 } from "./gateway-contract-0-39-2";
 import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
 import { exomemContractFixture0500 } from "./gateway-contract-0-50-0";
 import { exomemContractFixture0541 } from "./gateway-contract-0-54-1";
+import { exomemContractFixture0572 } from "./gateway-contract-0-57-2";
 import { revokeTenantOAuthOutsideAssignmentInTransaction } from "./agent-contract-canaries";
 import { refreshRoutableProfileAuthorityInTransaction } from "./agent-contract-store";
 
@@ -257,7 +258,10 @@ export class SqlLifecycleStore implements LifecycleStore {
     cellId: string | null = null,
     options: LifecycleEnqueueOptions = {}
   ): Promise<LifecycleOperation> {
-    const provisionerWireProtocol = provisionerWireProtocolFromEnv();
+    const provisionerWireProtocol =
+      operationType === "rollforward"
+        ? "exomem-cell-provisioner.v2"
+        : provisionerWireProtocolFromEnv();
     const exportTtlMs = options.exportTtlMs ?? 24 * 60 * 60 * 1000;
     if (
       operationType === "export" &&
@@ -332,6 +336,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0500.digest}
                    WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
                      THEN ${exomemContractFixture0541.digest}
+                   WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
+                     THEN ${exomemContractFixture0572.digest}
                    ELSE NULL
                  END AS gateway_contract_digest,
                  candidate.command_fingerprint, candidate.schema_digest,
@@ -425,7 +431,21 @@ export class SqlLifecycleStore implements LifecycleStore {
                assignment.compatibility_digest
         FROM exomem_agent_contract_rollout_assignments AS assignment
         JOIN tenant ON tenant.id = assignment.tenant_id
-        WHERE assignment.state = 'preparing' AND assignment.expires_at > now()
+        WHERE assignment.expires_at > now()
+          AND (
+            assignment.state = 'preparing'
+            OR (
+              ${operationType}::text = 'rollforward'
+              AND assignment.state = 'active'
+              AND NOT EXISTS (
+                SELECT 1
+                FROM exomem_agent_contract_rollout_assignments AS preparing
+                WHERE preparing.tenant_id = assignment.tenant_id
+                  AND preparing.state = 'preparing'
+                  AND preparing.expires_at > now()
+              )
+            )
+          )
         FOR SHARE OF assignment
       ), live_target AS MATERIALIZED (
         SELECT candidate.id AS candidate_id,
@@ -446,6 +466,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                    THEN ${exomemContractFixture0500.digest}
                  WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
                    THEN ${exomemContractFixture0541.digest}
+                 WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
+                   THEN ${exomemContractFixture0572.digest}
                  ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint,
@@ -649,7 +671,7 @@ export class SqlLifecycleStore implements LifecycleStore {
         WHERE 1 = (SELECT COUNT(DISTINCT candidate_id) FROM legacy_cell_target_candidates)
       ), target AS MATERIALIZED (
         SELECT * FROM assignment_target
-        WHERE ${operationType}::text IN ('provision', 'restore')
+        WHERE ${operationType}::text IN ('provision', 'restore', 'rollforward')
         UNION ALL
         SELECT * FROM live_target
         WHERE ${operationType}::text IN ('provision', 'restore')
@@ -660,25 +682,25 @@ export class SqlLifecycleStore implements LifecycleStore {
                protocol_version, gateway_contract_digest, command_fingerprint,
                schema_digest, compatibility_digest
         FROM strict_v1_reviewer_target
-        WHERE ${operationType}::text NOT IN ('provision', 'restore')
+        WHERE ${operationType}::text NOT IN ('provision', 'restore', 'rollforward')
           AND NOT EXISTS (SELECT 1 FROM bound_assignment_target)
         UNION ALL
         SELECT candidate_id, assignment_id, assignment_generation, source_release,
                protocol_version, gateway_contract_digest, command_fingerprint,
                schema_digest, compatibility_digest
         FROM latest_origin_target
-        WHERE ${operationType}::text NOT IN ('provision', 'restore')
+        WHERE ${operationType}::text NOT IN ('provision', 'restore', 'rollforward')
           AND NOT EXISTS (SELECT 1 FROM bound_assignment_target)
           AND NOT EXISTS (SELECT 1 FROM strict_v1_reviewer_target)
         UNION ALL
         SELECT * FROM legacy_cell_target
-        WHERE ${operationType}::text NOT IN ('provision', 'restore')
+        WHERE ${operationType}::text NOT IN ('provision', 'restore', 'rollforward')
           AND NOT EXISTS (SELECT 1 FROM bound_assignment_target)
           AND NOT EXISTS (SELECT 1 FROM strict_v1_reviewer_target)
           AND NOT EXISTS (SELECT 1 FROM latest_origin_target)
         UNION ALL
         SELECT * FROM bound_assignment_target
-        WHERE ${operationType}::text NOT IN ('provision', 'restore')
+        WHERE ${operationType}::text NOT IN ('provision', 'restore', 'rollforward')
       )
       INSERT INTO exomem_lifecycle_operations (
         tenant_id, cell_id, operation_type, idempotency_key,
@@ -731,10 +753,56 @@ export class SqlLifecycleStore implements LifecycleStore {
              target.compatibility_digest
       FROM tenant
       JOIN target ON TRUE
+      WHERE ${operationType}::text <> 'rollforward'
+         OR (
+           ${cellId}::uuid IS NOT NULL
+           AND tenant.bound_cell_id = ${cellId}::uuid
+           AND (
+             EXISTS (
+               SELECT 1
+               FROM exomem_cells AS bound_cell
+               WHERE bound_cell.id = ${cellId}::uuid
+                 AND bound_cell.tenant_id = tenant.id
+                 AND bound_cell.routing_state = 'bound'
+                 AND bound_cell.lifecycle_state = 'active'
+                 AND bound_cell.desired_state = 'running'
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM exomem_lifecycle_operations AS existing_operation
+               WHERE existing_operation.tenant_id = tenant.id
+                 AND existing_operation.cell_id = ${cellId}::uuid
+                 AND existing_operation.operation_type = 'rollforward'
+                 AND existing_operation.idempotency_key = ${idempotencyKey}
+             )
+           )
+         )
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       WHERE exomem_lifecycle_operations.input_reference_digest
               IS NOT DISTINCT FROM EXCLUDED.input_reference_digest
+        AND exomem_lifecycle_operations.cell_id
+              IS NOT DISTINCT FROM EXCLUDED.cell_id
+        AND exomem_lifecycle_operations.provisioner_wire_protocol
+              IS NOT DISTINCT FROM EXCLUDED.provisioner_wire_protocol
+        AND exomem_lifecycle_operations.target_candidate_id
+              IS NOT DISTINCT FROM EXCLUDED.target_candidate_id
+        AND exomem_lifecycle_operations.target_assignment_id
+              IS NOT DISTINCT FROM EXCLUDED.target_assignment_id
+        AND exomem_lifecycle_operations.target_assignment_generation
+              IS NOT DISTINCT FROM EXCLUDED.target_assignment_generation
+        AND exomem_lifecycle_operations.target_source_release
+              IS NOT DISTINCT FROM EXCLUDED.target_source_release
+        AND exomem_lifecycle_operations.target_protocol_version
+              IS NOT DISTINCT FROM EXCLUDED.target_protocol_version
+        AND exomem_lifecycle_operations.target_gateway_contract_digest
+              IS NOT DISTINCT FROM EXCLUDED.target_gateway_contract_digest
+        AND exomem_lifecycle_operations.target_command_fingerprint
+              IS NOT DISTINCT FROM EXCLUDED.target_command_fingerprint
+        AND exomem_lifecycle_operations.target_schema_digest
+              IS NOT DISTINCT FROM EXCLUDED.target_schema_digest
+        AND exomem_lifecycle_operations.target_compatibility_digest
+              IS NOT DISTINCT FROM EXCLUDED.target_compatibility_digest
         AND exomem_lifecycle_operations.input_source_cell_id
               IS NOT DISTINCT FROM EXCLUDED.input_source_cell_id
         AND exomem_lifecycle_operations.input_export_id
@@ -826,7 +894,8 @@ export class SqlLifecycleStore implements LifecycleStore {
               'export-stored', 'export-expired-release',
               'export-expired-released', 'export-expired-resumed',
               'export-expired-readiness-proved',
-              'prior-retirement', 'prior-retired'
+              'prior-retirement', 'prior-retired',
+              'rollforward-recovery', 'verified', 'recorded', 'complete'
             )
             OR (
               operation.operation_type = 'export'
@@ -945,6 +1014,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0500.digest}
                    WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
                      THEN ${exomemContractFixture0541.digest}
+                   WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
+                     THEN ${exomemContractFixture0572.digest}
                    ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,
@@ -1077,6 +1148,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0500.digest}
                    WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
                      THEN ${exomemContractFixture0541.digest}
+                   WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
+                     THEN ${exomemContractFixture0572.digest}
                    ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,
@@ -1319,7 +1392,9 @@ export class SqlLifecycleStore implements LifecycleStore {
       SET state = 'failed_retryable',
           attempts = CASE WHEN ${errorCode} = 'CAPACITY_UNAVAILABLE' THEN GREATEST(attempts - 1, 0) ELSE attempts END,
           error_code = CASE
-            WHEN operation.checkpoint IN ('candidate-cleanup', 'export-failure-resume')
+            WHEN operation.checkpoint IN (
+              'candidate-cleanup', 'export-failure-resume', 'rollforward-recovery'
+            )
               THEN operation.error_code
             ELSE ${errorCode}
           END,
@@ -1352,7 +1427,10 @@ export class SqlLifecycleStore implements LifecycleStore {
       UPDATE exomem_lifecycle_operations AS operation
       SET state = 'waiting',
           attempts = GREATEST(attempts - 1, 0),
-          error_code = NULL,
+          error_code = CASE
+            WHEN operation.checkpoint = 'rollforward-recovery' THEN operation.error_code
+            ELSE NULL
+          END,
           next_attempt_at = ${nextAttemptAt.toISOString()},
           lease_owner = NULL,
           lease_expires_at = NULL,
@@ -1577,6 +1655,186 @@ export class SqlLifecycleStore implements LifecycleStore {
       RETURNING cell.id
     `;
     return rows.length === 1;
+  }
+
+  async recordRollforward(input: {
+    operationId: string;
+    owner: string;
+    code: string;
+    runtimeIdentity: RuntimeTarget;
+  }): Promise<boolean> {
+    return withExomemTransaction(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+      const { rows } = await tx`
+        /* exomem:lifecycle-record-rollforward */
+        WITH owned AS MATERIALIZED (
+          SELECT operation.id,
+                 operation.tenant_id,
+                 operation.cell_id,
+                 operation.target_candidate_id,
+                 operation.target_assignment_id,
+                 operation.target_assignment_generation,
+                 operation.target_source_release,
+                 operation.target_protocol_version,
+                 operation.target_gateway_contract_digest,
+                 operation.target_command_fingerprint,
+                 operation.target_schema_digest,
+                 operation.target_compatibility_digest
+          FROM exomem_lifecycle_operations AS operation
+          JOIN exomem_tenants AS tenant
+            ON tenant.id = operation.tenant_id
+           AND tenant.bound_cell_id = operation.cell_id
+           AND tenant.desired_state = 'suspended'
+          JOIN exomem_cells AS cell
+            ON cell.id = operation.cell_id
+           AND cell.tenant_id = operation.tenant_id
+           AND cell.routing_state = 'bound'
+           AND cell.lifecycle_state = 'draining'
+          JOIN exomem_agent_contract_candidates AS candidate
+            ON candidate.id = operation.target_candidate_id
+           AND candidate.profile_id = 'hosted-alpha-agent-v1'
+           AND candidate.state IN ('pending', 'live')
+           AND candidate.source_release = operation.target_source_release
+           AND candidate.protocol_version = operation.target_protocol_version
+           AND candidate.command_fingerprint = operation.target_command_fingerprint
+           AND candidate.schema_digest = operation.target_schema_digest
+           AND candidate.compatibility_digest = operation.target_compatibility_digest
+          JOIN exomem_agent_contract_rollout_assignments AS assignment
+            ON assignment.id = operation.target_assignment_id
+           AND assignment.tenant_id = operation.tenant_id
+           AND assignment.candidate_id = operation.target_candidate_id
+           AND assignment.generation = operation.target_assignment_generation
+           AND assignment.state IN ('preparing', 'active')
+           AND assignment.expires_at > now()
+           AND assignment.source_release = operation.target_source_release
+           AND assignment.protocol_version = operation.target_protocol_version
+           AND assignment.gateway_contract_digest = operation.target_gateway_contract_digest
+           AND assignment.command_fingerprint = operation.target_command_fingerprint
+           AND assignment.schema_digest = operation.target_schema_digest
+           AND assignment.compatibility_digest = operation.target_compatibility_digest
+          WHERE operation.id = ${input.operationId}::uuid
+            AND operation.operation_type = 'rollforward'
+            AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+            AND operation.checkpoint = 'verified'
+            AND operation.state = 'running'
+            AND operation.lease_owner = ${input.owner}
+            AND operation.lease_expires_at > now()
+            AND operation.fence_generation = tenant.fence_generation
+            AND operation.expected_previous_cell_id IS NULL
+            AND ${input.code} = 'CELL_READY'
+            AND ${input.runtimeIdentity.releaseVersion} = operation.target_source_release
+            AND ${input.runtimeIdentity.protocolVersion} = operation.target_protocol_version
+            AND ${input.runtimeIdentity.agentProfile} = 'hosted-alpha-agent-v1'
+            AND ${input.runtimeIdentity.gatewayContractDigest} = operation.target_gateway_contract_digest
+            AND ${input.runtimeIdentity.commandFingerprint} = operation.target_command_fingerprint
+            AND ${input.runtimeIdentity.schemaDigest} = operation.target_schema_digest
+            AND ${input.runtimeIdentity.compatibilityDigest} = operation.target_compatibility_digest
+          FOR UPDATE OF operation, tenant, cell, candidate, assignment
+        ), retired_assignment AS (
+          UPDATE exomem_agent_contract_rollout_assignments AS assignment
+          SET state = 'retired',
+              activated_at = NULL,
+              ended_at = now(),
+              version = version + 1,
+              updated_at = now()
+          FROM owned
+          WHERE assignment.tenant_id = owned.tenant_id
+            AND assignment.id <> owned.target_assignment_id
+            AND assignment.state = 'active'
+          RETURNING assignment.id
+        ), activated_assignment AS (
+          UPDATE exomem_agent_contract_rollout_assignments AS assignment
+          SET state = 'active',
+              activated_at = COALESCE(assignment.activated_at, now()),
+              ended_at = NULL,
+              version = CASE WHEN assignment.state = 'preparing' THEN version + 1 ELSE version END,
+              updated_at = now()
+          FROM owned
+          WHERE assignment.id = owned.target_assignment_id
+            AND assignment.state IN ('preparing', 'active')
+            AND (
+              NOT EXISTS (
+                SELECT 1
+                FROM exomem_agent_contract_rollout_assignments AS conflicting
+                WHERE conflicting.tenant_id = owned.tenant_id
+                  AND conflicting.id <> owned.target_assignment_id
+                  AND conflicting.state = 'active'
+              )
+              OR EXISTS (SELECT 1 FROM retired_assignment)
+            )
+          RETURNING assignment.id
+        ), cell_recorded AS (
+          UPDATE exomem_cells AS cell
+          SET release_version = owned.target_source_release,
+              protocol_version = owned.target_protocol_version,
+              observed_gateway_contract_digest = owned.target_gateway_contract_digest,
+              observed_command_fingerprint = owned.target_command_fingerprint,
+              observed_schema_digest = owned.target_schema_digest,
+              observed_compatibility_digest = owned.target_compatibility_digest,
+              readiness_code = 'CELL_READY',
+              last_liveness_at = now(),
+              last_readiness_at = now(),
+              updated_at = now()
+          FROM owned
+          WHERE cell.id = owned.cell_id
+            AND EXISTS (SELECT 1 FROM activated_assignment)
+          RETURNING cell.id, cell.tenant_id
+        ), observation_recorded AS (
+          INSERT INTO exomem_routable_cell_contracts (
+            cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+            contract_digest, compatibility_digest, routable, observed_at
+          )
+          SELECT owned.cell_id, 'hosted-alpha-agent-v1', owned.target_source_release,
+                 owned.target_protocol_version, owned.target_command_fingerprint,
+                 owned.target_schema_digest, owned.target_compatibility_digest, true, now()
+          FROM owned
+          JOIN cell_recorded ON cell_recorded.id = owned.cell_id
+          ON CONFLICT (cell_id, profile_id) DO UPDATE
+          SET source_release = EXCLUDED.source_release,
+              protocol_version = EXCLUDED.protocol_version,
+              command_fingerprint = EXCLUDED.command_fingerprint,
+              contract_digest = EXCLUDED.contract_digest,
+              compatibility_digest = EXCLUDED.compatibility_digest,
+              routable = true,
+              observed_at = now()
+          RETURNING cell_id
+        )
+        SELECT owned.cell_id,
+               owned.tenant_id,
+               owned.target_candidate_id,
+               owned.target_assignment_id,
+               owned.target_assignment_generation
+        FROM owned
+        JOIN cell_recorded ON cell_recorded.id = owned.cell_id
+        JOIN observation_recorded ON observation_recorded.cell_id = owned.cell_id
+      `;
+      const recorded = rows[0] as
+        | {
+            cell_id?: string;
+            tenant_id?: string;
+            target_candidate_id?: string;
+            target_assignment_id?: string;
+            target_assignment_generation?: number;
+          }
+        | undefined;
+      if (
+        !recorded?.cell_id ||
+        !recorded.tenant_id ||
+        !recorded.target_candidate_id ||
+        !recorded.target_assignment_id ||
+        !recorded.target_assignment_generation
+      ) {
+        return false;
+      }
+      await refreshRoutableProfileAuthorityInTransaction(tx, recorded.cell_id);
+      await revokeTenantOAuthOutsideAssignmentInTransaction(tx, {
+        tenantId: recorded.tenant_id,
+        candidateId: recorded.target_candidate_id,
+        assignmentId: recorded.target_assignment_id,
+        assignmentGeneration: Number(recorded.target_assignment_generation),
+      });
+      return true;
+    });
   }
 
   async recordOperationReference(
@@ -2208,6 +2466,91 @@ export class SqlLifecycleStore implements LifecycleStore {
             AND tenant.fence_generation = operation.fence_generation
         )
       RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async prepareRollforwardRecovery(
+    operationId: string,
+    owner: string,
+    errorCode: string
+  ): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-prepare-rollforward-recovery */
+      UPDATE exomem_lifecycle_operations AS operation
+      SET checkpoint = 'rollforward-recovery',
+          state = 'waiting',
+          attempts = 0,
+          error_code = ${errorCode},
+          next_attempt_at = now(),
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          updated_at = now()
+      FROM exomem_tenants AS tenant, exomem_cells AS cell
+      WHERE operation.id = ${operationId}
+        AND operation.state = 'running'
+        AND operation.lease_owner = ${owner}
+        AND operation.lease_expires_at > now()
+        AND operation.operation_type = 'rollforward'
+        AND operation.checkpoint NOT IN ('created', 'rollforward-recovery')
+        AND tenant.id = operation.tenant_id
+        AND tenant.bound_cell_id = operation.cell_id
+        AND tenant.fence_generation = operation.fence_generation
+        AND tenant.desired_state = 'suspended'
+        AND cell.id = operation.cell_id
+        AND cell.tenant_id = operation.tenant_id
+      RETURNING operation.id
+    `;
+    return rows.length === 1;
+  }
+
+  async completeRollforwardRecovery(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-complete-rollforward-recovery */
+      WITH owned AS MATERIALIZED (
+        SELECT operation.id, operation.tenant_id, operation.cell_id
+        FROM exomem_lifecycle_operations AS operation
+        JOIN exomem_tenants AS tenant
+          ON tenant.id = operation.tenant_id
+         AND tenant.bound_cell_id = operation.cell_id
+         AND tenant.desired_state <> 'deleted'
+        JOIN exomem_cells AS cell
+          ON cell.id = operation.cell_id
+         AND cell.tenant_id = operation.tenant_id
+        WHERE operation.id = ${operationId}
+          AND operation.operation_type = 'rollforward'
+          AND operation.checkpoint = 'rollforward-recovery'
+          AND operation.error_code IS NOT NULL
+          AND operation.state = 'running'
+          AND operation.lease_owner = ${owner}
+          AND operation.lease_expires_at > now()
+          AND operation.fence_generation = tenant.fence_generation
+        FOR UPDATE OF operation, tenant, cell
+      ), cell_active AS (
+        UPDATE exomem_cells AS cell
+        SET lifecycle_state = 'active', desired_state = 'running', updated_at = now()
+        FROM owned
+        WHERE cell.id = owned.cell_id
+        RETURNING cell.tenant_id
+      ), tenant_active AS (
+        UPDATE exomem_tenants AS tenant
+        SET status = 'active', desired_state = 'running', updated_at = now()
+        FROM cell_active
+        WHERE tenant.id = cell_active.tenant_id
+        RETURNING tenant.id
+      ), operation_failed AS (
+        UPDATE exomem_lifecycle_operations AS operation
+        SET state = 'failed_terminal',
+            completed_at = now(),
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            updated_at = now()
+        FROM owned, tenant_active
+        WHERE operation.id = owned.id
+          AND tenant_active.id = owned.tenant_id
+        RETURNING operation.id
+      )
+      SELECT id FROM operation_failed
     `;
     return rows.length === 1;
   }

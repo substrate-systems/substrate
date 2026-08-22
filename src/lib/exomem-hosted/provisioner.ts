@@ -34,6 +34,7 @@ export type RuntimeTarget = {
   gatewayContractDigest: string;
   commandFingerprint: string;
   schemaDigest: string;
+  compatibilityDigest: string;
 };
 
 export type ProvisionerCallContext = {
@@ -65,6 +66,10 @@ export type ProvisionCellRequest = CellRequest & {
 
 export type CellTargetRequest = CellRequest & {
   providerRef: string;
+};
+
+export type RollforwardCellRequest = CellTargetRequest & {
+  compatibilityDigest: string;
 };
 
 export type RotateCredentialRequest = CellTargetRequest & {
@@ -165,6 +170,8 @@ export type ExportDownloadResult = {
 
 export interface CellProvisioner {
   provision(request: ProvisionCellRequest): Promise<ProvisionedCell>;
+  rollforward(request: RollforwardCellRequest): Promise<void>;
+  rollbackRollforward(request: RollforwardCellRequest): Promise<void>;
   health(request: CellTargetRequest): Promise<CellReadiness>;
   rotateCredential(request: RotateCredentialRequest): Promise<CredentialRotationResult>;
   quiesce(request: CellTargetRequest): Promise<void>;
@@ -294,7 +301,9 @@ function contextBody(context: ProvisionerCallContext): Record<string, unknown> {
   };
 }
 
-function wireProtocol(request: { provisionerWireProtocol?: ProvisionerWireProtocol }): ProvisionerWireProtocol {
+function wireProtocol(request: {
+  provisionerWireProtocol?: ProvisionerWireProtocol;
+}): ProvisionerWireProtocol {
   if (request.provisionerWireProtocol === undefined) return PROVISIONER_PROTOCOL_V1;
   if (
     request.provisionerWireProtocol === PROVISIONER_PROTOCOL_V1 ||
@@ -333,6 +342,7 @@ function runtimeTarget(request: CellRequest): RuntimeTarget {
     gatewayContractDigest: identity.gatewayContractDigest,
     commandFingerprint: identity.commandFingerprint,
     schemaDigest: identity.schemaDigest,
+    compatibilityDigest: identity.compatibilityDigest,
   };
 }
 
@@ -364,6 +374,18 @@ function targetBody(request: CellTargetRequest): Record<string, unknown> {
   return {
     ...baseCellBody(request),
     providerRef: request.providerRef,
+  };
+}
+
+function rollforwardBody(request: RollforwardCellRequest): Record<string, unknown> {
+  const compatibilityDigest = boundedLabel(request.compatibilityDigest, 64);
+  if (!compatibilityDigest || !/^[a-f0-9]{64}$/.test(compatibilityDigest)) {
+    throw configurationFailure();
+  }
+  if (wireProtocol(request) !== PROVISIONER_PROTOCOL_V2) throw configurationFailure();
+  return {
+    ...targetBody(request),
+    compatibilityDigest,
   };
 }
 
@@ -432,7 +454,7 @@ function parseRuntimeIdentity(value: unknown): RuntimeTarget | null {
   const identity = value as Record<string, unknown>;
   if (
     Object.keys(identity).sort().join(",") !==
-    "agentProfile,commandFingerprint,gatewayContractDigest,protocolVersion,releaseVersion,schemaDigest"
+    "agentProfile,commandFingerprint,compatibilityDigest,gatewayContractDigest,protocolVersion,releaseVersion,schemaDigest"
   ) {
     return null;
   }
@@ -442,6 +464,7 @@ function parseRuntimeIdentity(value: unknown): RuntimeTarget | null {
   const gatewayContractDigest = boundedLabel(identity.gatewayContractDigest, 64);
   const commandFingerprint = boundedLabel(identity.commandFingerprint, 64);
   const schemaDigest = boundedLabel(identity.schemaDigest, 64);
+  const compatibilityDigest = boundedLabel(identity.compatibilityDigest, 64);
   if (
     !releaseVersion ||
     !protocolVersion ||
@@ -449,9 +472,11 @@ function parseRuntimeIdentity(value: unknown): RuntimeTarget | null {
     !gatewayContractDigest ||
     !commandFingerprint ||
     !schemaDigest ||
+    !compatibilityDigest ||
     !/^[a-f0-9]{64}$/.test(gatewayContractDigest) ||
     !/^[a-f0-9]{64}$/.test(commandFingerprint) ||
-    !/^[a-f0-9]{64}$/.test(schemaDigest)
+    !/^[a-f0-9]{64}$/.test(schemaDigest) ||
+    !/^[a-f0-9]{64}$/.test(compatibilityDigest)
   ) {
     return null;
   }
@@ -462,6 +487,7 @@ function parseRuntimeIdentity(value: unknown): RuntimeTarget | null {
     gatewayContractDigest,
     commandFingerprint,
     schemaDigest,
+    compatibilityDigest,
   };
 }
 
@@ -611,7 +637,16 @@ export class HttpCellProvisioner implements CellProvisioner {
       }
       if (
         wireProtocol(request) === PROVISIONER_PROTOCOL_V2 &&
-        ["quiesce", "resume", "stop", "export-release", "restore", "seal"].includes(action) &&
+        [
+          "rollforward",
+          "rollback-rollforward",
+          "quiesce",
+          "resume",
+          "stop",
+          "export-release",
+          "restore",
+          "seal",
+        ].includes(action) &&
         response.status !== 202 &&
         response.status !== 204
       ) {
@@ -679,6 +714,14 @@ export class HttpCellProvisioner implements CellProvisioner {
       });
     }
     return { providerRef, privateEndpoint: new SensitiveSecret(privateEndpoint) };
+  }
+
+  async rollforward(request: RollforwardCellRequest): Promise<void> {
+    await this.#call("rollforward", request, rollforwardBody(request));
+  }
+
+  async rollbackRollforward(request: RollforwardCellRequest): Promise<void> {
+    await this.#call("rollback-rollforward", request, rollforwardBody(request));
   }
 
   async health(request: CellTargetRequest): Promise<CellReadiness> {
@@ -1009,6 +1052,8 @@ type FakeResource = {
 
 type ProvisionerAction =
   | "provision"
+  | "rollforward"
+  | "rollback-rollforward"
   | "health"
   | "rotate-credential"
   | "quiesce"
@@ -1037,6 +1082,20 @@ export class FakeCellProvisioner implements CellProvisioner {
   readonly #results = new Map<string, unknown>();
   readonly #requestDigests = new Map<string, string>();
   readonly #lostAcknowledgements = new Set<ProvisionerAction>();
+  readonly #priorRollforwards = new Map<
+    string,
+    Pick<
+      FakeResource,
+      | "cellId"
+      | "protocolVersion"
+      | "releaseVersion"
+      | "provisionerWireProtocol"
+      | "agentProfile"
+      | "runtimeTarget"
+      | "contractIdentity"
+      | "state"
+    >
+  >();
   readonly #now: () => Date;
   failure: ProvisionerFailure | null = null;
   readinessOverride: Partial<CellReadiness> = {};
@@ -1164,6 +1223,68 @@ export class FakeCellProvisioner implements CellProvisioner {
     return this.#after("provision", key, { providerRef, privateEndpoint: endpoint });
   }
 
+  async rollforward(request: RollforwardCellRequest): Promise<void> {
+    const selectedRuntimeTarget = runtimeTarget(request);
+    const body = rollforwardBody(request);
+    const key = this.#before("rollforward", request, {
+      providerRef: request.providerRef,
+      compatibilityDigest: body.compatibilityDigest,
+    });
+    if (this.#results.has(key)) return;
+    const resource = this.#resource(request);
+    if (!this.#priorRollforwards.has(request.context.operationId)) {
+      this.#priorRollforwards.set(request.context.operationId, {
+        cellId: resource.cellId,
+        protocolVersion: resource.protocolVersion,
+        releaseVersion: resource.releaseVersion,
+        provisionerWireProtocol: resource.provisionerWireProtocol,
+        agentProfile: resource.agentProfile,
+        runtimeTarget: resource.runtimeTarget ? { ...resource.runtimeTarget } : null,
+        contractIdentity: resource.contractIdentity ? { ...resource.contractIdentity } : null,
+        state: resource.state,
+      });
+    }
+    resource.protocolVersion = selectedRuntimeTarget.protocolVersion;
+    resource.releaseVersion = selectedRuntimeTarget.releaseVersion;
+    resource.provisionerWireProtocol = PROVISIONER_PROTOCOL_V2;
+    resource.agentProfile = selectedRuntimeTarget.agentProfile;
+    resource.runtimeTarget = selectedRuntimeTarget;
+    resource.contractIdentity = {
+      gatewayContractDigest: selectedRuntimeTarget.gatewayContractDigest,
+      commandFingerprint: selectedRuntimeTarget.commandFingerprint,
+      schemaDigest: selectedRuntimeTarget.schemaDigest,
+      compatibilityDigest: request.compatibilityDigest,
+    };
+    resource.state = "running";
+    this.#after("rollforward", key, true);
+  }
+
+  async rollbackRollforward(request: RollforwardCellRequest): Promise<void> {
+    const selectedRuntimeTarget = runtimeTarget(request);
+    const key = this.#before("rollback-rollforward", request, {
+      providerRef: request.providerRef,
+      compatibilityDigest: request.compatibilityDigest,
+    });
+    if (this.#results.has(key)) return;
+    const resource = this.#resource(request);
+    const prior = this.#priorRollforwards.get(request.context.operationId);
+    if (
+      !prior ||
+      prior.cellId !== resource.cellId ||
+      JSON.stringify(resource.runtimeTarget) !== JSON.stringify(selectedRuntimeTarget)
+    ) {
+      throw new ProvisionerFailure({ code: "PROVISIONER_REJECTED", retryable: false });
+    }
+    resource.protocolVersion = prior.protocolVersion;
+    resource.releaseVersion = prior.releaseVersion;
+    resource.provisionerWireProtocol = prior.provisionerWireProtocol;
+    resource.agentProfile = prior.agentProfile;
+    resource.runtimeTarget = prior.runtimeTarget ? { ...prior.runtimeTarget } : null;
+    resource.contractIdentity = prior.contractIdentity ? { ...prior.contractIdentity } : null;
+    resource.state = prior.state;
+    this.#after("rollback-rollforward", key, true);
+  }
+
   async health(request: CellTargetRequest): Promise<CellReadiness> {
     const key = this.#before("health", request, { providerRef: request.providerRef });
     const resource = this.#resource(request);
@@ -1182,6 +1303,7 @@ export class FakeCellProvisioner implements CellProvisioner {
             gatewayContractDigest: resource.contractIdentity.gatewayContractDigest,
             commandFingerprint: resource.contractIdentity.commandFingerprint,
             schemaDigest: resource.contractIdentity.schemaDigest,
+            compatibilityDigest: resource.contractIdentity.compatibilityDigest,
           }
         : null);
     const readiness: CellReadiness = {

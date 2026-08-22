@@ -13,7 +13,7 @@ import {
   type CimdFetchedMetadata,
   type OperatorOAuthClientRegistration,
 } from "./oauth-client-admission";
-import { exomemContractFixture0541 } from "./gateway-contract-0-54-1";
+import { exomemContractFixture0572 } from "./gateway-contract-0-57-2";
 
 export type OperatorOAuthClient = {
   id: string;
@@ -90,7 +90,11 @@ function assertExpiredReviewerCleanupInput(input: ExpiredReviewerCleanupInput): 
 }
 
 function assertTerminalReviewerDeleteInput(input: TerminalReviewerDeleteInput): void {
-  if (!UUID.test(input.operationId) || !Number.isSafeInteger(input.expectedFence) || input.expectedFence < 1)
+  if (
+    !UUID.test(input.operationId) ||
+    !Number.isSafeInteger(input.expectedFence) ||
+    input.expectedFence < 1
+  )
     throw exomemErrors.invalidRequest();
 }
 
@@ -1269,8 +1273,8 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
         JOIN exomem_agent_contract_candidates AS candidate
          ON candidate.id = stage.candidate_id
          AND candidate.profile_id = 'hosted-alpha-agent-v1'
-         AND candidate.source_release = ${exomemContractFixture0541.release}
-         AND candidate.protocol_version = ${exomemContractFixture0541.protocol}
+         AND candidate.source_release = ${exomemContractFixture0572.release}
+         AND candidate.protocol_version = ${exomemContractFixture0572.protocol}
          AND candidate.state = 'pending'
         WHERE stage.id = ${input.stagedClientReleaseId}::uuid
          AND stage.state = 'staged' AND stage.expires_at > now()
@@ -1325,7 +1329,7 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
           operator_principal_digest, expires_at
         )
         SELECT 'active', invite.id, stage.candidate_id, stage.profile_id, stage.contract_sha256,
-               stage.source_release, stage.protocol_version, ${exomemContractFixture0541.digest},
+               stage.source_release, stage.protocol_version, ${exomemContractFixture0572.digest},
                stage.command_fingerprint, stage.contract_sha256, stage.compatibility_digest,
                stage.id, stage.platform, stage.oauth_client_config_sha256, client.id,
                client.authority_version, client.oauth_client_config_sha256, client.redirect_uris_digest,
@@ -1368,6 +1372,7 @@ export async function revokeReviewerOAuthBootstrapAuthority(input: {
 type OperatorClientWriteResult = { id: string; enabled: boolean };
 type StagedOperatorOAuthClientRegistration = OperatorOAuthClientRegistration & {
   stagedClientReleaseId?: string;
+  existingClientRecordId?: string;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1391,6 +1396,42 @@ function metadataProvenance(input: {
   });
 }
 
+export async function preflightReusablePinnedOAuthClient(input: {
+  platform: "claude" | "openai";
+  clientId: string;
+  redirectUris: string[];
+}): Promise<{ eligible: boolean; clientRecordId: string | null }> {
+  const registration = normalizeOperatorOAuthClientRegistration({
+    admissionMode: "pinned",
+    platform: input.platform,
+    clientId: input.clientId,
+    redirectUris: input.redirectUris,
+  });
+  const configSha256 = oauthClientConfigSha256(registration);
+  return withCohortControlLock(async (tx) => {
+    const { rows } = await tx`
+      /* exomem:preflight-reusable-pinned-oauth-client */
+      SELECT client.id
+      FROM exomem_oauth_clients AS client
+      WHERE client.client_id = ${registration.clientId}
+        AND client.admission_mode = 'pinned'
+        AND client.client_platform = ${registration.platform}
+        AND client.oauth_client_config_sha256 = ${configSha256}
+        AND client.enabled = false
+        AND client.reviewer_bootstrap_ever_authorized = false
+        AND client.metadata_provenance->>'mode' = 'pinned'
+      ORDER BY client.id
+      LIMIT 2
+    `;
+    const identifiers = rows.flatMap((row) =>
+      typeof (row as { id?: unknown }).id === "string" ? [(row as { id: string }).id] : []
+    );
+    return identifiers.length === 1
+      ? { eligible: true, clientRecordId: identifiers[0]! }
+      : { eligible: false, clientRecordId: null };
+  });
+}
+
 /** Register a pre-approved client only. Runtime authorization never creates or fetches a client. */
 export async function registerOperatorOAuthClient(
   input: StagedOperatorOAuthClientRegistration,
@@ -1409,6 +1450,56 @@ export async function registerOperatorOAuthClient(
     clientId: registration.clientId,
     redirectUris: registration.redirectUris,
   });
+  const existingClientRecordId = input.existingClientRecordId;
+  if (existingClientRecordId !== undefined) {
+    if (
+      registration.admissionMode !== "pinned" ||
+      registration.artifactId !== undefined ||
+      typeof stagedClientReleaseId !== "string" ||
+      !UUID.test(stagedClientReleaseId) ||
+      !UUID.test(existingClientRecordId)
+    ) {
+      throw exomemErrors.invalidRequest();
+    }
+    return withCohortControlLock(async (tx) => {
+      const { rows } = await tx`
+        /* exomem:reuse-operator-pinned-oauth-client */
+        WITH stage AS (
+          SELECT stage.id
+          FROM exomem_staged_client_releases AS stage
+          JOIN exomem_agent_contract_candidates AS candidate
+            ON candidate.id = stage.candidate_id
+           AND candidate.profile_id = 'hosted-alpha-agent-v1'
+           AND candidate.state IN ('pending', 'live')
+          WHERE stage.id = ${stagedClientReleaseId}::uuid
+            AND stage.platform = ${registration.platform}
+            AND stage.state IN ('staged', 'evidenced')
+            AND stage.expires_at > now()
+            AND stage.oauth_client_config_sha256 = ${configSha256}
+            AND stage.registered_app_id_sha256 IS NULL
+        ), eligible AS (
+          SELECT client.id
+          FROM exomem_oauth_clients AS client CROSS JOIN stage
+          WHERE client.id = ${existingClientRecordId}::uuid
+            AND client.client_id = ${registration.clientId}
+            AND client.admission_mode = 'pinned'
+            AND client.client_platform = ${registration.platform}
+            AND client.oauth_client_config_sha256 = ${configSha256}
+            AND client.enabled = false
+            AND client.reviewer_bootstrap_ever_authorized = false
+            AND client.metadata_provenance->>'mode' = 'pinned'
+        )
+        UPDATE exomem_oauth_clients AS client
+        SET authority_version = gen_random_uuid(), updated_at = now()
+        FROM eligible
+        WHERE client.id = eligible.id
+        RETURNING client.id, client.enabled
+      `;
+      const row = rows[0] as { id: string; enabled: boolean } | undefined;
+      if (!row || row.enabled) throw exomemErrors.invalidRequest();
+      return { id: row.id, enabled: false };
+    });
+  }
   let fetched: CimdFetchedMetadata | null = null;
   if (registration.admissionMode === "cimd") {
     fetched = await (dependencies.fetchCimd ?? fetchCimdMetadata)(registration.clientId);

@@ -1,6 +1,7 @@
-{
-  "sourceCommit": "d4bbef7725d55f3bb6e8c288deadddb15ef7855f",
-  "sourceRelease": "0.57.2",
+// Generated from Exomem compatibility.json at commit b41906384ac187cc4877abfc204639fb3b6f8d48 for cell release 0.54.1. Do not edit.
+export const exomemHostedContractFixture = {
+  "sourceCommit": "b41906384ac187cc4877abfc204639fb3b6f8d48",
+  "sourceRelease": "0.54.1",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -148,21 +149,6 @@
                   "default": "compact",
                   "description": "compact or full hit detail.",
                   "type": "string"
-                },
-                "domains": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "type": "string"
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Subject-domain filters — what the artifact is ABOUT. Independent of source_kinds and equally open."
                 },
                 "exclude_file_types": {
                   "anyOf": [
@@ -367,21 +353,6 @@
                   "default": "kb",
                   "description": "kb, vault, or kb-only.",
                   "type": "string"
-                },
-                "source_kinds": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "type": "string"
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Source-kind filters — what the artifact IS. Open vocabulary, so any registered or previously used key is valid."
                 },
                 "speakers": {
                   "anyOf": [
@@ -1208,18 +1179,6 @@
             {
               "description": "Semantic-unit kind shortcuts, such as decision or claim.",
               "name": "kinds",
-              "required": false,
-              "type": "list[str]"
-            },
-            {
-              "description": "Source-kind filters — what the artifact IS. Open vocabulary, so any registered or previously used key is valid.",
-              "name": "source_kinds",
-              "required": false,
-              "type": "list[str]"
-            },
-            {
-              "description": "Subject-domain filters — what the artifact is ABOUT. Independent of source_kinds and equally open.",
-              "name": "domains",
               "required": false,
               "type": "list[str]"
             },
@@ -2664,7 +2623,7 @@
               "readOnlyHint": false,
               "title": "Capture Source"
             },
-            "description": "Capture raw source material and optionally return compile guidance.\n\nThe raw source is preserved first. If `compile_guidance=true`, Exomem then\nreturns a proposal for a future compiled note, without silently converting\nraw provenance into a conclusion.\n\nClassification is optional and never a precondition for preserving material,\nbut it is what makes a source findable and coherently filed. Two independent\naxes describe it: what the artifact IS (`source_kind`) and what it is ABOUT\n(`domain`). Both are open vocabularies.",
+            "description": "Capture raw source material and optionally return compile guidance.\n\nThe raw source is preserved first. If `compile_guidance=true`, Exomem then\nreturns a proposal for a future compiled note, without silently converting\nraw provenance into a conclusion.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2676,33 +2635,6 @@
                 "content": {
                   "description": "Raw source text.",
                   "type": "string"
-                },
-                "domain": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "What the artifact is ABOUT, as a lowercase slug, independent of source_kind and equally extensible."
-                },
-                "projects": {
-                  "anyOf": [
-                    {
-                      "items": {
-                        "type": "string"
-                      },
-                      "type": "array"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Project keys this source serves. Never affects where it is stored; one source may serve several projects."
                 },
                 "response_detail": {
                   "default": "compact",
@@ -2726,29 +2658,10 @@
                   "default": null,
                   "description": "Optional lowercase ASCII kebab-case filename component."
                 },
-                "source_kind": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "What the artifact IS, as a lowercase slug. Preferred name for the same axis as source_type; supplying both with different values is refused. Name the kind you actually mean even when it is unfamiliar; use 'other' only when the kind genuinely cannot be determined, never because no listed label matches."
-                },
                 "source_type": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "What the artifact IS. Same axis as source_kind; supply either one. Open vocabulary, not a closed set."
+                  "default": "other",
+                  "description": "article, session, book, paper, video, or other.",
+                  "type": "string"
                 },
                 "suggested_title": {
                   "anyOf": [
@@ -2775,7 +2688,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Lowercase tags. Secondary labels only — do not use them to carry source kind, domain, or project, which have their own arguments."
+                  "description": "Lowercase tags."
                 },
                 "title": {
                   "description": "Source title.",
@@ -2791,7 +2704,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Required for kinds that declare it, such as article, paper, video."
+                  "description": "Required for article, paper, or video sources."
                 },
                 "why_captured": {
                   "anyOf": [
@@ -2841,19 +2754,19 @@
               "type": "str"
             },
             {
-              "description": "What the artifact IS. Same axis as source_kind; supply either one. Open vocabulary, not a closed set.",
+              "description": "article, session, book, paper, video, or other.",
               "name": "source_type",
               "required": false,
               "type": "str"
             },
             {
-              "description": "Required for kinds that declare it, such as article, paper, video.",
+              "description": "Required for article, paper, or video sources.",
               "name": "url",
               "required": false,
               "type": "str"
             },
             {
-              "description": "Lowercase tags. Secondary labels only — do not use them to carry source kind, domain, or project, which have their own arguments.",
+              "description": "Lowercase tags.",
               "name": "tags",
               "required": false,
               "type": "list[str]"
@@ -2875,24 +2788,6 @@
               "name": "suggested_title",
               "required": false,
               "type": "str"
-            },
-            {
-              "description": "What the artifact IS, as a lowercase slug. Preferred name for the same axis as source_type; supplying both with different values is refused. Name the kind you actually mean even when it is unfamiliar; use 'other' only when the kind genuinely cannot be determined, never because no listed label matches.",
-              "name": "source_kind",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "What the artifact is ABOUT, as a lowercase slug, independent of source_kind and equally extensible.",
-              "name": "domain",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Project keys this source serves. Never affects where it is stored; one source may serve several projects.",
-              "name": "projects",
-              "required": false,
-              "type": "list[str]"
             },
             {
               "description": "Successful committed mutation detail: compact (default), full diagnostics, or legacy raw leaf result.",
@@ -4466,7 +4361,7 @@
       },
       "digest": {
         "algorithm": "sha256",
-        "value": "30c65de187984940a57a122638d42a85989b7409e1eccb026a828fd1d785d788"
+        "value": "471cd6bf03cacfe0c5cd6f463d2141aacb61b3fabe8e3573158c830be9df2a33"
       },
       "envelopes": {
         "error": {
@@ -4525,7 +4420,7 @@
       "triage_memory",
       "connect_memory"
     ],
-    "compatibility_sha256": "9e028c9e2001378a4ab5fc6f2c3a421e5502cf9e59fb043d6066055f115c08ea",
+    "compatibility_sha256": "54c7a376d5bca6ec8f6606613d340b58b1ab8ac274dbb0cccce30a38cba0c0fb",
     "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery": {
@@ -4685,7 +4580,7 @@
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "30c65de187984940a57a122638d42a85989b7409e1eccb026a828fd1d785d788",
+    "schema_contract_sha256": "471cd6bf03cacfe0c5cd6f463d2141aacb61b3fabe8e3573158c830be9df2a33",
     "schema_version": 1,
     "skills": {
       "exomem": [
@@ -4727,7 +4622,7 @@
   "packageLock": {
     "artifact_sha256": "9d2bba6d14038139bb4120b91c35c17364e88db4f077e69cfb0e5875d14c44ee",
     "command_surface_sha256": "eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f",
-    "compatibility_sha256": "9e028c9e2001378a4ab5fc6f2c3a421e5502cf9e59fb043d6066055f115c08ea",
+    "compatibility_sha256": "54c7a376d5bca6ec8f6606613d340b58b1ab8ac274dbb0cccce30a38cba0c0fb",
     "definition_sha256": "be79a05714036554726ef688cc57b41580c06ac9a6d170b969168cfdd9d50ab2",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "oauth_discovery_sha256": "103fefcef3f994cf09aa067f65ad8beb369907b382ea41bb9a49af2a2c446e7b",
@@ -4736,7 +4631,7 @@
     "plugin_id": "exomem-hosted",
     "plugin_version": "0.1.0",
     "profile": "hosted-alpha-agent-v1",
-    "schema_contract_sha256": "30c65de187984940a57a122638d42a85989b7409e1eccb026a828fd1d785d788",
+    "schema_contract_sha256": "471cd6bf03cacfe0c5cd6f463d2141aacb61b3fabe8e3573158c830be9df2a33",
     "schema_version": 1,
     "skills_sha256": "e28cd70b042df14b892644d475830b3977877ff95a367b8c1381b77d94f6d925"
   },
@@ -4744,4 +4639,4 @@
     "archive_sha256": "0da1055f4bb34d383101011f568b171f73ad4e033c3f3dd575136e1da54a1442",
     "platform": "claude"
   }
-}
+} as const;

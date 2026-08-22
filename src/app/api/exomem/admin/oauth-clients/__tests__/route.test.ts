@@ -16,6 +16,7 @@ let listed = [
 ];
 let updated: Record<string, unknown> | null = null;
 let registered: Record<string, unknown> | null = null;
+let reusePreflight: Record<string, unknown> | null = null;
 let bootstrapCreated: Record<string, unknown> | null = null;
 
 before(() => {
@@ -43,6 +44,13 @@ before(() => {
       registerOperatorOAuthClient: async (input: Record<string, unknown>) => {
         registered = input;
         return { id: "018f2d91-7c42-7000-8000-000000000002", enabled: false };
+      },
+      preflightReusablePinnedOAuthClient: async (input: Record<string, unknown>) => {
+        reusePreflight = input;
+        return {
+          eligible: true,
+          clientRecordId: "018f2d91-7c42-7000-8000-000000000091",
+        };
       },
       refreshOperatorCimdOAuthClient: async () => ({
         id: "018f2d91-7c42-7000-8000-000000000002",
@@ -79,6 +87,7 @@ beforeEach(() => {
   ];
   updated = null;
   registered = null;
+  reusePreflight = null;
   bootstrapCreated = null;
 });
 
@@ -166,6 +175,68 @@ describe("Exomem operator OAuth client controls", () => {
       redirectUris: ["https://app.example.test/callback"],
       ttlSeconds: undefined,
     });
+  });
+
+  it("preflights only an exact pinned client identity for explicit reuse", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          action: "preflight_reuse_pinned",
+          platform: "claude",
+          clientId: "exomem-reviewer-bootstrap-018f2d91-7c42-7000-8000-000000000090",
+          redirectUris: ["http://localhost:47831/callback"],
+        },
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(reusePreflight, {
+      platform: "claude",
+      clientId: "exomem-reviewer-bootstrap-018f2d91-7c42-7000-8000-000000000090",
+      redirectUris: ["http://localhost:47831/callback"],
+    });
+    const body = await response.json();
+    assert.equal(body.eligible, true);
+    assert.equal(body.clientRecordId, "018f2d91-7c42-7000-8000-000000000091");
+  });
+
+  it("threads the explicitly selected client record into pinned registration", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          action: "register_pinned",
+          platform: "claude",
+          stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000003",
+          existingClientRecordId: "018f2d91-7c42-7000-8000-000000000091",
+          clientId: "exomem-reviewer-bootstrap-018f2d91-7c42-7000-8000-000000000090",
+          redirectUris: ["http://localhost:47831/callback"],
+        },
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.equal(registered?.existingClientRecordId, "018f2d91-7c42-7000-8000-000000000091");
+  });
+
+  it("rejects client-record reuse on non-pinned registration", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          action: "register_cimd",
+          platform: "claude",
+          artifactId: "018f2d91-7c42-7000-8000-000000000001",
+          existingClientRecordId: "018f2d91-7c42-7000-8000-000000000091",
+          clientId: "https://example.test/client.json",
+          redirectUris: ["https://example.test/callback"],
+        },
+      })
+    );
+    assert.equal(response.status, 400);
+    assert.equal(registered, null);
   });
 
   it("creates a one-shot reviewer bootstrap without returning invite or client material", async () => {

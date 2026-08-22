@@ -8,6 +8,7 @@ import {
   provisionerConfigFromEnv,
   type CreateExportRequest,
   type ProvisionCellRequest,
+  type RollforwardCellRequest,
 } from "../provisioner";
 import { SensitiveSecret } from "../security";
 
@@ -35,7 +36,120 @@ function provisionRequest(): ProvisionCellRequest {
   };
 }
 
+function rollforwardRequest(
+  request: ProvisionCellRequest,
+  releaseVersion = "2026.07.13"
+): RollforwardCellRequest {
+  return {
+    ...request,
+    context: {
+      ...request.context,
+      checkpoint: "claimed",
+      idempotencyKey: `${request.context.operationId}:claimed`,
+    },
+    providerRef: `provider-${request.cellId}`,
+    provisionerWireProtocol: "exomem-cell-provisioner.v2",
+    runtimeTarget: {
+      releaseVersion,
+      protocolVersion: "1",
+      agentProfile: "hosted-alpha-agent-v1",
+      gatewayContractDigest: "a".repeat(64),
+      commandFingerprint: "b".repeat(64),
+      schemaDigest: "c".repeat(64),
+      compatibilityDigest: "d".repeat(64),
+    },
+    compatibilityDigest: "d".repeat(64),
+  };
+}
+
 describe("CellProvisioner", () => {
+  it("sends an exact v2 rollforward target and accepts only bounded completion", async () => {
+    let captured: { url: string; body: Record<string, unknown> } | undefined;
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("provider-secret"),
+        timeoutMs: 500,
+      },
+      async (input, init) => {
+        captured = {
+          url: String(input),
+          body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        };
+        return new Response(null, { status: 204 });
+      }
+    );
+    const request = rollforwardRequest(provisionRequest());
+
+    await adapter.rollforward(request);
+
+    assert.equal(captured?.url, "https://provisioner.internal.example/v1/cells/rollforward");
+    assert.equal(captured?.body.providerRef, request.providerRef);
+    assert.deepEqual(captured?.body.runtimeTarget, request.runtimeTarget);
+    assert.equal(captured?.body.compatibilityDigest, request.compatibilityDigest);
+  });
+
+  it("replays a governed fake rollforward without replacing the cell", async () => {
+    const fake = new FakeCellProvisioner();
+    const initial = provisionRequest();
+    const provisioned = await fake.provision(initial);
+    const request = {
+      ...rollforwardRequest(initial),
+      providerRef: provisioned.providerRef,
+    };
+
+    await fake.rollforward(request);
+    await fake.rollforward(request);
+
+    assert.equal(fake.resources.size, 1);
+    assert.equal(fake.resources.get(initial.cellId)?.releaseVersion, "2026.07.13");
+    assert.equal(fake.calls.filter((call) => call.action === "rollforward").length, 2);
+  });
+
+  it("rolls a failed governed rollforward back through the same operation", async () => {
+    const fake = new FakeCellProvisioner();
+    const initial = provisionRequest();
+    const provisioned = await fake.provision(initial);
+    const request = {
+      ...rollforwardRequest(initial),
+      providerRef: provisioned.providerRef,
+    };
+    await fake.rollforward(request);
+    const rollback = {
+      ...request,
+      context: {
+        ...request.context,
+        checkpoint: "rollback-readiness-mismatch",
+        idempotencyKey: `${request.context.operationId}:rollback-readiness-mismatch:${request.cellId}`,
+      },
+    };
+
+    await fake.rollbackRollforward(rollback);
+    await fake.rollbackRollforward(rollback);
+
+    assert.equal(fake.resources.get(initial.cellId)?.releaseVersion, initial.releaseVersion);
+    assert.equal(fake.calls.filter((call) => call.action === "rollback-rollforward").length, 2);
+  });
+
+  it("sends a bounded rollback-rollforward request", async () => {
+    let capturedUrl = "";
+    const adapter = new HttpCellProvisioner(
+      {
+        endpoint: new URL("https://provisioner.internal.example/v1"),
+        credential: new SensitiveSecret("provider-secret"),
+        timeoutMs: 500,
+      },
+      async (input) => {
+        capturedUrl = String(input);
+        return new Response(null, { status: 204 });
+      }
+    );
+
+    await adapter.rollbackRollforward(rollforwardRequest(provisionRequest()));
+
+    assert.equal(capturedUrl, "https://provisioner.internal.example/v1/cells/rollback-rollforward");
+  });
+
   it("converges duplicate provision calls to one deterministic fake cell", async () => {
     const fake = new FakeCellProvisioner();
     const request = provisionRequest();

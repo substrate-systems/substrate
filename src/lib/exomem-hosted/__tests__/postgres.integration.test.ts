@@ -49,6 +49,7 @@ import {
   recoverTerminalReviewerDelete,
 } from "../operator-controls";
 import { failCanaryAssignment } from "../agent-contract-canaries";
+import { getExomemHostedFleetObservation } from "../fleet-observation";
 import { SensitiveSecret, digestSecret, encryptSecret } from "../security";
 import { exomemContractFixture0350 } from "../gateway-contract-0-35-0";
 
@@ -285,7 +286,14 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          consumed_at, consumed_by_user_id, redeemed_tenant_id, redeemed_session_id
        ) VALUES ($1, $2, 'terminal-reviewer@example.test', 'complimentary', $3, now() + interval '1 day',
                  now(), $4, $5, $6)`,
-      [inviteId, Buffer.alloc(32, 0x53), Buffer.alloc(32, 0x54), seed.userId, seed.tenantId, sessionId]
+      [
+        inviteId,
+        Buffer.alloc(32, 0x53),
+        Buffer.alloc(32, 0x54),
+        seed.userId,
+        seed.tenantId,
+        sessionId,
+      ]
     );
     await pool.query(
       `INSERT INTO exomem_oauth_grants (id, user_id, tenant_id, client_id, resource, scopes, revoked_at)
@@ -338,7 +346,15 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        ) VALUES ($1, $2, 5, 1, 0, 'uncertain')`,
       [capacityPool.rows[0]!.id, seed.tenantId]
     );
-    return { ...seed, operationId, confirmationTokenId, clientId, inviteId, sessionId, authorityId };
+    return {
+      ...seed,
+      operationId,
+      confirmationTokenId,
+      clientId,
+      inviteId,
+      sessionId,
+      authorityId,
+    };
   }
 
   it("keeps contraction blocked until unfinished v1 work and retained v1 exports drain", async () => {
@@ -2129,6 +2145,229 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     }
   });
 
+  it("records a verified rollforward on the same cell and swaps assignment generations atomically", async () => {
+    const sourceCandidate = randomUUID();
+    const targetCandidate = randomUUID();
+    const sourceAssignment = randomUUID();
+    const targetAssignment = randomUUID();
+    const sourceCommand = "1".repeat(64);
+    const sourceSchema = "2".repeat(64);
+    const sourceCompatibility = "3".repeat(64);
+    const sourceGateway = "4".repeat(64);
+    const targetCommand = "5".repeat(64);
+    const targetSchema = "6".repeat(64);
+    const targetCompatibility = "7".repeat(64);
+    const targetGateway = "8".repeat(64);
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
+         promoted_at
+       ) VALUES
+         ($1, 'live', 'hosted-alpha-agent-v1', 'https://source.example.test', '0.50.0',
+          $3, $4, $5, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()),
+         ($2, 'pending', 'hosted-alpha-agent-v1', 'https://target.example.test', '0.54.1',
+          $6, $7, $8, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NULL)`,
+      [
+        sourceCandidate,
+        targetCandidate,
+        sourceCommand,
+        sourceSchema,
+        sourceCompatibility,
+        targetCommand,
+        targetSchema,
+        targetCompatibility,
+      ]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
+         release_version, observed_gateway_contract_digest, observed_command_fingerprint,
+         observed_schema_digest, observed_compatibility_digest, readiness_code,
+         service_credential_ciphertext, service_credential_digest, provider_ref
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '0.50.0',
+                 $3, $4, $5, $6, 'CELL_READY', $7::jsonb, $8, 'provider-cell')`,
+      [
+        CELL,
+        TENANT,
+        sourceGateway,
+        sourceCommand,
+        sourceSchema,
+        sourceCompatibility,
+        JSON.stringify(
+          encryptSecret("rollforward-service-credential", {
+            key: Buffer.alloc(32, 0x61),
+            randomBytes: (size) => Buffer.alloc(size, 0x31),
+          })
+        ),
+        digestSecret("rollforward-service-credential"),
+      ]
+    );
+    await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [CELL, TENANT]);
+    await pool.query(
+      `INSERT INTO exomem_routable_cell_contracts (
+         cell_id, profile_id, source_release, protocol_version, command_fingerprint,
+         contract_digest, compatibility_digest, routable
+       ) VALUES ($1, 'hosted-alpha-agent-v1', '0.50.0', '1', $2, $3, $4, true)`,
+      [CELL, sourceCommand, sourceSchema, sourceCompatibility]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+       ) VALUES
+         ($1, $3, $4, 1, 'active', '0.50.0', '1', $6, $7, $8, $9,
+          false, $10, now() + interval '1 hour', now()),
+         ($2, $3, $5, 2, 'preparing', '0.54.1', '1', $11, $12, $13, $14,
+          false, $10, now() + interval '1 hour', NULL)`,
+      [
+        sourceAssignment,
+        targetAssignment,
+        TENANT,
+        sourceCandidate,
+        targetCandidate,
+        sourceCommand,
+        sourceSchema,
+        sourceCompatibility,
+        sourceGateway,
+        "9".repeat(64),
+        targetCommand,
+        targetSchema,
+        targetCompatibility,
+        targetGateway,
+      ]
+    );
+
+    const store = new SqlLifecycleStore();
+    const queued = await store.enqueue(TENANT, "rollforward", "rollforward-same-cell", CELL);
+    assert.equal(queued.provisionerWireProtocol, "exomem-cell-provisioner.v2");
+    assert.equal(queued.cellId, CELL);
+    assert.equal(queued.target?.assignmentId, targetAssignment);
+    const claimed = await store.claim({
+      owner: "rollforward-worker",
+      leaseMs: 30_000,
+      maxAttempts: 6,
+      tenantId: TENANT,
+    });
+    assert.equal(claimed?.id, queued.id);
+    assert.equal(await store.applyLocalGate(queued.id, "rollforward-worker", "suspended"), true);
+    const checkpoints = [
+      ["created", "claimed"],
+      ["claimed", "migrated"],
+      ["migrated", "upgraded"],
+      ["upgraded", "verified"],
+    ] as const;
+    for (let index = 0; index < checkpoints.length; index += 1) {
+      const [expected, next] = checkpoints[index]!;
+      if (index > 0) {
+        assert.equal(
+          (
+            await store.claim({
+              owner: "rollforward-worker",
+              leaseMs: 30_000,
+              maxAttempts: 6,
+              tenantId: TENANT,
+            })
+          )?.id,
+          queued.id
+        );
+      }
+      assert.equal(await store.advance(queued.id, "rollforward-worker", expected, next), true);
+    }
+    assert.equal(
+      (
+        await store.claim({
+          owner: "rollforward-worker",
+          leaseMs: 30_000,
+          maxAttempts: 6,
+          tenantId: TENANT,
+        })
+      )?.id,
+      queued.id
+    );
+    assert.equal(
+      await store.recordRollforward({
+        operationId: queued.id,
+        owner: "rollforward-worker",
+        code: "CELL_READY",
+        runtimeIdentity: {
+          releaseVersion: "0.54.1",
+          protocolVersion: "1",
+          agentProfile: "hosted-alpha-agent-v1",
+          gatewayContractDigest: targetGateway,
+          commandFingerprint: targetCommand,
+          schemaDigest: targetSchema,
+          compatibilityDigest: targetCompatibility,
+        },
+      }),
+      true
+    );
+
+    const recorded = await pool.query<{
+      bound_cell_id: string;
+      release_version: string;
+      source_release: string;
+      source_assignment_state: string;
+      target_assignment_state: string;
+    }>(
+      `SELECT tenant.bound_cell_id::text,
+              cell.release_version,
+              observation.source_release,
+              source_assignment.state AS source_assignment_state,
+              target_assignment.state AS target_assignment_state
+       FROM exomem_tenants AS tenant
+       JOIN exomem_cells AS cell ON cell.id = tenant.bound_cell_id
+       JOIN exomem_routable_cell_contracts AS observation
+         ON observation.cell_id = cell.id AND observation.profile_id = 'hosted-alpha-agent-v1'
+       JOIN exomem_agent_contract_rollout_assignments AS source_assignment
+         ON source_assignment.id = $2
+       JOIN exomem_agent_contract_rollout_assignments AS target_assignment
+         ON target_assignment.id = $3
+       WHERE tenant.id = $1`,
+      [TENANT, sourceAssignment, targetAssignment]
+    );
+    assert.deepEqual(recorded.rows[0], {
+      bound_cell_id: CELL,
+      release_version: "0.54.1",
+      source_release: "0.54.1",
+      source_assignment_state: "retired",
+      target_assignment_state: "active",
+    });
+    assert.equal(
+      (await store.enqueue(TENANT, "rollforward", "rollforward-same-cell", CELL)).id,
+      queued.id
+    );
+    const fleet = await getExomemHostedFleetObservation();
+    assert.deepEqual(
+      fleet.routableCells.map((entry) => entry.cellId),
+      [CELL]
+    );
+    assert.deepEqual(fleet.tenantBindings, [{ cellId: CELL, status: "active" }]);
+    assert.deepEqual(
+      fleet.assignments.map((entry) => ({
+        assignmentId: entry.assignmentId,
+        cellId: entry.cellId,
+        status: entry.status,
+      })),
+      [{ assignmentId: targetAssignment, cellId: CELL, status: "active" }]
+    );
+    assert.deepEqual(
+      fleet.unfinishedOperations.map((entry) => ({
+        operationId: entry.operationId,
+        cellId: entry.cellId,
+        kind: entry.kind,
+      })),
+      [{ operationId: queued.id, cellId: CELL, kind: "rollforward" }]
+    );
+  });
+
   it("uses a bound cell's active pending-candidate assignment for v2 maintenance", async () => {
     const candidateId = "77777777-7777-4777-8777-777777777791";
     const assignmentId = "77777777-7777-4777-8777-777777777792";
@@ -3213,7 +3452,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   it("replays the exact terminal reviewer delete through the local finalizer without provider work", async () => {
     const seed = await seedTerminalReviewerDelete();
     assert.deepEqual(
-      await preflightRecoverTerminalReviewerDelete({ operationId: seed.operationId, expectedFence: 2 }),
+      await preflightRecoverTerminalReviewerDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+      }),
       { eligible: true }
     );
     assert.deepEqual(
@@ -3308,7 +3550,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   it("treats the terminal reviewer delete destroyed checkpoint as provider proof", async () => {
     const seed = await seedTerminalReviewerDelete();
     assert.deepEqual(
-      await preflightRecoverTerminalReviewerDelete({ operationId: seed.operationId, expectedFence: 2 }),
+      await preflightRecoverTerminalReviewerDelete({
+        operationId: seed.operationId,
+        expectedFence: 2,
+      }),
       { eligible: true }
     );
     assert.deepEqual(
@@ -3332,10 +3577,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       {
         name: "delete carries a cell",
         mutate: async (seed) => {
-          await pool.query(
-            "UPDATE exomem_lifecycle_operations SET cell_id = $2 WHERE id = $1",
-            [seed.operationId, seed.cellId]
-          );
+          await pool.query("UPDATE exomem_lifecycle_operations SET cell_id = $2 WHERE id = $1", [
+            seed.operationId,
+            seed.cellId,
+          ]);
         },
       },
       {
@@ -3350,32 +3595,32 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       {
         name: "wrong owner-confirmed idempotency identity",
         mutate: async (seed) => {
-          await pool.query("UPDATE exomem_lifecycle_operations SET idempotency_key = 'wrong' WHERE id = $1", [
-            seed.operationId,
-          ]);
+          await pool.query(
+            "UPDATE exomem_lifecycle_operations SET idempotency_key = 'wrong' WHERE id = $1",
+            [seed.operationId]
+          );
         },
       },
       {
         name: "unconsumed owner confirmation",
         mutate: async (seed) => {
-          await pool.query(
-            "UPDATE exomem_access_tokens SET consumed_at = NULL WHERE id = $1",
-            [seed.confirmationTokenId]
-          );
+          await pool.query("UPDATE exomem_access_tokens SET consumed_at = NULL WHERE id = $1", [
+            seed.confirmationTokenId,
+          ]);
         },
       },
       {
         name: "confirmation belongs to a different owner",
         mutate: async (seed) => {
           const wrongOwnerId = randomUUID();
-          await pool.query(
-            "INSERT INTO users (id, email) VALUES ($1, $2)",
-            [wrongOwnerId, `wrong-owner-${wrongOwnerId}@example.test`]
-          );
-          await pool.query(
-            "UPDATE exomem_access_tokens SET user_id = $2 WHERE id = $1",
-            [seed.confirmationTokenId, wrongOwnerId]
-          );
+          await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+            wrongOwnerId,
+            `wrong-owner-${wrongOwnerId}@example.test`,
+          ]);
+          await pool.query("UPDATE exomem_access_tokens SET user_id = $2 WHERE id = $1", [
+            seed.confirmationTokenId,
+            wrongOwnerId,
+          ]);
         },
       },
       {
@@ -3383,19 +3628,19 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         mutate: async (seed) => {
           const wrongTenantId = randomUUID();
           const wrongOwnerId = randomUUID();
-          await pool.query(
-            "INSERT INTO users (id, email) VALUES ($1, $2)",
-            [wrongOwnerId, `wrong-tenant-owner-${wrongOwnerId}@example.test`]
-          );
+          await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+            wrongOwnerId,
+            `wrong-tenant-owner-${wrongOwnerId}@example.test`,
+          ]);
           await pool.query(
             `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
              VALUES ($1, $2, 'provisioning', 'running')`,
             [wrongTenantId, wrongOwnerId]
           );
-          await pool.query(
-            "UPDATE exomem_access_tokens SET tenant_id = $2 WHERE id = $1",
-            [seed.confirmationTokenId, wrongTenantId]
-          );
+          await pool.query("UPDATE exomem_access_tokens SET tenant_id = $2 WHERE id = $1", [
+            seed.confirmationTokenId,
+            wrongTenantId,
+          ]);
         },
       },
       {
@@ -4642,12 +4887,18 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     // Each refusal is a distinct way the control could otherwise record an identity the
     // cluster never served, or move a cell somebody else is already working on.
     const refusals: { name: string; seed?: object; overrides?: object }[] = [
-      { name: "a stale ticket naming the wrong current release", overrides: { expectedCurrentRelease: "0.49.0" } },
+      {
+        name: "a stale ticket naming the wrong current release",
+        overrides: { expectedCurrentRelease: "0.49.0" },
+      },
       { name: "a fence the tenant has moved past", overrides: { expectedFence: 2 } },
       { name: "a tenant that is not reviewer-purpose", seed: { tenantReviewer: false } },
       { name: "an operation still in flight for the tenant", seed: { inflightOperation: true } },
       { name: "an assignment that is still live", seed: { priorAssignmentState: "active" } },
-      { name: "an assignment that is still preparing", seed: { priorAssignmentState: "preparing" } },
+      {
+        name: "an assignment that is still preparing",
+        seed: { priorAssignmentState: "preparing" },
+      },
       { name: "a candidate the cell already records", seed: { candidateRelease: STALE } },
     ];
 
@@ -4675,8 +4926,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         );
         assert.equal(
           active.rows[0]!.total,
-          (refusal.seed as { priorAssignmentState?: string } | undefined)
-            ?.priorAssignmentState === "active"
+          (refusal.seed as { priorAssignmentState?: string } | undefined)?.priorAssignmentState ===
+            "active"
             ? 1
             : 0
         );
@@ -4842,10 +5093,9 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       assert.equal(stranded.rows[0]!.state, "failed_terminal");
       assert.equal(stranded.rows[0]!.error_code, "DELETION_SUPERSEDED");
 
-      const tenant = await pool.query(
-        "SELECT fence_generation FROM exomem_tenants WHERE id = $1",
-        [seed.tenantId]
-      );
+      const tenant = await pool.query("SELECT fence_generation FROM exomem_tenants WHERE id = $1", [
+        seed.tenantId,
+      ]);
       assert.equal(tenant.rows[0]!.fence_generation, "3");
 
       const audit = await pool.query(
@@ -4892,7 +5142,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     // one irreversible mistake available here.
     const refusals: { name: string; seed: object; fence?: number }[] = [
       { name: "an operation that already reached the provider", seed: { checkpoint: "quiesced" } },
-      { name: "an operation stranded for a different reason", seed: { errorCode: "LIFECYCLE_MAX_ATTEMPTS" } },
+      {
+        name: "an operation stranded for a different reason",
+        seed: { errorCode: "LIFECYCLE_MAX_ATTEMPTS" },
+      },
       { name: "a tenant that is not deletion-pending", seed: { tenantStatus: "active" } },
       { name: "a tenant with more than one live cell", seed: { extraCell: true } },
       { name: "an operation still in flight for the tenant", seed: { inflightOperation: true } },

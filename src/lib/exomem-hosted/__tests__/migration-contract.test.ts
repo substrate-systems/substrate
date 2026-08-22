@@ -30,6 +30,10 @@ const provisionerCandidateAttachmentPath = resolve(
   process.cwd(),
   "migrations/0047_exomem_v2_candidate_attachment.sql"
 );
+const hostedCellRollforwardPath = resolve(
+  process.cwd(),
+  "migrations/0050_exomem_hosted_cell_rollforward.sql"
+);
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -230,10 +234,16 @@ describe("Exomem hosted migration contract", () => {
     assert.match(sql, /provisioner_wire_protocol <> 'exomem-cell-provisioner\.v2'/i);
     assert.match(sql, /operation_type = 'delete'/i);
     assert.match(sql, /cell_id IS NULL/i);
-    assert.match(sql, /CREATE OR REPLACE FUNCTION exomem_lifecycle_provisioner_wire_protocol_is_immutable/i);
+    assert.match(
+      sql,
+      /CREATE OR REPLACE FUNCTION exomem_lifecycle_provisioner_wire_protocol_is_immutable/i
+    );
     assert.doesNotMatch(sql, /ADD COLUMN provisioner_wire_protocol/i);
     assert.doesNotMatch(sql, /ALTER COLUMN provisioner_wire_protocol/i);
-    assert.doesNotMatch(sql, /CREATE TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable/i);
+    assert.doesNotMatch(
+      sql,
+      /CREATE TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable/i
+    );
     assert.doesNotMatch(sql, /exomem_lifecycle_target_required_for_new_operation/i);
     assert.doesNotMatch(sql, /ADD COLUMN target_/i);
     assert.doesNotMatch(sql, /ADD COLUMN observed_/i);
@@ -271,5 +281,29 @@ describe("Exomem hosted migration contract", () => {
     assert.match(sql, /COALESCE\(OLD\.expected_previous_cell_id, tenant\.bound_cell_id\)/i);
     assert.doesNotMatch(sql, /ALTER TABLE|ADD COLUMN|DROP COLUMN/i);
     assert.doesNotMatch(sql, /(?:UPDATE|INSERT INTO|DELETE FROM)\s+exomem_/i);
+  });
+
+  it("adds only an exact assigned v2 rollforward operation shape", () => {
+    const sql = readFileSync(hostedCellRollforwardPath, "utf8");
+
+    assert.match(sql, /DROP CONSTRAINT exomem_lifecycle_operations_operation_type_check/i);
+    assert.match(sql, /operation_type IN \([\s\S]*'rollforward'[\s\S]*\)/i);
+    assert.match(sql, /operation_type <> 'rollforward'/i);
+    assert.match(sql, /provisioner_wire_protocol = 'exomem-cell-provisioner\.v2'/i);
+    assert.match(sql, /cell_id IS NOT NULL/i);
+    assert.match(sql, /expected_previous_cell_id IS NULL/i);
+    assert.match(sql, /target_candidate_id IS NOT NULL/i);
+    assert.match(sql, /target_assignment_id IS NOT NULL/i);
+    assert.match(sql, /target_assignment_generation > 0/i);
+    assert.match(sql, /DROP INDEX exomem_agent_contract_rollout_assignments_one_current_idx/i);
+    assert.match(
+      sql,
+      /CREATE UNIQUE INDEX exomem_agent_contract_rollout_assignments_one_preparing_idx[\s\S]*WHERE state = 'preparing'/i
+    );
+    assert.match(
+      sql,
+      /CREATE UNIQUE INDEX exomem_agent_contract_rollout_assignments_one_active_idx[\s\S]*WHERE state = 'active'/i
+    );
+    assert.doesNotMatch(sql, /INSERT INTO|UPDATE\s+exomem_|DELETE FROM/i);
   });
 });
