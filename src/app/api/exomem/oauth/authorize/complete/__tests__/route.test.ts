@@ -95,6 +95,46 @@ describe("POST /api/exomem/oauth/authorize/complete", () => {
     assert.equal(attachCalls, 0);
   });
 
+  // Each gate below answers the same bare `invalid_request`, so the only way to
+  // tell them apart after the fact is the server log. On 2026-08-22 a 400 from
+  // this route could not be attributed at all, and diagnosing it cost a live
+  // promotion window. The response must stay identical; the log must not.
+  it("names which gate rejected the request, without logging any secret", async () => {
+    nonceValid = false;
+    const errors: unknown[] = [];
+    const restore = console.error;
+    console.error = (value: unknown) => errors.push(value);
+    let response: Response;
+    try {
+      const { POST } = await import("../route");
+      response = await POST(post(LIVE_HANDLE, "a-secret-form-nonce"));
+    } finally {
+      console.error = restore;
+    }
+
+    // The caller still learns nothing it did not already know.
+    assert.equal(response!.status, 400);
+    assert.deepEqual(await response!.json(), { error: "invalid_request" });
+
+    const record = errors.at(-1) as { event?: string; stage?: string } | undefined;
+    assert.equal(record?.event, "exomem_oauth_authorize_complete_rejection");
+    assert.equal(record?.stage, "nonce", "the failing gate must be named for the operator");
+
+    // Presence and shape only: a diagnostic that echoed the nonce, the
+    // confirmation handle or the transaction cookie would turn the server log
+    // into a place where authorization material is stored in the clear.
+    const serialized = JSON.stringify(record);
+    assert.ok(
+      !serialized.includes("a-secret-form-nonce"),
+      "the form nonce must never reach the log"
+    );
+    assert.ok(!serialized.includes(LIVE_HANDLE), "the confirmation handle must never reach the log");
+    assert.ok(
+      !serialized.includes(LIVE_TRANSACTION),
+      "the transaction token must never reach the log"
+    );
+  });
+
   it("mints the code when confirmation and nonce both match the live transaction", async () => {
     const { POST } = await import("../route");
     const response = await POST(post(LIVE_HANDLE));

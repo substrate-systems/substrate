@@ -18,7 +18,32 @@ import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function invalidRequest(): NextResponse {
+type CompleteRejectionStage = "origin" | "form" | "continuation" | "nonce";
+
+// Every gate below answers an identical bare `invalid_request`, which is right
+// for the caller and useless for the operator: on 2026-08-22 a live promotion
+// window produced a 400 here that could not be attributed to any of the four
+// causes from outside, because the response, the status and the access log are
+// the same for all of them. This names the gate without telling the caller
+// anything: it goes to the server log only, and it records presence and shape
+// rather than values -- no token, nonce, confirmation handle or cookie is
+// logged, matching `logAuthorizeRejection` on the sibling authorize route.
+function logCompleteRejection(
+  stage: CompleteRejectionStage,
+  diagnostics?: Record<string, boolean | number | string>
+): void {
+  console.error({
+    event: "exomem_oauth_authorize_complete_rejection",
+    stage,
+    ...(diagnostics ?? {}),
+  });
+}
+
+function invalidRequest(
+  stage: CompleteRejectionStage,
+  diagnostics?: Record<string, boolean | number | string>
+): NextResponse {
+  logCompleteRejection(stage, diagnostics);
   return NextResponse.json(
     { error: "invalid_request" },
     { status: 400, headers: oauthNoStoreHeaders() }
@@ -72,18 +97,36 @@ function validOrigin(request: Request): boolean {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  if (!validOrigin(request)) return invalidRequest();
+  if (!validOrigin(request)) {
+    return invalidRequest("origin", {
+      origin_present: request.headers.get("origin") !== null,
+      host_present: request.headers.get("host") !== null,
+      sec_fetch_site: request.headers.get("sec-fetch-site") ?? "absent",
+    });
+  }
   let form: Record<string, string>;
   try {
     form = await readOAuthForm(request, ["nonce", "confirmation"]);
   } catch {
-    return invalidRequest();
+    return invalidRequest("form", {
+      content_type: request.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "absent",
+      content_length: request.headers.get("content-length") ?? "absent",
+    });
   }
   const continuation = await resolveOAuthContinuation(request);
   const transactionDigest = oauthContinuationDigest(request);
   const transaction = oauthContinuationToken(request);
   if (!continuation || !transactionDigest || !transaction || !form.nonce) {
-    return invalidRequest();
+    // Distinguishes "the browser sent no continuation cookie" from "it sent one
+    // the store would not resolve" -- a live transaction that has expired, been
+    // consumed, or lost its bootstrap authority. Those need opposite responses
+    // and were indistinguishable.
+    return invalidRequest("continuation", {
+      transaction_cookie_present: transaction !== null,
+      transaction_digest_present: transactionDigest !== null,
+      continuation_resolved: continuation !== null,
+      form_nonce_present: !!form.nonce,
+    });
   }
   // Checked before the nonce deliberately: a stale tab carries a stale
   // confirmation AND a stale nonce, so testing the confirmation first is what
@@ -94,7 +137,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return freshConsentPage(transaction);
   }
   if (!validateOAuthContinuationNonce({ continuation, transaction, formNonce: form.nonce })) {
-    return invalidRequest();
+    return invalidRequest("nonce");
   }
   try {
     const session = await resolveExomemSession(request);
