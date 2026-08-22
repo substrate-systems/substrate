@@ -5,6 +5,7 @@ import { afterEach, describe, it } from "node:test";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
+  consumeTransferGrantRecord,
   createMagicAccessToken,
   findExomemSessionByDigest,
   createTransferGrantRecord,
@@ -47,11 +48,13 @@ describe("Exomem hosted database boundary", () => {
   });
 
   it("prunes expired tenant transfer audit rows while issuing a replacement", async () => {
-    let statement = "";
-    __setExomemSqlForTests(async (strings) => {
-      statement = strings.join("?");
+    const statements: string[] = [];
+    const testSql: ExomemSql = async (strings) => {
+      statements.push(strings.join("?"));
       return { rows: [{ id: "grant-1" }], rowCount: 1 };
-    });
+    };
+    __setExomemSqlForTests(testSql);
+    __setExomemTransactionForTests(async (work) => work(testSql));
 
     assert.deepEqual(
       await createTransferGrantRecord({
@@ -67,10 +70,37 @@ describe("Exomem hosted database boundary", () => {
       }),
       { grantId: "grant-1" }
     );
+    assert.match(statements[0]!, /pg_advisory_xact_lock_shared/i);
+    const statement = statements[1]!;
     assert.match(statement, /DELETE FROM exomem_transfer_grants/i);
     assert.match(statement, /expires_at <= now\(\)/i);
     assert.match(statement, /tenant_id =/i);
     assert.match(statement, /INSERT INTO exomem_transfer_grants/i);
+  });
+
+  it("serializes transfer consumption and rechecks the tenant deletion gate", async () => {
+    const statements: string[] = [];
+    const testSql: ExomemSql = async (strings) => {
+      statements.push(strings.join("?"));
+      return { rows: [{ id: "grant-1" }], rowCount: 1 };
+    };
+    __setExomemSqlForTests(testSql);
+    __setExomemTransactionForTests(async (work) => work(testSql));
+
+    assert.equal(
+      await consumeTransferGrantRecord({
+        grantId: "grant-1",
+        tenantId: "018f2d91-7c42-7000-8000-000000000081",
+        cellId: "018f2d91-7c42-7000-8000-000000000082",
+        operation: "upload",
+      }),
+      true
+    );
+    assert.match(statements[0]!, /pg_advisory_xact_lock_shared/i);
+    assert.match(statements[1]!, /FROM exomem_tenants AS tenant/i);
+    assert.match(statements[1]!, /tenant\.status = 'active'/i);
+    assert.match(statements[1]!, /tenant\.desired_state = 'running'/i);
+    assert.match(statements[1]!, /exomem_oauth_account_blocks/i);
   });
 
   it("keeps the explicitly documented legacy-unmetered redemption branch separate from OAuth admission", async () => {
@@ -249,14 +279,18 @@ describe("Exomem hosted database boundary", () => {
     assert.match(statement, /session\.reviewer_credential_id IS NULL/i);
     assert.match(statement, /reviewer_credential\.revoked_at IS NULL/i);
     assert.match(statement, /reviewer_credential\.expires_at > now\(\)/i);
+    assert.match(statement, /tenant\.status IN \('provisioning', 'active', 'suspended'\)/i);
+    assert.match(statement, /exomem_oauth_account_blocks/i);
   });
 
   it("allows magic-link authentication before deletion begins", async () => {
     const statements: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const testSql: ExomemSql = async (strings) => {
       statements.push(strings.join("?"));
       return { rows: [], rowCount: 0 };
-    });
+    };
+    __setExomemSqlForTests(testSql);
+    __setExomemTransactionForTests(async (work) => work(testSql));
     const { createMagicAccessToken, redeemMagicAccessTokenAtomic } = await import("../db");
     await createMagicAccessToken({
       emailNormalized: "owner@example.com",
@@ -278,7 +312,15 @@ describe("Exomem hosted database boundary", () => {
       csrfDigest: Buffer.alloc(32, 6),
       sessionExpiresAt: new Date("2026-07-14T00:00:00.000Z"),
     });
-    for (const statement of statements) {
+    assert.equal(
+      statements.some((statement) =>
+        /pg_advisory_xact_lock_shared\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i.test(statement)
+      ),
+      true
+    );
+    for (const statement of statements.filter(
+      (value) => !value.includes("pg_advisory_xact_lock_shared")
+    )) {
       assert.match(statement, /tenant\.status IN \('provisioning', 'active', 'suspended'\)/i);
       assert.doesNotMatch(statement, /effective_state IN \('active', 'grace'\)/i);
       assert.doesNotMatch(statement, /deletion_pending/i);

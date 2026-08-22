@@ -64,6 +64,13 @@ async function withReviewerAccessLock<T>(work: (tx: ExomemSql) => Promise<T>): P
   });
 }
 
+async function withReviewerAccessSharedLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-marketplace-reviewer-access'))`;
+    return work(tx);
+  });
+}
+
 async function withCanaryReviewerAccessLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
@@ -542,7 +549,8 @@ export async function createMarketplaceReviewerSessionAtomic(input: {
   csrfDigest: Buffer;
   expiresAt: Date;
 }): Promise<{ sessionId: string; ownerUserId: string; tenantId: string } | null> {
-  const { rows } = await executeExomemSql`
+  return withReviewerAccessSharedLock(async (tx) => {
+    const { rows } = await tx`
     /* exomem:create-marketplace-reviewer-session */
     WITH credential AS (
       SELECT credential.id, credential.owner_user_id, credential.tenant_id, credential.expires_at
@@ -587,10 +595,11 @@ export async function createMarketplaceReviewerSessionAtomic(input: {
     )
     SELECT id, user_id, tenant_id FROM session
   `;
-  const row = rows[0] as { id?: string; user_id?: string; tenant_id?: string } | undefined;
-  return row?.id && row.user_id && row.tenant_id
-    ? { sessionId: row.id, ownerUserId: row.user_id, tenantId: row.tenant_id }
-    : null;
+    const row = rows[0] as { id?: string; user_id?: string; tenant_id?: string } | undefined;
+    return row?.id && row.user_id && row.tenant_id
+      ? { sessionId: row.id, ownerUserId: row.user_id, tenantId: row.tenant_id }
+      : null;
+  });
 }
 
 export async function createMarketplaceReviewerOAuthSessionAtomic(input: {

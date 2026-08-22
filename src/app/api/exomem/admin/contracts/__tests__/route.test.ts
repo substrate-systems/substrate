@@ -213,6 +213,29 @@ describe("Exomem operator contract controls", () => {
     );
   });
 
+  it("rejects tenant, cell, and volume selectors on expired-reviewer cleanup", async () => {
+    const { POST } = await import("../route");
+    const sourceOperationId = "018f2d91-7c42-7000-8000-000000000091";
+    for (const extra of [
+      { tenantId: "018f2d91-7c42-7000-8000-000000000092" },
+      { cellId: "018f2d91-7c42-7000-8000-000000000093" },
+      { volumeId: "opaque-volume" },
+    ]) {
+      for (const action of [
+        "preflight-recover-expired-reviewer-cleanup",
+        "recover-expired-reviewer-cleanup",
+      ]) {
+        const response = await POST(
+          request(
+            { action, sourceOperationId, expectedFence: 7, ...extra },
+            `Bearer ${ADMIN_TOKEN}`
+          )
+        );
+        assert.equal(response.status, 400, `${action} accepted ${Object.keys(extra)[0]}`);
+      }
+    }
+  });
+
   it("keeps terminal-reviewer-delete preflight and replay content-free", async () => {
     const { POST } = await import("../route");
     const operationId = "018f2d91-7c42-7000-8000-000000000091";

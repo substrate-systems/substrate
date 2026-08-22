@@ -109,10 +109,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         body.action === "preflight-recover-terminal-reviewer-delete" ||
         body.action === "recover-terminal-reviewer-delete";
       if (
-        terminalDeleteRecovery &&
-        (Object.keys(body).length !== 3 ||
-          !Object.prototype.hasOwnProperty.call(body, "operationId") ||
-          !Object.prototype.hasOwnProperty.call(body, "expectedFence"))
+        Object.keys(body).length !== 3 ||
+        !Object.prototype.hasOwnProperty.call(
+          body,
+          terminalDeleteRecovery ? "operationId" : "sourceOperationId"
+        ) ||
+        !Object.prototype.hasOwnProperty.call(body, "expectedFence")
       ) {
         throw exomemErrors.invalidRequest();
       }
