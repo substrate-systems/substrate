@@ -477,18 +477,57 @@ export async function preflightRecoverExpiredReviewerCleanup(
        AND assignment.schema_digest = source.target_schema_digest
        AND assignment.compatibility_digest = source.target_compatibility_digest
       WHERE source.id = ${input.sourceOperationId}::uuid
-        AND source.operation_type IN ('provision', 'restore')
-        AND source.state IN ('waiting', 'failed_retryable')
-        AND source.checkpoint = 'candidate-cleanup'
         AND (source.lease_expires_at IS NULL OR source.lease_expires_at <= now())
         AND source.fence_generation = ${input.expectedFence}::bigint
         AND tenant.fence_generation = ${input.expectedFence}::bigint
         AND tenant.marketplace_reviewer_purpose = true
-        AND tenant.status = 'provisioning' AND tenant.desired_state = 'running'
-        AND tenant.deleted_at IS NULL AND tenant.bound_cell_id IS NULL
-        AND cell.routing_state = 'unbound' AND cell.lifecycle_state <> 'deleted'
+        AND tenant.deleted_at IS NULL
         AND (SELECT COUNT(*) FROM exomem_cells AS only_cell
              WHERE only_cell.tenant_id = tenant.id AND only_cell.lifecycle_state <> 'deleted') = 1
+        AND (
+          (
+            source.operation_type IN ('provision', 'restore')
+            AND source.state IN ('waiting', 'failed_retryable')
+            AND source.checkpoint = 'candidate-cleanup'
+            AND tenant.status = 'provisioning' AND tenant.desired_state = 'running'
+            AND tenant.bound_cell_id IS NULL
+            AND cell.routing_state = 'unbound' AND cell.lifecycle_state <> 'deleted'
+          )
+          OR
+          (
+            source.operation_type = 'provision'
+            AND source.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+            AND source.state = 'succeeded'
+            AND source.checkpoint = 'bound'
+            AND source.error_code IS NULL
+            AND source.completed_at IS NOT NULL
+            AND source.lease_owner IS NULL AND source.lease_expires_at IS NULL
+            AND tenant.status = 'active' AND tenant.desired_state = 'running'
+            AND tenant.bound_cell_id = cell.id
+            AND cell.lifecycle_state = 'active'
+            AND cell.routing_state = 'bound'
+            AND cell.desired_state = 'running'
+            AND cell.readiness_code = 'CELL_READY'
+            AND cell.provider_ref IS NOT NULL
+            AND cell.release_version = source.target_source_release
+            AND cell.protocol_version = source.target_protocol_version
+            AND cell.observed_gateway_contract_digest = source.target_gateway_contract_digest
+            AND cell.observed_command_fingerprint = source.target_command_fingerprint
+            AND cell.observed_schema_digest = source.target_schema_digest
+            AND cell.observed_compatibility_digest = source.target_compatibility_digest
+            AND EXISTS (
+              SELECT 1 FROM exomem_routable_cell_contracts AS route
+              WHERE route.cell_id = cell.id
+                AND route.profile_id = 'hosted-alpha-agent-v1'
+                AND route.source_release = source.target_source_release
+                AND route.protocol_version = source.target_protocol_version
+                AND route.command_fingerprint = source.target_command_fingerprint
+                AND route.contract_digest = source.target_schema_digest
+                AND route.compatibility_digest = source.target_compatibility_digest
+                AND route.routable = true
+            )
+          )
+        )
         AND assignment.marketplace_reviewer_purpose = true
         AND (
           (assignment.state = 'expired' AND assignment.expires_at <= now())
@@ -502,6 +541,15 @@ export async function preflightRecoverExpiredReviewerCleanup(
         AND NOT EXISTS (
           SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
           WHERE authority.state = 'active' AND authority.expires_at > now()
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
+          WHERE credential.tenant_id = tenant.id AND credential.revoked_at IS NULL
+            AND credential.expires_at > now()
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_grants AS grant_row
+          WHERE grant_row.tenant_id = tenant.id AND grant_row.revoked_at IS NULL
         )
         AND NOT EXISTS (
           SELECT 1 FROM exomem_lifecycle_operations AS conflicting
@@ -526,7 +574,7 @@ export async function recoverExpiredReviewerCleanup(
   assertExpiredReviewerCleanupInput(input);
   if (!UUID.test(input.requestId) || input.operatorPrincipalDigest.byteLength !== 32)
     throw exomemErrors.invalidRequest();
-  return withCohortControlLock(async (tx) => {
+  return withReviewerCleanupControlLocks(async (tx) => {
     const { rows } = await tx`
       /* exomem:recover-expired-reviewer-cleanup */
       WITH source AS MATERIALIZED (
@@ -547,6 +595,17 @@ export async function recoverExpiredReviewerCleanup(
         SELECT delete_operation.id AS operation_id
         FROM source
         JOIN delete_key ON delete_key.id = source.id
+        JOIN exomem_agent_contract_rollout_assignments AS assignment
+          ON assignment.id = source.target_assignment_id
+         AND assignment.tenant_id = source.tenant_id
+         AND assignment.candidate_id = source.target_candidate_id
+         AND assignment.generation = source.target_assignment_generation
+         AND assignment.source_release = source.target_source_release
+         AND assignment.protocol_version = source.target_protocol_version
+         AND assignment.gateway_contract_digest = source.target_gateway_contract_digest
+         AND assignment.command_fingerprint = source.target_command_fingerprint
+         AND assignment.schema_digest = source.target_schema_digest
+         AND assignment.compatibility_digest = source.target_compatibility_digest
         JOIN exomem_lifecycle_operations AS delete_operation
           ON delete_operation.tenant_id = source.tenant_id
          AND delete_operation.operation_type = 'delete'
@@ -555,7 +614,21 @@ export async function recoverExpiredReviewerCleanup(
          AND delete_operation.target_candidate_id IS NULL
          AND delete_operation.target_assignment_id IS NULL
          AND delete_operation.target_assignment_generation IS NULL
-        WHERE source.state = 'failed_terminal' AND source.error_code = 'DELETION_SUPERSEDED'
+        WHERE (
+            (source.state = 'failed_terminal' AND source.error_code = 'DELETION_SUPERSEDED')
+            OR
+            (source.operation_type = 'provision'
+             AND source.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+             AND source.state = 'succeeded'
+             AND source.checkpoint = 'bound')
+          )
+          AND source.marketplace_reviewer_purpose = true
+          AND source.tenant_deleted_at IS NULL
+          AND assignment.marketplace_reviewer_purpose = true
+          AND (
+            (assignment.state = 'expired' AND assignment.expires_at <= now())
+            OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL)
+          )
           AND source.tenant_status = 'deletion_pending'
           AND source.tenant_desired_state = 'deleted'
           AND source.tenant_fence_generation = ${input.expectedFence}::bigint + 1
@@ -583,17 +656,59 @@ export async function recoverExpiredReviewerCleanup(
          AND assignment.schema_digest = source.target_schema_digest
          AND assignment.compatibility_digest = source.target_compatibility_digest
         WHERE NOT EXISTS (SELECT 1 FROM replay)
-          AND source.operation_type IN ('provision', 'restore')
-          AND source.state IN ('waiting', 'failed_retryable')
-          AND source.checkpoint = 'candidate-cleanup'
           AND (source.lease_expires_at IS NULL OR source.lease_expires_at <= now())
           AND source.tenant_fence_generation = ${input.expectedFence}::bigint
           AND source.marketplace_reviewer_purpose = true
-          AND source.tenant_status = 'provisioning' AND source.tenant_desired_state = 'running'
-          AND source.tenant_deleted_at IS NULL AND source.bound_cell_id IS NULL
-          AND cell.routing_state = 'unbound' AND cell.lifecycle_state <> 'deleted'
+          AND source.tenant_deleted_at IS NULL
           AND (SELECT COUNT(*) FROM exomem_cells AS only_cell
                WHERE only_cell.tenant_id = source.tenant_id AND only_cell.lifecycle_state <> 'deleted') = 1
+          AND (
+            (
+              source.operation_type IN ('provision', 'restore')
+              AND source.state IN ('waiting', 'failed_retryable')
+              AND source.checkpoint = 'candidate-cleanup'
+              AND source.tenant_status = 'provisioning'
+              AND source.tenant_desired_state = 'running'
+              AND source.bound_cell_id IS NULL
+              AND cell.routing_state = 'unbound'
+              AND cell.lifecycle_state <> 'deleted'
+            )
+            OR
+            (
+              source.operation_type = 'provision'
+              AND source.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+              AND source.state = 'succeeded'
+              AND source.checkpoint = 'bound'
+              AND source.error_code IS NULL
+              AND source.completed_at IS NOT NULL
+              AND source.lease_owner IS NULL AND source.lease_expires_at IS NULL
+              AND source.tenant_status = 'active'
+              AND source.tenant_desired_state = 'running'
+              AND source.bound_cell_id = cell.id
+              AND cell.lifecycle_state = 'active'
+              AND cell.routing_state = 'bound'
+              AND cell.desired_state = 'running'
+              AND cell.readiness_code = 'CELL_READY'
+              AND cell.provider_ref IS NOT NULL
+              AND cell.release_version = source.target_source_release
+              AND cell.protocol_version = source.target_protocol_version
+              AND cell.observed_gateway_contract_digest = source.target_gateway_contract_digest
+              AND cell.observed_command_fingerprint = source.target_command_fingerprint
+              AND cell.observed_schema_digest = source.target_schema_digest
+              AND cell.observed_compatibility_digest = source.target_compatibility_digest
+              AND EXISTS (
+                SELECT 1 FROM exomem_routable_cell_contracts AS route
+                WHERE route.cell_id = cell.id
+                  AND route.profile_id = 'hosted-alpha-agent-v1'
+                  AND route.source_release = source.target_source_release
+                  AND route.protocol_version = source.target_protocol_version
+                  AND route.command_fingerprint = source.target_command_fingerprint
+                  AND route.contract_digest = source.target_schema_digest
+                  AND route.compatibility_digest = source.target_compatibility_digest
+                  AND route.routable = true
+              )
+            )
+          )
           AND assignment.marketplace_reviewer_purpose = true
           AND (
             (assignment.state = 'expired' AND assignment.expires_at <= now())
@@ -604,6 +719,11 @@ export async function recoverExpiredReviewerCleanup(
                             AND live_assignment.expires_at > now())
           AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
                           WHERE authority.state = 'active' AND authority.expires_at > now())
+          AND NOT EXISTS (SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
+                          WHERE credential.tenant_id = source.tenant_id AND credential.revoked_at IS NULL
+                            AND credential.expires_at > now())
+          AND NOT EXISTS (SELECT 1 FROM exomem_oauth_grants AS grant_row
+                          WHERE grant_row.tenant_id = source.tenant_id AND grant_row.revoked_at IS NULL)
           AND NOT EXISTS (SELECT 1 FROM exomem_lifecycle_operations AS conflicting
                           WHERE conflicting.tenant_id = source.tenant_id
                             AND conflicting.fence_generation = source.tenant_fence_generation
@@ -1137,6 +1257,14 @@ export async function correctDivergedCellRelease(
 async function withCohortControlLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    return work(tx);
+  });
+}
+
+async function withReviewerCleanupControlLocks<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-marketplace-reviewer-access'))`;
     return work(tx);
   });
 }

@@ -227,9 +227,9 @@ test("internal canary issuance seals invite setup state and binds exact staged a
 });
 
 test("reviewer sessions are tagged to the credential without provisioning", async () => {
-  let query = "";
+  const queries: string[] = [];
   setSql(async (strings) => {
-    query = strings.join("?");
+    queries.push(strings.join("?"));
     return { rows: [{ id: "session-1", user_id: "owner-1", tenant_id: "tenant-1" }] };
   });
 
@@ -242,6 +242,11 @@ test("reviewer sessions are tagged to the credential without provisioning", asyn
     }),
     { sessionId: "session-1", ownerUserId: "owner-1", tenantId: "tenant-1" }
   );
+  assert.match(
+    queries[0]!,
+    /pg_advisory_xact_lock_shared\(hashtext\('exomem-marketplace-reviewer-access'\)\)/i
+  );
+  const query = queries[1]!;
   assert.match(query, /reviewer_credential_id/i);
   assert.match(query, /INSERT INTO exomem_sessions/i);
   assert.match(query, /LEAST\(\?, credential\.expires_at\)/i);
@@ -287,10 +292,7 @@ test("reviewer OAuth session creation atomically binds the matching provider tra
   assert.match(query, /cohort\.platform = client\.client_platform/i);
   // One digest column now, selected by the platform predicate above, rather than
   // a per-platform column pair.
-  assert.match(
-    query,
-    /client\.oauth_client_config_sha256 = cohort\.oauth_client_config_sha256/i
-  );
+  assert.match(query, /client\.oauth_client_config_sha256 = cohort\.oauth_client_config_sha256/i);
   assert.doesNotMatch(query, /cohort\.claude_oauth_client_config_sha256/i);
   assert.doesNotMatch(query, /cohort\.openai_oauth_client_config_sha256/i);
   assert.doesNotMatch(

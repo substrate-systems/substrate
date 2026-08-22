@@ -247,7 +247,7 @@ present and correct — locks on the candidate, a staged release, signed evidenc
 an imported artifact, an enabled client — and the pairing still returns
 `precondition_failed`. Enabling ChatGPT afterwards means a fresh candidate, a
 fresh routable proof, a fresh reviewer tenant and a fresh evidence run for
-*both* platforms: the whole window again.
+_both_ platforms: the whole window again.
 
 So decide before step 2 whether the alpha needs ChatGPT. If it does, both
 clean-client runs happen in the same sitting and the promotion carries both
@@ -674,12 +674,17 @@ stays pending unless all three are true.
 ### Expired reviewer cleanup recovery
 
 This is the one operator-only escape hatch for a reviewer-purpose tenant whose
-exact `provision` or `restore` operation is stranded in `candidate-cleanup`
-after its immutable reviewer assignment expired, or after the exact existing
-`fail-assignment` transition terminally failed that assignment without extending
-its immutable expiry. It is not a force-delete. Keep the
-scheduler suspended while investigating and never use a tenant, cell, owner,
-provider operation, or capacity identifier as input.
+immutable reviewer assignment expired or was ended through the exact existing
+`fail-assignment` transition. It accepts only either an exact `provision` or
+`restore` stranded in `candidate-cleanup`, or an exact `provision` that already
+succeeded at `bound` with the tenant's sole cell active, routable,
+provider-backed, desired-running, and `CELL_READY`, and with its full observed
+runtime identity and routable observation matching the source target. The
+successful-bound source remains
+`succeeded/bound`; recovery never rewrites history to make it look unfinished.
+This is not a force-delete. Keep the scheduler suspended while investigating
+and never use a tenant, cell, owner, provider operation, or capacity identifier
+as input.
 
 Call the authenticated contracts endpoint with only the opaque source operation
 UUID and the current expected fence, first using
@@ -694,14 +699,36 @@ immutable expiry. Do not use this recovery for any other failed assignment.
 The mutation returns only `enqueued` or `replayed`, an opaque delete operation
 ID, and a request ID.
 
+Before accepting the successful-bound branch, preflight also requires the
+source cell to equal `tenant.bound_cell_id`, exactly one non-deleted cell, an
+expired or terminal-failed reviewer-purpose assignment with matching runtime
+identity, and no live reviewer credential, OAuth grant, bootstrap authority,
+assignment, lease, or conflicting current-fence lifecycle operation. Any
+customer, restore-success, stale-fence, multi-cell, non-ready, non-routable, or
+other bound state must refuse without mutation.
+
 The recovery transaction blocks the OAuth account, revokes Hosted sessions,
 access tokens, transfers, reviewer credentials/bootstrap authority, outstanding
 reviewer invites, and OAuth authority, gates entitlement and exports, and
 creates the normal target-free tenant `delete` operation at the next fence. It
+serializes reviewer credential/session creation, magic-link redemption, and
+transfer-grant mint/consume before taking that gate; session lookup and transfer
+consumption also reject deletion-pending, deleted, or account-blocked tenants. It
 does not edit provider state, manufacture a provider proof, release capacity,
 or mark the tenant/cell deleted. A retry is allowed only as the exact replay of
-the superseded source at the old fence and the one derived-key delete at
-old-fence-plus-one.
+the superseded unfinished source or unchanged successful-bound source at the
+old fence and the one derived-key delete at old-fence-plus-one.
+
+After the mutation returns `enqueued` or `replayed`, run bounded authenticated
+reconcile passes for that opaque delete operation. Do not mark the cleanup done
+from control-plane state alone. Confirm the provisioner proved compute, storage,
+and keys destroyed; the tenant and cell reached deleted state; the routable
+observation is absent; its capacity allocation and pool counters are released;
+and no Hosted session, access token, transfer, reviewer credential/bootstrap,
+OAuth grant/family/token, or unconsumed reviewer invite remains usable. Only
+after all of those checks may normal scheduling resume and a fresh reviewer
+ceremony begin. Provider-backed deletion is irreversible; retain the audit and
+operation receipts.
 
 ### Terminal reviewer delete replay
 
@@ -784,20 +811,32 @@ takes your word that the runtime already moved, so that word has to be earned:
 - confirm the lock's `runtimeTarget` matches a cataloged candidate in Substrate on
   release, protocol, command fingerprint, schema digest and compatibility digest.
 
-If the image does *not* match the lock, stop: the cell is diverged in some other
+If the image does _not_ match the lock, stop: the cell is diverged in some other
 direction and this control is the wrong tool.
 
 Then call `POST /api/exomem/admin/contracts`, preflight first:
 
 ```json
-{ "action": "preflight-correct-diverged-cell-release", "cellId": "<uuid>", "candidateId": "<uuid>", "expectedCurrentRelease": "<stale release>", "expectedFence": 2 }
+{
+  "action": "preflight-correct-diverged-cell-release",
+  "cellId": "<uuid>",
+  "candidateId": "<uuid>",
+  "expectedCurrentRelease": "<stale release>",
+  "expectedFence": 2
+}
 ```
 
 ```json
-{ "action": "correct-diverged-cell-release", "cellId": "<uuid>", "candidateId": "<uuid>", "expectedCurrentRelease": "<stale release>", "expectedFence": 2 }
+{
+  "action": "correct-diverged-cell-release",
+  "cellId": "<uuid>",
+  "candidateId": "<uuid>",
+  "expectedCurrentRelease": "<stale release>",
+  "expectedFence": 2
+}
 ```
 
-`expectedCurrentRelease` is the release the cell records *now*, not the one it should
+`expectedCurrentRelease` is the release the cell records _now_, not the one it should
 record. It exists so a ticket written before somebody else corrected the same cell
 refuses instead of moving it twice.
 
@@ -843,7 +882,11 @@ is no `runtimeTarget` to compare. This control restores the tenant to it.
 Preflight first, then supersede:
 
 ```json
-{ "action": "preflight-supersede-stranded-cell-delete", "operationId": "<uuid>", "expectedFence": 2 }
+{
+  "action": "preflight-supersede-stranded-cell-delete",
+  "operationId": "<uuid>",
+  "expectedFence": 2
+}
 ```
 
 ```json

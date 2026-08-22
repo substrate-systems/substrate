@@ -107,10 +107,25 @@ describe("hosted operator controls", () => {
       { outcome: "enqueued", operationId: "018f2d91-7c42-7000-8000-000000000002" }
     );
     assert.match(queries[0]!, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
-    const mutation = queries[1]!;
+    assert.match(
+      queries[1]!,
+      /pg_advisory_xact_lock\(hashtext\('exomem-marketplace-reviewer-access'\)\)/i
+    );
+    const mutation = queries[2]!;
     assert.match(mutation, /operation_type IN \('provision', 'restore'\)/i);
     assert.match(mutation, /state IN \('waiting', 'failed_retryable'\)/i);
     assert.match(mutation, /checkpoint = 'candidate-cleanup'/i);
+    assert.match(mutation, /source\.operation_type = 'provision'/i);
+    assert.match(mutation, /source\.state = 'succeeded'/i);
+    assert.match(mutation, /source\.checkpoint = 'bound'/i);
+    assert.match(mutation, /source\.bound_cell_id = cell\.id/i);
+    assert.match(mutation, /cell\.lifecycle_state = 'active'/i);
+    assert.match(mutation, /cell\.routing_state = 'bound'/i);
+    assert.match(mutation, /cell\.desired_state = 'running'/i);
+    assert.match(mutation, /cell\.readiness_code = 'CELL_READY'/i);
+    assert.match(mutation, /cell\.provider_ref IS NOT NULL/i);
+    assert.match(mutation, /exomem_routable_cell_contracts/i);
+    assert.match(mutation, /route\.routable = true/i);
     assert.match(mutation, /lease_expires_at IS NULL OR source\.lease_expires_at <= now\(\)/i);
     assert.match(mutation, /marketplace_reviewer_purpose = true/i);
     assert.match(mutation, /bound_cell_id IS NULL/i);
@@ -140,6 +155,10 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /target_candidate_id.*NULL/i);
     assert.match(mutation, /exomem_audit_events/i);
     assert.match(mutation, /digest\(convert_to\(source\.id::text/i);
+    assert.match(
+      mutation,
+      /source\.state = 'succeeded'[\s\S]*source\.checkpoint = 'bound'[\s\S]*source\.tenant_status = 'deletion_pending'/i
+    );
   });
 
   it("preflights the same boundary without any mutation clauses", async () => {
@@ -158,7 +177,16 @@ describe("hosted operator controls", () => {
       { eligible: true }
     );
     assert.match(query, /candidate-cleanup/i);
+    assert.match(query, /source\.operation_type = 'provision'/i);
+    assert.match(query, /source\.state = 'succeeded'/i);
+    assert.match(query, /source\.checkpoint = 'bound'/i);
+    assert.match(query, /tenant\.bound_cell_id = cell\.id/i);
+    assert.match(query, /cell\.readiness_code = 'CELL_READY'/i);
+    assert.match(query, /cell\.provider_ref IS NOT NULL/i);
+    assert.match(query, /exomem_routable_cell_contracts/i);
     assert.match(query, /assignment\.state = 'failed' AND assignment\.ended_at IS NOT NULL/i);
+    assert.match(query, /exomem_marketplace_reviewer_credentials/i);
+    assert.match(query, /exomem_oauth_grants/i);
     assert.doesNotMatch(query, /\bUPDATE\b|\bINSERT\b|\bDELETE\b/i);
   });
 

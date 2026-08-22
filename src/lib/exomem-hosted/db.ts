@@ -1024,7 +1024,9 @@ export type RedeemMagicAccessTokenInput = {
 export async function redeemMagicAccessTokenAtomic(
   input: RedeemMagicAccessTokenInput
 ): Promise<Omit<RedeemedAccess, "operationId"> | null> {
-  const { rows } = await sql`
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await tx`
     /* exomem:redeem-magic-access-token */
     WITH locked_token AS (
       SELECT token.id, token.user_id, token.tenant_id
@@ -1068,14 +1070,15 @@ export async function redeemMagicAccessTokenAtomic(
     )
     SELECT user_id, tenant_id, session_id FROM consumed
   `;
-  const row = rows[0] as { user_id: string; tenant_id: string; session_id: string } | undefined;
-  return row
-    ? {
-        userId: row.user_id,
-        tenantId: row.tenant_id,
-        sessionId: row.session_id,
-      }
-    : null;
+    const row = rows[0] as { user_id: string; tenant_id: string; session_id: string } | undefined;
+    return row
+      ? {
+          userId: row.user_id,
+          tenantId: row.tenant_id,
+          sessionId: row.session_id,
+        }
+      : null;
+  });
 }
 
 export type ExomemSessionRow = {
@@ -1101,7 +1104,9 @@ export async function findExomemSessionByDigest(
     JOIN exomem_tenants AS tenant
       ON tenant.id = session.tenant_id
      AND tenant.owner_user_id = session.user_id
-     AND tenant.status <> 'deleted'
+     AND tenant.status IN ('provisioning', 'active', 'suspended')
+     AND tenant.desired_state <> 'deleted'
+     AND tenant.deleted_at IS NULL
     LEFT JOIN exomem_marketplace_reviewer_credentials AS reviewer_credential
       ON reviewer_credential.id = session.reviewer_credential_id
      AND reviewer_credential.revoked_at IS NULL
@@ -1110,6 +1115,10 @@ export async function findExomemSessionByDigest(
       AND session.revoked_at IS NULL
       AND session.expires_at > now()
       AND (session.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
+      AND NOT EXISTS (
+        SELECT 1 FROM exomem_oauth_account_blocks AS block
+        WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
+      )
     LIMIT 1
   `;
   const row = rows[0] as
@@ -2042,7 +2051,9 @@ export async function createTransferGrantRecord(input: {
   expiresAt: Date;
   byteLimit: number;
 }): Promise<{ grantId: string } | null> {
-  const { rows } = await sql`
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await tx`
     /* exomem:create-transfer-grant */
     WITH expired_ids AS MATERIALIZED (
       SELECT grant_row.id
@@ -2087,8 +2098,9 @@ export async function createTransferGrantRecord(input: {
     ON CONFLICT (grant_digest) DO NOTHING
     RETURNING id
   `;
-  const row = rows[0];
-  return row ? { grantId: String(row.id) } : null;
+    const row = rows[0];
+    return row ? { grantId: String(row.id) } : null;
+  });
 }
 
 export async function consumeTransferGrantRecord(input: {
@@ -2097,21 +2109,39 @@ export async function consumeTransferGrantRecord(input: {
   cellId: string;
   operation: "upload" | "download";
 }): Promise<boolean> {
-  const { rows } = await sql`
+  return withExomemTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await tx`
     /* exomem:consume-transfer-grant */
-    UPDATE exomem_transfer_grants
+    UPDATE exomem_transfer_grants AS grant_row
     SET consumed_at = now()
-    WHERE id = ${input.grantId}
-      AND tenant_id = ${input.tenantId}
-      AND cell_id = ${input.cellId}
-      AND operation = ${input.operation}
-      AND audience = 'exomem-hosted-transfer'
-      AND consumed_at IS NULL
-      AND revoked_at IS NULL
-      AND expires_at > now()
-    RETURNING id
+    FROM exomem_tenants AS tenant
+    JOIN exomem_cells AS cell
+      ON cell.id = tenant.bound_cell_id AND cell.tenant_id = tenant.id
+    WHERE grant_row.id = ${input.grantId}
+      AND grant_row.tenant_id = ${input.tenantId}
+      AND grant_row.cell_id = ${input.cellId}
+      AND grant_row.operation = ${input.operation}
+      AND grant_row.audience = 'exomem-hosted-transfer'
+      AND grant_row.consumed_at IS NULL
+      AND grant_row.revoked_at IS NULL
+      AND grant_row.expires_at > now()
+      AND tenant.id = grant_row.tenant_id
+      AND tenant.owner_user_id = grant_row.user_id
+      AND tenant.status = 'active'
+      AND tenant.desired_state = 'running'
+      AND tenant.deleted_at IS NULL
+      AND cell.id = grant_row.cell_id
+      AND cell.lifecycle_state = 'active'
+      AND cell.routing_state = 'bound'
+      AND NOT EXISTS (
+        SELECT 1 FROM exomem_oauth_account_blocks AS block
+        WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
+      )
+    RETURNING grant_row.id
   `;
-  return rows.length === 1;
+    return rows.length === 1;
+  });
 }
 
 export async function finishTransferGrantRecord(input: {
