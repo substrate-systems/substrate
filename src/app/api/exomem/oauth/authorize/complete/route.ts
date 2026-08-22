@@ -100,7 +100,31 @@ async function submittedFieldNames(request: Request): Promise<string> {
   }
 }
 
+// Chrome sends `Origin: null` for a form POST issued by a document whose
+// referrer policy is `no-referrer` -- which the consent page sets deliberately,
+// via `referrer: "no-referrer"` in its own metadata. The Fetch standard ties the
+// two together: under that policy the request's origin is serialized as the
+// string "null". So the page's privacy hardening made every Connect submission
+// unattributable, and this gate rejected all of them. It could not succeed in
+// Chrome, and never had: every test here builds the request by hand with a clean
+// Origin, so nothing exercised what a browser actually sends. It cost the
+// 2026-08-16 and 2026-08-22 promotion windows.
+//
+// `Sec-Fetch-Site` is the trustworthy signal. It is a forbidden header name, so
+// no page, script or extension can set or forge it -- only the browser writes
+// it. `same-origin` is the browser asserting the request came from this very
+// origin, which is precisely what this check exists to establish, and it is
+// strictly stronger than comparing an Origin string the same browser may have
+// redacted. When the browser sends Sec-Fetch metadata we believe it and ignore
+// Origin; when it does not, fall back to the Origin/host comparison for clients
+// that predate Fetch Metadata.
+//
+// This is not a relaxation. A cross-site POST still reports `cross-site` and is
+// still refused, and the form nonce -- bound to an httpOnly cookie the attacker
+// cannot read -- remains the actual CSRF defence, unchanged.
 function validOrigin(request: Request): boolean {
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite) return fetchSite === "same-origin";
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
   if (!origin || !host) return false;
