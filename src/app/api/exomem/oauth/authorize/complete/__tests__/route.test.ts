@@ -179,6 +179,65 @@ describe("POST /api/exomem/oauth/authorize/complete", () => {
     );
   });
 
+  // What Chrome actually sends. The consent page declares `no-referrer`, and
+  // under that policy a form POST carries `Origin: null` -- so the real browser
+  // request never resembled the hand-built ones these tests were using, and the
+  // origin gate refused every genuine Connect. Verbatim from the production log
+  // of the 2026-08-22 window: origin 'null', sec-fetch-site 'same-origin'.
+  it("accepts the real browser submission whose Origin was redacted to null", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      new Request("https://substratesystems.io/api/exomem/oauth/authorize/complete", {
+        method: "POST",
+        headers: {
+          origin: "null",
+          host: "substratesystems.io",
+          "sec-fetch-site": "same-origin",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ nonce: "form-nonce", confirmation: LIVE_HANDLE }).toString(),
+      })
+    );
+
+    assert.equal(response.status, 303, "a same-origin consent submission must mint the code");
+    assert.equal(
+      response.headers.get("location"),
+      "https://client.example/callback?code=authorization-code"
+    );
+    assert.equal(attachCalls, 1);
+  });
+
+  // The gate still has to refuse a genuine cross-site POST, which is the whole
+  // reason it exists. Sec-Fetch-Site is a forbidden header, so a hostile page
+  // cannot claim same-origin -- the browser stamps this one itself.
+  it("still refuses a cross-site submission that carries a plausible Origin", async () => {
+    const errors: unknown[] = [];
+    const restore = console.error;
+    console.error = (value: unknown) => errors.push(value);
+    let response: Response;
+    try {
+      const { POST } = await import("../route");
+      response = await POST(
+        new Request("https://substratesystems.io/api/exomem/oauth/authorize/complete", {
+          method: "POST",
+          headers: {
+            origin: "https://substratesystems.io",
+            host: "substratesystems.io",
+            "sec-fetch-site": "cross-site",
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({ nonce: "form-nonce", confirmation: LIVE_HANDLE }).toString(),
+        })
+      );
+    } finally {
+      console.error = restore;
+    }
+
+    assert.equal(response!.status, 400);
+    assert.equal((errors.at(-1) as { stage?: string })?.stage, "origin");
+    assert.equal(attachCalls, 0, "a cross-site post must not mint an authorization");
+  });
+
   it("mints the code when confirmation and nonce both match the live transaction", async () => {
     const { POST } = await import("../route");
     const response = await POST(post(LIVE_HANDLE));
