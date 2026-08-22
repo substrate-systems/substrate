@@ -601,6 +601,45 @@ describe("Exomem OAuth routes", () => {
     assert.notEqual(nonce, transaction);
   });
 
+  // A continuation cookie from an earlier attempt used to refuse this one with
+  // `invalid_request`, which left the browser holding it unable to start ANY
+  // authorization: every retry failed the same way and the only escape was
+  // clearing site cookies by hand. That is what cost the 2026-08-22 promotion
+  // window. Superseding is also the safer behaviour -- refusing lets anyone who
+  // can make this browser touch /authorize lock the victim out with a planted
+  // cookie.
+  it("supersedes a continuation left over from an earlier attempt", async () => {
+    const { GET } = await import("../authorize/route");
+    const first = await GET(authorizeRequest("first-state"));
+    assert.equal(first.status, 303);
+    const staleTransaction = cookie(first, "exomem_oauth_tx");
+    const staleNonce = cookie(first, "exomem_oauth_form_nonce");
+
+    const retry = await GET(
+      new Request(authorizeRequest("second-state").url, {
+        headers: {
+          "x-forwarded-for": "203.0.113.10",
+          cookie: `exomem_oauth_tx=${staleTransaction}; exomem_oauth_form_nonce=${staleNonce}`,
+        },
+      })
+    );
+
+    assert.equal(retry.status, 303, "a leftover continuation must not dead-end the retry");
+    const freshTransaction = cookie(retry, "exomem_oauth_tx");
+    const freshNonce = cookie(retry, "exomem_oauth_form_nonce");
+    assert.notEqual(freshTransaction, staleTransaction, "the retry must mint its own transaction");
+    assert.notEqual(freshNonce, staleNonce, "the retry must mint its own form nonce");
+
+    // Newest wins: the browser is left holding only the fresh continuation, so a
+    // planted transaction is discarded rather than carried forward.
+    assert.ok(continuations.get(digestKey(digestSecret(freshTransaction))));
+    assert.equal(
+      retry.headers.get("location")?.includes(freshTransaction),
+      false,
+      "the transaction must stay out of the redirect target"
+    );
+  });
+
   it("keeps concurrent first continuations distinct and re-renders a stale confirmation", async () => {
     const { GET } = await import("../authorize/route");
     const { POST } = await import("../authorize/complete/route");

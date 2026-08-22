@@ -8,7 +8,6 @@ import {
 import {
   createOAuthContinuation,
   oauthConfirmationHandle,
-  resolveOAuthContinuation,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
 import {
@@ -200,8 +199,20 @@ export async function GET(request: Request): Promise<NextResponse> {
     const parameters = parseAuthorizeParameters(url.searchParams);
     if (parameters.response_type !== "code")
       return authorizationError(callback.redirectUri, callback.state, "invalid_request");
-    if (await resolveOAuthContinuation(request))
-      return authorizationError(callback.redirectUri, callback.state, "invalid_request");
+    // A continuation cookie left over from an earlier attempt used to refuse
+    // this one outright, which made the browser that held it unable to start any
+    // authorization at all: every retry produced the same `invalid_request`, and
+    // the only escape was clearing site cookies by hand. That is the failure
+    // that cost the 2026-08-22 promotion window.
+    //
+    // Superseding is also the safer of the two behaviours, not the more lenient
+    // one. Refusing lets anyone who can make this browser touch /authorize plant
+    // a continuation that locks the victim out until they clear cookies. The new
+    // continuation below overwrites both cookies, so the planted transaction is
+    // discarded rather than honoured; it stays unconsumed and expires on its own
+    // TTL. Nothing is authorized here either way -- the holder still has to
+    // submit the fresh consent form, with the matching form nonce, to mint a
+    // code, and that nonce cookie is httpOnly.
     if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthAuthorizeClient, client.clientId)))
       return authorizationError(callback.redirectUri, callback.state, "temporarily_unavailable");
     const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
