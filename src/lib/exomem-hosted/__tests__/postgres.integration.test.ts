@@ -2304,6 +2304,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
           gatewayContractDigest: targetGateway,
           commandFingerprint: targetCommand,
           schemaDigest: targetSchema,
+          compatibilityDigest: targetCompatibility,
         },
       }),
       true
