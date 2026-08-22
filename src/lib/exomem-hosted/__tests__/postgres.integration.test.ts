@@ -139,7 +139,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       tenantReviewer?: boolean;
       assignmentReviewer?: boolean;
       assignmentState?: "preparing" | "expired" | "active" | "failed";
-      sourceState?: "waiting" | "failed_terminal";
+      sourceState?: "waiting" | "succeeded" | "failed_terminal";
       operationType?: "provision" | "restore";
       liveLease?: boolean;
     } = {}
@@ -3508,7 +3508,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       { name: "stale fence", expectedFence: 2 },
       { name: "customer tenant", seed: { tenantReviewer: false } },
       { name: "active assignment", seed: { assignmentState: "active" } },
-      { name: "successful restore", seed: { operationType: "restore" } },
+      {
+        name: "successful restore",
+        seed: { operationType: "restore", sourceState: "succeeded" },
+      },
       {
         name: "not ready",
         mutate: async (seed) => {
