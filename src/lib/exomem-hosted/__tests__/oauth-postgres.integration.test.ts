@@ -38,6 +38,11 @@ import {
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
 import {
+  createOAuthContinuation,
+  resolveOAuthContinuationToken,
+  validateOAuthContinuationNonce,
+} from "../oauth-continuity";
+import {
   createInternalCanaryReviewerCredentialAtomic,
   createMarketplaceReviewerOAuthSessionAtomic,
   createOrRotateMarketplaceReviewerCredentialAtomic,
@@ -3781,4 +3786,88 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
     }
   });
+
+  // The consent form's `Connect` button is the last gate in the OAuth flow, and
+  // until now nothing exercised it against data this code actually minted:
+  // every test of the complete route mocks `validateOAuthContinuationNonce`
+  // wholesale, and `createOAuthContinuation` was never called by any test at
+  // all. That left the mint -> resolve -> validate chain -- the one the button
+  // depends on -- proven only by inspection, which is how a bare 400 reached a
+  // live promotion window.
+  it("validates the form nonce it minted, through a real transaction round-trip", async () => {
+    // Sealing the continuation envelope needs a control-plane key, and this is
+    // the only test in this file that encrypts anything, so the suite has never
+    // required one. Supply it here rather than from the environment: a test that
+    // depends on ambient configuration passes on the machine that happens to
+    // export it and fails in CI, which is exactly what it did.
+    const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+    process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 7).toString("base64url");
+    try {
+      await runContinuationRoundTrip();
+    } finally {
+      if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+    }
+  });
+
+  async function runContinuationRoundTrip(): Promise<void> {
+    await seedClient();
+    const redirectUri = "https://client.example.test/callback";
+    const created = await createOAuthContinuation({
+      clientId,
+      redirectUri,
+      resource,
+      scopes: ["exomem.read"],
+      state: "continuity-integration-state",
+      codeChallenge: "continuity-integration-challenge",
+      offlineAccess: true,
+    });
+    assert.ok(created, "the continuation must mint");
+
+    // Resolving is what the consent page does to decide it can render Connect.
+    const continuation = await resolveOAuthContinuationToken(created!.transaction);
+    assert.ok(continuation, "a freshly minted continuation must resolve from its own token");
+
+    // `scopes` is the only input to the continuation binding that the resolver
+    // does not cross-check against the encrypted envelope, so it is the only one
+    // that can silently diverge across the database round-trip. Assert it
+    // directly: a mismatch here fails the binding below for a reason the bare
+    // `invalid_request` would never name.
+    assert.deepEqual(
+      [...continuation!.scopes].sort(),
+      ["exomem.read", "offline_access"],
+      "requested_scopes must round-trip as the extended scope set used for the binding"
+    );
+
+    assert.equal(
+      validateOAuthContinuationNonce({
+        continuation: continuation!,
+        transaction: created!.transaction,
+        formNonce: created!.formNonce,
+      }),
+      true,
+      "the form nonce minted with a continuation must validate against it"
+    );
+
+    // The nonce is this form's CSRF defence; a foreign nonce must still fail.
+    const other = await createOAuthContinuation({
+      clientId,
+      redirectUri,
+      resource,
+      scopes: ["exomem.read"],
+      state: "continuity-integration-state-other",
+      codeChallenge: "continuity-integration-challenge",
+      offlineAccess: true,
+    });
+    assert.ok(other, "the second continuation must mint");
+    assert.equal(
+      validateOAuthContinuationNonce({
+        continuation: continuation!,
+        transaction: created!.transaction,
+        formNonce: other!.formNonce,
+      }),
+      false,
+      "a nonce from a different transaction must not validate"
+    );
+  }
 });
