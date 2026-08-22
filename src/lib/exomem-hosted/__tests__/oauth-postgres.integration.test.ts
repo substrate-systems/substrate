@@ -3795,6 +3795,22 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
   // depends on -- proven only by inspection, which is how a bare 400 reached a
   // live promotion window.
   it("validates the form nonce it minted, through a real transaction round-trip", async () => {
+    // Sealing the continuation envelope needs a control-plane key, and this is
+    // the only test in this file that encrypts anything, so the suite has never
+    // required one. Supply it here rather than from the environment: a test that
+    // depends on ambient configuration passes on the machine that happens to
+    // export it and fails in CI, which is exactly what it did.
+    const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+    process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 7).toString("base64url");
+    try {
+      await runContinuationRoundTrip();
+    } finally {
+      if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+    }
+  });
+
+  async function runContinuationRoundTrip(): Promise<void> {
     await seedClient();
     const redirectUri = "https://client.example.test/callback";
     const created = await createOAuthContinuation({
@@ -3853,5 +3869,5 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       false,
       "a nonce from a different transaction must not validate"
     );
-  });
+  }
 });

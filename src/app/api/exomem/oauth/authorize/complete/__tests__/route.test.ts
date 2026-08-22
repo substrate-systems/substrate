@@ -135,6 +135,50 @@ describe("POST /api/exomem/oauth/authorize/complete", () => {
     );
   });
 
+  // `readOAuthForm` answers an unrecognized field, a duplicate key and a
+  // malformed body identically, so without the field names a rejection here
+  // says only "the form was wrong". An extra field injected by a password
+  // manager or a browser extension is a real way to reach this gate, and it
+  // would otherwise be indistinguishable from a corrupt request.
+  it("names an unexpected form field without recording its value", async () => {
+    const errors: unknown[] = [];
+    const restore = console.error;
+    console.error = (value: unknown) => errors.push(value);
+    let response: Response;
+    try {
+      const { POST } = await import("../route");
+      response = await POST(
+        new Request("https://substratesystems.io/api/exomem/oauth/authorize/complete", {
+          method: "POST",
+          headers: {
+            origin: "https://substratesystems.io",
+            host: "substratesystems.io",
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            nonce: "form-nonce",
+            confirmation: LIVE_HANDLE,
+            autofill_extra: "a-value-that-must-not-be-logged",
+          }).toString(),
+        })
+      );
+    } finally {
+      console.error = restore;
+    }
+
+    assert.equal(response!.status, 400);
+    const record = errors.at(-1) as { stage?: string; field_names?: string } | undefined;
+    assert.equal(record?.stage, "form");
+    assert.ok(
+      record?.field_names?.includes("autofill_extra"),
+      "the unexpected field must be named so the cause is visible"
+    );
+    assert.ok(
+      !JSON.stringify(record).includes("a-value-that-must-not-be-logged"),
+      "field values must never reach the log"
+    );
+  });
+
   it("mints the code when confirmation and nonce both match the live transaction", async () => {
     const { POST } = await import("../route");
     const response = await POST(post(LIVE_HANDLE));

@@ -11,6 +11,7 @@ import {
   resolveOAuthContinuation,
   validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
+import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
 import { oauthNoStoreHeaders, readOAuthForm } from "@/lib/exomem-hosted/oauth-http";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
@@ -81,6 +82,24 @@ function accessDenied(): NextResponse {
   );
 }
 
+// Bounded deliberately: a rejected body is by definition not one this server
+// vouched for, so its field names are untrusted input on their way to a log.
+// Cap the count and the length rather than trusting `readOAuthForm`'s limits,
+// which may be the very checks that just threw.
+async function submittedFieldNames(request: Request): Promise<string> {
+  try {
+    const params = new URLSearchParams(await request.text());
+    const names: string[] = [];
+    for (const [key] of params) {
+      names.push(key.slice(0, 32));
+      if (names.length === 8) break;
+    }
+    return names.join(",") || "none";
+  } catch {
+    return "unreadable";
+  }
+}
+
 function validOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
@@ -98,19 +117,32 @@ function validOrigin(request: Request): boolean {
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!validOrigin(request)) {
+    // Origin and host are public hostnames that already appear on every access
+    // log line, so recording them costs no confidentiality and is the only way
+    // to tell "this browser sent no Origin" from "it sent one that disagreed
+    // with the host we were reached on".
     return invalidRequest("origin", {
-      origin_present: request.headers.get("origin") !== null,
-      host_present: request.headers.get("host") !== null,
+      origin: request.headers.get("origin") ?? "absent",
+      host: request.headers.get("host") ?? "absent",
       sec_fetch_site: request.headers.get("sec-fetch-site") ?? "absent",
     });
   }
+  // Cloned before the body is consumed, and read only when parsing has already
+  // failed. `readOAuthForm` rejects an unrecognized field, a duplicate key and a
+  // malformed body with the same error, so without the field NAMES a rejection
+  // here says only "the form was wrong" -- and an extra field injected by a
+  // password manager or extension looks exactly like a malformed body.
+  const formShape = request.clone();
   let form: Record<string, string>;
   try {
     form = await readOAuthForm(request, ["nonce", "confirmation"]);
-  } catch {
+  } catch (caught) {
     return invalidRequest("form", {
+      error_code: caught instanceof ExomemHostedError ? caught.code : "unknown",
       content_type: request.headers.get("content-type")?.split(";", 1)[0]?.trim() ?? "absent",
       content_length: request.headers.get("content-length") ?? "absent",
+      // Names only. The values are the nonce and the confirmation handle.
+      field_names: await submittedFieldNames(formShape),
     });
   }
   const continuation = await resolveOAuthContinuation(request);
