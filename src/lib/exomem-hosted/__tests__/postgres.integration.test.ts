@@ -140,6 +140,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       assignmentReviewer?: boolean;
       assignmentState?: "preparing" | "expired" | "active" | "failed";
       sourceState?: "waiting" | "failed_terminal";
+      operationType?: "provision" | "restore";
       liveLease?: boolean;
     } = {}
   ) {
@@ -169,8 +170,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     await pool.query(
       `INSERT INTO exomem_cells (
          id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version
-       ) VALUES ($1, $2, 'provisioning', 'unbound', 'running', '1', 'test')`,
-      [cellId, tenantId]
+       ) VALUES ($1, $2, $3, 'unbound', 'running', '1', 'test')`,
+      [cellId, tenantId, input.operationType === "restore" ? "restoring" : "provisioning"]
     );
     await pool.query(
       `INSERT INTO exomem_agent_contract_candidates (
@@ -211,15 +212,16 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          target_candidate_id, target_assignment_id, target_assignment_generation,
          target_source_release, target_protocol_version, target_gateway_contract_digest,
          target_command_fingerprint, target_schema_digest, target_compatibility_digest
-       ) VALUES ($1, $2, $3, 'provision', $4, 'candidate-cleanup', 'expired-reviewer-source',
+       ) VALUES ($1, $2, $3, $4, $5, 'candidate-cleanup', 'expired-reviewer-source',
                  1, 'exomem-cell-provisioner.v2',
-                 CASE WHEN $5 THEN 'recovery-test-worker' ELSE NULL END,
-                 CASE WHEN $5 THEN now() + interval '1 hour' ELSE NULL END,
-                 $6, $7, 1, 'test', '1', $8, $8, $8, $8)`,
+                 CASE WHEN $6 THEN 'recovery-test-worker' ELSE NULL END,
+                 CASE WHEN $6 THEN now() + interval '1 hour' ELSE NULL END,
+                 $7, $8, 1, 'test', '1', $9, $9, $9, $9)`,
       [
         sourceOperationId,
         tenantId,
         cellId,
+        input.operationType ?? "provision",
         input.sourceState ?? "waiting",
         input.liveLease ?? false,
         candidateId,
@@ -3506,15 +3508,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       { name: "stale fence", expectedFence: 2 },
       { name: "customer tenant", seed: { tenantReviewer: false } },
       { name: "active assignment", seed: { assignmentState: "active" } },
-      {
-        name: "successful restore",
-        mutate: async (seed) => {
-          await pool.query(
-            "UPDATE exomem_lifecycle_operations SET operation_type = 'restore' WHERE id = $1::uuid",
-            [seed.sourceOperationId]
-          );
-        },
-      },
+      { name: "successful restore", seed: { operationType: "restore" } },
       {
         name: "not ready",
         mutate: async (seed) => {
