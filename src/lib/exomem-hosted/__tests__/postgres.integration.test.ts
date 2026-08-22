@@ -211,12 +211,20 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          fence_generation, provisioner_wire_protocol, lease_owner, lease_expires_at,
          target_candidate_id, target_assignment_id, target_assignment_generation,
          target_source_release, target_protocol_version, target_gateway_contract_digest,
-         target_command_fingerprint, target_schema_digest, target_compatibility_digest
+         target_command_fingerprint, target_schema_digest, target_compatibility_digest,
+         input_reference_ciphertext, input_reference_digest, input_source_cell_id,
+         input_archive_sha256, input_manifest_sha256, input_archive_size
        ) VALUES ($1, $2, $3, $4, $5, 'candidate-cleanup', 'expired-reviewer-source',
                  1, 'exomem-cell-provisioner.v2',
                  CASE WHEN $6 THEN 'recovery-test-worker' ELSE NULL END,
                  CASE WHEN $6 THEN now() + interval '1 hour' ELSE NULL END,
-                 $7, $8, 1, 'test', '1', $9, $9, $9, $9)`,
+                 $7, $8, 1, 'test', '1', $9, $9, $9, $9,
+                 CASE WHEN $4 = 'restore' THEN '{"encrypted":true}'::jsonb ELSE NULL END,
+                 CASE WHEN $4 = 'restore' THEN $10::bytea ELSE NULL END,
+                 CASE WHEN $4 = 'restore' THEN $3::uuid ELSE NULL END,
+                 CASE WHEN $4 = 'restore' THEN $9::text ELSE NULL END,
+                 CASE WHEN $4 = 'restore' THEN $9::text ELSE NULL END,
+                 CASE WHEN $4 = 'restore' THEN 1::bigint ELSE NULL END)`,
       [
         sourceOperationId,
         tenantId,
@@ -227,6 +235,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         candidateId,
         assignmentId,
         digest,
+        Buffer.alloc(32, 0x7b),
       ]
     );
     return { userId, tenantId, cellId, candidateId, assignmentId, sourceOperationId };
