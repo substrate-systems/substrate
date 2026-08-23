@@ -473,9 +473,20 @@ two-platform support. When both platforms are promoted together, their evidence
 must still name the same cohort -- the paired run, Exomem identity, and tenant
 digests are compared and a mismatch refuses the promotion.
 
-A single-platform promotion does not retire the other platform's artifact when it
-is later promoted against the same candidate; adding the second platform is an
-ordinary promotion of that artifact.
+A single-platform promotion does not retire the other platform's artifact, but do
+not read that as a later pairing being available: it is not. See "Promotion is
+one-shot per candidate" above -- promotion retires the rollout assignment the
+`cells` precondition requires, so adding the second platform to a live candidate
+returns `precondition_failed` with every input present and correct, and enabling
+it means a fresh candidate and a full new window for both platforms. This
+paragraph previously described that pairing as "an ordinary promotion of that
+artifact", which contradicted the section above and was wrong.
+
+The promotion request expresses the choice by which artifacts it names. Omitting
+`openaiArtifactId` promotes a Claude-only cohort; naming both promotes the pair.
+A malformed OpenAI artifact id is refused rather than read as an omission, and so
+is OpenAI evidence sent without an OpenAI artifact -- otherwise a mistyped id
+would quietly foreclose ChatGPT on the candidate and report success.
 
 ### External hosted scheduler
 

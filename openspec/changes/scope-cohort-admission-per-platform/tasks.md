@@ -23,9 +23,11 @@
 ## 4. Single-platform promotion
 
 - [x] 4.1 Accept the set of platforms being promoted rather than requiring both artifact IDs
+  - The store half landed here; the route half did not, and the gap survived unnoticed because nothing exercised it. `promoteExomemHostedCohort` took `openaiArtifactId?: string | null` and documented "Omit to promote a Claude-only cohort", while `POST /api/exomem/admin/contracts` ran `uuid(body.openaiArtifactId)` and refused a falsy result, so the single-platform path this change specifies was unreachable from outside the process. Closed 2026-08-23: absence of the field promotes Claude-only, a *malformed* id is still refused rather than read as omitted, and OpenAI evidence with no OpenAI artifact is refused rather than silently dropped — because dropping it would let a mistyped id foreclose ChatGPT on the candidate (see 4.6) and report success. Covered in `src/app/api/exomem/admin/contracts/__tests__/route.test.ts`.
 - [x] 4.2 Require the same clean-client evidence for each promoted platform that paired promotion requires
 - [x] 4.3 Enforce cross-client HMAC equality only when two platforms are promoted together, unchanged in that case
-- [x] 4.4 Allow adding a second platform to an already-live candidate without retiring the first
+- [ ] 4.4 Allow adding a second platform to an already-live candidate without retiring the first
+  - **Un-ticked 2026-08-23.** It was ticked on the strength of the `candidateAlreadyLive` branch existing in `promoteExomemHostedCohort`, but 4.6 below then measured the actual behaviour and found the opposite: the branch is unreachable in practice because promotion retires the rollout assignment that every promotion's `cells` precondition requires to be active. Two entries in the same section cannot disagree about whether the capability exists. 4.6's measurement stands; this tick did not, and the spec scenario "Adding a second platform later" remains specified and unimplemented.
 - [x] 4.5 Leave routable-cell strictness untouched: every routable cell must still match the promoted candidate
 - [x] 4.6 Integration tests for single-platform promotion, failed evidence, paired promotion cross-check, and later pairing
   - Single-platform promotion and per-platform admission scoping are covered.

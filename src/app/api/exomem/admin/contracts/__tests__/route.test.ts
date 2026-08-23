@@ -371,6 +371,58 @@ describe("Exomem operator contract controls", () => {
     assert.equal(promotionInput?.expectedRoutableCellDigest, digest);
   });
 
+  // `promoteExomemHostedCohort` has accepted a Claude-only cohort since
+  // scope-cohort-admission-per-platform, but this route demanded both artifact
+  // ids, so the single-platform path that change specifies was unreachable from
+  // outside the process. These three pin the distinction the route now draws.
+  const promotionRequest = async (extra: Record<string, unknown>) => {
+    const { GET, POST } = await import("../route");
+    const status = await GET(
+      new Request("https://substratesystems.io/api/exomem/admin/contracts", {
+        headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+      }) as unknown as import("next/server").NextRequest
+    );
+    const digest = (await status.json()).rolloutStatus[0].routableSetDigest;
+    promotionInput = null;
+    return POST(
+      request(
+        {
+          action: "promote-cohort",
+          candidateId: "018f2d91-7c42-7000-8000-000000000021",
+          claudeArtifactId: "018f2d91-7c42-7000-8000-000000000022",
+          expectedLiveCandidateId: null,
+          expectedRoutableCellDigest: digest,
+          claudeEvidence: {},
+          ...extra,
+        },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+  };
+
+  it("promotes a Claude-only cohort when no OpenAI artifact is named", async () => {
+    const response = await promotionRequest({});
+    assert.equal(response.status, 200);
+    assert.equal(promotionInput?.openaiArtifactId, null);
+    assert.equal(promotionInput?.claudeArtifactId, "018f2d91-7c42-7000-8000-000000000022");
+  });
+
+  it("refuses a malformed OpenAI artifact id rather than reading it as omitted", async () => {
+    const response = await promotionRequest({ openaiArtifactId: "not-a-uuid" });
+    assert.equal(response.status, 400);
+    assert.equal(promotionInput, null);
+  });
+
+  // Promotion retires the rollout assignment the `cells` precondition needs, so
+  // a Claude-only promotion cannot be paired with OpenAI afterwards. Dropping
+  // stray evidence would let a mistyped artifact id foreclose ChatGPT on this
+  // candidate and report success.
+  it("refuses OpenAI evidence with no OpenAI artifact to promote it against", async () => {
+    const response = await promotionRequest({ openaiEvidence: {} });
+    assert.equal(response.status, 400);
+    assert.equal(promotionInput, null);
+  });
+
   it("reports expired authority counts and whether another expiry batch remains", async () => {
     const { POST } = await import("../route");
     const response = await POST(

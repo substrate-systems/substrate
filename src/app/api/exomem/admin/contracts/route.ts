@@ -382,14 +382,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } else if (body.action === "promote-cohort") {
       const candidateId = uuid(body.candidateId);
       const claudeArtifactId = uuid(body.claudeArtifactId);
-      const openaiArtifactId = uuid(body.openaiArtifactId);
+      // Omitting the OpenAI artifact promotes a Claude-only cohort.
+      // `promoteExomemHostedCohort` has accepted that since
+      // scope-cohort-admission-per-platform, and the store enforces the same
+      // evidence for whichever platforms are named; this route was the half that
+      // never learned to express it. Absence is the only single-platform signal:
+      // a malformed id is still refused rather than silently read as "omitted".
+      const promoteOpenai = body.openaiArtifactId !== undefined && body.openaiArtifactId !== null;
+      const openaiArtifactId = promoteOpenai ? uuid(body.openaiArtifactId) : null;
       const expectedLiveCandidateId =
         body.expectedLiveCandidateId === null ? null : uuid(body.expectedLiveCandidateId);
       const expectedRoutableCellDigest = digest(body.expectedRoutableCellDigest);
       if (
         !candidateId ||
         !claudeArtifactId ||
-        !openaiArtifactId ||
+        (promoteOpenai && !openaiArtifactId) ||
+        // OpenAI evidence without an OpenAI artifact is a confused request, and
+        // dropping it silently is the dangerous reading. Promotion retires the
+        // rollout assignment that every promotion's `cells` precondition
+        // requires to be active, so a candidate promoted for one platform cannot
+        // be paired with the other afterwards. An operator who mistyped the
+        // artifact id would foreclose ChatGPT on this candidate and be told it
+        // succeeded.
+        (!promoteOpenai && body.openaiEvidence !== undefined) ||
         (body.expectedLiveCandidateId !== null && !expectedLiveCandidateId) ||
         !expectedRoutableCellDigest
       ) {
