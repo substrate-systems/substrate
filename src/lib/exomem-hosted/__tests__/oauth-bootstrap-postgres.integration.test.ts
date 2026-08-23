@@ -810,6 +810,130 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
     );
   });
 
+  // The evidence window used to inherit the authority's clock. Authority creation
+  // refuses any expiry beyond thirty minutes -- correct, for an unspent privilege
+  // sitting in the control plane -- and the assignment took LEAST(authority, stage),
+  // so one thirty-minute budget had to cover cell provisioning, a human completing
+  // seven manual operations in a real client on each platform, then observe, sign,
+  // import and promote. On 2026-08-22 provisioning alone took eight and a half
+  // minutes of it. The authority is consumed by this very redemption, so bounding
+  // the assignment by it constrained the operator and nobody else.
+  it("gives the assignment the staged release's clock, not the consumed authority's", async () => {
+    const candidateId = await storeExomemAgentContractCandidate();
+    const candidate = await pool!.query<{ schema_digest: string; compatibility_digest: string }>(
+      "SELECT schema_digest, compatibility_digest FROM exomem_agent_contract_candidates WHERE id = $1",
+      [candidateId]
+    );
+    const config = oauthClientConfigSha256({
+      platform: "claude",
+      admissionMode: "pinned",
+      clientId,
+      redirectUris: [redirectUri],
+    });
+    // Deliberately outlives the authority, which is what the operator is choosing
+    // when they stage a release for a window covering two platforms.
+    const stage = await pool!.query<{ id: string; expires_at: Date }>(
+      `INSERT INTO exomem_staged_client_releases (
+         candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest, expires_at
+       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '0.1.0', $6, $7, now() + interval '90 minutes')
+       RETURNING id, expires_at`,
+      [
+        candidateId,
+        "a".repeat(64),
+        "b".repeat(64),
+        candidate.rows[0]!.compatibility_digest,
+        candidate.rows[0]!.schema_digest,
+        config,
+        "e".repeat(64),
+      ]
+    );
+    const client = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform, oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', false, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'claude', $3)
+       RETURNING id`,
+      [clientId, JSON.stringify([redirectUri]), config]
+    );
+    const invite = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits,
+         marketplace_reviewer_purpose, created_by_principal_digest, delivery_state, delivered_at, expires_at
+       ) VALUES ($1, 'bootstrap-window@example.test', 'complimentary', '[]'::jsonb, '{}'::jsonb,
+         true, $2, 'sent', now(), now() + interval '90 minutes') RETURNING id`,
+      [digest(41), digest(42)]
+    );
+    await pool!.query(
+      `UPDATE exomem_capacity_pools
+       SET storage_capacity_bytes = 10737418240, runtime_capacity_slots = 2,
+           provision_reservation_capacity = 2, provision_claim_capacity = 1, configured_at = now()`
+    );
+
+    // The cap stays exactly where it is: an unspent authority is short-lived.
+    const authority = await createReviewerOAuthBootstrapAuthority({
+      inviteId: invite.rows[0]!.id,
+      stagedClientReleaseId: stage.rows[0]!.id,
+      oauthClientId: client.rows[0]!.id,
+      expiresAt: new Date(Date.now() + 25 * 60_000),
+      operatorPrincipalDigest: digest(43),
+    });
+    assert.ok(authority);
+    assert.ok(
+      await createAuthorizationTransaction({
+        transactionDigest: digest(44),
+        stateDigest: digest(45),
+        stateEnvelope: {
+          version: 1,
+          algorithm: "A256GCM",
+          iv: "iv",
+          ciphertext: "cipher",
+          tag: "tag",
+        },
+        formNonceDigest: digest(46),
+        continuationBinding: digest(47),
+        clientId,
+        redirectUri,
+        resource,
+        scopes: ["exomem.read", "offline_access"],
+        pkceChallenge: "window-challenge",
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      })
+    );
+    assert.ok(
+      await admitFirstOAuthInviteAtomic({
+        inviteDigest: digest(41),
+        transactionDigest: digest(44),
+        sessionDigest: digest(48),
+        csrfDigest: digest(49),
+        sessionExpiresAt: new Date(Date.now() + 10 * 60_000),
+        codeDigest: digest(50),
+        codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+      })
+    );
+
+    const window = await pool!.query<{
+      matches_stage: boolean;
+      outlives_authority: boolean;
+      authority_consumed: boolean;
+    }>(
+      `SELECT assignment.expires_at = stage.expires_at AS matches_stage,
+              assignment.expires_at > authority.expires_at AS outlives_authority,
+              authority.state = 'consumed' AS authority_consumed
+       FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+       JOIN exomem_agent_contract_rollout_assignments AS assignment
+         ON assignment.id = authority.outcome_assignment_id
+       JOIN exomem_staged_client_releases AS stage ON stage.id = $2::uuid
+       WHERE authority.id = $1`,
+      [authority!.id, stage.rows[0]!.id]
+    );
+    assert.deepEqual(window.rows[0], {
+      matches_stage: true,
+      outlives_authority: true,
+      // The reason the old bound bought nothing: it is already spent right here.
+      authority_consumed: true,
+    });
+  });
+
   it("persists v2 for a bootstrap provision when issuance is enabled", async () => {
     const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
     process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";

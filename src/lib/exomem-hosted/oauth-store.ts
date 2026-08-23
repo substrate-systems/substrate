@@ -1010,8 +1010,31 @@ async function admitReviewerOAuthBootstrapInTransaction(
       ${target.protocol_version}, ${target.command_fingerprint}, ${target.schema_digest},
       ${target.compatibility_digest}, ${target.gateway_contract_digest}, true,
       encode((SELECT operator_principal_digest FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = ${authorityId}::uuid), 'hex'),
-      LEAST((SELECT expires_at FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE id = ${authorityId}::uuid),
-            (SELECT expires_at FROM exomem_staged_client_releases WHERE id = ${target.stage_id}::uuid)))
+      -- The staged release, not the authority. This statement runs inside the
+      -- transaction that CONSUMES the authority, so from the instant this row
+      -- exists the authority is spent: it cannot admit a second authorization,
+      -- its pinned client is disabled and versioned, and a client carrying
+      -- bootstrap history can never be re-enabled or repurposed. Bounding this
+      -- assignment by a capability that no longer exists constrains nobody but
+      -- the operator.
+      --
+      -- It constrained them badly. Authority creation refuses any expiry beyond
+      -- thirty minutes -- correct, for an unspent privilege sitting in the
+      -- control plane -- so LEAST always picked it, and one thirty-minute clock
+      -- had to contain cell provisioning, a human completing seven manual
+      -- operations in a real client on each platform being promoted, then
+      -- observe, sign, import and promote. This assignment's expiry gates all of
+      -- it: the canary credential (LEAST of requested, this, and the stage), all
+      -- four canary token paths, storeClientArtifact, and the cells
+      -- precondition inside promoteExomemHostedCohort. On 2026-08-22 the run
+      -- consumed the authority at 23:42:54 and the cell only reached CELL_READY
+      -- at 23:51:14 -- eight and a half minutes gone before a human could start.
+      --
+      -- The staged release is the operator's own deliberate bound for this
+      -- window, and nothing gains reach by deferring to it: every predicate that
+      -- admits a canary, imports an artifact or promotes a cohort re-checks
+      -- stage.expires_at > now() independently of this row.
+      (SELECT expires_at FROM exomem_staged_client_releases WHERE id = ${target.stage_id}::uuid))
     RETURNING id, generation
   `;
   const assignment = assignmentResult.rows[0] as { id: string; generation: number } | undefined;

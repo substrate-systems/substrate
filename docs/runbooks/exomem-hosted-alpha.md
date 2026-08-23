@@ -272,8 +272,18 @@ and one input has to exist before them:
 4. `run`, with the emailed invite token and `--openai-connector`. **This starts
    the clock.** Creating the authority spends the invite whether it then
    succeeds, expires or is revoked, and the outcome assignment the canary
-   credentials hang off expires while the cell provisions. Do not start it
-   without both real clients open and a clear half hour.
+   credentials hang off begins expiring while the cell provisions. Do not start
+   it without both real clients open.
+
+   The window is the **staged release's** expiry, which `prepare` set and you
+   chose — not the authority's thirty minutes. The assignment takes its expiry
+   from the staged release; the authority is consumed by this very redemption,
+   so it no longer bounds anything. Budget roughly ten minutes of that window for
+   provisioning before a human can do anything: on 2026-08-22 `run` consumed the
+   authority at 23:42:54 and the cell reached `CELL_READY` at 23:51:14. Size the
+   staged release for provisioning plus a clean-client run on every platform you
+   are promoting plus `observe`/`sign`/`import` for each, and do not try to fit
+   two platforms into thirty minutes.
 5. The clean-client runs, in real Claude and real ChatGPT. Nothing automates
    this, and nothing should: the evidence attests that a genuine client
    completed install, authorization, tool discovery, recall, citation, durable
