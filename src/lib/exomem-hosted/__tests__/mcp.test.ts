@@ -100,6 +100,30 @@ function schemaSample(schema: unknown, root: unknown = schema): unknown {
   return "test";
 }
 
+/**
+ * What the cell actually puts in `data`, which is NOT the published outputSchema.
+ *
+ * The private command route answers `{success, data}` with `data` set to the raw
+ * command result (`cli_ops.envelope()` in exomem). FastMCP's `{result: ...}`
+ * wrapper lives only on FastMCP's own MCP surface, so a tool whose published
+ * schema carries `x-fastmcp-wrap-result` reaches the gateway UNWRAPPED.
+ *
+ * Sampling the published schema here instead -- as this file used to -- makes the
+ * stub satisfy the validator by construction, so no wrapper mismatch can ever
+ * fail. That is precisely how `ask_memory` and `connect_memory` shipped broken:
+ * every tool call against a real 0.57.2 cell returned CELL_RESPONSE_INVALID while
+ * this suite stayed green.
+ */
+function cellData(command: { mcp_tool: { outputSchema: Record<string, unknown> } }): unknown {
+  const schema = command.mcp_tool.outputSchema;
+  if (schema["x-fastmcp-wrap-result"] === true) {
+    const inner = (schema.properties as Record<string, unknown> | undefined)?.result;
+    assert.ok(inner, "wrap-result schema must declare a result property");
+    return schemaSample(inner, schema);
+  }
+  return schemaSample(schema);
+}
+
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
   return { promise: new Promise<void>((done) => (resolve = done)), resolve };
@@ -1278,7 +1302,7 @@ describe("Hosted MCP boundary", () => {
           return {
             status: 200,
             requestId: "request",
-            body: { success: true, data: schemaSample(command.mcp_tool.outputSchema) },
+            body: { success: true, data: cellData(command) },
           };
         },
         takeRateLimit: async () => true,

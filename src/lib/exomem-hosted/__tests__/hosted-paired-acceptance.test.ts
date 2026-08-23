@@ -157,6 +157,33 @@ function sample(schema: unknown, root: unknown = schema): unknown {
   return "acceptance";
 }
 
+/**
+ * What the cell actually puts in `data`, which is NOT the published outputSchema.
+ *
+ * The private command route answers `{success, data}` with `data` set to the raw
+ * command result. FastMCP's `{result: ...}` wrapper lives only on FastMCP's own MCP
+ * surface, so a tool whose published schema carries `x-fastmcp-wrap-result` reaches
+ * the gateway UNWRAPPED and the gateway applies the wrap itself.
+ *
+ * Sampling the published schema here instead -- as this stub used to -- hands back an
+ * already-wrapped `{result: ...}`, which satisfies the validator by construction and
+ * makes a double wrap indistinguishable from a correct one. That is how `ask_memory`
+ * and `connect_memory` shipped returning CELL_RESPONSE_INVALID against every real
+ * cell while this suite stayed green.
+ */
+function cellData(commandName: string): unknown {
+  const schema = exomemHostedContractFixture.compatibility.agent_contract.commands.find(
+    (command) => command.name === commandName
+  )?.mcp_tool.outputSchema as Record<string, unknown> | undefined;
+  assert.ok(schema, `no published output schema for ${commandName}`);
+  if (schema["x-fastmcp-wrap-result"] === true) {
+    const inner = (schema.properties as Record<string, unknown> | undefined)?.result;
+    assert.ok(inner, "wrap-result schema must declare a result property");
+    return sample(inner, schema);
+  }
+  return sample(schema);
+}
+
 function artifact(
   platform: "claude" | "openai",
   candidateId: string,
@@ -851,14 +878,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
       routeCommand: async ({ commandName }: { commandName: string }) => ({
         status: 200,
         requestId: "paired",
-        body: {
-          success: true,
-          data: sample(
-            exomemHostedContractFixture.compatibility.agent_contract.commands.find(
-              (command) => command.name === commandName
-            )?.mcp_tool.outputSchema
-          ),
-        },
+        body: { success: true, data: cellData(commandName) },
       }),
     };
     const transport = new StreamableHTTPClientTransport(new URL(resource), {

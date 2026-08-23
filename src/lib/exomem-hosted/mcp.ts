@@ -62,6 +62,13 @@ type LiveTool = {
   command: HostedContractCommand;
   inputSchema: JsonRecord;
   outputSchema: JsonRecord;
+  /**
+   * The published schema describes a `{result: ...}` wrapper that FastMCP adds on
+   * its own MCP surface. The cell's private command route does not add it -- it
+   * answers `{success, data}` with `data` set to the raw command result -- so the
+   * gateway has to apply the wrap itself before validating and returning.
+   */
+  wrapResult: boolean;
   inputValidator: ReturnType<AjvJsonSchemaValidator["getValidator"]>;
   outputValidator: ReturnType<AjvJsonSchemaValidator["getValidator"]>;
 };
@@ -382,6 +389,7 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
       readOnly,
       inputSchema,
       outputSchema,
+      wrapResult: outputSchema["x-fastmcp-wrap-result"] === true,
       command: {
         name,
         params,
@@ -974,16 +982,16 @@ export async function handleHostedMcpRequest(
           if ("content" in result) return result;
           const envelope = object(result.body);
           if (envelope?.success === true) {
-            if (!tool.outputValidator(envelope.data).valid)
-              throw exomemErrors.cellResponseInvalid();
+            const structured = tool.wrapResult ? { result: envelope.data ?? null } : envelope.data;
+            if (!tool.outputValidator(structured).valid) throw exomemErrors.cellResponseInvalid();
             telemetry(
               "succeeded",
               undefined,
               result.attempts && result.attempts > 1 ? "retried" : "none"
             );
             return {
-              content: [{ type: "text" as const, text: JSON.stringify(envelope.data ?? null) }],
-              structuredContent: envelope.data as JsonRecord,
+              content: [{ type: "text" as const, text: JSON.stringify(structured ?? null) }],
+              structuredContent: structured as JsonRecord,
             };
           }
           if (envelope?.success === false && object(envelope.error)) {
