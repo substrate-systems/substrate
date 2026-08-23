@@ -37,14 +37,55 @@ function hasExactFields(form: Record<string, string>, fields: readonly string[])
   return keys.length === fields.length && keys.every((key) => fields.includes(key));
 }
 
-function invalidGrant(): NextResponse {
+type TokenRejectionStage =
+  | "grant_type"
+  | "code_fields"
+  | "code_shape"
+  | "code_exchange"
+  | "refresh_fields"
+  | "refresh_shape"
+  | "refresh_rotation"
+  | "protocol_error"
+  | "unhandled";
+
+// `invalid_grant` is the correct answer to the caller and tells the operator
+// nothing: a consumed code, an expired code, a PKCE mismatch, a redirect_uri
+// mismatch and a fail-closed contract-state refusal are one response, one status
+// and one access log line. On 2026-08-22 a real connector's exchange failed here
+// and attributing it meant reading a seventy-line SQL predicate and querying rows
+// by hand, because this route logged nothing at all -- while the sibling authorize
+// and authorize/complete routes both name their rejection stage.
+//
+// Shape, never values. The code, the verifier, the refresh token and the client
+// secret material stay out of the log; `client_id` is a public identifier that is
+// already on every access log line, and the grant type is chosen by the caller.
+function logTokenRejection(
+  stage: TokenRejectionStage,
+  diagnostics?: Record<string, boolean | number | string>
+): void {
+  console.error({
+    event: "exomem_oauth_token_rejection",
+    stage,
+    ...(diagnostics ?? {}),
+  });
+}
+
+function invalidGrant(
+  stage: TokenRejectionStage,
+  diagnostics?: Record<string, boolean | number | string>
+): NextResponse {
+  logTokenRejection(stage, diagnostics);
   return NextResponse.json(
     { error: "invalid_grant" },
     { status: 400, headers: oauthNoStoreHeaders() }
   );
 }
 
-function invalidRequest(): NextResponse {
+function invalidRequest(
+  stage: TokenRejectionStage,
+  diagnostics?: Record<string, boolean | number | string>
+): NextResponse {
+  logTokenRejection(stage, diagnostics);
   return NextResponse.json(
     { error: "invalid_request" },
     { status: 400, headers: oauthNoStoreHeaders() }
@@ -106,8 +147,17 @@ export async function POST(request: Request): Promise<NextResponse> {
         !form.code_verifier ||
         form.resource !== resource
       )
-        return invalidRequest();
-      if (!tokenDigest(form.code) || !isPkceVerifier(form.code_verifier)) return invalidGrant();
+        // The resource mismatch is the one a client gets wrong on its own, and it
+        // is indistinguishable from a missing field without this.
+        return invalidRequest("code_fields", {
+          field_names: Object.keys(form).sort().join(",") || "none",
+          resource_matches: form.resource === resource,
+        });
+      if (!tokenDigest(form.code) || !isPkceVerifier(form.code_verifier))
+        return invalidGrant("code_shape", {
+          code_wellformed: !!tokenDigest(form.code),
+          verifier_wellformed: isPkceVerifier(form.code_verifier),
+        });
       const material = mintOpaqueTokenMaterial({ refreshAllowed: true });
       const issued = await issueOAuthTokensFromCodeAtomic({
         codeDigest: tokenDigest(form.code)!,
@@ -120,7 +170,16 @@ export async function POST(request: Request): Promise<NextResponse> {
         accessDigest: material.accessTokenDigest,
         accessExpiresAt: material.accessTokenExpiresAt,
       });
-      if (!issued) return invalidGrant();
+      // A null here is the whole admission predicate answering no: consumed or
+      // expired code, redirect_uri or PKCE mismatch, revoked grant, blocked
+      // account, or fail-closed contract state. It cannot say which without
+      // re-querying, so it names the client and redirect it was asked about --
+      // enough to find the code row by hand and evaluate the predicate against it.
+      if (!issued)
+        return invalidGrant("code_exchange", {
+          client_id: form.client_id,
+          redirect_uri: form.redirect_uri,
+        });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
         ...(issued.refreshInserted ? { refreshToken: material.refreshToken!.reveal() } : {}),
@@ -134,9 +193,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         !form.client_id ||
         form.resource !== resource
       )
-        return invalidRequest();
+        return invalidRequest("refresh_fields", {
+          field_names: Object.keys(form).sort().join(",") || "none",
+          resource_matches: form.resource === resource,
+        });
       const refreshDigest = tokenDigest(form.refresh_token);
-      if (!refreshDigest) return invalidGrant();
+      if (!refreshDigest) return invalidGrant("refresh_shape");
       const material = mintOpaqueTokenMaterial({ refreshAllowed: true });
       const issued = await rotateOAuthRefreshTokenAtomic({
         refreshDigest,
@@ -146,15 +208,21 @@ export async function POST(request: Request): Promise<NextResponse> {
         clientId: form.client_id,
         resource,
       });
-      if (!issued) return invalidGrant();
+      // Rotation also answers null for a replayed refresh token, which revokes
+      // the family -- so this line is the operator's only sight of a replay.
+      if (!issued) return invalidGrant("refresh_rotation", { client_id: form.client_id });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
         refreshToken: material.refreshToken!.reveal(),
         scopes: issued.scopes,
       });
     }
-    return invalidRequest();
+    return invalidRequest("grant_type", {
+      grant_type: form.grant_type?.slice(0, 64) ?? "absent",
+    });
   } catch (error) {
-    return error instanceof OAuthProtocolError ? invalidGrant() : invalidRequest();
+    return error instanceof OAuthProtocolError
+      ? invalidGrant("protocol_error")
+      : invalidRequest("unhandled");
   }
 }

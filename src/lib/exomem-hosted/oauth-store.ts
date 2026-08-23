@@ -1455,7 +1455,13 @@ export async function admitFirstOAuthInviteAtomic(input: {
   }
 }
 
-/** The MCP adapter must call this on every protected request. */
+/**
+ * The MCP adapter must call this on every protected request.
+ *
+ * Admits a `staged` canary release for the reason set out above
+ * `issueOAuthTokensFromCodeAtomic`: the evidence window is what produces
+ * `evidenced`, so refusing it here would reject the very token that window issues.
+ */
 export async function findActiveOAuthAccessToken(
   accessDigest: Buffer
 ): Promise<ActiveOAuthAccessToken | null> {
@@ -1551,7 +1557,7 @@ export async function findActiveOAuthAccessToken(
               AND assignment.generation = token.assignment_generation
               AND assignment.marketplace_reviewer_purpose = true
               AND ((assignment.state = 'active' AND assignment.expires_at > now()
-                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                    AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now())
                 OR (candidate.state = 'live' AND EXISTS (
                   SELECT 1 FROM exomem_client_artifacts AS artifact
                   WHERE artifact.staged_client_release_id = stage.id
@@ -1612,7 +1618,13 @@ export async function findActiveOAuthAccessToken(
   });
 }
 
-/** MCP may report a durable lifecycle state, but token issuance/refresh remains fail-closed above. */
+/**
+ * MCP may report a durable lifecycle state, but token issuance/refresh remains
+ * fail-closed above.
+ *
+ * Admits a `staged` canary release for the reason set out above
+ * `issueOAuthTokensFromCodeAtomic`.
+ */
 export async function findMcpOAuthAccessToken(
   accessDigest: Buffer
 ): Promise<ActiveOAuthAccessToken | null> {
@@ -1707,7 +1719,7 @@ export async function findMcpOAuthAccessToken(
               AND assignment.generation = token.assignment_generation
               AND assignment.marketplace_reviewer_purpose = true
               AND ((assignment.state = 'active' AND assignment.expires_at > now()
-                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                    AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now())
                 OR (candidate.state = 'live' AND EXISTS (
                   SELECT 1 FROM exomem_client_artifacts AS artifact
                   WHERE artifact.staged_client_release_id = stage.id
@@ -1912,6 +1924,40 @@ export async function revokeOAuthTokenForClient(input: {
   `;
 }
 
+// The canary branch below admits a `staged` release, not only an `evidenced`
+// one, and that is the difference between a first promotion that can happen and
+// one that cannot.
+//
+// A staged release becomes `evidenced` in exactly one place -- `storeClientArtifact`,
+// which is the `import` step of observe -> sign -> import -> promote. But `observe`
+// signs only what it witnessed, and five of its seven operations (authorization,
+// tool_discovery, content_recall, citation, durable_capture, fresh_chat_recall)
+// require a working access token. Requiring `evidenced` to issue that token made
+// the evidence window unsatisfiable: producing the evidence needed the state that
+// importing the evidence creates. `--rehearse` is deliberately not a way out --
+// it refuses to emit, so a dry run cannot manufacture a signable record.
+//
+// The consent half already knew this: attachExistingOwnerAuthorizationAtomic
+// accepts `IN ('staged', 'evidenced')`. So a canary client was admitted through
+// consent, issued an authorization code, and then refused a token -- which is
+// what a real Claude connector reported as `invalid_grant` /
+// `mcp_token_exchange_failed` on 2026-08-22, after the browser flow itself had
+// finally been fixed.
+//
+// This concedes nothing. The branch still requires an unrevoked, unexpired
+// `internal_canary` credential whose candidate, assignment, generation, staged
+// release and OAuth client all match the code; an `active`, unexpired assignment
+// carrying `marketplace_reviewer_purpose` on this tenant; a matching client config
+// sha; the `hosted-alpha-agent-v1` profile; tenant status, entitlement and no
+// account block; and a transaction that is not a bootstrap authority. `evidenced`
+// asserted only "the evidence is already imported", which is the one thing that
+// cannot be true yet. `stage.expires_at > now()` still bounds it, as does the
+// assignment's inherited 30-minute authority expiry. The `candidate.state = 'live'`
+// disjunct is untouched, so the ordinary post-promotion path is unchanged.
+//
+// All four token-path predicates take this together -- issue, read, MCP read and
+// refresh rotation. Relaxing only the exchange would issue a token the very next
+// request refuses.
 export async function issueOAuthTokensFromCodeAtomic(input: {
   codeDigest: Buffer;
   clientId: string;
@@ -2026,7 +2072,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
                 AND assignment.marketplace_reviewer_purpose = true
                 AND (
                   (assignment.state = 'active' AND assignment.expires_at > now()
-                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                    AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now())
                   OR (candidate.state = 'live' AND EXISTS (
                     SELECT 1 FROM exomem_client_artifacts AS artifact
                     WHERE artifact.staged_client_release_id = stage.id
@@ -2129,6 +2175,10 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
  * The replay branch runs in the same statement as the attempted rotation.
  * No replacement credential is retained, so a consumed digest permanently
  * revokes its family even if the original response was lost.
+ *
+ * Admits a `staged` canary release for the reason set out above
+ * `issueOAuthTokensFromCodeAtomic`. A reviewer session that outlives its first
+ * access token must be able to rotate, or the window ends fifteen minutes in.
  */
 export async function rotateOAuthRefreshTokenAtomic(input: {
   refreshDigest: Buffer;
@@ -2252,7 +2302,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
               AND assignment.generation = credential.assignment_generation
               AND assignment.marketplace_reviewer_purpose = true
               AND ((assignment.state = 'active' AND assignment.expires_at > now()
-                    AND stage.state = 'evidenced' AND stage.expires_at > now())
+                    AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now())
                 OR (candidate.state = 'live' AND EXISTS (
                   SELECT 1 FROM exomem_client_artifacts AS artifact
                   WHERE artifact.staged_client_release_id = stage.id

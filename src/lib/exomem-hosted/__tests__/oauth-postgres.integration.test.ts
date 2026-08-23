@@ -3185,6 +3185,163 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal((await pool!.query("SELECT deleted_at FROM exomem_tenants WHERE id = $1", [tenant.rows[0].id])).rows[0]?.deleted_at, null);
   });
 
+  // Every other canary test in this file seeds its staged release as 'evidenced',
+  // which is the state a release reaches only AFTER `import` -- the third step of
+  // observe -> sign -> import -> promote. During the window that produces that
+  // evidence the release is 'staged', and nothing exercised that, so the token
+  // path could require 'evidenced' while the consent path accepted 'staged' and
+  // no test disagreed. A real Claude connector found it on 2026-08-22: consent
+  // succeeded, a code was minted, and the exchange answered `invalid_grant`.
+  //
+  // The circularity is the point. `observe` signs only operations it witnessed,
+  // and five of its seven (authorization, tool_discovery, content_recall,
+  // citation, durable_capture, fresh_chat_recall) need a working access token --
+  // so requiring 'evidenced' to issue that token made the first promotion
+  // impossible to perform, not merely awkward.
+  it("issues and honours a canary token while its release is still staged", async () => {
+    const candidateClientId = `staged-canary-${randomUUID()}`;
+    const configDigest = "9".repeat(64);
+    const redirectUri = "https://staged-canary.example.test/callback";
+    const client = await pool!.query(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', false, $2::jsonb,
+                 digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'claude', $3)
+       RETURNING id`,
+      [candidateClientId, JSON.stringify([redirectUri]), configDigest]
+    );
+    const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+      `staged-canary-${randomUUID()}@example.test`,
+    ]);
+    const tenant = await pool!.query(
+      "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
+      [user.rows[0].id]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+      [tenant.rows[0].id]
+    );
+    const candidate = await pool!.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, mcp_protocol_versions, contract,
+         claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
+       ) VALUES (
+         'pending', 'hosted-alpha-agent-v1', $1, 'candidate-test', $2, $3, $4, '1',
+         '["2025-11-25"]'::jsonb, '{}'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
+       ) RETURNING id`,
+      [
+        resource,
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
+        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
+        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
+        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
+      ]
+    );
+    const assignment = await pool!.query(
+      `INSERT INTO exomem_agent_contract_rollout_assignments (
+         tenant_id, candidate_id, generation, state, source_release, protocol_version,
+         command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+         marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
+       ) VALUES ($1, $2, 1, 'active', 'candidate-test', '1', $3, $4, $5, $6, true, $7,
+                 now() + interval '30 minutes', now()) RETURNING id`,
+      [tenant.rows[0].id, candidate.rows[0].id, "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64), "e".repeat(64)]
+    );
+    // 'staged', and no evidenced_at: exactly what `prepare` leaves behind and what
+    // the connector meets when the operator opens the window.
+    // `created_at` is backdated so the negative control at the end of this test is
+    // reachable at all: the row's trigger forbids changing `created_at` and forbids
+    // moving `expires_at` later, and the table checks `expires_at > created_at`, so
+    // a release created `now()` can never be pulled into the past.
+    const stage = await pool!.query(
+      `INSERT INTO exomem_staged_client_releases (
+         candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
+         contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest,
+         created_at, expires_at
+       ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '1.0.0', $6, $7,
+                 now() - interval '2 hours', now() + interval '1 hour') RETURNING id`,
+      [candidate.rows[0].id, "d".repeat(64), "e".repeat(64), "f".repeat(64), "1".repeat(64), configDigest, "e".repeat(64)]
+    );
+    const password = await hashMarketplaceReviewerPassword("staged-canary-password");
+    const credential = await pool!.query(
+      `INSERT INTO exomem_marketplace_reviewer_credentials (
+         provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id,
+         fixture_version, fixture_payload_digest, created_by_principal_digest, created_at, expires_at
+       ) VALUES ('anthropic', 'internal_canary', $1, $2, $3, $4, $5, $6, 1, $7, $8,
+                 'candidate-test', $9, $10, now(), now() + interval '30 minutes') RETURNING id`,
+      [digest(361), password, user.rows[0].id, tenant.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id, client.rows[0].id, "8".repeat(64), digest(362)]
+    );
+    const grant = await pool!.query(
+      `INSERT INTO exomem_oauth_grants (
+         user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id
+       ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true, $5, $6, $7, 1, $8) RETURNING id`,
+      [user.rows[0].id, tenant.rows[0].id, client.rows[0].id, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_oauth_authorization_codes (
+         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at,
+         reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
+       ) VALUES ($1, $2, $3, $4, $5, 'staged-canary-challenge', true,
+                 now() + interval '1 hour', $6, $7, $8, 1, $9)`,
+      [digest(363), grant.rows[0].id, client.rows[0].id, redirectUri, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+    );
+
+    const issued = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: digest(363), clientId: candidateClientId,
+      redirectUri, resource, pkceChallenge: "staged-canary-challenge",
+      refreshDigest: digest(364), refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(365), accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(issued, "a staged canary release must be able to exchange its code");
+
+    // Issuing is not enough. If the read paths still demanded 'evidenced' the
+    // window would fail one request later, on the first MCP call -- so the
+    // operations `observe` has to witness would still be unobservable.
+    assert.equal((await findActiveOAuthAccessToken(digest(365)))?.candidateId, candidate.rows[0].id);
+    assert.equal((await findMcpOAuthAccessToken(digest(365)))?.candidateId, candidate.rows[0].id);
+
+    // A reviewer session outlives a fifteen-minute access token, so rotation has
+    // to work at 'staged' too or the window ends mid-evidence.
+    assert.ok(
+      await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(364),
+        replacementRefreshDigest: digest(366),
+        accessDigest: digest(367),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId: candidateClientId,
+        resource,
+      }),
+      "a staged canary release must be able to rotate its refresh token"
+    );
+
+    // The negative control, so this is a narrowed gate and not a removed one:
+    // `staged` is admissible only while the release is unexpired. Expiring it
+    // must close every one of the four paths again.
+    await pool!.query(
+      "UPDATE exomem_staged_client_releases SET expires_at = now() - interval '1 minute' WHERE id = $1",
+      [stage.rows[0].id]
+    );
+    assert.equal(await findActiveOAuthAccessToken(digest(367)), null);
+    assert.equal(await findMcpOAuthAccessToken(digest(367)), null);
+    assert.equal(
+      await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(366),
+        replacementRefreshDigest: digest(368),
+        accessDigest: digest(369),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId: candidateClientId,
+        resource,
+      }),
+      null
+    );
+  });
+
   it("admits an allowlisted-host CIMD client whose digest matches no promoted artifact", async () => {
     // The whole point of the change: this client's configuration digest is bound to
     // nothing that was ever promoted, which is the situation every ChatGPT connector
