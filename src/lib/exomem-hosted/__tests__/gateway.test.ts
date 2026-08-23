@@ -83,6 +83,62 @@ const CURRENT_HOSTED_CONTRACT = {
   compatibilityDigest: agentFixture0572.compatibility.compatibility_sha256,
 };
 
+const PUBLISHED_AGENT_CONTRACTS = new Map<string, Record<string, unknown>>(
+  [
+    agentFixture0340,
+    agentFixture0350,
+    agentFixture0392,
+    agentFixture0490,
+    agentFixture0500,
+    agentFixture0541,
+    agentFixture0572,
+  ].map((fixture) => [
+    fixture.sourceRelease,
+    fixture.compatibility.agent_contract as unknown as Record<string, unknown>,
+  ])
+);
+
+// Deliberately re-derived from the publisher's rule -- Python
+// `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`, so keys
+// sort by CODE POINT -- rather than imported from `gateway.ts`. A test that borrows
+// the implementation it is checking cannot detect that implementation drifting.
+function publisherCanonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(publisherCanonical);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, nested]) => [key, publisherCanonical(nested)])
+  );
+}
+
+// What a cell actually serves at `/private/exomem/v1/agent/<profile>/contract`:
+// the published contract, plus `exomem_release`, re-digested WITH that release
+// included. Restating `hosted.schemaDigest` as the served `digest.value` -- which
+// this suite used to do -- makes the stub agree with the assertion by construction
+// and blesses the very mismatch the endpoint exists to catch. That is how exomem's
+// release-independent `schema_contract_sha256` (#345) shipped past a green suite
+// and left every hosted tool call failing CELL_PROTOCOL_MISMATCH in production.
+function cellAgentContractBody<T extends { sourceRelease: string }>(
+  hosted: T
+): Record<string, unknown> {
+  const published = PUBLISHED_AGENT_CONTRACTS.get(hosted.sourceRelease);
+  assert.ok(published, `no published agent contract fixture for ${hosted.sourceRelease}`);
+  const runtimeBase: Record<string, unknown> = { exomem_release: hosted.sourceRelease };
+  for (const [key, value] of Object.entries(published)) {
+    if (key !== "digest") runtimeBase[key] = value;
+  }
+  return {
+    ...runtimeBase,
+    digest: {
+      algorithm: "sha256",
+      value: createHash("sha256")
+        .update(JSON.stringify(publisherCanonical(runtimeBase)), "utf8")
+        .digest("hex"),
+    },
+  };
+}
+
 type TestContract = {
   schema_version: number;
   protocol_version: string;
@@ -282,15 +338,7 @@ describe("registry-derived Exomem gateway", () => {
             resolveTarget: async () => row,
             fetch: async (input) =>
               String(input).endsWith("/contract")
-                ? Response.json({
-                    agent_profile: {
-                      profile: hosted.profile,
-                      active_capability_sha256: hosted.commandFingerprint,
-                    },
-                    exomem_release: hosted.sourceRelease,
-                    protocol_version: hosted.protocolVersion,
-                    digest: { value: hosted.schemaDigest },
-                  })
+                ? Response.json(cellAgentContractBody(hosted))
                 : Response.json({ success: true, data: {} }),
             expectedProtocol: "1",
             decrypt,
@@ -299,6 +347,70 @@ describe("registry-derived Exomem gateway", () => {
         })
       );
     }
+  });
+
+  it("compares the cell's PUBLISHED agent digest, not the release-inclusive one it serves", async () => {
+    // The regression this pins: a cell advertises `digest.value` computed WITH
+    // `exomem_release` in the base, while the candidate pins the release-independent
+    // `schema_contract_sha256` (exomem #345). Comparing those two directly is a
+    // comparison between different quantities, and it failed for every release built
+    // after 2026-07-27 -- 0.54.1 and 0.57.2 included -- so no hosted tool call could
+    // succeed in production. Revert `publishedAgentContractDigest` to `digest?.value`
+    // and this case goes red.
+    const hosted = CURRENT_HOSTED_CONTRACT;
+    const body = cellAgentContractBody(hosted);
+    assert.notEqual(
+      (body.digest as { value: string }).value,
+      hosted.schemaDigest,
+      "the served digest must differ from the pinned one, or this case proves nothing"
+    );
+
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-published-digest",
+      endpoint: "https://cell-published-digest.internal/",
+      releaseVersion: hosted.sourceRelease,
+      hosted,
+    });
+    const command = {
+      name: "ask_memory",
+      params: [{ name: "query", type: "str", required: false }],
+      read_only: true,
+      mode: "read" as const,
+      tier: 1,
+      capability: "core",
+      guarded_fields: [],
+    };
+    const route = (contract: Record<string, unknown>) =>
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "published digest" },
+        command,
+        hostedContract: hosted,
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) =>
+            String(input).endsWith("/contract")
+              ? Response.json(contract)
+              : Response.json({ success: true, data: {} }),
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      });
+
+    await assert.doesNotReject(route(body));
+
+    // Still fails closed: a cell whose contract body has drifted is refused even
+    // though it reports the four scalar fields correctly. Without this half the fix
+    // could have been "drop the digest check" and the test would not notice.
+    await assert.rejects(
+      route({ ...body, commands: [] }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_PROTOCOL_MISMATCH"
+    );
   });
 
   it("routes the current 0.50.0 release", async () => {
@@ -359,15 +471,7 @@ describe("registry-derived Exomem gateway", () => {
           resolveTarget: async () => row,
           fetch: async (input) =>
             String(input).endsWith("/contract")
-              ? Response.json({
-                  agent_profile: {
-                    profile: hosted.profile,
-                    active_capability_sha256: hosted.commandFingerprint,
-                  },
-                  exomem_release: hosted.sourceRelease,
-                  protocol_version: hosted.protocolVersion,
-                  digest: { value: hosted.schemaDigest },
-                })
+              ? Response.json(cellAgentContractBody(hosted))
               : Response.json({ success: true, data: {} }),
           expectedProtocol: "1",
           decrypt,
@@ -407,15 +511,7 @@ describe("registry-derived Exomem gateway", () => {
           resolveTarget: async () => row,
           fetch: async (input) =>
             String(input).endsWith("/contract")
-              ? Response.json({
-                  agent_profile: {
-                    profile: hosted.profile,
-                    active_capability_sha256: hosted.commandFingerprint,
-                  },
-                  exomem_release: hosted.sourceRelease,
-                  protocol_version: hosted.protocolVersion,
-                  digest: { value: hosted.schemaDigest },
-                })
+              ? Response.json(cellAgentContractBody(hosted))
               : Response.json({ success: true, data: {} }),
           expectedProtocol: "1",
           decrypt,
@@ -454,16 +550,7 @@ describe("registry-derived Exomem gateway", () => {
         resolveTarget: async () => row,
         fetch: async (input) =>
           String(input).endsWith("/contract")
-            ? Response.json({
-                agent_profile: {
-                  profile: hosted.profile,
-                  active_capability_sha256: hosted.commandFingerprint,
-                },
-                exomem_release: hosted.sourceRelease,
-                protocol_version: hosted.protocolVersion,
-                digest: { value: hosted.schemaDigest },
-                compatibility: { rollout: "current" },
-              })
+            ? Response.json(cellAgentContractBody(hosted))
             : Response.json({ success: true, data: {} }),
         expectedProtocol: "1",
         decrypt,
