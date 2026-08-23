@@ -2303,7 +2303,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     );
   });
 
-  it("keeps the 32-client admission bound under concurrent registration and permits an existing client at capacity", async () => {
+  // Deliberately never restates the bound. It used to assert 32 in three places,
+  // which meant raising it in the database would have been reported as a broken
+  // test rather than as the intended change. The canonical source is
+  // exomem_oauth_client_partition_available itself, so this fills until that
+  // predicate says the operator partition is full and works at any bound.
+  it("keeps the operator admission bound under concurrent registration and permits an existing client at capacity", async () => {
     const artifact = await pool!.query<{ id: string }>(
       "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
     );
@@ -2348,9 +2353,19 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
         true
       );
 
-      const currentCount = await scalar("SELECT count(*) FROM exomem_oauth_clients");
-      assert.ok(currentCount <= 32);
-      for (let index = currentCount; index < 31; index += 1) {
+      // Fill until the canonical predicate says the operator partition is full,
+      // rather than counting up to a number restated here. `probe` is an id that
+      // does not exist, so the predicate's EXISTS shortcut cannot mask the count.
+      const probe = `https://oauth-capacity-probe.example.test/${randomUUID()}`;
+      const operatorSlotFree = async (): Promise<boolean> =>
+        (
+          await pool!.query<{ allowed: boolean }>(
+            "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
+            [probe]
+          )
+        ).rows[0]!.allowed;
+      const fillerIds: string[] = [];
+      while (await operatorSlotFree()) {
         const fillerClientId = `https://oauth-capacity-filler.example.test/${randomUUID()}`;
         const fillerRedirectUri = "https://oauth-capacity-filler.example.test/callback";
         await pool!.query(
@@ -2371,8 +2386,16 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
             }),
           ]
         );
+        fillerIds.push(fillerClientId);
       }
-      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_clients"), 31);
+      const boundedCount = await scalar("SELECT count(*) FROM exomem_oauth_clients");
+      // Give back exactly one slot, so the two concurrent registrations below are
+      // racing for a single opening whatever the bound happens to be.
+      assert.ok(fillerIds.length > 0, "the partition was already full before filling");
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
+        fillerIds[fillerIds.length - 1],
+      ]);
+      assert.equal(await operatorSlotFree(), true);
 
       for (const client of newClients) {
         const pending = await pool!.query<{ id: string }>(
@@ -2410,7 +2433,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
           rejected.reason instanceof ExomemHostedError &&
           rejected.reason.code === "INVALID_REQUEST"
       );
-      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_clients"), 32);
+      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_clients"), boundedCount);
 
       const idempotent = await registerOperatorOAuthClient({
         admissionMode: "pinned",

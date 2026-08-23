@@ -5,7 +5,11 @@ import { isIP } from "node:net";
 import { exomemErrors } from "./errors";
 import { controlPlaneKeyFromEnv } from "./security";
 
-export const MAX_OAUTH_CLIENTS = 32;
+// The client population bound lives in exomem_oauth_client_partition_available,
+// which is where it is actually enforced. A MAX_OAUTH_CLIENTS = 32 constant used
+// to sit here, exported and consumed by nothing, restating a number the database
+// owns -- so raising the database bound would have left a stale 32 in the code
+// with no test to catch it. Read the bound from the predicate, not from here.
 export const MAX_OAUTH_CLIENT_REDIRECTS = 8;
 export const MAX_OAUTH_CLIENT_ID_LENGTH = 2048;
 export const MAX_OAUTH_REDIRECT_URI_LENGTH = 1024;
