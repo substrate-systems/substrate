@@ -646,6 +646,48 @@ async function fetchContract(
   return contract;
 }
 
+// Code-point key order, matching Python's `json.dumps(sort_keys=True)`. The
+// `canonicalJson` above sorts with `localeCompare`, which is locale-sensitive
+// and is NOT the publisher's rule; it agrees on today's contract by accident,
+// and an accident is not what a digest comparison should rest on.
+function publisherCanonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(publisherCanonicalize);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, nested]) => [key, publisherCanonicalize(nested)])
+  );
+}
+
+// The cell advertises a RELEASE-INCLUSIVE digest: `digest.value` hashes a base
+// that still contains `exomem_release`. The candidate pins `schema_contract_sha256`,
+// which exomem deliberately made release-INDEPENDENT (exomem #345, 2026-07-27) by
+// hashing the same contract with `exomem_release` and `digest` removed, so that a
+// version bump no longer invalidates a published artifact whose surface never moved.
+//
+// Comparing `digest.value` against the candidate's `schemaDigest` therefore compares
+// two values that were never the same quantity, and it can never succeed. That is
+// exactly what this function existed to do until now: substrate #59 landed the
+// comparison the same day exomem #345 removed its premise, and the comment on the
+// exomem side ("nothing cross-checks it against the running gateway's digest") named
+// the assumption that made it wrong. No hosted tool call could pass this check for
+// any release built after that date, 0.54.1 and 0.57.2 included.
+//
+// Recomputing the published digest from the body the cell actually served keeps the
+// full-surface guarantee — every byte of the contract still has to match what the
+// candidate pinned — while comparing like with like.
+function publishedAgentContractDigest(body: Record<string, unknown>): string {
+  const base: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (key === "exomem_release" || key === "digest") continue;
+    base[key] = value;
+  }
+  return createHash("sha256")
+    .update(JSON.stringify(publisherCanonicalize(base)), "utf8")
+    .digest("hex");
+}
+
 async function verifyHostedPrivateContract(
   target: ResolvedPrivateTarget,
   expected: ExpectedHostedContract,
@@ -675,13 +717,12 @@ async function verifyHostedPrivateContract(
   }
   const body = await boundedJsonResponse(response, MAX_CELL_RESPONSE_BYTES, dependencies.signal);
   const profile = safeJsonObject(body.agent_profile);
-  const digest = safeJsonObject(body.digest);
   if (
     profile?.profile !== expected.profile ||
     profile.active_capability_sha256 !== expected.commandFingerprint ||
     body.exomem_release !== expected.sourceRelease ||
     body.protocol_version !== expected.protocolVersion ||
-    digest?.value !== expected.schemaDigest
+    publishedAgentContractDigest(body) !== expected.schemaDigest
   ) {
     throw exomemErrors.protocolMismatch();
   }
