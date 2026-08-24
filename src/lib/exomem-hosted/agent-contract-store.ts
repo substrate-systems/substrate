@@ -777,7 +777,13 @@ export async function attachOpenAiContractLocks(input: {
     SET openai_package_lock = ${JSON.stringify(locks.packageLock)}::jsonb,
         openai_archive_lock = ${JSON.stringify(locks.archiveLock)}::jsonb
     WHERE id = ${input.candidateId}::uuid AND profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'pending'
-      AND openai_package_lock IS NULL AND openai_archive_lock IS NULL
+      AND (
+        (openai_package_lock IS NULL AND openai_archive_lock IS NULL)
+        OR (
+          openai_package_lock = ${JSON.stringify(locks.packageLock)}::jsonb
+          AND openai_archive_lock = ${JSON.stringify(locks.archiveLock)}::jsonb
+        )
+      )
       AND command_fingerprint = ${String(locks.packageLock.command_surface_sha256)}
       AND schema_digest = ${String(locks.packageLock.schema_contract_sha256)}
       AND compatibility_digest = ${String(locks.packageLock.compatibility_sha256)}
