@@ -375,6 +375,50 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       .update(canonical(lockUnsigned))
       .digest("hex");
     assert.equal(await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature }), true);
+    assert.equal(
+      await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature }),
+      true,
+      "an exact signed retry must preserve the established lock state"
+    );
+    const differentUnsigned = {
+      ...lockUnsigned,
+      packageLock: {
+        ...testOnlyOpenAiLocks.packageLock,
+        artifact_sha256: sha("d"),
+        registered_app_id_sha256: sha("f"),
+      },
+      archiveLock: {
+        ...testOnlyOpenAiLocks.archiveLock,
+        archive_sha256: sha("e"),
+        registered_app_id_sha256: sha("f"),
+      },
+    };
+    const differentSignature = createHmac("sha256", "integration-import-secret")
+      .update(canonical(differentUnsigned))
+      .digest("hex");
+    assert.equal(
+      await attachOpenAiContractLocks({
+        ...differentUnsigned,
+        operatorSignature: differentSignature,
+      }),
+      false,
+      "a validly signed retry must not replace different stored locks"
+    );
+    const storedOpenAiLocks = await pool!.query<{
+      package_matches: boolean;
+      archive_matches: boolean;
+    }>(
+      `SELECT openai_package_lock = $2::jsonb AS package_matches,
+              openai_archive_lock = $3::jsonb AS archive_matches
+       FROM exomem_agent_contract_candidates
+       WHERE id = $1::uuid`,
+      [
+        candidateId,
+        JSON.stringify(testOnlyOpenAiLocks.packageLock),
+        JSON.stringify(testOnlyOpenAiLocks.archiveLock),
+      ]
+    );
+    assert.deepEqual(storedOpenAiLocks.rows, [{ package_matches: true, archive_matches: true }]);
     const stageCandidate = await pool!.query<{
       pending: boolean;
       compatibility: boolean;
