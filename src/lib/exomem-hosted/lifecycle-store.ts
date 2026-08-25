@@ -1056,11 +1056,11 @@ export class SqlLifecycleStore implements LifecycleStore {
         WHERE profile_id = 'hosted-alpha-agent-v1'
       ) AS has_contract_catalog
     `;
-    if (
-      !operation.cellId &&
-      !operation.providerResultRef &&
-      catalogRows[0]?.has_contract_catalog === false
-    ) {
+    // A virgin v1 deployment has no target to snapshot. Once admitted, keep the
+    // same targetless bootstrap operation claimable across its later checkpoints;
+    // otherwise creating the local candidate makes the next claim quarantine it.
+    // Any populated contract catalog still takes the strict derivation path below.
+    if (catalogRows[0]?.has_contract_catalog === false) {
       return operation;
     }
     const derived = await this.#deriveLegacyTarget(operation, owner);
