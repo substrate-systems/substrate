@@ -57,6 +57,8 @@ It emits only environment, status, currency, amount, and interval facts—never 
 
 Paddle Sandbox delivers to `https://staging.substratesystems.io/api/webhooks/paddle` with its own endpoint secret. During acceptance, the operator invokes the existing staging reconcile route using the staging scheduler secret until readiness; production scheduling is not redirected. Duplicate and stale webhook assertions use Paddle redelivery/simulation plus isolated database observations.
 
+Sandbox website approval is still an explicit account resource: add the exact `staging.substratesystems.io` host and set `https://staging.substratesystems.io/exomem/home` as the Sandbox default payment link before the transaction probe. Approval is immediate in Sandbox, but the parent-domain approval does not cover this subdomain. Exomem transactional mail similarly uses the explicit active Brevo sender `Exomem <exomem@substratesystems.io>` rather than inheriting the shared mailer's legacy sender fallback.
+
 The proof then performs a real browser checkout with a Paddle Sandbox test card, opens the sandbox customer portal, and uses a staging ChatGPT connector for one capture/fresh-chat recall. It records counts and stable outcomes only.
 
 ## Risks / Trade-offs

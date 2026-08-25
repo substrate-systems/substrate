@@ -23,6 +23,7 @@ import {
   type SelfServeAdmissionResult,
 } from "./db";
 import { exomemErrors } from "./errors";
+import { EXOMEM_EMAIL_SENDER } from "./email-sender";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import {
   exomemPublicBaseUrlFromEnv,
@@ -173,7 +174,7 @@ export async function issueOperatorInvite(
   try {
     delivery = await deps.sendEmail({
       to: emailNormalized,
-      senderName: "Exomem",
+      ...EXOMEM_EMAIL_SENDER,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,
@@ -244,7 +245,7 @@ export async function requestSelfServeAccess(
     try {
       await deps.sendEmail({
         to: emailNormalized,
-        senderName: "Exomem",
+        ...EXOMEM_EMAIL_SENDER,
         subject: rendered.subject,
         htmlContent: rendered.htmlContent,
         textContent: rendered.textContent,
@@ -261,7 +262,7 @@ export async function requestSelfServeAccess(
   try {
     delivery = await deps.sendEmail({
       to: emailNormalized,
-      senderName: "Exomem",
+      ...EXOMEM_EMAIL_SENDER,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,

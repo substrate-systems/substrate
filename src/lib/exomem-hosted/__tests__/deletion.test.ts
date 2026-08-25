@@ -13,6 +13,7 @@ describe("Exomem product-scoped deletion confirmation", () => {
   it("emails one fragment token and persists only its digest", async () => {
     let storedDigestHex = "";
     let email = "";
+    let senderEmail: string | undefined;
     const result = await requestDeletionConfirmation(SESSION, {
       now: () => new Date("2026-07-12T12:00:00.000Z"),
       randomBytes: (size) => Buffer.alloc(size, 0x61),
@@ -24,12 +25,14 @@ describe("Exomem product-scoped deletion confirmation", () => {
       },
       markDelivered: async () => undefined,
       sendEmail: async (input) => {
+        senderEmail = input.senderEmail;
         email = `${input.htmlContent}\n${input.textContent}`;
         return { success: true };
       },
     });
 
     assert.equal(result.delivery, "sent");
+    assert.equal(senderEmail, "exomem@substratesystems.io");
     const match = email.match(/https:\/\/example\.test\/exomem\/delete#([A-Za-z0-9_-]+)/);
     assert.ok(match);
     assert.equal(storedDigestHex, tokenDigest(match[1])?.toString("hex"));

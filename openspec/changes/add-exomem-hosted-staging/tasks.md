@@ -7,7 +7,7 @@
 ## 2. Permanent Staging Operations
 
 - [x] 2.1 Document the exact same-project Vercel branch/domain/variable contract, isolated Postgres setup, Paddle Sandbox webhook/catalog setup, one-slot capacity seed, rollback, and redaction rules
-- [ ] 2.2 Create the isolated staging database/schema boundary, Paddle Sandbox €5 catalog/webhook resources, branch-scoped Vercel configuration, stable staging domain, and deployment without changing production values
+- [x] 2.2 Create the isolated staging database/schema boundary, Paddle Sandbox €5 catalog/webhook resources, branch-scoped Vercel configuration, stable staging domain, and deployment without changing production values
 
 ## 3. Acceptance and Release
 

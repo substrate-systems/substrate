@@ -80,6 +80,7 @@ describe("durable Exomem magic-link delivery", () => {
       lost: 0,
     });
     assert.equal(email?.to, EMAIL);
+    assert.equal(email?.senderEmail, "exomem@substratesystems.io");
     assert.match(String(email?.textContent), /\/exomem\/sign-in#[A-Za-z0-9_-]+/);
     assert.doesNotMatch(String(email?.textContent), /[?&]token=/);
     assert.deepEqual(marked, {

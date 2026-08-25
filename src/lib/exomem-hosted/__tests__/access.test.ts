@@ -95,6 +95,7 @@ describe("Exomem hosted access", () => {
     assert.ok(Buffer.isBuffer(dbInput?.tokenDigest));
     assert.equal(JSON.stringify(dbInput).includes("YWFh"), false);
     assert.equal(mailInput?.to, SENTINEL);
+    assert.equal(mailInput?.senderEmail, "exomem@substratesystems.io");
     const rendered = `${mailInput?.htmlContent}\n${mailInput?.textContent}`;
     assert.match(rendered, /\/exomem\/invite#[A-Za-z0-9_-]+/);
     assert.doesNotMatch(rendered, /[?&]token=/);
@@ -366,7 +367,12 @@ describe("Exomem hosted access", () => {
 
 describe("Exomem hosted self-serve admission", () => {
   it("admits a visitor when the pool has room and emails them a setup link", async () => {
-    const sent: Array<{ to: string; subject: string; textContent: string }> = [];
+    const sent: Array<{
+      to: string;
+      senderEmail?: string;
+      subject: string;
+      textContent: string;
+    }> = [];
     let delivered: string | null = null;
     let admissionInput: { expiresAt: Date; emailNormalized: string } | null = null;
     const result = await requestSelfServeAccess(
@@ -379,6 +385,7 @@ describe("Exomem hosted self-serve admission", () => {
         sendEmail: async (input) => {
           sent.push({
             to: input.to,
+            senderEmail: input.senderEmail,
             subject: input.subject,
             textContent: input.textContent ?? "",
           });
@@ -394,6 +401,7 @@ describe("Exomem hosted self-serve admission", () => {
     assert.equal(delivered, "invite-7");
     assert.equal(sent.length, 1);
     assert.equal(sent[0].to, SENTINEL);
+    assert.equal(sent[0].senderEmail, "exomem@substratesystems.io");
     assert.equal(sent[0].subject, "Set up your Exomem");
     // The token must reach the visitor as a URL fragment, never a query string:
     // fragments are not sent to the server and do not land in access logs.
@@ -408,14 +416,17 @@ describe("Exomem hosted self-serve admission", () => {
   });
 
   it("waitlists plainly when the pool is full, and mints no invite", async () => {
-    const sent: string[] = [];
+    const sent: Array<{ senderEmail?: string; textContent: string }> = [];
     let delivered = 0;
     const result = await requestSelfServeAccess(
       { email: SENTINEL, networkKey: "ip-hash-input" },
       dependencies({
         admitSelfServeOrWaitlist: async () => ({ outcome: "waitlisted", position: 4 }),
         sendEmail: async (input) => {
-          sent.push(input.textContent ?? "");
+          sent.push({
+            senderEmail: input.senderEmail,
+            textContent: input.textContent ?? "",
+          });
           return { success: true, messageId: "message-1" };
         },
         markInviteDelivered: async () => {
@@ -427,10 +438,11 @@ describe("Exomem hosted self-serve admission", () => {
     assert.deepEqual(result, { outcome: "waitlisted", position: 4 });
     assert.equal(delivered, 0);
     assert.equal(sent.length, 1);
-    assert.match(sent[0], /number 4 in line/);
+    assert.equal(sent[0].senderEmail, "exomem@substratesystems.io");
+    assert.match(sent[0].textContent, /number 4 in line/);
     // The waitlist must never read as a charge or as a rejection.
-    assert.match(sent[0], /You have not been charged/);
-    assert.equal(/set up|checkout|pay/i.test(sent[0].split("open source")[0]), false);
+    assert.match(sent[0].textContent, /You have not been charged/);
+    assert.equal(/set up|checkout|pay/i.test(sent[0].textContent.split("open source")[0]), false);
   });
 
   it("keeps the visitor waitlisted even when the courtesy email fails", async () => {
