@@ -35,11 +35,13 @@ describe("Exomem marketplace public surface", () => {
     assert.doesNotMatch(form, /admitted|waitlisted|number \$\{/i);
   });
 
-  it("keeps new checkout out of the authenticated billing action model", () => {
+  it("keeps checkout private to authenticated Home", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
 
-    assert.doesNotMatch(home, /Continue to checkout/);
-    assert.doesNotMatch(home, /openBilling\("checkout"\)/);
+    assert.match(home, /Subscribe and prepare Exomem/);
+    assert.match(home, /openBilling\("checkout"\)/);
+    assert.doesNotMatch(home, /disabled=\{!billing\?\.checkoutAvailable\}/);
+    assert.doesNotMatch(source("src/app/exomem/page.tsx"), /Subscribe and prepare Exomem/);
   });
 
   it("publishes the stable policy and setup routes in the sitemap", () => {

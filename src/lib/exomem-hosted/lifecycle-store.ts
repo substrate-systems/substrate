@@ -3135,6 +3135,10 @@ export class SqlLifecycleStore implements LifecycleStore {
       /* exomem:lifecycle-owner-status */
       SELECT tenant.status AS tenant_status,
              tenant.bound_cell_id,
+             entitlement.source AS entitlement_source,
+             entitlement.source_state AS entitlement_source_state,
+             allocation.state AS allocation_state,
+             allocation.operation_id AS allocation_operation_id,
              cell.lifecycle_state,
              cell.readiness_code,
              latest.state AS operation_state,
@@ -3142,6 +3146,11 @@ export class SqlLifecycleStore implements LifecycleStore {
              latest.error_code,
              latest.request_id
       FROM exomem_tenants AS tenant
+      LEFT JOIN exomem_entitlements AS entitlement
+        ON entitlement.tenant_id = tenant.id
+      LEFT JOIN exomem_capacity_allocations AS allocation
+        ON allocation.tenant_id = tenant.id
+       AND allocation.state <> 'released'
       LEFT JOIN exomem_cells AS cell
         ON cell.id = tenant.bound_cell_id
        AND cell.tenant_id = tenant.id
@@ -3184,6 +3193,16 @@ export class SqlLifecycleStore implements LifecycleStore {
         ...(requestId ? { requestId } : {}),
         retryable: false,
       };
+    }
+    if (
+      row.entitlement_source === "paddle" &&
+      (row.entitlement_source_state === "awaiting_checkout" ||
+        row.entitlement_source_state === "checkout_pending") &&
+      row.allocation_state === "reserved" &&
+      !row.allocation_operation_id &&
+      !row.operation_type
+    ) {
+      return { state: "awaiting_payment", code: "PAYMENT_REQUIRED", retryable: false };
     }
     if (
       row.tenant_status === "active" &&

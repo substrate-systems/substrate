@@ -4,7 +4,8 @@
 
 Creating a complimentary tenant SHALL enqueue an idempotent lifecycle operation
 that converges one isolated cell with distinct vault, state, and log roots. Creating
-a paid operator-invited tenant SHALL instead reserve capacity with no initial operation
+a paid operator-invited tenant SHALL instead reserve capacity with no initial
+operation
 until authoritative active or trialing payment activation atomically creates and
 attaches that operation. No paid redemption, awaiting-payment Home request, or
 checkout creation MAY contact the provisioner or create a cell, volume, or provider

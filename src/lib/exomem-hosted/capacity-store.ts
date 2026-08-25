@@ -370,6 +370,7 @@ export async function getCapacityPoolStatus(): Promise<{
   reservedProvisionSlots: number;
   provisionClaimCapacity: number;
   activeProvisionClaims: number;
+  outstandingPaidInvites: number;
 } | null> {
   const { rows } = await executeExomemSql`
     /* exomem:get-capacity-pool-status */
@@ -380,7 +381,17 @@ export async function getCapacityPoolStatus(): Promise<{
            pool.provision_reservation_capacity,
            pool.reserved_provision_slots,
            pool.provision_claim_capacity,
-           count(claim.id)::integer AS active_claims
+           count(claim.id)::integer AS active_claims,
+           (
+             SELECT count(*)::integer
+             FROM exomem_invites AS invite
+             WHERE invite.entitlement_source = 'paddle'
+               AND NOT invite.self_serve
+               AND invite.delivery_state IN ('pending', 'sent')
+               AND invite.consumed_at IS NULL
+               AND invite.revoked_at IS NULL
+               AND invite.expires_at > now()
+           ) AS outstanding_paid_invites
     FROM exomem_capacity_pools AS pool
     LEFT JOIN exomem_capacity_claims AS claim
       ON claim.pool_id = pool.id AND claim.lease_expires_at > now()
@@ -399,6 +410,7 @@ export async function getCapacityPoolStatus(): Promise<{
     reservedProvisionSlots: Number(row.reserved_provision_slots),
     provisionClaimCapacity: Number(row.provision_claim_capacity),
     activeProvisionClaims: Number(row.active_claims),
+    outstandingPaidInvites: Number(row.outstanding_paid_invites),
   };
 }
 

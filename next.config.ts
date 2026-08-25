@@ -12,7 +12,7 @@ const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posth
 function assetsHost(host: string): string {
   return host.replace(
     /^(https:\/\/)([a-z0-9-]+)\.i\.posthog\.com$/,
-    (_match, scheme: string, region: string) => `${scheme}${region}-assets.i.posthog.com`,
+    (_match, scheme: string, region: string) => `${scheme}${region}-assets.i.posthog.com`
   );
 }
 
@@ -34,6 +34,17 @@ const nextConfig: NextConfig = {
       // Same-origin analytics ingest. Assets rule must precede the catch-all.
       { source: "/ingest/static/:path*", destination: `${assetsHost(POSTHOG_HOST)}/static/:path*` },
       { source: "/ingest/:path*", destination: `${POSTHOG_HOST}/:path*` },
+    ];
+  },
+  async headers() {
+    const privateHeaders = [
+      { key: "Cache-Control", value: "private, no-store, max-age=0" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+      { key: "Referrer-Policy", value: "no-referrer" },
+    ];
+    return [
+      { source: "/exomem/operator", headers: privateHeaders },
+      { source: "/api/exomem/admin/:path*", headers: privateHeaders },
     ];
   },
 };

@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 
 describe("POST /api/exomem/billing/checkout", () => {
-  it("refuses a new alpha checkout before contacting Paddle", async () => {
+  it("starts the existing checkout for an authenticated awaiting-payment owner", async () => {
     const { NextRequest } = await import("next/server");
     const { POST } = await import("../route");
     const response = await POST(
@@ -64,16 +64,12 @@ describe("POST /api/exomem/billing/checkout", () => {
       })
     );
 
-    assert.equal(response.status, 403);
-    assert.equal(startCalls, 0);
+    assert.equal(response.status, 200);
+    assert.equal(startCalls, 1);
     assert.equal(returnedTransaction, null);
     assert.deepEqual(await response.json(), {
-      success: false,
-      error: {
-        code: "EXOMEM_ENTITLEMENT_DENIED",
-        message: "your current Exomem access does not include this action",
-        retryable: false,
-      },
+      success: true,
+      checkoutUrl: "https://substratesystems.io/exomem/home?_ptxn=txn_start",
     });
   });
 
@@ -118,22 +114,6 @@ describe("POST /api/exomem/billing/checkout", () => {
       state: "settled",
       redirectUrl: "/exomem/home",
     });
-  });
-
-  it("refuses an explicit empty checkout request", async () => {
-    const { NextRequest } = await import("next/server");
-    const { POST } = await import("../route");
-    const response = await POST(
-      new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      })
-    );
-
-    assert.equal(response.status, 403);
-    assert.equal(startCalls, 0);
-    assert.equal(returnedTransaction, null);
   });
 
   it("rejects malformed or padded return bodies before billing", async () => {

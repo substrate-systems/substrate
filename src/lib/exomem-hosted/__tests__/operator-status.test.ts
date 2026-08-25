@@ -27,6 +27,7 @@ describe("operator status getters", () => {
           reserved_provision_slots: 1,
           provision_claim_capacity: 2,
           active_claims: 1,
+          outstanding_paid_invites: 2,
         },
       ],
     }));
@@ -40,6 +41,7 @@ describe("operator status getters", () => {
       reservedProvisionSlots: 1,
       provisionClaimCapacity: 2,
       activeProvisionClaims: 1,
+      outstandingPaidInvites: 2,
     });
   });
 

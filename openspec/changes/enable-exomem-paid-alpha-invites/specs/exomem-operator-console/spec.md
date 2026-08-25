@@ -27,8 +27,8 @@ browser storage, URLs, analytics, responses, or logs.
 
 ### Requirement: The page issues capacity-safe alpha invitations
 
-The operator page SHALL show coarse hard reservations and outstanding delivered paid
-operator invitations against configured alpha capacity. Invitations MUST default to
+The operator page SHALL show coarse hard reservations and outstanding pending or
+delivered paid operator invitations against configured alpha capacity. Invitations MUST default to
 the existing paid Paddle source and MUST require a separate explicit action for
 complimentary access. Paid issuance MUST serialize on the existing capacity pool and
 refuse another soft promise when no slot remains.

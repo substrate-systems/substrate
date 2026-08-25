@@ -3,14 +3,16 @@
 ### Requirement: The server selects Paddle catalog items
 
 Creating an Exomem checkout SHALL reuse the server-configured active Exomem product
-and price identifiers for an authenticated paid operator invitee. The authenticated caller
+and price identifiers for an authenticated paid operator invitee. The authenticated
+caller
 MUST NOT choose an arbitrary plan, price, product, tenant, provider environment, or
 return URL. The transaction SHALL contain server-generated product, user, tenant,
 and checkout correlation metadata, and the control plane SHALL atomically bind
 its identifier and provider environment to that owner before returning it. Binding
 MUST serialize with tenant deletion. New checkout MUST be available only to an
 awaiting-payment Paddle owner while the existing sale catalog configuration is
-complete and public self-serve admission remains unavailable. A browser checkout return MUST be accepted only through
+complete and public self-serve admission remains unavailable. A browser checkout
+return MUST be accepted only through
 an authenticated, CSRF-protected request that proves the exact transaction remains
 bound to the caller's tenant. Terminal inspection SHALL use the stored provider
 environment and merchant transaction access without depending on current browser,
@@ -72,10 +74,11 @@ event and revision handling. The first authoritative active or trialing
 paid Exomem subscription projection SHALL, in the same database transaction,
 claim the event receipt, bind provider references, activate the entitlement, pin the
 live Hosted target, create exactly one initial provisioning operation, and attach
-the reserved allocation to that operation. If the reservation, transaction correlation, or
+the reserved allocation to that operation. If the reservation, transaction
+correlation, or
 live target is missing, processing MUST fail before commit so the event remains
 retryable. Webhook and reconciliation processing MUST remain enabled when new
-new checkout is disabled. Existing Endstate event behavior MUST be preserved.
+checkout is disabled. Existing Endstate event behavior MUST be preserved.
 
 #### Scenario: Subscription created activates a paid tenant
 

@@ -42,6 +42,12 @@ type Tab = "remember" | "recall";
 
 function lifecycleCopy(state: LifecycleState): { eyebrow: string; title: string; body: string } {
   switch (state) {
+    case "awaiting_payment":
+      return {
+        eyebrow: "Private alpha · €5 monthly",
+        title: "Subscribe before we prepare your Exomem.",
+        body: "Your place is reserved. Paddle handles payment securely, and preparation starts only after your subscription is confirmed.",
+      };
     case "preparing":
       return {
         eyebrow: "Preparing your private space",
@@ -154,6 +160,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
   const [billing, setBilling] = useState<{
     source: "complimentary" | "paddle";
     state: string;
+    checkoutAvailable: boolean;
     portalAvailable: boolean;
   } | null>(null);
   const [installActions, setInstallActions] = useState<InstallAction[]>([]);
@@ -220,7 +227,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
   }, [refreshStatus]);
 
   useEffect(() => {
-    if (lifecycle.state !== "ready") return;
+    if (lifecycle.state !== "ready" && lifecycle.state !== "awaiting_payment") return;
     void getPrivateJson("/api/exomem/account")
       .then((response) => {
         setInstallActions(parseInstallActions(response));
@@ -230,11 +237,13 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
         if (
           (candidate.source === "complimentary" || candidate.source === "paddle") &&
           typeof candidate.state === "string" &&
+          typeof candidate.checkoutAvailable === "boolean" &&
           typeof candidate.portalAvailable === "boolean"
         ) {
           setBilling({
             source: candidate.source,
             state: candidate.state,
+            checkoutAvailable: candidate.checkoutAvailable,
             portalAvailable: candidate.portalAvailable,
           });
         }
@@ -426,12 +435,12 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
     }
   }
 
-  async function openBilling() {
+  async function openBilling(kind: "checkout" | "portal") {
     setNotice("Opening secure billing…");
     setNoticeError(false);
     try {
-      const response = await postPrivateJson("/api/exomem/billing/portal", {});
-      const destination = response.portalUrl;
+      const response = await postPrivateJson(`/api/exomem/billing/${kind}`, {});
+      const destination = kind === "checkout" ? response.checkoutUrl : response.portalUrl;
       if (typeof destination !== "string") throw new Error("missing billing destination");
       window.location.assign(destination);
     } catch (error) {
@@ -477,6 +486,45 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
 
   if (lifecycle.state !== "ready") {
     const copy = lifecycleCopy(lifecycle.state);
+    if (lifecycle.state === "awaiting_payment") {
+      return (
+        <section className={styles.card} aria-labelledby="lifecycle-title">
+          <div className={styles.workspaceHeader}>
+            <div>
+              <p className={styles.eyebrow}>{copy.eyebrow}</p>
+              <h1 className={styles.title} id="lifecycle-title">
+                {copy.title}
+              </h1>
+            </div>
+            <button
+              className={styles.quietButton}
+              type="button"
+              onClick={() => void signOut()}
+              disabled={signingOut}
+            >
+              {signingOut ? "Signing out…" : "Sign out"}
+            </button>
+          </div>
+          <p className={styles.lede}>{copy.body}</p>
+          <div className={styles.secondaryRow}>
+            <div>
+              <strong>Exomem Hosted private alpha</strong>
+              <p className={styles.secondaryCopy}>€5 per month. Cancel through Paddle.</p>
+            </div>
+            <button
+              className={styles.button}
+              type="button"
+              onClick={() => void openBilling("checkout")}
+            >
+              Subscribe and prepare Exomem
+            </button>
+          </div>
+          <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
+            {notice}
+          </p>
+        </section>
+      );
+    }
     return (
       <section className={styles.card} aria-labelledby="lifecycle-title">
         <div className={styles.workspaceHeader}>
@@ -738,7 +786,9 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
           accident is good; being hard to find on purpose is not, and someone who
           wants their memory gone should not have to guess which heading hides it.
         */}
-        <summary className={styles.summary}>Files, status, export, and deleting your Exomem</summary>
+        <summary className={styles.summary}>
+          Files, status, export, and deleting your Exomem
+        </summary>
         <div className={styles.secondaryBody}>
           <div className={styles.secondaryRow}>
             <div>
@@ -823,11 +873,19 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
                   : "Complimentary alpha — no payment needed."}
               </p>
             </div>
-            {billing?.portalAvailable ? (
+            {billing?.checkoutAvailable ? (
               <button
                 className={styles.quietButton}
                 type="button"
-                onClick={() => void openBilling()}
+                onClick={() => void openBilling("checkout")}
+              >
+                Subscribe and prepare Exomem
+              </button>
+            ) : billing?.portalAvailable ? (
+              <button
+                className={styles.quietButton}
+                type="button"
+                onClick={() => void openBilling("portal")}
               >
                 Manage billing
               </button>

@@ -7,7 +7,8 @@ invite. Each invite MUST be bound to one normalized email address, an entitlemen
 source, an expiration, a single high-entropy token whose digest rather than plaintext
 is stored, and either complimentary or paid Paddle access. Paid operator invite
 issuance MUST reuse the alpha pool's serialized capacity decision across both hard
-reservations and unexpired, unrevoked, delivered paid operator invitations. The
+reservations and unexpired, unrevoked, pending or delivered paid operator
+invitations. The
 public self-serve admission endpoint MUST remain unavailable.
 
 #### Scenario: Operator creates a complimentary invite

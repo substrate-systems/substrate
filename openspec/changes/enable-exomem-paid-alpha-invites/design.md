@@ -42,7 +42,7 @@ remains `410`, so no public buyer can enter this flow, and the existing server-s
 `EXOMEM_PADDLE_PRICE_ID` selects the live €5 price.
 
 Paid invite creation will reuse the existing alpha pool lock and capacity arithmetic
-to count hard allocations plus outstanding, delivered operator Paddle invites. This
+to count hard allocations plus outstanding pending or delivered operator Paddle invites. This
 is the same soft-promise rule already proved for self-serve, applied at the existing
 operator invite transaction. Failed, revoked, expired, or consumed invitations stop
 counting.
@@ -97,7 +97,7 @@ separate explicit complimentary action.
   visible; the operator handles the four-person alpha manually. No automatic
   destructive reaper ships now.
 - **Outstanding operator invites oversubscribe capacity** → Invitation creation
-  serializes on the existing pool row and counts outstanding delivered Paddle
+  serializes on the existing pool row and counts outstanding pending or delivered Paddle
   invites before sending another.
 - **An old self-serve invite still exists** → Revoke outstanding self-serve invites
   in the rollout check; the public admission endpoint remains closed.

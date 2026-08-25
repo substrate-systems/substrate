@@ -83,6 +83,34 @@ describe("SQL Exomem Paddle event store", () => {
     );
   });
 
+  it("releases the reserved initial provision inside the activation statement", async () => {
+    let sqlText = "";
+    const store = createSqlExomemPaddleEventStore(async (strings) => {
+      sqlText = strings.join("?");
+      return { rows: [{ outcome: "applied" }] };
+    });
+
+    await store.applyVerifiedEventAndMarkProcessedAtomically(
+      application({
+        eventType: "subscription.created",
+        sourceState: "active",
+        providerReferences: {
+          customerId: "ctm_control_plane",
+          subscriptionId: "sub_control_plane",
+          transactionId: "txn_control_plane",
+          productId: "pro_control_plane",
+          priceId: "pri_control_plane",
+        },
+      })
+    );
+
+    assert.match(sqlText, /locked_allocation[\s\S]*FOR UPDATE/i);
+    assert.match(sqlText, /INSERT INTO exomem_lifecycle_operations/i);
+    assert.match(sqlText, /'provision'[\s\S]*'initial-provision'/i);
+    assert.match(sqlText, /UPDATE exomem_capacity_allocations[\s\S]*operation_id/i);
+    assert.match(sqlText, /provision_release_guard/i);
+  });
+
   it("preserves every store outcome without inventing a successful apply", async () => {
     for (const outcome of ["duplicate", "stale", "ignored"] as const) {
       const store = createSqlExomemPaddleEventStore(async () => ({

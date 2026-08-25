@@ -29,6 +29,7 @@ import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifec
 import { getOwnerExport, listOwnerExports } from "../durability";
 import { SqlExportGcStore } from "../export-gc";
 import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
+import type { ExomemPaddleEventApplication } from "../paddle-webhook";
 import {
   claimPaddleReconciliationTargets,
   releasePaddleReconciliationLease,
@@ -86,6 +87,41 @@ function taggedSql(client: Pool | PoolClient): ExomemSql {
     );
     const result = await client.query(text, values);
     return { rows: result.rows, rowCount: result.rowCount ?? 0 };
+  };
+}
+
+function paidActivationApplication(input: {
+  eventId: string;
+  transactionId: string;
+}): ExomemPaddleEventApplication {
+  return {
+    eventId: input.eventId,
+    eventType: "subscription.created",
+    environment: "sandbox",
+    origin: "webhook",
+    revision: {
+      occurredAt: "2026-07-13T06:13:03.661Z",
+      eventId: input.eventId,
+    },
+    correlation: {
+      productKey: "exomem-hosted",
+      userId: USER,
+      tenantId: TENANT,
+    },
+    sourceState: "active",
+    capabilities: ["capture", "recall", "export"],
+    resourceLimits: {
+      storageBytes: 5 * 1024 * 1024 * 1024,
+      uploadBytes: 100 * 1024 * 1024,
+      workerCount: 0,
+    },
+    providerReferences: {
+      customerId: `ctm_${input.eventId}`,
+      subscriptionId: `sub_${input.eventId}`,
+      transactionId: input.transactionId,
+      productId: "pro_atomic_fresh",
+      priceId: "pri_atomic_fresh",
+    },
   };
 }
 
@@ -600,10 +636,18 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("commits a fresh Paddle projection with a terminal receipt so retries are duplicates", async () => {
+    const catalogUserId = randomUUID();
+    const catalogTenantId = randomUUID();
+    const catalogCellId = randomUUID();
+    const candidateId = randomUUID();
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+      catalogUserId,
+      "catalog@example.com",
+    ]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
-       VALUES ($1, $2, 'active', 'running')`,
+       VALUES ($1, $2, 'provisioning', 'running')`,
       [TENANT, USER]
     );
     await pool.query(
@@ -612,6 +656,56 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          capabilities, resource_limits, provider_environment, provider_transaction_ref
        ) VALUES ($1, 'paddle', 'awaiting_checkout', 'provisioning', '[]', '{}', 'sandbox', $2)`,
       [TENANT, "txn_atomic_fresh"]
+    );
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'active', 'running')`,
+      [catalogTenantId, catalogUserId]
+    );
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock,
+         claude_archive_lock, promoted_at
+       ) VALUES ($1, 'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.54.1',
+                 $2, $3, $4, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
+      [candidateId, "a".repeat(64), "b".repeat(64), "c".repeat(64)]
+    );
+    await pool.query(
+      `INSERT INTO exomem_cells (
+         id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
+         release_version, observed_gateway_contract_digest, observed_command_fingerprint,
+         observed_schema_digest, observed_compatibility_digest
+       ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '0.54.1', $3, $4, $5, $6)`,
+      [
+        catalogCellId,
+        catalogTenantId,
+        "d".repeat(64),
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+      ]
+    );
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+          SET storage_capacity_bytes = 5368709120,
+              runtime_capacity_slots = 1,
+              provision_reservation_capacity = 1,
+              provision_claim_capacity = 1,
+              reserved_storage_bytes = 5368709120,
+              reserved_runtime_slots = 1,
+              reserved_provision_slots = 1,
+              configured_at = now()
+        WHERE pool_key = 'exomem-hosted-alpha'`
+    );
+    await pool.query(
+      `INSERT INTO exomem_capacity_allocations (
+         pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state
+       )
+       SELECT id, $1, 5368709120, 1, 1, 'reserved'
+         FROM exomem_capacity_pools
+        WHERE pool_key = 'exomem-hosted-alpha'`,
+      [TENANT]
     );
     const sql: ExomemPaddleSql = async (strings, ...values) => {
       const text = strings.reduce(
@@ -622,42 +716,24 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       return { rows: result.rows, rowCount: result.rowCount ?? 0 };
     };
     const store = createSqlExomemPaddleEventStore(sql);
-    const application = {
+    const application = paidActivationApplication({
       eventId: "evt_atomic_fresh",
-      eventType: "subscription.created",
-      environment: "sandbox" as const,
-      origin: "webhook" as const,
-      revision: {
-        occurredAt: "2026-07-13T06:13:03.661Z",
-        eventId: "evt_atomic_fresh",
-      },
-      correlation: {
-        productKey: "exomem-hosted" as const,
-        userId: USER,
-        tenantId: TENANT,
-      },
-      sourceState: "active" as const,
-      capabilities: ["capture", "recall", "export"] as const,
-      resourceLimits: {
-        storageBytes: 5 * 1024 * 1024 * 1024,
-        uploadBytes: 100 * 1024 * 1024,
-        workerCount: 0,
-      },
-      providerReferences: {
-        customerId: "ctm_atomic_fresh",
-        subscriptionId: "sub_atomic_fresh",
-        transactionId: "txn_atomic_fresh",
-        productId: "pro_atomic_fresh",
-        priceId: "pri_atomic_fresh",
-      },
-    };
+      transactionId: "txn_atomic_fresh",
+    });
 
-    assert.deepEqual(await store.applyVerifiedEventAndMarkProcessedAtomically(application), {
-      outcome: "applied",
-    });
-    assert.deepEqual(await store.applyVerifiedEventAndMarkProcessedAtomically(application), {
-      outcome: "duplicate",
-    });
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    try {
+      assert.deepEqual(await store.applyVerifiedEventAndMarkProcessedAtomically(application), {
+        outcome: "applied",
+      });
+      assert.deepEqual(await store.applyVerifiedEventAndMarkProcessedAtomically(application), {
+        outcome: "duplicate",
+      });
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
 
     const receipt = await pool.query<{
       disposition: string;
@@ -685,9 +761,132 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     );
     assert.deepEqual(entitlement.rows[0], {
       source_state: "active",
-      effective_state: "active",
-      provider_subscription_ref: "sub_atomic_fresh",
+      effective_state: "provisioning",
+      provider_subscription_ref: "sub_evt_atomic_fresh",
     });
+    const release = await pool.query<{
+      operation_type: string;
+      idempotency_key: string;
+      operation_id: string | null;
+      provisioner_wire_protocol: string;
+      target_candidate_id: string | null;
+    }>(
+      `SELECT operation.operation_type,
+              operation.idempotency_key,
+              allocation.operation_id::text,
+              operation.provisioner_wire_protocol,
+              operation.target_candidate_id::text
+         FROM exomem_capacity_allocations AS allocation
+         JOIN exomem_lifecycle_operations AS operation
+           ON operation.id = allocation.operation_id
+        WHERE allocation.tenant_id = $1`,
+      [TENANT]
+    );
+    assert.equal(release.rows.length, 1);
+    assert.equal(release.rows[0]?.operation_type, "provision");
+    assert.equal(release.rows[0]?.idempotency_key, "initial-provision");
+    assert.match(release.rows[0]?.operation_id ?? "", /^[0-9a-f-]{36}$/);
+    assert.equal(release.rows[0]?.provisioner_wire_protocol, "exomem-cell-provisioner.v2");
+    assert.equal(release.rows[0]?.target_candidate_id, candidateId);
+  });
+
+  it("rolls back paid activation when its reserved allocation is missing", async () => {
+    const transactionId = "txn_missing_allocation";
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'provisioning', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state,
+         capabilities, resource_limits, provider_environment, provider_transaction_ref
+       ) VALUES ($1, 'paddle', 'awaiting_checkout', 'provisioning', '[]', '{}', 'sandbox', $2)`,
+      [TENANT, transactionId]
+    );
+    const store = createSqlExomemPaddleEventStore(taggedSql(pool));
+
+    await assert.rejects(
+      store.applyVerifiedEventAndMarkProcessedAtomically(
+        paidActivationApplication({ eventId: "evt_missing_allocation", transactionId })
+      ),
+      /division by zero/
+    );
+
+    const state = await pool.query<{ source_state: string; receipt_count: string }>(
+      `SELECT entitlement.source_state,
+              (SELECT count(*)::text FROM exomem_paddle_events) AS receipt_count
+         FROM exomem_entitlements AS entitlement
+        WHERE entitlement.tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(state.rows, [{ source_state: "awaiting_checkout", receipt_count: "0" }]);
+  });
+
+  it("rolls back v2 paid activation when no live runtime target exists", async () => {
+    const transactionId = "txn_missing_target";
+    await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
+    await pool.query(
+      `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+       VALUES ($1, $2, 'provisioning', 'running')`,
+      [TENANT, USER]
+    );
+    await pool.query(
+      `INSERT INTO exomem_entitlements (
+         tenant_id, source, source_state, effective_state,
+         capabilities, resource_limits, provider_environment, provider_transaction_ref
+       ) VALUES ($1, 'paddle', 'awaiting_checkout', 'provisioning', '[]', '{}', 'sandbox', $2)`,
+      [TENANT, transactionId]
+    );
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+          SET reserved_storage_bytes = 5368709120,
+              reserved_runtime_slots = 1,
+              reserved_provision_slots = 1
+        WHERE pool_key = 'exomem-hosted-alpha'`
+    );
+    await pool.query(
+      `INSERT INTO exomem_capacity_allocations (
+         pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state
+       )
+       SELECT id, $1, 5368709120, 1, 1, 'reserved'
+         FROM exomem_capacity_pools
+        WHERE pool_key = 'exomem-hosted-alpha'`,
+      [TENANT]
+    );
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    try {
+      const store = createSqlExomemPaddleEventStore(taggedSql(pool));
+      await assert.rejects(
+        store.applyVerifiedEventAndMarkProcessedAtomically(
+          paidActivationApplication({ eventId: "evt_missing_target", transactionId })
+        ),
+        /division by zero/
+      );
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+
+    const state = await pool.query<{
+      source_state: string;
+      operation_id: string | null;
+      receipt_count: string;
+    }>(
+      `SELECT entitlement.source_state,
+              allocation.operation_id::text,
+              (SELECT count(*)::text FROM exomem_paddle_events) AS receipt_count
+         FROM exomem_entitlements AS entitlement
+         JOIN exomem_capacity_allocations AS allocation
+           ON allocation.tenant_id = entitlement.tenant_id
+        WHERE entitlement.tenant_id = $1`,
+      [TENANT]
+    );
+    assert.deepEqual(state.rows, [
+      { source_state: "awaiting_checkout", operation_id: null, receipt_count: "0" },
+    ]);
   });
 
   it("serializes checkout binding against deletion on the tenant row", async () => {
@@ -1827,7 +2026,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
-       VALUES ($1, $2, 'provisioning', 'running')`,
+       VALUES ($1, $2, 'active', 'running')`,
       [TENANT, USER]
     );
     const digest = Buffer.alloc(32, 0x71);

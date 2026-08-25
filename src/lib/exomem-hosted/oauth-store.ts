@@ -1336,7 +1336,9 @@ export async function admitFirstOAuthInviteAtomic(input: {
         `;
         if (!entitlementResult.rows[0]) throw new OAuthAdmissionRejected();
 
-        const operationResult = await tx`
+        const operationResult =
+          invite.entitlement_source === "complimentary"
+            ? await tx`
           WITH live_target AS MATERIALIZED (
             SELECT candidate.id AS candidate_id,
                    NULL::uuid AS assignment_id,
@@ -1384,20 +1386,23 @@ export async function admitFirstOAuthInviteAtomic(input: {
             target.compatibility_digest
           FROM target
           RETURNING id
-        `;
-        const operation = operationResult.rows[0] as { id: string } | undefined;
-        if (!operation) {
-          // Under v2 the only way `target` is empty is that no cohort is live.
-          // Say that, rather than blaming the invitation.
-          if (
-            provisionerWireProtocol === PROVISIONER_PROTOCOL_V2 &&
-            !(await hasLiveHostedCohortTarget(tx))
-          ) {
-            throw new OAuthAdmissionCohortClosed();
+        `
+            : null;
+        if (invite.entitlement_source === "complimentary") {
+          const operation = operationResult?.rows[0] as { id: string } | undefined;
+          if (!operation) {
+            // Under v2 the only way `target` is empty is that no cohort is live.
+            // Say that, rather than blaming the invitation.
+            if (
+              provisionerWireProtocol === PROVISIONER_PROTOCOL_V2 &&
+              !(await hasLiveHostedCohortTarget(tx))
+            ) {
+              throw new OAuthAdmissionCohortClosed();
+            }
+            throw new OAuthAdmissionRejected();
           }
-          throw new OAuthAdmissionRejected();
+          operationId = operation.id;
         }
-        operationId = operation.id;
 
         const allocationResult = await tx`
           INSERT INTO exomem_capacity_allocations (
@@ -1405,7 +1410,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
           ) VALUES (
             ${pool.id}::uuid, ${tenant.id}::uuid, ${EXOMEM_ALPHA_CAPACITY.storageBytes},
             ${EXOMEM_ALPHA_CAPACITY.runtimeSlots}, ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots},
-            'reserved', ${operation.id}::uuid
+            'reserved', ${operationId}::uuid
           )
           RETURNING id
         `;

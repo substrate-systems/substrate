@@ -2,9 +2,9 @@
 
 This runbook covers the friends-only Exomem Hosted v1 alpha. Public visitors
 may express interest, but only authenticated operators issue invitations.
-Paddle checkout, public self-serve, and `hosted-alpha-agent-v2` admission remain
-disabled. Substrate is the public account, entitlement, routing, and lifecycle
-control plane. Every tenant
+Paid operator invitations use the existing €5 monthly Paddle checkout; public
+self-serve and `hosted-alpha-agent-v2` admission remain disabled. Substrate is
+the public account, entitlement, routing, and lifecycle control plane. Every tenant
 is routed to one private Exomem cell with its own vault, state, logs, service
 credential, and provider resource. A cell never receives email, browser
 cookies, Paddle identifiers, database credentials, or another tenant's address.
@@ -12,13 +12,15 @@ cookies, Paddle identifiers, database credentials, or another tenant's address.
 The application side is provider-neutral. Real invitations require an HTTPS
 provisioner that dual-serves `exomem-cell-provisioner.v1` and
 `exomem-cell-provisioner.v2`; until that endpoint is configured, invite
-redemption is safe but the tenant remains in `preparing`.
+redemption remains safe: complimentary owners stay in `preparing`, while paid
+owners stay at checkout and no provider operation is created.
 
 ## Alpha launch gates
 
-Complimentary access does **not** require Paddle or a price. Every route does require:
+Complimentary access does **not** require Paddle or a price. Paid operator
+invitations require checkout before provisioning. Every route does require:
 
-1. migrations `0017` through `0048_exomem_oauth_admitted_cimd_hosts.sql` applied to the production Neon database;
+1. migrations `0017` through `0051_exomem_oauth_operator_client_bound.sql` applied to the production Neon database;
 2. an Exomem `0.54.1` cell image from commit `b41906384ac187cc4877abfc204639fb3b6f8d48` exposing private protocol `1`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -27,12 +29,13 @@ Complimentary access does **not** require Paddle or a price. Every route does re
    and
 6. a two-cell isolation/export/deletion drill before a real invite is sent.
 
-Public launch remains deferred. Do not enable a Hosted Paddle catalog or checkout
-for this alpha. Existing paid records retain their normal reconciliation and
+Public launch remains deferred. Configure only the existing Exomem product and
+€5 monthly price for authenticated paid invitees. Do not configure or expose the
+€12 public price. Existing paid records retain their normal reconciliation and
 cancellation paths; they are not authority to admit a new public visitor.
 
 Public interest is captured at `POST /api/exomem/interest`; the former
-`POST /api/exomem/access/request` endpoint returns `410 Gone` and must not
+POST `/api/exomem/access/request` remains `410 Gone` and must not
 consult capacity or create invites. Issue cohort and reviewer invites only through
 the authenticated operator endpoints. Migration `0038_exomem_self_serve_admission.sql`
 and existing rows remain historical records; do not edit, reverse, or reuse them
@@ -88,6 +91,10 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_HOSTED_ALERT_RECIPIENT`                                                  | Optional override for the alert notification address; defaults to `founder@substratesystems.io`. Misconfiguring it sends every alert elsewhere, so change it only deliberately.                                                                                                                                                                                                |
 | `BREVO_API_KEY`                                                                  | Delivers invite, magic-link, deletion-confirmation, and scheduler alert email.                                                                                                                                                                                                                                                                                                 |
 | `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                                        | Optional verified sender overrides.                                                                                                                                                                                                                                                                                                                                            |
+| `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`                  | One matching Paddle environment, merchant API key, and shared webhook-verification secret. Keep them configured after disabling new checkout so existing paid accounts can reconcile, manage billing, and delete safely.                                                                                                                                                       |
+| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT`              | Browser checkout token and the same explicit environment as the merchant configuration. A mismatch fails closed.                                                                                                                                                                                                                                                               |
+| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`                  | The environment and existing Exomem Hosted product selected only by the server.                                                                                                                                                                                                                                                                                                |
+| `EXOMEM_PADDLE_PRICE_ID`                                                         | The existing €5 monthly price. This is the narrow new-checkout gate: leave it absent during deployment verification, set it only for the controlled paid rollout, and never point it at the €12 public price.                                                                                                                                                                  |
 | `OPENAI_APPS_CHALLENGE`                                                          | Provider-issued single-line domain proof. Set only in deployment configuration; never commit, log, or place it in a request.                                                                                                                                                                                                                                                   |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                                     | Leave unset or `false` by default. Set exactly `true` only after a dedicated reviewer-purpose tenant, governed fixture, and provider credential have been prepared. Disable first during rollback or incident response.                                                                                                                                                        |
 
@@ -284,6 +291,7 @@ and one input has to exist before them:
    staged release for provisioning plus a clean-client run on every platform you
    are promoting plus `observe`/`sign`/`import` for each, and do not try to fit
    two platforms into thirty minutes.
+
 5. The clean-client runs, in real Claude and real ChatGPT. Nothing automates
    this, and nothing should: the evidence attests that a genuine client
    completed install, authorization, tool discovery, recall, citation, durable
@@ -535,22 +543,30 @@ storage credentials. It must store exports under an opaque tenant scope using
 envelope AES-256-GCM, verify archive and manifest SHA-256 values, and return only
 the opaque reference and integrity metadata described below.
 
-### Existing Paddle transaction recovery and reconciliation
+### Paid Paddle checkout, recovery, and reconciliation
 
 Paddle is an operator/billing adapter, never a cell runtime dependency. During
-this friends-only alpha, it exists only to reconcile, cancel, and recover
-transactions or subscriptions that already have a stored, tenant-bound provider
-reference. New Exomem checkout remains disabled regardless of Paddle,
-catalog, price, browser-token, or payment-link configuration. Do not use any
-configuration change to create a transaction or reopen a public offer.
+this friends-only alpha, it charges only authenticated owners created by paid
+operator invitations. Invite redemption creates the owner, tenant, Paddle
+entitlement, browser session, and reserved allocation, but no lifecycle operation
+and no provider resource. Home then creates or resumes a server-selected checkout
+for the configured €5 monthly price. The browser cannot select a product, price,
+tenant, environment, or return URL.
 
-An existing transaction return is accepted only when its exact transaction ID
+An authoritative active or trialing subscription event releases that reservation:
+provider events release a reserved paid tenant into exactly one ordinary
+`initial-provision` operation and attach that operation to the allocation in the
+same database statement as event receipt and entitlement projection. A missing
+allocation or live runtime target rolls the whole statement back so Paddle retries
+remain useful. Duplicate and stale events create no second operation. Public
+self-serve remains closed regardless of Paddle configuration.
+
+An existing or newly created transaction return is accepted only when its exact transaction ID
 and provider environment are already bound to the authenticated owner. Home may
-complete that recovery path; it must not offer a new checkout action. A settled
-or canceled return clears or promotes only the recorded binding, and never
-creates a replacement transaction. Keep the stored environment and merchant API
-access available until every existing transaction and paid subscription is
-resolved.
+complete that recovery path. A settled or canceled return clears or promotes
+only the recorded binding, and never creates a replacement transaction. Keep the
+stored environment and merchant API access available until every existing
+transaction and paid subscription is resolved.
 
 For existing paid records, preserve the shared Paddle destination at
 `$EXOMEM_PUBLIC_BASE_URL/api/webhooks/paddle`, its `PADDLE_WEBHOOK_SECRET`, and
@@ -936,28 +952,108 @@ observation is gone, and the capacity slot is released. The cell is still cleane
 up despite the operation naming no cell, because `markCellState` matches every
 cell of the tenant when deleting.
 
+## Revoke historical self-serve invitations
+
+Before enabling the €5 price, check for any historical self-serve invite that
+could still be redeemed. The public route being `410` prevents new rows; it does
+not revoke an old bearer already delivered by email.
+
+```sql
+SELECT count(*) AS outstanding_historical_self_serve_invites
+FROM exomem_invites
+WHERE self_serve
+  AND consumed_at IS NULL
+  AND revoked_at IS NULL
+  AND expires_at > now();
+```
+
+If the count is nonzero, stop the rollout, review the opaque invite IDs, and
+revoke only that exact set in one transaction. Preserve the rows for audit:
+
+```sql
+BEGIN;
+SELECT id
+FROM exomem_invites
+WHERE self_serve
+  AND consumed_at IS NULL
+  AND revoked_at IS NULL
+  AND expires_at > now()
+FOR UPDATE;
+
+UPDATE exomem_invites
+SET revoked_at = now()
+WHERE self_serve
+  AND consumed_at IS NULL
+  AND revoked_at IS NULL
+  AND expires_at > now()
+RETURNING id;
+COMMIT;
+```
+
+Run the count again and require zero. Do not delete or rewrite the historical
+self-serve invite records.
+
 ## Issue an invite
 
-Issue complimentary invites one at a time and keep the operator token out of
-logs and chat transcripts:
+Open `/exomem/operator` directly; it is deliberately absent from public
+navigation and the sitemap. Paste `EXOMEM_ADMIN_TOKEN` into the page. The bearer
+is held only until refresh or **Lock** and is never placed in browser storage.
+The page shows hard storage/runtime reservations, outstanding paid invitations,
+and remaining paid invite headroom.
+
+Enter one email and leave **Paid — €5/month** selected. Paid is the default after
+every send. Complimentary access is a separate selection and requires its own
+confirmation. The page refreshes capacity after successful delivery and never
+shows the plaintext invite token.
+
+The authenticated API remains the non-browser fallback. Keep the operator token
+out of logs and chat transcripts:
 
 ```bash
 curl --fail-with-body \
   -X POST "$EXOMEM_PUBLIC_BASE_URL/api/exomem/admin/invites" \
   -H "Authorization: Bearer $EXOMEM_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
-  --data '{"email":"invitee@example.com","source":"complimentary"}'
+  --data '{"email":"invitee@example.com","source":"paid"}'
 ```
 
 The response contains only an opaque invite ID and request ID. The token is sent
-by Brevo in the URL fragment, so it is not placed in request logs. Redemption
-burns the invite atomically, creates only an Exomem product session, creates a
-complimentary entitlement, and queues provisioning. Replays and email override
-attempts fail.
+by Brevo in the URL fragment, so it is not placed in request logs. Paid redemption
+burns the invite atomically and creates an `awaiting_checkout` Paddle entitlement
+and hard reservation without queuing provisioning. The owner sees the €5 monthly
+checkout on Home. Only verified payment queues provisioning. Complimentary
+redemption retains the existing behavior and queues provisioning immediately.
 
-After acceptance, the owner sees `preparing` while status polling and the
-external scheduler advance the durable operation. `ready` is shown only after
-full private readiness proof. Do not manually mark a tenant active.
+For the first controlled paid invitation, prove all of the following before
+inviting another person:
+
+1. redemption creates one reserved allocation with `operation_id IS NULL`, one
+   `awaiting_checkout` entitlement, and no provider resource;
+2. Home opens only the server-selected €5 transaction and binds its exact Paddle
+   environment and transaction reference;
+3. verified active/trialing projection creates exactly one `initial-provision`
+   operation and attaches it to the reserved allocation;
+4. replaying the same delivery and reconciling the subscription creates no
+   second operation; and
+5. the external scheduler advances `preparing` to `ready` only after full private
+   readiness proof. Do not manually mark a tenant active.
+
+### Sandbox and controlled production proof
+
+Run the complete paid path against a disposable preview deployment, isolated
+verification database, Paddle sandbox product/€5 price, and sandbox webhook
+destination first. Use Paddle's sandbox checkout, then require the five database
+and readiness facts above. Deliver the same webhook twice and send one older
+subscription update; require one operation, one applied receipt, one duplicate
+disposition, one stale disposition, and no Endstate subscription change.
+
+Only after that proof is green, set the production Exomem product and existing €5
+price, redeploy, and issue exactly one controlled production paid invitation.
+Redeem it in a clean browser, complete the real checkout, wait for `ready`, perform
+one capture/recall round trip, and confirm the Paddle customer portal opens for
+that owner. Redact email, tenant, provider, and transaction identifiers from the
+proof record. Do not issue the next friend invitation until this one has converged
+or has been deliberately stopped and accounted for.
 
 ## Marketplace reviewer access
 
@@ -1198,12 +1294,15 @@ cell on the prior compatible image, restore into an empty volume, require full
 readiness, then atomically swap the binding. Keep the prior cell sealed but not
 destroyed until the replacement passes recall and sentinel-isolation checks.
 
-Paddle rollback keeps new checkout disabled. Keep the matching Paddle API,
-product, and environment configuration until every existing transaction and paid
-subscription is terminated; portal, reconciliation, and deletion deliberately
-fail closed if that configuration is removed too early. Existing internal
-entitlements and complimentary accounts continue normal memory operations without
-a Paddle request.
+For paid-alpha rollback, stop issuing paid invitations, remove only
+`EXOMEM_PADDLE_PRICE_ID`, and redeploy. Removing only `EXOMEM_PADDLE_PRICE_ID`
+stops new checkout without reopening public admission or disturbing the public
+`410` route. Keep the matching Paddle API key, webhook secret, client environment,
+product, and catalog environment until every existing transaction and paid
+subscription is resolved; portal, reconciliation, and deletion deliberately fail
+closed if that configuration is removed too early. Existing paid subscriptions
+and complimentary accounts continue normal memory operations. Do not revoke,
+release, or delete a paid tenant merely because new checkout was disabled.
 
 ## Honest privacy and ownership boundary
 

@@ -22,10 +22,11 @@ const ACCOUNT: OwnerBillingAccount = {
 };
 
 describe("owner Exomem billing account", () => {
-  it("does not expose new checkout for a Paddle-backed alpha invite", () => {
+  it("exposes checkout only for an awaiting-payment Paddle invite", () => {
     assert.deepEqual(billingSummary(ACCOUNT), {
       source: "paddle",
       state: "provisioning",
+      checkoutAvailable: true,
       portalAvailable: false,
     });
   });
@@ -41,6 +42,7 @@ describe("owner Exomem billing account", () => {
       {
         source: "complimentary",
         state: "active",
+        checkoutAvailable: false,
         portalAvailable: false,
       }
     );

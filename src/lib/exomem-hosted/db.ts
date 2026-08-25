@@ -3,6 +3,7 @@ import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
 // Type-only in the other direction, so this pair does not form a runtime cycle.
 import { hasLiveHostedCohortTarget } from "./hosted-cohort-target";
+import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
@@ -206,9 +207,63 @@ export async function createInviteRecord(
     if (!row) throw new Error("createInviteRecord returned no row");
     return { inviteId: row.id };
   };
-  if (!input.marketplaceReviewerPurpose) return create(sql);
+  const isPaidOperatorInvite = input.entitlementSource === "paddle";
+  if (!input.marketplaceReviewerPurpose && !isPaidOperatorInvite) return create(sql);
   return withExomemTransaction(async (tx) => {
-    await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    if (input.marketplaceReviewerPurpose) {
+      await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    }
+    if (isPaidOperatorInvite) {
+      const poolResult = await tx`
+        /* exomem:paid-operator-invite-pool */
+        SELECT storage_capacity_bytes, reserved_storage_bytes,
+               runtime_capacity_slots, reserved_runtime_slots,
+               provision_reservation_capacity, reserved_provision_slots
+        FROM exomem_capacity_pools
+        WHERE pool_key = 'exomem-hosted-alpha'
+          AND configured_at IS NOT NULL
+        FOR UPDATE
+      `;
+      const pool = poolResult.rows[0] as Record<string, unknown> | undefined;
+      if (!pool) throw exomemErrors.capacityUnavailable();
+
+      const outstandingResult = await tx`
+        /* exomem:paid-operator-invite-outstanding */
+        SELECT count(*)::integer AS outstanding
+        FROM exomem_invites
+        WHERE entitlement_source = 'paddle'
+          AND NOT self_serve
+          AND delivery_state IN ('pending', 'sent')
+          AND consumed_at IS NULL
+          AND revoked_at IS NULL
+          AND expires_at > now()
+      `;
+      const outstanding = Number(
+        (outstandingResult.rows[0] as { outstanding?: number } | undefined)?.outstanding ?? 0
+      );
+      const promised = outstanding + 1;
+      const fits = (capacity: unknown, reserved: unknown, perTenant: number): boolean =>
+        Number(capacity) >= Number(reserved) + perTenant * promised;
+      if (
+        !fits(
+          pool.storage_capacity_bytes,
+          pool.reserved_storage_bytes,
+          EXOMEM_ALPHA_CAPACITY.storageBytes
+        ) ||
+        !fits(
+          pool.runtime_capacity_slots,
+          pool.reserved_runtime_slots,
+          EXOMEM_ALPHA_CAPACITY.runtimeSlots
+        ) ||
+        !fits(
+          pool.provision_reservation_capacity,
+          pool.reserved_provision_slots,
+          EXOMEM_ALPHA_CAPACITY.provisionReservationSlots
+        )
+      ) {
+        throw exomemErrors.capacityUnavailable();
+      }
+    }
     return create(tx);
   });
 }

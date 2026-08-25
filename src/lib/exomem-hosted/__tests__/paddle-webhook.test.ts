@@ -119,6 +119,18 @@ describe("Exomem Paddle webhook dispatcher", () => {
     assert.equal(store.audit[0].sourceState, "active");
   });
 
+  it("retains checkout transaction correlation when activation arrives first", async () => {
+    const store = new MemoryAtomicStore();
+
+    const result = await dispatchVerifiedExomemPaddleEvent(
+      event({ event_type: "subscription.activated" }),
+      { env: env(), store }
+    );
+
+    assert.deepEqual(result, { kind: "handled", outcome: "applied" });
+    assert.equal(store.audit[0].providerReferences.transactionId, "txn_provider_internal");
+  });
+
   it("routes by configured catalog membership when product_key is absent", async () => {
     const store = new MemoryAtomicStore();
     const candidate = event();
