@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
+import { __setExomemSqlForTests } from "../db";
+import {
+  createSqlExomemPaddleEventStore,
+  getDefaultSqlExomemPaddleEventStore,
+  type ExomemPaddleSql,
+} from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
 
 const USER_ID = "018f2d91-7c42-7000-8000-000000000061";
@@ -42,6 +47,26 @@ function application(
 }
 
 describe("SQL Exomem Paddle event store", () => {
+  it("routes the default webhook store through the shared Exomem SQL executor", async () => {
+    let calls = 0;
+    __setExomemSqlForTests(async () => {
+      calls += 1;
+      return { rows: [{ outcome: "ignored" }] };
+    });
+
+    try {
+      const result =
+        await getDefaultSqlExomemPaddleEventStore().applyVerifiedEventAndMarkProcessedAtomically(
+          application()
+        );
+
+      assert.deepEqual(result, { outcome: "ignored" });
+      assert.equal(calls, 1);
+    } finally {
+      __setExomemSqlForTests(null);
+    }
+  });
+
   it("uses one atomic statement for receipt, monotonic projection and applied marker", async () => {
     let calls = 0;
     let sqlText = "";

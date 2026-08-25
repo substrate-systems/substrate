@@ -3,7 +3,7 @@ import type {
   ExomemPaddleEventApplication,
   ExomemPaddleStoreResult,
 } from "./paddle-webhook";
-import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { executeExomemSql } from "./db";
 import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 
@@ -360,16 +360,6 @@ let defaultStore: AtomicExomemPaddleEventStore | null = null;
 
 /** Lazy production wiring; importing webhook dispatch never opens a DB client. */
 export function getDefaultSqlExomemPaddleEventStore(): AtomicExomemPaddleEventStore {
-  if (defaultStore) return defaultStore;
-  let client: NeonQueryFunction<false, true> | null = null;
-  const execute: ExomemPaddleSql = (strings, ...values) => {
-    if (!client) {
-      const databaseUrl = process.env.DATABASE_URL;
-      if (!databaseUrl) throw new Error("EXOMEM_PADDLE_STORE_UNAVAILABLE");
-      client = neon(databaseUrl, { fullResults: true });
-    }
-    return client(strings, ...values) as Promise<ExomemPaddleSqlResult>;
-  };
-  defaultStore = createSqlExomemPaddleEventStore(execute);
+  defaultStore ??= createSqlExomemPaddleEventStore(executeExomemSql);
   return defaultStore;
 }
