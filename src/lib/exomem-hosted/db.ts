@@ -27,7 +27,9 @@ export type ExomemTransactionRunner = <T>(callback: (tx: ExomemSql) => Promise<T
 
 let transactionRunner: ExomemTransactionRunner | null = null;
 
-function taggedPgSql(client: PoolClient): ExomemSql {
+type PgQueryable = Pick<PoolClient, "query">;
+
+function taggedPgSql(client: PgQueryable): ExomemSql {
   return async (strings, ...values) => {
     let text = strings[0];
     for (let index = 0; index < values.length; index += 1) {
@@ -36,6 +38,16 @@ function taggedPgSql(client: PoolClient): ExomemSql {
     const result = await client.query(text, values);
     return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
   };
+}
+
+/** Neon HTTP does not apply PostgreSQL startup `options`, including `search_path`. */
+export function databaseUrlRequiresSessionSql(databaseUrl: string): boolean {
+  try {
+    const options = new URL(databaseUrl).searchParams.get("options");
+    return options !== null && /(?:^|\s)(?:-c\s*)?search_path\s*=/.test(options);
+  } catch {
+    return false;
+  }
 }
 
 export type ExomemTransaction = {
@@ -51,11 +63,16 @@ function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Exome
   if (!sqlClient) {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) throw new Error("DATABASE_URL is not set");
-    const client: NeonQueryFunction<false, true> = neon(databaseUrl, {
-      fullResults: true,
-    });
-    sqlClient = (queryStrings, ...queryValues) =>
-      client(queryStrings, ...queryValues) as Promise<ExomemSqlResult>;
+    if (databaseUrlRequiresSessionSql(databaseUrl)) {
+      transactionPool ??= new Pool({ connectionString: databaseUrl });
+      sqlClient = taggedPgSql(transactionPool);
+    } else {
+      const client: NeonQueryFunction<false, true> = neon(databaseUrl, {
+        fullResults: true,
+      });
+      sqlClient = (queryStrings, ...queryValues) =>
+        client(queryStrings, ...queryValues) as Promise<ExomemSqlResult>;
+    }
   }
   return sqlClient(strings, ...values);
 }
