@@ -100,25 +100,27 @@ value after `echo` or in command history.
 
 Staging-only values:
 
-| Variable                              | Value/authority                             |
-| ------------------------------------- | ------------------------------------------- |
-| `DATABASE_URL`                        | isolated staging database secret            |
-| `EXOMEM_HOSTED_STAGING`               | `true`                                      |
-| `EXOMEM_HOSTED_STAGING_DATABASE_NAME` | `exomem_restore_verification`               |
-| `EXOMEM_HOSTED_STAGING_SCHEMA_NAME`   | `exomem_hosted_staging`                     |
-| `EXOMEM_PUBLIC_BASE_URL`              | `https://staging.substratesystems.io`       |
-| `EXOMEM_MCP_ALLOWED_ORIGINS`          | `https://staging.substratesystems.io`       |
-| `EXOMEM_ADMIN_TOKEN`                  | fresh staging-only random secret            |
-| `EXOMEM_CONTROL_PLANE_KEY`            | fresh staging-only 32-byte base64url secret |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET`      | fresh staging-only random secret            |
-| `PADDLE_ENVIRONMENT`                  | `sandbox`                                   |
-| `PADDLE_API_KEY`                      | Paddle Sandbox API key                      |
-| `PADDLE_WEBHOOK_SECRET`               | staging Sandbox notification secret         |
-| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`     | Paddle Sandbox client token                 |
-| `NEXT_PUBLIC_PADDLE_ENVIRONMENT`      | `sandbox`                                   |
-| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`   | `sandbox`                                   |
-| `EXOMEM_PADDLE_PRODUCT_ID`            | verified Sandbox product                    |
-| `EXOMEM_PADDLE_PRICE_ID`              | verified Sandbox EUR 5 monthly price        |
+| Variable                              | Value/authority                              |
+| ------------------------------------- | -------------------------------------------- |
+| `DATABASE_URL`                        | isolated staging database secret             |
+| `EXOMEM_HOSTED_STAGING`               | `true`                                       |
+| `EXOMEM_HOSTED_STAGING_DATABASE_NAME` | `exomem_restore_verification`                |
+| `EXOMEM_HOSTED_STAGING_SCHEMA_NAME`   | `exomem_hosted_staging`                      |
+| `EXOMEM_PUBLIC_BASE_URL`              | `https://staging.substratesystems.io`        |
+| `EXOMEM_MCP_ALLOWED_ORIGINS`          | `https://staging.substratesystems.io`        |
+| `EXOMEM_ADMIN_TOKEN`                  | fresh staging-only random secret             |
+| `EXOMEM_CONTROL_PLANE_KEY`            | fresh staging-only 32-byte base64url secret  |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET`      | fresh staging-only random secret             |
+| `BREVO_API_KEY`                       | current non-billing delivery credential      |
+| `BREVO_SENDER_*`, `BREVO_REPLY_TO_*`  | copy only when production overrides defaults |
+| `PADDLE_ENVIRONMENT`                  | `sandbox`                                    |
+| `PADDLE_API_KEY`                      | Paddle Sandbox API key                       |
+| `PADDLE_WEBHOOK_SECRET`               | staging Sandbox notification secret          |
+| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`     | Paddle Sandbox client token                  |
+| `NEXT_PUBLIC_PADDLE_ENVIRONMENT`      | `sandbox`                                    |
+| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`   | `sandbox`                                    |
+| `EXOMEM_PADDLE_PRODUCT_ID`            | verified Sandbox product                     |
+| `EXOMEM_PADDLE_PRICE_ID`              | verified Sandbox EUR 5 monthly price         |
 
 Copy the current non-billing Hosted runtime configuration from production only
 where the application needs the same implementation: provisioner endpoint and
