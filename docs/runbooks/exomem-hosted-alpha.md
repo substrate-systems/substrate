@@ -1047,6 +1047,10 @@ and readiness facts above. Deliver the same webhook twice and send one older
 subscription update; require one operation, one applied receipt, one duplicate
 disposition, one stale disposition, and no Endstate subscription change.
 
+For repeatable release proofs, use the permanent branch-bound environment in
+[`exomem-hosted-staging.md`](./exomem-hosted-staging.md). It replaces ad hoc
+preview setup, never uses Paddle Live, and must remain isolated from production.
+
 Only after that proof is green, set the production Exomem product and existing €5
 price, redeploy, and issue exactly one controlled production paid invitation.
 Redeem it in a clean browser, complete the real checkout, wait for `ready`, perform
