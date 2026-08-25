@@ -104,7 +104,7 @@ describe("Exomem hosted database boundary", () => {
   });
 
   it("keeps the explicitly documented legacy-unmetered redemption branch separate from OAuth admission", async () => {
-    let consumed = false;
+    let inviteClaimed = false;
     let queryCount = 0;
     let lockCount = 0;
     let capturedSql = "";
@@ -115,10 +115,25 @@ describe("Exomem hosted database boundary", () => {
         lockCount += 1;
         return { rows: [], rowCount: 0 };
       }
+      if (/^\s*SELECT id, email_normalized, entitlement_source/.test(statement)) {
+        if (inviteClaimed) return { rows: [], rowCount: 0 };
+        inviteClaimed = true;
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              email_normalized: "ordinary@example.test",
+              entitlement_source: "complimentary",
+              entitlement_capabilities: [],
+              entitlement_limits: {},
+              marketplace_reviewer_purpose: false,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
       capturedSql = statement;
       await Promise.resolve();
-      if (consumed) return { rows: [], rowCount: 0 };
-      consumed = true;
       return {
         rows: [
           {
@@ -144,7 +159,7 @@ describe("Exomem hosted database boundary", () => {
 
     assert.equal(results.filter(Boolean).length, 1);
     assert.equal(new Set(results.filter(Boolean).map((row) => row?.tenantId)).size, 1);
-    assert.equal(queryCount, 4, "one cohort lock plus one redemption statement per attempt");
+    assert.equal(queryCount, 5, "each attempt classifies the invite before selecting its branch");
     assert.equal(lockCount, 2);
     assert.match(capturedSql, /FOR UPDATE/i);
     assert.match(capturedSql, /INSERT INTO users/i);
@@ -170,9 +185,25 @@ describe("Exomem hosted database boundary", () => {
   });
 
   it("propagates immutable invitation purpose into new tenants and refuses mismatched reuse", async () => {
-    let statement = "";
+    const statements: string[] = [];
     const sql: ExomemSql = async (strings) => {
-      statement = strings.join("?");
+      const statement = strings.join("?");
+      statements.push(statement);
+      if (/^\s*SELECT id, email_normalized, entitlement_source/.test(statement)) {
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              email_normalized: "reviewer@example.test",
+              entitlement_source: "complimentary",
+              entitlement_capabilities: [],
+              entitlement_limits: {},
+              marketplace_reviewer_purpose: true,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
       return { rows: [], rowCount: 0 };
     };
     __setExomemSqlForTests(sql);
@@ -185,6 +216,7 @@ describe("Exomem hosted database boundary", () => {
       sessionExpiresAt: new Date("2026-07-13T00:00:00.000Z"),
     });
 
+    const statement = statements.find((candidate) => /locked_invite/i.test(candidate)) ?? "";
     assert.match(statement, /locked_invite[\s\S]*marketplace_reviewer_purpose/i);
     assert.match(
       statement,

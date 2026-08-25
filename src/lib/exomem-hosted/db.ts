@@ -500,7 +500,7 @@ export type RedeemedAccess = {
   userId: string;
   tenantId: string;
   sessionId: string;
-  operationId: string;
+  operationId: string | null;
 };
 
 /**
@@ -515,6 +515,158 @@ export async function redeemInviteAtomic(
   const pinsAnExactContract = provisionerWireProtocol === PROVISIONER_PROTOCOL_V2;
   return withExomemTransaction(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
+    const inviteResult = await tx`
+      SELECT id, email_normalized, entitlement_source,
+             entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose
+      FROM exomem_invites
+      WHERE token_digest = ${input.tokenDigest}
+        AND consumed_at IS NULL
+        AND revoked_at IS NULL
+        AND expires_at > now()
+      FOR UPDATE
+    `;
+    const invite = inviteResult.rows[0] as
+      | {
+          id: string;
+          email_normalized: string;
+          entitlement_source: EntitlementSource;
+          entitlement_capabilities: string[];
+          entitlement_limits: Record<string, number>;
+          marketplace_reviewer_purpose: boolean;
+        }
+      | undefined;
+    if (!invite) return null;
+
+    if (invite.entitlement_source === "paddle") {
+      const ownerResult = await tx`
+        INSERT INTO users (email, email_verified_at)
+        VALUES (${invite.email_normalized}, now())
+        ON CONFLICT (email) DO UPDATE
+        SET email = EXCLUDED.email,
+            email_verified_at = COALESCE(users.email_verified_at, now())
+        WHERE users.deleted_at IS NULL
+        RETURNING id
+      `;
+      const owner = ownerResult.rows[0] as { id: string } | undefined;
+      if (!owner) throw exomemErrors.accessTokenInvalid();
+
+      await tx`
+        SELECT tenant.id
+        FROM exomem_tenants AS tenant
+        WHERE tenant.owner_user_id = ${owner.id}::uuid
+        FOR UPDATE
+      `;
+      const blockedResult = await tx`
+        SELECT tenant.id
+        FROM exomem_oauth_account_blocks AS block
+        JOIN exomem_tenants AS tenant
+          ON block.owner_user_id = ${owner.id}::uuid
+         AND tenant.id = block.tenant_id
+        WHERE tenant.owner_user_id = ${owner.id}::uuid
+      `;
+      if (blockedResult.rows[0]) throw exomemErrors.accessTokenInvalid();
+
+      const existingResult = await tx`
+        SELECT tenant.id
+        FROM exomem_tenants AS tenant
+        JOIN exomem_entitlements AS entitlement
+          ON entitlement.tenant_id = tenant.id
+         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
+        WHERE tenant.owner_user_id = ${owner.id}::uuid
+          AND tenant.status <> 'deleted'
+          AND tenant.deleted_at IS NULL
+          AND tenant.marketplace_reviewer_purpose = ${invite.marketplace_reviewer_purpose}
+        FOR UPDATE OF tenant
+      `;
+      const existing = existingResult.rows[0] as { id: string } | undefined;
+      let tenantId = existing?.id;
+
+      if (!tenantId) {
+        const reservationResult = await tx`
+          UPDATE exomem_capacity_pools AS pool
+          SET reserved_storage_bytes = reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes},
+              reserved_runtime_slots = reserved_runtime_slots + ${EXOMEM_ALPHA_CAPACITY.runtimeSlots},
+              reserved_provision_slots = reserved_provision_slots + ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots},
+              updated_at = now()
+          WHERE pool.pool_key = 'exomem-hosted-alpha'
+            AND pool.configured_at IS NOT NULL
+            AND pool.storage_capacity_bytes >= pool.reserved_storage_bytes + ${EXOMEM_ALPHA_CAPACITY.storageBytes}
+            AND pool.runtime_capacity_slots >= pool.reserved_runtime_slots + ${EXOMEM_ALPHA_CAPACITY.runtimeSlots}
+            AND pool.provision_reservation_capacity >= pool.reserved_provision_slots + ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots}
+          RETURNING id
+        `;
+        const capacityPool = reservationResult.rows[0] as { id: string } | undefined;
+        if (!capacityPool) throw exomemErrors.capacityUnavailable();
+
+        const tenantResult = await tx`
+          INSERT INTO exomem_tenants (
+            owner_user_id, status, desired_state, legacy_unmetered, marketplace_reviewer_purpose
+          ) VALUES (
+            ${owner.id}::uuid, 'provisioning', 'running', false,
+            ${invite.marketplace_reviewer_purpose}
+          )
+          RETURNING id
+        `;
+        const tenant = tenantResult.rows[0] as { id: string } | undefined;
+        if (!tenant) throw exomemErrors.accessTokenInvalid();
+        tenantId = tenant.id;
+
+        const entitlementResult = await tx`
+          INSERT INTO exomem_entitlements (
+            tenant_id, source, source_state, effective_state, capabilities, resource_limits
+          ) VALUES (
+            ${tenantId}::uuid, 'paddle', 'awaiting_checkout', 'provisioning',
+            ${JSON.stringify(invite.entitlement_capabilities)}::jsonb,
+            ${JSON.stringify(invite.entitlement_limits)}::jsonb
+          )
+          RETURNING tenant_id
+        `;
+        if (!entitlementResult.rows[0]) throw exomemErrors.accessTokenInvalid();
+
+        const allocationResult = await tx`
+          INSERT INTO exomem_capacity_allocations (
+            pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state, operation_id
+          ) VALUES (
+            ${capacityPool.id}::uuid, ${tenantId}::uuid,
+            ${EXOMEM_ALPHA_CAPACITY.storageBytes}, ${EXOMEM_ALPHA_CAPACITY.runtimeSlots},
+            ${EXOMEM_ALPHA_CAPACITY.provisionReservationSlots}, 'reserved', NULL
+          )
+          RETURNING id
+        `;
+        if (!allocationResult.rows[0]) throw exomemErrors.accessTokenInvalid();
+      }
+
+      const sessionResult = await tx`
+        INSERT INTO exomem_sessions (
+          user_id, tenant_id, session_digest, csrf_digest, expires_at
+        ) VALUES (
+          ${owner.id}::uuid, ${tenantId}::uuid, ${input.sessionDigest}, ${input.csrfDigest},
+          ${input.sessionExpiresAt.toISOString()}
+        )
+        RETURNING id
+      `;
+      const session = sessionResult.rows[0] as { id: string } | undefined;
+      if (!session) throw exomemErrors.accessTokenInvalid();
+
+      const consumedResult = await tx`
+        UPDATE exomem_invites
+        SET consumed_at = now(),
+            consumed_by_user_id = ${owner.id}::uuid,
+            redeemed_tenant_id = ${tenantId}::uuid,
+            redeemed_session_id = ${session.id}::uuid
+        WHERE id = ${invite.id}::uuid
+          AND consumed_at IS NULL
+        RETURNING id
+      `;
+      if (!consumedResult.rows[0]) throw exomemErrors.accessTokenInvalid();
+      return {
+        userId: owner.id,
+        tenantId,
+        sessionId: session.id,
+        operationId: null,
+      };
+    }
+
     // Under v2 a provision must name an exact live contract, and this has to be
     // settled before the statement below rather than inside it: its owner,
     // tenant, entitlement and session CTEs all modify data, and PostgreSQL runs

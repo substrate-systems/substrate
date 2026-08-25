@@ -635,6 +635,188 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.deepEqual(rows.rows, [{ scope: "fresh" }]);
   });
 
+  it("redeems a paid browser invite into reserved capacity without provisioning", async () => {
+    const inviteDigest = Buffer.alloc(32, 0x72);
+
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+          SET storage_capacity_bytes = 21474836480,
+              runtime_capacity_slots = 4,
+              provision_reservation_capacity = 4,
+              provision_claim_capacity = 2,
+              reserved_storage_bytes = 0,
+              reserved_runtime_slots = 0,
+              reserved_provision_slots = 0,
+              configured_at = now()
+        WHERE pool_key = 'exomem-hosted-alpha'`
+    );
+    await createInviteRecord({
+      tokenDigest: inviteDigest,
+      emailNormalized: "paid-browser-owner@example.test",
+      entitlementSource: "paddle",
+      capabilities: ["capture", "recall", "export"],
+      resourceLimits: {
+        storageBytes: 5 * 1024 * 1024 * 1024,
+        uploadBytes: 90 * 1024 * 1024,
+        workerCount: 0,
+      },
+      operatorPrincipalDigest: Buffer.alloc(32, 0x73),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    let redemption;
+    try {
+      redemption = await redeemInviteAtomic({
+        tokenDigest: inviteDigest,
+        sessionDigest: Buffer.alloc(32, 0x74),
+        csrfDigest: Buffer.alloc(32, 0x75),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      });
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+
+    assert.ok(redemption);
+    assert.equal(redemption.operationId, null);
+    const state = await pool.query<{
+      source: string;
+      source_state: string;
+      effective_state: string;
+      legacy_unmetered: boolean;
+      allocation_state: string;
+      operation_id: string | null;
+      operation_count: string;
+      reserved_storage_bytes: string;
+      reserved_runtime_slots: number;
+      reserved_provision_slots: number;
+    }>(
+      `SELECT entitlement.source,
+              entitlement.source_state,
+              entitlement.effective_state,
+              tenant.legacy_unmetered,
+              allocation.state AS allocation_state,
+              allocation.operation_id::text,
+              (SELECT count(*)::text FROM exomem_lifecycle_operations AS operation
+                WHERE operation.tenant_id = tenant.id) AS operation_count,
+              capacity.reserved_storage_bytes::text,
+              capacity.reserved_runtime_slots,
+              capacity.reserved_provision_slots
+         FROM exomem_tenants AS tenant
+         JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
+         JOIN exomem_capacity_allocations AS allocation ON allocation.tenant_id = tenant.id
+         JOIN exomem_capacity_pools AS capacity ON capacity.id = allocation.pool_id
+        WHERE tenant.id = $1`,
+      [redemption.tenantId]
+    );
+    assert.deepEqual(state.rows, [
+      {
+        source: "paddle",
+        source_state: "awaiting_checkout",
+        effective_state: "provisioning",
+        legacy_unmetered: false,
+        allocation_state: "reserved",
+        operation_id: null,
+        operation_count: "0",
+        reserved_storage_bytes: "5368709120",
+        reserved_runtime_slots: 1,
+        reserved_provision_slots: 1,
+      },
+    ]);
+  });
+
+  it("leaves a paid browser invite untouched when its promised capacity has vanished", async () => {
+    const inviteDigest = Buffer.alloc(32, 0x76);
+    const email = "paid-browser-capacity@example.test";
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+          SET storage_capacity_bytes = 5368709120,
+              runtime_capacity_slots = 1,
+              provision_reservation_capacity = 1,
+              provision_claim_capacity = 1,
+              reserved_storage_bytes = 0,
+              reserved_runtime_slots = 0,
+              reserved_provision_slots = 0,
+              configured_at = now()
+        WHERE pool_key = 'exomem-hosted-alpha'`
+    );
+    await createInviteRecord({
+      tokenDigest: inviteDigest,
+      emailNormalized: email,
+      entitlementSource: "paddle",
+      capabilities: ["capture", "recall", "export"],
+      resourceLimits: {
+        storageBytes: 5 * 1024 * 1024 * 1024,
+        uploadBytes: 90 * 1024 * 1024,
+        workerCount: 0,
+      },
+      operatorPrincipalDigest: Buffer.alloc(32, 0x77),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+          SET reserved_storage_bytes = storage_capacity_bytes,
+              reserved_runtime_slots = runtime_capacity_slots,
+              reserved_provision_slots = provision_reservation_capacity
+        WHERE pool_key = 'exomem-hosted-alpha'`
+    );
+
+    await assert.rejects(
+      redeemInviteAtomic({
+        tokenDigest: inviteDigest,
+        sessionDigest: Buffer.alloc(32, 0x78),
+        csrfDigest: Buffer.alloc(32, 0x79),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      }),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "CAPACITY_UNAVAILABLE"
+    );
+
+    const state = await pool.query<{
+      consumed_at: Date | null;
+      redeemed_tenant_id: string | null;
+      users: string;
+      tenants: string;
+      sessions: string;
+      allocations: string;
+      operations: string;
+    }>(
+      `SELECT invite.consumed_at,
+              invite.redeemed_tenant_id::text,
+              (SELECT count(*)::text FROM users WHERE users.email = $2) AS users,
+              (SELECT count(*)::text FROM exomem_tenants AS tenant
+                JOIN users AS owner ON owner.id = tenant.owner_user_id
+               WHERE owner.email = $2) AS tenants,
+              (SELECT count(*)::text FROM exomem_sessions AS session
+                JOIN users AS owner ON owner.id = session.user_id
+               WHERE owner.email = $2) AS sessions,
+              (SELECT count(*)::text FROM exomem_capacity_allocations AS allocation
+                JOIN exomem_tenants AS tenant ON tenant.id = allocation.tenant_id
+                JOIN users AS owner ON owner.id = tenant.owner_user_id
+               WHERE owner.email = $2) AS allocations,
+              (SELECT count(*)::text FROM exomem_lifecycle_operations AS operation
+                JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+                JOIN users AS owner ON owner.id = tenant.owner_user_id
+               WHERE owner.email = $2) AS operations
+         FROM exomem_invites AS invite
+        WHERE invite.token_digest = $1`,
+      [inviteDigest, email]
+    );
+    assert.deepEqual(state.rows, [
+      {
+        consumed_at: null,
+        redeemed_tenant_id: null,
+        users: "0",
+        tenants: "0",
+        sessions: "0",
+        allocations: "0",
+        operations: "0",
+      },
+    ]);
+  });
+
   it("commits a fresh Paddle projection with a terminal receipt so retries are duplicates", async () => {
     const catalogUserId = randomUUID();
     const catalogTenantId = randomUUID();

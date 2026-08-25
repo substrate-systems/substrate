@@ -37,12 +37,14 @@ const params = {
 };
 
 /**
- * Records every statement the redemption issues, and answers the cohort probe
- * with `cohortTargets` rows and the redemption itself with `redeemRows`.
+ * Records every statement the redemption issues, classifies a complimentary
+ * invite by default, and answers the cohort probe and redemption statements.
  */
-function fakeDatabase(options: { cohortTargets: number; redeemRows: Array<typeof redemptionRow> }): {
-  statements: string[];
-} {
+function fakeDatabase(options: {
+  cohortTargets: number;
+  redeemRows: Array<typeof redemptionRow>;
+  invitePresent?: boolean;
+}): { statements: string[] } {
   const statements: string[] = [];
   const sql: ExomemSql = async (strings) => {
     const statement = strings.join("?");
@@ -50,6 +52,23 @@ function fakeDatabase(options: { cohortTargets: number; redeemRows: Array<typeof
     await Promise.resolve();
     if (statement.includes(COHORT_PROBE)) {
       return { rows: Array.from({ length: options.cohortTargets }, () => ({ id: "candidate-1" })) };
+    }
+    if (/^\s*SELECT id, email_normalized, entitlement_source/.test(statement)) {
+      return options.invitePresent === false
+        ? { rows: [], rowCount: 0 }
+        : {
+            rows: [
+              {
+                id: "invite-1",
+                email_normalized: "ordinary@example.test",
+                entitlement_source: "complimentary",
+                entitlement_capabilities: [],
+                entitlement_limits: {},
+                marketplace_reviewer_purpose: false,
+              },
+            ],
+            rowCount: 1,
+          };
     }
     if (statement.includes(REDEEM)) {
       return { rows: options.redeemRows, rowCount: options.redeemRows.length };
@@ -114,10 +133,10 @@ describe("a closed Hosted cohort refuses in the open", () => {
 
   it("reports an invalid link as an invalid link, not as a closed cohort", async () => {
     process.env[V2] = "true";
-    fakeDatabase({ cohortTargets: 1, redeemRows: [] });
+    fakeDatabase({ cohortTargets: 1, redeemRows: [], invitePresent: false });
 
-    // A live cohort and no redeemed row means the token itself did not match.
-    // `locked_invite` was empty, so the modifying CTEs wrote nothing.
+    // An invalid token returns before cohort admission is relevant and before
+    // any modifying CTE can run.
     assert.equal(await redeemInviteAtomic(params), null);
   });
 
@@ -131,6 +150,21 @@ describe("a closed Hosted cohort refuses in the open", () => {
         probes += 1;
         // Live at the pre-check, gone by the time the statement returned.
         return { rows: probes === 1 ? [{ id: "candidate-1" }] : [] };
+      }
+      if (/^\s*SELECT id, email_normalized, entitlement_source/.test(statement)) {
+        return {
+          rows: [
+            {
+              id: "invite-1",
+              email_normalized: "ordinary@example.test",
+              entitlement_source: "complimentary",
+              entitlement_capabilities: [],
+              entitlement_limits: {},
+              marketplace_reviewer_purpose: false,
+            },
+          ],
+          rowCount: 1,
+        };
       }
       return { rows: [], rowCount: 0 };
     };
@@ -207,9 +241,9 @@ describe("both admission paths refuse the same way", () => {
 describe("the cohort probe asks exactly what the target CTEs ask", () => {
   it("is true only when one candidate is live on one gateway contract digest", async () => {
     const answer = async (rowCount: number): Promise<boolean> =>
-      hasLiveHostedCohortTarget(
-        (async () => ({ rows: Array.from({ length: rowCount }, () => ({ id: "c" })) })) as ExomemSql
-      );
+      hasLiveHostedCohortTarget((async () => ({
+        rows: Array.from({ length: rowCount }, () => ({ id: "c" })),
+      })) as ExomemSql);
 
     assert.equal(await answer(0), false);
     assert.equal(await answer(1), true);
