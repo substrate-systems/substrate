@@ -1,33 +1,34 @@
 ## Why
 
-Exomem Hosted is technically ready for private alpha, but the only launch-safe
-invite path is complimentary: paid invitees can neither start the existing Paddle
-checkout nor prove payment before provisioning consumes infrastructure. The private
-friends alpha needs a €5/month, operator-issued path now, while the later €12/month
-public self-serve journey remains closed.
+Exomem Hosted already contains the self-serve Paddle, capacity, entitlement, and
+provisioning machinery, but the friends-only release deliberately disabled starting
+checkout. Paid operator invitees therefore provision before paying and cannot open
+the checkout that already exists. The private alpha needs that narrow seam restored
+for the live €5 price while public self-serve remains closed.
 
 ## What Changes
 
-- Add a private operator console for capacity visibility and one-at-a-time paid or
-  explicitly complimentary invitation.
-- Bind paid alpha invitations to a provider-neutral private-alpha plan key mapped
-  server-side to the live €5/month Paddle price.
-- Reserve logical alpha capacity when a paid invitation is redeemed without
+- Reuse the existing paid operator invite, capacity ledger, Paddle checkout,
+  entitlement projection, and lifecycle machinery instead of adding a parallel
+  billing flow.
+- Reserve alpha capacity when a paid operator invitation is redeemed without
   creating a lifecycle operation or contacting the provisioner.
-- Enable an authenticated awaiting-payment owner to start or resume the existing
-  server-created Paddle checkout.
-- Make the first verified active or trialing subscription event atomically release
-  exactly one provisioning operation from the reserved allocation.
+- Selectively restore the existing authenticated checkout and Home action for an
+  awaiting-payment Paddle invitee.
+- Make verified active or trialing subscription projection attach exactly one
+  existing-style provisioning operation to the reserved allocation.
+- Add a thin private operator page over the existing bearer-authenticated invite and
+  capacity APIs; the bearer remains in page memory and is never persisted.
 - Keep public self-serve admission and the €12/month price unreachable.
-- Add a fail-closed release switch, migration, operator runbook, sandbox acceptance,
-  and production rollout proof.
+- Use the existing fail-closed Paddle catalog configuration, plus runbook, sandbox
+  acceptance, and production rollout proof.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `exomem-operator-console`: Private operator authentication, capacity visibility,
-  and paid-by-default invitation issuance.
+- `exomem-operator-console`: A private browser wrapper over existing operator
+  capacity and invitation APIs.
 
 ### Modified Capabilities
 
@@ -42,8 +43,8 @@ public self-serve journey remains closed.
 
 ## Impact
 
-This affects Exomem invite/session APIs, capacity and lifecycle PostgreSQL
-transactions, Paddle checkout and webhook projection, Home state derivation, the new
-operator UI/API surface, database migrations, configuration validation, tests, and
-the Hosted alpha runbook. It changes no cell protocol, gateway command, vault data,
-public navigation, or Endstate billing behavior.
+This affects paid-invite redemption, lifecycle release during existing Paddle
+projection, the existing billing checkout route and Home action, a small operator
+page, tests, and the Hosted alpha runbook. It adds no billing provider, catalog
+model, operator API, database table, cell protocol, gateway command, public
+navigation, or Endstate billing behavior.

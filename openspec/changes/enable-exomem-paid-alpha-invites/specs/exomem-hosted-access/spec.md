@@ -5,11 +5,10 @@
 The system SHALL allow only an authenticated operator to create an Exomem alpha
 invite. Each invite MUST be bound to one normalized email address, an entitlement
 source, an expiration, a single high-entropy token whose digest rather than plaintext
-is stored, and either complimentary access or the server-selected
-private_alpha_monthly plan. Paid invite issuance MUST serialize against both hard
-capacity reservations and unexpired, unrevoked, successfully deliverable paid
-invitations. The public self-serve journey and public_monthly plan MUST remain
-unavailable.
+is stored, and either complimentary or paid Paddle access. Paid operator invite
+issuance MUST reuse the alpha pool's serialized capacity decision across both hard
+reservations and unexpired, unrevoked, delivered paid operator invitations. The
+public self-serve admission endpoint MUST remain unavailable.
 
 #### Scenario: Operator creates a complimentary invite
 
@@ -20,8 +19,8 @@ unavailable.
 #### Scenario: Operator creates a paid private-alpha invite
 
 - **WHEN** an authorized operator creates a paid invitation while one private-alpha slot remains
-- **THEN** the system stores and delivers one invite bound to private_alpha_monthly and counts it as a soft capacity commitment
-- **AND** the browser cannot substitute the public plan, Paddle product, price, or environment
+- **THEN** the system stores and delivers one operator-authorized Paddle invite and counts it as a soft capacity commitment
+- **AND** the browser cannot substitute the Paddle product, price, environment, or public admission path
 
 #### Scenario: Invitation delivery fails or expires
 
@@ -41,7 +40,7 @@ shared identity for its bound email, resolve or create exactly one Exomem tenant
 owned by that identity, project the invite entitlement, reserve one hard capacity
 allocation, and create an Exomem product session. Complimentary redemption SHALL
 enqueue its initial provisioning operation through the existing path. Paid
-private-alpha redemption SHALL leave its allocation reserved without an operation
+Paddle redemption SHALL leave its allocation reserved without an operation
 and SHALL NOT create or contact a cell, volume, provider claim, or provisioner until
 verified payment activation. The caller MUST NOT replace the bound email or choose a
 tenant, plan, catalog item, or provider environment during redemption.
@@ -54,7 +53,7 @@ tenant, plan, catalog item, or provider environment during redemption.
 
 #### Scenario: New paid invitee redeems a valid invite
 
-- **WHEN** a user accepts the displayed bound email and redeems a valid unused private_alpha_monthly invite before expiry
+- **WHEN** a user accepts the displayed bound email and redeems a valid unused paid operator invite before expiry
 - **THEN** the system atomically creates or resolves one identity, tenant, awaiting-checkout entitlement, reserved allocation, and product session
 - **AND** it creates no lifecycle operation or provider resource before verified payment activation
 

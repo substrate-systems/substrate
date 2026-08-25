@@ -4,7 +4,7 @@
 
 Creating a complimentary tenant SHALL enqueue an idempotent lifecycle operation
 that converges one isolated cell with distinct vault, state, and log roots. Creating
-a paid private-alpha tenant SHALL instead reserve capacity with no initial operation
+a paid operator-invited tenant SHALL instead reserve capacity with no initial operation
 until authoritative active or trialing payment activation atomically creates and
 attaches that operation. No paid redemption, awaiting-payment Home request, or
 checkout creation MAY contact the provisioner or create a cell, volume, or provider
@@ -19,7 +19,7 @@ worker policy.
 
 #### Scenario: Paid redemption waits for payment
 
-- **WHEN** a valid private_alpha_monthly invitation creates an awaiting-payment tenant
+- **WHEN** a valid paid operator invitation creates an awaiting-payment tenant
 - **THEN** the tenant holds one reserved allocation with no operation identifier
 - **AND** no provider-facing work is runnable
 

@@ -1,56 +1,51 @@
 ## ADDED Requirements
 
-### Requirement: The private operator console uses product-scoped authentication
+### Requirement: The private operator page reuses existing bearer APIs
 
-The system SHALL expose an Exomem operator console outside public navigation and
-search indexing. It MUST exchange the existing operator bearer through a
-rate-limited, same-origin, no-store request for a purpose-bound, eight-hour Secure,
-HttpOnly, SameSite session that contains neither the bearer nor email. Every
-operator mutation MUST validate same-origin context and session-bound CSRF.
+The system SHALL expose an Exomem operator page outside public navigation and search
+indexing. It SHALL use the existing bearer-authenticated capacity and invitation
+APIs rather than introduce another operator authentication boundary. The page MUST
+retain the supplied bearer only in page memory and MUST NOT place it in cookies,
+browser storage, URLs, analytics, responses, or logs.
 
-#### Scenario: Operator establishes a browser session
+#### Scenario: Operator authenticates the page
 
-- **WHEN** an operator submits the valid Exomem operator bearer from the same-origin console
-- **THEN** the system returns an opaque product-scoped operator session and session-bound CSRF value
-- **AND** neither the bearer nor operator email appears in the cookie, response body, browser storage, analytics, or logs
+- **WHEN** the operator supplies the valid existing Exomem admin bearer
+- **THEN** the page reads coarse capacity through the existing operator API and enables invitation controls
+- **AND** refreshing or closing the page discards the bearer and requires it again
 
-#### Scenario: Unauthorized caller opens the console
+#### Scenario: Unauthorized caller opens the page
 
-- **WHEN** a caller has no valid operator session
-- **THEN** the system reveals no invitation or tenant data and presents only the operator sign-in boundary
+- **WHEN** a caller has not supplied a valid operator bearer
+- **THEN** the page reveals no capacity, invitation, tenant, or billing data
+- **AND** the operator APIs retain their existing rate limits and non-enumerating failures
 
-#### Scenario: Cross-site caller attempts an operator mutation
+#### Scenario: Public caller searches for the page
 
-- **WHEN** a valid operator cookie accompanies a mutation with a missing or conflicting origin or CSRF value
-- **THEN** the system rejects the mutation before reading or changing invitation, capacity, tenant, or billing state
+- **WHEN** a crawler or ordinary visitor follows public navigation or reads the sitemap
+- **THEN** the operator page is absent and its responses prohibit indexing and caching
 
-### Requirement: The console issues capacity-safe private-alpha invitations
+### Requirement: The page issues capacity-safe alpha invitations
 
-The operator console SHALL show hard reservations and unexpired deliverable paid
-invitations against the configured private-alpha capacity. New invitations MUST be
-paid by default, MUST use the server-selected private_alpha_monthly plan key, and
-MUST require a separate explicit action for complimentary access. Paid invite
-issuance MUST serialize on the capacity pool and refuse a soft commitment when no
-slot remains.
+The operator page SHALL show coarse hard reservations and outstanding delivered paid
+operator invitations against configured alpha capacity. Invitations MUST default to
+the existing paid Paddle source and MUST require a separate explicit action for
+complimentary access. Paid issuance MUST serialize on the existing capacity pool and
+refuse another soft promise when no slot remains.
 
 #### Scenario: Operator issues a paid invitation
 
-- **WHEN** an authenticated operator submits one normalized email while private-alpha checkout is enabled and capacity remains
-- **THEN** the system creates and delivers one expiring single-use invitation for the private_alpha_monthly plan
-- **AND** the response shows the updated hard-reservation and soft-commitment counts without exposing a plaintext invite token
+- **WHEN** an authenticated operator submits one normalized email while capacity remains
+- **THEN** the existing invitation API creates and delivers one expiring paid invitation
+- **AND** the page shows success and refreshed capacity without exposing the plaintext invite token
 
 #### Scenario: Operator explicitly issues a complimentary invitation
 
 - **WHEN** an authenticated operator deliberately selects complimentary access and confirms the invitation
-- **THEN** the system creates a complimentary invitation through the existing entitlement path
+- **THEN** the existing invitation API creates a complimentary invitation through its current path
 - **AND** paid remains the default for the next invitation
 
-#### Scenario: Concurrent operators contend for the last slot
+#### Scenario: Paid invitations contend for the last slot
 
-- **WHEN** two paid invitation requests concurrently target the final available private-alpha slot
+- **WHEN** two paid invitation requests concurrently target the final available alpha slot
 - **THEN** exactly one request creates a deliverable invitation and the other receives a stable capacity-full response
-
-#### Scenario: Public caller searches for the console
-
-- **WHEN** a crawler or ordinary visitor follows public navigation or reads the sitemap
-- **THEN** the operator console is absent and its responses prohibit indexing and caching

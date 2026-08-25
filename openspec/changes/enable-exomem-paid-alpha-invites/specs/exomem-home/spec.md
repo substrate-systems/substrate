@@ -6,12 +6,12 @@ The signed-in Home surface SHALL render one of awaiting-payment, preparing, read
 degraded, suspended, export-in-progress, deletion-pending, or deleted states from
 authoritative control-plane data. It MUST NOT display a ready capture surface before
 the mapped cell passes private readiness. Awaiting-payment MUST be derived only from
-a private-alpha entitlement that is awaiting checkout or checkout pending, a
-reserved allocation, and the absence of its initial provisioning operation.
+a paid Paddle entitlement that is awaiting checkout or checkout pending, a reserved
+allocation, and the absence of its initial provisioning operation.
 
 #### Scenario: Tenant is awaiting payment
 
-- **WHEN** the owner has redeemed a paid private-alpha invite but has no authoritative active or trialing subscription
+- **WHEN** the owner has redeemed a paid operator invite but has no authoritative active or trialing subscription
 - **THEN** Home shows the fixed €5 monthly private-alpha offer and one Subscribe and prepare Exomem action
 - **AND** it does not poll provisioning readiness or imply that provider resources exist
 
