@@ -133,7 +133,14 @@ export type CellControlRecord = {
 };
 
 export type LifecycleStatus = {
-  state: "preparing" | "ready" | "degraded" | "suspended" | "deletion_pending" | "deleted";
+  state:
+    | "awaiting_payment"
+    | "preparing"
+    | "ready"
+    | "degraded"
+    | "suspended"
+    | "deletion_pending"
+    | "deleted";
   code: string;
   requestId?: string;
   retryable: boolean;

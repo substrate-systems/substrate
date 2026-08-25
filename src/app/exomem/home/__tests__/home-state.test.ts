@@ -27,6 +27,22 @@ describe("hosted Home lifecycle state", () => {
     );
   });
 
+  it("accepts awaiting payment and does not poll provisioning before checkout", () => {
+    const awaitingPayment = parseLifecycleResponse({
+      status: {
+        state: "awaiting_payment",
+        code: "PAYMENT_REQUIRED",
+        retryable: false,
+      },
+    });
+    assert.deepEqual(awaitingPayment, {
+      state: "awaiting_payment",
+      code: "PAYMENT_REQUIRED",
+      retryable: false,
+    });
+    assert.equal(nextStatusPollDelayMs(awaitingPayment!, 0), null);
+  });
+
   it("rejects malformed or unknown lifecycle states", () => {
     assert.equal(parseLifecycleResponse({}), null);
     assert.equal(parseLifecycleResponse({ status: { state: "invented" } }), null);

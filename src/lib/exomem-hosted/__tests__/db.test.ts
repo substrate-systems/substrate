@@ -226,6 +226,97 @@ describe("Exomem hosted database boundary", () => {
     assert.match(statement, /INSERT INTO exomem_invites/i);
   });
 
+  it("serializes paid operator invites against hard and outstanding capacity", async () => {
+    const statements: string[] = [];
+    const transactionSql: ExomemSql = async (strings) => {
+      const statement = strings.join("?");
+      statements.push(statement);
+      if (statement.includes("paid-operator-invite-pool")) {
+        return {
+          rows: [
+            {
+              storage_capacity_bytes: 10_737_418_240,
+              reserved_storage_bytes: 0,
+              runtime_capacity_slots: 2,
+              reserved_runtime_slots: 0,
+              provision_reservation_capacity: 2,
+              reserved_provision_slots: 0,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+      if (statement.includes("paid-operator-invite-outstanding")) {
+        return { rows: [{ outstanding: 1 }], rowCount: 1 };
+      }
+      return { rows: [{ id: "invite-paid" }], rowCount: 1 };
+    };
+    __setExomemTransactionForTests(async (work) => work(transactionSql));
+
+    assert.deepEqual(
+      await createInviteRecord({
+        tokenDigest: Buffer.alloc(32, 1),
+        emailNormalized: "paid@example.test",
+        entitlementSource: "paddle",
+        capabilities: [],
+        resourceLimits: {},
+        operatorPrincipalDigest: Buffer.alloc(32, 2),
+        expiresAt: new Date("2026-07-13T00:00:00.000Z"),
+      }),
+      { inviteId: "invite-paid" }
+    );
+
+    assert.match(statements[0]!, /paid-operator-invite-pool[\s\S]*FOR UPDATE/i);
+    assert.match(
+      statements[1]!,
+      /paid-operator-invite-outstanding[\s\S]*entitlement_source = 'paddle'[\s\S]*NOT self_serve[\s\S]*delivery_state IN \('pending', 'sent'\)/i
+    );
+    assert.match(statements[2]!, /INSERT INTO exomem_invites/i);
+  });
+
+  it("refuses a paid operator invite when every capacity slot is promised", async () => {
+    let inserts = 0;
+    const transactionSql: ExomemSql = async (strings) => {
+      const statement = strings.join("?");
+      if (statement.includes("paid-operator-invite-pool")) {
+        return {
+          rows: [
+            {
+              storage_capacity_bytes: 5_368_709_120,
+              reserved_storage_bytes: 0,
+              runtime_capacity_slots: 1,
+              reserved_runtime_slots: 0,
+              provision_reservation_capacity: 1,
+              reserved_provision_slots: 0,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+      if (statement.includes("paid-operator-invite-outstanding")) {
+        return { rows: [{ outstanding: 1 }], rowCount: 1 };
+      }
+      inserts += 1;
+      return { rows: [{ id: "unexpected" }], rowCount: 1 };
+    };
+    __setExomemTransactionForTests(async (work) => work(transactionSql));
+
+    await assert.rejects(
+      createInviteRecord({
+        tokenDigest: Buffer.alloc(32, 1),
+        emailNormalized: "full@example.test",
+        entitlementSource: "paddle",
+        capabilities: [],
+        resourceLimits: {},
+        operatorPrincipalDigest: Buffer.alloc(32, 2),
+        expiresAt: new Date("2026-07-13T00:00:00.000Z"),
+      }),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "CAPACITY_UNAVAILABLE"
+    );
+    assert.equal(inserts, 0);
+  });
+
   it("serializes reviewer invite issuance and refuses blocked owner authority", async () => {
     const statements: string[] = [];
     const sql: ExomemSql = async (strings) => {

@@ -283,7 +283,7 @@ export async function dispatchVerifiedExomemPaddleEvent(
       subscriptionId: eventType.startsWith("subscription.") ? nonEmptyString(data.id) : null,
       transactionId: eventType.startsWith("transaction.")
         ? nonEmptyString(data.id)
-        : eventType === "subscription.created"
+        : eventType === "subscription.created" || eventType === "subscription.activated"
           ? nonEmptyString(data.transaction_id)
           : null,
       productId: matchingReference?.productId ?? null,

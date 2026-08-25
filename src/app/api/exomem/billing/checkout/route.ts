@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resumeReturnedOwnerCheckout } from "@/lib/exomem-hosted/billing-account";
+import {
+  resumeReturnedOwnerCheckout,
+  startOwnerCheckout,
+} from "@/lib/exomem-hosted/billing-account";
 import { exomemErrors, safeErrorResponse } from "@/lib/exomem-hosted/errors";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
@@ -42,7 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       result =
         returned.state === "settled" ? { ...returned, redirectUrl: "/exomem/home" } : returned;
     } else {
-      throw exomemErrors.entitlementDenied();
+      result = await startOwnerCheckout(session.userId, session.tenantId);
     }
     return NextResponse.json(
       { success: true, ...result },

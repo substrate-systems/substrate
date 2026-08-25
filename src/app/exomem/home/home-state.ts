@@ -1,5 +1,6 @@
 export type LifecycleState =
   | "loading"
+  | "awaiting_payment"
   | "preparing"
   | "ready"
   | "degraded"
@@ -35,6 +36,7 @@ export function createSingleFlight<T>(): (load: () => Promise<T>) => Promise<T> 
 }
 
 const SERVER_LIFECYCLE_STATES = new Set<LifecycleState>([
+  "awaiting_payment",
   "preparing",
   "ready",
   "degraded",
@@ -109,7 +111,12 @@ export function parseInstallActions(value: unknown): InstallAction[] {
 }
 
 export function nextStatusPollDelayMs(lifecycle: Lifecycle, attempt: number): number | null {
-  if (lifecycle.state === "ready" || lifecycle.state === "deleted") return null;
+  if (
+    lifecycle.state === "awaiting_payment" ||
+    lifecycle.state === "ready" ||
+    lifecycle.state === "deleted"
+  )
+    return null;
   const exponent = Math.max(0, Math.min(4, Math.floor(attempt)));
   return Math.min(30_000, 3_000 * 2 ** exponent);
 }

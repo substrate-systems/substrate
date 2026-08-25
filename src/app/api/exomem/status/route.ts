@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 const SAFE_STATUS_CODES = new Set([
   "TENANT_PREPARING",
+  "PAYMENT_REQUIRED",
   "CELL_PREPARING",
   "CELL_READY",
   "CELL_NOT_READY",

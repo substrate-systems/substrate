@@ -114,11 +114,21 @@ describe("Exomem hosted operations contract", () => {
       "CRON_SECRET",
       "EXOMEM_HOSTED_SCHEDULER_SECRET",
       "BREVO_API_KEY",
+      "PADDLE_ENVIRONMENT",
+      "PADDLE_API_KEY",
+      "PADDLE_WEBHOOK_SECRET",
+      "NEXT_PUBLIC_PADDLE_CLIENT_TOKEN",
+      "NEXT_PUBLIC_PADDLE_ENVIRONMENT",
+      "EXOMEM_PADDLE_CATALOG_ENVIRONMENT",
+      "EXOMEM_PADDLE_PRODUCT_ID",
+      "EXOMEM_PADDLE_PRICE_ID",
     ]) {
       assert.match(runbook, new RegExp(`\\b${variable}\\b`));
     }
-    assert.doesNotMatch(runbook, /\bEXOMEM_PADDLE_PRICE_ID\b/);
-    assert.match(runbook, /New Exomem checkout remains disabled regardless of Paddle/i);
+    assert.match(runbook, /Paid operator\s+invitations require checkout before provisioning/i);
+    assert.match(runbook, /POST `\/api\/exomem\/access\/request` remains `410 Gone`/i);
+    assert.match(runbook, /historical self-serve invite/i);
+    assert.match(runbook, /removing only `EXOMEM_PADDLE_PRICE_ID`\s+stops new checkout/i);
     assert.match(
       runbook,
       /set\s+`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` for the 0\.54\.1\s+reviewer canary/i
@@ -129,7 +139,7 @@ describe("Exomem hosted operations contract", () => {
     );
     assert.match(
       runbook,
-      /transactions or subscriptions that already have a stored, tenant-bound provider\s+reference/i
+      /provider events release a reserved paid tenant into exactly one ordinary\s+`initial-provision` operation/i
     );
     assert.match(runbook, /computeDestroyed/);
     assert.match(runbook, /storageDestroyed/);
