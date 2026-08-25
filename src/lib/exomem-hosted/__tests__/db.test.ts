@@ -7,6 +7,7 @@ import {
   __setExomemTransactionForTests,
   consumeTransferGrantRecord,
   createMagicAccessToken,
+  databaseUrlRequiresSessionSql,
   findExomemSessionByDigest,
   createTransferGrantRecord,
   recordExomemCheckoutTransaction,
@@ -25,6 +26,21 @@ afterEach(() => {
 });
 
 describe("Exomem hosted database boundary", () => {
+  it("detects when unqualified SQL depends on a session search path", () => {
+    assert.equal(
+      databaseUrlRequiresSessionSql(
+        "postgresql://user:password@example.test/database?options=-c%20search_path%3Disolated%2Cpublic"
+      ),
+      true
+    );
+    assert.equal(
+      databaseUrlRequiresSessionSql(
+        "postgresql://user:password@example.test/database?sslmode=require"
+      ),
+      false
+    );
+  });
+
   it("keeps OAuth first-owner admission outside legacy-unmetered redemption", () => {
     const oauthStore = readFileSync(
       resolve(process.cwd(), "src/lib/exomem-hosted/oauth-store.ts"),

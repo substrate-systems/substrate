@@ -37,7 +37,12 @@ the non-production database path and URL-encoded
 `options=-c search_path=exomem_hosted_staging,public`. The staging schema stays
 first so all application tables land there; `public` remains visible only for
 installed extension types such as `citext`. Neon pooler endpoints reject this
-startup option. Store the URL as a separate BWS secret; never write it to this
+startup option. Neon HTTP also discards PostgreSQL startup options, so the
+application deliberately uses its session-backed PostgreSQL transport whenever
+`DATABASE_URL` contains a `search_path` option. Do not remove that transport
+selection or replace the URL with a pooled/HTTP endpoint: migrations and
+transactional writes would reach staging while ordinary reads fell through to
+`public`. Store the URL as a separate BWS secret; never write it to this
 repository or a shell command. Apply migrations explicitly:
 
 ```bash
@@ -127,8 +132,24 @@ Push the intended release commit to the permanent `staging` branch. In Vercel
 Project → Settings → Domains, add `staging.substratesystems.io`, select Preview,
 and bind it to Git branch `staging` before relying on it. Vercel initially assigns
 a newly added domain to the production branch, so this branch binding is a
-mandatory stop-ship check. Redeploy after the domain and branch-scoped variables
-are present.
+mandatory stop-ship check. At the authoritative DNS provider, add the exact
+record requested by `vercel domains inspect staging.substratesystems.io`; keep a
+Cloudflare-managed record DNS-only. Re-run the inspection until Vercel reports no
+configuration warning.
+
+Vercel Hobby Standard Protection blocks Preview domains before the application,
+including Paddle webhooks and ChatGPT MCP/OAuth requests. While this staging
+surface is active, set Project → Settings → Deployment Protection → Vercel
+Authentication to **None**. This makes every Preview URL in this Vercel project
+public at the Vercel edge; application invitation, session, entitlement, and
+operator-bearer controls remain mandatory. A protected staging URL is a
+stop-ship condition because browser login alone does not prove webhook or MCP
+reachability. Restore Preview protection only after staging moves to a separate
+project/environment or the plan supports a domain exception.
+
+Redeploy after the domain, DNS, branch-scoped variables, and protection setting
+are present. Verify an unauthenticated request reaches the application rather
+than `vercel.com/sso-api` before seeding capacity.
 
 ## 4. Seed one staging slot
 
