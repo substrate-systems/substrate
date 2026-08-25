@@ -97,7 +97,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       outcome: "succeeded",
       requestId,
       tenantId: redeemed.tenantId,
-      operationId: redeemed.operationId,
+      ...(redeemed.operationId ? { operationId: redeemed.operationId } : {}),
     });
     return response;
   } catch (error) {
