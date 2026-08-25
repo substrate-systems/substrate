@@ -78,6 +78,16 @@ create customer-portal sessions. Create one notification destination at the
 staging webhook URL above for transaction and subscription lifecycle events.
 Keep the returned endpoint secret separate from every Live webhook secret.
 
+Paddle still requires the exact checkout host to exist under Sandbox
+**Checkout → Website approval**, even though Sandbox approves it immediately.
+Add `staging.substratesystems.io`, require status `approved`, then set Sandbox
+**Checkout → Checkout settings → Default payment link** to
+`https://staging.substratesystems.io/exomem/home`. The parent
+`substratesystems.io` approval does not authorize this subdomain. A failed
+transaction probe with `transaction_checkout_url_domain_is_not_approved` is a
+configuration failure: no transaction was created and retrying the browser
+cannot fix it.
+
 Before enabling checkout, run the redacted catalog gate with the exact staging
 environment injected from the approved secret channel:
 
@@ -112,7 +122,7 @@ Staging-only values:
 | `EXOMEM_CONTROL_PLANE_KEY`            | fresh staging-only 32-byte base64url secret  |
 | `EXOMEM_HOSTED_SCHEDULER_SECRET`      | fresh staging-only random secret             |
 | `BREVO_API_KEY`                       | current non-billing delivery credential      |
-| `BREVO_SENDER_*`, `BREVO_REPLY_TO_*`  | copy only when production overrides defaults |
+| `BREVO_REPLY_TO_*`                    | copy only when production overrides defaults |
 | `PADDLE_ENVIRONMENT`                  | `sandbox`                                    |
 | `PADDLE_API_KEY`                      | Paddle Sandbox API key                       |
 | `PADDLE_WEBHOOK_SECRET`               | staging Sandbox notification secret          |
@@ -125,10 +135,14 @@ Staging-only values:
 Copy the current non-billing Hosted runtime configuration from production only
 where the application needs the same implementation: provisioner endpoint and
 credential, Cloudflare Access service token, transfer host, release/protocol and
-worker settings, Brevo delivery settings, and any signing/catalog fixtures used
-by the current cohort. Leave marketplace reviewer access disabled. The three
-staging control-plane secrets above remain distinct even though the provisioner
-endpoint is shared.
+worker settings, Brevo delivery credential and reply-to settings, and any
+signing/catalog fixtures used by the current cohort. Exomem code pins the sender
+to `Exomem <exomem@substratesystems.io>`; before inviting anyone, require that
+exact sender to be active in Brevo and require the `substratesystems.io` sender
+domain to be verified and authenticated. Do not rely on the shared mailer's
+legacy `licenses@` fallback. Leave marketplace reviewer access disabled. The
+three staging control-plane secrets above remain distinct even though the
+provisioner endpoint is shared.
 
 Push the intended release commit to the permanent `staging` branch. In Vercel
 Project → Settings → Domains, add `staging.substratesystems.io`, select Preview,
