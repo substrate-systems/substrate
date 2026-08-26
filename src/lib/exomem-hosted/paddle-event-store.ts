@@ -6,6 +6,7 @@ import type {
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 
 export type ExomemPaddleSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -163,7 +164,7 @@ export function createSqlExomemPaddleEventStore(
            AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
            AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
            AND catalog_cell.observed_schema_digest = candidate.schema_digest
-          WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+          WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
             AND candidate.state = 'live'
           GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
                    candidate.command_fingerprint, candidate.schema_digest,

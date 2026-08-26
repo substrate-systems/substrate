@@ -7,6 +7,7 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0500 } from "./agent-contract-fixture-0-50-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0541 } from "./agent-contract-fixture-0-54-1";
+import { exomemHostedContractFixture as exomemHostedContractFixture0572 } from "./agent-contract-fixture-0-57-2";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -14,14 +15,16 @@ import {
 } from "./client-artifacts";
 import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-contract-canaries";
 import { routableSetDigest, type RoutableCellIdentity } from "./routable-authority";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 import {
   PromotionRuntimePreconditionError,
   preparePromotionRuntimeHealth,
   recordPromotionRuntimeAuthorityInTransaction,
 } from "./promotion-runtime";
 
-export const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
+export { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
+type ExomemHostedProfile = "hosted-alpha-agent-v1" | typeof EXOMEM_HOSTED_PROFILE;
 /** Releases whose fixtures are pinned here; the bare fixture is the live one. */
 export type TrustedRelease =
   | "0.34.0"
@@ -30,8 +33,20 @@ export type TrustedRelease =
   | "0.49.0"
   | "0.50.0"
   | "0.54.1"
-  | "0.57.2";
+  | "0.57.2"
+  | "0.63.1";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.63.1",
+    {
+      sourceCommit: "35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5",
+      command_surface_sha256: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+      schema_contract_sha256: "553b077a18808c77f928141068b4e22e65f845c383641d66ccf6d524a451d9ca",
+      compatibility_sha256: "602bb4f9670f7436c8e530a4ffa6be6c9fa7913b6f156e1aa2c8923451a6b29f",
+      artifact_sha256: "be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241",
+      archive_sha256: "00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4",
+    },
+  ],
   [
     "0.57.2",
     {
@@ -119,7 +134,7 @@ type ContractState = "pending" | "live" | "failed" | "retired";
 
 type ExomemAgentContractCandidate = {
   state: ContractState;
-  profile: typeof EXOMEM_HOSTED_PROFILE;
+  profile: ExomemHostedProfile;
   endpoint: typeof EXOMEM_HOSTED_RESOURCE;
   sourceRelease: string;
   commandSurfaceSha256: string;
@@ -199,9 +214,12 @@ function checkedOpenAiLocks(
     record(exomemHostedContractFixture0340.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0350.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0392.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0490.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0500.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0541.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0572.packageLock, "Claude package lock"),
   ];
-  const expected = [
+  const requiredIdentityFields = [
     "schema_version",
     "platform_schema_version",
     "plugin_id",
@@ -215,11 +233,21 @@ function checkedOpenAiLocks(
     "compatibility_sha256",
     "oauth_discovery_sha256",
   ];
-  const packageKeys = ["platform", "artifact_sha256", "registered_app_id_sha256", ...expected];
+  const optionalIdentityFields = ["minimum_records_reader_version", "selection_cases_sha256"];
+  const identityFields = [
+    ...requiredIdentityFields,
+    ...optionalIdentityFields.filter((key) => key in packageRecord),
+  ];
+  const packageKeys = [
+    "platform",
+    "artifact_sha256",
+    "registered_app_id_sha256",
+    ...identityFields,
+  ];
   if (
     packageRecord.platform !== "openai" ||
     !claudeLocks.some((claudeLock) =>
-      expected.every((key) => packageRecord[key] === claudeLock[key])
+      identityFields.every((key) => packageRecord[key] === claudeLock[key])
     ) ||
     Object.keys(packageRecord).length !== packageKeys.length ||
     Object.keys(packageRecord).some((key) => !packageKeys.includes(key))
@@ -272,6 +300,8 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   if (source.sourceCommit !== trusted.sourceCommit)
     throw new Error("agent contract fixture has an untrusted source commit");
   const compatibility = record(source.compatibility, "compatibility");
+  const expectedProfile: ExomemHostedProfile =
+    sourceRelease === "0.63.1" ? EXOMEM_HOSTED_PROFILE : "hosted-alpha-agent-v1";
   const packageLock = record(source.packageLock, "Claude package lock");
   const archiveLock = record(source.archiveLock, "Claude archive lock");
   if (
@@ -285,7 +315,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   }
   if (compatibility.schema_version !== 1) throw new Error("unsupported compatibility schema");
   if (
-    compatibility.profile !== EXOMEM_HOSTED_PROFILE ||
+    compatibility.profile !== expectedProfile ||
     compatibility.endpoint !== EXOMEM_HOSTED_RESOURCE
   ) {
     throw new Error("compatibility identity is not the Hosted agent contract");
@@ -310,7 +340,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   });
   if (
     !tools?.length ||
-    profile.profile !== EXOMEM_HOSTED_PROFILE ||
+    profile.profile !== expectedProfile ||
     agentContract.protocol_version !== "1"
   ) {
     throw new Error("agent profile has an unsupported protocol");
@@ -329,7 +359,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   }
   for (const [key, expected] of Object.entries({
     endpoint: EXOMEM_HOSTED_RESOURCE,
-    profile: EXOMEM_HOSTED_PROFILE,
+    profile: expectedProfile,
     command_surface_sha256: commandSurfaceSha256,
     schema_contract_sha256: schemaDigest,
     compatibility_sha256: sha256(compatibility.compatibility_sha256, "compatibility digest"),
@@ -343,7 +373,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   sha256(archiveLock.archive_sha256, "archive digest");
   return {
     state: "pending",
-    profile: EXOMEM_HOSTED_PROFILE,
+    profile: expectedProfile,
     endpoint: EXOMEM_HOSTED_RESOURCE,
     sourceRelease,
     commandSurfaceSha256,
@@ -355,9 +385,14 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
     compatibility,
     claudePackageLock: packageLock,
     claudeArchiveLock: archiveLock,
-    // The checked release deliberately has no registered OpenAI package/archive lock.
-    openaiPackageLock: null,
-    openaiArchiveLock: null,
+    openaiPackageLock:
+      source.openaiPackageLock === undefined && source.openaiArchiveLock === undefined
+        ? null
+        : checkedOpenAiLocks(source.openaiPackageLock, source.openaiArchiveLock).packageLock,
+    openaiArchiveLock:
+      source.openaiPackageLock === undefined && source.openaiArchiveLock === undefined
+        ? null
+        : checkedOpenAiLocks(source.openaiPackageLock, source.openaiArchiveLock).archiveLock,
   };
 }
 
@@ -385,7 +420,9 @@ export async function storeRetainedExomemAgentContractCandidate(
               ? exomemHostedContractFixture0500
               : sourceRelease === "0.54.1"
                 ? exomemHostedContractFixture0541
-                : exomemHostedContractFixture;
+                : sourceRelease === "0.57.2"
+                  ? exomemHostedContractFixture0572
+                  : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

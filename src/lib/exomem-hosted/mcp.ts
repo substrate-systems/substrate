@@ -129,7 +129,7 @@ function emitMcpTelemetry(
         ...(input.access
           ? {
               clientHash: opaqueMcpIdentifier(input.access.clientId, key),
-              cohortHash: opaqueMcpIdentifier("hosted-alpha-agent-v1", key),
+              cohortHash: opaqueMcpIdentifier(EXOMEM_HOSTED_PROFILE, key),
               tenantHash: opaqueMcpIdentifier(input.access.tenantId, key),
               tokenFamilyHash: opaqueMcpIdentifier(input.access.familyId, key),
             }

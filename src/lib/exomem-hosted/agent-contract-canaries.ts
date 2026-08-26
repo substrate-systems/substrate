@@ -6,6 +6,8 @@ import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
 import { exomemContractFixture0500 } from "./gateway-contract-0-50-0";
 import { exomemContractFixture0541 } from "./gateway-contract-0-54-1";
 import { exomemContractFixture0572 } from "./gateway-contract-0-57-2";
+import { exomemContractFixture0631 } from "./gateway-contract-0-63-1";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 
 type AssignmentState = "preparing" | "active" | "failed" | "expired" | "retired";
 type StageState = "staged" | "evidenced" | "failed" | "expired" | "retired";
@@ -43,6 +45,10 @@ const gatewayContractDigests = new Map([
   [
     `${exomemContractFixture0572.release}:${exomemContractFixture0572.protocol}`,
     exomemContractFixture0572.digest,
+  ],
+  [
+    `${exomemContractFixture0631.release}:${exomemContractFixture0631.protocol}`,
+    exomemContractFixture0631.digest,
   ],
 ]);
 
@@ -454,7 +460,7 @@ export async function createCanaryAssignment(input: {
                candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
         FROM exomem_agent_contract_candidates AS candidate
         WHERE candidate.id = ${candidateId}::uuid
-          AND candidate.profile_id = 'hosted-alpha-agent-v1'
+          AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
           AND candidate.state = 'pending'
         FOR UPDATE
       ), tenant AS (
@@ -495,6 +501,8 @@ export async function createCanaryAssignment(input: {
                    THEN ${gatewayContractDigests.get(exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol)}
                  WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
                    THEN ${gatewayContractDigests.get(exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol)}
+                 WHEN ${exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol}
+                   THEN ${gatewayContractDigests.get(exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol)}
                  ELSE NULL
                END,
                tenant.marketplace_reviewer_purpose, ${operatorPrincipalDigest}, ${expiresAt}::timestamptz
@@ -615,7 +623,7 @@ export async function createStagedClientRelease(input: {
              ${sha256(input.operatorPrincipalDigest, "operator principal digest")}, ${expiresAt}::timestamptz
       FROM exomem_agent_contract_candidates AS candidate
       WHERE candidate.id = ${uuid(input.candidateId, "candidate ID")}::uuid
-        AND candidate.profile_id = 'hosted-alpha-agent-v1' AND candidate.state = 'pending'
+        AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE} AND candidate.state = 'pending'
         AND candidate.compatibility_digest = ${sha256(input.compatibilitySha256, "compatibility digest")}
         AND candidate.schema_digest = ${sha256(input.contractSha256, "contract digest")}
         AND ((${input.platform} = 'claude' AND candidate.claude_package_lock->>'artifact_sha256' = ${sha256(input.packageSha256, "package digest")}

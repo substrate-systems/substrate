@@ -7,6 +7,7 @@ import {
   transitionCapacityAllocationAtomic,
 } from "./capacity-store";
 import { exomemErrors } from "./errors";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 import type {
   CandidateSecret,
   CellControlRecord,
@@ -34,6 +35,7 @@ import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
 import { exomemContractFixture0500 } from "./gateway-contract-0-50-0";
 import { exomemContractFixture0541 } from "./gateway-contract-0-54-1";
 import { exomemContractFixture0572 } from "./gateway-contract-0-57-2";
+import { exomemContractFixture0631 } from "./gateway-contract-0-63-1";
 import { revokeTenantOAuthOutsideAssignmentInTransaction } from "./agent-contract-canaries";
 import { refreshRoutableProfileAuthorityInTransaction } from "./agent-contract-store";
 
@@ -338,6 +340,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0541.digest}
                    WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
                      THEN ${exomemContractFixture0572.digest}
+                   WHEN ${exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol}
+                     THEN ${exomemContractFixture0631.digest}
                    ELSE NULL
                  END AS gateway_contract_digest,
                  candidate.command_fingerprint, candidate.schema_digest,
@@ -350,7 +354,7 @@ export class SqlLifecycleStore implements LifecycleStore {
            AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
            AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
            AND catalog_cell.observed_schema_digest = candidate.schema_digest
-          WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+          WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
             AND candidate.state = 'live'
             AND NOT EXISTS (SELECT 1 FROM assignment_target)
           GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
@@ -468,6 +472,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                    THEN ${exomemContractFixture0541.digest}
                  WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
                    THEN ${exomemContractFixture0572.digest}
+                 WHEN ${exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol}
+                   THEN ${exomemContractFixture0631.digest}
                  ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint,
@@ -481,7 +487,7 @@ export class SqlLifecycleStore implements LifecycleStore {
          AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
          AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
          AND catalog_cell.observed_schema_digest = candidate.schema_digest
-        WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+        WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
           AND candidate.state = 'live'
           AND NOT EXISTS (SELECT 1 FROM assignment_target)
         GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
@@ -553,7 +559,7 @@ export class SqlLifecycleStore implements LifecycleStore {
          AND assignment.compatibility_digest = operation.target_compatibility_digest
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.id = operation.target_candidate_id
-         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND candidate.source_release = operation.target_source_release
          AND candidate.protocol_version = operation.target_protocol_version
          AND candidate.command_fingerprint = operation.target_command_fingerprint
@@ -590,7 +596,7 @@ export class SqlLifecycleStore implements LifecycleStore {
          AND operation.target_candidate_id IS NOT NULL
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.id = operation.target_candidate_id
-         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND candidate.source_release = operation.target_source_release
          AND candidate.protocol_version = operation.target_protocol_version
          AND candidate.command_fingerprint = operation.target_command_fingerprint
@@ -644,7 +650,7 @@ export class SqlLifecycleStore implements LifecycleStore {
         JOIN tenant ON tenant.id = bound_cell.tenant_id
         JOIN exomem_routable_cell_contracts AS authority
           ON authority.cell_id = bound_cell.id
-         AND authority.profile_id = 'hosted-alpha-agent-v1'
+         AND authority.profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND authority.routable
          AND authority.source_release = bound_cell.release_version
          AND authority.protocol_version = bound_cell.protocol_version
@@ -652,7 +658,7 @@ export class SqlLifecycleStore implements LifecycleStore {
          AND authority.contract_digest = bound_cell.observed_schema_digest
          AND authority.compatibility_digest = bound_cell.observed_compatibility_digest
         JOIN exomem_agent_contract_candidates AS candidate
-          ON candidate.profile_id = 'hosted-alpha-agent-v1'
+          ON candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND candidate.state = 'live'
          AND candidate.source_release = bound_cell.release_version
          AND candidate.protocol_version = bound_cell.protocol_version
@@ -1016,12 +1022,14 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0541.digest}
                    WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
                      THEN ${exomemContractFixture0572.digest}
+                   WHEN ${exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol}
+                     THEN ${exomemContractFixture0631.digest}
                    ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,
                candidate.compatibility_digest
         FROM exomem_agent_contract_candidates AS candidate
-        WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+        WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
           AND candidate.state = 'live'
           AND NOT EXISTS (SELECT 1 FROM assignment_target)
         FOR SHARE OF candidate
@@ -1053,7 +1061,7 @@ export class SqlLifecycleStore implements LifecycleStore {
       SELECT EXISTS (
         SELECT 1
         FROM exomem_agent_contract_candidates
-        WHERE profile_id = 'hosted-alpha-agent-v1'
+        WHERE profile_id = ${EXOMEM_HOSTED_PROFILE}
       ) AS has_contract_catalog
     `;
     if (
@@ -1114,7 +1122,7 @@ export class SqlLifecycleStore implements LifecycleStore {
                observation.compatibility_digest
         FROM exomem_routable_cell_contracts AS observation
         JOIN owned ON owned.cell_id = observation.cell_id
-        WHERE observation.profile_id = 'hosted-alpha-agent-v1' AND observation.routable
+        WHERE observation.profile_id = ${EXOMEM_HOSTED_PROFILE} AND observation.routable
         FOR SHARE OF observation
       ), assignment_target AS MATERIALIZED (
         SELECT assignment.candidate_id, assignment.id AS assignment_id,
@@ -1150,6 +1158,8 @@ export class SqlLifecycleStore implements LifecycleStore {
                      THEN ${exomemContractFixture0541.digest}
                    WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
                      THEN ${exomemContractFixture0572.digest}
+                   WHEN ${exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol}
+                     THEN ${exomemContractFixture0631.digest}
                    ELSE NULL
                END AS gateway_contract_digest,
                candidate.command_fingerprint, candidate.schema_digest,
@@ -1160,7 +1170,7 @@ export class SqlLifecycleStore implements LifecycleStore {
                      AND observed.command_fingerprint = candidate.command_fingerprint
                      AND observed.contract_digest = candidate.schema_digest
                      AND observed.compatibility_digest = candidate.compatibility_digest
-        WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+        WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
           AND candidate.state = 'live'
           AND NOT EXISTS (SELECT 1 FROM assignment_target)
         FOR SHARE OF candidate
@@ -1692,7 +1702,7 @@ export class SqlLifecycleStore implements LifecycleStore {
            AND cell.lifecycle_state = 'draining'
           JOIN exomem_agent_contract_candidates AS candidate
             ON candidate.id = operation.target_candidate_id
-           AND candidate.profile_id = 'hosted-alpha-agent-v1'
+           AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
            AND candidate.state IN ('pending', 'live')
            AND candidate.source_release = operation.target_source_release
            AND candidate.protocol_version = operation.target_protocol_version
@@ -1724,7 +1734,7 @@ export class SqlLifecycleStore implements LifecycleStore {
             AND ${input.code} = 'CELL_READY'
             AND ${input.runtimeIdentity.releaseVersion} = operation.target_source_release
             AND ${input.runtimeIdentity.protocolVersion} = operation.target_protocol_version
-            AND ${input.runtimeIdentity.agentProfile} = 'hosted-alpha-agent-v1'
+            AND ${input.runtimeIdentity.agentProfile} = ${EXOMEM_HOSTED_PROFILE}
             AND ${input.runtimeIdentity.gatewayContractDigest} = operation.target_gateway_contract_digest
             AND ${input.runtimeIdentity.commandFingerprint} = operation.target_command_fingerprint
             AND ${input.runtimeIdentity.schemaDigest} = operation.target_schema_digest
@@ -1784,7 +1794,7 @@ export class SqlLifecycleStore implements LifecycleStore {
             cell_id, profile_id, source_release, protocol_version, command_fingerprint,
             contract_digest, compatibility_digest, routable, observed_at
           )
-          SELECT owned.cell_id, 'hosted-alpha-agent-v1', owned.target_source_release,
+          SELECT owned.cell_id, ${EXOMEM_HOSTED_PROFILE}, owned.target_source_release,
                  owned.target_protocol_version, owned.target_command_fingerprint,
                  owned.target_schema_digest, owned.target_compatibility_digest, true, now()
           FROM owned
@@ -2269,7 +2279,7 @@ export class SqlLifecycleStore implements LifecycleStore {
         SET routable = false, observed_at = now()
         FROM owned
         WHERE observation.cell_id = owned.expected_previous_cell_id
-          AND observation.profile_id = 'hosted-alpha-agent-v1'
+          AND observation.profile_id = ${EXOMEM_HOSTED_PROFILE}
           AND owned.expected_previous_cell_id IS NOT NULL
           AND (
             owned.target_assignment_id IS NULL
@@ -2282,7 +2292,7 @@ export class SqlLifecycleStore implements LifecycleStore {
           cell_id, profile_id, source_release, protocol_version, command_fingerprint,
           contract_digest, compatibility_digest, routable, observed_at
         )
-        SELECT owned.cell_id, 'hosted-alpha-agent-v1', owned.target_source_release,
+        SELECT owned.cell_id, ${EXOMEM_HOSTED_PROFILE}, owned.target_source_release,
                owned.target_protocol_version, owned.target_command_fingerprint,
                owned.target_schema_digest, owned.target_compatibility_digest, true, now()
         FROM owned

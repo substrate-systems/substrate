@@ -207,7 +207,7 @@ describe("Exomem lifecycle reconciler", () => {
     provisioner.readinessOverride.runtimeIdentity = {
       releaseVersion: "2026.07.14",
       protocolVersion: "1",
-      agentProfile: "hosted-alpha-agent-v1",
+      agentProfile: "hosted-alpha-agent-v4",
       gatewayContractDigest: "a".repeat(64),
       commandFingerprint: "b".repeat(64),
       schemaDigest: "c".repeat(64),
@@ -263,7 +263,7 @@ describe("Exomem lifecycle reconciler", () => {
     provisioner.readinessOverride.runtimeIdentity = {
       releaseVersion: "2026.07.14",
       protocolVersion: "1",
-      agentProfile: "hosted-alpha-agent-v1",
+      agentProfile: "hosted-alpha-agent-v4",
       gatewayContractDigest: "a".repeat(64),
       commandFingerprint: "b".repeat(64),
       schemaDigest: "c".repeat(64),
@@ -317,7 +317,7 @@ describe("Exomem lifecycle reconciler", () => {
     provisioner.readinessOverride.runtimeIdentity = {
       releaseVersion: "2026.07.14",
       protocolVersion: "1",
-      agentProfile: "hosted-alpha-agent-v1",
+      agentProfile: "hosted-alpha-agent-v4",
       gatewayContractDigest: "a".repeat(64),
       commandFingerprint: "b".repeat(64),
       schemaDigest: "c".repeat(64),
@@ -549,7 +549,7 @@ describe("Exomem lifecycle reconciler", () => {
     provisioner.readinessOverride.runtimeIdentity = {
       releaseVersion: "2026.07.13",
       protocolVersion: "1",
-      agentProfile: "hosted-alpha-agent-v1",
+      agentProfile: "hosted-alpha-agent-v4",
       gatewayContractDigest: "a".repeat(64),
       commandFingerprint: "b".repeat(64),
       schemaDigest: "c".repeat(64),
@@ -792,7 +792,7 @@ describe("Exomem lifecycle reconciler", () => {
     assert.deepEqual(provisioner.resources.get(cellId)?.runtimeTarget, {
       releaseVersion: "2026.07.11",
       protocolVersion: "1",
-      agentProfile: "hosted-alpha-agent-v1",
+      agentProfile: "hosted-alpha-agent-v4",
       gatewayContractDigest: "a".repeat(64),
       commandFingerprint: "b".repeat(64),
       schemaDigest: "c".repeat(64),
@@ -1042,7 +1042,7 @@ describe("Exomem lifecycle reconciler", () => {
       compatibilityDigest: "d".repeat(64),
       releaseVersion: "2026.07.12",
       protocolVersion: "1",
-      agentProfile: "hosted-alpha-agent-v1",
+      agentProfile: "hosted-alpha-agent-v4",
     });
   });
 

@@ -14,12 +14,14 @@ import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contra
 import { exomemHostedContractFixture as agentFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as agentFixture0490 } from "../agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as agentFixture0572 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0631 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0572 } from "../agent-contract-fixture-0-57-2";
 import { exomemHostedContractFixture as agentFixture0500 } from "../agent-contract-fixture-0-50-0";
 import { exomemHostedContractFixture as agentFixture0541 } from "../agent-contract-fixture-0-54-1";
 import fullContract0340 from "./gateway-contract-0-34-0.json";
 import fullContract0350 from "./gateway-contract-0-35-0.json";
 import fullContract0500 from "./gateway-contract-0-50-0.json";
+import fullContract0631 from "./gateway-contract-0-63-1.json";
 
 const USER_A = "018f2d91-7c42-7000-8000-000000000071";
 const TENANT_A = "018f2d91-7c42-7000-8000-000000000072";
@@ -31,6 +33,7 @@ const CANONICAL_CONTRACT = fullContract0340 as TestContract;
 const FULL_CONTRACT_0340 = fullContract0340 as TestContract;
 const FULL_CONTRACT_0350 = fullContract0350 as TestContract;
 const FULL_CONTRACT_0500 = fullContract0500 as TestContract;
+const FULL_CONTRACT_0631 = fullContract0631 as TestContract;
 const LIVE_HOSTED_CONTRACT = {
   profile: agentFixture0340.compatibility.profile,
   sourceRelease: agentFixture0340.sourceRelease,
@@ -74,13 +77,21 @@ const RETAINED_0541_HOSTED_CONTRACT = {
   schemaDigest: agentFixture0541.compatibility.schema_contract_sha256,
   compatibilityDigest: agentFixture0541.compatibility.compatibility_sha256,
 };
-const CURRENT_HOSTED_CONTRACT = {
+const RETAINED_0572_HOSTED_CONTRACT = {
   profile: agentFixture0572.compatibility.profile,
   sourceRelease: agentFixture0572.sourceRelease,
   protocolVersion: agentFixture0572.compatibility.agent_contract.protocol_version,
   commandFingerprint: agentFixture0572.compatibility.command_surface_sha256,
   schemaDigest: agentFixture0572.compatibility.schema_contract_sha256,
   compatibilityDigest: agentFixture0572.compatibility.compatibility_sha256,
+};
+const CURRENT_HOSTED_CONTRACT = {
+  profile: agentFixture0631.compatibility.profile,
+  sourceRelease: agentFixture0631.sourceRelease,
+  protocolVersion: agentFixture0631.compatibility.agent_contract.protocol_version,
+  commandFingerprint: agentFixture0631.compatibility.command_surface_sha256,
+  schemaDigest: agentFixture0631.compatibility.schema_contract_sha256,
+  compatibilityDigest: agentFixture0631.compatibility.compatibility_sha256,
 };
 
 const PUBLISHED_AGENT_CONTRACTS = new Map<string, Record<string, unknown>>(
@@ -92,6 +103,7 @@ const PUBLISHED_AGENT_CONTRACTS = new Map<string, Record<string, unknown>>(
     agentFixture0500,
     agentFixture0541,
     agentFixture0572,
+    agentFixture0631,
   ].map((fixture) => [
     fixture.sourceRelease,
     fixture.compatibility.agent_contract as unknown as Record<string, unknown>,
@@ -309,7 +321,8 @@ describe("registry-derived Exomem gateway", () => {
       ],
       ["0.50.0", RETAINED_0500_HOSTED_CONTRACT],
       ["0.54.1", RETAINED_0541_HOSTED_CONTRACT],
-      ["0.57.2", CURRENT_HOSTED_CONTRACT],
+      ["0.57.2", RETAINED_0572_HOSTED_CONTRACT],
+      ["0.63.1", CURRENT_HOSTED_CONTRACT],
     ] as const) {
       const row = target({
         userId: USER_A,
@@ -347,6 +360,55 @@ describe("registry-derived Exomem gateway", () => {
         })
       );
     }
+  });
+
+  it("routes 0.63.1 through the authoritative v4 private profile", async () => {
+    const hosted = CURRENT_HOSTED_CONTRACT;
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-0631-v4",
+      endpoint: "https://cell-0631-v4.internal/",
+      releaseVersion: hosted.sourceRelease,
+      hosted,
+    });
+    const urls: string[] = [];
+    await routeExomemCommand({
+      session: { userId: USER_A, tenantId: TENANT_A },
+      commandName: "ask_memory",
+      args: { query: "v4 route" },
+      command: {
+        name: "ask_memory",
+        params: [{ name: "query", type: "str", required: true }],
+        read_only: true,
+        mode: "read",
+        tier: 1,
+        capability: "core",
+        guarded_fields: [],
+      },
+      hostedContract: hosted,
+      dependencies: {
+        resolveTarget: async () => row,
+        fetch: async (input) => {
+          const url = String(input);
+          urls.push(url);
+          return url.endsWith("/contract")
+            ? Response.json(cellAgentContractBody(hosted))
+            : Response.json({ success: true, data: {} });
+        },
+        expectedProtocol: "1",
+        decrypt,
+        principalScope: () => "A".repeat(43),
+      },
+    });
+    assert.deepEqual(
+      urls.map((url) => new URL(url).pathname),
+      [
+        "/private/exomem/v1/agent/hosted-alpha-agent-v4/contract",
+        "/private/exomem/v1/agent/hosted-alpha-agent-v4/command/ask_memory",
+      ]
+    );
+    assert.equal(FULL_CONTRACT_0631.commands.length >= 25, true);
   });
 
   it("compares the cell's PUBLISHED agent digest, not the release-inclusive one it serves", async () => {

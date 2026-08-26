@@ -253,13 +253,15 @@ describe("the cohort probe asks exactly what the target CTEs ask", () => {
 
   it("pins the same predicates the redemption statement selects on", async () => {
     let statement = "";
-    await hasLiveHostedCohortTarget((async (strings: TemplateStringsArray) => {
+    const values: unknown[] = [];
+    await hasLiveHostedCohortTarget((async (strings: TemplateStringsArray, ...parameters: unknown[]) => {
       statement = strings.join("?");
+      values.push(...parameters);
       return { rows: [] };
     }) as ExomemSql);
 
     for (const predicate of [
-      /candidate\.profile_id = 'hosted-alpha-agent-v1'/,
+      /candidate\.profile_id = \?/,
       /candidate\.state = 'live'/,
       /catalog_cell\.routing_state = 'bound'/,
       /observed_command_fingerprint = candidate\.command_fingerprint/,
@@ -268,5 +270,6 @@ describe("the cohort probe asks exactly what the target CTEs ask", () => {
     ]) {
       assert.match(statement, predicate);
     }
+    assert.equal(values.includes("hosted-alpha-agent-v4"), true);
   });
 });

@@ -69,6 +69,7 @@ describe("SQL lifecycle operation store", () => {
         gatewayContractDigest: "a".repeat(64),
         commandFingerprint: "b".repeat(64),
         schemaDigest: "c".repeat(64),
+        compatibilityDigest: "d".repeat(64),
       },
     });
 

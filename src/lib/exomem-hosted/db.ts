@@ -1,6 +1,7 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 // Type-only in the other direction, so this pair does not form a runtime cycle.
 import { hasLiveHostedCohortTarget } from "./hosted-cohort-target";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
@@ -791,7 +792,7 @@ export async function redeemInviteAtomic(
        AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
        AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
        AND catalog_cell.observed_schema_digest = candidate.schema_digest
-      WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+      WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
         AND candidate.state = 'live'
       GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
                candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
@@ -1594,7 +1595,7 @@ export async function consumeDeletionConfirmationAtomic(input: {
        AND assignment.compatibility_digest = operation.target_compatibility_digest
       JOIN exomem_agent_contract_candidates AS candidate
         ON candidate.id = operation.target_candidate_id
-       AND candidate.profile_id = 'hosted-alpha-agent-v1'
+       AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND candidate.source_release = operation.target_source_release
        AND candidate.protocol_version = operation.target_protocol_version
        AND candidate.command_fingerprint = operation.target_command_fingerprint
@@ -1633,7 +1634,7 @@ export async function consumeDeletionConfirmationAtomic(input: {
        AND operation.target_candidate_id IS NOT NULL
       JOIN exomem_agent_contract_candidates AS candidate
         ON candidate.id = operation.target_candidate_id
-       AND candidate.profile_id = 'hosted-alpha-agent-v1'
+       AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND candidate.source_release = operation.target_source_release
        AND candidate.protocol_version = operation.target_protocol_version
        AND candidate.command_fingerprint = operation.target_command_fingerprint
@@ -1693,7 +1694,7 @@ export async function consumeDeletionConfirmationAtomic(input: {
        AND bound_cell.observed_gateway_contract_digest IS NOT NULL
       JOIN exomem_routable_cell_contracts AS authority
         ON authority.cell_id = bound_cell.id
-       AND authority.profile_id = 'hosted-alpha-agent-v1'
+       AND authority.profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND authority.routable
        AND authority.source_release = bound_cell.release_version
        AND authority.protocol_version = bound_cell.protocol_version
@@ -1701,7 +1702,7 @@ export async function consumeDeletionConfirmationAtomic(input: {
        AND authority.contract_digest = bound_cell.observed_schema_digest
        AND authority.compatibility_digest = bound_cell.observed_compatibility_digest
       JOIN exomem_agent_contract_candidates AS candidate
-        ON candidate.profile_id = 'hosted-alpha-agent-v1'
+        ON candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND candidate.state = 'live'
        AND candidate.source_release = bound_cell.release_version
        AND candidate.protocol_version = bound_cell.protocol_version
@@ -1892,7 +1893,7 @@ export async function resolveGatewayTarget(input: {
       ON entitlement.tenant_id = tenant.id
     LEFT JOIN exomem_routable_cell_contracts AS hosted_contract
       ON hosted_contract.cell_id = cell.id
-     AND hosted_contract.profile_id = 'hosted-alpha-agent-v1'
+     AND hosted_contract.profile_id = ${EXOMEM_HOSTED_PROFILE}
      AND hosted_contract.routable = true
     WHERE tenant.id = ${input.tenantId}
       AND tenant.owner_user_id = ${input.userId}

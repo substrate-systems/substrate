@@ -3,7 +3,8 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as exomemHostedContractFixture0572 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0631 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0572 } from "./agent-contract-fixture-0-57-2";
 import { exomemHostedContractFixture as exomemHostedContractFixture0500 } from "./agent-contract-fixture-0-50-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0541 } from "./agent-contract-fixture-0-54-1";
 import { executeExomemSql, type ExomemSql, withExomemTransaction } from "./db";
@@ -206,10 +207,11 @@ export async function loadClientArtifactLocks(
 ): Promise<PlatformLocks> {
   const { rows } = await sql`
     /* exomem:load-client-artifact-contract-locks */
-    SELECT id::text AS candidate_id, source_release, claude_package_lock, claude_archive_lock,
+    SELECT id::text AS candidate_id, profile_id, source_release, claude_package_lock, claude_archive_lock,
            openai_package_lock, openai_archive_lock
     FROM exomem_agent_contract_candidates
-    WHERE id = ${candidateId}::uuid AND profile_id = 'hosted-alpha-agent-v1'
+    WHERE id = ${candidateId}::uuid
+      AND profile_id IN ('hosted-alpha-agent-v1', 'hosted-alpha-agent-v4')
       AND state IN ('pending', 'live')
     FOR UPDATE
   `;
@@ -231,10 +233,13 @@ export async function loadClientArtifactLocks(
                 ? exomemHostedContractFixture0541
                 : row.source_release === "0.57.2"
                   ? exomemHostedContractFixture0572
+                  : row.source_release === "0.63.1"
+                    ? exomemHostedContractFixture0631
                   : null;
+  if (!fixture || row.profile_id !== fixture.compatibility.profile)
+    throw new Error("artifact contract candidate profile differs from the checked release");
   if (platform === "claude") {
     if (
-      !fixture ||
       !row.claude_package_lock ||
       !row.claude_archive_lock ||
       canonical(row.claude_package_lock) !== canonical(fixture.packageLock) ||
@@ -262,9 +267,8 @@ export async function loadClientArtifactLocks(
   }
   const packageLock = row.openai_package_lock as Record<string, unknown>;
   const archiveLock = row.openai_archive_lock as Record<string, unknown>;
-  if (!fixture) throw new Error("OpenAI package lock differs from the checked release fixture");
   const fixtureLock: Record<string, unknown> = fixture.packageLock;
-  const identityFields = [
+  const requiredIdentityFields = [
     "schema_version",
     "platform_schema_version",
     "plugin_id",
@@ -277,6 +281,11 @@ export async function loadClientArtifactLocks(
     "skills_sha256",
     "compatibility_sha256",
     "oauth_discovery_sha256",
+  ];
+  const optionalIdentityFields = ["minimum_records_reader_version", "selection_cases_sha256"];
+  const identityFields = [
+    ...requiredIdentityFields,
+    ...optionalIdentityFields.filter((key) => key in packageLock),
   ];
   const packageKeys = [
     "platform",
@@ -490,7 +499,7 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
       JOIN exomem_agent_contract_rollout_assignments AS assignment
         ON assignment.candidate_id = candidate.id
       WHERE candidate.id = ${artifact.candidateId}::uuid
-        AND candidate.profile_id = 'hosted-alpha-agent-v1'
+        AND candidate.profile_id = ${String(evidence.profile)}
         AND candidate.state = 'pending'
         AND candidate.created_at < ${artifact.observedAt}::timestamptz
         AND stage.platform = ${artifact.platform} AND stage.state = 'staged'

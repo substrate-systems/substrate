@@ -99,7 +99,7 @@ describe("operator status getters", () => {
     const routableSetDigest = createHash("sha256")
       .update(
         JSON.stringify([
-          "hosted-alpha-agent-v1",
+          "hosted-alpha-agent-v4",
           identity.cell_id,
           identity.source_release,
           identity.protocol_version,

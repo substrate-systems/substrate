@@ -131,11 +131,11 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runbook, /removing only `EXOMEM_PADDLE_PRICE_ID`\s+stops new checkout/i);
     assert.match(
       runbook,
-      /set\s+`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` for the 0\.54\.1\s+reviewer canary/i
+      /`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` remains valid only\s+after the D1 dual-serving expand proof and reviewed lock pair are live/i
     );
     assert.match(
       runbook,
-      /outer v2 carries the existing `hosted-alpha-agent-v1` runtime\s+target/i
+      /`0\.63\.1` reviewer rollforward carries `hosted-alpha-agent-v4`, while historical\s+operations retain their original v1 target/i
     );
     assert.match(
       runbook,

@@ -11,6 +11,7 @@ import {
   type CellWorkerPolicy,
 } from "./provisioner";
 import { routableSetDigest, type RoutableCellIdentity } from "./routable-authority";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 import {
   controlPlaneKeyFromEnv,
   decryptSecret,
@@ -18,7 +19,6 @@ import {
   type SecretEnvelope,
 } from "./security";
 
-const EXOMEM_HOSTED_PROFILE = "hosted-alpha-agent-v1";
 let testProvisioner: Pick<CellProvisioner, "health"> | null = null;
 
 /** Abort the enclosing promotion transaction after a post-write authority fence misses. */

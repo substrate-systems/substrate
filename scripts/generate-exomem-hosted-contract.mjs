@@ -7,7 +7,6 @@ import { join, resolve } from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
 
-const PROFILE = "hosted-alpha-agent-v1";
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
 const RELEASES = {
   "253c9aa365d7afd8829dc7843f1cac53353ac825": {
@@ -31,6 +30,14 @@ const RELEASES = {
   },
   d4bbef7725d55f3bb6e8c288deadddb15ef7855f: {
     sourceRelease: "0.57.2",
+  },
+  "35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5": {
+    sourceRelease: "0.63.1",
+    profile: "hosted-alpha-agent-v4",
+    generatedDirectory:
+      "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
+    openai: true,
+    packageZipOnlyPaths: [".mcp.json"],
   },
 };
 
@@ -157,38 +164,15 @@ function zipEntries(bytes) {
   return files;
 }
 
-function packageDigest(repo, commit, packagePath) {
-  if (archive) {
-    const entries = [...archive.files.entries()]
-      .filter(([path]) => path.startsWith(`${packagePath}/`))
+function packageDigest(entries) {
+  return canonicalSha256(
+    [...entries.entries()]
       .map(([path, contents]) => [
-        path.slice(`${packagePath}/`.length),
+        path,
         createHash("sha256").update(contents).digest("hex"),
       ])
-      .sort(([left], [right]) => left.localeCompare(right));
-    if (!entries.length) fail("committed package tree is empty");
-    return canonicalSha256(entries);
-  }
-  const listing = execFileSync("git", ["ls-tree", "-r", "-z", commit, "--", packagePath], {
-    cwd: repo,
-  });
-  const entries = listing
-    .toString("utf8")
-    .split("\0")
-    .filter(Boolean)
-    .map((entry) => {
-      const [, blob, path] = /^(?:\d+) blob ([0-9a-f]{40})\t(.+)$/.exec(entry) ?? [];
-      if (!blob || !path) fail("invalid committed package tree entry");
-      const relative = path.slice(`${packagePath}/`.length);
-      return [
-        relative,
-        createHash("sha256")
-          .update(gitBlob(repo, commit, path))
-          .digest("hex"),
-      ];
-    });
-  if (!entries.length) fail("committed package tree is empty");
-  return canonicalSha256(entries);
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
 }
 
 const args = argumentsFrom(process.argv.slice(2));
@@ -214,6 +198,7 @@ if (
 const release = RELEASES[expectedCommit];
 if (!release || release.sourceRelease !== sourceRelease)
   fail("generator only accepts a pinned Exomem release and its exact source release");
+const profile = release.profile ?? "hosted-alpha-agent-v1";
 if (Boolean(gatewayOutputArg) !== Boolean(gatewayJsonOutputArg))
   fail("full gateway output requires both --gateway-output and --gateway-json-output");
 const repo = resolve(repoArg);
@@ -337,7 +322,7 @@ function gatewayFixture(value) {
   };
 }
 
-const generated = "plugins/hosted/generated";
+const generated = release.generatedDirectory ?? "plugins/hosted/generated";
 const compatibility = object(
   readJson(sourceBlob(`${generated}/compatibility.json`), "compatibility artifact"),
   "compatibility artifact"
@@ -353,11 +338,23 @@ const archiveLock = object(
   readJson(sourceBlob(`${generated}/claude.zip.lock.json`), "Claude archive lock"),
   "Claude archive lock"
 );
+const openaiPackageLock = release.openai
+  ? object(
+      readJson(sourceBlob(`${generated}/openai.lock.json`), "OpenAI package lock"),
+      "OpenAI package lock"
+    )
+  : null;
+const openaiArchiveLock = release.openai
+  ? object(
+      readJson(sourceBlob(`${generated}/openai.zip.lock.json`), "OpenAI archive lock"),
+      "OpenAI archive lock"
+    )
+  : null;
 if (
   compatibility.schema_version !== 1 ||
-  compatibility.profile !== PROFILE ||
+  compatibility.profile !== profile ||
   compatibility.endpoint !== RESOURCE ||
-  agentProfile.profile !== PROFILE ||
+  agentProfile.profile !== profile ||
   agentContract.protocol_version !== "1" ||
   digest.algorithm !== "sha256" ||
   sha256(digest.value, "agent contract digest") !==
@@ -423,7 +420,7 @@ if (canonicalSha256(compatibilityBase) !== compatibility.compatibility_sha256)
   fail("compatibility digest does not match committed content");
 for (const [key, expected] of Object.entries({
   endpoint: RESOURCE,
-  profile: PROFILE,
+  profile,
   command_surface_sha256: compatibility.command_surface_sha256,
   schema_contract_sha256: compatibility.schema_contract_sha256,
   compatibility_sha256: compatibility.compatibility_sha256,
@@ -438,36 +435,75 @@ if (packageLock.platform !== "claude" || archiveLock.platform !== "claude")
   fail("Claude lock platform is invalid");
 sha256(packageLock.artifact_sha256, "Claude package artifact digest");
 sha256(archiveLock.archive_sha256, "Claude archive digest");
-if (
-  packageDigest(repo, expectedCommit, `${generated}/claude`) !== packageLock.artifact_sha256 ||
-  createHash("sha256")
-    .update(sourceBlob(`${generated}/claude.zip`))
-    .digest("hex") !== archiveLock.archive_sha256
-) {
-  fail("committed package or archive bytes do not match their lock");
+function verifyPlatform(platform, platformPackageLock, platformArchiveLock) {
+  for (const [key, expected] of Object.entries({
+    endpoint: RESOURCE,
+    profile,
+    command_surface_sha256: compatibility.command_surface_sha256,
+    schema_contract_sha256: compatibility.schema_contract_sha256,
+    compatibility_sha256: compatibility.compatibility_sha256,
+    definition_sha256: compatibility.definition_sha256,
+    skills_sha256: compatibility.skills_sha256,
+    oauth_discovery_sha256: compatibility.oauth_discovery_sha256,
+    plugin_id: compatibility.plugin_id,
+    plugin_version: compatibility.plugin_version,
+  })) {
+    if (platformPackageLock[key] !== expected)
+      fail(`${platform} package lock differs for ${key}`);
+  }
+  if (platformPackageLock.platform !== platform || platformArchiveLock.platform !== platform)
+    fail(`${platform} lock platform is invalid`);
+  sha256(platformPackageLock.artifact_sha256, `${platform} package artifact digest`);
+  sha256(platformArchiveLock.archive_sha256, `${platform} archive digest`);
+  if (
+    platform === "openai" &&
+    (sha256(platformPackageLock.registered_app_id_sha256, "OpenAI registered app ID digest") !==
+      sha256(platformArchiveLock.registered_app_id_sha256, "OpenAI registered app ID digest"))
+  ) {
+    fail("OpenAI locks have different registered app ID digests");
+  }
+  const zipped = zipEntries(sourceBlob(`${generated}/${platform}.zip`));
+  if (
+    packageDigest(zipped) !== platformPackageLock.artifact_sha256 ||
+    createHash("sha256")
+      .update(sourceBlob(`${generated}/${platform}.zip`))
+      .digest("hex") !== platformArchiveLock.archive_sha256
+  ) {
+    fail(`${platform} package or archive bytes do not match their lock`);
+  }
+  const packageEntries = archive
+    ? [...archive.files.entries()]
+        .filter(([path]) => path.startsWith(`${generated}/${platform}/`))
+        .map(([path, body]) => [path.slice(`${generated}/${platform}/`.length), body])
+    : execFileSync(
+        "git",
+        ["ls-tree", "-r", "-z", expectedCommit, "--", `${generated}/${platform}`],
+        { cwd: repo }
+      )
+        .toString("utf8")
+        .split("\0")
+        .filter(Boolean)
+        .map((entry) => {
+          const [, , path] = /^(?:\d+) blob ([0-9a-f]{40})\t(.+)$/.exec(entry) ?? [];
+          if (!path) fail("invalid committed package tree entry");
+          return [
+            path.slice(`${generated}/${platform}/`.length),
+            gitBlob(repo, expectedCommit, path),
+          ];
+        });
+  const committedPaths = new Set(packageEntries.map(([path]) => path));
+  const zipOnlyPaths = [...zipped.keys()].filter((path) => !committedPaths.has(path));
+  if (
+    JSON.stringify(zipOnlyPaths.sort()) !==
+      JSON.stringify([...(release.packageZipOnlyPaths ?? [])].sort()) ||
+    packageEntries.some(([path, body]) => !zipped.get(path)?.equals(body))
+  ) {
+    fail(`${platform} ZIP entries differ from the committed package tree`);
+  }
 }
-const packageEntries = archive
-  ? [...archive.files.entries()]
-      .filter(([path]) => path.startsWith(`${generated}/claude/`))
-      .map(([path, body]) => [path.slice(`${generated}/claude/`.length), body])
-  : execFileSync("git", ["ls-tree", "-r", "-z", expectedCommit, "--", `${generated}/claude`], {
-      cwd: repo,
-    })
-      .toString("utf8")
-      .split("\0")
-      .filter(Boolean)
-      .map((entry) => {
-        const [, , path] = /^(?:\d+) blob ([0-9a-f]{40})\t(.+)$/.exec(entry) ?? [];
-        if (!path) fail("invalid committed package tree entry");
-        return [path.slice(`${generated}/claude/`.length), gitBlob(repo, expectedCommit, path)];
-      });
-const zipped = zipEntries(sourceBlob(`${generated}/claude.zip`));
-if (
-  zipped.size !== packageEntries.length ||
-  packageEntries.some(([path, body]) => !zipped.get(path)?.equals(body))
-) {
-  fail("generated ZIP entries differ from the committed package tree");
-}
+verifyPlatform("claude", packageLock, archiveLock);
+if (openaiPackageLock && openaiArchiveLock)
+  verifyPlatform("openai", openaiPackageLock, openaiArchiveLock);
 
 const fixture = {
   sourceCommit: expectedCommit,
@@ -475,6 +511,9 @@ const fixture = {
   compatibility,
   packageLock,
   archiveLock,
+  ...(openaiPackageLock && openaiArchiveLock
+    ? { openaiPackageLock, openaiArchiveLock }
+    : {}),
 };
 const json = `${JSON.stringify(fixture, null, 2)}\n`;
 const source = `// Generated from Exomem compatibility.json at commit ${expectedCommit} for cell release ${sourceRelease}. Do not edit.\nexport const exomemHostedContractFixture = ${JSON.stringify(fixture, null, 2)} as const;\n`;
