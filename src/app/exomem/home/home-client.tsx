@@ -519,6 +519,23 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
               Subscribe and prepare Exomem
             </button>
           </div>
+          <div className={styles.secondaryRow}>
+            <div>
+              <strong>Delete this Exomem</strong>
+              <p className={styles.secondaryCopy}>
+                Sends a private confirmation email. Nothing is deleted until you confirm from that
+                email.
+              </p>
+            </div>
+            <button
+              className={styles.dangerButton}
+              type="button"
+              onClick={requestDeletion}
+              disabled={deletionRequested}
+            >
+              {deletionRequested ? "Confirmation sent" : "Email deletion confirmation"}
+            </button>
+          </div>
           <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
             {notice}
           </p>

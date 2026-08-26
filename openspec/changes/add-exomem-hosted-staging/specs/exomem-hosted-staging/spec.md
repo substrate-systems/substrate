@@ -60,3 +60,10 @@ The staging release proof SHALL use an operator-issued paid invitation, Paddle S
 - **WHEN** the staging proof completes or fails
 - **THEN** the operator record contains only deployment revision, environment, stable outcomes, counts, and redacted timing evidence
 - **AND** it contains no email, session, tenant, provider resource, transaction, customer, subscription, credential, or memory content
+
+#### Scenario: Owner cleans an incomplete staging fixture
+
+- **WHEN** the authenticated staging owner requests deletion while Home is awaiting payment
+- **THEN** Home sends a fresh single-use confirmation link to that owner's account email without deleting anything
+- **AND** the request rejects a missing Exomem session or invalid mutation-origin or CSRF proof
+- **AND** deletion begins only after the same product owner opens the link while signed in and explicitly confirms the permanent action

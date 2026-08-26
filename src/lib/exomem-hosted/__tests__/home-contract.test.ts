@@ -206,6 +206,26 @@ describe("private Exomem Home contract", () => {
     assert.match(nonReady, /Check again/);
   });
 
+  it("lets only the authenticated owner request two-step cleanup while awaiting payment", () => {
+    const home = source("src/app/exomem/home/home-client.tsx");
+    const requestRoute = source("src/app/api/exomem/deletion/request/route.ts");
+    const confirmRoute = source("src/app/api/exomem/deletion/confirm/route.ts");
+    const deletePage = source("src/app/exomem/delete/delete-client.tsx");
+    const start = home.indexOf('if (lifecycle.state === "awaiting_payment")');
+    const end = home.indexOf("\n    return (", start + 1);
+    const awaitingPayment = home.slice(start, end);
+
+    assert.ok(start >= 0 && end > start, "the awaiting-payment branch must remain explicit");
+    assert.match(awaitingPayment, /onClick=\{requestDeletion\}/);
+    assert.match(awaitingPayment, /Nothing is deleted until you confirm/i);
+    assert.match(requestRoute, /resolveExomemSession\(request\)/);
+    assert.match(requestRoute, /validateMutationRequest\(request, session\)/);
+    assert.match(confirmRoute, /resolveExomemSession\(request\)/);
+    assert.match(confirmRoute, /validateMutationRequest\(request, session\)/);
+    assert.match(deletePage, /onClick=\{confirm\}/);
+    assert.match(deletePage, /Permanently delete my Exomem/);
+  });
+
   it("does not claim sign-out succeeded when revocation fails", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
     const signOut = home.match(/async function signOut\(\)[\s\S]*?\n  }/)?.[0] ?? "";

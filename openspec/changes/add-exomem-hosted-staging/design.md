@@ -61,6 +61,8 @@ Sandbox website approval is still an explicit account resource: add the exact `s
 
 The proof then performs a real browser checkout with a Paddle Sandbox test card, opens the sandbox customer portal, and uses a staging ChatGPT connector for one capture/fresh-chat recall. It records counts and stable outcomes only.
 
+Acceptance cleanup uses the existing owner deletion protocol even when the fixture has not reached `ready`. The authenticated Home surface exposes a deletion-confirmation request in `awaiting_payment`; that request still requires the current Exomem session plus mutation-origin and CSRF validation. The first action only emails a fresh single-use token. Actual deletion requires the same product owner to open that token while signed in and explicitly confirm on the deletion page.
+
 ## Risks / Trade-offs
 
 - **A Preview inherits a production secret** → Staging uses branch-scoped variables and the database-name, search-path, branch, Paddle-environment, and catalog gates fail closed before migration or checkout.
