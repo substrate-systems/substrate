@@ -12,5 +12,5 @@
 ## 3. Acceptance and Release
 
 - [ ] 3.1 Run focused tests, strict OpenSpec validation, lint/type/build checks, and rendered staging inspection
-- [ ] 3.2 Prove paid invitation → Sandbox checkout → duplicate/stale webhook handling → exactly one provision operation/cell → capture/fresh-chat recall → Sandbox portal, then clean the staging fixture through the authenticated two-confirmation owner flow, including from `awaiting_payment`
+- [ ] 3.2 Prove paid invitation → Sandbox checkout → duplicate/stale webhook handling → exactly one provision operation/cell → capture/fresh-chat recall → Sandbox portal, then clean the staging fixture through the authenticated two-confirmation owner flow, including from `awaiting_payment`; prove terminal provider verification queues and delivers one owner completion email while the signed-out page gives honest close-and-email guidance
 - [ ] 3.3 Run the read-only Live €5 catalog gate, remove or cancel the abandoned live draft transaction, and record redacted release evidence before inviting another person

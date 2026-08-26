@@ -229,6 +229,8 @@ describe("private Exomem Home contract", () => {
     assert.match(confirmRoute, /validateMutationRequest\(request, session\)/);
     assert.match(deletePage, /onClick=\{confirm\}/);
     assert.match(deletePage, /Permanently delete my Exomem/);
+    assert.match(deletePage, /You can close this page/);
+    assert.match(deletePage, /email you when deletion is complete/);
   });
 
   it("does not claim sign-out succeeded when revocation fails", () => {

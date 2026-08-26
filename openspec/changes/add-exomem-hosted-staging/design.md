@@ -63,10 +63,13 @@ The proof then performs a real browser checkout with a Paddle Sandbox test card,
 
 Acceptance cleanup uses the existing owner deletion protocol even when the fixture has not reached `ready`. The authenticated Home surface exposes a deletion-confirmation request in `awaiting_payment`; that request still requires the current Exomem session plus mutation-origin and CSRF validation. The first action only emails a fresh single-use token. Actual deletion requires the same product owner to open that token while signed in and explicitly confirm on the deletion page.
 
+Confirmation revokes the owner's session immediately, so the deletion page cannot honestly poll private status afterward. It instead tells the owner that the page may be closed and that completion will arrive by email. The provider-verified terminal deletion transaction inserts one tenant-unique, owner-bound completion-delivery row only for an operation created from a consumed owner confirmation. The scheduler leases and retries that row independently of lifecycle work, resolves the retained shared-identity email only at delivery time, and marks it sent without storing another email copy. Operator-only reviewer cleanup does not emit customer mail.
+
 ## Risks / Trade-offs
 
 - **A Preview inherits a production secret** → Staging uses branch-scoped variables and the database-name, search-path, branch, Paddle-environment, and catalog gates fail closed before migration or checkout.
 - **The shared provisioner creates a cell that outlives a failed proof** → Capacity is one slot, identifiers stay in staging DB, and cleanup follows the normal owner deletion path before the next proof.
+- **Deletion finishes after the browser session is revoked** → A tenant-unique durable completion outbox is inserted only with the externally verified terminal transition; the page promises email rather than pretending it can keep polling.
 - **Paddle Sandbox and production event streams cross** → Separate API keys, client token, webhook endpoint secret, catalog IDs, public origin, and persisted provider environment make a cross-environment event fail closed.
 - **Hobby compute is already near its monthly allowance** → Staging is invoked only for release proofs and has no always-on Vercel cron. Provider compute remains the one bounded cell.
 - **Disabling Hobby Preview protection exposes other Preview URLs** → No Preview may rely on Vercel Authentication as its application security boundary; Git fork protection remains enabled, and application auth/bearers protect private operations. Move staging or buy a domain exception before that trade-off becomes unacceptable.

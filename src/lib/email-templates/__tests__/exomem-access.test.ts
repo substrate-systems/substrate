@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  renderExomemDeletionCompleteEmail,
   renderExomemDeletionEmail,
   renderExomemInviteEmail,
   renderExomemMagicLinkEmail,
@@ -70,6 +71,17 @@ describe("Exomem access emails", () => {
       now: new Date("2026-08-08T12:00:00.000Z"),
     });
     assert.match(rendered.textContent, /This confirmation expired on 8 August 2026 at 11:00 UTC\./);
+  });
+
+  it("states only provider-verified deletion as complete", () => {
+    const rendered = renderExomemDeletionCompleteEmail();
+    const all = `${rendered.htmlContent}\n${rendered.textContent}`;
+
+    assert.equal(rendered.subject, "Your Exomem has been deleted");
+    assert.match(all, /hosted Exomem has been permanently deleted/i);
+    assert.match(all, /vault, files, exports, and encryption keys/i);
+    assert.match(all, /shared Substrate identity.*remain untouched/is);
+    assert.doesNotMatch(all, /confirm|in progress/i);
   });
 
   it("uses the same expiry wording for the self-serve welcome", () => {

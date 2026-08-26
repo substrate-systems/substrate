@@ -59,7 +59,8 @@ export default function DeleteClient() {
             encryption keys are verified as removed.
           </p>
           <p className={styles.status} role="status">
-            Your shared Substrate identity and any other product remain untouched.
+            You can close this page. We&apos;ll email you when deletion is complete. Your shared
+            Substrate identity and any other product remain untouched.
           </p>
         </>
       ) : (

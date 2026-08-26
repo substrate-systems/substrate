@@ -67,3 +67,10 @@ The staging release proof SHALL use an operator-issued paid invitation, Paddle S
 - **THEN** Home sends a fresh single-use confirmation link to that owner's account email without deleting anything
 - **AND** the request rejects a missing Exomem session or invalid mutation-origin or CSRF proof
 - **AND** deletion begins only after the same product owner opens the link while signed in and explicitly confirms the permanent action
+
+#### Scenario: Confirmed owner deletion finishes
+
+- **WHEN** the lifecycle reconciler has externally verified destruction and atomically marks an owner-confirmed tenant deleted
+- **THEN** it durably queues one completion email for that owner and no earlier checkpoint may queue it
+- **AND** the signed-out confirmation page says it may be closed and that Exomem will email when deletion is complete
+- **AND** retrying reconciliation or delivery does not create a second durable completion notification

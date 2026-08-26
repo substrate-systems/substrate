@@ -174,3 +174,23 @@ export function renderExomemDeletionEmail(input: {
     expiryLabel: expiryLabel("This confirmation", input.expiresAt, input.now ?? new Date()),
   });
 }
+
+export function renderExomemDeletionCompleteEmail(): RenderedExomemAccessEmail {
+  const introduction =
+    "Your hosted Exomem has been permanently deleted. Its vault, files, exports, and encryption keys have been removed. Your shared Substrate identity and any other products remain untouched.";
+  const htmlContent = `<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
+    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(introduction)}</p>
+    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
+  </body>
+</html>`;
+  const textContent = `${introduction}
+
+— Exomem by Substrate Systems`;
+  return {
+    subject: "Your Exomem has been deleted",
+    htmlContent,
+    textContent,
+  };
+}

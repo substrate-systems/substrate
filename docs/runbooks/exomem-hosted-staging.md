@@ -210,8 +210,10 @@ Use one controlled staging email address and a clean browser:
 7. Open the Paddle Sandbox customer portal from Home and verify the subscription
    appears. Do not cancel before the duplicate/stale and portal checks finish.
 8. Delete the staging account through the normal owner workflow. Require Paddle
-   Sandbox cancellation and provider destruction, then read capacity back to
-   confirm the slot is released.
+   Sandbox cancellation and provider destruction, require exactly one owner
+   completion email after that proof, then read capacity back to confirm the
+   slot is released. The post-confirmation page may be closed while this runs;
+   it is not proof of completion.
 9. Re-read production counts. They must be unchanged apart from unrelated live
    traffic.
 

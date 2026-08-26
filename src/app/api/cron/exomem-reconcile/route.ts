@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { drainDeletionCompletionDeliveries } from "@/lib/exomem-hosted/deletion-completion-delivery";
 import { verifyHostedSchedulerAuth } from "@/lib/exomem-hosted/scheduler-auth";
 import { runBoundedLifecycleReconcile } from "@/lib/exomem-hosted/reconcile-runtime";
 import { runBoundedPaddleReconcile } from "@/lib/exomem-hosted/paddle-reconciliation-runtime";
@@ -24,11 +25,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         timeBudgetMs: 8_000,
       }),
     ]);
-    if (lifecycleResult.status === "rejected" || paddleResult.status === "rejected") {
+    const [completionResult] = await Promise.allSettled([
+      drainDeletionCompletionDeliveries({ maxMessages: 5, timeBudgetMs: 8_000 }),
+    ]);
+    if (
+      lifecycleResult.status === "rejected" ||
+      paddleResult.status === "rejected" ||
+      completionResult.status === "rejected"
+    ) {
       throw new Error("EXOMEM_RECONCILIATION_LANE_FAILED");
     }
     const result = lifecycleResult.value;
     const paddle = paddleResult.value;
+    const deletionCompletion = completionResult.value;
     return NextResponse.json(
       {
         success: true,
@@ -46,6 +55,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             stale: paddle.stale,
             ignored: paddle.ignored,
             failed: paddle.failed,
+          },
+          deletionCompletion: {
+            claimed: deletionCompletion.claimed,
+            sent: deletionCompletion.sent,
+            retryScheduled: deletionCompletion.retryScheduled,
+            failed: deletionCompletion.failed,
+            lost: deletionCompletion.lost,
           },
         },
       },

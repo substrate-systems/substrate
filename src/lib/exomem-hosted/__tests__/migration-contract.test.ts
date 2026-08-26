@@ -34,6 +34,10 @@ const hostedCellRollforwardPath = resolve(
   process.cwd(),
   "migrations/0050_exomem_hosted_cell_rollforward.sql"
 );
+const deletionCompletionDeliveryPath = resolve(
+  process.cwd(),
+  "migrations/0052_exomem_deletion_completion_delivery.sql"
+);
 
 function migration(): string {
   return readFileSync(migrationPath, "utf8");
@@ -305,5 +309,20 @@ describe("Exomem hosted migration contract", () => {
       /CREATE UNIQUE INDEX exomem_agent_contract_rollout_assignments_one_active_idx[\s\S]*WHERE state = 'active'/i
     );
     assert.doesNotMatch(sql, /INSERT INTO|UPDATE\s+exomem_|DELETE FROM/i);
+  });
+
+  it("adds one durable owner-bound completion delivery without copying identity data", () => {
+    const sql = readFileSync(deletionCompletionDeliveryPath, "utf8");
+
+    assert.match(sql, /CREATE TABLE exomem_deletion_completion_outbox/i);
+    assert.match(sql, /tenant_id uuid NOT NULL UNIQUE/i);
+    assert.match(sql, /REFERENCES exomem_tenants\(id\) ON DELETE RESTRICT/i);
+    assert.match(sql, /state IN \('pending', 'leased', 'sent', 'failed'\)/i);
+    assert.match(sql, /attempts integer NOT NULL DEFAULT 0/i);
+    assert.match(sql, /next_attempt_at timestamptz NOT NULL DEFAULT now\(\)/i);
+    assert.match(sql, /lease_owner uuid/i);
+    assert.match(sql, /lease_expires_at timestamptz/i);
+    assert.match(sql, /sent_at timestamptz/i);
+    assert.doesNotMatch(sql, /email/i);
   });
 });

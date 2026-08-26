@@ -7,6 +7,7 @@ import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
+  claimDeletionCompletionDelivery,
   claimMagicLinkDelivery,
   clearExomemCheckoutTransaction,
   consumeTransferGrantRecord,
@@ -17,6 +18,7 @@ import {
   createTransferGrantRecord,
   findExomemSessionByDigest,
   markMagicLinkDeliverySent,
+  markDeletionCompletionDeliverySent,
   pruneStaleRateLimitBuckets,
   recordExomemCheckoutTransaction,
   redeemInviteAtomic,
@@ -1983,7 +1985,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          idempotency_key, fence_generation, lease_owner, lease_expires_at
        ) VALUES (
          $1, $2, $3, 'delete', 'running', 'destroyed',
-         'delete-test', 1, 'worker-delete', now() + interval '1 minute'
+         'confirmed-deletion-test', 1, 'worker-delete', now() + interval '1 minute'
        )`,
       [deletion, TENANT, CELL]
     );
@@ -2101,6 +2103,28 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       bootstrapSession,
     ]);
     assert.equal(await store.markCellState(deletion, "worker-delete", "deleted"), true);
+    const completion = await claimDeletionCompletionDelivery({
+      leaseOwner: "99999999-9999-4999-8999-999999999999",
+    });
+    assert.deepEqual(completion, {
+      deliveryId: completion?.deliveryId,
+      tenantId: TENANT,
+      emailNormalized: "owner@example.com",
+      attempts: 1,
+    });
+    assert.equal(
+      await markDeletionCompletionDeliverySent({
+        deliveryId: completion!.deliveryId,
+        leaseOwner: "99999999-9999-4999-8999-999999999999",
+      }),
+      true
+    );
+    assert.equal(
+      await claimDeletionCompletionDelivery({
+        leaseOwner: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      }),
+      null
+    );
     assert.deepEqual(
       (
         await pool.query(
