@@ -2,7 +2,8 @@ type EnvironmentSource = Record<string, string | undefined>;
 
 export type VercelMigrationTarget =
   | { action: "skip"; reason: "non-deployment-target" }
-  | { action: "migrate"; target: "production" | "staging" };
+  | { action: "migrate"; target: "production" }
+  | { action: "migrate"; target: "staging"; expectedSchema: string };
 
 export class VercelMigrationTargetError extends Error {
   readonly code:
@@ -76,5 +77,5 @@ export function resolveVercelMigrationTarget(env: EnvironmentSource): VercelMigr
   ) {
     throw new VercelMigrationTargetError("EXOMEM_STAGING_SCHEMA_MISMATCH");
   }
-  return { action: "migrate", target: "staging" };
+  return { action: "migrate", target: "staging", expectedSchema };
 }

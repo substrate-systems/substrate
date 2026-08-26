@@ -38,7 +38,11 @@ describe("Vercel migration target", () => {
         DATABASE_URL:
           "postgresql://user:secret@example.invalid/exomem_restore_verification?sslmode=require&options=-c%20search_path%3Dexomem_hosted_staging%2Cpublic",
       }),
-      { action: "migrate", target: "staging" }
+      {
+        action: "migrate",
+        target: "staging",
+        expectedSchema: "exomem_hosted_staging",
+      }
     );
   });
 

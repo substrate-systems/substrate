@@ -59,8 +59,12 @@ The Vercel build repeats pending migrations only when all staging guards agree:
 - the `DATABASE_URL` path and `options` select exactly that database and schema.
 
 A partial or mismatched staging contract fails before migration and prints no
-connection string. Production keeps its existing production-only migration
-behavior. Ordinary Preview builds still skip migrations.
+connection string. The runner also requires PostgreSQL `current_schema()` to be
+exactly `exomem_hosted_staging` before it creates or reads `schema_migrations`;
+the URL alone is not proof because PostgreSQL silently skips a missing schema
+in `search_path` and falls through to `public`. Production keeps its existing
+production-only migration behavior. Ordinary Preview builds still skip
+migrations.
 
 ## 2. Prepare Paddle Sandbox
 

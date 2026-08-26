@@ -34,6 +34,12 @@ The deployment migration runner SHALL apply pending additive migrations to stagi
 - **WHEN** any staging migration guard is missing or mismatched
 - **THEN** the build refuses to apply migrations and reports only the mismatched guard class
 
+#### Scenario: Named staging schema does not resolve
+
+- **WHEN** the staging URL names the expected schema but PostgreSQL resolves `current_schema()` to another schema because the expected schema is absent or inaccessible
+- **THEN** the build fails with a stable identifier-free error before creating or reading the migration ledger
+- **AND** it does not silently fall through to `public`
+
 #### Scenario: Normal preview builds
 
 - **WHEN** an ordinary feature branch is built without the explicit staging contract

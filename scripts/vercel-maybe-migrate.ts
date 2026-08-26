@@ -34,7 +34,10 @@ async function main() {
     return;
   }
   console.log(`[vercel-maybe-migrate] target=${target.target} — applying pending migrations`);
-  await applyMigrations({ dry: false });
+  await applyMigrations({
+    dry: false,
+    ...(target.target === "staging" ? { expectedSchema: target.expectedSchema } : {}),
+  });
 }
 
 main().catch((err) => {
