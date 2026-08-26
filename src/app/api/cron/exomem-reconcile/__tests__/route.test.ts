@@ -5,6 +5,7 @@ const ORIGINAL_SCHEDULER_SECRET = process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
 const SENTINEL = "cron-provider-credential-query-path-sentinel";
 let runCalls = 0;
 let paddleRunCalls = 0;
+let completionRunCalls = 0;
 let lifecycleGate: Promise<void> | null = null;
 let paddleGate: Promise<void> | null = null;
 let lifecycleShouldFail = false;
@@ -45,6 +46,14 @@ before(() => {
       },
     },
   });
+  mock.module("@/lib/exomem-hosted/deletion-completion-delivery", {
+    namedExports: {
+      drainDeletionCompletionDeliveries: async () => {
+        completionRunCalls += 1;
+        return { claimed: 1, sent: 1, retryScheduled: 0, failed: 0, lost: 0 };
+      },
+    },
+  });
 });
 
 after(() => mock.reset());
@@ -52,6 +61,7 @@ after(() => mock.reset());
 afterEach(() => {
   runCalls = 0;
   paddleRunCalls = 0;
+  completionRunCalls = 0;
   lifecycleGate = null;
   paddleGate = null;
   lifecycleShouldFail = false;
@@ -81,6 +91,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(response.status, 401);
     assert.equal(runCalls, 0);
     assert.equal(paddleRunCalls, 0);
+    assert.equal(completionRunCalls, 0);
   });
 
   it("runs a bounded authenticated pass and exposes counts only", async () => {
@@ -90,6 +101,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(response.status, 200);
     assert.equal(runCalls, 1);
     assert.equal(paddleRunCalls, 1);
+    assert.equal(completionRunCalls, 1);
     const text = await response.text();
     assert.equal(text.includes(SENTINEL), false);
     const body = JSON.parse(text) as { result: Record<string, number> };
@@ -107,6 +119,13 @@ describe("GET /api/cron/exomem-reconcile", () => {
         stale: 0,
         ignored: 0,
         failed: 1,
+      },
+      deletionCompletion: {
+        claimed: 1,
+        sent: 1,
+        retryScheduled: 0,
+        failed: 0,
+        lost: 0,
       },
     });
   });

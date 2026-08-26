@@ -1056,11 +1056,11 @@ export class SqlLifecycleStore implements LifecycleStore {
         WHERE profile_id = 'hosted-alpha-agent-v1'
       ) AS has_contract_catalog
     `;
-    if (
-      !operation.cellId &&
-      !operation.providerResultRef &&
-      catalogRows[0]?.has_contract_catalog === false
-    ) {
+    // A virgin v1 deployment has no target to snapshot. Once admitted, keep the
+    // same targetless bootstrap operation claimable across its later checkpoints;
+    // otherwise creating the local candidate makes the next claim quarantine it.
+    // Any populated contract catalog still takes the strict derivation path below.
+    if (catalogRows[0]?.has_contract_catalog === false) {
       return operation;
     }
     const derived = await this.#deriveLegacyTarget(operation, owner);
@@ -2749,7 +2749,10 @@ export class SqlLifecycleStore implements LifecycleStore {
       const { rows } = await tx`
       /* exomem:lifecycle-mark-cell-state */
       WITH owned AS (
-        SELECT operation.tenant_id, operation.cell_id
+        SELECT operation.tenant_id,
+               operation.cell_id,
+               operation.operation_type,
+               operation.idempotency_key
         FROM exomem_lifecycle_operations AS operation
         JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
         WHERE operation.id = ${operationId}
@@ -2821,6 +2824,17 @@ export class SqlLifecycleStore implements LifecycleStore {
         FROM affected_tenant
         WHERE tenant.id = affected_tenant.tenant_id
         RETURNING tenant.id
+      ),
+      deletion_completion_queued AS (
+        INSERT INTO exomem_deletion_completion_outbox (tenant_id)
+        SELECT tenant_updated.id
+        FROM tenant_updated
+        JOIN owned ON owned.tenant_id = tenant_updated.id
+        WHERE ${deleting}
+          AND owned.operation_type = 'delete'
+          AND owned.idempotency_key LIKE 'confirmed-deletion-%'
+        ON CONFLICT (tenant_id) DO NOTHING
+        RETURNING tenant_id
       ),
       exports_deleted AS (
         UPDATE exomem_exports AS export_row

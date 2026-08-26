@@ -14,6 +14,7 @@ import {
   exomemPublicFragmentUrl,
   parseExomemPublicBaseUrl,
 } from "./public-origin";
+import { EXOMEM_EMAIL_SENDER } from "./email-sender";
 import { EXOMEM_RATE_LIMIT_RETENTION_SECONDS } from "./rate-limit";
 import { decryptSecret, tokenDigest, type SecretEnvelope, type SensitiveSecret } from "./security";
 
@@ -139,7 +140,7 @@ export async function drainMagicLinkDeliveries(
       delivered = (
         await deps.sendEmail({
           to: record.emailNormalized,
-          senderName: "Exomem",
+          ...EXOMEM_EMAIL_SENDER,
           subject: rendered.subject,
           htmlContent: rendered.htmlContent,
           textContent: rendered.textContent,

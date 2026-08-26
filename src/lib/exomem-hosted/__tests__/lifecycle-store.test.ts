@@ -564,6 +564,83 @@ describe("SQL lifecycle operation store", () => {
     assert.equal(values.includes(exomemContractFixture0490.digest), true);
   });
 
+  it("keeps a virgin v1 bootstrap claimable through local and provider checkpoints", async () => {
+    const now = new Date();
+    const baseOperation = {
+      id: "018f2d91-7c42-7000-8000-000000000086",
+      tenant_id: "018f2d91-7c42-7000-8000-000000000071",
+      cell_id: "018f2d91-7c42-7000-8000-000000000087",
+      operation_type: "provision",
+      provisioner_wire_protocol: "exomem-cell-provisioner.v1",
+      state: "running",
+      idempotency_key: "virgin-v1-bootstrap",
+      fence_generation: 1,
+      checkpoint: "candidate-created",
+      request_id: "request-virgin-v1-bootstrap",
+      attempts: 1,
+      next_attempt_at: now,
+      lease_owner: "worker-virgin-v1-bootstrap",
+      lease_expires_at: new Date(now.valueOf() + 60_000),
+      error_code: null,
+      provider_result_ref: null,
+      input_reference_ciphertext: null,
+      input_reference_digest: null,
+      input_export_id: null,
+      export_release_reference_ciphertext: null,
+      export_release_reference_digest: null,
+      export_expires_at: null,
+      export_request_started: false,
+      input_source_cell_id: null,
+      input_archive_sha256: null,
+      input_manifest_sha256: null,
+      input_archive_size: null,
+      resume_after_operation: true,
+      expected_previous_cell_id: null,
+      target_candidate_id: null,
+      target_assignment_id: null,
+      target_assignment_generation: null,
+      target_source_release: null,
+      target_protocol_version: null,
+      target_gateway_contract_digest: null,
+      target_command_fingerprint: null,
+      target_schema_digest: null,
+      target_compatibility_digest: null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    for (const operation of [
+      baseOperation,
+      {
+        ...baseOperation,
+        checkpoint: "provider-converged",
+        provider_result_ref: "provider-result",
+      },
+    ]) {
+      let quarantined = false;
+      __setExomemSqlForTests(async (strings) => {
+        const query = strings.join("?");
+        if (query.includes("lifecycle-claim")) return { rows: [operation] };
+        if (query.includes("lifecycle-snapshot-legacy-target")) return { rows: [] };
+        if (query.includes("lifecycle-legacy-deployment-gap")) {
+          return { rows: [{ has_contract_catalog: false }] };
+        }
+        if (query.includes("lifecycle-quarantine-legacy-target")) quarantined = true;
+        return { rows: [] };
+      });
+
+      const claimed = await new SqlLifecycleStore().claim({
+        owner: "worker-virgin-v1-bootstrap",
+        leaseMs: 60_000,
+        maxAttempts: 6,
+      });
+
+      assert.equal(claimed?.id, operation.id);
+      assert.equal(claimed?.checkpoint, operation.checkpoint);
+      assert.equal(quarantined, false);
+    }
+  });
+
   it("derives a legacy routable v1 target against the exact 0.49.0 gateway contract", async () => {
     const now = new Date();
     const operation = {

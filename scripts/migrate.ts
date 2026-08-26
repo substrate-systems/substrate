@@ -29,6 +29,18 @@ const RELEASE_A_MIGRATION = "0040_backup_version_commit.sql";
 
 type Sql = Pick<ClientBase, "query">;
 
+export async function assertExpectedMigrationSchema(
+  sql: Sql,
+  expectedSchema: string
+): Promise<void> {
+  const { rows } = await sql.query<{ schema_name: string | null }>(
+    "SELECT current_schema() AS schema_name"
+  );
+  if (rows[0]?.schema_name !== expectedSchema) {
+    throw new Error("EXOMEM_STAGING_SCHEMA_UNAVAILABLE");
+  }
+}
+
 function getClient(databaseUrl?: string): Client {
   const url = databaseUrl ?? process.env.DATABASE_URL;
   if (!url) {
@@ -147,13 +159,21 @@ async function applyFile(sql: Sql, migrationsDir: string, filename: string): Pro
  * non-zero exit / etc.
  */
 export async function applyMigrations(
-  opts: { dry?: boolean; databaseUrl?: string; migrationsDir?: string } = {}
+  opts: {
+    dry?: boolean;
+    databaseUrl?: string;
+    migrationsDir?: string;
+    expectedSchema?: string;
+  } = {}
 ): Promise<void> {
   const { dry = false, migrationsDir = DEFAULT_MIGRATIONS_DIR } = opts;
   const client = getClient(opts.databaseUrl);
   await client.connect();
   let locked = false;
   try {
+    if (opts.expectedSchema) {
+      await assertExpectedMigrationSchema(client, opts.expectedSchema);
+    }
     // A session lock is held on this dedicated connection across the applied
     // version recheck and every per-file transaction. A crashed runner drops
     // the connection and releases it automatically.

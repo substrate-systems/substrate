@@ -421,6 +421,12 @@
   gap: 16px;
 }
 
+.subtleDivider {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
 .secondaryCopy {
   margin: 4px 0 0;
   color: var(--faint);

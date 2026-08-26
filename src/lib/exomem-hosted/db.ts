@@ -27,7 +27,9 @@ export type ExomemTransactionRunner = <T>(callback: (tx: ExomemSql) => Promise<T
 
 let transactionRunner: ExomemTransactionRunner | null = null;
 
-function taggedPgSql(client: PoolClient): ExomemSql {
+type PgQueryable = Pick<PoolClient, "query">;
+
+function taggedPgSql(client: PgQueryable): ExomemSql {
   return async (strings, ...values) => {
     let text = strings[0];
     for (let index = 0; index < values.length; index += 1) {
@@ -36,6 +38,16 @@ function taggedPgSql(client: PoolClient): ExomemSql {
     const result = await client.query(text, values);
     return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
   };
+}
+
+/** Neon HTTP does not apply PostgreSQL startup `options`, including `search_path`. */
+export function databaseUrlRequiresSessionSql(databaseUrl: string): boolean {
+  try {
+    const options = new URL(databaseUrl).searchParams.get("options");
+    return options !== null && /(?:^|\s)(?:-c\s*)?search_path\s*=/.test(options);
+  } catch {
+    return false;
+  }
 }
 
 export type ExomemTransaction = {
@@ -51,11 +63,16 @@ function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Exome
   if (!sqlClient) {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) throw new Error("DATABASE_URL is not set");
-    const client: NeonQueryFunction<false, true> = neon(databaseUrl, {
-      fullResults: true,
-    });
-    sqlClient = (queryStrings, ...queryValues) =>
-      client(queryStrings, ...queryValues) as Promise<ExomemSqlResult>;
+    if (databaseUrlRequiresSessionSql(databaseUrl)) {
+      transactionPool ??= new Pool({ connectionString: databaseUrl });
+      sqlClient = taggedPgSql(transactionPool);
+    } else {
+      const client: NeonQueryFunction<false, true> = neon(databaseUrl, {
+        fullResults: true,
+      });
+      sqlClient = (queryStrings, ...queryValues) =>
+        client(queryStrings, ...queryValues) as Promise<ExomemSqlResult>;
+    }
   }
   return sqlClient(strings, ...values);
 }
@@ -1213,6 +1230,118 @@ export async function releaseMagicLinkDelivery(input: {
       RETURNING token.id, released.state
     )
     SELECT state FROM token_updated
+  `;
+  const state = (rows[0] as { state?: string } | undefined)?.state;
+  if (state === "pending") return "retry";
+  if (state === "failed") return "failed";
+  return "lost";
+}
+
+export type ClaimedDeletionCompletionDelivery = {
+  deliveryId: string;
+  tenantId: string;
+  emailNormalized: string;
+  attempts: number;
+};
+
+export async function claimDeletionCompletionDelivery(input: {
+  leaseOwner: string;
+  leaseSeconds?: number;
+}): Promise<ClaimedDeletionCompletionDelivery | null> {
+  const leaseSeconds = input.leaseSeconds ?? 60;
+  const { rows } = await sql`
+    /* exomem:claim-deletion-completion-delivery */
+    WITH candidate AS (
+      SELECT outbox.id
+      FROM exomem_deletion_completion_outbox AS outbox
+      JOIN exomem_tenants AS tenant
+        ON tenant.id = outbox.tenant_id
+       AND tenant.status = 'deleted'
+       AND tenant.deleted_at IS NOT NULL
+      JOIN users ON users.id = tenant.owner_user_id AND users.deleted_at IS NULL
+      WHERE (
+          (outbox.state = 'pending' AND outbox.next_attempt_at <= now())
+          OR (outbox.state = 'leased' AND outbox.lease_expires_at <= now())
+        )
+      ORDER BY outbox.next_attempt_at, outbox.created_at
+      FOR UPDATE OF outbox SKIP LOCKED
+      LIMIT 1
+    ), claimed AS (
+      UPDATE exomem_deletion_completion_outbox AS outbox
+      SET state = 'leased',
+          attempts = outbox.attempts + 1,
+          lease_owner = ${input.leaseOwner}::uuid,
+          lease_expires_at = now() + (${leaseSeconds} * interval '1 second'),
+          updated_at = now()
+      FROM candidate
+      WHERE outbox.id = candidate.id
+      RETURNING outbox.id, outbox.tenant_id, outbox.attempts
+    )
+    SELECT claimed.id AS delivery_id,
+           claimed.tenant_id,
+           users.email::text AS email_normalized,
+           claimed.attempts
+    FROM claimed
+    JOIN exomem_tenants AS tenant ON tenant.id = claimed.tenant_id
+    JOIN users ON users.id = tenant.owner_user_id
+  `;
+  const row = rows[0] as
+    | {
+        delivery_id: string;
+        tenant_id: string;
+        email_normalized: string;
+        attempts: number;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    deliveryId: row.delivery_id,
+    tenantId: row.tenant_id,
+    emailNormalized: row.email_normalized,
+    attempts: Number(row.attempts),
+  };
+}
+
+export async function markDeletionCompletionDeliverySent(input: {
+  deliveryId: string;
+  leaseOwner: string;
+}): Promise<boolean> {
+  const { rows } = await sql`
+    /* exomem:mark-deletion-completion-delivery-sent */
+    UPDATE exomem_deletion_completion_outbox
+    SET state = 'sent',
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        last_error_code = NULL,
+        sent_at = now(),
+        updated_at = now()
+    WHERE id = ${input.deliveryId}
+      AND state = 'leased'
+      AND lease_owner = ${input.leaseOwner}::uuid
+      AND lease_expires_at > now()
+    RETURNING id
+  `;
+  return rows.length === 1;
+}
+
+export async function releaseDeletionCompletionDelivery(input: {
+  deliveryId: string;
+  leaseOwner: string;
+  errorCode: string;
+}): Promise<"retry" | "failed" | "lost"> {
+  const { rows } = await sql`
+    /* exomem:release-deletion-completion-delivery */
+    UPDATE exomem_deletion_completion_outbox
+    SET state = CASE WHEN attempts >= 5 THEN 'failed' ELSE 'pending' END,
+        next_attempt_at = now() + (LEAST(attempts * 30, 120) * interval '1 second'),
+        lease_owner = NULL,
+        lease_expires_at = NULL,
+        last_error_code = ${input.errorCode},
+        updated_at = now()
+    WHERE id = ${input.deliveryId}
+      AND state = 'leased'
+      AND lease_owner = ${input.leaseOwner}::uuid
+    RETURNING state
   `;
   const state = (rows[0] as { state?: string } | undefined)?.state;
   if (state === "pending") return "retry";

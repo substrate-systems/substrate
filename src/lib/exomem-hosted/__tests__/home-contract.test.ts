@@ -206,6 +206,33 @@ describe("private Exomem Home contract", () => {
     assert.match(nonReady, /Check again/);
   });
 
+  it("lets only the authenticated owner request two-step cleanup while awaiting payment", () => {
+    const home = source("src/app/exomem/home/home-client.tsx");
+    const requestRoute = source("src/app/api/exomem/deletion/request/route.ts");
+    const confirmRoute = source("src/app/api/exomem/deletion/confirm/route.ts");
+    const deletePage = source("src/app/exomem/delete/delete-client.tsx");
+    const start = home.indexOf('if (lifecycle.state === "awaiting_payment")');
+    const end = home.indexOf("\n    return (", start + 1);
+    const awaitingPayment = home.slice(start, end);
+
+    assert.ok(start >= 0 && end > start, "the awaiting-payment branch must remain explicit");
+    assert.match(awaitingPayment, /onClick=\{requestDeletion\}/);
+    assert.match(awaitingPayment, /Delete your data/);
+    assert.match(awaitingPayment, /We(?:&apos;|’)ll email you to confirm first/);
+    assert.match(awaitingPayment, /styles\.subtleDivider/);
+    assert.match(awaitingPayment, /className=\{styles\.quietButton\}/);
+    assert.doesNotMatch(awaitingPayment, /styles\.dangerButton/);
+    assert.match(awaitingPayment, /deletionRequested \? "Check your email" : "Delete your data"/);
+    assert.match(requestRoute, /resolveExomemSession\(request\)/);
+    assert.match(requestRoute, /validateMutationRequest\(request, session\)/);
+    assert.match(confirmRoute, /resolveExomemSession\(request\)/);
+    assert.match(confirmRoute, /validateMutationRequest\(request, session\)/);
+    assert.match(deletePage, /onClick=\{confirm\}/);
+    assert.match(deletePage, /Permanently delete my Exomem/);
+    assert.match(deletePage, /You can close this page/);
+    assert.match(deletePage, /email you when deletion is complete/);
+  });
+
   it("does not claim sign-out succeeded when revocation fails", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
     const signOut = home.match(/async function signOut\(\)[\s\S]*?\n  }/)?.[0] ?? "";

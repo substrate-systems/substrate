@@ -519,6 +519,22 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
               Subscribe and prepare Exomem
             </button>
           </div>
+          <div className={`${styles.secondaryRow} ${styles.subtleDivider}`}>
+            <div>
+              <strong>Delete your data</strong>
+              <p className={styles.secondaryCopy}>
+                Permanently removes this Exomem. We&apos;ll email you to confirm first.
+              </p>
+            </div>
+            <button
+              className={styles.quietButton}
+              type="button"
+              onClick={requestDeletion}
+              disabled={deletionRequested}
+            >
+              {deletionRequested ? "Check your email" : "Delete your data"}
+            </button>
+          </div>
           <p className={`${styles.status} ${noticeError ? styles.error : ""}`} aria-live="polite">
             {notice}
           </p>

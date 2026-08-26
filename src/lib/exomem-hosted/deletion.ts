@@ -8,6 +8,7 @@ import {
   markAccessTokenDeliveryFailed,
 } from "./db";
 import { exomemErrors } from "./errors";
+import { EXOMEM_EMAIL_SENDER } from "./email-sender";
 import {
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,
@@ -83,7 +84,7 @@ export async function requestDeletionConfirmation(
   try {
     delivery = await deps.sendEmail({
       to: created.emailNormalized,
-      senderName: "Exomem",
+      ...EXOMEM_EMAIL_SENDER,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,

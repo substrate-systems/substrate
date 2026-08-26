@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
+import { EXOMEM_EMAIL_SENDER } from "./email-sender";
 import { executeExomemSql } from "./db";
 import { ExomemHostedError } from "./errors";
 
@@ -316,7 +317,7 @@ export async function notifyAlertTransition(
   try {
     const result = await sendTransactionalEmail({
       to,
-      senderName: "Exomem",
+      ...EXOMEM_EMAIL_SENDER,
       subject,
       htmlContent,
       textContent,
