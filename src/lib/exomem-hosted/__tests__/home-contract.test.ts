@@ -217,7 +217,12 @@ describe("private Exomem Home contract", () => {
 
     assert.ok(start >= 0 && end > start, "the awaiting-payment branch must remain explicit");
     assert.match(awaitingPayment, /onClick=\{requestDeletion\}/);
-    assert.match(awaitingPayment, /Nothing is deleted until you confirm/i);
+    assert.match(awaitingPayment, /Delete your data/);
+    assert.match(awaitingPayment, /We(?:&apos;|’)ll email you to confirm first/);
+    assert.match(awaitingPayment, /styles\.subtleDivider/);
+    assert.match(awaitingPayment, /className=\{styles\.quietButton\}/);
+    assert.doesNotMatch(awaitingPayment, /styles\.dangerButton/);
+    assert.match(awaitingPayment, /deletionRequested \? "Check your email" : "Delete your data"/);
     assert.match(requestRoute, /resolveExomemSession\(request\)/);
     assert.match(requestRoute, /validateMutationRequest\(request, session\)/);
     assert.match(confirmRoute, /resolveExomemSession\(request\)/);
