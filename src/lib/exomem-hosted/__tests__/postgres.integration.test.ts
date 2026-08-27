@@ -178,6 +178,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       sourceState?: "waiting" | "succeeded" | "failed_terminal";
       operationType?: "provision" | "restore";
       liveLease?: boolean;
+      candidateProfile?: "hosted-alpha-agent-v1" | "hosted-alpha-agent-v4";
     } = {}
   ) {
     const userId = randomUUID();
@@ -188,6 +189,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const sourceOperationId = randomUUID();
     const digest = "a".repeat(64);
     const assignmentState = input.assignmentState ?? "expired";
+    const candidateProfile = input.candidateProfile ?? "hosted-alpha-agent-v4";
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
       userId,
       `recovery-${userId}@example.test`,
@@ -213,9 +215,9 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', 'test',
+       ) VALUES ($1, 'pending', $3, 'https://agent.example.test', 'test',
                  $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
-      [candidateId, digest]
+      [candidateId, digest, candidateProfile]
     );
     await pool.query(
       `INSERT INTO exomem_agent_contract_rollout_assignments (
@@ -274,7 +276,15 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         Buffer.alloc(32, 0x7b),
       ]
     );
-    return { userId, tenantId, cellId, candidateId, assignmentId, sourceOperationId };
+    return {
+      userId,
+      tenantId,
+      cellId,
+      candidateId,
+      assignmentId,
+      sourceOperationId,
+      candidateProfile,
+    };
   }
 
   async function seedBoundExpiredReviewerCleanup(
@@ -295,8 +305,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v4', 'test', '1', $2, $2, $2, true)`,
-      [seed.cellId, "a".repeat(64)]
+       ) VALUES ($1, $3, 'test', '1', $2, $2, $2, true)`,
+      [seed.cellId, "a".repeat(64), seed.candidateProfile]
     );
     await pool.query(
       `UPDATE exomem_tenants
@@ -3886,6 +3896,29 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       [seed.tenantId]
     );
     assert.equal(deleteCount.rows[0]?.count, "1");
+  });
+
+  it("recovers a retained v1 reviewer after the current cohort advances to v4", async () => {
+    const seed = await seedBoundExpiredReviewerCleanup({
+      candidateProfile: "hosted-alpha-agent-v1",
+    });
+
+    assert.deepEqual(
+      await preflightRecoverExpiredReviewerCleanup({
+        sourceOperationId: seed.sourceOperationId,
+        expectedFence: 1,
+      }),
+      { eligible: true }
+    );
+
+    const recovery = await recoverExpiredReviewerCleanup({
+      sourceOperationId: seed.sourceOperationId,
+      expectedFence: 1,
+      requestId: randomUUID(),
+      operatorPrincipalDigest: Buffer.alloc(32, 0x71),
+    });
+    assert.equal(recovery?.outcome, "enqueued");
+    assert.ok(recovery?.operationId);
   });
 
   it("refuses every ordinary or ambiguous succeeded bound state without mutation", async () => {

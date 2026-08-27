@@ -125,6 +125,11 @@ describe("hosted operator controls", () => {
     assert.match(mutation, /cell\.readiness_code = 'CELL_READY'/i);
     assert.match(mutation, /cell\.provider_ref IS NOT NULL/i);
     assert.match(mutation, /exomem_routable_cell_contracts/i);
+    assert.match(
+      mutation,
+      /JOIN exomem_agent_contract_candidates AS candidate[\s\S]*candidate\.id = source\.target_candidate_id/i
+    );
+    assert.match(mutation, /route\.profile_id = source\.target_profile_id/i);
     assert.match(mutation, /route\.routable = true/i);
     assert.match(mutation, /lease_expires_at IS NULL OR source\.lease_expires_at <= now\(\)/i);
     assert.match(mutation, /marketplace_reviewer_purpose = true/i);
@@ -193,6 +198,11 @@ describe("hosted operator controls", () => {
     assert.match(query, /cell\.readiness_code = 'CELL_READY'/i);
     assert.match(query, /cell\.provider_ref IS NOT NULL/i);
     assert.match(query, /exomem_routable_cell_contracts/i);
+    assert.match(
+      query,
+      /JOIN exomem_agent_contract_candidates AS candidate[\s\S]*candidate\.id = source\.target_candidate_id/i
+    );
+    assert.match(query, /route\.profile_id = candidate\.profile_id/i);
     assert.match(query, /assignment\.state = 'failed' AND assignment\.ended_at IS NOT NULL/i);
     assert.doesNotMatch(
       query,
