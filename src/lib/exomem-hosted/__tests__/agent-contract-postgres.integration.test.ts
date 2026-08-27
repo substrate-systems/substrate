@@ -12,7 +12,7 @@ import {
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
-import { exomemContractFixture0572 } from "../gateway-contract-0-57-2";
+import { exomemContractFixture0631 } from "../gateway-contract-0-63-1";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
@@ -186,7 +186,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        SELECT cell.tenant_id
        FROM exomem_routable_cell_contracts AS route
        JOIN exomem_cells AS cell ON cell.id = route.cell_id
-       WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+       WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable
      )
      INSERT INTO exomem_agent_contract_rollout_assignments (
        tenant_id, candidate_id, generation, state, source_release, protocol_version,
@@ -205,7 +205,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
        WHERE assignment.tenant_id = routed_cells.tenant_id AND assignment.state IN ('preparing', 'active')
      )`,
-    [candidateId, exomemContractFixture0572.digest, sha("9")]
+    [candidateId, exomemContractFixture0631.digest, sha("9")]
   );
   await pool!.query(
     `WITH target AS (
@@ -216,7 +216,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        SELECT cell.id, cell.tenant_id
        FROM exomem_routable_cell_contracts AS route
        JOIN exomem_cells AS cell ON cell.id = route.cell_id
-       WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+       WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable
      )
      UPDATE exomem_cells AS cell
      SET lifecycle_state = 'active', routing_state = 'bound', readiness_code = 'CELL_READY',
@@ -226,7 +226,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
          observed_compatibility_digest = target.compatibility_digest
      FROM bound_cells, target
      WHERE cell.id = bound_cells.id`,
-    [candidateId, exomemContractFixture0572.digest]
+    [candidateId, exomemContractFixture0631.digest]
   );
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
@@ -249,8 +249,8 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
      JOIN exomem_agent_contract_rollout_assignments AS assignment
        ON assignment.tenant_id = cell.tenant_id AND assignment.candidate_id = target.id
       AND assignment.state = 'active' AND assignment.expires_at > now()
-     WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0572.digest]
+     WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
+    [candidateId, exomemContractFixture0631.digest]
   );
 }
 
@@ -730,7 +730,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     await pool!.query(
       `UPDATE exomem_agent_contract_profile_authority
        SET observed_at = now() - interval '6 minutes'
-       WHERE profile_id = 'hosted-alpha-agent-v1'`
+       WHERE profile_id = 'hosted-alpha-agent-v4'`
     );
     assert.equal(
       await promoteExomemHostedCohort({
@@ -856,7 +856,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
          CROSS JOIN LATERAL (
            SELECT * FROM exomem_cells ORDER BY id LIMIT 1
          ) AS cell
-         WHERE authority.profile_id = 'hosted-alpha-agent-v1'`
+         WHERE authority.profile_id = 'hosted-alpha-agent-v4'`
       )
     ).rows;
     assert.equal(
@@ -882,7 +882,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
            CROSS JOIN LATERAL (
              SELECT * FROM exomem_cells ORDER BY id LIMIT 1
            ) AS cell
-           WHERE authority.profile_id = 'hosted-alpha-agent-v1'`
+           WHERE authority.profile_id = 'hosted-alpha-agent-v4'`
         )
       ).rows,
       authorityBeforeLateFailure
@@ -905,7 +905,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         `SELECT route.cell_id::text AS cell_id
          FROM exomem_routable_cell_contracts AS route
          JOIN exomem_lifecycle_operations AS operation ON operation.cell_id = route.cell_id
-         WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable
+         WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable
            AND operation.target_candidate_id = $1::uuid
            AND operation.state = 'succeeded' AND operation.checkpoint = 'bound'
            AND operation.provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
@@ -924,7 +924,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
          JOIN exomem_routable_cell_contracts AS route
            ON route.profile_id = authority.profile_id AND route.routable
          JOIN exomem_cells AS cell ON cell.id = route.cell_id
-         WHERE authority.profile_id = 'hosted-alpha-agent-v1'
+         WHERE authority.profile_id = 'hosted-alpha-agent-v4'
          ORDER BY cell.id`
       )
     ).rows;
@@ -969,7 +969,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
            JOIN exomem_routable_cell_contracts AS route
              ON route.profile_id = authority.profile_id AND route.routable
            JOIN exomem_cells AS cell ON cell.id = route.cell_id
-           WHERE authority.profile_id = 'hosted-alpha-agent-v1'
+           WHERE authority.profile_id = 'hosted-alpha-agent-v4'
            ORDER BY cell.id`
         )
       ).rows,
@@ -1174,7 +1174,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     });
   });
 
-  it("keeps ordinary discovery on live A while exact reviewer bearer lineage selects pending B", async () => {
+  it("keeps ordinary discovery on live v4 while retained v1 reviewer lineage remains ineligible", async () => {
     const userId = randomUUID();
     const tenantId = randomUUID();
     const cellId = randomUUID();
@@ -1300,7 +1300,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       (await getExomemAgentContractForOAuthAccess({ tenantId: ordinaryTenantId }))?.sourceRelease,
       exomemHostedContractFixture.sourceRelease
     );
-    assert.equal((await getExomemAgentContractForOAuthAccess(lineage))?.sourceRelease, "0.35.0");
+    assert.equal(await getExomemAgentContractForOAuthAccess(lineage), null);
     assert.equal(
       await getExomemAgentContractForOAuthAccess({ ...lineage, assignmentGeneration: BigInt(8) }),
       null
@@ -1354,14 +1354,14 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v1', '2026.07.30', '0', $2, $3, $4, true)`,
+       ) VALUES ($1, 'hosted-alpha-agent-v4', '2026.07.30', '0', $2, $3, $4, true)`,
       [priorCellId, commandFingerprint, schemaDigest, compatibilityDigest]
     );
     await pool!.query(
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test',
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test',
                  '2026.07.30', $2, $3, $4, '0', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [candidateId, commandFingerprint, schemaDigest, compatibilityDigest]
     );
@@ -1460,9 +1460,9 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
            JOIN exomem_cells AS prior ON prior.id = $2::uuid
            JOIN exomem_cells AS replacement ON replacement.id = $3::uuid
            JOIN exomem_routable_cell_contracts AS prior_observation
-             ON prior_observation.cell_id = prior.id AND prior_observation.profile_id = 'hosted-alpha-agent-v1'
+             ON prior_observation.cell_id = prior.id AND prior_observation.profile_id = 'hosted-alpha-agent-v4'
            LEFT JOIN exomem_routable_cell_contracts AS replacement_observation
-             ON replacement_observation.cell_id = replacement.id AND replacement_observation.profile_id = 'hosted-alpha-agent-v1'
+             ON replacement_observation.cell_id = replacement.id AND replacement_observation.profile_id = 'hosted-alpha-agent-v4'
            JOIN exomem_oauth_grants AS grant_row ON grant_row.id = $4::uuid
            JOIN exomem_oauth_token_families AS family ON family.id = $5::uuid
            WHERE assignment.id = $1::uuid`,
@@ -1508,9 +1508,9 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
            JOIN exomem_cells AS prior ON prior.id = $3::uuid
            JOIN exomem_cells AS replacement ON replacement.id = $2::uuid
            JOIN exomem_routable_cell_contracts AS prior_observation
-             ON prior_observation.cell_id = prior.id AND prior_observation.profile_id = 'hosted-alpha-agent-v1'
+             ON prior_observation.cell_id = prior.id AND prior_observation.profile_id = 'hosted-alpha-agent-v4'
            JOIN exomem_routable_cell_contracts AS replacement_observation
-             ON replacement_observation.cell_id = replacement.id AND replacement_observation.profile_id = 'hosted-alpha-agent-v1'
+             ON replacement_observation.cell_id = replacement.id AND replacement_observation.profile_id = 'hosted-alpha-agent-v4'
            JOIN exomem_oauth_grants AS grant_row ON grant_row.id = $4::uuid
            JOIN exomem_oauth_token_families AS family ON family.id = $5::uuid
            WHERE assignment.id = $1::uuid`,
@@ -1705,7 +1705,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           candidate.command_fingerprint,
           candidate.schema_digest,
           candidate.compatibility_digest,
-          exomemContractFixture0572.digest,
+          exomemContractFixture0631.digest,
           sha("9"),
         ]
       );
@@ -1713,7 +1713,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         `INSERT INTO exomem_routable_cell_contracts (
            cell_id, profile_id, source_release, protocol_version, command_fingerprint,
            contract_digest, compatibility_digest, routable
-         ) VALUES ($1, 'hosted-alpha-agent-v1', $2, $3, $4, $5, $6, true)`,
+         ) VALUES ($1, 'hosted-alpha-agent-v4', $2, $3, $4, $5, $6, true)`,
         [
           cell.rows[0]!.id,
           candidate.source_release,
@@ -1741,7 +1741,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
           assignment.rows[0]!.generation,
           candidate.source_release,
           candidate.protocol_version,
-          exomemContractFixture0572.digest,
+          exomemContractFixture0631.digest,
           candidate.command_fingerprint,
           candidate.schema_digest,
           candidate.compatibility_digest,
@@ -1773,7 +1773,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       )
     ).rows;
     const rejectedCellId = routes[1]!.cell_id;
-    const expected = routableSetDigest("hosted-alpha-agent-v1", routes);
+    const expected = routableSetDigest("hosted-alpha-agent-v4", routes);
     const originalCell = (
       await pool!.query<{ service_credential_digest: Buffer; tenant_id: string }>(
         "SELECT service_credential_digest, tenant_id::text AS tenant_id FROM exomem_cells WHERE id = $1::uuid",

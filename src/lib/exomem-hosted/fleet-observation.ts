@@ -1,6 +1,6 @@
 import { withExomemTransaction, type ExomemSql } from "./db";
+import { EXOMEM_HOSTED_PROFILE as PROFILE } from "./hosted-profile";
 
-const PROFILE = "hosted-alpha-agent-v1";
 const MAX_AUTHORITY_ROWS = 4096;
 
 export type HostedRuntimeIdentity = {

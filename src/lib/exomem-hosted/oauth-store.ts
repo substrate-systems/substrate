@@ -1,6 +1,7 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
 import { hasLiveHostedCohortTarget } from "./hosted-cohort-target";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import {
   CIMD_DEFAULT_TTL_SECONDS,
@@ -112,7 +113,7 @@ export async function resolveApprovedOAuthClient(
            AND stage.expires_at > now()
           JOIN exomem_agent_contract_candidates AS candidate
             ON candidate.id = credential.candidate_id
-           AND candidate.profile_id = 'hosted-alpha-agent-v1'
+           AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
            AND candidate.state IN ('pending', 'live')
           WHERE credential.credential_kind = 'internal_canary'
             AND credential.oauth_client_id = client.id
@@ -655,7 +656,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
                )
               JOIN exomem_agent_contract_candidates AS candidate
                 ON candidate.id = credential.candidate_id
-               AND candidate.profile_id = 'hosted-alpha-agent-v1'
+               AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
               WHERE assignment.id = credential.assignment_id
                 AND assignment.tenant_id = credential.tenant_id
                 AND assignment.candidate_id = credential.candidate_id
@@ -897,7 +898,7 @@ async function admitReviewerOAuthBootstrapInTransaction(
     FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
     JOIN exomem_agent_contract_candidates AS candidate
       ON candidate.id = authority.candidate_id
-     AND candidate.profile_id = 'hosted-alpha-agent-v1'
+     AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
      AND candidate.state = 'pending'
      AND candidate.source_release = authority.candidate_source_release
      AND candidate.protocol_version = authority.candidate_protocol_version
@@ -1357,7 +1358,7 @@ export async function admitFirstOAuthInviteAtomic(input: {
              AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
              AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
              AND catalog_cell.observed_schema_digest = candidate.schema_digest
-            WHERE candidate.profile_id = 'hosted-alpha-agent-v1'
+            WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
               AND candidate.state = 'live'
             GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
                      candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
@@ -1578,7 +1579,7 @@ export async function findActiveOAuthAccessToken(
              AND stage.platform = client.client_platform
              AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
             JOIN exomem_agent_contract_candidates AS candidate
-              ON candidate.id = token.candidate_id AND candidate.profile_id = 'hosted-alpha-agent-v1'
+              ON candidate.id = token.candidate_id AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
             WHERE assignment.id = token.assignment_id
               AND assignment.tenant_id = oauth_grant.tenant_id
               AND assignment.candidate_id = token.candidate_id
@@ -1740,7 +1741,7 @@ export async function findMcpOAuthAccessToken(
              AND stage.platform = client.client_platform
              AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
             JOIN exomem_agent_contract_candidates AS candidate
-              ON candidate.id = token.candidate_id AND candidate.profile_id = 'hosted-alpha-agent-v1'
+              ON candidate.id = token.candidate_id AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
             WHERE assignment.id = token.assignment_id
               AND assignment.tenant_id = oauth_grant.tenant_id
               AND assignment.candidate_id = token.candidate_id
@@ -2092,7 +2093,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
                AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
               JOIN exomem_agent_contract_candidates AS candidate
                 ON candidate.id = code.candidate_id
-               AND candidate.profile_id = 'hosted-alpha-agent-v1'
+               AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
               WHERE assignment.id = code.assignment_id
                 AND assignment.tenant_id = oauth_grant.tenant_id
                 AND assignment.candidate_id = code.candidate_id
@@ -2323,7 +2324,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
              AND stage.platform = client.client_platform
              AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
             JOIN exomem_agent_contract_candidates AS candidate
-              ON candidate.id = credential.candidate_id AND candidate.profile_id = 'hosted-alpha-agent-v1'
+              ON candidate.id = credential.candidate_id AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
             WHERE assignment.id = credential.assignment_id
               AND assignment.tenant_id = oauth_grant.tenant_id
               AND assignment.candidate_id = credential.candidate_id

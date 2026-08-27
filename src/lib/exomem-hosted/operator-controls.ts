@@ -1,5 +1,6 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 import {
   revokeOAuthAccountForOwnerTenantAtomic,
   revokeOAuthTokenFamilyForOwner,
@@ -13,7 +14,7 @@ import {
   type CimdFetchedMetadata,
   type OperatorOAuthClientRegistration,
 } from "./oauth-client-admission";
-import { exomemContractFixture0572 } from "./gateway-contract-0-57-2";
+import { exomemContractFixture0631 } from "./gateway-contract-0-63-1";
 
 export type OperatorOAuthClient = {
   id: string;
@@ -137,7 +138,7 @@ function divergedCellReleaseEligibility(tx: ExomemSql, input: DivergedCellReleas
     JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
     JOIN exomem_agent_contract_candidates AS candidate
       ON candidate.id = ${input.candidateId}::uuid
-     AND candidate.profile_id = 'hosted-alpha-agent-v1'
+     AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
      AND candidate.state = 'pending'
      AND candidate.protocol_version = cell.protocol_version
      AND candidate.source_release <> cell.release_version
@@ -218,7 +219,7 @@ export async function preflightRecoverTerminalReviewerDelete(
          OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL))
       JOIN exomem_agent_contract_candidates AS candidate
         ON candidate.id = source.target_candidate_id
-       AND candidate.profile_id = 'hosted-alpha-agent-v1'
+       AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND candidate.source_release = source.target_source_release
        AND candidate.protocol_version = source.target_protocol_version
        AND candidate.command_fingerprint = source.target_command_fingerprint
@@ -231,7 +232,7 @@ export async function preflightRecoverTerminalReviewerDelete(
        AND bootstrap.outcome_assignment_generation = assignment.generation
        AND bootstrap.outcome_operation_id = source.id
        AND bootstrap.candidate_id = source.target_candidate_id
-       AND bootstrap.candidate_profile_id = 'hosted-alpha-agent-v1'
+       AND bootstrap.candidate_profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND bootstrap.candidate_contract_digest = candidate.schema_digest
        AND bootstrap.candidate_source_release = source.target_source_release
        AND bootstrap.candidate_protocol_version = source.target_protocol_version
@@ -354,7 +355,7 @@ export async function recoverTerminalReviewerDelete(
            OR (assignment.state = 'failed' AND assignment.ended_at IS NOT NULL))
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.id = source.target_candidate_id
-         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND candidate.source_release = source.target_source_release
          AND candidate.protocol_version = source.target_protocol_version
          AND candidate.command_fingerprint = source.target_command_fingerprint
@@ -367,7 +368,7 @@ export async function recoverTerminalReviewerDelete(
          AND bootstrap.outcome_assignment_generation = assignment.generation
          AND bootstrap.outcome_operation_id = source.id
          AND bootstrap.candidate_id = source.target_candidate_id
-         AND bootstrap.candidate_profile_id = 'hosted-alpha-agent-v1'
+         AND bootstrap.candidate_profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND bootstrap.candidate_contract_digest = candidate.schema_digest
          AND bootstrap.candidate_source_release = source.target_source_release
          AND bootstrap.candidate_protocol_version = source.target_protocol_version
@@ -518,7 +519,7 @@ export async function preflightRecoverExpiredReviewerCleanup(
             AND EXISTS (
               SELECT 1 FROM exomem_routable_cell_contracts AS route
               WHERE route.cell_id = cell.id
-                AND route.profile_id = 'hosted-alpha-agent-v1'
+                AND route.profile_id = ${EXOMEM_HOSTED_PROFILE}
                 AND route.source_release = source.target_source_release
                 AND route.protocol_version = source.target_protocol_version
                 AND route.command_fingerprint = source.target_command_fingerprint
@@ -690,7 +691,7 @@ export async function recoverExpiredReviewerCleanup(
               AND EXISTS (
                 SELECT 1 FROM exomem_routable_cell_contracts AS route
                 WHERE route.cell_id = cell.id
-                  AND route.profile_id = 'hosted-alpha-agent-v1'
+                  AND route.profile_id = ${EXOMEM_HOSTED_PROFILE}
                   AND route.source_release = source.target_source_release
                   AND route.protocol_version = source.target_protocol_version
                   AND route.command_fingerprint = source.target_command_fingerprint
@@ -1116,7 +1117,7 @@ export async function correctDivergedCellRelease(
         FROM exomem_cells AS cell
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.id = ${input.candidateId}::uuid
-         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
         JOIN exomem_agent_contract_rollout_assignments AS assignment
           ON assignment.tenant_id = cell.tenant_id
          AND assignment.candidate_id = candidate.id
@@ -1139,7 +1140,7 @@ export async function correctDivergedCellRelease(
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.id = ${input.candidateId}::uuid
-         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND candidate.state = 'pending'
          AND candidate.protocol_version = cell.protocol_version
          AND candidate.source_release <> cell.release_version
@@ -1199,7 +1200,7 @@ export async function correctDivergedCellRelease(
             observed_at = now()
         FROM eligible
         WHERE observation.cell_id = eligible.cell_id
-          AND observation.profile_id = 'hosted-alpha-agent-v1'
+          AND observation.profile_id = ${EXOMEM_HOSTED_PROFILE}
         RETURNING observation.cell_id
       ), installed_assignment AS (
         INSERT INTO exomem_agent_contract_rollout_assignments (
@@ -1390,9 +1391,9 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
         FROM exomem_staged_client_releases AS stage
         JOIN exomem_agent_contract_candidates AS candidate
          ON candidate.id = stage.candidate_id
-         AND candidate.profile_id = 'hosted-alpha-agent-v1'
-         AND candidate.source_release = ${exomemContractFixture0572.release}
-         AND candidate.protocol_version = ${exomemContractFixture0572.protocol}
+         AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
+         AND candidate.source_release = ${exomemContractFixture0631.release}
+         AND candidate.protocol_version = ${exomemContractFixture0631.protocol}
          AND candidate.state = 'pending'
         WHERE stage.id = ${input.stagedClientReleaseId}::uuid
          AND stage.state = 'staged' AND stage.expires_at > now()
@@ -1447,7 +1448,7 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
           operator_principal_digest, expires_at
         )
         SELECT 'active', invite.id, stage.candidate_id, stage.profile_id, stage.contract_sha256,
-               stage.source_release, stage.protocol_version, ${exomemContractFixture0572.digest},
+               stage.source_release, stage.protocol_version, ${exomemContractFixture0631.digest},
                stage.command_fingerprint, stage.contract_sha256, stage.compatibility_digest,
                stage.id, stage.platform, stage.oauth_client_config_sha256, client.id,
                client.authority_version, client.oauth_client_config_sha256, client.redirect_uris_digest,
@@ -1587,7 +1588,7 @@ export async function registerOperatorOAuthClient(
           FROM exomem_staged_client_releases AS stage
           JOIN exomem_agent_contract_candidates AS candidate
             ON candidate.id = stage.candidate_id
-           AND candidate.profile_id = 'hosted-alpha-agent-v1'
+           AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
            AND candidate.state IN ('pending', 'live')
           WHERE stage.id = ${stagedClientReleaseId}::uuid
             AND stage.platform = ${registration.platform}
@@ -1644,7 +1645,7 @@ export async function registerOperatorOAuthClient(
         FROM exomem_staged_client_releases AS stage
         JOIN exomem_agent_contract_candidates AS candidate
           ON candidate.id = stage.candidate_id
-         AND candidate.profile_id = 'hosted-alpha-agent-v1'
+         AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
          AND candidate.state IN ('pending', 'live')
         WHERE stage.id = ${stagedClientReleaseId ?? "00000000-0000-0000-0000-000000000000"}::uuid
           AND stage.platform = ${registration.platform}

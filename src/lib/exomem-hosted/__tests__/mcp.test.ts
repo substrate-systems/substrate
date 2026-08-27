@@ -24,7 +24,7 @@ const ACCESS: ActiveOAuthAccessToken = {
 };
 
 const LIVE = {
-  profile: "hosted-alpha-agent-v1" as const,
+  profile: exomemHostedContractFixture.compatibility.profile,
   endpoint: "https://substratesystems.io/api/exomem/mcp/v1" as const,
   sourceRelease: exomemHostedContractFixture.sourceRelease,
   commandFingerprint: exomemHostedContractFixture.compatibility.command_surface_sha256,
@@ -480,7 +480,7 @@ describe("Hosted MCP boundary", () => {
     assert.equal(response.status, 200);
     assert.equal(calls, 0);
     const payload = (await response.json()) as { result?: { tools?: Array<{ name: string }> } };
-    assert.equal(payload.result?.tools?.length, 13);
+    assert.equal(payload.result?.tools?.length, 25);
     assert.equal(
       payload.result?.tools?.find((tool) => tool.name === "bootstrap")?.name,
       "bootstrap"
@@ -1335,8 +1335,8 @@ describe("Hosted MCP boundary", () => {
         assert.ok(result.structuredContent, tool.name);
       }
       await transport.close();
-      assert.equal(telemetry.length, 17);
-      assert.equal(telemetry.filter((event) => event.requestClass === "tool").length, 13);
+      assert.equal(telemetry.length, 29);
+      assert.equal(telemetry.filter((event) => event.requestClass === "tool").length, 25);
       assert.equal(telemetry.filter((event) => event.requestClass === "request").length, 4);
       const serialized = JSON.stringify(telemetry);
       assert.equal(serialized.includes("client-secret-sentinel"), false);

@@ -59,14 +59,29 @@ async function withControlPlaneKey<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-async function capture(request: Request): Promise<{ response: Response; record: any }> {
+interface OAuthTokenLogRecord {
+  event?: string;
+  stage?: string;
+  client_id?: string;
+  redirect_uri?: string;
+  resource_matches?: boolean;
+  field_names?: string[];
+  code_wellformed?: boolean;
+  verifier_wellformed?: boolean;
+  grant_type?: string;
+  [key: string]: unknown;
+}
+
+async function capture(
+  request: Request
+): Promise<{ response: Response; record: OAuthTokenLogRecord | undefined }> {
   const errors: unknown[] = [];
   const restore = console.error;
   console.error = (value: unknown) => errors.push(value);
   try {
     const { POST } = await import("../route");
     const response = await POST(request);
-    return { response, record: errors.at(-1) };
+    return { response, record: errors.at(-1) as OAuthTokenLogRecord | undefined };
   } finally {
     console.error = restore;
   }

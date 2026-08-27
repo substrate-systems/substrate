@@ -213,7 +213,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', 'test',
                  $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [candidateId, digest]
     );
@@ -295,7 +295,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v1', 'test', '1', $2, $2, $2, true)`,
+       ) VALUES ($1, 'hosted-alpha-agent-v4', 'test', '1', $2, $2, $2, true)`,
       [seed.cellId, "a".repeat(64)]
     );
     await pool.query(
@@ -398,7 +398,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          oauth_client_authority_version, oauth_client_config_sha256, redirect_uri_digest,
          operator_principal_digest, expires_at, consumed_at, outcome_tenant_id, outcome_assignment_id,
          outcome_assignment_generation, outcome_operation_id, outcome_session_id, outcome_grant_id
-       ) VALUES ($1, 'consumed', $2, $3, 'hosted-alpha-agent-v1', $4, 'test', '1', $4, $4, $4, $4,
+       ) VALUES ($1, 'consumed', $2, $3, 'hosted-alpha-agent-v4', $4, 'test', '1', $4, $4, $4, $4,
                  $5, 'claude', $4, $6, $7, $4, $8, $9, now() + interval '1 day', now(),
                  $10, $11, 1, $12, $13, $14)`,
       [
@@ -474,7 +474,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
-       ) VALUES ($1, 'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+       ) VALUES ($1, 'live', 'hosted-alpha-agent-v4', 'https://agent.example.test', 'test',
                  $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       [candidate, digest]
     );
@@ -849,7 +849,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock,
          claude_archive_lock, promoted_at
-       ) VALUES ($1, 'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.54.1',
+       ) VALUES ($1, 'live', 'hosted-alpha-agent-v4', 'https://agent.example.test', '0.54.1',
                  $2, $3, $4, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       [candidateId, "a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
@@ -1991,7 +1991,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', 'test',
                  $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [bootstrapCandidate, "e".repeat(64)]
     );
@@ -2054,7 +2054,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          oauth_client_authority_version, oauth_client_config_sha256, redirect_uri_digest,
          operator_principal_digest, expires_at, consumed_at, outcome_tenant_id, outcome_assignment_id,
          outcome_assignment_generation, outcome_operation_id, outcome_session_id, outcome_grant_id
-       ) VALUES ($1, 'consumed', $2, $3, 'hosted-alpha-agent-v1', $4, 'test', '1', $4, $4, $4, $4,
+       ) VALUES ($1, 'consumed', $2, $3, 'hosted-alpha-agent-v4', $4, 'test', '1', $4, $4, $4, $4,
                  $5, 'claude', $4, $6, $7, $4, $8, $9, now() + interval '1 day', now(),
                  $10, $11, 1, $12, $13, $14)`,
       [
@@ -2289,7 +2289,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.50.0',
+       ) VALUES ('live', 'hosted-alpha-agent-v4', 'https://agent.example.test', '0.50.0',
                  $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
@@ -2369,7 +2369,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+       ) VALUES ('live', 'hosted-alpha-agent-v4', 'https://agent.example.test', 'test',
                  $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
@@ -2386,7 +2386,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v1', 'test', '1', $2, $3, $4, true)`,
+       ) VALUES ($1, 'hosted-alpha-agent-v4', 'test', '1', $2, $3, $4, true)`,
       [CELL, "a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
 
@@ -2454,7 +2454,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
        ) VALUES (
-         'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', $1, $2, $3, $4, $5,
+         'live', 'hosted-alpha-agent-v4', 'https://agent.example.test', $1, $2, $3, $4, $5,
          '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()
        ) RETURNING id`,
       [
@@ -2487,7 +2487,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v1', $2, $3, $4, $5, $6, true)`,
+       ) VALUES ($1, 'hosted-alpha-agent-v4', $2, $3, $4, $5, $6, true)`,
       [
         CELL,
         exomemContractFixture0350.release,
@@ -2503,7 +2503,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at, retired_at
        ) VALUES (
-         'retired', 'hosted-alpha-agent-v1', 'https://agent-history.example.test', $1, $2, $3, $4, $5,
+         'retired', 'hosted-alpha-agent-v4', 'https://agent-history.example.test', $1, $2, $3, $4, $5,
          '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now(), now()
        )`,
       [
@@ -2604,9 +2604,9 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
        ) VALUES
-         ($1, 'live', 'hosted-alpha-agent-v1', 'https://source.example.test', '0.50.0',
+         ($1, 'live', 'hosted-alpha-agent-v4', 'https://source.example.test', '0.50.0',
           $3, $4, $5, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now()),
-         ($2, 'pending', 'hosted-alpha-agent-v1', 'https://target.example.test', '0.54.1',
+         ($2, 'pending', 'hosted-alpha-agent-v4', 'https://target.example.test', '0.54.1',
           $6, $7, $8, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NULL)`,
       [
         sourceCandidate,
@@ -2648,7 +2648,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v1', '0.50.0', '1', $2, $3, $4, true)`,
+       ) VALUES ($1, 'hosted-alpha-agent-v4', '0.50.0', '1', $2, $3, $4, true)`,
       [CELL, sourceCommand, sourceSchema, sourceCompatibility]
     );
     await pool.query(
@@ -2734,7 +2734,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         runtimeIdentity: {
           releaseVersion: "0.54.1",
           protocolVersion: "1",
-          agentProfile: "hosted-alpha-agent-v1",
+          agentProfile: "hosted-alpha-agent-v4",
           gatewayContractDigest: targetGateway,
           commandFingerprint: targetCommand,
           schemaDigest: targetSchema,
@@ -2759,7 +2759,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        FROM exomem_tenants AS tenant
        JOIN exomem_cells AS cell ON cell.id = tenant.bound_cell_id
        JOIN exomem_routable_cell_contracts AS observation
-         ON observation.cell_id = cell.id AND observation.profile_id = 'hosted-alpha-agent-v1'
+         ON observation.cell_id = cell.id AND observation.profile_id = 'hosted-alpha-agent-v4'
        JOIN exomem_agent_contract_rollout_assignments AS source_assignment
          ON source_assignment.id = $2
        JOIN exomem_agent_contract_rollout_assignments AS target_assignment
@@ -2819,7 +2819,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', '2026.07.30',
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', '2026.07.30',
                  $2, $3, $4, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [candidateId, commandFingerprint, schemaDigest, compatibilityDigest]
     );
@@ -2928,7 +2928,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at, retired_at
-       ) VALUES ($1, 'retired', 'hosted-alpha-agent-v1', 'https://agent-origin.example.test',
+       ) VALUES ($1, 'retired', 'hosted-alpha-agent-v4', 'https://agent-origin.example.test',
                  '2026.07.30', $2, $3, $4, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now(), now())`,
       [originalCandidateId, commandFingerprint, schemaDigest, compatibilityDigest]
     );
@@ -2937,7 +2937,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent-reimport.example.test',
+       ) VALUES ('live', 'hosted-alpha-agent-v4', 'https://agent-reimport.example.test',
                  '2026.07.30', $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       [commandFingerprint, schemaDigest, compatibilityDigest]
     );
@@ -3026,7 +3026,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
            id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
            compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
            promoted_at, retired_at
-         ) VALUES ($1, 'retired', 'hosted-alpha-agent-v1', $2, '2026.07.30', $3, $4, $5, '1',
+         ) VALUES ($1, 'retired', 'hosted-alpha-agent-v4', $2, '2026.07.30', $3, $4, $5, '1',
                    '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now(), now())`,
         [id, endpoint, commandFingerprint, schemaDigest, compatibilityDigest]
       );
@@ -3355,7 +3355,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.50.0',
+       ) VALUES ('live', 'hosted-alpha-agent-v4', 'https://agent.example.test', '0.50.0',
                  $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
     );
@@ -3491,14 +3491,14 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v1', '2026.07.11', '0', $2, $3, $4, true)`,
+       ) VALUES ($1, 'hosted-alpha-agent-v4', '2026.07.11', '0', $2, $3, $4, true)`,
       [replacement, commandFingerprint, schemaDigest, compatibilityDigest]
     );
     await pool.query(
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test',
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test',
                  '2026.07.11', $2, $3, $4, '0', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [contract, commandFingerprint, schemaDigest, compatibilityDigest]
     );
@@ -3554,7 +3554,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        FROM exomem_agent_contract_rollout_assignments AS assignment
        JOIN exomem_tenants AS tenant ON tenant.id = assignment.tenant_id
        JOIN exomem_routable_cell_contracts AS observation
-         ON observation.cell_id = tenant.bound_cell_id AND observation.profile_id = 'hosted-alpha-agent-v1'
+         ON observation.cell_id = tenant.bound_cell_id AND observation.profile_id = 'hosted-alpha-agent-v4'
        WHERE assignment.id = $1`,
       [assignment]
     );
@@ -3635,7 +3635,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         `INSERT INTO exomem_agent_contract_candidates (
            id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
            compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test',
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test',
                    '2026.07.11', $2, $3, $4, '0', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
         [candidateId, commandFingerprint, schemaDigest, compatibilityDigest]
       );
@@ -3725,7 +3725,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', 'test',
+       ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', 'test',
                  $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
       [candidateId, digest]
     );
@@ -5138,7 +5138,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_routable_cell_contracts (
          cell_id, profile_id, source_release, protocol_version, command_fingerprint,
          contract_digest, compatibility_digest, routable
-       ) VALUES ($1, 'hosted-alpha-agent-v1', '2026.07.11', '0', $2, $3, $4, true)`,
+       ) VALUES ($1, 'hosted-alpha-agent-v4', '2026.07.11', '0', $2, $3, $4, true)`,
       [prior, commandFingerprint, schemaDigest, compatibilityDigest]
     );
     await pool.query(
@@ -5146,7 +5146,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
          promoted_at, retired_at
-       ) VALUES ($1, 'retired', 'hosted-alpha-agent-v1', 'https://agent.example.test',
+       ) VALUES ($1, 'retired', 'hosted-alpha-agent-v4', 'https://agent.example.test',
                  '2026.07.11', $2, $3, $4, '0', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now(), now())`,
       [contract, commandFingerprint, schemaDigest, compatibilityDigest]
     );
@@ -5184,7 +5184,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        JOIN exomem_cells AS prior ON prior.id = $1
        JOIN exomem_cells AS replacement ON replacement.id = $2
        JOIN exomem_routable_cell_contracts AS observation
-         ON observation.cell_id = prior.id AND observation.profile_id = 'hosted-alpha-agent-v1'
+         ON observation.cell_id = prior.id AND observation.profile_id = 'hosted-alpha-agent-v4'
        WHERE tenant.id = $3`,
       [prior, replacement, TENANT]
     );
@@ -5222,7 +5222,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       `INSERT INTO exomem_agent_contract_candidates (
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock, promoted_at
-       ) VALUES ($1, 'live', 'hosted-alpha-agent-v1', 'https://agent.example.test',
+       ) VALUES ($1, 'live', 'hosted-alpha-agent-v4', 'https://agent.example.test',
                  '2026.07.11', $2, $3, $4, '0', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
       [candidate, commandFingerprint, schemaDigest, compatibilityDigest]
     );
@@ -5329,7 +5329,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
          id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, mcp_protocol_versions, contract, claude_package_lock,
          claude_archive_lock, openai_package_lock, openai_archive_lock, promoted_at
-       ) VALUES ($1, 'live', 'hosted-alpha-agent-v1', 'https://agent.example.test', '2026.07.12',
+       ) VALUES ($1, 'live', 'hosted-alpha-agent-v4', 'https://agent.example.test', '2026.07.12',
                  $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
                  $5::jsonb, $5::jsonb, $6::jsonb, $6::jsonb, now())`,
       [
@@ -5489,14 +5489,14 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         `INSERT INTO exomem_routable_cell_contracts (
            cell_id, profile_id, source_release, protocol_version, command_fingerprint,
            contract_digest, compatibility_digest, routable
-         ) VALUES ($1, 'hosted-alpha-agent-v1', $2, '1', $3, $3, $3, true)`,
+         ) VALUES ($1, 'hosted-alpha-agent-v4', $2, '1', $3, $3, $3, true)`,
         [cellId, input.recordedRelease ?? STALE, stale]
       );
       await pool.query(
         `INSERT INTO exomem_agent_contract_candidates (
            id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
            compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', $2,
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', $2,
                    $3, $3, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
         [candidateId, input.candidateRelease ?? SERVED, served]
       );
@@ -5507,7 +5507,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         `INSERT INTO exomem_agent_contract_candidates (
            id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
            compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', $2,
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', $2,
                    $3, $3, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
         [staleCandidateId, input.recordedRelease ?? STALE, stale]
       );
@@ -5802,14 +5802,14 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         `INSERT INTO exomem_routable_cell_contracts (
            cell_id, profile_id, source_release, protocol_version, command_fingerprint,
            contract_digest, compatibility_digest, routable
-         ) VALUES ($1, 'hosted-alpha-agent-v1', '0.54.1', '1', $2, $2, $2, true)`,
+         ) VALUES ($1, 'hosted-alpha-agent-v4', '0.54.1', '1', $2, $2, $2, true)`,
         [cellId, digest]
       );
       await pool.query(
         `INSERT INTO exomem_agent_contract_candidates (
            id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
            compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v1', 'https://agent.example.test', '0.50.0',
+         ) VALUES ($1, 'pending', 'hosted-alpha-agent-v4', 'https://agent.example.test', '0.50.0',
                    $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
         [candidateId, digest]
       );

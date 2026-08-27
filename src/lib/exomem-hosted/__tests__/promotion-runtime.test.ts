@@ -96,7 +96,7 @@ const readiness: CellReadiness = {
   runtimeIdentity: {
     releaseVersion: target.sourceRelease,
     protocolVersion: target.protocolVersion,
-    agentProfile: "hosted-alpha-agent-v1",
+    agentProfile: "hosted-alpha-agent-v4",
     gatewayContractDigest: target.gatewayContractDigest,
     commandFingerprint: target.commandFingerprint,
     schemaDigest: target.schemaDigest,
@@ -116,7 +116,7 @@ describe("promotion runtime", () => {
     assert.deepEqual(request.runtimeTarget, {
       releaseVersion: target.sourceRelease,
       protocolVersion: target.protocolVersion,
-      agentProfile: "hosted-alpha-agent-v1",
+      agentProfile: "hosted-alpha-agent-v4",
       gatewayContractDigest: target.gatewayContractDigest,
       commandFingerprint: target.commandFingerprint,
       schemaDigest: target.schemaDigest,
@@ -273,7 +273,7 @@ describe("promotion runtime", () => {
         };
       },
       candidateId: target.candidateId,
-      expectedRoutableCellDigest: routableSetDigest("hosted-alpha-agent-v1", [probe.route]),
+      expectedRoutableCellDigest: routableSetDigest("hosted-alpha-agent-v4", [probe.route]),
       probes: [probe],
       refreshAuthority: async () => {
         refreshCalled = true;
@@ -313,7 +313,7 @@ describe("promotion runtime", () => {
             return { rows: [] };
           },
           candidateId: target.candidateId,
-          expectedRoutableCellDigest: routableSetDigest("hosted-alpha-agent-v1", [probe.route]),
+          expectedRoutableCellDigest: routableSetDigest("hosted-alpha-agent-v4", [probe.route]),
           probes: [probe],
           refreshAuthority: async () => {
             refreshCalled = true;

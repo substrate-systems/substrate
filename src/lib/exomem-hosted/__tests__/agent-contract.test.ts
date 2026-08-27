@@ -89,20 +89,32 @@ describe("Exomem Hosted agent contracts", () => {
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
-  it("ships the retained 0.54.1 fixture beside the exact current 0.57.2 fixture", () => {
+  it("ships retained 0.57.2/v1 beside the exact current 0.63.1/v4 fixture", () => {
     assert.equal(
-      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-54-1.ts", import.meta.url))),
+      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-57-2.ts", import.meta.url))),
       true
     );
     assert.equal(
-      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-54-1.json", import.meta.url))),
+      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-57-2.json", import.meta.url))),
       true
     );
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "d4bbef7725d55f3bb6e8c288deadddb15ef7855f"
+      "35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.57.2");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.63.1");
+    assert.equal(exomemHostedContractFixture.compatibility.profile, "hosted-alpha-agent-v4");
+    assert.equal(exomemHostedContractFixture.compatibility.commands.length, 25);
+    assert.equal(exomemHostedContractFixture.packageLock.platform, "claude");
+    assert.equal(exomemHostedContractFixture.openaiPackageLock.platform, "openai");
+    assert.equal(
+      exomemHostedContractFixture.openaiPackageLock.command_surface_sha256,
+      exomemHostedContractFixture.packageLock.command_surface_sha256
+    );
+    assert.equal(
+      exomemHostedContractFixture.openaiArchiveLock.registered_app_id_sha256,
+      exomemHostedContractFixture.openaiPackageLock.registered_app_id_sha256
+    );
     const { digest, ...rawAgentContract } =
       exomemHostedContractFixture.compatibility.agent_contract;
     const { compatibility_sha256, ...rawCompatibility } = exomemHostedContractFixture.compatibility;
@@ -166,18 +178,19 @@ describe("Exomem Hosted agent contracts", () => {
     assert.doesNotMatch(queries[0]!, /UPDATE exomem_agent_contract_candidates/i);
   });
 
-  it("re-imports 0.54.1 from its retained fixture after 0.57.2 becomes current", async () => {
+  it("re-imports retained 0.57.2 as v1 after 0.63.1/v4 becomes current", async () => {
     const values: unknown[] = [];
     __setExomemSqlForTests(async (_strings, ...parameters) => {
       values.push(...parameters);
       return { rows: [{ id: "018f2d91-7c42-7000-8000-000000000098" }] };
     });
     assert.equal(
-      await storeRetainedExomemAgentContractCandidate("0.54.1"),
+      await storeRetainedExomemAgentContractCandidate("0.57.2"),
       "018f2d91-7c42-7000-8000-000000000098"
     );
-    assert.equal(values.includes("0.54.1"), true);
-    assert.equal(values.includes("0.57.2"), false);
+    assert.equal(values.includes("0.57.2"), true);
+    assert.equal(values.includes("hosted-alpha-agent-v1"), true);
+    assert.equal(values.includes("0.63.1"), false);
   });
 
   it("trusts the fixture source release independently of descriptor source_release", async () => {
@@ -194,7 +207,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.57.2");
+      assert.equal(fixture.sourceRelease, "0.63.1");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
@@ -298,6 +311,7 @@ describe("Exomem Hosted agent contracts", () => {
             id: "artifact-1",
             tenant_id: "018f2d91-7c42-7000-8000-000000000001",
             candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+            profile_id: exomemHostedContractFixture.compatibility.profile,
             source_release: exomemHostedContractFixture.sourceRelease,
             assignment_id: "018f2d91-7c42-7000-8000-000000000004",
             assignment_generation: 1,
@@ -346,6 +360,27 @@ describe("Exomem Hosted agent contracts", () => {
           observedAt: new Date(Date.parse(String(baseEvidence.timestamp)) + 1_000).toISOString(),
         }),
       /artifact fields do not match signed evidence/i
+    );
+    const staleV1BaseEvidence = {
+      ...baseEvidence,
+      profile: "hosted-alpha-agent-v1",
+    };
+    const staleV1Evidence = {
+      ...staleV1BaseEvidence,
+      operator_signature: createHmac("sha256", "operator-secret")
+        .update(canonical(staleV1BaseEvidence))
+        .digest("hex"),
+    };
+    await assert.rejects(
+      () =>
+        storeClientArtifact({
+          ...artifact,
+          evidence: staleV1Evidence,
+          evidenceSha256: createHash("sha256")
+            .update(canonical(staleV1Evidence))
+            .digest("hex"),
+        }),
+      /promotion evidence differs from the checked release fixture/i
     );
   });
 
@@ -457,6 +492,7 @@ describe("Exomem Hosted agent contracts", () => {
           rows: [
             {
               candidate_id: "018f2d91-7c42-7000-8000-000000000002",
+              profile_id: exomemHostedContractFixture.compatibility.profile,
               source_release: exomemHostedContractFixture.sourceRelease,
               openai_package_lock: locks.packageLock,
               openai_archive_lock: locks.archiveLock,

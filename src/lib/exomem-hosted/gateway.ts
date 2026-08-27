@@ -10,7 +10,8 @@ import { exomemHostedContractFixture as agentFixture0340 } from "./agent-contrac
 import { exomemHostedContractFixture as agentFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as agentFixture0392 } from "./agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as agentFixture0490 } from "./agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as agentFixture0572 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0631 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0572 } from "./agent-contract-fixture-0-57-2";
 import { exomemHostedContractFixture as agentFixture0500 } from "./agent-contract-fixture-0-50-0";
 import { exomemHostedContractFixture as agentFixture0541 } from "./agent-contract-fixture-0-54-1";
 import { exomemContractFixture0340 } from "./gateway-contract-0-34-0";
@@ -20,6 +21,7 @@ import { exomemContractFixture0490 } from "./gateway-contract-0-49-0";
 import { exomemContractFixture0500 } from "./gateway-contract-0-50-0";
 import { exomemContractFixture0541 } from "./gateway-contract-0-54-1";
 import { exomemContractFixture0572 } from "./gateway-contract-0-57-2";
+import { exomemContractFixture0631 } from "./gateway-contract-0-63-1";
 import {
   decryptSecret,
   opaquePrincipalScope,
@@ -309,6 +311,7 @@ const gatewayContractCatalog = Object.freeze([
   Object.freeze({ full: exomemContractFixture0500, agent: agentFixture0500 }),
   Object.freeze({ full: exomemContractFixture0541, agent: agentFixture0541 }),
   Object.freeze({ full: exomemContractFixture0572, agent: agentFixture0572 }),
+  Object.freeze({ full: exomemContractFixture0631, agent: agentFixture0631 }),
 ]);
 
 function contractFixture(
@@ -696,7 +699,7 @@ async function verifyHostedPrivateContract(
 ): Promise<void> {
   const fetchImpl = dependencies.fetch ?? fetch;
   const url = new URL(
-    "private/exomem/v1/agent/hosted-alpha-agent-v1/contract",
+    `private/exomem/v1/agent/${encodeURIComponent(expected.profile)}/contract`,
     `${target.endpoint.toString().replace(/\/$/, "")}/`
   );
   let response: Response;
@@ -778,11 +781,11 @@ async function forwardCommand(input: {
   idempotencyKey: string | null;
   requestId: string;
   dependencies: GatewayDependencies;
-  hosted: boolean;
+  hostedProfile: string | null;
 }): Promise<GatewayResult> {
   const fetchImpl = input.dependencies.fetch ?? fetch;
   const url = new URL(
-    `${input.hosted ? "private/exomem/v1/agent/hosted-alpha-agent-v1" : "private/exomem/v1"}/command/${encodeURIComponent(input.command.name)}`,
+    `${input.hostedProfile ? `private/exomem/v1/agent/${encodeURIComponent(input.hostedProfile)}` : "private/exomem/v1"}/command/${encodeURIComponent(input.command.name)}`,
     `${input.target.endpoint.toString().replace(/\/$/, "")}/`
   );
   const headers: Record<string, string> = {
@@ -895,7 +898,7 @@ export async function routeExomemCommand(input: {
     idempotencyKey,
     requestId,
     dependencies,
-    hosted: Boolean(input.hostedContract),
+    hostedProfile: input.hostedContract?.profile ?? null,
   });
 }
 

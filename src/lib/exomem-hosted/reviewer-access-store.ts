@@ -5,6 +5,7 @@ import {
   type MarketplaceReviewerProvider,
 } from "./reviewer-access";
 import { revokeCanaryOAuthLineageInTransaction } from "./agent-contract-canaries";
+import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 
 export type CreateMarketplaceReviewerCredentialInput = {
   provider: MarketplaceReviewerProvider;
@@ -692,7 +693,7 @@ export async function createMarketplaceReviewerOAuthSessionAtomic(input: {
                AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now()
               JOIN exomem_agent_contract_candidates AS candidate
                 ON candidate.id = credential.candidate_id
-               AND candidate.profile_id = 'hosted-alpha-agent-v1'
+               AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
                AND candidate.state IN ('pending', 'live')
               WHERE assignment.id = credential.assignment_id
                 AND assignment.tenant_id = credential.tenant_id

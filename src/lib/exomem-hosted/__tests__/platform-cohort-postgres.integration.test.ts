@@ -5,7 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
-import { exomemContractFixture0572 } from "../gateway-contract-0-57-2";
+import { exomemContractFixture0631 } from "../gateway-contract-0-63-1";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
   getLiveExomemHostedCohortCandidateId,
@@ -102,8 +102,8 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
      FROM exomem_routable_cell_contracts AS route
      JOIN exomem_cells AS cell ON cell.id = route.cell_id
      JOIN exomem_agent_contract_candidates AS target ON target.id = $1::uuid
-     WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0572.digest, sha("9")]
+     WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
+    [candidateId, exomemContractFixture0631.digest, sha("9")]
   );
   await pool!.query(
     `UPDATE exomem_cells AS cell
@@ -115,8 +115,8 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
      FROM exomem_agent_contract_candidates AS target,
           exomem_routable_cell_contracts AS route
      WHERE target.id = $1::uuid AND route.cell_id = cell.id
-       AND route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0572.digest]
+       AND route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
+    [candidateId, exomemContractFixture0631.digest]
   );
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
@@ -139,8 +139,8 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
      JOIN exomem_agent_contract_rollout_assignments AS assignment
        ON assignment.tenant_id = cell.tenant_id AND assignment.candidate_id = target.id
       AND assignment.state = 'active' AND assignment.expires_at > now()
-     WHERE route.profile_id = 'hosted-alpha-agent-v1' AND route.routable`,
-    [candidateId, exomemContractFixture0572.digest]
+     WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
+    [candidateId, exomemContractFixture0631.digest]
   );
 }
 
@@ -285,9 +285,9 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
        WHERE candidate_id = $1::uuid AND state = 'active' LIMIT 1`,
       [candidateId]
     );
-    // The checked fixture deliberately ships no OpenAI lock, so attach one while
-    // the candidate is still pending. Signed import is covered by the contract
-    // tests; what matters here is only that the locks exist before promotion.
+    // Reassert the checked OpenAI locks while the candidate is still pending.
+    // Signed import is covered by the contract tests; what matters here is that
+    // the exact locks remain attached before promotion.
     await pool!.query(
       `UPDATE exomem_agent_contract_candidates
        SET openai_package_lock = $2::jsonb, openai_archive_lock = $3::jsonb

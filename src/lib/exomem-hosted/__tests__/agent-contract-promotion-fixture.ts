@@ -4,8 +4,15 @@ import { exomemHostedContractFixture as candidateFixture0340 } from "../agent-co
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as retainedFixture0490 } from "../agent-contract-fixture-0-49-0";
+import { exomemHostedContractFixture as retainedFixture0500 } from "../agent-contract-fixture-0-50-0";
 
-export type PromotionFixtureRelease = "0.34.0" | "0.35.0" | "0.39.2" | "0.49.0" | "0.50.0";
+export type PromotionFixtureRelease =
+  | "0.34.0"
+  | "0.35.0"
+  | "0.39.2"
+  | "0.49.0"
+  | "0.50.0"
+  | "0.63.1";
 
 export function canonicalPromotionJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalPromotionJson).join(",")}]`;
@@ -24,35 +31,48 @@ export function promotionContractFixture(release: PromotionFixtureRelease) {
   if (release === "0.34.0") return candidateFixture0340;
   if (release === "0.35.0") return candidateFixture0350;
   if (release === "0.39.2") return retainedFixture0392;
-  return release === "0.49.0" ? retainedFixture0490 : liveFixture;
+  if (release === "0.49.0") return retainedFixture0490;
+  return release === "0.50.0" ? retainedFixture0500 : liveFixture;
 }
 
 export function testOpenAiLocks(
   release: PromotionFixtureRelease,
-  digests: { artifact: string; archive: string; registeredApp: string } = {
+  digests?: { artifact: string; archive: string; registeredApp: string }
+) {
+  if (release === "0.63.1" && digests === undefined) {
+    return {
+      packageLock: liveFixture.openaiPackageLock,
+      archiveLock: liveFixture.openaiArchiveLock,
+    } as const;
+  }
+  const fixture = promotionContractFixture(release);
+  const selectedDigests = digests ?? {
     artifact: "a".repeat(64),
     archive: "b".repeat(64),
     registeredApp: "c".repeat(64),
-  }
-) {
-  const fixture = promotionContractFixture(release);
+  };
   return {
     packageLock: {
       ...fixture.packageLock,
       platform: "openai" as const,
-      artifact_sha256: digests.artifact,
-      registered_app_id_sha256: digests.registeredApp,
+      artifact_sha256: selectedDigests.artifact,
+      registered_app_id_sha256: selectedDigests.registeredApp,
     },
     archiveLock: {
       platform: "openai" as const,
-      archive_sha256: digests.archive,
-      registered_app_id_sha256: digests.registeredApp,
+      archive_sha256: selectedDigests.archive,
+      registered_app_id_sha256: selectedDigests.registeredApp,
     },
   } as const;
 }
 
-// The live release, which is what the live-import tests exercise.
-export const testOnlyOpenAiLocks = testOpenAiLocks("0.50.0");
+// The live release ships its checked OpenAI registration locks alongside the
+// Claude locks. Tests exercising the current candidate must preserve that
+// exact identity rather than manufacturing a second registered app.
+export const testOnlyOpenAiLocks = {
+  packageLock: liveFixture.openaiPackageLock,
+  archiveLock: liveFixture.openaiArchiveLock,
+} as const;
 
 export function signedPromotionEvidence(input: {
   platform: "claude" | "openai";
@@ -138,7 +158,7 @@ export function evidence(
 ): Record<string, unknown> {
   return signedPromotionEvidence({
     platform,
-    release: "0.50.0",
+    release: "0.63.1",
     secret,
     suffix,
     ...binding,

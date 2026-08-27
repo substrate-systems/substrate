@@ -16,7 +16,8 @@ import {
   type ExomemSql,
 } from "../db";
 import { ExomemHostedError } from "../errors";
-import { exomemContractFixture0572 } from "../gateway-contract-0-57-2";
+import { exomemContractFixture0631 } from "../gateway-contract-0-63-1";
+import { EXOMEM_HOSTED_PROFILE } from "../hosted-profile";
 import { SqlLifecycleStore } from "../lifecycle-store";
 import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
 import {
@@ -352,7 +353,7 @@ async function seedReviewerTenant(
       fixture.candidate.command_fingerprint,
       fixture.candidate.schema_digest,
       fixture.candidate.compatibility_digest,
-      exomemContractFixture0572.digest,
+      exomemContractFixture0631.digest,
       sequence.toString(16).padStart(64, "0"),
       terminal,
     ]
@@ -445,10 +446,11 @@ async function seedLiveCohort(): Promise<void> {
        compatibility_digest, protocol_version, mcp_protocol_versions, contract,
        claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock,
        promoted_at
-     ) VALUES ('live', 'hosted-alpha-agent-v1', $1, 'live-test', $2, $3, $4, '1',
-       '["2025-11-25"]'::jsonb, '{}'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb,
-       $8::jsonb, now()) RETURNING id`,
+     ) VALUES ('live', $1, $2, 'live-test', $3, $4, $5, '1',
+       '["2025-11-25"]'::jsonb, '{}'::jsonb, $6::jsonb, $7::jsonb, $8::jsonb,
+       $9::jsonb, now()) RETURNING id`,
     [
+      EXOMEM_HOSTED_PROFILE,
       resource,
       "1".repeat(64),
       "d".repeat(64),
@@ -1809,7 +1811,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
     );
   });
 
-  it("claims the committed operation immediately with the exact 0.57.2 assignment target", async () => {
+  it("claims the committed operation immediately with the exact 0.63.1 assignment target", async () => {
     const prepared = await prepareBootstrap(83);
     const redeemed = await admitFirstOAuthInviteAtomic(prepared.redeemInput);
     assert.ok(redeemed);
@@ -1846,7 +1848,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
       assignmentGeneration: 1,
       sourceRelease: prepared.fixture.candidate.source_release,
       protocolVersion: prepared.fixture.candidate.protocol_version,
-      gatewayContractDigest: exomemContractFixture0572.digest,
+      gatewayContractDigest: exomemContractFixture0631.digest,
       commandFingerprint: prepared.fixture.candidate.command_fingerprint,
       schemaDigest: prepared.fixture.candidate.schema_digest,
       compatibilityDigest: prepared.fixture.candidate.compatibility_digest,
