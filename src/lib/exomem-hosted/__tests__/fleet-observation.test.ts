@@ -6,10 +6,13 @@ import { getExomemHostedFleetObservation } from "../fleet-observation";
 const CELL = "018f2d91-7c42-7000-8000-000000000081";
 const ASSIGNMENT = "018f2d91-7c42-7000-8000-000000000082";
 const OPERATION = "018f2d91-7c42-7000-8000-000000000083";
+const LEGACY_PROFILE = "hosted-alpha-agent-v1";
+const TARGET_PROFILE = "hosted-alpha-agent-v4";
 
-function runtimeRow() {
+function runtimeRow(profileId = TARGET_PROFILE) {
   return {
     cell_id: CELL,
+    profile_id: profileId,
     source_release: "0.57.2",
     protocol_version: "1",
     gateway_contract_digest: "a".repeat(64),
@@ -22,6 +25,59 @@ function runtimeRow() {
 afterEach(() => __setExomemTransactionForTests(null));
 
 describe("Exomem hosted fleet observation", () => {
+  it("preserves legacy and target profiles across a cross-profile rollout", async () => {
+    const queries: string[] = [];
+    const sql = async (strings: TemplateStringsArray) => {
+      const query = strings.join("?");
+      queries.push(query);
+      if (query.includes("fleet-observed-at")) {
+        return { rows: [{ observed_at: new Date("2026-08-21T12:34:56.000Z") }] };
+      }
+      if (query.includes("fleet-routable-cells")) {
+        return { rows: [runtimeRow(LEGACY_PROFILE), runtimeRow(TARGET_PROFILE)] };
+      }
+      if (query.includes("fleet-assignments")) {
+        return {
+          rows: [
+            {
+              ...runtimeRow(LEGACY_PROFILE),
+              assignment_id: ASSIGNMENT,
+              state: "active",
+            },
+          ],
+        };
+      }
+      if (query.includes("fleet-unfinished-operations")) {
+        return {
+          rows: [
+            {
+              ...runtimeRow(LEGACY_PROFILE),
+              operation_id: OPERATION,
+              operation_type: "restore",
+              state: "running",
+            },
+          ],
+        };
+      }
+      if (query.includes("fleet-capacity-active-count")) {
+        return { rows: [{ active_cell_count: 0 }] };
+      }
+      return { rows: [] };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    const observation = await getExomemHostedFleetObservation();
+
+    assert.deepEqual(
+      observation.routableCells.map(({ runtime }) => runtime.agentProfile),
+      [LEGACY_PROFILE, TARGET_PROFILE]
+    );
+    assert.equal(observation.assignments[0]?.targetRuntime.agentProfile, LEGACY_PROFILE);
+    assert.equal(observation.unfinishedOperations[0]?.targetRuntime?.agentProfile, LEGACY_PROFILE);
+    const routableQuery = queries.find((query) => query.includes("fleet-routable-cells"));
+    assert.doesNotMatch(routableQuery ?? "", /WHERE observation\.profile_id = \?/);
+  });
+
   it("returns one coherent bounded authority snapshot without identity or content", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {
