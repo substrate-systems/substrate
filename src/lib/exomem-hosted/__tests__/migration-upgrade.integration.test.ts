@@ -43,7 +43,10 @@ const MIGRATION_0045 = resolve(
   "migrations/0045_exomem_provisioner_v2_runtime_identity.sql"
 );
 const MIGRATION_0047 = resolve(process.cwd(), "migrations/0047_exomem_v2_candidate_attachment.sql");
-const MIGRATION_0039 = resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql");
+const MIGRATION_0039 = resolve(
+  process.cwd(),
+  "migrations/0039_exomem_provisioner_wire_protocol.sql"
+);
 const MIGRATION_0044 = resolve(
   process.cwd(),
   "migrations/0044_exomem_marketplace_reviewer_oauth_bootstrap.sql"
@@ -604,10 +607,11 @@ describe("migration 0033 MCP protocol compatibility", { skip: !DATABASE_URL }, (
         };
       });
       try {
-        assert.deepEqual((await getLiveExomemAgentContract())?.mcpProtocolVersions, [
-          "2025-11-25",
-          "2025-06-18",
-        ]);
+        assert.equal(
+          await getLiveExomemAgentContract(),
+          null,
+          "a retained v1 row must not satisfy the current v4 authority lookup"
+        );
       } finally {
         __setExomemSqlForTests(null);
       }
@@ -698,7 +702,9 @@ describe("migration 0039 provisioner wire protocol safety", { skip: !DATABASE_UR
       const existing = await client.query<{ provisioner_wire_protocol: string }>(
         "SELECT provisioner_wire_protocol FROM exomem_lifecycle_operations WHERE idempotency_key = 'pre-0039'"
       );
-      assert.deepEqual(existing.rows, [{ provisioner_wire_protocol: "exomem-cell-provisioner.v1" }]);
+      assert.deepEqual(existing.rows, [
+        { provisioner_wire_protocol: "exomem-cell-provisioner.v1" },
+      ]);
       const inserted = await client.query<{ id: string; provisioner_wire_protocol: string }>(
         `INSERT INTO exomem_lifecycle_operations (
            tenant_id, operation_type, state, checkpoint, idempotency_key, fence_generation
@@ -751,13 +757,20 @@ describe("migration 0044 bootstrap authority upgrade safety", { skip: !DATABASE_
            digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'), 'claude', $1) RETURNING id`,
         ["a".repeat(64)]
       );
-      copyFileSync(MIGRATION_0044, resolve(migrationsDir, "0044_exomem_marketplace_reviewer_oauth_bootstrap.sql"));
+      copyFileSync(
+        MIGRATION_0044,
+        resolve(migrationsDir, "0044_exomem_marketplace_reviewer_oauth_bootstrap.sql")
+      );
       await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir });
       const verified = await scopedPool.query<{
         id: string;
         reviewer_bootstrap_ever_authorized: boolean;
-      }>("SELECT id, reviewer_bootstrap_ever_authorized FROM exomem_oauth_clients WHERE id = $1", [legacy.rows[0]!.id]);
-      assert.deepEqual(verified.rows, [{ id: legacy.rows[0]!.id, reviewer_bootstrap_ever_authorized: false }]);
+      }>("SELECT id, reviewer_bootstrap_ever_authorized FROM exomem_oauth_clients WHERE id = $1", [
+        legacy.rows[0]!.id,
+      ]);
+      assert.deepEqual(verified.rows, [
+        { id: legacy.rows[0]!.id, reviewer_bootstrap_ever_authorized: false },
+      ]);
     } finally {
       rmSync(migrationsDir, { recursive: true, force: true });
       await scopedPool.end();
@@ -857,7 +870,7 @@ describe("migration 0045 provisioner wire protocol upgrade safety", { skip: !DAT
           [SOURCE_OPERATION]
         );
         assert.deepEqual(claimedLegacy.rows, [
-          { state: 'running', checkpoint: 'resolving_target', lease_owner: 'legacy-worker' },
+          { state: "running", checkpoint: "resolving_target", lease_owner: "legacy-worker" },
         ]);
         const checkpointedLegacy = await client.query<{ checkpoint: string }>(
           `UPDATE exomem_lifecycle_operations
@@ -868,7 +881,7 @@ describe("migration 0045 provisioner wire protocol upgrade safety", { skip: !DAT
           RETURNING checkpoint`,
           [SOURCE_OPERATION]
         );
-        assert.deepEqual(checkpointedLegacy.rows, [{ checkpoint: 'awaiting_provider' }]);
+        assert.deepEqual(checkpointedLegacy.rows, [{ checkpoint: "awaiting_provider" }]);
 
         await client.query(
           `INSERT INTO exomem_lifecycle_operations (
@@ -913,7 +926,9 @@ describe("migration 0045 provisioner wire protocol upgrade safety", { skip: !DAT
            RETURNING provisioner_wire_protocol`,
           [TENANT, CELL]
         );
-        assert.deepEqual(rollingV1.rows, [{ provisioner_wire_protocol: "exomem-cell-provisioner.v1" }]);
+        assert.deepEqual(rollingV1.rows, [
+          { provisioner_wire_protocol: "exomem-cell-provisioner.v1" },
+        ]);
         await client.query(
           `INSERT INTO exomem_lifecycle_operations (
              tenant_id, operation_type, idempotency_key, fence_generation, provisioner_wire_protocol

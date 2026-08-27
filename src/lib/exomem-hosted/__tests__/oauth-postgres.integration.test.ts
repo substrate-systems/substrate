@@ -4,14 +4,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
-import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
+import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import {
   createCanaryAssignment,
   createStagedClientRelease,
   expireCanaryAuthority,
   failCanaryAssignment,
 } from "../agent-contract-canaries";
-import { storeRetainedExomemAgentContractCandidate } from "../agent-contract-store";
+import { storeExomemAgentContractCandidate } from "../agent-contract-store";
 import { EXOMEM_ALPHA_CAPACITY } from "../oauth-admission";
 import { ExomemHostedError } from "../errors";
 import {
@@ -207,7 +207,7 @@ async function seedLiveCohort(): Promise<void> {
        compatibility_digest, protocol_version, mcp_protocol_versions, contract, claude_package_lock, claude_archive_lock,
        openai_package_lock, openai_archive_lock, promoted_at
      ) VALUES (
-       'live', 'hosted-alpha-agent-v1', $1, 'test', $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
+       'live', 'hosted-alpha-agent-v4', $1, 'test', $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
        $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, now()
      ) RETURNING id`,
     [
@@ -493,7 +493,7 @@ async function activateCanaryAssignment(input: {
     `SELECT cell_id::text, source_release, protocol_version, command_fingerprint,
             contract_digest, compatibility_digest
      FROM exomem_routable_cell_contracts
-     WHERE profile_id = 'hosted-alpha-agent-v1' AND routable = true
+     WHERE profile_id = 'hosted-alpha-agent-v4' AND routable = true
      ORDER BY cell_id`
   );
   const expectedRoutableSetDigest = createHash("sha256")
@@ -501,7 +501,7 @@ async function activateCanaryAssignment(input: {
       routes.rows
         .map((row) =>
           JSON.stringify([
-            "hosted-alpha-agent-v1",
+            "hosted-alpha-agent-v4",
             row.cell_id,
             row.source_release,
             row.protocol_version,
@@ -527,7 +527,7 @@ async function activateCanaryAssignment(input: {
             command_fingerprint, contract_digest, compatibility_digest,
             observed_at > now() - interval '5 minutes' AS fresh
      FROM exomem_agent_contract_profile_authority
-     WHERE profile_id = 'hosted-alpha-agent-v1'`
+     WHERE profile_id = 'hosted-alpha-agent-v4'`
   );
   assert.deepEqual(promotionAuthority.rows, [
     {
@@ -749,7 +749,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       `SELECT source_release, protocol_version, command_fingerprint, schema_digest,
               compatibility_digest
          FROM exomem_agent_contract_candidates
-        WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'`
+        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'`
     );
     const catalogUser = await pool!.query<{ id: string }>(
       "INSERT INTO users (email) VALUES ('legacy-catalog@example.test') RETURNING id"
@@ -856,7 +856,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
               compatibility_digest
          FROM exomem_agent_contract_candidates
-        WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'
+        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
         LIMIT 1`
     );
     const catalogUser = await pool!.query<{ id: string }>(
@@ -943,7 +943,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
               compatibility_digest
          FROM exomem_agent_contract_candidates
-        WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'
+        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
         LIMIT 1`
     );
     const catalogUser = await pool!.query<{ id: string }>(
@@ -1374,7 +1374,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
         `SELECT source_release, protocol_version, command_fingerprint, schema_digest,
                 compatibility_digest
            FROM exomem_agent_contract_candidates
-          WHERE profile_id = 'hosted-alpha-agent-v1' AND state = 'live'
+          WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
           LIMIT 1`
       );
       const catalogUser = await pool!.query<{ id: string }>(
@@ -1849,7 +1849,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
   });
 
   it("admits a shared staged client while keeping reviewer authorization lineage exact", async () => {
-    const candidateId = await storeRetainedExomemAgentContractCandidate("0.35.0");
+    const candidateId = await storeExomemAgentContractCandidate();
     const candidateClientId = `https://shared-canary.example.test/${randomUUID()}`;
     const redirectUri = "https://shared-canary.example.test/callback";
     const configDigest = oauthClientConfigSha256({
@@ -1861,11 +1861,11 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     const stage = await createStagedClientRelease({
       candidateId,
       platform: "claude",
-      packageSha256: candidateFixture0350.packageLock.artifact_sha256,
-      archiveSha256: candidateFixture0350.archiveLock.archive_sha256,
-      compatibilitySha256: candidateFixture0350.compatibility.compatibility_sha256,
-      contractSha256: candidateFixture0350.compatibility.schema_contract_sha256,
-      pluginVersion: candidateFixture0350.packageLock.plugin_version,
+      packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+      archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
       oauthClientConfigSha256: configDigest,
       registeredAppIdSha256: null,
       operatorPrincipalDigest: "9".repeat(64),
@@ -2897,7 +2897,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          compatibility_digest, protocol_version, mcp_protocol_versions, contract,
          claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
        ) VALUES (
-         'pending', 'hosted-alpha-agent-v1', $1, 'candidate-test', $2, $3, $4, '1',
+         'pending', 'hosted-alpha-agent-v4', $1, 'candidate-test', $2, $3, $4, '1',
          '["2025-11-25"]'::jsonb, '{}'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
        ) RETURNING id`,
       [
@@ -2905,10 +2905,40 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
         "a".repeat(64),
         "b".repeat(64),
         "c".repeat(64),
-        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
-        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
-        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
-        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
+        JSON.stringify({
+          platform: "claude",
+          artifact_sha256: "d".repeat(64),
+          archive_sha256: "e".repeat(64),
+          compatibility_sha256: "f".repeat(64),
+          schema_contract_sha256: "1".repeat(64),
+          plugin_version: "1.0.0",
+        }),
+        JSON.stringify({
+          platform: "claude",
+          artifact_sha256: "d".repeat(64),
+          archive_sha256: "e".repeat(64),
+          compatibility_sha256: "f".repeat(64),
+          schema_contract_sha256: "1".repeat(64),
+          plugin_version: "1.0.0",
+        }),
+        JSON.stringify({
+          platform: "openai",
+          artifact_sha256: "2".repeat(64),
+          archive_sha256: "3".repeat(64),
+          compatibility_sha256: "4".repeat(64),
+          schema_contract_sha256: "5".repeat(64),
+          plugin_version: "1.0.0",
+          registered_app_id_sha256: "6".repeat(64),
+        }),
+        JSON.stringify({
+          platform: "openai",
+          artifact_sha256: "2".repeat(64),
+          archive_sha256: "3".repeat(64),
+          compatibility_sha256: "4".repeat(64),
+          schema_contract_sha256: "5".repeat(64),
+          plugin_version: "1.0.0",
+          registered_app_id_sha256: "6".repeat(64),
+        }),
       ]
     );
     const assignment = await pool!.query(
@@ -2918,7 +2948,15 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
        ) VALUES ($1, $2, 1, 'active', 'candidate-test', '1', $3, $4, $5, $6, true, $7,
                  now() + interval '1 hour', now()) RETURNING id`,
-      [tenant.rows[0].id, candidate.rows[0].id, "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64), "e".repeat(64)]
+      [
+        tenant.rows[0].id,
+        candidate.rows[0].id,
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+        "d".repeat(64),
+        "e".repeat(64),
+      ]
     );
     const stage = await pool!.query(
       `INSERT INTO exomem_staged_client_releases (
@@ -2927,7 +2965,15 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          expires_at, evidenced_at
        ) VALUES ($1, 'claude', 'evidenced', $2, $3, $4, $5, '1.0.0', $6, $7,
                  now() + interval '1 hour', now()) RETURNING id`,
-      [candidate.rows[0].id, "d".repeat(64), "e".repeat(64), "f".repeat(64), "1".repeat(64), configDigest, "e".repeat(64)]
+      [
+        candidate.rows[0].id,
+        "d".repeat(64),
+        "e".repeat(64),
+        "f".repeat(64),
+        "1".repeat(64),
+        configDigest,
+        "e".repeat(64),
+      ]
     );
     const candidatePassword = await hashMarketplaceReviewerPassword("candidate-lineage-password");
     const credential = await pool!.query(
@@ -2937,14 +2983,34 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          fixture_version, fixture_payload_digest, created_by_principal_digest, created_at, expires_at
        ) VALUES ('anthropic', 'internal_canary', $1, $2, $3, $4, $5, $6, 1, $7, $8,
                  'candidate-test', $9, $10, now() - interval '1 hour', now() + interval '1 hour') RETURNING id`,
-      [digest(331), candidatePassword, user.rows[0].id, tenant.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id, client.rows[0].id, "8".repeat(64), digest(332)]
+      [
+        digest(331),
+        candidatePassword,
+        user.rows[0].id,
+        tenant.rows[0].id,
+        candidate.rows[0].id,
+        assignment.rows[0].id,
+        stage.rows[0].id,
+        client.rows[0].id,
+        "8".repeat(64),
+        digest(332),
+      ]
     );
     const grant = await pool!.query(
       `INSERT INTO exomem_oauth_grants (
          user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true, $5, $6, $7, 1, $8) RETURNING id`,
-      [user.rows[0].id, tenant.rows[0].id, client.rows[0].id, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+      [
+        user.rows[0].id,
+        tenant.rows[0].id,
+        client.rows[0].id,
+        resource,
+        credential.rows[0].id,
+        candidate.rows[0].id,
+        assignment.rows[0].id,
+        stage.rows[0].id,
+      ]
     );
     await pool!.query(
       `INSERT INTO exomem_oauth_authorization_codes (
@@ -2952,14 +3018,28 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, 'https://candidate.example.test/callback', $4, 'candidate-challenge', true,
                  now() + interval '1 hour', $5, $6, $7, 1, $8)`,
-      [digest(333), grant.rows[0].id, client.rows[0].id, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+      [
+        digest(333),
+        grant.rows[0].id,
+        client.rows[0].id,
+        resource,
+        credential.rows[0].id,
+        candidate.rows[0].id,
+        assignment.rows[0].id,
+        stage.rows[0].id,
+      ]
     );
 
     const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: digest(333), clientId: candidateClientId,
-      redirectUri: "https://candidate.example.test/callback", resource, pkceChallenge: "candidate-challenge",
-      refreshDigest: digest(334), refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(335), accessExpiresAt: new Date(Date.now() + 60_000),
+      codeDigest: digest(333),
+      clientId: candidateClientId,
+      redirectUri: "https://candidate.example.test/callback",
+      resource,
+      pkceChallenge: "candidate-challenge",
+      refreshDigest: digest(334),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(335),
+      accessExpiresAt: new Date(Date.now() + 60_000),
     });
     assert.ok(issued);
     const lineage = await pool!.query(
@@ -3009,10 +3089,18 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          INSERT INTO exomem_oauth_access_tokens (access_digest, grant_id, family_id, client_id, resource, scopes, expires_at)
          SELECT $6, grant_id, id, $3, $4, ARRAY['exomem.read'], now() + interval '1 hour' FROM family
        ) SELECT grant_id, id AS family_id FROM family`,
-      [user.rows[0].id, tenant.rows[0].id, legacyClient.rows[0].id, resource, digest(338), digest(339)]
+      [
+        user.rows[0].id,
+        tenant.rows[0].id,
+        legacyClient.rows[0].id,
+        resource,
+        digest(338),
+        digest(339),
+      ]
     );
     const unrelatedUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email) VALUES ($1) RETURNING id", [`unrelated-${randomUUID()}@example.test`]
+      "INSERT INTO users (email) VALUES ($1) RETURNING id",
+      [`unrelated-${randomUUID()}@example.test`]
     );
     const unrelatedTenant = await pool!.query<{ id: string }>(
       "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
@@ -3028,16 +3116,26 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5, $6, $7, 1, $8) RETURNING id`,
-      [user.rows[0].id, tenant.rows[0].id, (await pool!.query<{ id: string }>(
-        `INSERT INTO exomem_oauth_clients (
+      [
+        user.rows[0].id,
+        tenant.rows[0].id,
+        (
+          await pool!.query<{ id: string }>(
+            `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
            oauth_client_config_sha256
          ) VALUES ($1, 'pinned', false, '["https://mismatch.example.test/callback"]'::jsonb,
                    digest(convert_to('["https://mismatch.example.test/callback"]', 'utf8'), 'sha256'),
                    'claude', $2) RETURNING id`,
-        [`mismatch-${randomUUID()}`, "e".repeat(64)]
-      )).rows[0].id, resource, credential.rows[0].id,
-        candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+            [`mismatch-${randomUUID()}`, "e".repeat(64)]
+          )
+        ).rows[0].id,
+        resource,
+        credential.rows[0].id,
+        candidate.rows[0].id,
+        assignment.rows[0].id,
+        stage.rows[0].id,
+      ]
     );
     await interactiveTransaction((tx) =>
       revokeConflictingCanaryOAuthLineageInTransaction(tx, {
@@ -3066,9 +3164,29 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       ).rows[0],
       { grant_revoked: true, family_revoked: true, refresh_consumed: true, access_revoked: true }
     );
-    assert.equal((await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [unrelated.rows[0].id])).rows[0]?.revoked_at, null);
-    assert.equal((await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [grant.rows[0].id])).rows[0]?.revoked_at, null);
-    assert.ok((await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [mismatchedClientGrant.rows[0].id])).rows[0]?.revoked_at);
+    assert.equal(
+      (
+        await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
+          unrelated.rows[0].id,
+        ])
+      ).rows[0]?.revoked_at,
+      null
+    );
+    assert.equal(
+      (
+        await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
+          grant.rows[0].id,
+        ])
+      ).rows[0]?.revoked_at,
+      null
+    );
+    assert.ok(
+      (
+        await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
+          mismatchedClientGrant.rows[0].id,
+        ])
+      ).rows[0]?.revoked_at
+    );
 
     const providerReview = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_marketplace_reviewer_credentials (
@@ -3086,19 +3204,39 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       1
     );
     assert.equal(
-      (await pool!.query("SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1", [providerReview.rows[0].id])).rows[0]?.revoked_at instanceof Date,
+      (
+        await pool!.query(
+          "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+          [providerReview.rows[0].id]
+        )
+      ).rows[0]?.revoked_at instanceof Date,
       true
     );
     assert.equal(
-      (await pool!.query("SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1", [credential.rows[0].id])).rows[0]?.revoked_at,
+      (
+        await pool!.query(
+          "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+          [credential.rows[0].id]
+        )
+      ).rows[0]?.revoked_at,
       null
     );
 
-    await pool!.query("UPDATE exomem_agent_contract_rollout_assignments SET state = 'retired', activated_at = NULL, ended_at = now() WHERE id = $1", [assignment.rows[0].id]);
-    assert.equal(await rotateOAuthRefreshTokenAtomic({
-      refreshDigest: digest(334), replacementRefreshDigest: digest(336), accessDigest: digest(337),
-      accessExpiresAt: new Date(Date.now() + 60_000), clientId: candidateClientId, resource,
-    }), null);
+    await pool!.query(
+      "UPDATE exomem_agent_contract_rollout_assignments SET state = 'retired', activated_at = NULL, ended_at = now() WHERE id = $1",
+      [assignment.rows[0].id]
+    );
+    assert.equal(
+      await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(334),
+        replacementRefreshDigest: digest(336),
+        accessDigest: digest(337),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId: candidateClientId,
+        resource,
+      }),
+      null
+    );
     assert.deepEqual(
       (
         await pool!.query(
@@ -3111,21 +3249,37 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
           [issued!.familyId]
         )
       ).rows[0],
-      { revoked_reason: "candidate_authority_invalid", refresh_consumed: true, access_revoked: true }
+      {
+        revoked_reason: "candidate_authority_invalid",
+        refresh_consumed: true,
+        access_revoked: true,
+      }
     );
 
     await pool!.query(
       "UPDATE exomem_agent_contract_rollout_assignments SET state = 'active', activated_at = now(), ended_at = NULL WHERE id = $1",
       [assignment.rows[0].id]
     );
-    await pool!.query("UPDATE exomem_oauth_grants SET revoked_at = now() WHERE id = $1", [grant.rows[0].id]);
+    await pool!.query("UPDATE exomem_oauth_grants SET revoked_at = now() WHERE id = $1", [
+      grant.rows[0].id,
+    ]);
     const seedCredentialGraph = async (reviewerCredentialId: string, offset: number) => {
       const session = await pool!.query<{ id: string }>(
         `INSERT INTO exomem_sessions (
            user_id, tenant_id, session_digest, csrf_digest, expires_at, reviewer_credential_id,
            candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id
          ) VALUES ($1, $2, $3, $4, now() + interval '1 hour', $5, $6, $7, 1, $8, $9) RETURNING id`,
-        [user.rows[0].id, tenant.rows[0].id, digest(offset), digest(offset + 1), reviewerCredentialId, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id, client.rows[0].id]
+        [
+          user.rows[0].id,
+          tenant.rows[0].id,
+          digest(offset),
+          digest(offset + 1),
+          reviewerCredentialId,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+          client.rows[0].id,
+        ]
       );
       const graph = await pool!.query<{ grant_id: string; family_id: string; code_id: string }>(
         `WITH grant_row AS (
@@ -3156,23 +3310,43 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
            ) SELECT $11, grant_id, id, $3, $4, ARRAY['exomem.read'], now() + interval '1 hour',
                     $6, $7, 1, $8, $5 FROM family
          ) SELECT family.grant_id, family.id AS family_id, code.id AS code_id FROM family CROSS JOIN code`,
-        [user.rows[0].id, tenant.rows[0].id, client.rows[0].id, resource, reviewerCredentialId, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id, digest(offset + 2), digest(offset + 3), digest(offset + 4)]
+        [
+          user.rows[0].id,
+          tenant.rows[0].id,
+          client.rows[0].id,
+          resource,
+          reviewerCredentialId,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+          digest(offset + 2),
+          digest(offset + 3),
+          digest(offset + 4),
+        ]
       );
       return { sessionId: session.rows[0].id, ...graph.rows[0] };
     };
     const oldGraph = await seedCredentialGraph(credential.rows[0].id, 350);
     const replacementCredential = await createInternalCanaryReviewerCredentialAtomic({
-      platform: "claude", usernameDigest: digest(360), passwordHash: "$argon2id$integration",
-      tenantId: tenant.rows[0].id, candidateId: candidate.rows[0].id,
-      assignmentId: assignment.rows[0].id, assignmentGeneration: 1,
-      stagedClientReleaseId: stage.rows[0].id, oauthClientId: client.rows[0].id,
-      fixtureVersion: "candidate-test", fixturePayloadDigest: "8".repeat(64),
-      operatorPrincipalDigest: digest(361), expiresAt: new Date(Date.now() + 30 * 60_000),
+      platform: "claude",
+      usernameDigest: digest(360),
+      passwordHash: "$argon2id$integration",
+      tenantId: tenant.rows[0].id,
+      candidateId: candidate.rows[0].id,
+      assignmentId: assignment.rows[0].id,
+      assignmentGeneration: 1,
+      stagedClientReleaseId: stage.rows[0].id,
+      oauthClientId: client.rows[0].id,
+      fixtureVersion: "candidate-test",
+      fixturePayloadDigest: "8".repeat(64),
+      operatorPrincipalDigest: digest(361),
+      expiresAt: new Date(Date.now() + 30 * 60_000),
     });
     assert.ok(replacementCredential);
     assert.deepEqual(
-      (await pool!.query(
-        `SELECT credential.revoked_at IS NOT NULL AS credential_revoked, session.revoked_at IS NOT NULL AS session_revoked,
+      (
+        await pool!.query(
+          `SELECT credential.revoked_at IS NOT NULL AS credential_revoked, session.revoked_at IS NOT NULL AS session_revoked,
                 grant_row.revoked_at IS NOT NULL AS grant_revoked, code.consumed_at IS NOT NULL AS code_consumed,
                 family.revoked_at IS NOT NULL AS family_revoked, access.revoked_at IS NOT NULL AS access_revoked,
                 refresh.consumed_at IS NOT NULL AS refresh_consumed
@@ -3184,9 +3358,24 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          JOIN exomem_oauth_access_tokens AS access ON access.family_id = family.id
          JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = family.id
          WHERE credential.id = $1`,
-        [credential.rows[0].id, oldGraph.sessionId, oldGraph.grant_id, oldGraph.code_id, oldGraph.family_id]
-      )).rows[0],
-      { credential_revoked: true, session_revoked: true, grant_revoked: true, code_consumed: true, family_revoked: true, access_revoked: true, refresh_consumed: true }
+          [
+            credential.rows[0].id,
+            oldGraph.sessionId,
+            oldGraph.grant_id,
+            oldGraph.code_id,
+            oldGraph.family_id,
+          ]
+        )
+      ).rows[0],
+      {
+        credential_revoked: true,
+        session_revoked: true,
+        grant_revoked: true,
+        code_consumed: true,
+        family_revoked: true,
+        access_revoked: true,
+        refresh_consumed: true,
+      }
     );
     const newGraph = await seedCredentialGraph(replacementCredential!.credentialId, 370);
     const survivingProvider = await pool!.query<{ id: string }>(
@@ -3197,15 +3386,54 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
                  'provider-review', $4, $5, now() + interval '1 hour') RETURNING id`,
       [digest(380), user.rows[0].id, tenant.rows[0].id, "7".repeat(64), digest(381)]
     );
-    assert.equal(await revokeInternalCanaryReviewerCredentialAtomic({
-      tenantId: tenant.rows[0].id, candidateId: candidate.rows[0].id, assignmentId: assignment.rows[0].id,
-      assignmentGeneration: 1, stagedClientReleaseId: stage.rows[0].id, oauthClientId: client.rows[0].id,
-      platform: "claude", operatorPrincipalDigest: digest(382),
-    }), 1);
-    assert.equal((await pool!.query("SELECT revoked_at IS NOT NULL AS revoked FROM exomem_sessions WHERE id = $1", [newGraph.sessionId])).rows[0]?.revoked, true);
-    assert.equal((await pool!.query("SELECT revoked_at IS NOT NULL AS revoked FROM exomem_oauth_grants WHERE id = $1", [newGraph.grant_id])).rows[0]?.revoked, true);
-    assert.equal((await pool!.query("SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1", [survivingProvider.rows[0].id])).rows[0]?.revoked_at, null);
-    assert.equal((await pool!.query("SELECT deleted_at FROM exomem_tenants WHERE id = $1", [tenant.rows[0].id])).rows[0]?.deleted_at, null);
+    assert.equal(
+      await revokeInternalCanaryReviewerCredentialAtomic({
+        tenantId: tenant.rows[0].id,
+        candidateId: candidate.rows[0].id,
+        assignmentId: assignment.rows[0].id,
+        assignmentGeneration: 1,
+        stagedClientReleaseId: stage.rows[0].id,
+        oauthClientId: client.rows[0].id,
+        platform: "claude",
+        operatorPrincipalDigest: digest(382),
+      }),
+      1
+    );
+    assert.equal(
+      (
+        await pool!.query(
+          "SELECT revoked_at IS NOT NULL AS revoked FROM exomem_sessions WHERE id = $1",
+          [newGraph.sessionId]
+        )
+      ).rows[0]?.revoked,
+      true
+    );
+    assert.equal(
+      (
+        await pool!.query(
+          "SELECT revoked_at IS NOT NULL AS revoked FROM exomem_oauth_grants WHERE id = $1",
+          [newGraph.grant_id]
+        )
+      ).rows[0]?.revoked,
+      true
+    );
+    assert.equal(
+      (
+        await pool!.query(
+          "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+          [survivingProvider.rows[0].id]
+        )
+      ).rows[0]?.revoked_at,
+      null
+    );
+    assert.equal(
+      (
+        await pool!.query("SELECT deleted_at FROM exomem_tenants WHERE id = $1", [
+          tenant.rows[0].id,
+        ])
+      ).rows[0]?.deleted_at,
+      null
+    );
   });
 
   // Every other canary test in this file seeds its staged release as 'evidenced',
@@ -3251,7 +3479,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          compatibility_digest, protocol_version, mcp_protocol_versions, contract,
          claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
        ) VALUES (
-         'pending', 'hosted-alpha-agent-v1', $1, 'candidate-test', $2, $3, $4, '1',
+         'pending', 'hosted-alpha-agent-v4', $1, 'candidate-test', $2, $3, $4, '1',
          '["2025-11-25"]'::jsonb, '{}'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
        ) RETURNING id`,
       [
@@ -3259,10 +3487,40 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
         "a".repeat(64),
         "b".repeat(64),
         "c".repeat(64),
-        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
-        JSON.stringify({ platform: "claude", artifact_sha256: "d".repeat(64), archive_sha256: "e".repeat(64), compatibility_sha256: "f".repeat(64), schema_contract_sha256: "1".repeat(64), plugin_version: "1.0.0" }),
-        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
-        JSON.stringify({ platform: "openai", artifact_sha256: "2".repeat(64), archive_sha256: "3".repeat(64), compatibility_sha256: "4".repeat(64), schema_contract_sha256: "5".repeat(64), plugin_version: "1.0.0", registered_app_id_sha256: "6".repeat(64) }),
+        JSON.stringify({
+          platform: "claude",
+          artifact_sha256: "d".repeat(64),
+          archive_sha256: "e".repeat(64),
+          compatibility_sha256: "f".repeat(64),
+          schema_contract_sha256: "1".repeat(64),
+          plugin_version: "1.0.0",
+        }),
+        JSON.stringify({
+          platform: "claude",
+          artifact_sha256: "d".repeat(64),
+          archive_sha256: "e".repeat(64),
+          compatibility_sha256: "f".repeat(64),
+          schema_contract_sha256: "1".repeat(64),
+          plugin_version: "1.0.0",
+        }),
+        JSON.stringify({
+          platform: "openai",
+          artifact_sha256: "2".repeat(64),
+          archive_sha256: "3".repeat(64),
+          compatibility_sha256: "4".repeat(64),
+          schema_contract_sha256: "5".repeat(64),
+          plugin_version: "1.0.0",
+          registered_app_id_sha256: "6".repeat(64),
+        }),
+        JSON.stringify({
+          platform: "openai",
+          artifact_sha256: "2".repeat(64),
+          archive_sha256: "3".repeat(64),
+          compatibility_sha256: "4".repeat(64),
+          schema_contract_sha256: "5".repeat(64),
+          plugin_version: "1.0.0",
+          registered_app_id_sha256: "6".repeat(64),
+        }),
       ]
     );
     const assignment = await pool!.query(
@@ -3272,7 +3530,15 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
        ) VALUES ($1, $2, 1, 'active', 'candidate-test', '1', $3, $4, $5, $6, true, $7,
                  now() + interval '30 minutes', now()) RETURNING id`,
-      [tenant.rows[0].id, candidate.rows[0].id, "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64), "e".repeat(64)]
+      [
+        tenant.rows[0].id,
+        candidate.rows[0].id,
+        "a".repeat(64),
+        "b".repeat(64),
+        "c".repeat(64),
+        "d".repeat(64),
+        "e".repeat(64),
+      ]
     );
     // 'staged', and no evidenced_at: exactly what `prepare` leaves behind and what
     // the connector meets when the operator opens the window.
@@ -3287,7 +3553,15 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          created_at, expires_at
        ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '1.0.0', $6, $7,
                  now() - interval '2 hours', now() + interval '1 hour') RETURNING id`,
-      [candidate.rows[0].id, "d".repeat(64), "e".repeat(64), "f".repeat(64), "1".repeat(64), configDigest, "e".repeat(64)]
+      [
+        candidate.rows[0].id,
+        "d".repeat(64),
+        "e".repeat(64),
+        "f".repeat(64),
+        "1".repeat(64),
+        configDigest,
+        "e".repeat(64),
+      ]
     );
     const password = await hashMarketplaceReviewerPassword("staged-canary-password");
     const credential = await pool!.query(
@@ -3297,14 +3571,34 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          fixture_version, fixture_payload_digest, created_by_principal_digest, created_at, expires_at
        ) VALUES ('anthropic', 'internal_canary', $1, $2, $3, $4, $5, $6, 1, $7, $8,
                  'candidate-test', $9, $10, now(), now() + interval '30 minutes') RETURNING id`,
-      [digest(361), password, user.rows[0].id, tenant.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id, client.rows[0].id, "8".repeat(64), digest(362)]
+      [
+        digest(361),
+        password,
+        user.rows[0].id,
+        tenant.rows[0].id,
+        candidate.rows[0].id,
+        assignment.rows[0].id,
+        stage.rows[0].id,
+        client.rows[0].id,
+        "8".repeat(64),
+        digest(362),
+      ]
     );
     const grant = await pool!.query(
       `INSERT INTO exomem_oauth_grants (
          user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true, $5, $6, $7, 1, $8) RETURNING id`,
-      [user.rows[0].id, tenant.rows[0].id, client.rows[0].id, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+      [
+        user.rows[0].id,
+        tenant.rows[0].id,
+        client.rows[0].id,
+        resource,
+        credential.rows[0].id,
+        candidate.rows[0].id,
+        assignment.rows[0].id,
+        stage.rows[0].id,
+      ]
     );
     await pool!.query(
       `INSERT INTO exomem_oauth_authorization_codes (
@@ -3312,21 +3606,39 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
          reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, $5, 'staged-canary-challenge', true,
                  now() + interval '1 hour', $6, $7, $8, 1, $9)`,
-      [digest(363), grant.rows[0].id, client.rows[0].id, redirectUri, resource, credential.rows[0].id, candidate.rows[0].id, assignment.rows[0].id, stage.rows[0].id]
+      [
+        digest(363),
+        grant.rows[0].id,
+        client.rows[0].id,
+        redirectUri,
+        resource,
+        credential.rows[0].id,
+        candidate.rows[0].id,
+        assignment.rows[0].id,
+        stage.rows[0].id,
+      ]
     );
 
     const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: digest(363), clientId: candidateClientId,
-      redirectUri, resource, pkceChallenge: "staged-canary-challenge",
-      refreshDigest: digest(364), refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(365), accessExpiresAt: new Date(Date.now() + 60_000),
+      codeDigest: digest(363),
+      clientId: candidateClientId,
+      redirectUri,
+      resource,
+      pkceChallenge: "staged-canary-challenge",
+      refreshDigest: digest(364),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: digest(365),
+      accessExpiresAt: new Date(Date.now() + 60_000),
     });
     assert.ok(issued, "a staged canary release must be able to exchange its code");
 
     // Issuing is not enough. If the read paths still demanded 'evidenced' the
     // window would fail one request later, on the first MCP call -- so the
     // operations `observe` has to witness would still be unobservable.
-    assert.equal((await findActiveOAuthAccessToken(digest(365)))?.candidateId, candidate.rows[0].id);
+    assert.equal(
+      (await findActiveOAuthAccessToken(digest(365)))?.candidateId,
+      candidate.rows[0].id
+    );
     assert.equal((await findMcpOAuthAccessToken(digest(365)))?.candidateId, candidate.rows[0].id);
 
     // A reviewer session outlives a fifteen-minute access token, so rotation has
@@ -3567,9 +3879,20 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       `INSERT INTO exomem_oauth_authorization_codes (
          code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
        ) VALUES ($1, $2, $3, $4, $5, 'challenge', $6, now() + interval '1 hour')`,
-      [codeDigest, grant.rows[0].id, input.clientInternalId, input.redirectUri, resource, input.offlineAccess]
+      [
+        codeDigest,
+        grant.rows[0].id,
+        input.clientInternalId,
+        input.redirectUri,
+        resource,
+        input.offlineAccess,
+      ]
     );
-    return { codeDigest, grantId: grant.rows[0].id as string, tenantId: tenant.rows[0].id as string };
+    return {
+      codeDigest,
+      grantId: grant.rows[0].id as string,
+      tenantId: tenant.rows[0].id as string,
+    };
   }
 
   it("admits two distinct connectors on the same allowlisted host", async () => {
@@ -3663,7 +3986,11 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       assert.equal(
         await registerAdmittedCimdClient(mixed, {
           fetchCimd: async () =>
-            cimdMetadata(mixed, [`https://${host}/callback`, "https://attacker.example.test/cb"], "mixed"),
+            cimdMetadata(
+              mixed,
+              [`https://${host}/callback`, "https://attacker.example.test/cb"],
+              "mixed"
+            ),
         }),
         null
       );
@@ -3744,10 +4071,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
         }),
         "an admitted host must be able to revive its own stale row"
       );
-      assert.ok(
-        await resolveApprovedOAuthClient(clientId),
-        "the revived row must admit again"
-      );
+      assert.ok(await resolveApprovedOAuthClient(clientId), "the revived row must admit again");
       const revived = await pool!.query<{ auto_registered: boolean; enabled: boolean }>(
         "SELECT auto_registered, enabled FROM exomem_oauth_clients WHERE client_id = $1",
         [clientId]

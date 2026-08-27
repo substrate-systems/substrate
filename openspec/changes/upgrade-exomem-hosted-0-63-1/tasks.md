@@ -19,7 +19,7 @@
 
 ## 4. Verification and Operations
 
-- [ ] 4.1 Run focused unit and Postgres-backed control-plane tests, full tests, lint, build, and strict OpenSpec validation.
+- [x] 4.1 Run focused unit and Postgres-backed control-plane tests, full tests, lint, build, and strict OpenSpec validation.
 - [x] 4.2 Update the hosted-alpha runbook and runtime trust report with exact 0.63.1/v4 pins and the fresh paired-review sequence.
 - [ ] 4.3 Deploy the control plane, import/stage the v4 candidate, and roll a reviewer cell forward in place with continuity and identity verification.
 - [ ] 4.4 Complete fresh Claude and ChatGPT smoke evidence in one window, promote once, and verify paid-alpha discovery reports all 25 tools.

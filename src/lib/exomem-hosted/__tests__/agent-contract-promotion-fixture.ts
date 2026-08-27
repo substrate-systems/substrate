@@ -37,30 +37,42 @@ export function promotionContractFixture(release: PromotionFixtureRelease) {
 
 export function testOpenAiLocks(
   release: PromotionFixtureRelease,
-  digests: { artifact: string; archive: string; registeredApp: string } = {
+  digests?: { artifact: string; archive: string; registeredApp: string }
+) {
+  if (release === "0.63.1" && digests === undefined) {
+    return {
+      packageLock: liveFixture.openaiPackageLock,
+      archiveLock: liveFixture.openaiArchiveLock,
+    } as const;
+  }
+  const fixture = promotionContractFixture(release);
+  const selectedDigests = digests ?? {
     artifact: "a".repeat(64),
     archive: "b".repeat(64),
     registeredApp: "c".repeat(64),
-  }
-) {
-  const fixture = promotionContractFixture(release);
+  };
   return {
     packageLock: {
       ...fixture.packageLock,
       platform: "openai" as const,
-      artifact_sha256: digests.artifact,
-      registered_app_id_sha256: digests.registeredApp,
+      artifact_sha256: selectedDigests.artifact,
+      registered_app_id_sha256: selectedDigests.registeredApp,
     },
     archiveLock: {
       platform: "openai" as const,
-      archive_sha256: digests.archive,
-      registered_app_id_sha256: digests.registeredApp,
+      archive_sha256: selectedDigests.archive,
+      registered_app_id_sha256: selectedDigests.registeredApp,
     },
   } as const;
 }
 
-// The live release, which is what the live-import tests exercise.
-export const testOnlyOpenAiLocks = testOpenAiLocks("0.63.1");
+// The live release ships its checked OpenAI registration locks alongside the
+// Claude locks. Tests exercising the current candidate must preserve that
+// exact identity rather than manufacturing a second registered app.
+export const testOnlyOpenAiLocks = {
+  packageLock: liveFixture.openaiPackageLock,
+  archiveLock: liveFixture.openaiArchiveLock,
+} as const;
 
 export function signedPromotionEvidence(input: {
   platform: "claude" | "openai";
