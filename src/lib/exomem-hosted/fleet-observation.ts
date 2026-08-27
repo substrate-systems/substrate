@@ -1,12 +1,11 @@
 import { withExomemTransaction, type ExomemSql } from "./db";
-import { EXOMEM_HOSTED_PROFILE as PROFILE } from "./hosted-profile";
 
 const MAX_AUTHORITY_ROWS = 4096;
 
 export type HostedRuntimeIdentity = {
   releaseVersion: string;
   protocolVersion: string;
-  agentProfile: typeof PROFILE;
+  agentProfile: string;
   gatewayContractDigest: string;
   commandFingerprint: string;
   schemaDigest: string;
@@ -48,11 +47,19 @@ function text(row: Row, field: string): string {
   return value;
 }
 
+function hostedProfile(row: Row): string {
+  const value = text(row, "profile_id");
+  if (!/^hosted-alpha-agent-v[1-9][0-9]*$/.test(value)) {
+    throw new Error("fleet observation row is invalid");
+  }
+  return value;
+}
+
 function runtime(row: Row): HostedRuntimeIdentity {
   const identity = {
     releaseVersion: text(row, "source_release"),
     protocolVersion: text(row, "protocol_version"),
-    agentProfile: PROFILE,
+    agentProfile: hostedProfile(row),
     gatewayContractDigest: text(row, "gateway_contract_digest"),
     commandFingerprint: text(row, "command_fingerprint"),
     schemaDigest: text(row, "schema_digest"),
@@ -73,6 +80,7 @@ function optionalRuntime(row: Row): HostedRuntimeIdentity | null {
   const fields = [
     "source_release",
     "protocol_version",
+    "profile_id",
     "gateway_contract_digest",
     "command_fingerprint",
     "schema_digest",
@@ -107,6 +115,7 @@ async function snapshot(tx: ExomemSql): Promise<ExomemHostedFleetObservation> {
       await tx`
         /* exomem:fleet-routable-cells */
         SELECT observation.cell_id::text AS cell_id,
+               observation.profile_id,
                observation.source_release,
                observation.protocol_version,
                cell.observed_gateway_contract_digest AS gateway_contract_digest,
@@ -115,8 +124,7 @@ async function snapshot(tx: ExomemSql): Promise<ExomemHostedFleetObservation> {
                observation.compatibility_digest
         FROM exomem_routable_cell_contracts AS observation
         JOIN exomem_cells AS cell ON cell.id = observation.cell_id
-        WHERE observation.profile_id = ${PROFILE}
-          AND observation.routable
+        WHERE observation.routable
         ORDER BY observation.cell_id
         LIMIT 4097
       `
@@ -149,6 +157,7 @@ async function snapshot(tx: ExomemSql): Promise<ExomemHostedFleetObservation> {
         SELECT assignment.id::text AS assignment_id,
                tenant.bound_cell_id::text AS cell_id,
                assignment.state,
+               candidate.profile_id,
                assignment.source_release,
                assignment.protocol_version,
                assignment.gateway_contract_digest,
@@ -156,6 +165,7 @@ async function snapshot(tx: ExomemSql): Promise<ExomemHostedFleetObservation> {
                assignment.schema_digest,
                assignment.compatibility_digest
         FROM exomem_agent_contract_rollout_assignments AS assignment
+        JOIN exomem_agent_contract_candidates AS candidate ON candidate.id = assignment.candidate_id
         JOIN exomem_tenants AS tenant ON tenant.id = assignment.tenant_id
         WHERE assignment.state IN ('preparing', 'active')
           AND tenant.bound_cell_id IS NOT NULL
@@ -175,6 +185,7 @@ async function snapshot(tx: ExomemSql): Promise<ExomemHostedFleetObservation> {
                ) AS cell_id,
                operation.operation_type,
                operation.state,
+               candidate.profile_id,
                operation.target_source_release AS source_release,
                operation.target_protocol_version AS protocol_version,
                operation.target_gateway_contract_digest AS gateway_contract_digest,
@@ -182,6 +193,8 @@ async function snapshot(tx: ExomemSql): Promise<ExomemHostedFleetObservation> {
                operation.target_schema_digest AS schema_digest,
                operation.target_compatibility_digest AS compatibility_digest
         FROM exomem_lifecycle_operations AS operation
+        LEFT JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = operation.target_candidate_id
         WHERE operation.state NOT IN ('succeeded', 'failed_terminal')
         ORDER BY operation.id
         LIMIT 4097
