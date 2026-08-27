@@ -466,6 +466,13 @@ export async function preflightRecoverExpiredReviewerCleanup(
       FROM exomem_lifecycle_operations AS source
       JOIN exomem_tenants AS tenant ON tenant.id = source.tenant_id
       JOIN exomem_cells AS cell ON cell.id = source.cell_id AND cell.tenant_id = tenant.id
+      JOIN exomem_agent_contract_candidates AS candidate
+        ON candidate.id = source.target_candidate_id
+       AND candidate.source_release = source.target_source_release
+       AND candidate.protocol_version = source.target_protocol_version
+       AND candidate.command_fingerprint = source.target_command_fingerprint
+       AND candidate.schema_digest = source.target_schema_digest
+       AND candidate.compatibility_digest = source.target_compatibility_digest
       JOIN exomem_agent_contract_rollout_assignments AS assignment
         ON assignment.id = source.target_assignment_id
        AND assignment.tenant_id = tenant.id
@@ -519,7 +526,7 @@ export async function preflightRecoverExpiredReviewerCleanup(
             AND EXISTS (
               SELECT 1 FROM exomem_routable_cell_contracts AS route
               WHERE route.cell_id = cell.id
-                AND route.profile_id = ${EXOMEM_HOSTED_PROFILE}
+                AND route.profile_id = candidate.profile_id
                 AND route.source_release = source.target_source_release
                 AND route.protocol_version = source.target_protocol_version
                 AND route.command_fingerprint = source.target_command_fingerprint
@@ -573,10 +580,18 @@ export async function recoverExpiredReviewerCleanup(
         SELECT source.*, tenant.owner_user_id, tenant.fence_generation AS tenant_fence_generation,
                tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state,
                tenant.marketplace_reviewer_purpose, tenant.deleted_at AS tenant_deleted_at,
-               tenant.bound_cell_id, cell.id AS matched_cell_id
+               tenant.bound_cell_id, cell.id AS matched_cell_id,
+               candidate.profile_id AS target_profile_id
         FROM exomem_lifecycle_operations AS source
         JOIN exomem_tenants AS tenant ON tenant.id = source.tenant_id
         JOIN exomem_cells AS cell ON cell.id = source.cell_id AND cell.tenant_id = tenant.id
+        JOIN exomem_agent_contract_candidates AS candidate
+          ON candidate.id = source.target_candidate_id
+         AND candidate.source_release = source.target_source_release
+         AND candidate.protocol_version = source.target_protocol_version
+         AND candidate.command_fingerprint = source.target_command_fingerprint
+         AND candidate.schema_digest = source.target_schema_digest
+         AND candidate.compatibility_digest = source.target_compatibility_digest
         WHERE source.id = ${input.sourceOperationId}::uuid
           AND source.fence_generation = ${input.expectedFence}::bigint
         FOR UPDATE OF source, tenant, cell
@@ -691,7 +706,7 @@ export async function recoverExpiredReviewerCleanup(
               AND EXISTS (
                 SELECT 1 FROM exomem_routable_cell_contracts AS route
                 WHERE route.cell_id = cell.id
-                  AND route.profile_id = ${EXOMEM_HOSTED_PROFILE}
+                  AND route.profile_id = source.target_profile_id
                   AND route.source_release = source.target_source_release
                   AND route.protocol_version = source.target_protocol_version
                   AND route.command_fingerprint = source.target_command_fingerprint
