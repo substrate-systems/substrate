@@ -22,9 +22,9 @@ Complimentary access does **not** require Paddle or a price. Paid operator
 invitations require checkout before provisioning. Every route does require:
 
 1. migrations `0017` through `0051_exomem_oauth_operator_client_bound.sql` applied to the production Neon database;
-2. the immutable Exomem `0.63.1` cell image from commit
-   `35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5`, pinned as
-   `ghcr.io/artexis10/exomem@sha256:480d7f9170d174cfdffa1f1c175a7dae3a6ab4e7f9520539f7d81f27e7924be3`,
+2. the immutable Exomem `0.66.0` cell image from commit
+   `efd6e15f40221bb3821f979d6fcbda45e7c6a649`, pinned as
+   `ghcr.io/artexis10/exomem@sha256:707d06b3ee4ee8cf12ae5a9cae9514fc7e1b5fa0cda82b6a15998bdfc97c59e8`,
    exposing private protocol `1` and `hosted-alpha-agent-v4`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -415,21 +415,21 @@ package/archive locks. Before promotion, prove every routable cell exposes that
 same private profile. Promotion is atomic: live discovery stays on the current
 contract until the candidate and real clean-client evidence both verify.
 
-The current release is Exomem `0.63.1` at
-`35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5`: command surface
+The current release is Exomem `0.66.0` at
+`efd6e15f40221bb3821f979d6fcbda45e7c6a649`: command surface
 `4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968`, schema
-`553b077a18808c77f928141068b4e22e65f845c383641d66ccf6d524a451d9ca`,
-compatibility `602bb4f9670f7436c8e530a4ffa6be6c9fa7913b6f156e1aa2c8923451a6b29f`,
+`55f704688e015a4497f9ca8da49169a717c282aacec838bfde52c08c12cdf95c`,
+compatibility `4a12a115086166c5b37cde02e6bfcc6aa2c095b6d073dc23f5634803b13c0ce9`,
 Claude package `be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241`,
 Claude archive `00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4`,
 OpenAI package `eaca4382bb3918ef0d49384de30f9d6c7d35798649702bd59c53b0315916698b`,
 OpenAI archive `d04b967013e61336ecd724d5d5acecea7a56a306256c6f387baa22d62db7adc0`,
 registered app `b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46`,
-and private gateway `555a606c1cb80dfcdf9607293991fcc98baf16847ee5c7c81182f60dccd66aeb`.
+and private gateway `b520dbf5509519b7822d0abd628514d1c1a2ee45f2c68958cf8b5e218444accb`.
 The immutable runtime candidate is SHA-256
-`a6a2efe0f5eab6f2ee386e4cd41c580c1af4f57d4c15484ceb9447e6a4f5a255`
+`ef7424809847ed7aa6909b9d85fb4b5e437d1cefa45ab813d595fc31ce1a184c`
 and the image digest is
-`sha256:480d7f9170d174cfdffa1f1c175a7dae3a6ab4e7f9520539f7d81f27e7924be3`.
+`sha256:707d06b3ee4ee8cf12ae5a9cae9514fc7e1b5fa0cda82b6a15998bdfc97c59e8`.
 Verify both release Sigstore attestations before any cell rollforward.
 From a clean checkout at that exact commit, project both artifacts together:
 
