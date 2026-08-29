@@ -89,28 +89,46 @@ describe("Exomem Hosted agent contracts", () => {
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
-  it("ships retained 0.57.2/v1 beside the exact current 0.63.1/v4 fixture", () => {
-    assert.equal(
-      existsSync(fileURLToPath(new URL("../agent-contract-fixture-0-57-2.ts", import.meta.url))),
-      true
-    );
-    assert.equal(
-      existsSync(fileURLToPath(new URL("./agent-contract-fixture-0-57-2.json", import.meta.url))),
-      true
-    );
+  it("ships retained 0.57.2/v1 and 0.63.1/v4 beside the exact current 0.66.0/v4 fixture", () => {
+    for (const retained of ["0-57-2", "0-63-1"]) {
+      assert.equal(
+        existsSync(
+          fileURLToPath(new URL(`../agent-contract-fixture-${retained}.ts`, import.meta.url))
+        ),
+        true
+      );
+      assert.equal(
+        existsSync(
+          fileURLToPath(new URL(`./agent-contract-fixture-${retained}.json`, import.meta.url))
+        ),
+        true
+      );
+    }
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5"
+      "efd6e15f40221bb3821f979d6fcbda45e7c6a649"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.63.1");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.66.0");
     assert.equal(exomemHostedContractFixture.compatibility.profile, "hosted-alpha-agent-v4");
     assert.equal(exomemHostedContractFixture.compatibility.commands.length, 25);
     assert.equal(exomemHostedContractFixture.packageLock.platform, "claude");
     assert.equal(exomemHostedContractFixture.openaiPackageLock.platform, "openai");
-    assert.equal(
-      exomemHostedContractFixture.openaiPackageLock.command_surface_sha256,
-      exomemHostedContractFixture.packageLock.command_surface_sha256
-    );
+    // Exomem 0.65.0 shipped one tag whose OpenAI lock still carried the 0.63.1-era
+    // schema and compatibility digests while the Claude lock had moved on, so the
+    // two platforms disagreed inside a single release. Exomem #907 closed that;
+    // pin all three digests, not just the command surface, so a half-refreshed
+    // release cannot be adopted again.
+    for (const field of [
+      "command_surface_sha256",
+      "schema_contract_sha256",
+      "compatibility_sha256",
+    ] as const) {
+      assert.equal(
+        exomemHostedContractFixture.openaiPackageLock[field],
+        exomemHostedContractFixture.packageLock[field],
+        `${field} must agree across platforms within one release`
+      );
+    }
     assert.equal(
       exomemHostedContractFixture.openaiArchiveLock.registered_app_id_sha256,
       exomemHostedContractFixture.openaiPackageLock.registered_app_id_sha256
@@ -207,7 +225,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.63.1");
+      assert.equal(fixture.sourceRelease, "0.66.0");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);

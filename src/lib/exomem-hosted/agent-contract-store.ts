@@ -8,6 +8,7 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0500 } from "./agent-contract-fixture-0-50-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0541 } from "./agent-contract-fixture-0-54-1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0572 } from "./agent-contract-fixture-0-57-2";
+import { exomemHostedContractFixture as exomemHostedContractFixture0631 } from "./agent-contract-fixture-0-63-1";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -34,8 +35,20 @@ export type TrustedRelease =
   | "0.50.0"
   | "0.54.1"
   | "0.57.2"
-  | "0.63.1";
+  | "0.63.1"
+  | "0.66.0";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.66.0",
+    {
+      sourceCommit: "efd6e15f40221bb3821f979d6fcbda45e7c6a649",
+      command_surface_sha256: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+      schema_contract_sha256: "55f704688e015a4497f9ca8da49169a717c282aacec838bfde52c08c12cdf95c",
+      compatibility_sha256: "4a12a115086166c5b37cde02e6bfcc6aa2c095b6d073dc23f5634803b13c0ce9",
+      artifact_sha256: "be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241",
+      archive_sha256: "00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4",
+    },
+  ],
   [
     "0.63.1",
     {
@@ -300,8 +313,11 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   if (source.sourceCommit !== trusted.sourceCommit)
     throw new Error("agent contract fixture has an untrusted source commit");
   const compatibility = record(source.compatibility, "compatibility");
+  // Every release from 0.63.1 forward ships the v4 profile; earlier units stay v1.
   const expectedProfile: ExomemHostedProfile =
-    sourceRelease === "0.63.1" ? EXOMEM_HOSTED_PROFILE : "hosted-alpha-agent-v1";
+    sourceRelease === "0.63.1" || sourceRelease === "0.66.0"
+      ? EXOMEM_HOSTED_PROFILE
+      : "hosted-alpha-agent-v1";
   const packageLock = record(source.packageLock, "Claude package lock");
   const archiveLock = record(source.archiveLock, "Claude archive lock");
   if (
@@ -422,7 +438,9 @@ export async function storeRetainedExomemAgentContractCandidate(
                 ? exomemHostedContractFixture0541
                 : sourceRelease === "0.57.2"
                   ? exomemHostedContractFixture0572
-                  : exomemHostedContractFixture;
+                  : sourceRelease === "0.63.1"
+                    ? exomemHostedContractFixture0631
+                    : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

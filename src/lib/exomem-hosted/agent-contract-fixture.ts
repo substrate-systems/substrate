@@ -1,7 +1,7 @@
-// Generated from Exomem compatibility.json at commit 35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5 for cell release 0.63.1. Do not edit.
+// Generated from Exomem compatibility.json at commit efd6e15f40221bb3821f979d6fcbda45e7c6a649 for cell release 0.66.0. Do not edit.
 export const exomemHostedContractFixture = {
-  "sourceCommit": "35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5",
-  "sourceRelease": "0.63.1",
+  "sourceCommit": "efd6e15f40221bb3821f979d6fcbda45e7c6a649",
+  "sourceRelease": "0.66.0",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -203,6 +203,18 @@ export const exomemHostedContractFixture = {
                   ],
                   "default": null,
                   "description": "Semantic-unit category shortcuts, such as config or rule."
+                },
+                "continuation": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Opaque continuation returned by a prior governed recall page."
                 },
                 "deep": {
                   "default": false,
@@ -501,6 +513,9 @@ export const exomemHostedContractFixture = {
               "$defs": {
                 "FindEnvelope": {
                   "properties": {
+                    "continuation": {
+                      "type": "string"
+                    },
                     "degraded": {
                       "items": {
                         "type": "string"
@@ -1325,6 +1340,12 @@ export const exomemHostedContractFixture = {
               "type": "int"
             },
             {
+              "description": "Opaque continuation returned by a prior governed recall page.",
+              "name": "continuation",
+              "required": false,
+              "type": "str"
+            },
+            {
               "description": "kb, vault, or kb-only.",
               "name": "scope",
               "required": false,
@@ -1692,7 +1713,7 @@ export const exomemHostedContractFixture = {
               "readOnlyHint": false,
               "title": "Remember"
             },
-            "description": "Remember a durable conclusion as compiled governed knowledge.\n\nThis is for distilled thinking, decisions, findings, failures, patterns,\nexperiments, and production logs. Raw material belongs in `capture_source`,\nwhich takes attached file handles as well as text; proof-bearing artifacts\nbelong in `preserve_evidence` or `preserve_artifacts`.\n\nFor each `sources:` wikilink, this appends the new note's wikilink to that\nsource's `ingested_into:` frontmatter, maintaining the source-to-note graph\nand taking the source out of the unprocessed backlog.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
+            "description": "Remember a durable conclusion as compiled governed knowledge.\n\nThis is for distilled thinking, decisions, findings, failures, patterns,\nexperiments, and production logs. Raw material belongs in `capture_source`,\nwhich takes attached file handles as well as text; proof-bearing artifacts\nbelong in `preserve_evidence` or `preserve_artifacts`.\n\nFor each `sources:` wikilink, this appends the new note's wikilink to that\nsource's `ingested_into:` frontmatter, maintaining the source-to-note graph\nand taking the source out of the unprocessed backlog.\n\nEvery non-empty source must already resolve to authorized governed Source\nor Evidence material. A URL, connector ID, remote file ID, working script,\nor derivative summary is not the original: capture the original first, then\ncite its governed path or stable ref. Use an honest empty list when no\nexternal source is asserted. Citation and supported back-references commit\natomically; unresolved citations return `UNRESOLVED_SOURCE_CITATION` without\nwriting anything.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -2347,7 +2368,7 @@ export const exomemHostedContractFixture = {
               "readOnlyHint": false,
               "title": "Edit Memory"
             },
-            "description": "Edit an existing memory page with an auditable reason.\n\nUse for small corrections, section edits, batch string edits, opinion-row\nfills, or one frontmatter field. Substantial rewrites should use\n`replace_memory` so history stays explicit.\n\nWhole-body, surgical string, batch-string, and section edits preserve\nordinary Markdown without synthesizing YAML. Tags, frontmatter patch, and\ntake-row operations still require frontmatter.\n\nWhen `RELATION_DISPOSITION_STALE` or `RELATION_DISPOSITION_MISSING` blocks\nan edit, first call the identical operation with `validate_only=true`.\nThen commit it unchanged with `transition_token=<returned transition_token>`,\n`relation_disposition=\"reviewed_none\"`,\n`relation_review_hash=<returned relation_review_hash>`, and an explicit\n`relation_review_reason`. The validate response uses the exact field name\nrequired by the commit; do not substitute the page content hash.\n\nAlternatively, author a typed page relation in the body exactly as:\n`## Relations` followed by\n`- supports [[Knowledge Base/Notes/Research/example-target]]`.\nDataview-style `supports:: [[...]]` fields are not supported relation syntax.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
+            "description": "Edit an existing memory page with an auditable reason.\n\nUse for small corrections, section edits, batch string edits, opinion-row\nfills, or one frontmatter field. Substantial rewrites should use\n`replace_memory` so history stays explicit.\n\nWhole-body, surgical string, batch-string, and section edits preserve\nordinary Markdown without synthesizing YAML. Tags, frontmatter patch, and\ntake-row operations still require frontmatter.\n\nA source-changing edit validates the complete final `sources` list against\nauthorized governed Source or Evidence material and updates supported\nback-references atomically. An unrelated edit may leave a legacy unresolved\ncitation unchanged; use `review_memory(mode=\"audit\",\ncategories=[\"unresolved_source_citation\"])` to find that debt.\n\nWhen `RELATION_DISPOSITION_STALE` or `RELATION_DISPOSITION_MISSING` blocks\nan edit, first call the identical operation with `validate_only=true`.\nThen commit it unchanged with `transition_token=<returned transition_token>`,\n`relation_disposition=\"reviewed_none\"`,\n`relation_review_hash=<returned relation_review_hash>`, and an explicit\n`relation_review_reason`. The validate response uses the exact field name\nrequired by the commit; do not substitute the page content hash.\n\nAlternatively, author a typed page relation in the body exactly as:\n`## Relations` followed by\n`- supports [[Knowledge Base/Notes/Research/example-target]]`.\nDataview-style `supports:: [[...]]` fields are not supported relation syntax.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -3476,7 +3497,7 @@ export const exomemHostedContractFixture = {
               "readOnlyHint": false,
               "title": "Replace Memory"
             },
-            "description": "Supersede an existing compiled memory with a new version.\n\nThe old page remains readable and points to the new page. Use this for\nmeaningful changes in conclusion, not small edits.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
+            "description": "Supersede an existing compiled memory with a new version.\n\nThe old page remains readable and points to the new page. Use this for\nmeaningful changes in conclusion, not small edits.\n\nReplacement is a new source claim: every non-empty `sources` entry must\nresolve to authorized governed Source or Evidence material, even when the\nold page carried an unresolved citation. Capture the original first or use\nan honest empty list. Exomem never promotes a derivative into the missing\noriginal.\n\nSemantic authoring [exomem.semantic-authoring:v4 sha256:837b03b15c3d83f6c6eeb50771f4eaa04e4beaaae0f7d54be249be40ce7685f7]: Every new, replaced, or activated active compiled note needs at least one valid, non-empty semantic unit. Either compact or rich form satisfies the minimum; compact is preferred, and a valid rich unit does not need a duplicate compact restatement. Check new active creates, replacements, and inactive-to-active transitions; inactive drafts may remain unit-free until activation. A post-activation compliant page cannot lose its final valid semantic unit. Under `## Observations`, write `- [category] content #tags (context) ^anchor` with an open-vocabulary category: the unit's one primary open-vocabulary subject or domain label. Category: One primary open-vocabulary label describes what a unit is about; rich category defaults to its governed kind unless explicitly overridden. Tag: Zero or more optional secondary retrieval labels refine lookup and never replace category or determine kind. Kind: The governed semantic form: compact units always use `observation`; rich units use their recognized heading kind. Rich form uses `## <Governed Kind>`. After optional leading metadata, add a blank line and a substantive Markdown body. A heading at level N owns content until the next non-fenced heading at level N or shallower; deeper headings remain in its body. Portable categories: Choose exactly one primary category: prefer a meaningful epistemic or operational role and put the domain in tags, but if the role would only be a generic fact, finding, or observation and the domain is the durable lens, use a domain category instead. The category vocabulary is open: these core keys are a shared starting point, not a closed list. When no core key is a good primary fit, author a new meaningful category rather than forcing an ill-fitting one. Role example: - [decision] Relocate to a coastal city next spring #life ^relocation For the complete core keys, aliases, and rich example, call bootstrap(profile=\"full\"). `missing_semantic_unit` means an applicable active compiled result has no valid non-empty unit. Compact remediation: Add `## Observations` and `- [operating constraint] Keep retries bounded #reliability`. Rich remediation: Alternatively add `## Decision`, a blank line, and a substantive body. `empty_rich_unit` means a recognized rich heading has no substantive body. Add substantive body content or remove the empty recognized heading.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -4784,7 +4805,7 @@ export const exomemHostedContractFixture = {
               "readOnlyHint": true,
               "title": "Review Memory"
             },
-            "description": "Review memory health, provenance, drift, or source backlog.\n\nDefault mode is read-only attention review. Write-capable repairs are in\n`maintain_memory`, not here.",
+            "description": "Review memory health, provenance, drift, or source backlog.\n\nDefault mode is read-only attention review. Write-capable repairs are in\n`maintain_memory`, not here.\n\n`mode=\"audit\", categories=[\"unresolved_source_citation\"]` finds compiled\npages whose explicit sources do not resolve to authorized governed Source\nor Evidence material. The audit is read-only and never reconstructs a\nmissing original from a derivative.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
@@ -6510,10 +6531,22 @@ export const exomemHostedContractFixture = {
               "readOnlyHint": false,
               "title": "Maintain Memory"
             },
-            "description": "Maintain vault health with explicit write-capable modes.\n\nDefault mode is read-only audit. `mode=\"fix\"` and `mode=\"backfill-ids\"`\nrewrite content (wikilinks, frontmatter, stable IDs) and default to\ndry-run here as a safety net. `mode=\"reconcile\"` only heals index-count\nand sidecar drift from out-of-band edits — the same canonical default as\n`op_reconcile` itself (idempotent, non-destructive) — so it defaults to\nwriting; pass `dry_run=true` to preview instead.\n\n`mode=\"fix\"` also collapses media sidecars that accumulated nested copies of\nthemselves (audit category `duplicated_sidecar`, reportable on its own via\n`mode=\"audit\", categories=[\"duplicated_sidecar\"]`). It keeps the longest\nsurviving `## Extracted text` — for a sidecar whose top-level block was\nblanked by a re-render, that is the one buried in a nested copy — and refuses\nany rewrite that would leave less transcript than it found. Frontmatter is\nuntouched, so a still-`pending` sidecar is re-extracted normally and the\nrecovered text is only the fallback.",
+            "description": "Maintain vault health with explicit write-capable modes.\n\nDefault mode is read-only audit. `mode=\"fix\"` and `mode=\"backfill-ids\"`\nrewrite content (wikilinks, frontmatter, stable IDs) and default to\ndry-run here as a safety net. `mode=\"reconcile\"` only heals index-count\nand sidecar drift from out-of-band edits — the same canonical default as\n`op_reconcile` itself (idempotent, non-destructive) — so it defaults to\nwriting; pass `dry_run=true` to preview instead.\n\nMCP, REST, and hosted callers may audit or preview with `dry_run=true`, but\nwrite-mode maintenance is operator-only: run `exomem maintain --fix` or\n`exomem maintain --reconcile` on the host. Remote write attempts return\n`MAINTENANCE_REQUIRES_CLI` before acquiring the mutation boundary.\n\n`mode=\"structured-files\"` is the exception: it previews one Planning or\nRecords collection's manifest-declared human filenames and managed readable\nbodies, including governed inbound-link rewrites. Preview is read-only;\napply requires its exact plan and source snapshot and commits atomically.\nDurable identity and mutable state stay in frontmatter, not filenames.\n\n`mode=\"fix\"` also collapses media sidecars that accumulated nested copies of\nthemselves (audit category `duplicated_sidecar`, reportable on its own via\n`mode=\"audit\", categories=[\"duplicated_sidecar\"]`). It keeps the longest\nsurviving `## Extracted text` — for a sidecar whose top-level block was\nblanked by a re-render, that is the one buried in a nested copy — and refuses\nany rewrite that would leave less transcript than it found. Frontmatter is\nuntouched, so a still-`pending` sidecar is re-extracted normally and the\nrecovered text is only the fallback.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
+                "apply": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Omit for preview; true applies the exact reviewed plan."
+                },
                 "categories": {
                   "anyOf": [
                     {
@@ -6528,6 +6561,18 @@ export const exomemHostedContractFixture = {
                   ],
                   "default": null,
                   "description": "Optional audit category filter."
+                },
+                "collection": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "One Planning or Records collection for structured-files."
                 },
                 "detail": {
                   "default": "actionable",
@@ -6559,8 +6604,20 @@ export const exomemHostedContractFixture = {
                 },
                 "mode": {
                   "default": "audit",
-                  "description": "audit, fix, reconcile, or backfill-ids.",
+                  "description": "audit, fix, reconcile, backfill-ids, or structured-files.",
                   "type": "string"
+                },
+                "plan_id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Exact structured-files preview identity required for apply."
                 },
                 "rebuild_embeddings": {
                   "default": false,
@@ -6581,6 +6638,30 @@ export const exomemHostedContractFixture = {
                     "legacy"
                   ],
                   "type": "string"
+                },
+                "source_snapshot": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Exact structured-files preview snapshot required for apply."
+                },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "description": "Bounded audit reason required for structured-files apply."
                 }
               },
               "type": "object"
@@ -6596,7 +6677,7 @@ export const exomemHostedContractFixture = {
           "name": "maintain_memory",
           "params": [
             {
-              "description": "audit, fix, reconcile, or backfill-ids.",
+              "description": "audit, fix, reconcile, backfill-ids, or structured-files.",
               "name": "mode",
               "required": false,
               "type": "str"
@@ -6636,6 +6717,36 @@ export const exomemHostedContractFixture = {
               "name": "legacy_sample_limit",
               "required": false,
               "type": "int"
+            },
+            {
+              "description": "One Planning or Records collection for structured-files.",
+              "name": "collection",
+              "required": false,
+              "type": "str"
+            },
+            {
+              "description": "Omit for preview; true applies the exact reviewed plan.",
+              "name": "apply",
+              "required": false,
+              "type": "bool"
+            },
+            {
+              "description": "Exact structured-files preview identity required for apply.",
+              "name": "plan_id",
+              "required": false,
+              "type": "str"
+            },
+            {
+              "description": "Exact structured-files preview snapshot required for apply.",
+              "name": "source_snapshot",
+              "required": false,
+              "type": "str"
+            },
+            {
+              "description": "Bounded audit reason required for structured-files apply.",
+              "name": "why",
+              "required": false,
+              "type": "str"
             },
             {
               "description": "Successful committed mutation detail: compact (default), full diagnostics, or legacy raw leaf result.",
@@ -8618,18 +8729,35 @@ export const exomemHostedContractFixture = {
               "readOnlyHint": false,
               "title": "Plan Memory"
             },
-            "description": "Inspect, create, query, add, update, or triage one Planning collection.\n\n`inspect` with no collection lists the Planning collections instead, so a\nsession can find the one it needs before naming a selector.",
+            "description": "Work with human-owned intended future state through one Planning surface.\n\n`inspect`, `validate`, and `query` are read-only. `create`, `add`, `update`,\n`triage`, `revise`, and `rebaseline` are guarded mutations. Planning stores\ngoals, outcomes, initiatives, work items, horizons, priorities, and explicit\ncommitments; observed events belong in `record_memory`, while accepted\nsoftware change contracts and execution truth remain in the repository.\n\nA plan's UUID is durable identity, not its reader-facing filename. New\ncollections can declare human filenames and managed presentation blocks;\nexisting UUID collections move only through an explicit read-only\n`maintain_memory(mode=\"structured-files\")` preview followed by exact-plan\napply. Never infer completion or horizon changes from elapsed time.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
+                "acknowledged_gap_codes": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
                 "action": {
                   "enum": [
                     "inspect",
+                    "validate",
                     "create",
                     "query",
                     "add",
                     "update",
-                    "triage"
+                    "triage",
+                    "revise",
+                    "rebaseline"
                   ],
                   "type": "string"
                 },
@@ -8759,6 +8887,17 @@ export const exomemHostedContractFixture = {
                   "default": null
                 },
                 "expected_item_version": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "expected_manifest_hash": {
                   "anyOf": [
                     {
                       "type": "string"
@@ -9155,9 +9294,21 @@ export const exomemHostedContractFixture = {
             },
             {
               "description": "",
+              "name": "expected_manifest_hash",
+              "required": false,
+              "type": "str"
+            },
+            {
+              "description": "",
               "name": "expected_container_hash",
               "required": false,
               "type": "str"
+            },
+            {
+              "description": "",
+              "name": "acknowledged_gap_codes",
+              "required": false,
+              "type": "list[str]"
             },
             {
               "description": "",
@@ -9453,7 +9604,7 @@ export const exomemHostedContractFixture = {
       },
       "digest": {
         "algorithm": "sha256",
-        "value": "553b077a18808c77f928141068b4e22e65f845c383641d66ccf6d524a451d9ca"
+        "value": "55f704688e015a4497f9ca8da49169a717c282aacec838bfde52c08c12cdf95c"
       },
       "envelopes": {
         "error": {
@@ -9524,7 +9675,7 @@ export const exomemHostedContractFixture = {
       "plan_memory",
       "query_dataset"
     ],
-    "compatibility_sha256": "602bb4f9670f7436c8e530a4ffa6be6c9fa7913b6f156e1aa2c8923451a6b29f",
+    "compatibility_sha256": "4a12a115086166c5b37cde02e6bfcc6aa2c095b6d073dc23f5634803b13c0ce9",
     "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
@@ -9805,7 +9956,7 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted-parity",
     "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
-    "schema_contract_sha256": "553b077a18808c77f928141068b4e22e65f845c383641d66ccf6d524a451d9ca",
+    "schema_contract_sha256": "55f704688e015a4497f9ca8da49169a717c282aacec838bfde52c08c12cdf95c",
     "schema_version": 1,
     "skills": {
       "exomem": [
@@ -9856,7 +10007,7 @@ export const exomemHostedContractFixture = {
   "packageLock": {
     "artifact_sha256": "be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241",
     "command_surface_sha256": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-    "compatibility_sha256": "602bb4f9670f7436c8e530a4ffa6be6c9fa7913b6f156e1aa2c8923451a6b29f",
+    "compatibility_sha256": "4a12a115086166c5b37cde02e6bfcc6aa2c095b6d073dc23f5634803b13c0ce9",
     "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
@@ -9866,7 +10017,7 @@ export const exomemHostedContractFixture = {
     "plugin_id": "exomem-hosted-parity",
     "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
-    "schema_contract_sha256": "553b077a18808c77f928141068b4e22e65f845c383641d66ccf6d524a451d9ca",
+    "schema_contract_sha256": "55f704688e015a4497f9ca8da49169a717c282aacec838bfde52c08c12cdf95c",
     "schema_version": 1,
     "selection_cases_sha256": "7790efc3a68be9176fe63d3b2db15a8ae9e5409f97a3b4a944ee2a753896d022",
     "skills_sha256": "51a6cf7089d689f17668959490dd755a9855258378176a9305c3bc878008b7da"
@@ -9878,7 +10029,7 @@ export const exomemHostedContractFixture = {
   "openaiPackageLock": {
     "artifact_sha256": "eaca4382bb3918ef0d49384de30f9d6c7d35798649702bd59c53b0315916698b",
     "command_surface_sha256": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-    "compatibility_sha256": "602bb4f9670f7436c8e530a4ffa6be6c9fa7913b6f156e1aa2c8923451a6b29f",
+    "compatibility_sha256": "4a12a115086166c5b37cde02e6bfcc6aa2c095b6d073dc23f5634803b13c0ce9",
     "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
@@ -9889,7 +10040,7 @@ export const exomemHostedContractFixture = {
     "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
     "registered_app_id_sha256": "b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46",
-    "schema_contract_sha256": "553b077a18808c77f928141068b4e22e65f845c383641d66ccf6d524a451d9ca",
+    "schema_contract_sha256": "55f704688e015a4497f9ca8da49169a717c282aacec838bfde52c08c12cdf95c",
     "schema_version": 1,
     "selection_cases_sha256": "7790efc3a68be9176fe63d3b2db15a8ae9e5409f97a3b4a944ee2a753896d022",
     "skills_sha256": "51a6cf7089d689f17668959490dd755a9855258378176a9305c3bc878008b7da"
