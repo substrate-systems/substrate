@@ -444,9 +444,13 @@ node scripts/generate-exomem-hosted-contract.mjs \
   --source-release 0.66.0
 ```
 
-The explicit `-0-39-2`, `-0-49-0`, `-0-50-0`, and `-0-57-2` fixtures are
-retained historical units with their original profiles;
-do not overwrite or regenerate them while refreshing the current release.
+The explicit `-0-34-0`, `-0-35-0`, `-0-39-2`, `-0-49-0`, `-0-50-0`, `-0-54-1`,
+`-0-57-2`, and `-0-63-1` fixtures are retained historical units with their
+original profiles; do not overwrite or regenerate them while refreshing the
+current release. `-0-63-1` is the newest and the one most at risk: the previous
+release's generator invocation is one `git log -p` away and still looks valid.
+A retained fixture is produced by copying the outgoing bare fixture, never by
+re-running the generator.
 
 Import the current `0.66.0` catalog unit through the current control only:
 
@@ -457,7 +461,9 @@ POST /api/exomem/admin/contracts
 
 `import-agent` imports the bare current `0.66.0` fixture. Do not send `0.66.0`
 to `import-retained-agent`; that control is reserved for the explicit historical
-`0.34.0`, `0.35.0`, `0.39.2`, `0.49.0`, `0.50.0`, and `0.57.2` release units.
+`0.34.0`, `0.35.0`, `0.39.2`, `0.49.0`, `0.50.0`, and `0.54.1` release units.
+Having a retained fixture does not make a release importable here -- `0.57.2`
+and `0.63.1` both ship one and neither is accepted by this control.
 
 Demotion is fail-closed: it stops new installs/authorizations for the affected
 artifact and does not restore a previous artifact automatically. Operators must

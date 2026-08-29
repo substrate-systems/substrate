@@ -375,54 +375,63 @@ describe("registry-derived Exomem gateway", () => {
     }
   });
 
-  it("routes 0.63.1 through the authoritative v4 private profile", async () => {
-    const hosted = CURRENT_HOSTED_CONTRACT;
-    const row = target({
-      userId: USER_A,
-      tenantId: TENANT_A,
-      cellId: "cell-0631-v4",
-      endpoint: "https://cell-0631-v4.internal/",
-      releaseVersion: hosted.sourceRelease,
-      hosted,
-    });
-    const urls: string[] = [];
-    await routeExomemCommand({
-      session: { userId: USER_A, tenantId: TENANT_A },
-      commandName: "ask_memory",
-      args: { query: "v4 route" },
-      command: {
-        name: "ask_memory",
-        params: [{ name: "query", type: "str", required: true }],
-        read_only: true,
-        mode: "read",
-        tier: 1,
-        capability: "core",
-        guarded_fields: [],
-      },
-      hostedContract: hosted,
-      dependencies: {
-        resolveTarget: async () => row,
-        fetch: async (input) => {
-          const url = String(input);
-          urls.push(url);
-          return url.endsWith("/contract")
-            ? Response.json(cellAgentContractBody(hosted))
-            : Response.json({ success: true, data: {} });
+  // Both the current release and the retained one must route through v4 and
+  // still carry the full command surface. Asserting the current route against
+  // the retired release's contract -- as this test did after the 0.66.0
+  // rotation -- proves nothing about either.
+  for (const [label, hosted, full] of [
+    ["current 0.66.0", CURRENT_HOSTED_CONTRACT, FULL_CONTRACT_0660],
+    ["retained 0.63.1", RETAINED_0631_HOSTED_CONTRACT, FULL_CONTRACT_0631],
+  ] as const) {
+    it(`routes ${label} through the authoritative v4 private profile`, async () => {
+      const slug = hosted.sourceRelease.replaceAll(".", "");
+      const row = target({
+        userId: USER_A,
+        tenantId: TENANT_A,
+        cellId: `cell-${slug}-v4`,
+        endpoint: `https://cell-${slug}-v4.internal/`,
+        releaseVersion: hosted.sourceRelease,
+        hosted,
+      });
+      const urls: string[] = [];
+      await routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "v4 route" },
+        command: {
+          name: "ask_memory",
+          params: [{ name: "query", type: "str", required: true }],
+          read_only: true,
+          mode: "read",
+          tier: 1,
+          capability: "core",
+          guarded_fields: [],
         },
-        expectedProtocol: "1",
-        decrypt,
-        principalScope: () => "A".repeat(43),
-      },
+        hostedContract: hosted,
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async (input) => {
+            const url = String(input);
+            urls.push(url);
+            return url.endsWith("/contract")
+              ? Response.json(cellAgentContractBody(hosted))
+              : Response.json({ success: true, data: {} });
+          },
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      });
+      assert.deepEqual(
+        urls.map((url) => new URL(url).pathname),
+        [
+          "/private/exomem/v1/agent/hosted-alpha-agent-v4/contract",
+          "/private/exomem/v1/agent/hosted-alpha-agent-v4/command/ask_memory",
+        ]
+      );
+      assert.equal(full.commands.length >= 25, true);
     });
-    assert.deepEqual(
-      urls.map((url) => new URL(url).pathname),
-      [
-        "/private/exomem/v1/agent/hosted-alpha-agent-v4/contract",
-        "/private/exomem/v1/agent/hosted-alpha-agent-v4/command/ask_memory",
-      ]
-    );
-    assert.equal(FULL_CONTRACT_0631.commands.length >= 25, true);
-  });
+  }
 
   it("compares the cell's PUBLISHED agent digest, not the release-inclusive one it serves", async () => {
     // The regression this pins: a cell advertises `digest.value` computed WITH
