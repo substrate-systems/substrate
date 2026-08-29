@@ -222,6 +222,10 @@ function checkedOpenAiLocks(
 ): { packageLock: JsonRecord; archiveLock: JsonRecord } {
   const packageRecord = record(packageLock, "OpenAI package lock");
   const archiveRecord = record(archiveLock, "OpenAI archive lock");
+  // Cumulative, not current-only: every release whose OpenAI locks we still
+  // accept, including retained ones. The first entry is the current release via
+  // the bare fixture, so each adoption must ADD the outgoing release here --
+  // rotating the bare fixture silently drops it otherwise.
   const claudeLocks = [
     record(exomemHostedContractFixture.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0340.packageLock, "Claude package lock"),
@@ -231,6 +235,7 @@ function checkedOpenAiLocks(
     record(exomemHostedContractFixture0500.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0541.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0572.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0631.packageLock, "Claude package lock"),
   ];
   const requiredIdentityFields = [
     "schema_version",

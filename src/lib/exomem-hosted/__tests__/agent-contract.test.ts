@@ -196,7 +196,7 @@ describe("Exomem Hosted agent contracts", () => {
     assert.doesNotMatch(queries[0]!, /UPDATE exomem_agent_contract_candidates/i);
   });
 
-  it("re-imports retained 0.57.2 as v1 after 0.63.1/v4 becomes current", async () => {
+  it("re-imports retained 0.57.2 as v1 while the current v4 release stays out of the insert", async () => {
     const values: unknown[] = [];
     __setExomemSqlForTests(async (_strings, ...parameters) => {
       values.push(...parameters);
@@ -208,8 +208,36 @@ describe("Exomem Hosted agent contracts", () => {
     );
     assert.equal(values.includes("0.57.2"), true);
     assert.equal(values.includes("hosted-alpha-agent-v1"), true);
-    assert.equal(values.includes("0.63.1"), false);
+    // Pin the *current* release, read from the fixture, so this keeps testing
+    // for leakage after the next adoption instead of naming a retired release.
+    assert.equal(values.includes(exomemHostedContractFixture.sourceRelease), false);
   });
+
+  // `checkedOpenAiLocks` validates an OpenAI lock against a cumulative allowlist
+  // of Claude locks whose first entry is the current release. Adopting 0.66.0
+  // rotated that entry off 0.63.1 without adding 0.63.1 back, which silently
+  // dropped the retained release from the set and made its own import throw.
+  // Every release the retained-import switch can name must round-trip.
+  for (const release of [
+    "0.34.0",
+    "0.35.0",
+    "0.39.2",
+    "0.49.0",
+    "0.50.0",
+    "0.54.1",
+    "0.57.2",
+    "0.63.1",
+  ] as const) {
+    it(`accepts the OpenAI locks of retained release ${release}`, async () => {
+      __setExomemSqlForTests(async () => ({
+        rows: [{ id: "018f2d91-7c42-7000-8000-0000000000aa" }],
+      }));
+      assert.equal(
+        await storeRetainedExomemAgentContractCandidate(release),
+        "018f2d91-7c42-7000-8000-0000000000aa"
+      );
+    });
+  }
 
   it("trusts the fixture source release independently of descriptor source_release", async () => {
     const fixture = exomemHostedContractFixture as unknown as {
