@@ -289,6 +289,13 @@ and one input has to exist before them:
 2. `preflight`. Read-only, spends nothing. All four gates must be green: no live
    cohort, the candidate `pending` at the intended release, no active bootstrap
    authority, free runtime and provision-claim capacity.
+
+   Point `--repo` at a worktree of the exact release the candidate was cut from,
+   and `--profile` at that candidate's profile — `hosted-alpha-agent-v4` for
+   `0.66.0`. Only the default candidate's locks sit at the generated root; every
+   later one lives under `candidates/<profile>`. Reading the wrong directory
+   attests a different command surface than the cell serves, and it is the v1
+   profile above that a wrong `--profile` produces.
 3. `prepare`. Creates the stage, pinned client and invite. Still reversible: the
    invite keeps its full expiry until an authority exists.
 4. `run`, with the emailed invite token and `--openai-connector`. **This starts
