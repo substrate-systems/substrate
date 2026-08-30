@@ -5,7 +5,7 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
-import { exomemContractFixture0631 } from "../gateway-contract-0-63-1";
+import { exomemContractFixture0660 } from "../gateway-contract-0-66-0";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
   getLiveExomemHostedCohortCandidateId,
@@ -103,7 +103,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
      JOIN exomem_cells AS cell ON cell.id = route.cell_id
      JOIN exomem_agent_contract_candidates AS target ON target.id = $1::uuid
      WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
-    [candidateId, exomemContractFixture0631.digest, sha("9")]
+    [candidateId, exomemContractFixture0660.digest, sha("9")]
   );
   await pool!.query(
     `UPDATE exomem_cells AS cell
@@ -116,7 +116,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
           exomem_routable_cell_contracts AS route
      WHERE target.id = $1::uuid AND route.cell_id = cell.id
        AND route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
-    [candidateId, exomemContractFixture0631.digest]
+    [candidateId, exomemContractFixture0660.digest]
   );
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
@@ -140,7 +140,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        ON assignment.tenant_id = cell.tenant_id AND assignment.candidate_id = target.id
       AND assignment.state = 'active' AND assignment.expires_at > now()
      WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
-    [candidateId, exomemContractFixture0631.digest]
+    [candidateId, exomemContractFixture0660.digest]
   );
 }
 

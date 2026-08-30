@@ -39,6 +39,16 @@ const RELEASES = {
     openai: true,
     packageZipOnlyPaths: [".mcp.json"],
   },
+  efd6e15f40221bb3821f979d6fcbda45e7c6a649: {
+    sourceRelease: "0.66.0",
+    profile: "hosted-alpha-agent-v4",
+    generatedDirectory:
+      "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
+    openai: true,
+    // No packageZipOnlyPaths: 0.63.1 shipped `.mcp.json` inside the ZIP without
+    // tracking it, so the zip-only set was non-empty. Exomem #907 tracks both
+    // platforms' `.mcp.json`, so every ZIP entry now has a committed twin.
+  },
 };
 
 function fail(message) {

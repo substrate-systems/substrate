@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
+import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { EXOMEM_HOSTED_PROFILE } from "../hosted-profile";
 
 function source(path: string): string {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -133,9 +135,20 @@ describe("Exomem hosted operations contract", () => {
       runbook,
       /`EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` remains valid only\s+after the D1 dual-serving expand proof and reviewed lock pair are live/i
     );
+    // The runbook has to name whichever release reviewers actually roll forward
+    // onto, so derive both halves from the shipped fixture and the profile
+    // constant instead of restating them. A restated pin goes stale on the next
+    // adoption and blesses the drift it exists to catch.
+    const currentRelease = exomemHostedContractFixture.sourceRelease.replaceAll(
+      ".",
+      "\\."
+    );
     assert.match(
       runbook,
-      /`0\.63\.1` reviewer rollforward carries `hosted-alpha-agent-v4`, while historical\s+operations retain their original v1 target/i
+      new RegExp(
+        `\`${currentRelease}\` reviewer rollforward carries \`${EXOMEM_HOSTED_PROFILE}\`, while historical\\s+operations retain their original v1 target`,
+        "i"
+      )
     );
     assert.match(
       runbook,
