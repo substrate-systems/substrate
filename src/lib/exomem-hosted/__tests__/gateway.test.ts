@@ -14,7 +14,8 @@ import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contra
 import { exomemHostedContractFixture as agentFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as agentFixture0490 } from "../agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as agentFixture0660 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0680 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0660 } from "../agent-contract-fixture-0-66-0";
 import { exomemHostedContractFixture as agentFixture0631 } from "../agent-contract-fixture-0-63-1";
 import { exomemHostedContractFixture as agentFixture0572 } from "../agent-contract-fixture-0-57-2";
 import { exomemHostedContractFixture as agentFixture0500 } from "../agent-contract-fixture-0-50-0";
@@ -24,6 +25,7 @@ import fullContract0350 from "./gateway-contract-0-35-0.json";
 import fullContract0500 from "./gateway-contract-0-50-0.json";
 import fullContract0631 from "./gateway-contract-0-63-1.json";
 import fullContract0660 from "./gateway-contract-0-66-0.json";
+import fullContract0680 from "./gateway-contract-0-68-0.json";
 
 const USER_A = "018f2d91-7c42-7000-8000-000000000071";
 const TENANT_A = "018f2d91-7c42-7000-8000-000000000072";
@@ -37,6 +39,7 @@ const FULL_CONTRACT_0350 = fullContract0350 as TestContract;
 const FULL_CONTRACT_0500 = fullContract0500 as TestContract;
 const FULL_CONTRACT_0631 = fullContract0631 as TestContract;
 const FULL_CONTRACT_0660 = fullContract0660 as TestContract;
+const FULL_CONTRACT_0680 = fullContract0680 as TestContract;
 const LIVE_HOSTED_CONTRACT = {
   profile: agentFixture0340.compatibility.profile,
   sourceRelease: agentFixture0340.sourceRelease,
@@ -96,13 +99,21 @@ const RETAINED_0631_HOSTED_CONTRACT = {
   schemaDigest: agentFixture0631.compatibility.schema_contract_sha256,
   compatibilityDigest: agentFixture0631.compatibility.compatibility_sha256,
 };
-const CURRENT_HOSTED_CONTRACT = {
+const RETAINED_0660_HOSTED_CONTRACT = {
   profile: agentFixture0660.compatibility.profile,
   sourceRelease: agentFixture0660.sourceRelease,
   protocolVersion: agentFixture0660.compatibility.agent_contract.protocol_version,
   commandFingerprint: agentFixture0660.compatibility.command_surface_sha256,
   schemaDigest: agentFixture0660.compatibility.schema_contract_sha256,
   compatibilityDigest: agentFixture0660.compatibility.compatibility_sha256,
+};
+const CURRENT_HOSTED_CONTRACT = {
+  profile: agentFixture0680.compatibility.profile,
+  sourceRelease: agentFixture0680.sourceRelease,
+  protocolVersion: agentFixture0680.compatibility.agent_contract.protocol_version,
+  commandFingerprint: agentFixture0680.compatibility.command_surface_sha256,
+  schemaDigest: agentFixture0680.compatibility.schema_contract_sha256,
+  compatibilityDigest: agentFixture0680.compatibility.compatibility_sha256,
 };
 
 const PUBLISHED_AGENT_CONTRACTS = new Map<string, Record<string, unknown>>(
@@ -116,6 +127,7 @@ const PUBLISHED_AGENT_CONTRACTS = new Map<string, Record<string, unknown>>(
     agentFixture0572,
     agentFixture0631,
     agentFixture0660,
+    agentFixture0680,
   ].map((fixture) => [
     fixture.sourceRelease,
     fixture.compatibility.agent_contract as unknown as Record<string, unknown>,
@@ -335,7 +347,8 @@ describe("registry-derived Exomem gateway", () => {
       ["0.54.1", RETAINED_0541_HOSTED_CONTRACT],
       ["0.57.2", RETAINED_0572_HOSTED_CONTRACT],
       ["0.63.1", RETAINED_0631_HOSTED_CONTRACT],
-      ["0.66.0", CURRENT_HOSTED_CONTRACT],
+      ["0.66.0", RETAINED_0660_HOSTED_CONTRACT],
+      ["0.68.0", CURRENT_HOSTED_CONTRACT],
     ] as const) {
       const row = target({
         userId: USER_A,
@@ -380,7 +393,8 @@ describe("registry-derived Exomem gateway", () => {
   // the retired release's contract -- as this test did after the 0.66.0
   // rotation -- proves nothing about either.
   for (const [label, hosted, full] of [
-    ["current 0.66.0", CURRENT_HOSTED_CONTRACT, FULL_CONTRACT_0660],
+    ["current 0.68.0", CURRENT_HOSTED_CONTRACT, FULL_CONTRACT_0680],
+    ["retained 0.66.0", RETAINED_0660_HOSTED_CONTRACT, FULL_CONTRACT_0660],
     ["retained 0.63.1", RETAINED_0631_HOSTED_CONTRACT, FULL_CONTRACT_0631],
   ] as const) {
     it(`routes ${label} through the authoritative v4 private profile`, async () => {
