@@ -34,20 +34,24 @@ const RELEASES = {
   "35f6d7bb92a79f9d59f82e8e87557fd0e68fb3e5": {
     sourceRelease: "0.63.1",
     profile: "hosted-alpha-agent-v4",
-    generatedDirectory:
-      "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
+    generatedDirectory: "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
     openai: true,
     packageZipOnlyPaths: [".mcp.json"],
   },
   efd6e15f40221bb3821f979d6fcbda45e7c6a649: {
     sourceRelease: "0.66.0",
     profile: "hosted-alpha-agent-v4",
-    generatedDirectory:
-      "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
+    generatedDirectory: "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
     openai: true,
     // No packageZipOnlyPaths: 0.63.1 shipped `.mcp.json` inside the ZIP without
     // tracking it, so the zip-only set was non-empty. Exomem #907 tracks both
     // platforms' `.mcp.json`, so every ZIP entry now has a committed twin.
+  },
+  "76571f2c9f600395344a2a62efe6aca36d32b42d": {
+    sourceRelease: "0.68.0",
+    profile: "hosted-alpha-agent-v4",
+    generatedDirectory: "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
+    openai: true,
   },
 };
 
@@ -177,10 +181,7 @@ function zipEntries(bytes) {
 function packageDigest(entries) {
   return canonicalSha256(
     [...entries.entries()]
-      .map(([path, contents]) => [
-        path,
-        createHash("sha256").update(contents).digest("hex"),
-      ])
+      .map(([path, contents]) => [path, createHash("sha256").update(contents).digest("hex")])
       .sort(([left], [right]) => left.localeCompare(right))
   );
 }
@@ -458,8 +459,7 @@ function verifyPlatform(platform, platformPackageLock, platformArchiveLock) {
     plugin_id: compatibility.plugin_id,
     plugin_version: compatibility.plugin_version,
   })) {
-    if (platformPackageLock[key] !== expected)
-      fail(`${platform} package lock differs for ${key}`);
+    if (platformPackageLock[key] !== expected) fail(`${platform} package lock differs for ${key}`);
   }
   if (platformPackageLock.platform !== platform || platformArchiveLock.platform !== platform)
     fail(`${platform} lock platform is invalid`);
@@ -467,8 +467,8 @@ function verifyPlatform(platform, platformPackageLock, platformArchiveLock) {
   sha256(platformArchiveLock.archive_sha256, `${platform} archive digest`);
   if (
     platform === "openai" &&
-    (sha256(platformPackageLock.registered_app_id_sha256, "OpenAI registered app ID digest") !==
-      sha256(platformArchiveLock.registered_app_id_sha256, "OpenAI registered app ID digest"))
+    sha256(platformPackageLock.registered_app_id_sha256, "OpenAI registered app ID digest") !==
+      sha256(platformArchiveLock.registered_app_id_sha256, "OpenAI registered app ID digest")
   ) {
     fail("OpenAI locks have different registered app ID digests");
   }
@@ -521,9 +521,7 @@ const fixture = {
   compatibility,
   packageLock,
   archiveLock,
-  ...(openaiPackageLock && openaiArchiveLock
-    ? { openaiPackageLock, openaiArchiveLock }
-    : {}),
+  ...(openaiPackageLock && openaiArchiveLock ? { openaiPackageLock, openaiArchiveLock } : {}),
 };
 const json = `${JSON.stringify(fixture, null, 2)}\n`;
 const source = `// Generated from Exomem compatibility.json at commit ${expectedCommit} for cell release ${sourceRelease}. Do not edit.\nexport const exomemHostedContractFixture = ${JSON.stringify(fixture, null, 2)} as const;\n`;

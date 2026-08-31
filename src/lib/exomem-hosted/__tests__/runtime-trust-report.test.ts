@@ -5,19 +5,19 @@ import { assertRuntimeTrustImport, buildHostedRuntimeTrustReport } from "../runt
 
 // Deliberately restated rather than imported: REVIEWED_TARGET is unexported, and a
 // test that borrowed it could not detect the pin drifting. These values are the
-// ten-field output of Exomem's `hosted_image_candidate.py verify` for v0.66.0.
+// ten-field output of Exomem's `hosted_image_candidate.py verify` for v0.68.0.
 const target = {
-  releaseVersion: "0.66.0",
-  sourceCommit: "efd6e15f40221bb3821f979d6fcbda45e7c6a649",
+  releaseVersion: "0.68.0",
+  sourceCommit: "76571f2c9f600395344a2a62efe6aca36d32b42d",
   runtimeImage:
-    "ghcr.io/artexis10/exomem@sha256:707d06b3ee4ee8cf12ae5a9cae9514fc7e1b5fa0cda82b6a15998bdfc97c59e8",
-  runtimeCandidateSha256: "ef7424809847ed7aa6909b9d85fb4b5e437d1cefa45ab813d595fc31ce1a184c",
+    "ghcr.io/artexis10/exomem@sha256:78762e5676a57fff444d1360a968ba9d34d9cb5e6032f80542b813645ce765b0",
+  runtimeCandidateSha256: "e6a98f21bc4910f320b959d510989dc96c5c0746c0f7957aff3f5748eac85784",
   protocolVersion: "1",
   agentProfile: "hosted-alpha-agent-v4",
-  gatewayContractDigest: "b520dbf5509519b7822d0abd628514d1c1a2ee45f2c68958cf8b5e218444accb",
+  gatewayContractDigest: "4e19849239188017b727a7ec97fe6e8505a01d216907957755676f3f588b8cd6",
   commandFingerprint: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-  schemaDigest: "55f704688e015a4497f9ca8da49169a717c282aacec838bfde52c08c12cdf95c",
-  compatibilityDigest: "4a12a115086166c5b37cde02e6bfcc6aa2c095b6d073dc23f5634803b13c0ce9",
+  schemaDigest: "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd",
+  compatibilityDigest: "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
 };
 const consumerCommit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 

@@ -89,8 +89,8 @@ describe("Exomem Hosted agent contracts", () => {
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
-  it("ships retained 0.57.2/v1 and 0.63.1/v4 beside the exact current 0.66.0/v4 fixture", () => {
-    for (const retained of ["0-57-2", "0-63-1"]) {
+  it("ships retained 0.57.2/v1, 0.63.1/v4, and 0.66.0/v4 beside the exact current 0.68.0/v4 fixture", () => {
+    for (const retained of ["0-57-2", "0-63-1", "0-66-0"]) {
       assert.equal(
         existsSync(
           fileURLToPath(new URL(`../agent-contract-fixture-${retained}.ts`, import.meta.url))
@@ -106,9 +106,9 @@ describe("Exomem Hosted agent contracts", () => {
     }
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "efd6e15f40221bb3821f979d6fcbda45e7c6a649"
+      "76571f2c9f600395344a2a62efe6aca36d32b42d"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.66.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.68.0");
     assert.equal(exomemHostedContractFixture.compatibility.profile, "hosted-alpha-agent-v4");
     assert.equal(exomemHostedContractFixture.compatibility.commands.length, 25);
     assert.equal(exomemHostedContractFixture.packageLock.platform, "claude");
@@ -214,9 +214,9 @@ describe("Exomem Hosted agent contracts", () => {
   });
 
   // `checkedOpenAiLocks` validates an OpenAI lock against a cumulative allowlist
-  // of Claude locks whose first entry is the current release. Adopting 0.66.0
-  // rotated that entry off 0.63.1 without adding 0.63.1 back, which silently
-  // dropped the retained release from the set and made its own import throw.
+  // of Claude locks whose first entry is the current release. Adopting 0.68.0
+  // rotates that entry off 0.66.0, so 0.66.0 must be added explicitly or the
+  // retained release drops from the set and its own import throws.
   // Every release the retained-import switch can name must round-trip.
   for (const release of [
     "0.34.0",
@@ -227,6 +227,7 @@ describe("Exomem Hosted agent contracts", () => {
     "0.54.1",
     "0.57.2",
     "0.63.1",
+    "0.66.0",
   ] as const) {
     it(`accepts the OpenAI locks of retained release ${release}`, async () => {
       __setExomemSqlForTests(async () => ({
@@ -253,7 +254,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.66.0");
+      assert.equal(fixture.sourceRelease, "0.68.0");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);
@@ -422,9 +423,7 @@ describe("Exomem Hosted agent contracts", () => {
         storeClientArtifact({
           ...artifact,
           evidence: staleV1Evidence,
-          evidenceSha256: createHash("sha256")
-            .update(canonical(staleV1Evidence))
-            .digest("hex"),
+          evidenceSha256: createHash("sha256").update(canonical(staleV1Evidence)).digest("hex"),
         }),
       /promotion evidence differs from the checked release fixture/i
     );
