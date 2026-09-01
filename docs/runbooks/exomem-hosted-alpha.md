@@ -22,9 +22,9 @@ Complimentary access does **not** require Paddle or a price. Paid operator
 invitations require checkout before provisioning. Every route does require:
 
 1. migrations `0017` through `0051_exomem_oauth_operator_client_bound.sql` applied to the production Neon database;
-2. the immutable Exomem `0.68.0` cell image from commit
-   `76571f2c9f600395344a2a62efe6aca36d32b42d`, pinned as
-   `ghcr.io/artexis10/exomem@sha256:78762e5676a57fff444d1360a968ba9d34d9cb5e6032f80542b813645ce765b0`,
+2. the immutable Exomem `0.68.1` cell image from commit
+   `e487efa2fdfd8c7653b6e99605163a0200c6ce58`, pinned as
+   `ghcr.io/artexis10/exomem@sha256:9870b3f661969a70504fb4ccad60b6429c21c13732f754d0e8aef030e3277246`,
    exposing private protocol `1` and `hosted-alpha-agent-v4`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -51,7 +51,7 @@ compatibility, schema-contract, and command-surface digests were
 `c18580d9dfa8fe549df17984487668f1ead73ba5b37fb6a07b82c68a76e30853`, and
 `eddd997c22885ca913aa57dea2e6a2afaa7cb5f0dd52d87b564c1c3d7bbadc7f`.
 Do not regenerate it into either bare current-fixture path; the authoritative
-current `0.68.0` agent-and-gateway projection recipe is in
+current `0.68.1` agent-and-gateway projection recipe is in
 [Contract and artifact control](#contract-and-artifact-control).
 
 The fixture's top-level `sourceRelease` is the trusted cell-runtime release;
@@ -82,7 +82,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `EXOMEM_CF_ACCESS_SEND_VERSION`                                                  | Optional server-side sender selection: `active` (default) or `previous`; `previous` is valid only while the complete previous pair exists. Browser input never selects this.                                                                                                                                                                                          |
 | `EXOMEM_HOSTED_TRANSFER_HOST`                                                    | Canonical public transfer DNS hostname without a scheme or path. Substrate returns direct cell-bound v2 URLs on this host; it never proxies file bodies through Vercel.                                                                                                                                                                                               |
 | `EXOMEM_CELL_PROTOCOL_VERSION`                                                   | `1` for this alpha.                                                                                                                                                                                                                                                                                                                                                   |
-| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.68.0` for this release unit -- the release the hosted deployment lock names. Readiness must echo it, and the gateway contract catalog must carry the exact v4 fixture pair for it or every command fails closed.                                                                                                          |
+| `EXOMEM_CELL_RELEASE_VERSION`                                                    | Exact deployed Exomem release, pinned to `0.68.1` for this release unit -- the release the hosted deployment lock names. Readiness must echo it, and the gateway contract catalog must carry the exact v4 fixture pair for it or every command fails closed.                                                                                                          |
 | `EXOMEM_CELL_WORKER_COUNT`                                                       | `0` for alpha.                                                                                                                                                                                                                                                                                                                                                        |
 | `EXOMEM_CELL_SEMANTIC_WORKERS`                                                   | `false` for alpha.                                                                                                                                                                                                                                                                                                                                                    |
 | `EXOMEM_CELL_MEDIA_WORKERS`                                                      | `false` for alpha.                                                                                                                                                                                                                                                                                                                                                    |
@@ -266,7 +266,7 @@ artifacts. If it does not, promote Claude alone knowing ChatGPT waits for a
 later candidate. `openspec/changes/scope-cohort-admission-per-platform` proves
 this refusal as a test rather than leaving it to be rediscovered mid-window.
 
-For the `0.68.0` release, both clients must discover profile
+For the `0.68.1` release, both clients must discover profile
 `hosted-alpha-agent-v4` with exactly 25 tools in registry order and command
 surface digest
 `4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968`.
@@ -292,7 +292,7 @@ and one input has to exist before them:
 
    Point `--repo` at a worktree of the exact release the candidate was cut from,
    and `--profile` at that candidate's profile — `hosted-alpha-agent-v4` for
-   `0.68.0`. Only the default candidate's locks sit at the generated root; every
+   `0.68.1`. Only the default candidate's locks sit at the generated root; every
    later one lives under `candidates/<profile>`. Reading the wrong directory
    attests a different command surface than the cell serves, and it is the v1
    profile above that a wrong `--profile` produces.
@@ -362,7 +362,7 @@ tenant; never redeem a reviewer invite through the ordinary invite path, which
 is legacy-unmetered and does not reserve capacity.
 
 1. Verify privately that the candidate is pending `hosted-alpha-agent-v4`
-   release `0.68.0`, contains exactly 25 ordered commands, the selected client
+   release `0.68.1`, contains exactly 25 ordered commands, the selected client
    release is still `staged`, capacity is
    configured, and there is no live cohort, active reviewer assignment,
    bound/ready reviewer cell, or active internal-canary credential.
@@ -423,8 +423,8 @@ package/archive locks. Before promotion, prove every routable cell exposes that
 same private profile. Promotion is atomic: live discovery stays on the current
 contract until the candidate and real clean-client evidence both verify.
 
-The current release is Exomem `0.68.0` at
-`76571f2c9f600395344a2a62efe6aca36d32b42d`: command surface
+The current release is Exomem `0.68.1` at
+`e487efa2fdfd8c7653b6e99605163a0200c6ce58`: command surface
 `4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968`, schema
 `124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd`,
 compatibility `62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc`,
@@ -433,11 +433,11 @@ Claude archive `00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4
 OpenAI package `eaca4382bb3918ef0d49384de30f9d6c7d35798649702bd59c53b0315916698b`,
 OpenAI archive `d04b967013e61336ecd724d5d5acecea7a56a306256c6f387baa22d62db7adc0`,
 registered app `b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46`,
-and private gateway `4e19849239188017b727a7ec97fe6e8505a01d216907957755676f3f588b8cd6`.
+and private gateway `2af163baf368643f41d7fa4eaa0c3d2d0f2ead54443fd0263d2977dc4094a469`.
 The immutable runtime candidate is SHA-256
-`e6a98f21bc4910f320b959d510989dc96c5c0746c0f7957aff3f5748eac85784`
+`6743cf711b08cf8b64a7db8a62ce06f4a9246e59cc54a76f23c102959fc10aa9`
 and the image digest is
-`sha256:78762e5676a57fff444d1360a968ba9d34d9cb5e6032f80542b813645ce765b0`.
+`sha256:9870b3f661969a70504fb4ccad60b6429c21c13732f754d0e8aef030e3277246`.
 Verify both release Sigstore attestations before any cell rollforward.
 From a clean checkout at that exact commit, project both artifacts together:
 
@@ -446,28 +446,28 @@ node scripts/generate-exomem-hosted-contract.mjs \
   --exomem-repo /path/to/clean/exomem \
   --output src/lib/exomem-hosted/agent-contract-fixture.ts \
   --json-output src/lib/exomem-hosted/__tests__/agent-contract-fixture.json \
-  --gateway-output src/lib/exomem-hosted/gateway-contract-0-68-0.ts \
-  --gateway-json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-68-0.json \
-  --expected-commit 76571f2c9f600395344a2a62efe6aca36d32b42d \
-  --source-release 0.68.0
+  --gateway-output src/lib/exomem-hosted/gateway-contract-0-68-1.ts \
+  --gateway-json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-68-1.json \
+  --expected-commit e487efa2fdfd8c7653b6e99605163a0200c6ce58 \
+  --source-release 0.68.1
 ```
 
 The explicit `-0-34-0`, `-0-35-0`, `-0-39-2`, `-0-49-0`, `-0-50-0`, `-0-54-1`,
-`-0-57-2`, `-0-63-1`, and `-0-66-0` fixtures are retained historical units with their
+`-0-57-2`, `-0-63-1`, `-0-66-0`, and `-0-68-0` fixtures are retained historical units with their
 original profiles; do not overwrite or regenerate them while refreshing the
-current release. `-0-66-0` is the newest and the one most at risk: the previous
+current release. `-0-68-0` is the newest and the one most at risk: the previous
 release's generator invocation is one `git log -p` away and still looks valid.
 A retained fixture is produced by copying the outgoing bare fixture, never by
 re-running the generator.
 
-Import the current `0.68.0` catalog unit through the current control only:
+Import the current `0.68.1` catalog unit through the current control only:
 
 ```json
 POST /api/exomem/admin/contracts
 { "action": "import-agent" }
 ```
 
-`import-agent` imports the bare current `0.68.0` fixture. Do not send `0.68.0`
+`import-agent` imports the bare current `0.68.1` fixture. Do not send `0.68.1`
 to `import-retained-agent`; that control is reserved for the explicit historical
 `0.34.0`, `0.35.0`, `0.39.2`, `0.49.0`, `0.50.0`, and `0.54.1` release units.
 Having a retained fixture does not make a release importable here -- `0.57.2`
@@ -627,7 +627,7 @@ the three-unit release set is `0.39.2/1`, `0.49.0/1`, plus `0.50.0/1`, with dige
 `85cdcbac931f3aa9357bf59c5530a1ba73ce1c81176286aa2b56b421276bdd79`.
 This is the already-completed outer-provisioner D1 expand gate, not the current
 agent-profile release pin. Do not rerun it merely to roll a cell from
-`0.57.2/v1` to `0.68.0/v4`; rerun it only when changing the outer provisioner
+`0.57.2/v1` to `0.68.1/v4`; rerun it only when changing the outer provisioner
 wire contract or when its own contraction/rollback procedure requires it.
 Supply `DATABASE_URL` to the process from the approved secret channel without
 placing it in argv or output, then run from this exact Substrate release:
@@ -674,7 +674,7 @@ v1 for rolling compatibility. A newly created operation uses v2 only when
 operations, `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` remains valid only
 after the D1 dual-serving expand proof and reviewed lock pair are live. Outer
 v2 carries the runtime target persisted on the lifecycle operation: a new
-`0.68.0` reviewer rollforward carries `hosted-alpha-agent-v4`, while historical
+`0.68.1` reviewer rollforward carries `hosted-alpha-agent-v4`, while historical
 operations retain their original v1 target.
 
 Actions are `provision`, `health`, `rotate-credential`, `quiesce`, `resume`,
@@ -1298,7 +1298,7 @@ counts are zero; never rewrite a stored protocol to make the status appear
 drained.
 
 Emergency demotion stops a live unit; it is not rollback. To re-import the
-current `0.68.0` catalog unit as a fresh pending candidate, use
+current `0.68.1` catalog unit as a fresh pending candidate, use
 `{ "action": "import-agent" }`. The retained control remains available only to
 reconstruct immutable historical catalog units for audit and pre-v4 recovery
 work:
@@ -1310,8 +1310,8 @@ POST /api/exomem/admin/contracts
 
 `sourceRelease` for `import-retained-agent` is limited to `0.34.0`, `0.35.0`,
 `0.39.2`, `0.49.0`, `0.50.0`, or `0.54.1`; it must never name the current
-`0.68.0`. Retiring a release ships its retained fixture so live cells keep
-routing, but does not widen this control -- `0.57.2`, `0.63.1`, and `0.66.0`
+`0.68.1`. Retiring a release ships its retained fixture so live cells keep
+routing, but does not widen this control -- `0.57.2`, `0.63.1`, `0.66.0`, and `0.68.0`
 all have retained fixtures and none is importable here. After
 the v4 profile cutover these retained v1 rows cannot receive new assignments,
 authorize credentials, satisfy routable authority, or be promoted. Never revive

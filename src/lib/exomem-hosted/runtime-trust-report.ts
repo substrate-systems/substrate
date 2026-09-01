@@ -31,18 +31,18 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const RELEASE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/;
 const IMAGE = /^ghcr\.io\/artexis10\/exomem@sha256:[a-f0-9]{64}$/;
-// The ten-field output of `hosted_image_candidate.py verify` for Exomem v0.68.0,
+// The ten-field output of `hosted_image_candidate.py verify` for Exomem v0.68.1,
 // which checks the release's Sigstore attestation and cross-checks the agent and
 // gateway fixtures against the signed candidate. Do not hand-assemble this.
 const REVIEWED_TARGET: HostedRuntimeTrustTarget = {
-  releaseVersion: "0.68.0",
-  sourceCommit: "76571f2c9f600395344a2a62efe6aca36d32b42d",
+  releaseVersion: "0.68.1",
+  sourceCommit: "e487efa2fdfd8c7653b6e99605163a0200c6ce58",
   runtimeImage:
-    "ghcr.io/artexis10/exomem@sha256:78762e5676a57fff444d1360a968ba9d34d9cb5e6032f80542b813645ce765b0",
-  runtimeCandidateSha256: "e6a98f21bc4910f320b959d510989dc96c5c0746c0f7957aff3f5748eac85784",
+    "ghcr.io/artexis10/exomem@sha256:9870b3f661969a70504fb4ccad60b6429c21c13732f754d0e8aef030e3277246",
+  runtimeCandidateSha256: "6743cf711b08cf8b64a7db8a62ce06f4a9246e59cc54a76f23c102959fc10aa9",
   protocolVersion: "1",
   agentProfile: "hosted-alpha-agent-v4",
-  gatewayContractDigest: "4e19849239188017b727a7ec97fe6e8505a01d216907957755676f3f588b8cd6",
+  gatewayContractDigest: "2af163baf368643f41d7fa4eaa0c3d2d0f2ead54443fd0263d2977dc4094a469",
   commandFingerprint: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
   schemaDigest: "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd",
   compatibilityDigest: "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
@@ -202,6 +202,455 @@ export function assertRuntimeTrustImport(
   }
 }
 
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isParenthesizedExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function propertyName(name: ts.PropertyName): string {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
+  }
+  throw new Error("TypeScript fixture has a computed property");
+}
+
+function literalValue(expression: ts.Expression, bindings: Map<string, unknown>): unknown {
+  const value = unwrapExpression(expression);
+  if (ts.isStringLiteral(value) || ts.isNumericLiteral(value)) {
+    return ts.isNumericLiteral(value) ? Number(value.text) : value.text;
+  }
+  if (value.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (value.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (value.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (ts.isIdentifier(value) && bindings.has(value.text)) return bindings.get(value.text);
+  if (ts.isArrayLiteralExpression(value)) {
+    return value.elements.map((entry) => {
+      if (ts.isSpreadElement(entry)) throw new Error("TypeScript fixture contains a spread");
+      return literalValue(entry, bindings);
+    });
+  }
+  if (ts.isObjectLiteralExpression(value)) {
+    const result: JsonRecord = {};
+    for (const entry of value.properties) {
+      if (ts.isPropertyAssignment(entry)) {
+        result[propertyName(entry.name)] = literalValue(entry.initializer, bindings);
+      } else if (ts.isShorthandPropertyAssignment(entry) && bindings.has(entry.name.text)) {
+        result[entry.name.text] = bindings.get(entry.name.text);
+      } else {
+        throw new Error("TypeScript fixture contains a non-literal property");
+      }
+    }
+    return result;
+  }
+  throw new Error("TypeScript fixture contains a non-literal expression");
+}
+
+function fixtureBinding(source: string, name: string): unknown {
+  const sourceFile = ts.createSourceFile(
+    resolve("/runtime-trust", `${name}.ts`),
+    source,
+    ts.ScriptTarget.Latest,
+    true
+  );
+  const bindings = new Map<string, unknown>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+      bindings.set(declaration.name.text, literalValue(declaration.initializer, bindings));
+    }
+  }
+  if (!bindings.has(name)) throw new Error(`TypeScript fixture is missing ${name}`);
+  return bindings.get(name);
+}
+
+function gatewayCommandProjection(value: unknown): unknown[] {
+  if (!Array.isArray(value)) throw new Error("gateway fixture commands must be an array");
+  return value.map((entry, index) => {
+    const command = record(entry, `gateway command ${index}`);
+    if (!Array.isArray(command.params) || !Array.isArray(command.guarded_fields)) {
+      throw new Error(`gateway command ${index} is invalid`);
+    }
+    return [
+      command.name,
+      command.read_only,
+      command.mode,
+      command.tier,
+      command.capability,
+      command.params.map((parameter, parameterIndex) => {
+        const param = record(parameter, `gateway command ${index} parameter ${parameterIndex}`);
+        return [param.name, param.type, param.required];
+      }),
+      command.guarded_fields,
+    ];
+  });
+}
+
+export function assertRuntimeTrustFixtureProjection(input: {
+  agentTypeScript: string;
+  agentJson: unknown;
+  gatewayTypeScript: string;
+  gatewayJson: unknown;
+  target: HostedRuntimeTrustTarget;
+}): void {
+  const agentFixture = fixtureBinding(input.agentTypeScript, "exomemHostedContractFixture");
+  if (
+    JSON.stringify(canonicalValue(agentFixture)) !== JSON.stringify(canonicalValue(input.agentJson))
+  ) {
+    throw new Error("TypeScript agent fixture differs from the reviewed JSON projection");
+  }
+
+  const gateway = record(input.gatewayJson, "gateway fixture");
+  const gatewayDigest = record(gateway.digest, "gateway fixture digest");
+  const expectedGatewayFixture = {
+    sourceCommit: input.target.sourceCommit,
+    release: gateway.exomem_release,
+    protocol: gateway.protocol_version,
+    digest: gatewayDigest.value,
+    commands: gatewayCommandProjection(gateway.commands),
+  };
+  const gatewayIdentifier = `exomemContractFixture${input.target.releaseVersion.replaceAll(".", "")}`;
+  const gatewayFixture = fixtureBinding(input.gatewayTypeScript, gatewayIdentifier);
+  if (
+    JSON.stringify(canonicalValue(gatewayFixture)) !==
+    JSON.stringify(canonicalValue(expectedGatewayFixture))
+  ) {
+    throw new Error("TypeScript gateway fixture differs from the reviewed JSON projection");
+  }
+}
+
+function compact(value: string): string {
+  return value.replace(/\s+/g, "");
+}
+
+function descendants<T extends ts.Node>(
+  root: ts.Node,
+  predicate: (node: ts.Node) => node is T
+): T[] {
+  const matches: T[] = [];
+  const visit = (node: ts.Node): void => {
+    if (predicate(node)) matches.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return matches;
+}
+
+function hasTrustedReleaseEntry(root: ts.Node, target: HostedRuntimeTrustTarget): boolean {
+  return descendants(root, ts.isArrayLiteralExpression).some((candidate) => {
+    if (
+      candidate.elements.length !== 2 ||
+      !ts.isStringLiteral(candidate.elements[0]) ||
+      candidate.elements[0].text !== target.releaseVersion ||
+      !ts.isObjectLiteralExpression(candidate.elements[1])
+    ) {
+      return false;
+    }
+    try {
+      const trusted = record(literalValue(candidate.elements[1], new Map()), "trusted release");
+      return (
+        trusted.sourceCommit === target.sourceCommit &&
+        trusted.command_surface_sha256 === target.commandFingerprint &&
+        trusted.schema_contract_sha256 === target.schemaDigest &&
+        trusted.compatibility_sha256 === target.compatibilityDigest
+      );
+    } catch {
+      return false;
+    }
+  });
+}
+
+type RuntimeTrustSource = {
+  sourceFile: ts.SourceFile;
+  checker: ts.TypeChecker;
+};
+
+type RuntimeTrustBinding = {
+  localName: string;
+  symbol: ts.Symbol;
+};
+
+function runtimeTrustSource(source: string, label: string): RuntimeTrustSource {
+  const fileName = resolve("/runtime-trust", `${label}.ts`);
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.Latest,
+    module: ts.ModuleKind.ESNext,
+    noResolve: true,
+  };
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const host = ts.createCompilerHost(options);
+  host.fileExists = (path) => path === fileName;
+  host.readFile = (path) => (path === fileName ? source : undefined);
+  host.getSourceFile = (path) => (path === fileName ? sourceFile : undefined);
+  const checker = ts.createProgram([fileName], options, host).getTypeChecker();
+  return { sourceFile, checker };
+}
+
+function importedBinding(
+  parsed: RuntimeTrustSource,
+  module: string,
+  exportedSymbol: string
+): RuntimeTrustBinding {
+  for (const statement of parsed.sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== module
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    const imported = bindings.elements.find(
+      (entry) => (entry.propertyName?.text ?? entry.name.text) === exportedSymbol
+    );
+    const symbol = imported ? parsed.checker.getSymbolAtLocation(imported.name) : undefined;
+    if (imported && symbol && !statement.importClause?.isTypeOnly && !imported.isTypeOnly) {
+      return { localName: imported.name.text, symbol };
+    }
+  }
+  throw new Error("exact runtime import is unavailable");
+}
+
+function topLevelVariable(sourceFile: ts.SourceFile, name: string): ts.VariableDeclaration | null {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return declaration;
+    }
+  }
+  return null;
+}
+
+function topLevelFunction(sourceFile: ts.SourceFile, name: string): ts.FunctionDeclaration | null {
+  return (
+    sourceFile.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) && statement.name?.text === name
+    ) ?? null
+  );
+}
+
+function classMethod(
+  sourceFile: ts.SourceFile,
+  className: string,
+  methodName: string
+): ts.MethodDeclaration | null {
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.ClassDeclaration =>
+      ts.isClassDeclaration(statement) && statement.name?.text === className
+  );
+  return (
+    declaration?.members.find(
+      (member): member is ts.MethodDeclaration =>
+        ts.isMethodDeclaration(member) && member.name.getText(sourceFile) === methodName
+    ) ?? null
+  );
+}
+
+function nodeUsesImportedProperties(
+  root: ts.Node,
+  checker: ts.TypeChecker,
+  binding: RuntimeTrustBinding,
+  properties: string[]
+): boolean {
+  const used = new Set<string>();
+  for (const access of descendants(root, ts.isPropertyAccessExpression)) {
+    if (
+      ts.isIdentifier(access.expression) &&
+      checker.getSymbolAtLocation(access.expression) === binding.symbol
+    ) {
+      used.add(access.name.text);
+    }
+  }
+  return properties.every((property) => used.has(property));
+}
+
+function isImportedIdentifier(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  binding: RuntimeTrustBinding
+): boolean {
+  const value = unwrapExpression(expression);
+  return ts.isIdentifier(value) && checker.getSymbolAtLocation(value) === binding.symbol;
+}
+
+function directFrozenCatalogEntries(initializer: ts.Expression): ts.ObjectLiteralExpression[] {
+  const outer = unwrapExpression(initializer);
+  if (!ts.isCallExpression(outer) || outer.arguments.length !== 1) return [];
+  const array = unwrapExpression(outer.arguments[0]);
+  if (!ts.isArrayLiteralExpression(array)) return [];
+  return array.elements.flatMap((entry) => {
+    if (ts.isSpreadElement(entry)) return [];
+    const frozen = unwrapExpression(entry);
+    if (!ts.isCallExpression(frozen) || frozen.arguments.length !== 1) return [];
+    const object = unwrapExpression(frozen.arguments[0]);
+    return ts.isObjectLiteralExpression(object) ? [object] : [];
+  });
+}
+
+function objectPinsBindings(
+  object: ts.ObjectLiteralExpression,
+  checker: ts.TypeChecker,
+  properties: Array<[string, RuntimeTrustBinding]>
+): boolean {
+  return properties.every(([name, binding]) =>
+    object.properties.some(
+      (entry) =>
+        ts.isPropertyAssignment(entry) &&
+        propertyName(entry.name) === name &&
+        isImportedIdentifier(entry.initializer, checker, binding)
+    )
+  );
+}
+
+export function assertRuntimeTrustSitePin(
+  source: string,
+  label: string,
+  target: HostedRuntimeTrustTarget
+): void {
+  const parsed = runtimeTrustSource(source, label);
+  const { sourceFile, checker } = parsed;
+  const versionSlug = target.releaseVersion.replaceAll(".", "-");
+  const gatewayExport = `exomemContractFixture${target.releaseVersion.replaceAll(".", "")}`;
+  const gatewayModule = `./gateway-contract-${versionSlug}`;
+  let pinned = false;
+
+  try {
+    if (label === "agent-canaries") {
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const catalog = topLevelVariable(sourceFile, "gatewayContractDigests")?.initializer;
+      const production = topLevelFunction(sourceFile, "createCanaryAssignment");
+      const key = `${gateway.localName}.release+":"+${gateway.localName}.protocol`;
+      const catalogEntry =
+        "[`${" +
+        gateway.localName +
+        ".release}:${" +
+        gateway.localName +
+        ".protocol}`," +
+        gateway.localName +
+        ".digest,]";
+      const branch = `WHEN\${${key}}THEN\${gatewayContractDigests.get(${key})}`;
+      pinned = Boolean(
+        catalog &&
+        production &&
+        compact(catalog.getText(sourceFile)).includes(catalogEntry) &&
+        nodeUsesImportedProperties(catalog, checker, gateway, ["release", "protocol", "digest"]) &&
+        descendants(production, ts.isTaggedTemplateExpression).some(
+          (template) =>
+            compact(template.getText(sourceFile)).includes(branch) &&
+            nodeUsesImportedProperties(template, checker, gateway, ["release", "protocol"])
+        )
+      );
+    } else if (label === "agent-contract-store") {
+      const agent = importedBinding(
+        parsed,
+        "./agent-contract-fixture",
+        "exomemHostedContractFixture"
+      );
+      const catalog = topLevelVariable(sourceFile, "TRUSTED_RELEASES")?.initializer;
+      const production = topLevelFunction(sourceFile, "storeExomemAgentContractCandidate");
+      const currentCall = production
+        ? descendants(production, ts.isCallExpression).some(
+            (call) =>
+              ts.isIdentifier(call.expression) &&
+              call.expression.text === "checkedExomemAgentContractCandidate" &&
+              call.arguments.length === 1 &&
+              isImportedIdentifier(call.arguments[0], checker, agent)
+          )
+        : false;
+      pinned = Boolean(catalog && currentCall && hasTrustedReleaseEntry(catalog, target));
+    } else if (label === "client-artifacts") {
+      const agent = importedBinding(
+        parsed,
+        "./agent-contract-fixture",
+        "exomemHostedContractFixture"
+      );
+      const production = topLevelFunction(sourceFile, "loadClientArtifactLocks");
+      pinned = Boolean(
+        production &&
+        descendants(production, ts.isConditionalExpression).some(
+          (conditional) =>
+            compact(conditional.condition.getText(sourceFile)) ===
+              `row.source_release===${JSON.stringify(target.releaseVersion)}` &&
+            isImportedIdentifier(conditional.whenTrue, checker, agent)
+        )
+      );
+    } else if (label === "gateway-store") {
+      const agent = importedBinding(
+        parsed,
+        "./agent-contract-fixture",
+        "exomemHostedContractFixture"
+      );
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const catalog = topLevelVariable(sourceFile, "gatewayContractCatalog")?.initializer;
+      pinned = Boolean(
+        catalog &&
+        directFrozenCatalogEntries(catalog).some((entry) =>
+          objectPinsBindings(entry, checker, [
+            ["full", gateway],
+            ["agent", agent],
+          ])
+        )
+      );
+    } else if (label === "lifecycle-store") {
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const key = `${gateway.localName}.release+":"+${gateway.localName}.protocol`;
+      const branch = `WHEN\${${key}}THEN\${${gateway.localName}.digest}`;
+      const requiredMethods: Array<[string, number]> = [
+        ["enqueue", 2],
+        ["#snapshotLegacyTarget", 1],
+        ["#deriveLegacyTarget", 1],
+      ];
+      pinned = requiredMethods.every(([methodName, expectedBranches]) => {
+        const method = classMethod(sourceFile, "SqlLifecycleStore", methodName);
+        if (!method) return false;
+        return (
+          descendants(method, ts.isTaggedTemplateExpression).filter(
+            (template) =>
+              compact(template.getText(sourceFile)).includes(branch) &&
+              nodeUsesImportedProperties(template, checker, gateway, [
+                "release",
+                "protocol",
+                "digest",
+              ])
+          ).length === expectedBranches
+        );
+      });
+    } else if (label === "reviewer-operator") {
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const production = topLevelFunction(sourceFile, "createReviewerOAuthBootstrapAuthority");
+      pinned = Boolean(
+        production &&
+        descendants(production, ts.isTaggedTemplateExpression).some((template) => {
+          const text = compact(template.getText(sourceFile));
+          return (
+            text.includes(`candidate.source_release=\${${gateway.localName}.release}`) &&
+            text.includes(`candidate.protocol_version=\${${gateway.localName}.protocol}`) &&
+            text.includes(`\${${gateway.localName}.digest}`) &&
+            nodeUsesImportedProperties(template, checker, gateway, [
+              "release",
+              "protocol",
+              "digest",
+            ])
+          );
+        })
+      );
+    }
+  } catch {
+    pinned = false;
+  }
+
+  if (!pinned) throw new Error(`${label} does not pin the exact runtime target`);
+}
+
 export async function buildHostedRuntimeTrustReport(input: {
   repository: string;
   consumerCommit: string;
@@ -216,15 +665,30 @@ export async function buildHostedRuntimeTrustReport(input: {
   const fixtureIdentifier = `exomemContractFixture${versionSlug.replaceAll("-", "")}`;
   const root = resolve(input.repository);
   const agentPath = resolve(root, "src/lib/exomem-hosted/__tests__/agent-contract-fixture.json");
+  const agentTypeScriptPath = resolve(root, "src/lib/exomem-hosted/agent-contract-fixture.ts");
   const gatewayPath = resolve(
     root,
     `src/lib/exomem-hosted/__tests__/gateway-contract-${versionSlug}.json`
   );
+  const gatewayTypeScriptPath = resolve(
+    root,
+    `src/lib/exomem-hosted/gateway-contract-${versionSlug}.ts`
+  );
   const agentBytes = committedBytes(root, input.consumerCommit, agentPath.slice(root.length + 1));
+  const agentTypeScriptBytes = committedBytes(
+    root,
+    input.consumerCommit,
+    agentTypeScriptPath.slice(root.length + 1)
+  );
   const gatewayBytes = committedBytes(
     root,
     input.consumerCommit,
     gatewayPath.slice(root.length + 1)
+  );
+  const gatewayTypeScriptBytes = committedBytes(
+    root,
+    input.consumerCommit,
+    gatewayTypeScriptPath.slice(root.length + 1)
   );
   const agent = record(JSON.parse(agentBytes.toString("utf8")), "agent fixture");
   const compatibility = record(agent.compatibility, "agent compatibility");
@@ -248,6 +712,13 @@ export async function buildHostedRuntimeTrustReport(input: {
   ) {
     throw new Error("gateway fixture differs from the exact runtime target");
   }
+  assertRuntimeTrustFixtureProjection({
+    agentTypeScript: agentTypeScriptBytes.toString("utf8"),
+    agentJson: agent,
+    gatewayTypeScript: gatewayTypeScriptBytes.toString("utf8"),
+    gatewayJson: gateway,
+    target,
+  });
 
   const sites = [
     {
@@ -290,6 +761,7 @@ export async function buildHostedRuntimeTrustReport(input: {
       for (const trustedImport of site.imports) {
         assertRuntimeTrustImport(source, site.name, trustedImport);
       }
+      assertRuntimeTrustSitePin(source, site.name, target);
     })
   );
   return {
