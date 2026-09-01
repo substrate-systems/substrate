@@ -201,35 +201,47 @@ describe("hosted runtime trust report", () => {
       path: "agent-contract-canaries.ts",
       exact:
         'WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol}\n                   THEN ${gatewayContractDigests.get(exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol)}',
+      decoy:
+        '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol} THEN ${gatewayContractDigests.get(exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol)}`;\n',
     },
     {
       name: "agent-contract-store",
       path: "agent-contract-store.ts",
       exact: "checkedExomemAgentContractCandidate(exomemHostedContractFixture)",
       replacement: "checkedExomemAgentContractCandidate(exomemHostedContractFixture0680)",
+      decoy:
+        "\nfunction runtimeTrustDecoy() { return checkedExomemAgentContractCandidate(exomemHostedContractFixture); }\n",
     },
     {
       name: "client-artifacts",
       path: "client-artifacts.ts",
       exact: 'row.source_release === "0.68.1"',
       replacement: 'row.source_release === "9.9.9"',
+      decoy:
+        '\nconst runtimeTrustDecoy = row.source_release === "0.68.1" ? exomemHostedContractFixture0681 : null;\n',
     },
     {
       name: "gateway-store",
       path: "gateway.ts",
       exact: "Object.freeze({ full: exomemContractFixture0681, agent: agentFixture0681 }),",
+      decoy:
+        "\nconst runtimeTrustDecoy = { full: exomemContractFixture0681, agent: agentFixture0681 };\n",
     },
     {
       name: "lifecycle-store",
       path: "lifecycle-store.ts",
       exact:
         'WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol}\n                     THEN ${exomemContractFixture0681.digest}',
+      decoy:
+        '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol} THEN ${exomemContractFixture0681.digest}`;\n',
     },
     {
       name: "reviewer-operator",
       path: "operator-controls.ts",
       exact: "candidate.source_release = ${exomemContractFixture0681.release}",
       replacement: "candidate.source_release = '0.68.0'",
+      decoy:
+        "\nconst runtimeTrustDecoy = sql`candidate.source_release = ${exomemContractFixture0681.release} AND candidate.protocol_version = ${exomemContractFixture0681.protocol} THEN ${exomemContractFixture0681.digest}`;\n",
     },
   ] as const;
 
@@ -240,7 +252,7 @@ describe("hosted runtime trust report", () => {
       assert.throws(
         () =>
           assertRuntimeTrustSitePin(
-            mutate(original, site.exact, "replacement" in site ? site.replacement : ""),
+            `${mutate(original, site.exact, "replacement" in site ? site.replacement : "")}\n${site.decoy}`,
             site.name,
             target
           ),

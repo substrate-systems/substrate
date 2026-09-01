@@ -331,7 +331,7 @@ function compact(value: string): string {
 }
 
 function descendants<T extends ts.Node>(
-  sourceFile: ts.SourceFile,
+  root: ts.Node,
   predicate: (node: ts.Node) => node is T
 ): T[] {
   const matches: T[] = [];
@@ -339,15 +339,12 @@ function descendants<T extends ts.Node>(
     if (predicate(node)) matches.push(node);
     ts.forEachChild(node, visit);
   };
-  visit(sourceFile);
+  visit(root);
   return matches;
 }
 
-function hasTrustedReleaseEntry(
-  sourceFile: ts.SourceFile,
-  target: HostedRuntimeTrustTarget
-): boolean {
-  return descendants(sourceFile, ts.isArrayLiteralExpression).some((candidate) => {
+function hasTrustedReleaseEntry(root: ts.Node, target: HostedRuntimeTrustTarget): boolean {
+  return descendants(root, ts.isArrayLiteralExpression).some((candidate) => {
     if (
       candidate.elements.length !== 2 ||
       !ts.isStringLiteral(candidate.elements[0]) ||
@@ -370,72 +367,285 @@ function hasTrustedReleaseEntry(
   });
 }
 
+type RuntimeTrustSource = {
+  sourceFile: ts.SourceFile;
+  checker: ts.TypeChecker;
+};
+
+type RuntimeTrustBinding = {
+  localName: string;
+  symbol: ts.Symbol;
+};
+
+function runtimeTrustSource(source: string, label: string): RuntimeTrustSource {
+  const fileName = resolve("/runtime-trust", `${label}.ts`);
+  const options: ts.CompilerOptions = {
+    target: ts.ScriptTarget.Latest,
+    module: ts.ModuleKind.ESNext,
+    noResolve: true,
+  };
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const host = ts.createCompilerHost(options);
+  host.fileExists = (path) => path === fileName;
+  host.readFile = (path) => (path === fileName ? source : undefined);
+  host.getSourceFile = (path) => (path === fileName ? sourceFile : undefined);
+  const checker = ts.createProgram([fileName], options, host).getTypeChecker();
+  return { sourceFile, checker };
+}
+
+function importedBinding(
+  parsed: RuntimeTrustSource,
+  module: string,
+  exportedSymbol: string
+): RuntimeTrustBinding {
+  for (const statement of parsed.sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== module
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    const imported = bindings.elements.find(
+      (entry) => (entry.propertyName?.text ?? entry.name.text) === exportedSymbol
+    );
+    const symbol = imported ? parsed.checker.getSymbolAtLocation(imported.name) : undefined;
+    if (imported && symbol && !statement.importClause?.isTypeOnly && !imported.isTypeOnly) {
+      return { localName: imported.name.text, symbol };
+    }
+  }
+  throw new Error("exact runtime import is unavailable");
+}
+
+function topLevelVariable(sourceFile: ts.SourceFile, name: string): ts.VariableDeclaration | null {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return declaration;
+    }
+  }
+  return null;
+}
+
+function topLevelFunction(sourceFile: ts.SourceFile, name: string): ts.FunctionDeclaration | null {
+  return (
+    sourceFile.statements.find(
+      (statement): statement is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(statement) && statement.name?.text === name
+    ) ?? null
+  );
+}
+
+function classMethod(
+  sourceFile: ts.SourceFile,
+  className: string,
+  methodName: string
+): ts.MethodDeclaration | null {
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.ClassDeclaration =>
+      ts.isClassDeclaration(statement) && statement.name?.text === className
+  );
+  return (
+    declaration?.members.find(
+      (member): member is ts.MethodDeclaration =>
+        ts.isMethodDeclaration(member) && member.name.getText(sourceFile) === methodName
+    ) ?? null
+  );
+}
+
+function nodeUsesImportedProperties(
+  root: ts.Node,
+  checker: ts.TypeChecker,
+  binding: RuntimeTrustBinding,
+  properties: string[]
+): boolean {
+  const used = new Set<string>();
+  for (const access of descendants(root, ts.isPropertyAccessExpression)) {
+    if (
+      ts.isIdentifier(access.expression) &&
+      checker.getSymbolAtLocation(access.expression) === binding.symbol
+    ) {
+      used.add(access.name.text);
+    }
+  }
+  return properties.every((property) => used.has(property));
+}
+
+function isImportedIdentifier(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  binding: RuntimeTrustBinding
+): boolean {
+  const value = unwrapExpression(expression);
+  return ts.isIdentifier(value) && checker.getSymbolAtLocation(value) === binding.symbol;
+}
+
+function directFrozenCatalogEntries(initializer: ts.Expression): ts.ObjectLiteralExpression[] {
+  const outer = unwrapExpression(initializer);
+  if (!ts.isCallExpression(outer) || outer.arguments.length !== 1) return [];
+  const array = unwrapExpression(outer.arguments[0]);
+  if (!ts.isArrayLiteralExpression(array)) return [];
+  return array.elements.flatMap((entry) => {
+    if (ts.isSpreadElement(entry)) return [];
+    const frozen = unwrapExpression(entry);
+    if (!ts.isCallExpression(frozen) || frozen.arguments.length !== 1) return [];
+    const object = unwrapExpression(frozen.arguments[0]);
+    return ts.isObjectLiteralExpression(object) ? [object] : [];
+  });
+}
+
+function objectPinsBindings(
+  object: ts.ObjectLiteralExpression,
+  checker: ts.TypeChecker,
+  properties: Array<[string, RuntimeTrustBinding]>
+): boolean {
+  return properties.every(([name, binding]) =>
+    object.properties.some(
+      (entry) =>
+        ts.isPropertyAssignment(entry) &&
+        propertyName(entry.name) === name &&
+        isImportedIdentifier(entry.initializer, checker, binding)
+    )
+  );
+}
+
 export function assertRuntimeTrustSitePin(
   source: string,
   label: string,
   target: HostedRuntimeTrustTarget
 ): void {
-  const sourceFile = ts.createSourceFile(
-    resolve("/runtime-trust", `${label}.ts`),
-    source,
-    ts.ScriptTarget.Latest,
-    true
-  );
-  const taggedTemplates = descendants(sourceFile, ts.isTaggedTemplateExpression).map((node) =>
-    compact(node.getText(sourceFile))
-  );
+  const parsed = runtimeTrustSource(source, label);
+  const { sourceFile, checker } = parsed;
+  const versionSlug = target.releaseVersion.replaceAll(".", "-");
+  const gatewayExport = `exomemContractFixture${target.releaseVersion.replaceAll(".", "")}`;
+  const gatewayModule = `./gateway-contract-${versionSlug}`;
   let pinned = false;
 
-  if (label === "agent-canaries") {
-    const key = 'exomemContractFixture0681.release+":"+exomemContractFixture0681.protocol';
-    pinned = taggedTemplates.some((text) =>
-      text.includes(`WHEN\${${key}}THEN\${gatewayContractDigests.get(${key})}`)
-    );
-  } else if (label === "agent-contract-store") {
-    const currentFunction = sourceFile.statements.find(
-      (statement): statement is ts.FunctionDeclaration =>
-        ts.isFunctionDeclaration(statement) &&
-        statement.name?.text === "storeExomemAgentContractCandidate"
-    );
-    pinned = Boolean(
-      currentFunction &&
-      compact(currentFunction.getText(sourceFile)).includes(
-        "checkedExomemAgentContractCandidate(exomemHostedContractFixture)"
-      ) &&
-      hasTrustedReleaseEntry(sourceFile, target)
-    );
-  } else if (label === "client-artifacts") {
-    pinned = descendants(sourceFile, ts.isConditionalExpression).some(
-      (conditional) =>
-        compact(conditional.condition.getText(sourceFile)) ===
-          `row.source_release===${JSON.stringify(target.releaseVersion)}` &&
-        compact(conditional.whenTrue.getText(sourceFile)) === "exomemHostedContractFixture0681"
-    );
-  } else if (label === "gateway-store") {
-    pinned = descendants(sourceFile, ts.isObjectLiteralExpression).some((object) => {
-      const entries = new Map(
-        object.properties.flatMap((entry) =>
-          ts.isPropertyAssignment(entry) && ts.isIdentifier(entry.name)
-            ? [[entry.name.text, compact(entry.initializer.getText(sourceFile))] as const]
-            : []
+  try {
+    if (label === "agent-canaries") {
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const catalog = topLevelVariable(sourceFile, "gatewayContractDigests")?.initializer;
+      const production = topLevelFunction(sourceFile, "createCanaryAssignment");
+      const key = `${gateway.localName}.release+":"+${gateway.localName}.protocol`;
+      const catalogEntry =
+        "[`${" +
+        gateway.localName +
+        ".release}:${" +
+        gateway.localName +
+        ".protocol}`," +
+        gateway.localName +
+        ".digest,]";
+      const branch = `WHEN\${${key}}THEN\${gatewayContractDigests.get(${key})}`;
+      pinned = Boolean(
+        catalog &&
+        production &&
+        compact(catalog.getText(sourceFile)).includes(catalogEntry) &&
+        nodeUsesImportedProperties(catalog, checker, gateway, ["release", "protocol", "digest"]) &&
+        descendants(production, ts.isTaggedTemplateExpression).some(
+          (template) =>
+            compact(template.getText(sourceFile)).includes(branch) &&
+            nodeUsesImportedProperties(template, checker, gateway, ["release", "protocol"])
         )
       );
-      return (
-        entries.get("full") === "exomemContractFixture0681" &&
-        entries.get("agent") === "agentFixture0681"
+    } else if (label === "agent-contract-store") {
+      const agent = importedBinding(
+        parsed,
+        "./agent-contract-fixture",
+        "exomemHostedContractFixture"
       );
-    });
-  } else if (label === "lifecycle-store") {
-    const key = 'exomemContractFixture0681.release+":"+exomemContractFixture0681.protocol';
-    const branch = `WHEN\${${key}}THEN\${exomemContractFixture0681.digest}`;
-    pinned = taggedTemplates.filter((text) => text.includes(branch)).length === 4;
-  } else if (label === "reviewer-operator") {
-    pinned = taggedTemplates.some(
-      (text) =>
-        text.includes("candidate.source_release=\${exomemContractFixture0681.release}") &&
-        text.includes("candidate.protocol_version=\${exomemContractFixture0681.protocol}") &&
-        text.includes("\${exomemContractFixture0681.digest}")
-    );
+      const catalog = topLevelVariable(sourceFile, "TRUSTED_RELEASES")?.initializer;
+      const production = topLevelFunction(sourceFile, "storeExomemAgentContractCandidate");
+      const currentCall = production
+        ? descendants(production, ts.isCallExpression).some(
+            (call) =>
+              ts.isIdentifier(call.expression) &&
+              call.expression.text === "checkedExomemAgentContractCandidate" &&
+              call.arguments.length === 1 &&
+              isImportedIdentifier(call.arguments[0], checker, agent)
+          )
+        : false;
+      pinned = Boolean(catalog && currentCall && hasTrustedReleaseEntry(catalog, target));
+    } else if (label === "client-artifacts") {
+      const agent = importedBinding(
+        parsed,
+        "./agent-contract-fixture",
+        "exomemHostedContractFixture"
+      );
+      const production = topLevelFunction(sourceFile, "loadClientArtifactLocks");
+      pinned = Boolean(
+        production &&
+        descendants(production, ts.isConditionalExpression).some(
+          (conditional) =>
+            compact(conditional.condition.getText(sourceFile)) ===
+              `row.source_release===${JSON.stringify(target.releaseVersion)}` &&
+            isImportedIdentifier(conditional.whenTrue, checker, agent)
+        )
+      );
+    } else if (label === "gateway-store") {
+      const agent = importedBinding(
+        parsed,
+        "./agent-contract-fixture",
+        "exomemHostedContractFixture"
+      );
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const catalog = topLevelVariable(sourceFile, "gatewayContractCatalog")?.initializer;
+      pinned = Boolean(
+        catalog &&
+        directFrozenCatalogEntries(catalog).some((entry) =>
+          objectPinsBindings(entry, checker, [
+            ["full", gateway],
+            ["agent", agent],
+          ])
+        )
+      );
+    } else if (label === "lifecycle-store") {
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const key = `${gateway.localName}.release+":"+${gateway.localName}.protocol`;
+      const branch = `WHEN\${${key}}THEN\${${gateway.localName}.digest}`;
+      const requiredMethods: Array<[string, number]> = [
+        ["enqueue", 2],
+        ["#snapshotLegacyTarget", 1],
+        ["#deriveLegacyTarget", 1],
+      ];
+      pinned = requiredMethods.every(([methodName, expectedBranches]) => {
+        const method = classMethod(sourceFile, "SqlLifecycleStore", methodName);
+        if (!method) return false;
+        return (
+          descendants(method, ts.isTaggedTemplateExpression).filter(
+            (template) =>
+              compact(template.getText(sourceFile)).includes(branch) &&
+              nodeUsesImportedProperties(template, checker, gateway, [
+                "release",
+                "protocol",
+                "digest",
+              ])
+          ).length === expectedBranches
+        );
+      });
+    } else if (label === "reviewer-operator") {
+      const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
+      const production = topLevelFunction(sourceFile, "createReviewerOAuthBootstrapAuthority");
+      pinned = Boolean(
+        production &&
+        descendants(production, ts.isTaggedTemplateExpression).some((template) => {
+          const text = compact(template.getText(sourceFile));
+          return (
+            text.includes(`candidate.source_release=\${${gateway.localName}.release}`) &&
+            text.includes(`candidate.protocol_version=\${${gateway.localName}.protocol}`) &&
+            text.includes(`\${${gateway.localName}.digest}`) &&
+            nodeUsesImportedProperties(template, checker, gateway, [
+              "release",
+              "protocol",
+              "digest",
+            ])
+          );
+        })
+      );
+    }
+  } catch {
+    pinned = false;
   }
 
   if (!pinned) throw new Error(`${label} does not pin the exact runtime target`);
