@@ -8,19 +8,19 @@ import {
   type Paddle,
 } from "@paddle/paddle-js";
 import { AnalyticsEvent, capture, currentDistinctId } from "@/lib/analytics";
-import type { SupportTier } from "@/lib/support-tiers";
 
 type CompletionListener = (product: CheckoutProduct | null) => void;
 
 /**
  * What a checkout is for, carried on every event in the funnel.
  *
- * `supporter` and `hosted_backup` are analytics identifiers, not public copy —
- * the public names are "Support Endstate" and "Endstate Cloud". They are kept
- * verbatim so historical funnel data stays queryable as one series. See
- * docs/naming.md.
+ * `hosted_backup` is an analytics identifier, not public copy — the public name
+ * is "Endstate Cloud". It is kept verbatim so historical funnel data stays
+ * queryable as one series. The retired `supporter` value stays reserved for the
+ * same reason: voluntary support left Paddle for GitHub Sponsors, but the events
+ * it already wrote are still in PostHog. See docs/naming.md.
  */
-export type CheckoutProduct = "supporter" | "hosted_backup" | "transaction";
+export type CheckoutProduct = "hosted_backup" | "transaction";
 
 /**
  * Where in the checkout path a failure happened. One event name with a stage
@@ -118,7 +118,6 @@ export type UsePaddleResult = {
   ready: boolean;
   error: string | null;
   completed: boolean;
-  openSupportCheckout: (tier: SupportTier) => Promise<void>;
   openHostedBackupCheckout: (cadence: HostedBackupCadence) => Promise<void>;
   openTransactionCheckout: (transactionId: string) => Promise<boolean>;
 };
@@ -176,29 +175,6 @@ export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult 
     };
   }, [completionProduct]);
 
-  /**
-   * Opens a one-time contribution checkout for a configured support tier.
-   *
-   * Callers only ever pass tiers from `configuredSupportTiers()`, so a missing
-   * price ID here means the tier list and the render guard disagreed — worth an
-   * event rather than a silent no-op.
-   */
-  async function openSupportCheckout(tier: SupportTier): Promise<void> {
-    capture(AnalyticsEvent.CheckoutStarted, { product: "supporter", tier: tier.id });
-    if (!tier.priceId) {
-      console.error(`[paddle] no price ID configured for support tier "${tier.id}"`);
-      trackCheckoutFailure("supporter", "missing_price_id", { tier: tier.id });
-      alert(UNAVAILABLE_MESSAGE);
-      return;
-    }
-    await openCheckoutWith("supporter", (paddle) => {
-      paddle.Checkout.open({
-        items: [{ priceId: tier.priceId as string, quantity: 1 }],
-        customData: checkoutCustomData(),
-      });
-    });
-  }
-
   async function openHostedBackupCheckout(cadence: HostedBackupCadence): Promise<void> {
     capture(AnalyticsEvent.CheckoutStarted, { product: "hosted_backup", cadence });
     const envName =
@@ -236,7 +212,6 @@ export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult 
     ready,
     error,
     completed,
-    openSupportCheckout,
     openHostedBackupCheckout,
     openTransactionCheckout,
   };

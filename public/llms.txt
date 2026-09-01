@@ -28,7 +28,7 @@ Founded by Hugo Ander Kivi. Registered in Estonia as Substrate Systems OÜ.
 - [Exomem vs claude-mem](https://substratesystems.io/blog/exomem-vs-claude-mem): claude-mem captures and replays session activity from a local SQLite/Chroma store; Exomem stores curated conclusions as Markdown in a vault you own. Both are open source and agent-agnostic — the difference is where the data lives and who curates it.
 - [Writing](https://substratesystems.io/blog): Field notes on durable infrastructure, LLM governance, and building foundational systems solo.
 - [Terms, Privacy & Refunds](https://substratesystems.io/terms): Endstate's local app has no telemetry; website analytics are disclosed separately. Contact: founder@substratesystems.io.
-- [Support Endstate](https://substratesystems.io/endstate/supporters): The people who fund free, open setup, and how to contribute. Supporting is voluntary and unlocks nothing.
+- [Support Endstate](https://substratesystems.io/endstate/supporters): The people who fund free, open setup, and how to contribute. One-time contributions of $10, $29, or $89 through GitHub Sponsors. Supporting is voluntary and unlocks nothing.
 - [Sponsor an Endstate integration](https://substratesystems.io/endstate/sponsor-an-integration): Fund deeper migration support for a specific Windows application — settings capture and restore, version handling, package-identity edge cases, testing, and documentation. Priced by quotation.
 
 ## Endstate technical details

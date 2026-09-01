@@ -692,30 +692,6 @@ export async function markPaddleEventProcessed(eventId: string, attempt: number)
   }
 }
 
-export async function recordSupporterContribution(params: {
-  transactionId: string;
-  eventId: string;
-  tier: string;
-  email: string | null;
-}): Promise<boolean> {
-  const { rows } = await sql`
-    WITH contribution AS (
-      INSERT INTO supporter_contributions (paddle_transaction_id, paddle_event_id, tier, customer_email)
-      VALUES (${params.transactionId}, ${params.eventId}, ${params.tier}, ${params.email})
-      ON CONFLICT DO NOTHING
-      RETURNING paddle_transaction_id
-    ), outbox AS (
-      INSERT INTO supporter_email_outbox (paddle_transaction_id, kind)
-      SELECT paddle_transaction_id, kind
-      FROM contribution CROSS JOIN (VALUES ('founder_notification'::text), ('supporter_thank_you'::text)) t(kind)
-      ON CONFLICT DO NOTHING
-      RETURNING 1
-    )
-    SELECT EXISTS (SELECT 1 FROM contribution) AS inserted
-  `;
-  return Boolean((rows[0] as { inserted: boolean } | undefined)?.inserted);
-}
-
 /**
  * Operator-only compatibility import for the real pre-tier €89 purchase.
  * The original Paddle transaction/event identities make this idempotent; its
@@ -723,6 +699,10 @@ export async function recordSupporterContribution(params: {
  * historical thank-you/founder obligations are recorded as fulfilled so an
  * import can never send a surprise duplicate email. Recognition remains
  * pending explicit reply-based consent.
+ *
+ * This is the only remaining writer of these tables: the Paddle supporter
+ * purchase path and its mail outbox drain were retired when voluntary support
+ * moved to GitHub Sponsors, and the rows are kept as history.
  */
 export async function recordLegacySupporterContribution(params: {
   transactionId: string;
@@ -752,74 +732,6 @@ export async function recordLegacySupporterContribution(params: {
     SELECT EXISTS (SELECT 1 FROM contribution) AS inserted
   `;
   return Boolean((rows[0] as { inserted: boolean } | undefined)?.inserted);
-}
-
-export type SupporterOutboxRow = {
-  id: string;
-  kind: "founder_notification" | "supporter_thank_you";
-  paddle_transaction_id: string;
-  customer_email: string | null;
-  tier: string;
-};
-
-export async function findPendingSupporterEmails(limit: number): Promise<SupporterOutboxRow[]> {
-  const { rows } = await sql`
-    WITH candidates AS (
-      SELECT id FROM supporter_email_outbox
-      WHERE sent_at IS NULL
-        AND next_attempt_at <= now()
-        AND (processing_started_at IS NULL OR processing_started_at < now() - interval '15 minutes')
-      ORDER BY next_attempt_at ASC, created_at ASC LIMIT ${limit}
-      FOR UPDATE SKIP LOCKED
-    ), claimed AS (
-      UPDATE supporter_email_outbox o SET processing_started_at = now()
-      FROM candidates c WHERE o.id = c.id
-      RETURNING o.id, o.kind, o.paddle_transaction_id
-    )
-    SELECT o.id, o.kind, o.paddle_transaction_id, c.customer_email, c.tier
-    FROM claimed o JOIN supporter_contributions c ON c.paddle_transaction_id = o.paddle_transaction_id
-  `;
-  return rows as SupporterOutboxRow[];
-}
-
-export async function markSupporterEmailDelivered(id: string): Promise<void> {
-  await sql`UPDATE supporter_email_outbox SET sent_at = now(), processing_started_at = NULL, next_attempt_at = now(), attempts = attempts + 1, last_error = NULL WHERE id = ${id} AND sent_at IS NULL`;
-}
-
-export async function markSupporterEmailFailed(
-  id: string,
-  error: string
-): Promise<{ attentionRequired: boolean }> {
-  const { rows } = await sql`
-    UPDATE supporter_email_outbox
-    SET processing_started_at = NULL,
-        attempts = attempts + 1,
-        next_attempt_at = now() + LEAST(
-          interval '24 hours',
-          interval '5 minutes' * power(2, LEAST(attempts + 1, 8))
-        ),
-        attention_required_at = CASE
-          WHEN attempts + 1 >= 10 THEN COALESCE(attention_required_at, now())
-          ELSE attention_required_at
-        END,
-        last_error = ${error.slice(0, 1000)}
-    WHERE id = ${id} AND sent_at IS NULL
-    RETURNING attention_required_at IS NOT NULL AS attention_required
-  `;
-  return {
-    attentionRequired: Boolean(
-      (rows[0] as { attention_required?: boolean } | undefined)?.attention_required
-    ),
-  };
-}
-
-export async function getSupporterEmailAttentionCount(): Promise<number> {
-  const { rows } = await sql`
-    SELECT COUNT(*)::int AS attention_count
-    FROM supporter_email_outbox
-    WHERE sent_at IS NULL AND attention_required_at IS NOT NULL
-  `;
-  return Number((rows[0] as { attention_count?: number } | undefined)?.attention_count ?? 0);
 }
 
 export type SubscriptionOnboardingClaim =

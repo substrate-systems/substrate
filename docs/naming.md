@@ -29,23 +29,43 @@ internal surfaces, so the public name and the identifier are allowed to differ.
 
 ### Environment variables
 
-| Variable                                            | Why it stays                                                                                                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PADDLE_PRICE_ID_HOSTED_BACKUP`                     | Configured in the hosting environment; renaming silently unconfigures billing.                                                                                                  |
-| `NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_MONTHLY` | Same, and inlined into already-deployed client bundles.                                                                                                                         |
-| `NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_YEARLY`  | Same.                                                                                                                                                                           |
-| `HOSTED_BACKUP_QUOTA_BYTES`                         | Operational override read by the storage layer.                                                                                                                                 |
-| `HOSTED_BACKUP_TEST_EMAIL_PATTERN`                  | Test-bypass configuration.                                                                                                                                                      |
-| `PADDLE_HOSTED_BACKUP_WEBHOOK_SECRET`               | Registered against a live Paddle webhook destination.                                                                                                                           |
-| `NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER`    | The €89 price predates the Support Endstate framing. Every existing support record is attached to it, so it keeps its name even though the tier is now presented as **Patron**. |
+| Variable                                            | Why it stays                                                                   |
+| --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `PADDLE_PRICE_ID_HOSTED_BACKUP`                     | Configured in the hosting environment; renaming silently unconfigures billing. |
+| `NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_MONTHLY` | Same, and inlined into already-deployed client bundles.                        |
+| `NEXT_PUBLIC_PADDLE_PRICE_ID_HOSTED_BACKUP_YEARLY`  | Same.                                                                          |
+| `HOSTED_BACKUP_QUOTA_BYTES`                         | Operational override read by the storage layer.                                |
+| `HOSTED_BACKUP_TEST_EMAIL_PATTERN`                  | Test-bypass configuration.                                                     |
+| `PADDLE_HOSTED_BACKUP_WEBHOOK_SECRET`               | Registered against a live Paddle webhook destination.                          |
+
+#### Retired
+
+Voluntary support moved to GitHub Sponsors (org `substrate-systems`, one-time
+amounts only), so these are no longer read by any code and can be unset in the
+hosting environment. They are listed here because they were previously pinned as
+deliberately retained, and because the historical support records in
+`supporter_contributions` are still attached to the €89 price.
+
+| Variable                                         | Status                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_PADDLE_PRICE_ID_SUPPORT_10`         | Retired. The $10 Supporter tier is a one-time GitHub Sponsors amount.           |
+| `NEXT_PUBLIC_PADDLE_PRICE_ID_SUPPORT_29`         | Retired. The $29 Founding Supporter tier is a one-time GitHub Sponsors amount.  |
+| `NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER` | Retired. Named for the original €89 price; the $89 Patron tier is now Sponsors. |
+
+The Endstate Cloud Paddle variables above are unaffected: Cloud billing still
+runs through Paddle.
 
 ### Directories, routes, and modules
 
-| Identifier               | Why it stays                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------------ |
-| `src/lib/hosted-backup/` | Module path referenced throughout the server; a rename is churn with no public effect.     |
-| `/api/backups/*`         | Called by shipped Endstate clients. Changing the path breaks them.                         |
-| `/api/license/webhook`   | Registered in Paddle. Kept stable for the same reason, despite no longer issuing licences. |
+| Identifier               | Why it stays                                                                           |
+| ------------------------ | -------------------------------------------------------------------------------------- |
+| `src/lib/hosted-backup/` | Module path referenced throughout the server; a rename is churn with no public effect. |
+| `/api/backups/*`         | Called by shipped Endstate clients. Changing the path breaks them.                     |
+
+`/api/license/webhook` was previously kept as a Paddle compatibility URL for the
+recognition-only supporter purchase. That purchase path is retired, so the route
+is gone; its Paddle notification destination should be removed in the Paddle
+dashboard. Endstate Cloud's destination, `/api/webhooks/paddle`, is unaffected.
 
 ### TypeScript symbols
 
@@ -64,10 +84,11 @@ internal surfaces, so the public name and the identifier are allowed to differ.
 
 ### Analytics identifiers
 
-| Identifier                                       | Why it stays                                                                                                  |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `hosted_backup`, `supporter` (`CheckoutProduct`) | Event property values already written to historical PostHog data. Renaming splits one funnel into two series. |
-| `supporter_purchased` (`ServerEvent`)            | Same.                                                                                                         |
+| Identifier                             | Why it stays                                                                                                                                    |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hosted_backup` (`CheckoutProduct`)    | Event property values already written to historical PostHog data. Renaming splits one funnel into two series.                                   |
+| `supporter` (checkout funnel property) | Same, and now historical only — the supporter checkout is retired, so nothing new is written under it. Never reuse the value for anything else. |
+| `supporter_purchased` (`ServerEvent`)  | Same — retained so the existing revenue series stays queryable.                                                                                 |
 
 ### In-app section label
 
