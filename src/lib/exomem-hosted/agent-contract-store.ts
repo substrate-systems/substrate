@@ -10,6 +10,7 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0541 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0572 } from "./agent-contract-fixture-0-57-2";
 import { exomemHostedContractFixture as exomemHostedContractFixture0631 } from "./agent-contract-fixture-0-63-1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0660 } from "./agent-contract-fixture-0-66-0";
+import { exomemHostedContractFixture as exomemHostedContractFixture0680 } from "./agent-contract-fixture-0-68-0";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -38,8 +39,20 @@ export type TrustedRelease =
   | "0.57.2"
   | "0.63.1"
   | "0.66.0"
-  | "0.68.0";
+  | "0.68.0"
+  | "0.68.1";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.68.1",
+    {
+      sourceCommit: "e487efa2fdfd8c7653b6e99605163a0200c6ce58",
+      command_surface_sha256: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+      schema_contract_sha256: "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd",
+      compatibility_sha256: "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
+      artifact_sha256: "be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241",
+      archive_sha256: "00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4",
+    },
+  ],
   [
     "0.68.0",
     {
@@ -250,6 +263,7 @@ function checkedOpenAiLocks(
     record(exomemHostedContractFixture0572.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0631.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0660.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0680.packageLock, "Claude package lock"),
   ];
   const requiredIdentityFields = [
     "schema_version",
@@ -334,7 +348,10 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   const compatibility = record(source.compatibility, "compatibility");
   // Every release from 0.63.1 forward ships the v4 profile; earlier units stay v1.
   const expectedProfile: ExomemHostedProfile =
-    sourceRelease === "0.63.1" || sourceRelease === "0.66.0" || sourceRelease === "0.68.0"
+    sourceRelease === "0.63.1" ||
+    sourceRelease === "0.66.0" ||
+    sourceRelease === "0.68.0" ||
+    sourceRelease === "0.68.1"
       ? EXOMEM_HOSTED_PROFILE
       : "hosted-alpha-agent-v1";
   const packageLock = record(source.packageLock, "Claude package lock");
@@ -461,7 +478,9 @@ export async function storeRetainedExomemAgentContractCandidate(
                     ? exomemHostedContractFixture0631
                     : sourceRelease === "0.66.0"
                       ? exomemHostedContractFixture0660
-                      : exomemHostedContractFixture;
+                      : sourceRelease === "0.68.0"
+                        ? exomemHostedContractFixture0680
+                        : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

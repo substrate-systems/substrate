@@ -1,6 +1,7 @@
-{
-  "sourceCommit": "e487efa2fdfd8c7653b6e99605163a0200c6ce58",
-  "sourceRelease": "0.68.1",
+// Generated from Exomem compatibility.json at commit 76571f2c9f600395344a2a62efe6aca36d32b42d for cell release 0.68.0. Do not edit.
+export const exomemHostedContractFixture = {
+  "sourceCommit": "76571f2c9f600395344a2a62efe6aca36d32b42d",
+  "sourceRelease": "0.68.0",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -10100,4 +10101,4 @@
     "platform": "openai",
     "registered_app_id_sha256": "b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46"
   }
-}
+} as const;

@@ -53,6 +53,12 @@ const RELEASES = {
     generatedDirectory: "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
     openai: true,
   },
+  e487efa2fdfd8c7653b6e99605163a0200c6ce58: {
+    sourceRelease: "0.68.1",
+    profile: "hosted-alpha-agent-v4",
+    generatedDirectory: "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
+    openai: true,
+  },
 };
 
 function fail(message) {

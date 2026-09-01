@@ -31,18 +31,18 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const RELEASE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/;
 const IMAGE = /^ghcr\.io\/artexis10\/exomem@sha256:[a-f0-9]{64}$/;
-// The ten-field output of `hosted_image_candidate.py verify` for Exomem v0.68.0,
+// The ten-field output of `hosted_image_candidate.py verify` for Exomem v0.68.1,
 // which checks the release's Sigstore attestation and cross-checks the agent and
 // gateway fixtures against the signed candidate. Do not hand-assemble this.
 const REVIEWED_TARGET: HostedRuntimeTrustTarget = {
-  releaseVersion: "0.68.0",
-  sourceCommit: "76571f2c9f600395344a2a62efe6aca36d32b42d",
+  releaseVersion: "0.68.1",
+  sourceCommit: "e487efa2fdfd8c7653b6e99605163a0200c6ce58",
   runtimeImage:
-    "ghcr.io/artexis10/exomem@sha256:78762e5676a57fff444d1360a968ba9d34d9cb5e6032f80542b813645ce765b0",
-  runtimeCandidateSha256: "e6a98f21bc4910f320b959d510989dc96c5c0746c0f7957aff3f5748eac85784",
+    "ghcr.io/artexis10/exomem@sha256:9870b3f661969a70504fb4ccad60b6429c21c13732f754d0e8aef030e3277246",
+  runtimeCandidateSha256: "6743cf711b08cf8b64a7db8a62ce06f4a9246e59cc54a76f23c102959fc10aa9",
   protocolVersion: "1",
   agentProfile: "hosted-alpha-agent-v4",
-  gatewayContractDigest: "4e19849239188017b727a7ec97fe6e8505a01d216907957755676f3f588b8cd6",
+  gatewayContractDigest: "2af163baf368643f41d7fa4eaa0c3d2d0f2ead54443fd0263d2977dc4094a469",
   commandFingerprint: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
   schemaDigest: "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd",
   compatibilityDigest: "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
