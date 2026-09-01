@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
-import { assertRuntimeTrustImport, buildHostedRuntimeTrustReport } from "../runtime-trust-report";
+import {
+  assertRuntimeTrustFixtureProjection,
+  assertRuntimeTrustImport,
+  assertRuntimeTrustSitePin,
+  buildHostedRuntimeTrustReport,
+} from "../runtime-trust-report";
 
 // Deliberately restated rather than imported: REVIEWED_TARGET is unexported, and a
 // test that borrowed it could not detect the pin drifting. These values are the
@@ -20,6 +26,16 @@ const target = {
   compatibilityDigest: "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
 };
 const consumerCommit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+function source(path: string): string {
+  return readFileSync(`src/lib/exomem-hosted/${path}`, "utf8");
+}
+
+function mutate(original: string, exact: string, replacement = ""): string {
+  const changed = original.replace(exact, replacement);
+  assert.notEqual(changed, original, `mutation did not match: ${exact}`);
+  return changed;
+}
 
 describe("hosted runtime trust report", () => {
   it("proves the exact target at every release-pinned consumer site", async () => {
@@ -131,4 +147,105 @@ describe("hosted runtime trust report", () => {
       /does not use/
     );
   });
+
+  it("couples the generated TypeScript fixtures to the reviewed JSON projections", () => {
+    const agentJson = JSON.parse(source("__tests__/agent-contract-fixture.json"));
+    const gatewayJson = JSON.parse(source("__tests__/gateway-contract-0-68-1.json"));
+    const agentTypeScript = source("agent-contract-fixture.ts");
+    const gatewayTypeScript = source("gateway-contract-0-68-1.ts");
+
+    assert.doesNotThrow(() =>
+      assertRuntimeTrustFixtureProjection({
+        agentTypeScript,
+        agentJson,
+        gatewayTypeScript,
+        gatewayJson,
+        target,
+      })
+    );
+    assert.throws(
+      () =>
+        assertRuntimeTrustFixtureProjection({
+          agentTypeScript: mutate(
+            agentTypeScript,
+            '"sourceRelease": "0.68.1"',
+            '"sourceRelease": "0.68.0"'
+          ),
+          agentJson,
+          gatewayTypeScript,
+          gatewayJson,
+          target,
+        }),
+      /TypeScript agent fixture differs/
+    );
+    assert.throws(
+      () =>
+        assertRuntimeTrustFixtureProjection({
+          agentTypeScript,
+          agentJson,
+          gatewayTypeScript: mutate(
+            gatewayTypeScript,
+            target.gatewayContractDigest,
+            "0".repeat(64)
+          ),
+          gatewayJson,
+          target,
+        }),
+      /TypeScript gateway fixture differs/
+    );
+  });
+
+  const siteMutations = [
+    {
+      name: "agent-canaries",
+      path: "agent-contract-canaries.ts",
+      exact:
+        'WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol}\n                   THEN ${gatewayContractDigests.get(exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol)}',
+    },
+    {
+      name: "agent-contract-store",
+      path: "agent-contract-store.ts",
+      exact: "checkedExomemAgentContractCandidate(exomemHostedContractFixture)",
+      replacement: "checkedExomemAgentContractCandidate(exomemHostedContractFixture0680)",
+    },
+    {
+      name: "client-artifacts",
+      path: "client-artifacts.ts",
+      exact: 'row.source_release === "0.68.1"',
+      replacement: 'row.source_release === "9.9.9"',
+    },
+    {
+      name: "gateway-store",
+      path: "gateway.ts",
+      exact: "Object.freeze({ full: exomemContractFixture0681, agent: agentFixture0681 }),",
+    },
+    {
+      name: "lifecycle-store",
+      path: "lifecycle-store.ts",
+      exact:
+        'WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol}\n                     THEN ${exomemContractFixture0681.digest}',
+    },
+    {
+      name: "reviewer-operator",
+      path: "operator-controls.ts",
+      exact: "candidate.source_release = ${exomemContractFixture0681.release}",
+      replacement: "candidate.source_release = '0.68.0'",
+    },
+  ] as const;
+
+  for (const site of siteMutations) {
+    it(`rejects a missing exact 0.68.1 branch at ${site.name}`, () => {
+      const original = source(site.path);
+      assert.doesNotThrow(() => assertRuntimeTrustSitePin(original, site.name, target));
+      assert.throws(
+        () =>
+          assertRuntimeTrustSitePin(
+            mutate(original, site.exact, "replacement" in site ? site.replacement : ""),
+            site.name,
+            target
+          ),
+        /does not pin the exact runtime target/
+      );
+    });
+  }
 });
