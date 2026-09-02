@@ -312,8 +312,9 @@ export default async function SupportersPage() {
             style={{ maxWidth: 1100, background: c.elevated, border: `1px solid ${c.border}` }}
           >
             <p style={{ fontSize: "0.9rem", color: c.textSec, margin: 0, lineHeight: 1.65 }}>
-              Recognition is opt-in and stays that way — after a contribution you are asked whether
-              you would like to be listed, and nothing is published unless you say yes. Looking to
+              Recognition is opt-in and stays that way — the GitHub Sponsors thank-you asks whether
+              you would like to be listed, and nothing is published unless you say yes. A listing is
+              an acknowledgement, not advertising and not something a contribution buys. Looking to
               fund a specific integration instead?{" "}
               <a
                 href="/endstate/sponsor-an-integration"

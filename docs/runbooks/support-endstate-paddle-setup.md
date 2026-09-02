@@ -1,5 +1,19 @@
 # Support Endstate — Paddle setup
 
+> **Superseded — kept for history.** Voluntary support no longer runs through
+> Paddle. Contributions are one-time sponsorships on the GitHub Sponsors profile
+> for the `substrate-systems` org ($10 Supporter, $29 Founding Supporter, $89
+> Patron), and `src/lib/support-tiers.ts` holds the amounts and links directly —
+> there is no price to create, no environment variable to set, and no webhook to
+> register. Going live is a single `SPONSORS_LIVE` flip once GitHub approves the
+> profile. Nothing below applies to voluntary support any more; do not create the
+> prices it describes. See `openspec/changes/move-endstate-support-to-github-sponsors/`.
+>
+> Two things below still apply elsewhere: the **Brevo sender cutover** governs the
+> remaining transactional mail (Endstate Cloud claim mail, Exomem access mail),
+> minus its supporter-outbox step, which is retired. Endstate Cloud billing is
+> unaffected and still runs on Paddle.
+
 How to make the €10 and €29 contribution amounts appear on
 `/endstate/supporters#support`.
 

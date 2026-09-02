@@ -3,13 +3,11 @@ import { afterEach, describe, it } from "node:test";
 import {
   __setHostedBackupSqlForTests,
   findPendingPaddleCancellations,
-  findPendingSupporterEmails,
   getPaddleCancellationAttentionCount,
-  getSupporterEmailAttentionCount,
   markPaddleCancellationAttempt,
-  markSupporterEmailFailed,
   recordLegacySupporterContribution,
 } from "../db";
+import * as db from "../db";
 
 const calls: string[] = [];
 
@@ -26,39 +24,18 @@ function install(rows: Array<Record<string, unknown>> = []) {
 }
 
 describe("supporter and cancellation durable queues", () => {
-  it("selects unsent supporter obligations rather than re-sending delivered mail", async () => {
-    install([
-      {
-        id: "o-1",
-        kind: "supporter_thank_you",
-        paddle_transaction_id: "txn-1",
-        customer_email: "a@example.com",
-        tier: "patron",
-      },
-    ]);
-    const rows = await findPendingSupporterEmails(20);
-    assert.equal(rows[0]?.kind, "supporter_thank_you");
-    assert.match(calls[0], /sent_at IS NULL/);
-  });
-
-  it("records a failed delivery for retry without marking it sent", async () => {
-    install();
-    await markSupporterEmailFailed("o-1", "Brevo timeout");
-    assert.match(calls[0], /attempts = attempts \+ 1/);
-    assert.match(calls[0], /next_attempt_at/);
-    assert.match(calls[0], /attention_required_at/);
-    assert.doesNotMatch(calls[0], /sent_at = now\(\)/);
-  });
-
-  it("keeps failed supporter mail retryable and exposes it for operator attention", async () => {
-    install([{ attention_count: 3 }]);
-    await findPendingSupporterEmails(20);
-    assert.doesNotMatch(calls[0], /attempts < 10/);
-    assert.match(calls[0], /next_attempt_at <= now\(\)/);
-    calls.length = 0;
-    assert.equal(await getSupporterEmailAttentionCount(), 3);
-    assert.match(calls[0], /attention_required_at IS NOT NULL/);
-    assert.match(calls[0], /sent_at IS NULL/);
+  it("no longer exposes a supporter mail outbox drain", () => {
+    // The Paddle supporter purchase path is retired: nothing enqueues mail, so
+    // the drain is gone. The tables and the historical rows are untouched.
+    for (const retired of [
+      "recordSupporterContribution",
+      "findPendingSupporterEmails",
+      "markSupporterEmailDelivered",
+      "markSupporterEmailFailed",
+      "getSupporterEmailAttentionCount",
+    ]) {
+      assert.equal(retired in db, false, `${retired} must be retired with the supporter checkout`);
+    }
   });
 
   it("retries only cancellation tombstones that have not completed", async () => {

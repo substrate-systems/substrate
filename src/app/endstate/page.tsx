@@ -19,7 +19,7 @@ import { GithubMark } from "@/components/GithubMark";
 import { BuyButton } from "./BuyButton";
 import { PaddleTransactionOpener } from "./PaddleTransactionOpener";
 import { usePaddle, type HostedBackupCadence } from "@/lib/paddle";
-import { lowestConfiguredSupportAmount } from "@/lib/support-tiers";
+import { lowestSupportAmount } from "@/lib/support-tiers";
 import { siteConfig } from "@/lib/seo";
 import { faqs } from "./faq-data";
 
@@ -1390,7 +1390,7 @@ function Pricing() {
     hostedBackupCadence === "monthly"
       ? "Get Endstate Cloud — €4/mo"
       : "Get Endstate Cloud — €40/yr";
-  const supportFromAmount = lowestConfiguredSupportAmount();
+  const supportFromAmount = lowestSupportAmount();
 
   const tiers: PricingTier[] = [
     {
@@ -1446,29 +1446,19 @@ function Pricing() {
       name: "Support Endstate",
       price: (
         <>
-          {supportFromAmount ? (
-            <>
-              <span
-                style={{ fontSize: "1.1rem", fontWeight: 400, color: c.textSec, marginRight: 6 }}
-              >
-                from
-              </span>
-              <span
-                style={{
-                  fontSize: "3.5rem",
-                  fontWeight: 700,
-                  letterSpacing: "-0.04em",
-                  color: c.text,
-                }}
-              >
-                {supportFromAmount}
-              </span>
-            </>
-          ) : (
-            <span style={{ fontSize: "1.5rem", fontWeight: 500, color: c.textSec }}>
-              Any amount
-            </span>
-          )}
+          <span style={{ fontSize: "1.1rem", fontWeight: 400, color: c.textSec, marginRight: 6 }}>
+            from
+          </span>
+          <span
+            style={{
+              fontSize: "3.5rem",
+              fontWeight: 700,
+              letterSpacing: "-0.04em",
+              color: c.text,
+            }}
+          >
+            {supportFromAmount}
+          </span>
         </>
       ),
       cadence: "One-time · Entirely optional",

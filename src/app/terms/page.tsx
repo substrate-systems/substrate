@@ -205,9 +205,12 @@ export default function TermsPage() {
             A support contribution is a one-time, voluntary payment acknowledging that you have
             contributed to the development of Endstate. It is not a licence, grants no additional
             features beyond what the free product offers, creates no entitlement or recurring
-            obligation, and gives no priority claim on future work. With your explicit opt-in, your
-            name may appear on the public supporters page and in the project repository. You can ask
-            for removal at any time.
+            obligation, and gives no priority claim on future work. Contributions are processed by
+            GitHub Sponsors, which handles the payment through GitHub and its payment processor
+            under their own terms. With your explicit opt-in, your name may appear on the public
+            supporters page and in the project repository — an acknowledgement of support, not
+            advertising and not a benefit the contribution buys. You can ask for removal at any
+            time.
           </P>
 
           <h3
@@ -333,10 +336,11 @@ export default function TermsPage() {
             Payment processing
           </h3>
           <P>
-            Endstate Cloud subscriptions and Support Endstate contributions are processed by Paddle,
-            which acts as merchant of record. Paddle handles your payment card details under its own
-            privacy policy; Endstate receives transaction identifiers and your email address, not
-            payment card data.
+            Endstate Cloud subscriptions are processed by Paddle, which acts as merchant of record.
+            Paddle handles your payment card details under its own privacy policy; Endstate receives
+            transaction identifiers and your email address, not payment card data. Support Endstate
+            contributions are processed by GitHub Sponsors; GitHub and its payment processor handle
+            your payment details under their own policies.
           </P>
 
           <h3
@@ -392,6 +396,16 @@ export default function TermsPage() {
             within 14 days of purchase or renewal, no questions asked. EU consumers retain any
             statutory withdrawal rights they may have under local law.
           </P>
+          <P>
+            To request an Endstate Cloud refund, email{" "}
+            <a
+              href="mailto:founder@substratesystems.io"
+              style={{ color: c.teal, textDecoration: "none" }}
+            >
+              founder@substratesystems.io
+            </a>{" "}
+            with your order number. Refunds are typically processed within a few business days.
+          </P>
 
           <h3
             style={{
@@ -405,19 +419,16 @@ export default function TermsPage() {
             Support Endstate
           </h3>
           <P>
-            Support Endstate contributions are refundable within 30 days of purchase, no questions
-            asked. After 30 days, refunds are at our discretion.
-          </P>
-
-          <P>
-            To request a refund, email{" "}
+            Support Endstate contributions are processed by GitHub Sponsors, so refunds are handled
+            through GitHub rather than by us. If you want a contribution refunded and are stuck,
+            email{" "}
             <a
               href="mailto:founder@substratesystems.io"
               style={{ color: c.teal, textDecoration: "none" }}
             >
               founder@substratesystems.io
             </a>{" "}
-            with your order number. Refunds are typically processed within a few business days.
+            and we will help make it right.
           </P>
 
           {/* Footer */}

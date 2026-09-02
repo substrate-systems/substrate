@@ -186,7 +186,35 @@ describe("Endstate commercial pages", () => {
     }
   });
 
-  it("preserves the canonical supporter feed and existing contribution actions", () => {
+  it("offers the three one-time GitHub Sponsors amounts in USD", async () => {
+    const { supportTiers, lowestSupportAmount, SPONSORS_LIVE } =
+      await import("@/lib/support-tiers");
+
+    assert.equal(typeof SPONSORS_LIVE, "boolean");
+    assert.deepEqual(
+      supportTiers().map((tier) => [tier.name, tier.amount, tier.sponsorsUrl]),
+      [
+        [
+          "Supporter",
+          "$10",
+          "https://github.com/sponsors/substrate-systems?frequency=one-time&amount=10",
+        ],
+        [
+          "Founding Supporter",
+          "$29",
+          "https://github.com/sponsors/substrate-systems?frequency=one-time&amount=29",
+        ],
+        [
+          "Patron",
+          "$89",
+          "https://github.com/sponsors/substrate-systems?frequency=one-time&amount=89",
+        ],
+      ]
+    );
+    assert.equal(lowestSupportAmount(), "$10");
+  });
+
+  it("preserves the canonical supporter feed and routes contributions to GitHub Sponsors", () => {
     const supportersPage = readFileSync(
       resolve(process.cwd(), "src/app/endstate/supporters/page.tsx"),
       "utf8"
@@ -195,13 +223,118 @@ describe("Endstate commercial pages", () => {
       resolve(process.cwd(), "src/app/endstate/supporters/SupportTiers.tsx"),
       "utf8"
     );
+    const supportTiers = readFileSync(resolve(process.cwd(), "src/lib/support-tiers.ts"), "utf8");
 
     assert.match(
       supportersPage,
       /https:\/\/raw\.githubusercontent\.com\/Artexis10\/endstate\/main\/SUPPORTERS\.md/
     );
     assert.match(supportersPage, /m && m\[1\]\.trim\(\)/);
-    assert.match(tiers, /openSupportCheckout\(tier\)/);
+
+    // The contribution path no longer opens a Paddle checkout at all.
+    for (const contents of [tiers, supportTiers]) {
+      assert.doesNotMatch(contents, /[Pp]addle/);
+      assert.doesNotMatch(contents, /openSupportCheckout/);
+    }
+
+    // Live state: a plain outbound link to the one-time Sponsors amount.
+    assert.match(tiers, /href=\{tier\.sponsorsUrl\}/);
+    assert.match(tiers, /target="_blank"/);
+    assert.match(tiers, /rel="noopener"/);
+    // The Custom Project Sponsor path is unchanged.
     assert.match(tiers, /href=\{CUSTOM_SPONSOR_MAILTO\}/);
+
+    assert.match(supportTiers, /export const SPONSORS_LIVE/);
+    assert.match(supportTiers, /github\.com\/sponsors\/substrate-systems/);
+    assert.match(supportTiers, /frequency=one-time/);
+  });
+
+  it("keeps the full tier cards in whichever state SPONSORS_LIVE selects", async () => {
+    // Both branches are asserted against the rendered DOM, selected by the same
+    // constant the page renders with, so flipping SPONSORS_LIVE is a one-line
+    // change and not a test rewrite.
+    const { SPONSORS_LIVE, supportTiers } = await import("@/lib/support-tiers");
+    const tiers = supportTiers();
+    const dom = new JSDOM(
+      renderSupportersPage(
+        ["# Endstate supporters", "", "## Supporters", "- Ada Lovelace"].join("\n")
+      )
+    );
+    try {
+      const { document } = dom.window;
+      const text = (document.body.textContent ?? "").replace(/\s+/g, " ");
+
+      for (const expected of [
+        "Voluntary support",
+        ...tiers.flatMap((tier) => [tier.name, tier.amount]),
+        "Custom Project Sponsor",
+        "By arrangement",
+      ]) {
+        assert.ok(text.includes(expected), `supporters page must show "${expected}"`);
+      }
+
+      const sponsorLinks = [
+        ...document.querySelectorAll<HTMLAnchorElement>("a[href^='https://github.com/sponsors/']"),
+      ];
+      const interimNotes = [...document.querySelectorAll<HTMLElement>("[data-support-interim]")];
+
+      if (SPONSORS_LIVE) {
+        // Live: one outbound link per tier, at that tier's one-time amount.
+        assert.deepEqual(
+          sponsorLinks.map((link) => link.getAttribute("href")),
+          tiers.map((tier) => tier.sponsorsUrl)
+        );
+        for (const link of sponsorLinks) {
+          assert.equal(link.getAttribute("target"), "_blank");
+          assert.ok(
+            (link.getAttribute("rel") ?? "").split(/\s+/).includes("noopener"),
+            "a new-tab contribution link must not hand the opener to GitHub"
+          );
+        }
+        assert.equal(interimNotes.length, 0, "no interim note once the profile is live");
+      } else {
+        // Interim: no dead link, one quiet line per card instead.
+        assert.equal(sponsorLinks.length, 0, "no Sponsors links until the profile is approved");
+        assert.equal(interimNotes.length, tiers.length);
+        for (const note of interimNotes) {
+          assert.equal(
+            note.textContent?.trim(),
+            "Support is moving to GitHub Sponsors — live within days."
+          );
+        }
+      }
+
+      const customSponsor = [...document.querySelectorAll<HTMLAnchorElement>("a[href^='mailto:']")]
+        .map((link) => new URL(link.href))
+        .find(
+          (mailto) => mailto.searchParams.get("subject") === "Custom Project Sponsor — Endstate"
+        );
+      assert.ok(customSponsor);
+      assert.equal(customSponsor.pathname, "founder@substratesystems.io");
+    } finally {
+      dom.window.close();
+    }
+  });
+
+  it("states the support terms and the recognition mechanics the Sponsors flow implies", () => {
+    const dom = new JSDOM(renderSupportersPage(["## Supporters", "- Ada Lovelace"].join("\n")));
+    try {
+      const text = (dom.window.document.body.textContent ?? "").replace(/\s+/g, " ");
+
+      assert.ok(text.includes("Contribute to the project"));
+      assert.ok(
+        text.includes(
+          "Supporting Endstate is voluntary and separate from anything you buy. It is not a licence, a plan, or an upgrade: it unlocks no features, carries no recurring obligation, and nothing in the product checks whether you have contributed. The free product is already the whole product. If Endstate saved you a rebuild and you want it to keep going, this is the way to say so."
+        ),
+        "the voluntary-support paragraph is verbatim copy"
+      );
+      assert.ok(text.includes("GitHub Sponsors thank-you"));
+      assert.ok(
+        text.includes("not advertising"),
+        "listing must be named an acknowledgement rather than a purchased benefit"
+      );
+    } finally {
+      dom.window.close();
+    }
   });
 });

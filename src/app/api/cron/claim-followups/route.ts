@@ -10,18 +10,13 @@ import {
 } from "@/lib/hosted-backup/claim-tokens";
 import {
   findPendingPaddleCancellations,
-  findPendingSupporterEmails,
-  getSupporterEmailAttentionCount,
   findUserById,
   getPaddleCancellationAttentionCount,
   markPaddleCancellationAttempt,
-  markSupporterEmailDelivered,
-  markSupporterEmailFailed,
 } from "@/lib/hosted-backup/db";
 import { cancelPaddleSubscription } from "@/lib/hosted-backup/subscriptions";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { renderFounderDigest, renderResendClaimEmail } from "@/lib/email-templates/claim";
-import { renderSupporterThankYou } from "@/lib/email-templates/supporter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,49 +98,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  let supporterEmailsSent = 0;
-  let supporterEmailsAttentionRequired = 0;
-  for (const row of await findPendingSupporterEmails(20)) {
-    if (row.kind === "supporter_thank_you" && !row.customer_email) {
-      await markSupporterEmailDelivered(row.id);
-      continue;
-    }
-    const thankYou =
-      row.kind === "supporter_thank_you" ? renderSupporterThankYou({ tier: row.tier }) : null;
-    const delivery = await sendTransactionalEmail({
-      to: row.kind === "founder_notification" ? FOUNDER_FALLBACK_EMAIL : row.customer_email!,
-      subject:
-        row.kind === "founder_notification"
-          ? `New Endstate ${row.tier}: ${row.paddle_transaction_id}`
-          : thankYou!.subject,
-      htmlContent:
-        row.kind === "founder_notification"
-          ? `<p>New Endstate ${row.tier} contribution.</p><p>Transaction: ${row.paddle_transaction_id}</p>`
-          : thankYou!.htmlContent,
-      textContent:
-        row.kind === "founder_notification"
-          ? `New Endstate ${row.tier} contribution. Transaction: ${row.paddle_transaction_id}`
-          : thankYou!.textContent,
-    });
-    if (delivery.success) {
-      await markSupporterEmailDelivered(row.id);
-      supporterEmailsSent += 1;
-    } else {
-      const attempt = await markSupporterEmailFailed(
-        row.id,
-        delivery.error ?? "unknown delivery error"
-      );
-      if (attempt.attentionRequired) {
-        console.error(
-          "[hosted-backup cron/claim-followups] supporter email requires operator attention",
-          {
-            outboxId: row.id,
-          }
-        );
-      }
-    }
-  }
-  supporterEmailsAttentionRequired = await getSupporterEmailAttentionCount();
+  // The supporter mail outbox drain was retired with the Paddle supporter
+  // purchase path: voluntary support is GitHub Sponsors now, so nothing enqueues
+  // founder or thank-you mail here. The tables and their rows stay as history.
 
   let paddleCancellationsCompleted = 0;
   let paddleCancellationsAttentionRequired = 0;
@@ -187,8 +142,6 @@ export async function GET(req: NextRequest) {
     properties: {
       resent,
       founderAlerted,
-      supporterEmailsSent,
-      supporterEmailsAttentionRequired,
       paddleCancellationsCompleted,
       paddleCancellationsAttentionRequired,
     },
@@ -199,8 +152,6 @@ export async function GET(req: NextRequest) {
       ok: true,
       resent,
       founderAlerted,
-      supporterEmailsSent,
-      supporterEmailsAttentionRequired,
       paddleCancellationsCompleted,
       paddleCancellationsAttentionRequired,
     },

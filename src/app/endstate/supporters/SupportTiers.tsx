@@ -1,44 +1,58 @@
 "use client";
 
-import { usePaddle } from "@/lib/paddle";
 import {
   CUSTOM_SPONSOR_MAILTO,
-  configuredSupportTiers,
+  SPONSORS_LIVE,
+  supportTiers,
   type SupportTier,
 } from "@/lib/support-tiers";
-import { BuyButton } from "../BuyButton";
 import { c } from "../_shared";
 
 /**
  * Contribution choices for "Support Endstate".
  *
- * Only tiers with a configured Paddle price render, so this ships before the
- * smaller prices exist and grows without a code change when they do. The
- * Custom Project Sponsor card always renders, because its path is a mail link
- * rather than a checkout.
+ * Each amount is a one-time sponsorship on the Substrate Systems GitHub
+ * Sponsors profile — a plain outbound link, not a checkout we operate. Until
+ * the profile is approved the cards render in full without a link, because
+ * pointing at an unapproved profile is worse than saying so. The Custom Project
+ * Sponsor card is a mail link either way.
  */
 export function SupportTiers() {
-  const { openSupportCheckout } = usePaddle();
-  const tiers = configuredSupportTiers();
+  const tiers = supportTiers();
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {tiers.map((tier) => (
         <TierCard key={tier.id} tier={tier}>
-          <BuyButton
-            product="supporter"
-            action={() => openSupportCheckout(tier)}
-            completionLabel="Thank you — that genuinely helps."
-            className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
-            style={{
-              background: c.elevated,
-              color: c.text,
-              border: `1px solid ${c.borderAccent}`,
-              fontSize: "0.95rem",
-            }}
-          >
-            Contribute {tier.amount}
-          </BuyButton>
+          {SPONSORS_LIVE ? (
+            <a
+              href={tier.sponsorsUrl}
+              target="_blank"
+              rel="noopener"
+              className="block w-full text-center py-2.5 rounded-lg font-semibold hover:opacity-88 transition-opacity duration-200"
+              style={{
+                background: c.elevated,
+                color: c.text,
+                border: `1px solid ${c.borderAccent}`,
+                fontSize: "0.95rem",
+                textDecoration: "none",
+              }}
+            >
+              Contribute {tier.amount}
+            </a>
+          ) : (
+            <p
+              data-support-interim
+              style={{
+                fontSize: "0.85rem",
+                color: c.textMuted,
+                lineHeight: 1.6,
+                margin: 0,
+              }}
+            >
+              Support is moving to GitHub Sponsors — live within days.
+            </p>
+          )}
         </TierCard>
       ))}
 

@@ -9,36 +9,45 @@ async function source(relativePath: string): Promise<string> {
   return readFile(path.join(root, relativePath), "utf8");
 }
 
-describe("retired Endstate lifetime checkout contract", () => {
+describe("retired Endstate paid-checkout contract", () => {
   it("has no lifetime checkout or lifetime license-minting path", async () => {
-    const [paddle, buyButton, webhook, supportTiers] = await Promise.all([
+    const [paddle, buyButton, supportTiers] = await Promise.all([
       source("src/lib/paddle.ts"),
       source("src/app/endstate/BuyButton.tsx"),
-      source("src/app/api/license/webhook/route.ts"),
       source("src/lib/support-tiers.ts"),
     ]);
 
-    for (const contents of [paddle, buyButton, webhook, supportTiers]) {
+    for (const contents of [paddle, buyButton, supportTiers]) {
       assert.doesNotMatch(contents, /ENDSTATE_LIFETIME/);
       assert.doesNotMatch(contents, /openEndstateCheckout/);
     }
-
-    assert.doesNotMatch(webhook, /createLicenseKey|insertLicense/);
-    assert.match(webhook, /handleSupporterPurchase/);
-
-    // The webhook resolves its accepted prices through the support-tier config,
-    // so the original €89 env var lives there now. It is deliberately unrenamed:
-    // every existing support record is attached to that price (docs/naming.md).
-    assert.match(webhook, /configuredSupportTiers/);
-    assert.match(supportTiers, /NEXT_PUBLIC_PADDLE_PRICE_ID_ENDSTATE_SUPPORTER/);
   });
 
-  it("removes the unused lifetime activation surface", async () => {
+  it("has no Paddle path left on the voluntary-support surface", async () => {
+    const [paddle, supportTiers] = await Promise.all([
+      source("src/lib/paddle.ts"),
+      source("src/lib/support-tiers.ts"),
+    ]);
+
+    // Voluntary support moved to GitHub Sponsors: the tier definitions carry no
+    // Paddle price identifier, no environment lookup, and no checkout.
+    assert.doesNotMatch(supportTiers, /[Pp]addle/);
+    assert.doesNotMatch(supportTiers, /process\.env/);
+    assert.match(supportTiers, /github\.com\/sponsors\/substrate-systems/);
+
+    // Paddle itself stays for Endstate Cloud, but with no support checkout.
+    assert.doesNotMatch(paddle, /openSupportCheckout/);
+    assert.match(paddle, /openHostedBackupCheckout/);
+  });
+
+  it("removes the unused lifetime activation and supporter-purchase surface", async () => {
     const retiredPaths = [
       "src/app/api/license/activate/route.ts",
       "src/app/api/license/deactivate/route.ts",
       "src/app/api/license/internal-debug/send-test-email/route.ts",
+      "src/app/api/license/webhook/route.ts",
       "src/lib/email-templates/license-key.ts",
+      "src/lib/email-templates/supporter.ts",
       "src/lib/license/crypto.ts",
       "src/lib/license/db.ts",
       "scripts/generate-keypair.ts",
