@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 
 const generator = resolve("scripts/generate-exomem-hosted-contract.mjs");
-const exactCommit = "e487efa2fdfd8c7653b6e99605163a0200c6ce58";
+const exactCommit = "a35cd9e2f494a901b823c5037733bb758f48038a";
 
 function generate(sourceRelease: string) {
   const output = mkdtempSync(join(tmpdir(), "exomem-hosted-generator-"));
@@ -30,12 +30,12 @@ function generate(sourceRelease: string) {
 }
 
 describe("Exomem Hosted contract generator catalog", () => {
-  it("recognizes only the exact stable 0.68.1 commit/release tuple", () => {
-    const exact = generate("0.68.1");
+  it("recognizes only the exact stable 0.68.3 commit/release tuple", () => {
+    const exact = generate("0.68.3");
     assert.notEqual(exact.status, 0);
     assert.match(exact.stderr, /checkout is not at the selected commit/i);
 
-    const mixed = generate("0.68.0");
+    const mixed = generate("0.68.1");
     assert.notEqual(mixed.status, 0);
     assert.match(mixed.stderr, /only accepts a pinned Exomem release/i);
   });
