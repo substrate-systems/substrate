@@ -433,7 +433,7 @@ Claude archive `00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4
 OpenAI package `eaca4382bb3918ef0d49384de30f9d6c7d35798649702bd59c53b0315916698b`,
 OpenAI archive `d04b967013e61336ecd724d5d5acecea7a56a306256c6f387baa22d62db7adc0`,
 registered app `b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46`,
-and private gateway `2af163baf368643f41d7fa4eaa0c3d2d0f2ead54443fd0263d2977dc4094a469`.
+and private gateway `e17bdc0c8f9ac738187923ba62ef5cf79b8c5f93c35b5f3eb8c1d4795f2f610b`.
 The immutable runtime candidate is SHA-256
 `47c893d1a19e6f2cb314596a9713a38ce06947db180478519a6b41c8afa51da2`
 and the image digest is
