@@ -25,6 +25,9 @@ import {
   takeRateLimit,
   type ExomemSql,
 } from "../db";
+import { ExomemHostedError } from "../errors";
+import { EXOMEM_HOSTED_PROFILE } from "../hosted-profile";
+import { hasLiveHostedCohortTarget, probeHostedCohortTarget } from "../hosted-cohort-target";
 import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifecycle-store";
 import { getOwnerExport, listOwnerExports } from "../durability";
 import { SqlExportGcStore } from "../export-gc";
@@ -734,6 +737,192 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         reserved_runtime_slots: 1,
         reserved_provision_slots: 1,
       },
+    ]);
+  });
+
+  it("refuses a complimentary invite with no live cohort and leaves it redeemable", async () => {
+    const inviteDigest = Buffer.alloc(32, 0x7a);
+    await pool.query(
+      `UPDATE exomem_capacity_pools
+          SET storage_capacity_bytes = 21474836480,
+              runtime_capacity_slots = 4,
+              provision_reservation_capacity = 4,
+              provision_claim_capacity = 2,
+              reserved_storage_bytes = 0,
+              reserved_runtime_slots = 0,
+              reserved_provision_slots = 0,
+              configured_at = now()
+        WHERE pool_key = 'exomem-hosted-alpha'`
+    );
+    await createInviteRecord({
+      tokenDigest: inviteDigest,
+      emailNormalized: "closed-cohort-owner@example.test",
+      entitlementSource: "complimentary",
+      capabilities: ["capture", "recall", "export"],
+      resourceLimits: {
+        storageBytes: 5 * 1024 * 1024 * 1024,
+        uploadBytes: 90 * 1024 * 1024,
+        workerCount: 0,
+      },
+      operatorPrincipalDigest: Buffer.alloc(32, 0x7b),
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    // `beforeEach` truncates `exomem_agent_contract_candidates`, so nothing is
+    // live and nothing ever was: exactly the virgin-install state.
+    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+    let thrown: unknown;
+    try {
+      await redeemInviteAtomic({
+        tokenDigest: inviteDigest,
+        sessionDigest: Buffer.alloc(32, 0x7c),
+        csrfDigest: Buffer.alloc(32, 0x7d),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      });
+    } catch (error) {
+      thrown = error;
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+    }
+
+    assert.ok(thrown instanceof ExomemHostedError);
+    assert.equal(thrown.code, "HOSTED_ADMISSION_CLOSED");
+    assert.equal(thrown.operatorDetail?.closureReason, "no_live_candidate");
+    assert.equal(thrown.operatorDetail?.closureSite, "invite_redemption_precheck");
+    assert.equal(
+      thrown.operatorDetail?.closureProcedure,
+      "virgin-install-reviewer-oauth-bootstrap"
+    );
+
+    // The whole point of refusing in the open: the person can open the same
+    // link once an operator has cleared the closure.
+    const invite = await pool.query<{
+      consumed_at: Date | null;
+      revoked_at: Date | null;
+      valid: boolean;
+    }>(
+      `SELECT consumed_at, revoked_at, expires_at > now() AS valid
+         FROM exomem_invites WHERE token_digest = $1`,
+      [inviteDigest]
+    );
+    assert.deepEqual(invite.rows, [{ consumed_at: null, revoked_at: null, valid: true }]);
+    const residue = await pool.query<{
+      users: string;
+      tenants: string;
+      sessions: string;
+      allocations: string;
+      reserved_runtime_slots: number;
+    }>(
+      `SELECT (SELECT count(*)::text FROM users) AS users,
+              (SELECT count(*)::text FROM exomem_tenants) AS tenants,
+              (SELECT count(*)::text FROM exomem_sessions) AS sessions,
+              (SELECT count(*)::text FROM exomem_capacity_allocations) AS allocations,
+              (SELECT reserved_runtime_slots FROM exomem_capacity_pools
+                WHERE pool_key = 'exomem-hosted-alpha') AS reserved_runtime_slots`
+    );
+    assert.deepEqual(residue.rows, [
+      { users: "0", tenants: "0", sessions: "0", allocations: "0", reserved_runtime_slots: 0 },
+    ]);
+  });
+
+  /**
+   * The cohort probe now reports *which* closure it is, because "admission is
+   * shut" was being read as "the fleet is empty" and sending an operator to the
+   * virgin-install bootstrap — which builds a fresh reviewer-purpose tenant, and
+   * is the wrong action in two of the three states that shut admission.
+   *
+   * The constraint on adding that is that the admission decision may not move by
+   * one row. The classification and the decision now come out of one aggregate
+   * rather than one row per routable candidate, so the equivalence is asserted
+   * here against real PostgreSQL, with the query as it stood before the change
+   * run verbatim as the oracle. A fake cannot answer this: both statements have
+   * to meet the same rows.
+   */
+  it("classifies each closed-cohort state without moving the admission decision", async () => {
+    const fingerprint = "a".repeat(64);
+    const schemaDigest = "b".repeat(64);
+    const compatibilityDigest = "c".repeat(64);
+
+    // `hasLiveHostedCohortTarget` exactly as it queried before this change.
+    const preChangeDecision = async (): Promise<boolean> => {
+      const { rows } = await pool.query(
+        `SELECT candidate.id
+           FROM exomem_agent_contract_candidates AS candidate
+           JOIN exomem_cells AS catalog_cell
+             ON catalog_cell.routing_state = 'bound'
+            AND catalog_cell.release_version = candidate.source_release
+            AND catalog_cell.protocol_version = candidate.protocol_version
+            AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
+            AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
+            AND catalog_cell.observed_schema_digest = candidate.schema_digest
+          WHERE candidate.profile_id = $1
+            AND candidate.state = 'live'
+          GROUP BY candidate.id
+         HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1`,
+        [EXOMEM_HOSTED_PROFILE]
+      );
+      return rows.length === 1;
+    };
+
+    const seedBoundCell = async (gatewayDigest: string): Promise<void> => {
+      const userId = randomUUID();
+      const tenantId = randomUUID();
+      await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+        userId,
+        `cohort-${userId}@example.test`,
+      ]);
+      await pool.query(
+        `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
+         VALUES ($1, $2, 'provisioning', 'running')`,
+        [tenantId, userId]
+      );
+      await pool.query(
+        `INSERT INTO exomem_cells (
+           id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
+           release_version, observed_gateway_contract_digest, observed_command_fingerprint,
+           observed_schema_digest, observed_compatibility_digest
+         ) VALUES ($1, $2, 'active', 'bound', 'running', '1', '0.50.0', $3, $4, $5, $6)`,
+        [randomUUID(), tenantId, gatewayDigest, fingerprint, schemaDigest, compatibilityDigest]
+      );
+    };
+
+    const observed: Array<{ decision: boolean; oracle: boolean; reason: string | null }> = [];
+    const observe = async (): Promise<void> => {
+      const probe = await probeHostedCohortTarget(taggedSql(pool));
+      observed.push({
+        decision: await hasLiveHostedCohortTarget(taggedSql(pool)),
+        oracle: await preChangeDecision(),
+        reason: probe.live ? null : probe.reason,
+      });
+    };
+
+    // `beforeEach` truncates candidates and users, so the fleet starts empty.
+    await observe();
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+         compatibility_digest, protocol_version, contract, claude_package_lock,
+         claude_archive_lock, promoted_at
+       ) VALUES ('live', $4, 'https://agent.example.test', '0.50.0', $1, $2, $3, '1',
+                 '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
+      [fingerprint, schemaDigest, compatibilityDigest, EXOMEM_HOSTED_PROFILE]
+    );
+    await observe();
+    await seedBoundCell("d".repeat(64));
+    await observe();
+    // A second bound cell reporting a different gateway contract digest — an
+    // ordinary state part way through a rotation, and the one the bootstrap
+    // would make worse.
+    await seedBoundCell("e".repeat(64));
+    await observe();
+
+    assert.deepEqual(observed, [
+      { decision: false, oracle: false, reason: "no_live_candidate" },
+      { decision: false, oracle: false, reason: "no_bound_cell_for_live_candidate" },
+      { decision: true, oracle: true, reason: null },
+      { decision: false, oracle: false, reason: "bound_cells_disagree_on_contract" },
     ]);
   });
 

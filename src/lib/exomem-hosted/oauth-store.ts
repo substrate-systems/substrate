@@ -1,6 +1,6 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemErrors } from "./errors";
-import { hasLiveHostedCohortTarget } from "./hosted-cohort-target";
+import { probeHostedCohortTarget, type HostedCohortClosureReason } from "./hosted-cohort-target";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import {
@@ -795,12 +795,21 @@ export async function pruneExpiredOAuthState(): Promise<void> {
 class OAuthAdmissionRejected extends Error {}
 export class OAuthAdmissionCapacityUnavailable extends Error {}
 /**
- * No live Hosted contract cohort, so a v2 provision has no exact contract to
+ * No routable Hosted contract cohort, so a v2 provision has no exact contract to
  * pin. Distinguished from `OAuthAdmissionRejected` because that one surfaces as
  * "the access link is invalid or unavailable", which would be false: the
  * invitation is valid and unconsumed, and it is admission that is shut.
+ *
+ * Carries the probe's reason because the catch that turns this into a public
+ * refusal is outside the transaction, and by then the fleet can no longer be
+ * asked which of the three closures it was.
  */
-export class OAuthAdmissionCohortClosed extends Error {}
+export class OAuthAdmissionCohortClosed extends Error {
+  constructor(readonly reason: HostedCohortClosureReason) {
+    super("hosted admission cohort closed");
+    this.name = "OAuthAdmissionCohortClosed";
+  }
+}
 
 type OAuthInviteAdmission = {
   tenantId: string;
@@ -1392,13 +1401,11 @@ export async function admitFirstOAuthInviteAtomic(input: {
         if (invite.entitlement_source === "complimentary") {
           const operation = operationResult?.rows[0] as { id: string } | undefined;
           if (!operation) {
-            // Under v2 the only way `target` is empty is that no cohort is live.
-            // Say that, rather than blaming the invitation.
-            if (
-              provisionerWireProtocol === PROVISIONER_PROTOCOL_V2 &&
-              !(await hasLiveHostedCohortTarget(tx))
-            ) {
-              throw new OAuthAdmissionCohortClosed();
+            // Under v2 the only way `target` is empty is that no cohort target
+            // is routable. Say which way, rather than blaming the invitation.
+            if (provisionerWireProtocol === PROVISIONER_PROTOCOL_V2) {
+              const cohortTarget = await probeHostedCohortTarget(tx);
+              if (!cohortTarget.live) throw new OAuthAdmissionCohortClosed(cohortTarget.reason);
             }
             throw new OAuthAdmissionRejected();
           }
@@ -1476,7 +1483,11 @@ export async function admitFirstOAuthInviteAtomic(input: {
   } catch (error) {
     if (error instanceof OAuthAdmissionCapacityUnavailable)
       throw exomemErrors.capacityUnavailable();
-    if (error instanceof OAuthAdmissionCohortClosed) throw exomemErrors.admissionClosed();
+    if (error instanceof OAuthAdmissionCohortClosed)
+      throw exomemErrors.admissionClosed({
+        reason: error.reason,
+        site: "oauth_first_owner_admission",
+      });
     if (error instanceof OAuthAdmissionRejected) return null;
     if (typeof error === "object" && error && "code" in error && error.code === "23505")
       return null;

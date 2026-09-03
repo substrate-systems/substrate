@@ -1,4 +1,9 @@
-import { ExomemHostedError } from "./errors";
+import {
+  ADMISSION_CLOSURE_PROCEDURES,
+  ADMISSION_CLOSURE_REASONS,
+  ADMISSION_CLOSURE_SITES,
+  ExomemHostedError,
+} from "./errors";
 
 const EVENT_NAMES = new Set([
   "access.invite.created",
@@ -49,6 +54,7 @@ const ERROR_CODES = new Set([
   "EXOMEM_NOT_READY",
   "EXOMEM_PROVISIONING_FAILED",
   "EXOMEM_SUSPENDED",
+  "HOSTED_ADMISSION_CLOSED",
   "HOSTED_SELECTOR_REJECTED",
   "HOSTED_CONTRACT_UNAVAILABLE",
   "MCP_PROTOCOL_UNSUPPORTED",
@@ -75,6 +81,11 @@ const CAPACITY_TRANSITIONS = new Set([
   "any_to_released",
 ]);
 const CLAIM_KINDS = new Set(["initial_provision", "resume"]);
+// Closed sets, not bounded labels: this is the only place an operator learns
+// why admission refused, and nothing tenant-derived may reach it.
+const CLOSURE_REASONS = new Set<string>(ADMISSION_CLOSURE_REASONS);
+const CLOSURE_SITES = new Set<string>(ADMISSION_CLOSURE_SITES);
+const CLOSURE_PROCEDURES = new Set<string>(ADMISSION_CLOSURE_PROCEDURES);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type OperationalEvent = {
@@ -108,6 +119,12 @@ export type OperationalEvent = {
   alertName?: string;
   /** Opaque sender-derived transition digest; carries no content. */
   transitionHash?: string;
+  /** Why hosted admission refused, which of its three sites refused, and the
+   * procedure that clears it. Fixed labels from `errors.ts`; the refused
+   * person's payload carries none of them. */
+  closureReason?: string;
+  closureSite?: string;
+  closureProcedure?: string;
 };
 
 function optionalUuid(value: unknown): string | undefined {
@@ -208,6 +225,15 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalOpaqueHash(input.transitionHash)
       ? { transitionHash: optionalOpaqueHash(input.transitionHash) }
+      : {}),
+    ...(optionalEnum(input.closureReason, CLOSURE_REASONS)
+      ? { closureReason: optionalEnum(input.closureReason, CLOSURE_REASONS) }
+      : {}),
+    ...(optionalEnum(input.closureSite, CLOSURE_SITES)
+      ? { closureSite: optionalEnum(input.closureSite, CLOSURE_SITES) }
+      : {}),
+    ...(optionalEnum(input.closureProcedure, CLOSURE_PROCEDURES)
+      ? { closureProcedure: optionalEnum(input.closureProcedure, CLOSURE_PROCEDURES) }
       : {}),
   };
 }
