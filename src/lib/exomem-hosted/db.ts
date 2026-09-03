@@ -3,7 +3,7 @@ import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 // Type-only in the other direction, so this pair does not form a runtime cycle.
-import { hasLiveHostedCohortTarget } from "./hosted-cohort-target";
+import { hasLiveHostedCohortTarget, probeHostedCohortTarget } from "./hosted-cohort-target";
 import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
@@ -677,8 +677,14 @@ export async function redeemInviteAtomic(
     // — a deliberate division by zero, which did roll the transaction back but
     // reached the invited person as a bare 500 INTERNAL_ERROR. Refuse in the
     // open instead: the invitation is untouched, admission is shut.
-    if (pinsAnExactContract && !(await hasLiveHostedCohortTarget(tx))) {
-      throw exomemErrors.admissionClosed();
+    if (pinsAnExactContract) {
+      const target = await probeHostedCohortTarget(tx);
+      if (!target.live) {
+        throw exomemErrors.admissionClosed({
+          reason: target.reason,
+          site: "invite_redemption_precheck",
+        });
+      }
     }
     const { rows } = await tx`
     /* exomem:redeem-invite */
@@ -858,9 +864,17 @@ export async function redeemInviteAtomic(
       // the live target were lost after the pre-check, the owner, tenant and
       // session rows would exist with no provision pinned to them, and
       // returning would commit them. Re-ask, and abort rather than admit a
-      // tenant that nothing will ever provision.
+      // tenant that nothing will ever provision. The pre-check above already
+      // passed, so this is a target that was live and went away — not the
+      // virgin-install emptiness, and not the same thing to fix. The reason is
+      // fixed rather than re-probed for that reason, and because observing it
+      // at all may mean more than a lost target: see `live_cohort_lost` in
+      // errors.ts.
       if (pinsAnExactContract && !(await hasLiveHostedCohortTarget(tx))) {
-        throw exomemErrors.admissionClosed();
+        throw exomemErrors.admissionClosed({
+          reason: "live_cohort_lost",
+          site: "invite_redemption_settlement",
+        });
       }
       return null;
     }

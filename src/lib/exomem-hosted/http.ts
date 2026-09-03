@@ -53,12 +53,21 @@ export function emitAccessEvent(
 }
 
 export function accessErrorResponse(input: { error: unknown; event: string; requestId: string }) {
-  const errorCode = input.error instanceof ExomemHostedError ? input.error.code : "INTERNAL_ERROR";
+  const safe = input.error instanceof ExomemHostedError ? input.error : null;
   emitAccessEvent({
+    // The denial log is where an operator learns why admission refused; the
+    // response cannot say. `buildOperationalEvent` keeps only the fields it
+    // knows, so a detail it has no field for is dropped rather than emitted.
+    // Spread first, so a detail can never displace the four fields this call
+    // owns — `outcome` above all, whose only legal values are fixed, and which
+    // would turn this refusal into an unhandled 500 if it were overwritten.
+    // `OperatorErrorDetail` already closes the key space; this is the ordering
+    // that holds even for a caller who got past it.
+    ...safe?.operatorDetail,
     event: input.event,
     outcome: "denied",
     requestId: input.requestId,
-    errorCode,
+    errorCode: safe?.code ?? "INTERNAL_ERROR",
   });
   return safeErrorResponse(input.error, input.requestId);
 }
