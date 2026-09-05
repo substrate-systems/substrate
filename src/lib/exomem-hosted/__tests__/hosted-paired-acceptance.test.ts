@@ -996,7 +996,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     ).rows[0]!;
     assert.deepEqual(
       { profile: liveBefore.profile_id, release: liveBefore.source_release },
-      { profile: "hosted-alpha-agent-v4", release: "0.68.3" }
+      { profile: "hosted-alpha-agent-v4", release: "0.72.1" }
     );
 
     const user = await pool!.query<{ id: string }>(
