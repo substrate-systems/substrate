@@ -512,7 +512,9 @@ export async function storeRetainedExomemAgentContractCandidate(
                         ? exomemHostedContractFixture0680
                         : sourceRelease === "0.68.1"
                           ? exomemHostedContractFixture0681
-                          : exomemHostedContractFixture;
+                          : sourceRelease === "0.68.3"
+                            ? exomemHostedContractFixture0683
+                            : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

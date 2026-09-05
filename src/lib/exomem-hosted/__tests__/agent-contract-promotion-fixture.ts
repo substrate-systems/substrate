@@ -12,7 +12,7 @@ export type PromotionFixtureRelease =
   | "0.39.2"
   | "0.49.0"
   | "0.50.0"
-  | "0.68.3";
+  | "0.72.1";
 
 export function canonicalPromotionJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalPromotionJson).join(",")}]`;
@@ -39,7 +39,7 @@ export function testOpenAiLocks(
   release: PromotionFixtureRelease,
   digests?: { artifact: string; archive: string; registeredApp: string }
 ) {
-  if (release === "0.68.3" && digests === undefined) {
+  if (release === "0.72.1" && digests === undefined) {
     return {
       packageLock: liveFixture.openaiPackageLock,
       archiveLock: liveFixture.openaiArchiveLock,
@@ -158,7 +158,7 @@ export function evidence(
 ): Record<string, unknown> {
   return signedPromotionEvidence({
     platform,
-    release: "0.68.3",
+    release: "0.72.1",
     secret,
     suffix,
     ...binding,

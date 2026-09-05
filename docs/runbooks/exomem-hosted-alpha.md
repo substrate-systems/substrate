@@ -435,7 +435,7 @@ OpenAI archive `d04b967013e61336ecd724d5d5acecea7a56a306256c6f387baa22d62db7adc0
 registered app `b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46`,
 and private gateway `a04bfa469343ec5ef5386d1921b9b3516ddf9a3c62c8b540e7d8110afa96a1b7`.
 The immutable runtime candidate is SHA-256
-`47c893d1a19e6f2cb314596a9713a38ce06947db180478519a6b41c8afa51da2`
+`642c8efa4539d1bcc370e60d6f1f461a216301417b34df0816a0481d223a8e47`
 and the image digest is
 `sha256:aa61a1cd1f70308c1b702384ebc98e1bb5e3e70b511ef9403446ed47f7a5148c`.
 Verify both release Sigstore attestations before any cell rollforward.
@@ -446,16 +446,16 @@ node scripts/generate-exomem-hosted-contract.mjs \
   --exomem-repo /path/to/clean/exomem \
   --output src/lib/exomem-hosted/agent-contract-fixture.ts \
   --json-output src/lib/exomem-hosted/__tests__/agent-contract-fixture.json \
-  --gateway-output src/lib/exomem-hosted/gateway-contract-0-68-3.ts \
-  --gateway-json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-68-3.json \
+  --gateway-output src/lib/exomem-hosted/gateway-contract-0-72-1.ts \
+  --gateway-json-output src/lib/exomem-hosted/__tests__/gateway-contract-0-72-1.json \
   --expected-commit 9720ccdfcc3e5e77ea47c56ddbddc53d75de40aa \
   --source-release 0.72.1
 ```
 
 The explicit `-0-34-0`, `-0-35-0`, `-0-39-2`, `-0-49-0`, `-0-50-0`, `-0-54-1`,
-`-0-57-2`, `-0-63-1`, `-0-66-0`, `-0-68-0`, and `-0-68-1` fixtures are retained historical units with their
+`-0-57-2`, `-0-63-1`, `-0-66-0`, `-0-68-0`, `-0-68-1`, and `-0-68-3` fixtures are retained historical units with their
 original profiles; do not overwrite or regenerate them while refreshing the
-current release. `-0-68-1` is the newest and the one most at risk: the previous
+current release. `-0-68-3` is the newest and the one most at risk: the previous
 release's generator invocation is one `git log -p` away and still looks valid.
 A retained fixture is produced by copying the outgoing bare fixture, never by
 re-running the generator.
@@ -1311,7 +1311,7 @@ POST /api/exomem/admin/contracts
 `sourceRelease` for `import-retained-agent` is limited to `0.34.0`, `0.35.0`,
 `0.39.2`, `0.49.0`, `0.50.0`, or `0.54.1`; it must never name the current
 `0.72.1`. Retiring a release ships its retained fixture so live cells keep
-routing, but does not widen this control -- `0.57.2`, `0.63.1`, `0.66.0`, `0.68.0`, and `0.68.1`
+routing, but does not widen this control -- `0.57.2`, `0.63.1`, `0.66.0`, `0.68.0`, `0.68.1`, and `0.68.3`
 all have retained fixtures and none is importable here. After
 the v4 profile cutover these retained v1 rows cannot receive new assignments,
 authorize credentials, satisfy routable authority, or be promoted. Never revive
