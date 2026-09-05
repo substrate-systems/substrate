@@ -1,6 +1,6 @@
 {
-  "sourceCommit": "9720ccdfcc3e5e77ea47c56ddbddc53d75de40aa",
-  "sourceRelease": "0.72.1",
+  "sourceCommit": "a35cd9e2f494a901b823c5037733bb758f48038a",
+  "sourceRelease": "0.68.3",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -110,26 +110,14 @@
               "readOnlyHint": true,
               "title": "Bootstrap"
             },
-            "description": "Return Exomem's versioned operating contract and live session state.\n\nCall this when current live state is missing. A client with the installed\nExomem skill uses session with its metadata skill-contract digest; generic\nclients or those missing the rules use compact, full, or diagnostics to\nlearn tool use: when to search, when to save, how to interpret scoped\nmisses, which `find` knobs are cheap vs diagnostic, how compiled notes\ndiffer from raw sources/evidence, and how Exomem differs from built-in AI\nmemory. The payload is deterministic instruction plus local compute policy\nand product-surface metadata; it does not inspect or summarize vault content.",
+            "description": "Return Exomem's versioned operating contract for generic MCP clients.\n\nCall this once at the start of a session when the client does not have the\nExomem Claude Skill loaded. It teaches the agent how to use the tools: when\nto search, when to save, how to interpret scoped misses, which `find` knobs\nare cheap vs diagnostic, how compiled notes differ from raw sources/evidence,\nand how Exomem differs from built-in AI memory. The payload is deterministic\ninstruction plus local compute policy and product-surface metadata; it does\nnot inspect or summarize vault content.",
             "inputSchema": {
               "additionalProperties": false,
               "properties": {
                 "profile": {
                   "default": "compact",
-                  "description": "\"compact\" (default), \"full\", \"diagnostics\", or \"session\". Session supplies live state to a client that has loaded the installed skill operating rules and presents its current skill contract digest.",
+                  "description": "\"compact\" (default), \"full\", or \"diagnostics\". Compact is enough for normal clients. Full adds examples. Diagnostics adds performance interpretation guidance.",
                   "type": "string"
-                },
-                "skill_contract": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Installed skill metadata digest required for the session profile. An absent or stale digest returns compact in this call with a closed unavailable reason."
                 },
                 "workflow": {
                   "anyOf": [
@@ -157,7 +145,7 @@
           "name": "bootstrap",
           "params": [
             {
-              "description": "\"compact\" (default), \"full\", \"diagnostics\", or \"session\". Session supplies live state to a client that has loaded the installed skill operating rules and presents its current skill contract digest.",
+              "description": "\"compact\" (default), \"full\", or \"diagnostics\". Compact is enough for normal clients. Full adds examples. Diagnostics adds performance interpretation guidance.",
               "name": "profile",
               "required": false,
               "type": "str"
@@ -165,12 +153,6 @@
             {
               "description": "Optional caller-selected workflow label. Returned as context only; it does not change server behavior.",
               "name": "workflow",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Installed skill metadata digest required for the session profile. An absent or stale digest returns compact in this call with a closed unavailable reason.",
-              "name": "skill_contract",
               "required": false,
               "type": "str"
             }
@@ -521,11 +503,6 @@
                   ],
                   "default": null,
                   "description": "Optional page-type filters."
-                },
-                "widen_outside_kb": {
-                  "default": false,
-                  "description": "With scope=\"kb\", also reserve up to limit-1 slots for curated vault pages OUTSIDE the knowledge base. Off by default: scope=\"kb\" means the knowledge base and nothing else. Turn it on when a terse out-of-KB file (a tracker, a handbook) is what you are looking for, or use scope=\"vault\" to search everything equally.",
-                  "type": "boolean"
                 }
               },
               "type": "object"
@@ -1424,12 +1401,6 @@
             {
               "description": "Apply usage boost when explicitly requested.",
               "name": "prefer_used",
-              "required": false,
-              "type": "bool"
-            },
-            {
-              "description": "With scope=\"kb\", also reserve up to limit-1 slots for curated vault pages OUTSIDE the knowledge base. Off by default: scope=\"kb\" means the knowledge base and nothing else. Turn it on when a terse out-of-KB file (a tracker, a handbook) is what you are looking for, or use scope=\"vault\" to search everything equally.",
-              "name": "widen_outside_kb",
               "required": false,
               "type": "bool"
             },
@@ -4887,7 +4858,7 @@
                 },
                 "mode": {
                   "default": "attention",
-                  "description": "attention, activation, item, audit, dispositions, provenance, evolution, compilation, stale, contradiction, unprocessed-sources, relation-debt, relation-queue, adoption, plan-progress, or write-advisory-result. `write-advisory-result` resolves exactly one opaque `exomem://write-advisory-result/<id>` reference returned by a committed write and reports only that job's current `pending`, `ready`, `failed`, or `superseded` state; it requires `ref`, has no list, browse, search, rank, count, continuation, or implicit-current form, and a malformed, unknown, unauthorized, or expired reference returns the shared not-found outcome. `plan-progress` reports, for each committed Planning item declaring `progress_evidence`, the counts its bound Records views return; it is derived and read-only, and it scores nothing. `dispositions` lists every signal family a user has set to `quiet` or `off` through `triage_memory`, with its reason code, why, timestamp, origin, and per-family manual dismissal count; a quiet family is silent on the carriers, not clean. `relation-queue` returns the read-only, batched relation-acceptance queue (deterministic suggestion candidates grouped by source page, with signal fingerprints and coverage counters); accept a candidate via `connect_memory(operation=\"accept-relation\")` or reject via `triage_memory`. `adoption` returns the read-only Adoption Studio proposal queue grouped per run (structured agent proposals with signal fingerprints); approve a proposal via `adoption_studio(action=\"apply-proposal\")` or dismiss via `triage_memory`.",
+                  "description": "attention, activation, item, audit, dispositions, provenance, evolution, compilation, stale, contradiction, unprocessed-sources, relation-debt, relation-queue, adoption, or plan-progress. `plan-progress` reports, for each committed Planning item declaring `progress_evidence`, the counts its bound Records views return; it is derived and read-only, and it scores nothing. `dispositions` lists every signal family a user has set to `quiet` or `off` through `triage_memory`, with its reason code, why, timestamp, origin, and per-family manual dismissal count; a quiet family is silent on the carriers, not clean. `relation-queue` returns the read-only, batched relation-acceptance queue (deterministic suggestion candidates grouped by source page, with signal fingerprints and coverage counters); accept a candidate via `connect_memory(operation=\"accept-relation\")` or reject via `triage_memory`. `adoption` returns the read-only Adoption Studio proposal queue grouped per run (structured agent proposals with signal fingerprints); approve a proposal via `adoption_studio(action=\"apply-proposal\")` or dismiss via `triage_memory`.",
                   "type": "string"
                 },
                 "path": {
@@ -4917,7 +4888,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Stable `exomem://review/<id>` reference for item mode, or the opaque `exomem://write-advisory-result/<id>` reference for write-advisory-result mode. Required by both."
+                  "description": "Stable `exomem://review/<id>` reference for item mode."
                 },
                 "sources": {
                   "anyOf": [
@@ -4989,7 +4960,7 @@
           "name": "review_memory",
           "params": [
             {
-              "description": "attention, activation, item, audit, dispositions, provenance, evolution, compilation, stale, contradiction, unprocessed-sources, relation-debt, relation-queue, adoption, plan-progress, or write-advisory-result. `write-advisory-result` resolves exactly one opaque `exomem://write-advisory-result/<id>` reference returned by a committed write and reports only that job's current `pending`, `ready`, `failed`, or `superseded` state; it requires `ref`, has no list, browse, search, rank, count, continuation, or implicit-current form, and a malformed, unknown, unauthorized, or expired reference returns the shared not-found outcome. `plan-progress` reports, for each committed Planning item declaring `progress_evidence`, the counts its bound Records views return; it is derived and read-only, and it scores nothing. `dispositions` lists every signal family a user has set to `quiet` or `off` through `triage_memory`, with its reason code, why, timestamp, origin, and per-family manual dismissal count; a quiet family is silent on the carriers, not clean. `relation-queue` returns the read-only, batched relation-acceptance queue (deterministic suggestion candidates grouped by source page, with signal fingerprints and coverage counters); accept a candidate via `connect_memory(operation=\"accept-relation\")` or reject via `triage_memory`. `adoption` returns the read-only Adoption Studio proposal queue grouped per run (structured agent proposals with signal fingerprints); approve a proposal via `adoption_studio(action=\"apply-proposal\")` or dismiss via `triage_memory`.",
+              "description": "attention, activation, item, audit, dispositions, provenance, evolution, compilation, stale, contradiction, unprocessed-sources, relation-debt, relation-queue, adoption, or plan-progress. `plan-progress` reports, for each committed Planning item declaring `progress_evidence`, the counts its bound Records views return; it is derived and read-only, and it scores nothing. `dispositions` lists every signal family a user has set to `quiet` or `off` through `triage_memory`, with its reason code, why, timestamp, origin, and per-family manual dismissal count; a quiet family is silent on the carriers, not clean. `relation-queue` returns the read-only, batched relation-acceptance queue (deterministic suggestion candidates grouped by source page, with signal fingerprints and coverage counters); accept a candidate via `connect_memory(operation=\"accept-relation\")` or reject via `triage_memory`. `adoption` returns the read-only Adoption Studio proposal queue grouped per run (structured agent proposals with signal fingerprints); approve a proposal via `adoption_studio(action=\"apply-proposal\")` or dismiss via `triage_memory`.",
               "name": "mode",
               "required": false,
               "type": "str"
@@ -5055,7 +5026,7 @@
               "type": "str"
             },
             {
-              "description": "Stable `exomem://review/<id>` reference for item mode, or the opaque `exomem://write-advisory-result/<id>` reference for write-advisory-result mode. Required by both.",
+              "description": "Stable `exomem://review/<id>` reference for item mode.",
               "name": "ref",
               "required": false,
               "type": "str"
@@ -5282,18 +5253,6 @@
                   ],
                   "type": "string"
                 },
-                "source_path": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Source-page hint returned by relation review. Required for\nnewly returned relation items; omitted legacy requests use only the\nbounded compatibility prefix."
-                },
                 "until": {
                   "anyOf": [
                     {
@@ -5362,12 +5321,6 @@
             {
               "description": "Optional reviewed fingerprint; a mismatch refuses the write and asks the caller to refresh.",
               "name": "expected_fingerprint",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Source-page hint returned by relation review. Required for newly returned relation items; omitted legacy requests use only the bounded compatibility prefix.",
-              "name": "source_path",
               "required": false,
               "type": "str"
             },
@@ -5452,18 +5405,6 @@
                   ],
                   "default": null,
                   "description": "Entity connection paths."
-                },
-                "continuation": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Opaque continuation returned by resolve-relation."
                 },
                 "decided": {
                   "anyOf": [
@@ -5612,9 +5553,7 @@
                 },
                 "limit": {
                   "default": 8,
-                  "description": "Candidate cap for suggestion and relation-resolution modes.",
-                  "maximum": 64,
-                  "minimum": 1,
+                  "description": "Candidate cap for suggestion modes.",
                   "type": "integer"
                 },
                 "max_body_chars": {
@@ -5661,7 +5600,7 @@
                 },
                 "operation": {
                   "default": "suggest-links",
-                  "description": "context, suggest-links, suggest-relations, graph-context, inbound-links, resolve-relation, resolve-entity, create-entity, or accept-relation.",
+                  "description": "context, suggest-links, suggest-relations, graph-context, inbound-links, resolve-entity, create-entity, or accept-relation.",
                   "type": "string"
                 },
                 "path": {
@@ -5674,7 +5613,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Existing page path for link, graph, or relation context; resolve-relation\nreports it unchanged as optional source context without reading the page."
+                  "description": "Existing page path for link, graph, or relation context."
                 },
                 "project": {
                   "anyOf": [
@@ -5698,7 +5637,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Query seed for graph-context or plain-language resolve-relation intent."
+                  "description": "Query seed for graph-context."
                 },
                 "ref": {
                   "anyOf": [
@@ -5750,18 +5689,6 @@
                   ],
                   "default": null,
                   "description": "Library repository."
-                },
-                "requested_relation": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Optional clean, canonical, or alias label for\nresolve-relation. At least query or requested_relation is required."
                 },
                 "response_detail": {
                   "default": "compact",
@@ -5827,7 +5754,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Target path for inbound-links; resolve-relation reports it unchanged\nas optional target context without reading the page."
+                  "description": "Target path for inbound-links; defaults to path."
                 },
                 "traversal_profile": {
                   "anyOf": [
@@ -5926,38 +5853,26 @@
           "name": "connect_memory",
           "params": [
             {
-              "description": "context, suggest-links, suggest-relations, graph-context, inbound-links, resolve-relation, resolve-entity, create-entity, or accept-relation.",
+              "description": "context, suggest-links, suggest-relations, graph-context, inbound-links, resolve-entity, create-entity, or accept-relation.",
               "name": "operation",
               "required": false,
               "type": "str"
             },
             {
-              "description": "Existing page path for link, graph, or relation context; resolve-relation reports it unchanged as optional source context without reading the page.",
+              "description": "Existing page path for link, graph, or relation context.",
               "name": "path",
               "required": false,
               "type": "str"
             },
             {
-              "description": "Target path for inbound-links; resolve-relation reports it unchanged as optional target context without reading the page.",
+              "description": "Target path for inbound-links; defaults to path.",
               "name": "target",
               "required": false,
               "type": "str"
             },
             {
-              "description": "Query seed for graph-context or plain-language resolve-relation intent.",
+              "description": "Query seed for graph-context.",
               "name": "query",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Optional clean, canonical, or alias label for resolve-relation. At least query or requested_relation is required.",
-              "name": "requested_relation",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Opaque continuation returned by resolve-relation.",
-              "name": "continuation",
               "required": false,
               "type": "str"
             },
@@ -5992,7 +5907,7 @@
               "type": "str"
             },
             {
-              "description": "Candidate cap for suggestion and relation-resolution modes.",
+              "description": "Candidate cap for suggestion modes.",
               "name": "limit",
               "required": false,
               "type": "int"
@@ -6930,42 +6845,6 @@
                   "default": null,
                   "description": "Exact optional workflow resolve mapping. Its only keys are project,\ndomain, and activity; omit a key for unknown or set it null for known absent."
                 },
-                "continuation": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Opaque relation candidate continuation."
-                },
-                "date_from": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Optional inclusive ISO origin-date bound for relation evidence."
-                },
-                "date_to": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null,
-                  "description": "Optional inclusive ISO origin-date bound for relation evidence."
-                },
                 "expected_hash": {
                   "anyOf": [
                     {
@@ -6976,19 +6855,12 @@
                     }
                   ],
                   "default": null,
-                  "description": "Current relation registry hash required by save-relations, or\ncurrent workflow hash required for workflow save updates and refresh."
+                  "description": "Required for workflow save updates and refresh; rejected by every other workflow operation."
                 },
                 "include_model_suggestions": {
                   "default": false,
                   "description": "Request response-only optional relation suggestions.",
                   "type": "boolean"
-                },
-                "limit": {
-                  "default": 20,
-                  "description": "Relation extension and observation candidate budget.",
-                  "maximum": 64,
-                  "minimum": 1,
-                  "type": "integer"
                 },
                 "name": {
                   "anyOf": [
@@ -7003,7 +6875,7 @@
                   "description": "A saved workflow key for inspect/refresh, validate as an alternative to proposal, resolve (or `@standalone`), and optional preview/save update."
                 },
                 "operation": {
-                  "description": "For `relations`, `propose-relation` returns a reviewed delta without writing and `save-relations` commits that delta with expected_hash and why. For `workflow-contracts`, exactly one of: inventory (no workflow fields); inspect (name); validate (exactly one of name or proposal); resolve (context plus at most one of name or proposal); preview (proposal, optional name); save (proposal and why, optional name plus expected_hash for updates); or refresh (name, expected_hash, and why). Other subjects retain their existing operations.",
+                  "description": "For `workflow-contracts`, exactly one of: inventory (no workflow fields); inspect (name); validate (exactly one of name or proposal); resolve (context plus at most one of name or proposal); preview (proposal, optional name); save (proposal and why, optional name plus expected_hash for updates); or refresh (name, expected_hash, and why). Other subjects retain their existing operations.",
                   "type": "string"
                 },
                 "page_type": {
@@ -7033,6 +6905,7 @@
                 "proposal": {
                   "anyOf": [
                     {
+                      "additionalProperties": true,
                       "type": "object"
                     },
                     {
@@ -7040,7 +6913,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Reviewed relation definition for propose-relation, reviewed delta\nfor save-relations, or workflow proposal for workflow modes."
+                  "description": "Required for workflow preview/save; validate and resolve accept it as the exact alternative to `name`."
                 },
                 "response_detail": {
                   "default": "compact",
@@ -7077,7 +6950,7 @@
                     }
                   ],
                   "default": null,
-                  "description": "Required audit reason for relation delta save, workflow save/refresh,\nand entity-type saves."
+                  "description": "Required audit reason for workflow save/refresh and entity-type saves."
                 }
               },
               "required": [
@@ -7096,7 +6969,7 @@
           "name": "schema_memory",
           "params": [
             {
-              "description": "For `relations`, `propose-relation` returns a reviewed delta without writing and `save-relations` commits that delta with expected_hash and why. For `workflow-contracts`, exactly one of: inventory (no workflow fields); inspect (name); validate (exactly one of name or proposal); resolve (context plus at most one of name or proposal); preview (proposal, optional name); save (proposal and why, optional name plus expected_hash for updates); or refresh (name, expected_hash, and why). Other subjects retain their existing operations.",
+              "description": "For `workflow-contracts`, exactly one of: inventory (no workflow fields); inspect (name); validate (exactly one of name or proposal); resolve (context plus at most one of name or proposal); preview (proposal, optional name); save (proposal and why, optional name plus expected_hash for updates); or refresh (name, expected_hash, and why). Other subjects retain their existing operations.",
               "name": "operation",
               "required": true,
               "type": "str"
@@ -7132,7 +7005,7 @@
               "type": "bool"
             },
             {
-              "description": "Current relation registry hash required by save-relations, or current workflow hash required for workflow save updates and refresh.",
+              "description": "Required for workflow save updates and refresh; rejected by every other workflow operation.",
               "name": "expected_hash",
               "required": false,
               "type": "str"
@@ -7150,13 +7023,13 @@
               "type": "str"
             },
             {
-              "description": "Reviewed relation definition for propose-relation, reviewed delta for save-relations, or workflow proposal for workflow modes.",
+              "description": "Required for workflow preview/save; validate and resolve accept it as the exact alternative to `name`.",
               "name": "proposal",
               "required": false,
-              "type": "nullable_dict"
+              "type": "dict"
             },
             {
-              "description": "Required audit reason for relation delta save, workflow save/refresh, and entity-type saves.",
+              "description": "Required audit reason for workflow save/refresh and entity-type saves.",
               "name": "why",
               "required": false,
               "type": "str"
@@ -7172,30 +7045,6 @@
               "name": "context",
               "required": false,
               "type": "nullable_dict"
-            },
-            {
-              "description": "Optional inclusive ISO origin-date bound for relation evidence.",
-              "name": "date_from",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Optional inclusive ISO origin-date bound for relation evidence.",
-              "name": "date_to",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Opaque relation candidate continuation.",
-              "name": "continuation",
-              "required": false,
-              "type": "str"
-            },
-            {
-              "description": "Relation extension and observation candidate budget.",
-              "name": "limit",
-              "required": false,
-              "type": "int"
             },
             {
               "description": "Successful committed mutation detail: compact (default), full diagnostics, or legacy raw leaf result.",
@@ -9805,7 +9654,7 @@
       },
       "digest": {
         "algorithm": "sha256",
-        "value": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26"
+        "value": "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd"
       },
       "envelopes": {
         "error": {
@@ -9876,7 +9725,7 @@
       "plan_memory",
       "query_dataset"
     ],
-    "compatibility_sha256": "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",
+    "compatibility_sha256": "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
     "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
@@ -10157,7 +10006,7 @@
     "plugin_id": "exomem-hosted-parity",
     "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
-    "schema_contract_sha256": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+    "schema_contract_sha256": "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd",
     "schema_version": 1,
     "skills": {
       "exomem": [
@@ -10208,7 +10057,7 @@
   "packageLock": {
     "artifact_sha256": "be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241",
     "command_surface_sha256": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-    "compatibility_sha256": "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",
+    "compatibility_sha256": "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
     "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
@@ -10218,7 +10067,7 @@
     "plugin_id": "exomem-hosted-parity",
     "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
-    "schema_contract_sha256": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+    "schema_contract_sha256": "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd",
     "schema_version": 1,
     "selection_cases_sha256": "7790efc3a68be9176fe63d3b2db15a8ae9e5409f97a3b4a944ee2a753896d022",
     "skills_sha256": "51a6cf7089d689f17668959490dd755a9855258378176a9305c3bc878008b7da"
@@ -10230,7 +10079,7 @@
   "openaiPackageLock": {
     "artifact_sha256": "eaca4382bb3918ef0d49384de30f9d6c7d35798649702bd59c53b0315916698b",
     "command_surface_sha256": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-    "compatibility_sha256": "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",
+    "compatibility_sha256": "62356a1220b823e9ae91e1fab18a8da5711481b6cc907dbcae033e254a3585dc",
     "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
@@ -10241,7 +10090,7 @@
     "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
     "registered_app_id_sha256": "b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46",
-    "schema_contract_sha256": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+    "schema_contract_sha256": "124fb718c6d2b6caee93edd7281fbc6cd7ca991e4a39bcc90df00bf0811208fd",
     "schema_version": 1,
     "selection_cases_sha256": "7790efc3a68be9176fe63d3b2db15a8ae9e5409f97a3b4a944ee2a753896d022",
     "skills_sha256": "51a6cf7089d689f17668959490dd755a9855258378176a9305c3bc878008b7da"
