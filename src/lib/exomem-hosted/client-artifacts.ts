@@ -3,7 +3,8 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as exomemHostedContractFixture0683 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0721 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0683 } from "./agent-contract-fixture-0-68-3";
 import { exomemHostedContractFixture as exomemHostedContractFixture0660 } from "./agent-contract-fixture-0-66-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0680 } from "./agent-contract-fixture-0-68-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0681 } from "./agent-contract-fixture-0-68-1";
@@ -247,7 +248,9 @@ export async function loadClientArtifactLocks(
                           ? exomemHostedContractFixture0681
                           : row.source_release === "0.68.3"
                             ? exomemHostedContractFixture0683
-                            : null;
+                            : row.source_release === "0.72.1"
+                              ? exomemHostedContractFixture0721
+                              : null;
   if (!fixture || row.profile_id !== fixture.compatibility.profile)
     throw new Error("artifact contract candidate profile differs from the checked release");
   if (platform === "claude") {
