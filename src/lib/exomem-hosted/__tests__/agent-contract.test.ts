@@ -214,8 +214,8 @@ describe("Exomem Hosted agent contracts", () => {
   });
 
   // `checkedOpenAiLocks` validates an OpenAI lock against a cumulative allowlist
-  // of Claude locks whose first entry is the current release. Adopting 0.72.1
-  // rotates that entry off 0.68.3, so 0.68.3 must be added explicitly or the
+  // of Claude locks whose first entry is the current release. Adopting 0.73.1
+  // rotates that entry off 0.72.1, so 0.72.1 must be added explicitly or the
   // retained release drops from the set and its own import throws.
   // Every release the retained-import switch can name must round-trip.
   for (const release of [
