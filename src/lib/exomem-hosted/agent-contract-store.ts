@@ -13,6 +13,7 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0660 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0680 } from "./agent-contract-fixture-0-68-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0681 } from "./agent-contract-fixture-0-68-1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0683 } from "./agent-contract-fixture-0-68-3";
+import { exomemHostedContractFixture as exomemHostedContractFixture0721 } from "./agent-contract-fixture-0-72-1";
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
@@ -44,8 +45,20 @@ export type TrustedRelease =
   | "0.68.0"
   | "0.68.1"
   | "0.68.3"
-  | "0.72.1";
+  | "0.72.1"
+  | "0.73.1";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.73.1",
+    {
+      sourceCommit: "956dcdbef56a62a697756c0369f5580a91ced35a",
+      command_surface_sha256: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+      schema_contract_sha256: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+      compatibility_sha256: "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",
+      artifact_sha256: "be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241",
+      archive_sha256: "00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4",
+    },
+  ],
   [
     "0.72.1",
     {
@@ -292,6 +305,7 @@ function checkedOpenAiLocks(
     record(exomemHostedContractFixture0680.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0681.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0683.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixture0721.packageLock, "Claude package lock"),
   ];
   const requiredIdentityFields = [
     "schema_version",
@@ -381,7 +395,8 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
     sourceRelease === "0.68.0" ||
     sourceRelease === "0.68.1" ||
     sourceRelease === "0.68.3" ||
-    sourceRelease === "0.72.1"
+    sourceRelease === "0.72.1" ||
+    sourceRelease === "0.73.1"
       ? EXOMEM_HOSTED_PROFILE
       : "hosted-alpha-agent-v1";
   const packageLock = record(source.packageLock, "Claude package lock");
@@ -514,7 +529,9 @@ export async function storeRetainedExomemAgentContractCandidate(
                           ? exomemHostedContractFixture0681
                           : sourceRelease === "0.68.3"
                             ? exomemHostedContractFixture0683
-                            : exomemHostedContractFixture;
+                            : sourceRelease === "0.72.1"
+                              ? exomemHostedContractFixture0721
+                              : exomemHostedContractFixture;
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

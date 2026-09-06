@@ -11,7 +11,7 @@ import {
 
 // Deliberately restated rather than imported: REVIEWED_TARGET is unexported, and a
 // test that borrowed it could not detect the pin drifting. These values are the
-// ten-field output of Exomem's `hosted_image_candidate.py verify` for v0.72.1.
+// ten-field output of Exomem's `hosted_image_candidate.py verify` for v0.73.1.
 const target = {
   releaseVersion: "0.72.1",
   sourceCommit: "9720ccdfcc3e5e77ea47c56ddbddc53d75de40aa",
@@ -150,9 +150,9 @@ describe("hosted runtime trust report", () => {
 
   it("couples the generated TypeScript fixtures to the reviewed JSON projections", () => {
     const agentJson = JSON.parse(source("__tests__/agent-contract-fixture.json"));
-    const gatewayJson = JSON.parse(source("__tests__/gateway-contract-0-72-1.json"));
+    const gatewayJson = JSON.parse(source("__tests__/gateway-contract-0-73-1.json"));
     const agentTypeScript = source("agent-contract-fixture.ts");
-    const gatewayTypeScript = source("gateway-contract-0-72-1.ts");
+    const gatewayTypeScript = source("gateway-contract-0-73-1.ts");
 
     assert.doesNotThrow(() =>
       assertRuntimeTrustFixtureProjection({
@@ -168,7 +168,7 @@ describe("hosted runtime trust report", () => {
         assertRuntimeTrustFixtureProjection({
           agentTypeScript: mutate(
             agentTypeScript,
-            '"sourceRelease": "0.72.1"',
+            '"sourceRelease": "0.73.1"',
             '"sourceRelease": "0.68.0"'
           ),
           agentJson,
@@ -200,9 +200,9 @@ describe("hosted runtime trust report", () => {
       name: "agent-canaries",
       path: "agent-contract-canaries.ts",
       exact:
-        'WHEN ${exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol}\n                   THEN ${gatewayContractDigests.get(exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol)}',
+        'WHEN ${exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol}\n                   THEN ${gatewayContractDigests.get(exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol)}',
       decoy:
-        '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol} THEN ${gatewayContractDigests.get(exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol)}`;\n',
+        '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol} THEN ${gatewayContractDigests.get(exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol)}`;\n',
     },
     {
       name: "agent-contract-store",
@@ -215,38 +215,38 @@ describe("hosted runtime trust report", () => {
     {
       name: "client-artifacts",
       path: "client-artifacts.ts",
-      exact: 'row.source_release === "0.72.1"',
+      exact: 'row.source_release === "0.73.1"',
       replacement: 'row.source_release === "9.9.9"',
       decoy:
-        '\nconst runtimeTrustDecoy = row.source_release === "0.72.1" ? exomemHostedContractFixture0721 : null;\n',
+        '\nconst runtimeTrustDecoy = row.source_release === "0.73.1" ? exomemHostedContractFixture0731 : null;\n',
     },
     {
       name: "gateway-store",
       path: "gateway.ts",
-      exact: "Object.freeze({ full: exomemContractFixture0721, agent: agentFixture0721 }),",
+      exact: "Object.freeze({ full: exomemContractFixture0731, agent: agentFixture0731 }),",
       decoy:
-        "\nconst runtimeTrustDecoy = { full: exomemContractFixture0721, agent: agentFixture0721 };\n",
+        "\nconst runtimeTrustDecoy = { full: exomemContractFixture0731, agent: agentFixture0731 };\n",
     },
     {
       name: "lifecycle-store",
       path: "lifecycle-store.ts",
       exact:
-        'WHEN ${exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol}\n                     THEN ${exomemContractFixture0721.digest}',
+        'WHEN ${exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol}\n                     THEN ${exomemContractFixture0731.digest}',
       decoy:
-        '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol} THEN ${exomemContractFixture0721.digest}`;\n',
+        '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol} THEN ${exomemContractFixture0731.digest}`;\n',
     },
     {
       name: "reviewer-operator",
       path: "operator-controls.ts",
-      exact: "candidate.source_release = ${exomemContractFixture0721.release}",
+      exact: "candidate.source_release = ${exomemContractFixture0731.release}",
       replacement: "candidate.source_release = '0.68.0'",
       decoy:
-        "\nconst runtimeTrustDecoy = sql`candidate.source_release = ${exomemContractFixture0721.release} AND candidate.protocol_version = ${exomemContractFixture0721.protocol} THEN ${exomemContractFixture0721.digest}`;\n",
+        "\nconst runtimeTrustDecoy = sql`candidate.source_release = ${exomemContractFixture0731.release} AND candidate.protocol_version = ${exomemContractFixture0731.protocol} THEN ${exomemContractFixture0731.digest}`;\n",
     },
   ] as const;
 
   for (const site of siteMutations) {
-    it(`rejects a missing exact 0.72.1 branch at ${site.name}`, () => {
+    it(`rejects a missing exact 0.73.1 branch at ${site.name}`, () => {
       const original = source(site.path);
       assert.doesNotThrow(() => assertRuntimeTrustSitePin(original, site.name, target));
       assert.throws(
