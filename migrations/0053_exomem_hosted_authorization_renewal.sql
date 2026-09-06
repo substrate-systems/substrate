@@ -20,3 +20,35 @@ ALTER TABLE exomem_cells
 CREATE INDEX IF NOT EXISTS exomem_cells_authorization_renewal_due
     ON exomem_cells (authorization_renewed_at)
     WHERE lifecycle_state = 'active' AND desired_state = 'running';
+
+-- The renewal itself is an ordinary lifecycle operation. Enqueuing it rather
+-- than calling the provisioner straight from the cron reuses the reconciler's
+-- request envelope -- service credential, operation id, fence generation -- and
+-- its retry and lease handling, none of which a bare cron call would have.
+ALTER TABLE exomem_lifecycle_operations
+  DROP CONSTRAINT exomem_lifecycle_operations_operation_type_check;
+
+ALTER TABLE exomem_lifecycle_operations
+  ADD CONSTRAINT exomem_lifecycle_operations_operation_type_check
+    CHECK (operation_type IN (
+      'provision', 'suspend', 'resume', 'rotate_credential', 'export',
+      'restore', 'rollforward', 'stop', 'seal', 'delete', 'renew_authorization'
+    )),
+  -- Renewal only ever targets an existing cell, and only over v2: the v1 wire
+  -- corpus is the frozen rollback protocol and never gains an action.
+  ADD CONSTRAINT exomem_lifecycle_renew_authorization_shape_check CHECK (
+    operation_type <> 'renew_authorization'
+    OR (
+      provisioner_wire_protocol = 'exomem-cell-provisioner.v2'
+      AND cell_id IS NOT NULL
+      AND expected_previous_cell_id IS NULL
+    )
+  );
+
+-- At most one renewal in flight per cell. The sweep runs every minute and a
+-- renewal takes seconds, so without this a slow provisioner would queue a
+-- backlog that all fires at once.
+CREATE UNIQUE INDEX IF NOT EXISTS exomem_lifecycle_one_renewal_per_cell_idx
+  ON exomem_lifecycle_operations (cell_id)
+  WHERE operation_type = 'renew_authorization'
+    AND state IN ('pending', 'running');

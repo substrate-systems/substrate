@@ -39,7 +39,7 @@ export async function runBoundedLifecycleReconcile(
   const maxOperations = Math.min(20, Math.max(1, input.maxOperations ?? 10));
   const timeBudgetMs = Math.min(20_000, Math.max(250, input.timeBudgetMs ?? 8_000));
   const startedAt = Date.now();
-  const { reconciler } = runtime();
+  const { store, reconciler } = runtime();
   const owner = `substrate-${randomUUID()}`;
   const summary: ReconcileSummary = {
     attempted: 0,
@@ -49,6 +49,10 @@ export async function runBoundedLifecycleReconcile(
     terminal: 0,
   };
   await expireCanaryAuthority(Math.min(maxOperations, 20));
+  // Enqueue before draining the queue, so a renewal raised this tick is driven
+  // this tick. The attestation window is one hour and a cell that outlives it
+  // cannot be recovered, so latency here is not merely untidy.
+  await store.enqueueDueAuthorizationRenewals(Math.min(maxOperations, 5));
   for (let index = 0; index < maxOperations; index += 1) {
     if (Date.now() - startedAt >= timeBudgetMs) break;
     const result = await reconciler.reconcileOne({

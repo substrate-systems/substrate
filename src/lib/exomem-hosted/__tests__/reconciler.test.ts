@@ -2569,4 +2569,73 @@ describe("Exomem lifecycle reconciler", () => {
     assert.equal(store.tenants.get(bravoTenant)?.boundCellId, bravoCell);
     assert.equal(provisioner.resources.get(bravoCell)?.state, "running");
   });
+
+  it("renews a serving cell's authorization without disturbing it", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+    const before = {
+      status: store.tenants.get(TENANT)?.status,
+      routing: store.cells.get(cellId)?.routingState,
+      lifecycle: store.cells.get(cellId)?.lifecycleState,
+      credential: store.cells.get(cellId)?.credentialVersion,
+      resource: provisioner.resources.get(cellId)?.state,
+    };
+
+    const operation = await store.enqueue(TENANT, "renew_authorization", "renew-1", cellId);
+    const first = await reconciler.reconcileOne({ owner: "renew-worker", tenantId: TENANT });
+
+    assert.deepEqual(first, {
+      kind: "advanced",
+      operationId: operation.id,
+      checkpoint: "authorization-renewed",
+    });
+    assert.equal(store.operations.get(operation.id)?.checkpoint, "authorization-renewed");
+    assert.equal(provisioner.calls.at(-1)?.action, "renew-authorization");
+    // Renewal is invisible: it moves the attestation window and touches nothing
+    // else. A cell that drains, unbinds, or rolls has not been renewed, it has
+    // been interrupted.
+    assert.equal(store.tenants.get(TENANT)?.status, before.status);
+    assert.equal(store.cells.get(cellId)?.routingState, before.routing);
+    assert.equal(store.cells.get(cellId)?.lifecycleState, before.lifecycle);
+    assert.equal(store.cells.get(cellId)?.credentialVersion, before.credential);
+    assert.equal(provisioner.resources.get(cellId)?.state, before.resource);
+    assert.deepEqual(store.authorizationRenewals, []);
+
+    const second = await reconciler.reconcileOne({ owner: "renew-worker-2", tenantId: TENANT });
+    assert.deepEqual(second, { kind: "succeeded", operationId: operation.id });
+    assert.equal(store.operations.get(operation.id)?.state, "succeeded");
+    // Stamped only after the provisioner confirmed. Stamping first would silence
+    // the sweep for a cell whose window never actually moved.
+    assert.deepEqual(store.authorizationRenewals, [cellId]);
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+  });
+
+  it("refuses to stamp a renewal that reached an unknown checkpoint", async () => {
+    const { store, reconciler, provisioner } = harness();
+    await store.enqueue(TENANT, "provision", "initial-provision");
+    await convergeProvision(reconciler);
+    const cellId = store.tenants.get(TENANT)?.boundCellId;
+    assert.ok(cellId);
+
+    const operation = await store.enqueue(TENANT, "renew_authorization", "renew-bad", cellId);
+    const stored = store.operations.get(operation.id);
+    assert.ok(stored);
+    stored.checkpoint = "quiesced";
+    const callsBefore = provisioner.calls.length;
+
+    const result = await reconciler.reconcileOne({ owner: "renew-worker", tenantId: TENANT });
+
+    assert.deepEqual(result, {
+      kind: "terminal",
+      operationId: operation.id,
+      code: "LIFECYCLE_CHECKPOINT_INVALID",
+    });
+    assert.equal(store.operations.get(operation.id)?.state, "failed_terminal");
+    assert.deepEqual(store.authorizationRenewals, []);
+    assert.equal(provisioner.calls.length, callsBefore);
+    assert.equal(store.statusForTenant(TENANT).state, "ready");
+  });
 });

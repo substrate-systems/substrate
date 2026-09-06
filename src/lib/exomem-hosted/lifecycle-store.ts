@@ -265,8 +265,11 @@ export class SqlLifecycleStore implements LifecycleStore {
     cellId: string | null = null,
     options: LifecycleEnqueueOptions = {}
   ): Promise<LifecycleOperation> {
+    // Renewal, like rollforward, exists only on v2: v1 is the frozen rollback
+    // corpus and never gains an action. Taking the wire from the environment
+    // would raise a row the schema refuses.
     const provisionerWireProtocol =
-      operationType === "rollforward"
+      operationType === "rollforward" || operationType === "renew_authorization"
         ? "exomem-cell-provisioner.v2"
         : provisionerWireProtocolFromEnv();
     const exportTtlMs = options.exportTtlMs ?? 24 * 60 * 60 * 1000;
@@ -2789,6 +2792,105 @@ export class SqlLifecycleStore implements LifecycleStore {
       UNION ALL
       SELECT id FROM cell_gated WHERE ${desired}::text <> 'deleted'
       LIMIT 1
+    `;
+    return rows.length === 1;
+  }
+
+  /**
+   * Enqueue a renewal for every serving cell whose attestation window is ageing.
+   *
+   * The window is one hour and nothing renewed it, so a cell stopped admitting
+   * mutations an hour after it was provisioned while continuing to serve reads.
+   * Renewal must happen while the cell is still in date: once lapsed it cannot
+   * be recovered, because minting is fenced off for a cell that has served and
+   * the drain that would renew it needs a runtime attestation an expired cell
+   * can no longer sign.
+   *
+   * `renewAfterMs` is deliberately well short of the hour. The sweep runs every
+   * minute, so the margin absorbs a missed tick, a provisioner retry, and the
+   * kubelet delay before the refreshed Secret reaches the pod -- none of which
+   * is recoverable if the window closes first.
+   *
+   * The idempotency key buckets on the *sweep* cadence, not on `renewAfterMs`.
+   * Two overlapping ticks then collide on one key and insert once, while a
+   * renewal that failed terminally is re-enqueued on the next tick rather than
+   * waiting out the ageing interval -- which would spend most of the remaining
+   * window doing nothing.
+   *
+   * Selection and insertion are separate statements so the insertion is the
+   * ordinary `enqueue`. A bulk INSERT would have to restate how an operation
+   * acquires its contract target, and a v2 operation without one is refused by
+   * the schema and unservable by the provisioner.
+   */
+  async enqueueDueAuthorizationRenewals(
+    limit = 5,
+    renewAfterMs = 40 * 60 * 1000,
+    bucketSeconds = 60
+  ): Promise<{ enqueued: number }> {
+    const bounded = Math.min(50, Math.max(1, Math.floor(limit)));
+    const ageSeconds = Math.min(3_000, Math.max(60, Math.floor(renewAfterMs / 1000)));
+    const bucket = Math.min(3_000, Math.max(1, Math.floor(bucketSeconds)));
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-due-authorization-renewals */
+      SELECT cell.id::text AS cell_id,
+             cell.tenant_id::text AS tenant_id,
+             floor(extract(epoch from now()) / ${bucket})::bigint::text AS bucket
+      FROM exomem_cells AS cell
+      JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+      WHERE cell.lifecycle_state = 'active'
+        AND cell.desired_state = 'running'
+        AND tenant.status <> 'deleted'
+        AND cell.authorization_renewed_at
+              < now() - make_interval(secs => ${ageSeconds}::double precision)
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_lifecycle_operations AS inflight
+          WHERE inflight.cell_id = cell.id
+            AND inflight.state IN ('pending', 'running')
+        )
+      ORDER BY cell.authorization_renewed_at
+      LIMIT ${bounded}
+    `;
+    let enqueued = 0;
+    for (const row of rows as Array<Record<string, unknown>>) {
+      const cellId = String(row.cell_id);
+      const tenantId = String(row.tenant_id);
+      try {
+        await this.enqueue(
+          tenantId,
+          "renew_authorization",
+          `renew-authorization:${cellId}:${String(row.bucket)}`,
+          cellId
+        );
+        enqueued += 1;
+      } catch {
+        // A concurrent tick that already raised this cell's renewal, or a
+        // tenant that moved out from under the selection. Never log the caught
+        // object: a provisioner cause can ride along on it. The next tick
+        // reselects the cell, so losing one here costs a minute, not a window.
+      }
+    }
+    return { enqueued };
+  }
+
+  async markAuthorizationRenewed(operationId: string, owner: string): Promise<boolean> {
+    const { rows } = await executeExomemSql`
+      /* exomem:lifecycle-mark-authorization-renewed */
+      WITH owned AS (
+        SELECT operation.cell_id
+        FROM exomem_lifecycle_operations AS operation
+        JOIN exomem_tenants AS tenant ON tenant.id = operation.tenant_id
+        WHERE operation.id = ${operationId}
+          AND operation.state = 'running'
+          AND operation.lease_owner = ${owner}
+          AND operation.lease_expires_at > now()
+          AND operation.fence_generation = tenant.fence_generation
+          AND operation.cell_id IS NOT NULL
+      )
+      UPDATE exomem_cells AS cell
+      SET authorization_renewed_at = now(), updated_at = now()
+      FROM owned
+      WHERE cell.id = owned.cell_id
+      RETURNING cell.id
     `;
     return rows.length === 1;
   }

@@ -37,7 +37,8 @@ export type LifecycleOperationType =
   | "restore"
   | "stop"
   | "seal"
-  | "delete";
+  | "delete"
+  | "renew_authorization";
 
 export type LifecycleOperationState =
   | "pending"
@@ -290,6 +291,7 @@ export interface LifecycleStore {
     owner: string,
     state: CellControlRecord["lifecycleState"]
   ): Promise<boolean>;
+  markAuthorizationRenewed(operationId: string, owner: string): Promise<boolean>;
   activateAfterReadiness(operationId: string, owner: string): Promise<boolean>;
   prepareCredentialRotation(
     operationId: string,
@@ -1231,6 +1233,37 @@ export class LifecycleReconciler {
     return this.#terminal(operation, owner, "LIFECYCLE_CHECKPOINT_INVALID");
   }
 
+  /**
+   * Move a serving cell's attestation window forward before it can lapse.
+   *
+   * The window is one hour. Nothing renewed it, so a cell stopped admitting
+   * mutations an hour after it was provisioned while continuing to serve reads
+   * normally, and once lapsed it could not recover: minting is fenced off for a
+   * cell that has served, and the drain that would renew it needs a runtime
+   * attestation the expired cell can no longer sign.
+   *
+   * Unlike suspend/resume this applies no local gate and changes no cell state.
+   * Renewal is invisible: it advances the membership on a cell that stays
+   * serving throughout, and the new bundle reaches the running pod through the
+   * projected Secret rather than by rolling the StatefulSet.
+   */
+  async #renewAuthorization(
+    operation: LifecycleOperation,
+    owner: string
+  ): Promise<ReconcileResult> {
+    if (operation.checkpoint === "created") {
+      const cell = await this.#cell(operation);
+      await this.#provisioner.renewAuthorization(this.#target(operation, cell));
+      return this.#advance(operation, owner, "authorization-renewed");
+    }
+    if (operation.checkpoint === "authorization-renewed") {
+      this.#requireStored(await this.#store.markAuthorizationRenewed(operation.id, owner));
+      this.#requireStored(await this.#store.succeed(operation.id, owner));
+      return { kind: "succeeded", operationId: operation.id };
+    }
+    return this.#terminal(operation, owner, "LIFECYCLE_CHECKPOINT_INVALID");
+  }
+
   async #resume(operation: LifecycleOperation, owner: string): Promise<ReconcileResult> {
     if (operation.checkpoint === "created") {
       this.#requireStored(await this.#store.applyLocalGate(operation.id, owner, "running"));
@@ -1676,6 +1709,8 @@ export class LifecycleReconciler {
           return await this.#suspend(operation, input.owner);
         case "resume":
           return await this.#resume(operation, input.owner);
+        case "renew_authorization":
+          return await this.#renewAuthorization(operation, input.owner);
         case "stop":
           return await this.#stop(operation, input.owner);
         case "rotate_credential":
@@ -2724,6 +2759,16 @@ export class InMemoryLifecycleStore implements LifecycleStore {
       cell.desiredState =
         desired === "deleted" ? "deleted" : desired === "running" ? "running" : "quiesced";
     }
+    return true;
+  }
+
+  readonly authorizationRenewals: string[] = [];
+
+  async markAuthorizationRenewed(operationId: string, owner: string): Promise<boolean> {
+    const operation = this.#owned(operationId, owner);
+    const cell = operation?.cellId ? this.cells.get(operation.cellId) : null;
+    if (!operation || !cell) return false;
+    this.authorizationRenewals.push(cell.id);
     return true;
   }
 

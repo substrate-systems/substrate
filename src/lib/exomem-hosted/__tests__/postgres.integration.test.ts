@@ -6218,4 +6218,329 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       });
     }
   });
+
+  describe("authorization renewal sweep", () => {
+    // A cell's attestation window is one hour and nothing renewed it, so an hour
+    // after provisioning a cell kept serving reads while refusing every mutation,
+    // and could not recover. The sweep raises a renewal while the cell is still in
+    // date. Every predicate below is load-bearing: a cell wrongly skipped here
+    // lapses, and a lapsed cell is scrap.
+    async function seedServingCell(
+      input: {
+        renewedMinutesAgo?: number;
+        tenantStatus?: string;
+        lifecycleState?: string;
+        desiredState?: string;
+        inflightState?: "pending" | "running" | "succeeded" | "failed_terminal";
+        fenceGeneration?: number;
+      } = {}
+    ) {
+      const userId = randomUUID();
+      const tenantId = randomUUID();
+      const cellId = randomUUID();
+      const candidateId = randomUUID();
+      const assignmentId = randomUUID();
+      const digest = createHash("sha256").update(cellId).digest("hex");
+      await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [
+        userId,
+        `renewal-${userId}@example.test`,
+      ]);
+      await pool.query(
+        `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state, fence_generation, deleted_at)
+         VALUES ($1, $2, $3, 'running', $4,
+                 CASE WHEN $3::text = 'deleted' THEN now() ELSE NULL END)`,
+        [tenantId, userId, input.tenantStatus ?? "active", input.fenceGeneration ?? 1]
+      );
+      await pool.query(
+        `INSERT INTO exomem_cells (
+           id, tenant_id, lifecycle_state, routing_state, desired_state,
+           protocol_version, release_version, readiness_code, authorization_renewed_at,
+           observed_gateway_contract_digest, observed_command_fingerprint,
+           observed_schema_digest, observed_compatibility_digest
+         ) VALUES ($1, $2, $3, 'bound', $4, '1', '2026.09.06', 'CELL_READY',
+                   now() - make_interval(mins => $5::int), $6, $6, $6, $6)`,
+        [
+          cellId,
+          tenantId,
+          input.lifecycleState ?? "active",
+          input.desiredState ?? "running",
+          input.renewedMinutesAgo ?? 45,
+          digest,
+        ]
+      );
+      await pool.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        cellId,
+        tenantId,
+      ]);
+      // A v2 operation must carry the contract the cell is serving. The renewal
+      // takes it from the cell's own active assignment, like every other
+      // operation that is not a provision.
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_candidates (
+           id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+           compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
+         ) VALUES ($1, 'pending', $3, 'https://agent.example.test', '2026.09.06',
+                   $2, $2, $2, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)`,
+        [candidateId, digest, EXOMEM_HOSTED_PROFILE]
+      );
+      await pool.query(
+        `INSERT INTO exomem_agent_contract_rollout_assignments (
+           id, tenant_id, candidate_id, generation, state, source_release, protocol_version,
+           command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
+           marketplace_reviewer_purpose, created_by_principal_digest,
+           created_at, expires_at, activated_at
+         ) VALUES ($1, $2, $3, 1, 'active', '2026.09.06', '1', $4, $4, $4, $4, false, $4,
+                   now() - interval '2 hours', now() + interval '6 hours', now())`,
+        [assignmentId, tenantId, candidateId, digest]
+      );
+      if (input.inflightState) {
+        await pool.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, cell_id, operation_type, state, checkpoint, idempotency_key,
+             fence_generation, provisioner_wire_protocol,
+             target_candidate_id, target_assignment_id, target_assignment_generation,
+             target_source_release, target_protocol_version, target_gateway_contract_digest,
+             target_command_fingerprint, target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, $2, 'export', $3, 'created', $4, 1, 'exomem-cell-provisioner.v2',
+                     $5, $6, 1, '2026.09.06', '1', $7, $7, $7, $7)`,
+          [
+            tenantId,
+            cellId,
+            input.inflightState,
+            `inflight-${cellId}`,
+            candidateId,
+            assignmentId,
+            digest,
+          ]
+        );
+      }
+      return { userId, tenantId, cellId, candidateId, assignmentId, digest };
+    }
+
+    async function renewalsFor(cellId: string) {
+      const { rows } = await pool.query<{
+        state: string;
+        checkpoint: string;
+        fence_generation: string;
+        provisioner_wire_protocol: string;
+        idempotency_key: string;
+        target_candidate_id: string | null;
+        target_assignment_id: string | null;
+      }>(
+        `SELECT state, checkpoint, fence_generation, provisioner_wire_protocol, idempotency_key,
+                target_candidate_id, target_assignment_id
+         FROM exomem_lifecycle_operations
+         WHERE cell_id = $1 AND operation_type = 'renew_authorization'
+         ORDER BY created_at`,
+        [cellId]
+      );
+      return rows;
+    }
+
+    it("enqueues a v2 renewal at the tenant's fence for an ageing serving cell", async () => {
+      const seed = await seedServingCell({ renewedMinutesAgo: 45, fenceGeneration: 4 });
+
+      assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(), {
+        enqueued: 1,
+      });
+
+      const renewals = await renewalsFor(seed.cellId);
+      assert.equal(renewals.length, 1);
+      assert.equal(renewals[0]!.state, "pending");
+      assert.equal(renewals[0]!.checkpoint, "created");
+      // The fence comes from the tenant, not from a constant: an operation raised
+      // at a stale fence is refused by every step that follows it.
+      assert.equal(renewals[0]!.fence_generation, "4");
+      // v1 is the frozen rollback corpus and never gains an action.
+      assert.equal(renewals[0]!.provisioner_wire_protocol, "exomem-cell-provisioner.v2");
+      // The renewal reaffirms the contract the cell is already serving. A v2
+      // operation with no target is refused by the schema and unservable by the
+      // provisioner, which reads its runtime target off these columns.
+      assert.equal(renewals[0]!.target_candidate_id, seed.candidateId);
+      assert.equal(renewals[0]!.target_assignment_id, seed.assignmentId);
+    });
+
+    const skipped: Array<{
+      name: string;
+      seed: Parameters<typeof seedServingCell>[0];
+    }> = [
+      { name: "a cell renewed inside the ageing interval", seed: { renewedMinutesAgo: 5 } },
+      { name: "a cell that is not active", seed: { lifecycleState: "quiesced" } },
+      { name: "a cell that is not wanted running", seed: { desiredState: "stopped" } },
+      { name: "a deleted tenant's cell", seed: { tenantStatus: "deleted" } },
+      { name: "a cell with an operation pending", seed: { inflightState: "pending" } },
+      { name: "a cell with an operation running", seed: { inflightState: "running" } },
+    ];
+
+    for (const skip of skipped) {
+      it(`leaves ${skip.name} alone`, async () => {
+        const seed = await seedServingCell(skip.seed);
+
+        assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(), {
+          enqueued: 0,
+        });
+        assert.deepEqual(await renewalsFor(seed.cellId), []);
+      });
+    }
+
+    it("renews a cell again once its earlier operation has finished", async () => {
+      const seed = await seedServingCell({ inflightState: "succeeded" });
+
+      assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(), {
+        enqueued: 1,
+      });
+      assert.equal((await renewalsFor(seed.cellId)).length, 1);
+    });
+
+    it("takes the oldest cells first and stops at the limit", async () => {
+      const oldest = await seedServingCell({ renewedMinutesAgo: 55 });
+      const middle = await seedServingCell({ renewedMinutesAgo: 50 });
+      const newest = await seedServingCell({ renewedMinutesAgo: 45 });
+
+      assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(2), {
+        enqueued: 2,
+      });
+
+      assert.equal((await renewalsFor(oldest.cellId)).length, 1);
+      assert.equal((await renewalsFor(middle.cellId)).length, 1);
+      assert.deepEqual(await renewalsFor(newest.cellId), []);
+    });
+
+    it("does not stack a second renewal on a cell that already has one in flight", async () => {
+      const seed = await seedServingCell();
+      const store = new SqlLifecycleStore();
+
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 1 });
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 0 });
+
+      assert.equal((await renewalsFor(seed.cellId)).length, 1);
+    });
+
+    it("re-enqueues on the next tick after a renewal failed terminally", async () => {
+      const seed = await seedServingCell();
+      const store = new SqlLifecycleStore();
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 1 });
+      await pool.query(
+        `UPDATE exomem_lifecycle_operations SET state = 'failed_terminal'
+         WHERE cell_id = $1 AND operation_type = 'renew_authorization'`,
+        [seed.cellId]
+      );
+
+      // The idempotency key buckets on the sweep cadence, not on the ageing
+      // interval. Bucketing on the interval would leave a terminally failed
+      // renewal unretried for most of the window it exists to protect.
+      const nextTick = await store.enqueueDueAuthorizationRenewals(5, 40 * 60 * 1000, 1);
+      assert.deepEqual(nextTick, { enqueued: 1 });
+
+      const renewals = await renewalsFor(seed.cellId);
+      assert.equal(renewals.length, 2);
+      assert.notEqual(renewals[0]!.idempotency_key, renewals[1]!.idempotency_key);
+    });
+
+    it("stamps the cell only under a live lease at the tenant's fence", async () => {
+      const seed = await seedServingCell();
+      const store = new SqlLifecycleStore();
+      await store.enqueueDueAuthorizationRenewals();
+      const operation = await pool.query<{ id: string }>(
+        `SELECT id FROM exomem_lifecycle_operations
+         WHERE cell_id = $1 AND operation_type = 'renew_authorization'`,
+        [seed.cellId]
+      );
+      const operationId = operation.rows[0]!.id;
+      async function renewedAt() {
+        const { rows } = await pool.query<{ renewed: Date }>(
+          "SELECT authorization_renewed_at AS renewed FROM exomem_cells WHERE id = $1",
+          [seed.cellId]
+        );
+        return rows[0]!.renewed;
+      }
+      const before = await renewedAt();
+
+      // Pending, so no lease exists yet.
+      assert.equal(await store.markAuthorizationRenewed(operationId, "worker-a"), false);
+      await pool.query(
+        `UPDATE exomem_lifecycle_operations
+         SET state = 'running', lease_owner = 'worker-a', lease_expires_at = now() + interval '5 minutes'
+         WHERE id = $1`,
+        [operationId]
+      );
+      // Another worker's lease is not this worker's.
+      assert.equal(await store.markAuthorizationRenewed(operationId, "worker-b"), false);
+      // An expired lease is not a lease.
+      await pool.query(
+        "UPDATE exomem_lifecycle_operations SET lease_expires_at = now() - interval '1 second' WHERE id = $1",
+        [operationId]
+      );
+      assert.equal(await store.markAuthorizationRenewed(operationId, "worker-a"), false);
+      await pool.query(
+        "UPDATE exomem_lifecycle_operations SET lease_expires_at = now() + interval '5 minutes' WHERE id = $1",
+        [operationId]
+      );
+      // A fence the tenant has moved past is a cell this operation no longer owns.
+      await pool.query("UPDATE exomem_tenants SET fence_generation = 9 WHERE id = $1", [
+        seed.tenantId,
+      ]);
+      assert.equal(await store.markAuthorizationRenewed(operationId, "worker-a"), false);
+      assert.deepEqual(await renewedAt(), before);
+
+      await pool.query("UPDATE exomem_tenants SET fence_generation = 1 WHERE id = $1", [
+        seed.tenantId,
+      ]);
+      assert.equal(await store.markAuthorizationRenewed(operationId, "worker-a"), true);
+      assert.ok((await renewedAt()) > before);
+    });
+
+    it("stops selecting a cell once its renewal is stamped", async () => {
+      const seed = await seedServingCell();
+      const store = new SqlLifecycleStore();
+      await store.enqueueDueAuthorizationRenewals();
+      const operation = await pool.query<{ id: string }>(
+        `SELECT id FROM exomem_lifecycle_operations
+         WHERE cell_id = $1 AND operation_type = 'renew_authorization'`,
+        [seed.cellId]
+      );
+      await pool.query(
+        `UPDATE exomem_lifecycle_operations
+         SET state = 'running', lease_owner = 'worker-a', lease_expires_at = now() + interval '5 minutes'
+         WHERE id = $1`,
+        [operation.rows[0]!.id]
+      );
+      assert.equal(await store.markAuthorizationRenewed(operation.rows[0]!.id, "worker-a"), true);
+      await pool.query(
+        "UPDATE exomem_lifecycle_operations SET state = 'succeeded' WHERE id = $1",
+        [operation.rows[0]!.id]
+      );
+
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 0 });
+      assert.equal((await renewalsFor(seed.cellId)).length, 1);
+    });
+
+    it("refuses a renewal row that names no cell or claims the v1 wire", async () => {
+      const seed = await seedServingCell();
+      await assert.rejects(
+        pool.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, cell_id, operation_type, idempotency_key,
+             fence_generation, provisioner_wire_protocol,
+             target_candidate_id, target_assignment_id, target_assignment_generation,
+             target_source_release, target_protocol_version, target_gateway_contract_digest,
+             target_command_fingerprint, target_schema_digest, target_compatibility_digest
+           ) VALUES ($1, NULL, 'renew_authorization', 'no-cell', 1, 'exomem-cell-provisioner.v2',
+                     $2, $3, 1, '2026.09.06', '1', $4, $4, $4, $4)`,
+          [seed.tenantId, seed.candidateId, seed.assignmentId, seed.digest]
+        ),
+        /exomem_lifecycle_renew_authorization_shape_check/
+      );
+      await assert.rejects(
+        pool.query(
+          `INSERT INTO exomem_lifecycle_operations (
+             tenant_id, cell_id, operation_type, idempotency_key,
+             fence_generation, provisioner_wire_protocol
+           ) VALUES ($1, $2, 'renew_authorization', 'v1-renewal', 1, 'exomem-cell-provisioner.v1')`,
+          [seed.tenantId, seed.cellId]
+        ),
+        /exomem_lifecycle_renew_authorization_shape_check/
+      );
+    });
+  });
 });
