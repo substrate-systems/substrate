@@ -692,6 +692,168 @@ describe("Hosted MCP boundary", () => {
     assert.deepEqual(JSON.parse(payload.result?.content?.[0]?.text ?? "{}"), meta);
   });
 
+  it("forwards an authoring refusal with its own code and the cell's remediation", async () => {
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async () => ({
+          status: 409,
+          requestId: "request",
+          body: {
+            success: false,
+            error: {
+              code: "RELATION_DISPOSITION_MISSING",
+              message: "private-cell-error-sentinel",
+              retryable: false,
+              remediation:
+                'Re-issue the creation unchanged with relation_disposition="reviewed_none", the returned relation_review_hash, and a relation_review_reason.',
+            },
+          },
+        }),
+        takeRateLimit: async () => true,
+      }
+    );
+    const payload = (await response.json()) as {
+      result?: { content?: Array<{ text?: string }>; _meta?: { exomem?: Record<string, unknown> } };
+    };
+    const meta = payload.result?._meta?.exomem;
+    assert.equal(meta?.code, "RELATION_DISPOSITION_MISSING");
+    assert.equal(meta?.message, "the memory needs a qualifying relation or an explicit review");
+    assert.match(String(meta?.remediation), /relation_review_hash/);
+    assert.equal(JSON.stringify(payload).includes("private-cell-error-sentinel"), false);
+  });
+
+  it("still collapses an unrecognised cell code and drops its remediation", async () => {
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async () => ({
+          status: 409,
+          requestId: "request",
+          body: {
+            success: false,
+            error: {
+              code: "SOME_UNREVIEWED_INTERNAL_CODE",
+              message: "private-cell-error-sentinel",
+              retryable: false,
+              remediation: "unreviewed-remediation-sentinel",
+            },
+          },
+        }),
+        takeRateLimit: async () => true,
+      }
+    );
+    const payload = (await response.json()) as {
+      result?: { content?: Array<{ text?: string }>; _meta?: { exomem?: Record<string, unknown> } };
+    };
+    const meta = payload.result?._meta?.exomem;
+    assert.equal(meta?.code, "CELL_UNAVAILABLE");
+    assert.equal(meta?.message, "your Exomem is temporarily unavailable");
+    assert.equal(meta?.remediation, undefined);
+    assert.equal(JSON.stringify(payload).includes("unreviewed-remediation-sentinel"), false);
+    assert.equal(JSON.stringify(payload).includes("private-cell-error-sentinel"), false);
+  });
+
+  it("names an operator-domain refusal without forwarding an instruction a tenant cannot follow", async () => {
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async () => ({
+          status: 409,
+          requestId: "request",
+          body: {
+            success: false,
+            error: {
+              code: "MAINTENANCE_REQUIRES_CLI",
+              message: "private-cell-error-sentinel",
+              retryable: false,
+              remediation: "Run `exomem maintain --fix` on the host.",
+            },
+          },
+        }),
+        takeRateLimit: async () => true,
+      }
+    );
+    const payload = (await response.json()) as {
+      result?: { content?: Array<{ text?: string }>; _meta?: { exomem?: Record<string, unknown> } };
+    };
+    const meta = payload.result?._meta?.exomem;
+    assert.equal(meta?.code, "MAINTENANCE_REQUIRES_CLI");
+    assert.equal(
+      meta?.message,
+      "write-mode maintenance is unavailable through request-bound remote commands"
+    );
+    assert.equal(meta?.remediation, undefined);
+    assert.equal(JSON.stringify(payload).includes("exomem maintain"), false);
+    assert.equal(JSON.stringify(payload).includes("private-cell-error-sentinel"), false);
+  });
+
+  it("bounds and flattens a forwarded remediation", async () => {
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getLiveContract: async () => LIVE,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async () => ({
+          status: 409,
+          requestId: "request",
+          body: {
+            success: false,
+            error: {
+              code: "SEMANTIC_CONTRACT_BLOCKED",
+              message: "private-cell-error-sentinel",
+              retryable: false,
+              remediation: `${"remediation ".repeat(80)}\n\ttail`,
+            },
+          },
+        }),
+        takeRateLimit: async () => true,
+      }
+    );
+    const payload = (await response.json()) as {
+      result?: { content?: Array<{ text?: string }>; _meta?: { exomem?: Record<string, unknown> } };
+    };
+    const meta = payload.result?._meta?.exomem;
+    const forwarded = String(meta?.remediation);
+    assert.ok(forwarded.length <= 600, `remediation was ${forwarded.length} chars`);
+    assert.equal(/[\u0000-\u001F\u007F]/.test(forwarded), false);
+    assert.equal(JSON.stringify(payload).includes("private-cell-error-sentinel"), false);
+  });
+
   it("overlays the exact discovery order with read/write OAuth scopes", async () => {
     const response = await handleHostedMcpRequest(
       request({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
