@@ -34,14 +34,58 @@ let activeMcpCalls = 0;
 const activeMcpCallsByTenantClient = new Map<string, number>();
 const MAX_MCP_TENANT_CLIENT_CONCURRENCY = 4;
 const MCP_BODY_TIMEOUT_MS = 10_000;
+// Mirrors the hosted-safe strings the cell computes in `_hosted_refusal_guidance`
+// (exomem `server_hosted.py`). Substrate owns the headline text rather than
+// echoing the cell's so a cell cannot put arbitrary prose in front of a user.
+// Anything absent here still collapses to CELL_UNAVAILABLE, so a new cell code
+// degrades to "unavailable" rather than leaking an unreviewed string.
 const PRIVATE_ERROR_MESSAGES: Record<string, string> = {
   CELL_UNAVAILABLE: "your Exomem is temporarily unavailable",
   COMMAND_NOT_FOUND: "that Exomem action is not available",
   EXOMEM_ENTITLEMENT_DENIED: "your current Exomem access does not include this action",
   INVALID_REQUEST: "the request could not be accepted",
   RATE_LIMITED: "too many requests",
+  MAINTENANCE_REQUIRES_CLI:
+    "write-mode maintenance is unavailable through request-bound remote commands",
+  RECORD_RECOVERY_REQUIRED: "private transaction residue blocks safe record publication",
+  missing_semantic_unit: "the memory has no semantic unit to record",
+  empty_rich_unit: "the memory has a heading with no content under it",
+  SEMANTIC_CONTRACT_BLOCKED: "the memory does not yet meet the authoring contract",
+  RELATION_DISPOSITION_MISSING: "the memory needs a qualifying relation or an explicit review",
+  RELATION_DISPOSITION_STALE: "the memory's relation review is out of date",
+  UNRESOLVED_SOURCE_CITATION: "one or more explicit sources do not resolve to captured material",
 };
 const PRIVATE_REMEDIATIONS = new Set(["retry_later", "contact_support", "deletion_in_progress"]);
+
+// Authoring refusals are the caller's to fix, and the fix is specific enough that
+// an enumerated remediation cannot carry it — the cell names the exact fields to
+// re-issue. For these codes the cell's own remediation is forwarded, bounded and
+// stripped of control characters. MAINTENANCE_REQUIRES_CLI and
+// RECORD_RECOVERY_REQUIRED are deliberately excluded: their remediations direct a
+// host-side action that a hosted tenant cannot take, so forwarding them would
+// hand the user an instruction they cannot follow.
+const FORWARDED_REMEDIATION_CODES = new Set([
+  "missing_semantic_unit",
+  "empty_rich_unit",
+  "SEMANTIC_CONTRACT_BLOCKED",
+  "RELATION_DISPOSITION_MISSING",
+  "RELATION_DISPOSITION_STALE",
+  "UNRESOLVED_SOURCE_CITATION",
+]);
+const MAX_FORWARDED_REMEDIATION_CHARS = 600;
+
+function forwardedRemediation(code: string, value: unknown): string | undefined {
+  if (!FORWARDED_REMEDIATION_CODES.has(code) || typeof value !== "string") return undefined;
+  // eslint-disable-next-line no-control-regex
+  const cleaned = value
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned.length === 0) return undefined;
+  return cleaned.length > MAX_FORWARDED_REMEDIATION_CHARS
+    ? `${cleaned.slice(0, MAX_FORWARDED_REMEDIATION_CHARS - 1)}…`
+    : cleaned;
+}
 
 type JsonRecord = Record<string, unknown>;
 type McpTelemetryInput = {
@@ -1010,7 +1054,7 @@ export async function handleHostedMcpRequest(
             const remediation =
               typeof error.remediation === "string" && PRIVATE_REMEDIATIONS.has(error.remediation)
                 ? error.remediation
-                : undefined;
+                : forwardedRemediation(code, error.remediation);
             telemetry("failed", code, result.attempts && result.attempts > 1 ? "retried" : "none");
             return toolFailure(
               new ExomemHostedError({
