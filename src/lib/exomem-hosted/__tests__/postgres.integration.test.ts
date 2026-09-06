@@ -6566,6 +6566,47 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       assert.equal((await renewalsFor(seed.cellId)).length, 1);
     });
 
+    it("reports the renewal counts out of runBoundedLifecycleReconcile itself", async () => {
+      // The seam that actually broke. The counts were produced by the store and
+      // dropped by the reconcile loop, and nothing noticed: the cron route test
+      // mocks this module wholesale, and the tests above call the store directly,
+      // so deleting the three assignments passed all 1522 tests.
+      //
+      // Nothing here is claimable -- the sibling blocks it and its retry is in
+      // the future -- so the provisioner is never contacted and the endpoint
+      // below is never resolved.
+      const seed = await seedServingCell({ inflightState: "waiting" });
+      await pool.query(
+        `UPDATE exomem_lifecycle_operations SET next_attempt_at = now() + interval '1 hour'
+         WHERE cell_id = $1`,
+        [seed.cellId]
+      );
+      const restore: Array<[string, string | undefined]> = [
+        ["EXOMEM_PROVISIONER_ENDPOINT", process.env.EXOMEM_PROVISIONER_ENDPOINT],
+        ["EXOMEM_PROVISIONER_CREDENTIAL", process.env.EXOMEM_PROVISIONER_CREDENTIAL],
+        ["EXOMEM_CELL_PROTOCOL_VERSION", process.env.EXOMEM_CELL_PROTOCOL_VERSION],
+        ["EXOMEM_CELL_RELEASE_VERSION", process.env.EXOMEM_CELL_RELEASE_VERSION],
+      ];
+      process.env.EXOMEM_PROVISIONER_ENDPOINT = "https://provisioner.invalid";
+      process.env.EXOMEM_PROVISIONER_CREDENTIAL = "x".repeat(48);
+      process.env.EXOMEM_CELL_PROTOCOL_VERSION = "1";
+      process.env.EXOMEM_CELL_RELEASE_VERSION = "2026.09.06";
+      try {
+        const { runBoundedLifecycleReconcile } = await import("../reconcile-runtime");
+        const summary = await runBoundedLifecycleReconcile({ maxOperations: 2, timeBudgetMs: 2_000 });
+
+        assert.equal(summary.renewalsBlocked, 1);
+        assert.equal(summary.renewalsEnqueued, 0);
+        assert.equal(summary.renewalsFailed, 0);
+        assert.deepEqual(await renewalsFor(seed.cellId), []);
+      } finally {
+        for (const [name, value] of restore) {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
+      }
+    });
+
     it("refuses a renewal row that names no cell or claims the v1 wire", async () => {
       const seed = await seedServingCell();
       await assert.rejects(

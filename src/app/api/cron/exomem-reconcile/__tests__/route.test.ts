@@ -106,6 +106,12 @@ describe("GET /api/cron/exomem-reconcile", () => {
       // production consumer. A cell that misses its attestation window cannot be
       // recovered, and these are the sole signal that one is failing to renew,
       // so they have to leave the process.
+      //
+      // This pins the route's mapping from summary to JSON and NOTHING ELSE. The
+      // file mocks `reconcile-runtime` wholesale, so the assignment that fills
+      // these fields is mocked straight past: deleting it passes every test here.
+      // The store-to-summary seam is covered in postgres.integration.test.ts,
+      // "reports the renewal counts out of runBoundedLifecycleReconcile itself".
       renewalsEnqueued: 2,
       renewalsBlocked: 1,
       renewalsFailed: 3,
