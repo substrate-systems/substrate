@@ -22,6 +22,9 @@ before(() => {
           succeeded: 0,
           retryScheduled: 1,
           terminal: 0,
+          renewalsEnqueued: 2,
+          renewalsBlocked: 1,
+          renewalsFailed: 3,
           code: SENTINEL,
         };
       },
@@ -99,6 +102,13 @@ describe("GET /api/cron/exomem-reconcile", () => {
       succeeded: 0,
       retryScheduled: 1,
       terminal: 0,
+      // The sweep's counts were produced and then discarded by this, their only
+      // production consumer. A cell that misses its attestation window cannot be
+      // recovered, and these are the sole signal that one is failing to renew,
+      // so they have to leave the process.
+      renewalsEnqueued: 2,
+      renewalsBlocked: 1,
+      renewalsFailed: 3,
       paddle: {
         configured: true,
         attempted: 3,
@@ -148,3 +158,4 @@ describe("GET /api/cron/exomem-reconcile", () => {
     });
   });
 });
+

@@ -2823,7 +2823,13 @@ export class SqlLifecycleStore implements LifecycleStore {
    * the schema and unservable by the provisioner.
    *
    * The in-flight predicate is `state NOT IN ('succeeded','failed_terminal')`
-   * and must stay identical to `claim`'s blocker predicate. Anything narrower
+   * and must stay identical to `claim`'s blocker predicate. It is deliberately
+   * broader in one respect: `claim` ignores a sibling whose fence generation no
+   * longer matches the tenant's, and this does not. Nothing reaches that
+   * divergence today, because every fence bump either marks the tenant deleted
+   * or terminals the stale operations in the same statement -- but a future one
+   * that forgets would silently stop renewing that tenant, so the guard stays
+   * conservative rather than clever. Anything narrower
    * -- `IN ('pending','running')`, say -- raises renewals `claim` will never
    * hand out, because `advance` parks every multi-step operation in `waiting`
    * between checkpoints and `waiting` blocks a sibling. The renewal then sits
@@ -2838,10 +2844,14 @@ export class SqlLifecycleStore implements LifecycleStore {
     const bounded = Math.min(50, Math.max(1, Math.floor(limit)));
     const ageSeconds = Math.min(3_000, Math.max(60, Math.floor(renewAfterMs / 1000)));
     const bucket = Math.min(3_000, Math.max(1, Math.floor(bucketSeconds)));
-    // A cell that is due but blocked by a sibling operation is the dangerous
+    // A cell that is due but blocked by an UNRELATED sibling is the dangerous
     // case: nothing is wrong with the cell, nothing will be enqueued, and it
     // lapses anyway if the sibling outlives the margin. Count it so the
     // condition is observable rather than silent.
+    //
+    // A cell's own in-flight renewal is also a non-terminal sibling, and that is
+    // ordinary operation rather than risk -- counting it would fire the signal
+    // on every tick of a healthy fleet, which is the same as having no signal.
     const { rows: blockedRows } = await executeExomemSql`
       /* exomem:lifecycle-blocked-authorization-renewals */
       SELECT count(*)::int AS blocked
@@ -2856,6 +2866,7 @@ export class SqlLifecycleStore implements LifecycleStore {
           SELECT 1 FROM exomem_lifecycle_operations AS inflight
           WHERE inflight.tenant_id = cell.tenant_id
             AND inflight.state NOT IN ('succeeded', 'failed_terminal')
+            AND inflight.operation_type <> 'renew_authorization'
         )
     `;
     const { rows } = await executeExomemSql`

@@ -38,6 +38,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           succeeded: result.succeeded,
           retryScheduled: result.retryScheduled,
           terminal: result.terminal,
+          renewalsEnqueued: result.renewalsEnqueued,
+          renewalsBlocked: result.renewalsBlocked,
+          renewalsFailed: result.renewalsFailed,
           paddle: {
             configured: paddle.configured,
             attempted: paddle.attempted,

@@ -6433,15 +6433,30 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         blocked: 0,
         failed: 0,
       });
-      // The renewal it just raised is itself in flight, so the cell is now
-      // reported blocked rather than silently absent.
+      // Its own renewal is in flight, which is ordinary operation rather than
+      // risk. Counting that as blocked would fire the signal on every tick of a
+      // healthy fleet, which is the same as having no signal at all.
       assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), {
         enqueued: 0,
-        blocked: 1,
+        blocked: 0,
         failed: 0,
       });
 
       assert.equal((await renewalsFor(seed.cellId)).length, 1);
+    });
+
+    it("counts a cell held off by an unrelated operation as blocked", async () => {
+      // The dangerous case: nothing is wrong with the cell, nothing will be
+      // enqueued, and it lapses anyway if the sibling outlives the margin. It is
+      // silent otherwise, so it is the one thing this count exists to surface.
+      const seed = await seedServingCell({ inflightState: "waiting" });
+
+      assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(), {
+        enqueued: 0,
+        blocked: 1,
+        failed: 0,
+      });
+      assert.deepEqual(await renewalsFor(seed.cellId), []);
     });
 
     it("re-enqueues on the next tick after a renewal failed terminally", async () => {

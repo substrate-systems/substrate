@@ -27,6 +27,20 @@ export type ReconcileSummary = {
   succeeded: number;
   retryScheduled: number;
   terminal: number;
+  /**
+   * Authorization renewals raised this tick, and the two ways a due cell can
+   * fail to get one.
+   *
+   * `renewalsBlocked` counts cells held off by an unrelated sibling operation
+   * and `renewalsFailed` counts enqueues that threw -- typically a cell whose
+   * contract target cannot be resolved, since the schema refuses a v2 operation
+   * without one. Both are silent otherwise, and a cell that misses its window
+   * cannot be recovered, so they are carried out to the cron response rather
+   * than discarded here.
+   */
+  renewalsEnqueued: number;
+  renewalsBlocked: number;
+  renewalsFailed: number;
 };
 
 export async function runBoundedLifecycleReconcile(
@@ -47,12 +61,24 @@ export async function runBoundedLifecycleReconcile(
     succeeded: 0,
     retryScheduled: 0,
     terminal: 0,
+    renewalsEnqueued: 0,
+    renewalsBlocked: 0,
+    renewalsFailed: 0,
   };
   await expireCanaryAuthority(Math.min(maxOperations, 20));
   // Enqueue before draining the queue, so a renewal raised this tick is driven
   // this tick. The attestation window is one hour and a cell that outlives it
   // cannot be recovered, so latency here is not merely untidy.
-  await store.enqueueDueAuthorizationRenewals(Math.min(maxOperations, 5));
+  //
+  // The per-tick share bounds the fleet this sweep can keep alive: a 20-minute
+  // margin at a one-minute cadence is 20 ticks x 5 cells = 100, assuming each
+  // renewal completes in the tick that raised it. Far above alpha scale, but it
+  // is a ceiling on an unrecoverable failure, so it is written down here rather
+  // than rediscovered by whoever grows the fleet past it.
+  const renewals = await store.enqueueDueAuthorizationRenewals(Math.min(maxOperations, 5));
+  summary.renewalsEnqueued = renewals.enqueued;
+  summary.renewalsBlocked = renewals.blocked;
+  summary.renewalsFailed = renewals.failed;
   for (let index = 0; index < maxOperations; index += 1) {
     if (Date.now() - startedAt >= timeBudgetMs) break;
     const result = await reconciler.reconcileOne({
