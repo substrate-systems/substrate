@@ -82,7 +82,9 @@ export async function runMarketplacePreflight({
   const mcpPath = "/api/exomem/mcp/v1";
   const mcpUrl = new URL(mcpPath, base).toString();
   const mcp = await request(fetch, mcpUrl, timeoutMs, { method: "POST" });
-  const expectedChallenge = `Bearer resource_metadata="${base.origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`;
+  const expectedChallenge =
+    `Bearer resource_metadata="${base.origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", ` +
+    `scope="exomem.read exomem.write offline_access"`;
   if (mcp.status !== 401 || mcp.headers.get("www-authenticate") !== expectedChallenge) {
     throw new Error(`MCP_AUTH_CHALLENGE:${mcp.status}`);
   }
@@ -220,7 +222,11 @@ function verifyPublicContract(
       metadata.authorization_servers.length !== 1 ||
       metadata.authorization_servers[0] !== `${origin}/api/exomem/oauth` ||
       !exactStringArray(metadata.bearer_methods_supported, ["header"]) ||
-      !exactStringArray(metadata.scopes_supported, ["exomem.read", "exomem.write"])
+      !exactStringArray(metadata.scopes_supported, [
+        "exomem.read",
+        "exomem.write",
+        "offline_access",
+      ])
     ) {
       throw new Error("PROTECTED_RESOURCE_METADATA_MISMATCH");
     }

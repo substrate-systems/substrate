@@ -28,7 +28,7 @@ describe("Exomem Hosted OAuth protocol", () => {
       resource,
       authorization_servers: [`${baseUrl}/api/exomem/oauth`],
       bearer_methods_supported: ["header"],
-      scopes_supported: ["exomem.read", "exomem.write"],
+      scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
     });
     assert.deepEqual(buildAuthorizationServerMetadata(baseUrl), {
       issuer: `${baseUrl}/api/exomem/oauth`,
@@ -44,7 +44,59 @@ describe("Exomem Hosted OAuth protocol", () => {
     });
     assert.equal(
       bearerChallenge(baseUrl),
-      `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`
+      `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", ` +
+        `scope="exomem.read exomem.write offline_access"`
+    );
+  });
+
+  // The three surfaces a client can read a scope list from must agree. They did
+  // not: the resource document omitted `offline_access` while the authorization
+  // server advertised it, and because `refresh_allowed` is derived from the
+  // requested scope, that disagreement decided which connectors survived past
+  // their fifteen-minute access token. A client is entitled to build its
+  // authorize request from any one of them and get a working grant.
+  it("advertises the same scopes on the resource, the server and the challenge", () => {
+    const expected = ["exomem.read", "exomem.write", "offline_access"];
+    const resourceScopes = (
+      buildProtectedResourceMetadata(baseUrl) as { scopes_supported: string[] }
+    ).scopes_supported;
+    const serverScopes = (
+      buildAuthorizationServerMetadata(baseUrl) as { scopes_supported: string[] }
+    ).scopes_supported;
+    const challengeScopes = /scope="([^"]+)"/.exec(bearerChallenge(baseUrl))?.[1].split(" ");
+
+    assert.deepEqual(resourceScopes, expected);
+    assert.deepEqual(serverScopes, expected);
+    assert.deepEqual(challengeScopes, expected);
+    assert.ok(
+      resourceScopes.includes("offline_access"),
+      "a client that reads only the resource document must still learn it may ask for a refresh token"
+    );
+  });
+
+  // Guards the derivation, not the constant: a grant is only refreshable when
+  // the client asked for `offline_access`, so advertising it and honouring it
+  // have to stay two halves of one decision.
+  it("derives refresh eligibility from the advertised offline_access scope", () => {
+    const request = {
+      client,
+      redirectUri: client.redirectUris[0],
+      resource,
+      requestedResource: resource,
+      state: "state-value",
+      codeChallenge: pkceS256("v".repeat(64)),
+      codeChallengeMethod: "S256" as const,
+    };
+    assert.equal(
+      validateAuthorizationRequest({ ...request, scope: "exomem.read exomem.write offline_access" })
+        .offlineAccess,
+      true
+    );
+    // Exactly what the ChatGPT connector sent when the resource document
+    // listed only two scopes, down to the order.
+    assert.equal(
+      validateAuthorizationRequest({ ...request, scope: "exomem.write exomem.read" }).offlineAccess,
+      false
     );
   });
 
