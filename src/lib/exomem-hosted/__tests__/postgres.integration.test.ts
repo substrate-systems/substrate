@@ -6231,7 +6231,13 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         tenantStatus?: string;
         lifecycleState?: string;
         desiredState?: string;
-        inflightState?: "pending" | "running" | "succeeded" | "failed_terminal";
+        inflightState?:
+          | "pending"
+          | "running"
+          | "waiting"
+          | "failed_retryable"
+          | "succeeded"
+          | "failed_terminal";
         fenceGeneration?: number;
       } = {}
     ) {
@@ -6342,6 +6348,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
       assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(), {
         enqueued: 1,
+        blocked: 0,
+        failed: 0,
       });
 
       const renewals = await renewalsFor(seed.cellId);
@@ -6370,15 +6378,21 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       { name: "a deleted tenant's cell", seed: { tenantStatus: "deleted" } },
       { name: "a cell with an operation pending", seed: { inflightState: "pending" } },
       { name: "a cell with an operation running", seed: { inflightState: "running" } },
+      // `waiting` is where `advance` parks every multi-step operation between
+      // checkpoints, and `failed_retryable` is still owed a run. `claim` refuses
+      // a sibling in either, so raising a renewal against one produces work that
+      // can never be handed out -- and which then suppresses every later tick.
+      { name: "a cell with an operation waiting between checkpoints", seed: { inflightState: "waiting" } },
+      { name: "a cell with an operation awaiting retry", seed: { inflightState: "failed_retryable" } },
     ];
 
     for (const skip of skipped) {
       it(`leaves ${skip.name} alone`, async () => {
         const seed = await seedServingCell(skip.seed);
 
-        assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(), {
-          enqueued: 0,
-        });
+        const swept = await new SqlLifecycleStore().enqueueDueAuthorizationRenewals();
+        assert.equal(swept.enqueued, 0);
+        assert.equal(swept.failed, 0);
         assert.deepEqual(await renewalsFor(seed.cellId), []);
       });
     }
@@ -6388,6 +6402,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
       assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(), {
         enqueued: 1,
+        blocked: 0,
+        failed: 0,
       });
       assert.equal((await renewalsFor(seed.cellId)).length, 1);
     });
@@ -6399,6 +6415,8 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
       assert.deepEqual(await new SqlLifecycleStore().enqueueDueAuthorizationRenewals(2), {
         enqueued: 2,
+        blocked: 0,
+        failed: 0,
       });
 
       assert.equal((await renewalsFor(oldest.cellId)).length, 1);
@@ -6410,8 +6428,18 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       const seed = await seedServingCell();
       const store = new SqlLifecycleStore();
 
-      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 1 });
-      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 0 });
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), {
+        enqueued: 1,
+        blocked: 0,
+        failed: 0,
+      });
+      // The renewal it just raised is itself in flight, so the cell is now
+      // reported blocked rather than silently absent.
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), {
+        enqueued: 0,
+        blocked: 1,
+        failed: 0,
+      });
 
       assert.equal((await renewalsFor(seed.cellId)).length, 1);
     });
@@ -6419,7 +6447,11 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     it("re-enqueues on the next tick after a renewal failed terminally", async () => {
       const seed = await seedServingCell();
       const store = new SqlLifecycleStore();
-      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 1 });
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), {
+        enqueued: 1,
+        blocked: 0,
+        failed: 0,
+      });
       await pool.query(
         `UPDATE exomem_lifecycle_operations SET state = 'failed_terminal'
          WHERE cell_id = $1 AND operation_type = 'renew_authorization'`,
@@ -6430,7 +6462,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       // interval. Bucketing on the interval would leave a terminally failed
       // renewal unretried for most of the window it exists to protect.
       const nextTick = await store.enqueueDueAuthorizationRenewals(5, 40 * 60 * 1000, 1);
-      assert.deepEqual(nextTick, { enqueued: 1 });
+      assert.deepEqual(nextTick, { enqueued: 1, blocked: 0, failed: 0 });
 
       const renewals = await renewalsFor(seed.cellId);
       assert.equal(renewals.length, 2);
@@ -6511,7 +6543,11 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         [operation.rows[0]!.id]
       );
 
-      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), { enqueued: 0 });
+      assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), {
+        enqueued: 0,
+        blocked: 0,
+        failed: 0,
+      });
       assert.equal((await renewalsFor(seed.cellId)).length, 1);
     });
 

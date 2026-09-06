@@ -2821,15 +2821,43 @@ export class SqlLifecycleStore implements LifecycleStore {
    * ordinary `enqueue`. A bulk INSERT would have to restate how an operation
    * acquires its contract target, and a v2 operation without one is refused by
    * the schema and unservable by the provisioner.
+   *
+   * The in-flight predicate is `state NOT IN ('succeeded','failed_terminal')`
+   * and must stay identical to `claim`'s blocker predicate. Anything narrower
+   * -- `IN ('pending','running')`, say -- raises renewals `claim` will never
+   * hand out, because `advance` parks every multi-step operation in `waiting`
+   * between checkpoints and `waiting` blocks a sibling. The renewal then sits
+   * `pending` forever AND suppresses the next tick's selection, so a cell in
+   * the middle of an unrelated rotation silently loses its window.
    */
   async enqueueDueAuthorizationRenewals(
     limit = 5,
     renewAfterMs = 40 * 60 * 1000,
     bucketSeconds = 60
-  ): Promise<{ enqueued: number }> {
+  ): Promise<{ enqueued: number; blocked: number; failed: number }> {
     const bounded = Math.min(50, Math.max(1, Math.floor(limit)));
     const ageSeconds = Math.min(3_000, Math.max(60, Math.floor(renewAfterMs / 1000)));
     const bucket = Math.min(3_000, Math.max(1, Math.floor(bucketSeconds)));
+    // A cell that is due but blocked by a sibling operation is the dangerous
+    // case: nothing is wrong with the cell, nothing will be enqueued, and it
+    // lapses anyway if the sibling outlives the margin. Count it so the
+    // condition is observable rather than silent.
+    const { rows: blockedRows } = await executeExomemSql`
+      /* exomem:lifecycle-blocked-authorization-renewals */
+      SELECT count(*)::int AS blocked
+      FROM exomem_cells AS cell
+      JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+      WHERE cell.lifecycle_state = 'active'
+        AND cell.desired_state = 'running'
+        AND tenant.status <> 'deleted'
+        AND cell.authorization_renewed_at
+              < now() - make_interval(secs => ${ageSeconds}::double precision)
+        AND EXISTS (
+          SELECT 1 FROM exomem_lifecycle_operations AS inflight
+          WHERE inflight.tenant_id = cell.tenant_id
+            AND inflight.state NOT IN ('succeeded', 'failed_terminal')
+        )
+    `;
     const { rows } = await executeExomemSql`
       /* exomem:lifecycle-due-authorization-renewals */
       SELECT cell.id::text AS cell_id,
@@ -2844,13 +2872,14 @@ export class SqlLifecycleStore implements LifecycleStore {
               < now() - make_interval(secs => ${ageSeconds}::double precision)
         AND NOT EXISTS (
           SELECT 1 FROM exomem_lifecycle_operations AS inflight
-          WHERE inflight.cell_id = cell.id
-            AND inflight.state IN ('pending', 'running')
+          WHERE inflight.tenant_id = cell.tenant_id
+            AND inflight.state NOT IN ('succeeded', 'failed_terminal')
         )
       ORDER BY cell.authorization_renewed_at
       LIMIT ${bounded}
     `;
     let enqueued = 0;
+    let failed = 0;
     for (const row of rows as Array<Record<string, unknown>>) {
       const cellId = String(row.cell_id);
       const tenantId = String(row.tenant_id);
@@ -2863,13 +2892,17 @@ export class SqlLifecycleStore implements LifecycleStore {
         );
         enqueued += 1;
       } catch {
-        // A concurrent tick that already raised this cell's renewal, or a
-        // tenant that moved out from under the selection. Never log the caught
-        // object: a provisioner cause can ride along on it. The next tick
-        // reselects the cell, so losing one here costs a minute, not a window.
+        // A concurrent tick that already raised this cell's renewal, or a cell
+        // whose contract target cannot be resolved -- the schema refuses a v2
+        // operation without one, so `enqueue` throws. Never log the caught
+        // object: a provisioner cause can ride along on it. Count it instead:
+        // this is the most consequential failure the system has, and swallowing
+        // it silently every minute until the cell lapses is how it stays
+        // invisible.
+        failed += 1;
       }
     }
-    return { enqueued };
+    return { enqueued, blocked: Number(blockedRows[0]?.blocked ?? 0), failed };
   }
 
   async markAuthorizationRenewed(operationId: string, owner: string): Promise<boolean> {

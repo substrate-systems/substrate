@@ -6,12 +6,27 @@
 -- minting is fenced off for a cell that has served and the drain that would
 -- renew it needs a runtime attestation an expired cell can no longer sign.
 --
--- Existing rows default to now() rather than to their creation time. A cell
--- provisioned before this migration has already lapsed and cannot be renewed,
--- so dating it truthfully would make the sweep attempt a renewal that must
--- fail; treating it as fresh lets it fall out of the fleet on its own terms.
+-- The column defaults to now() so the ALTER takes the fast-default path and
+-- never rewrites the table.
+--
+-- now() is the right value only for a cell that has ALREADY lapsed: dating
+-- those truthfully would make the sweep attempt a renewal that must fail, and
+-- because a failed renewal never advances this column they would sit at the
+-- head of the sweep's ORDER BY forever, starving cells that can still be saved.
+--
+-- It is the wrong value for a cell provisioned less than an hour ago, and
+-- silently fatal for one provisioned 21 to 59 minutes ago: its window closes at
+-- provision + 60, but now() moves its first renewal to migration + 40, which is
+-- later. Those cells are alive and savable, and stamping them fresh kills them.
+-- Backfill from created_at, which errs toward renewing earlier -- the safe
+-- direction on a deadline that cannot be recovered.
 ALTER TABLE exomem_cells
     ADD COLUMN IF NOT EXISTS authorization_renewed_at timestamptz NOT NULL DEFAULT now();
+
+UPDATE exomem_cells
+   SET authorization_renewed_at = created_at
+ WHERE created_at > now() - interval '1 hour'
+   AND authorization_renewed_at > created_at;
 
 -- The sweep orders by this column and takes a bounded batch, so it reads a
 -- narrow index rather than the whole table. Only a cell that is actually
@@ -48,7 +63,12 @@ ALTER TABLE exomem_lifecycle_operations
 -- At most one renewal in flight per cell. The sweep runs every minute and a
 -- renewal takes seconds, so without this a slow provisioner would queue a
 -- backlog that all fires at once.
+--
+-- "In flight" means every state that is not terminal, not just pending and
+-- running. A renewal advances to `waiting` between its two checkpoints, so a
+-- narrower predicate leaves it invisible in exactly the gap where a second one
+-- would be raised, and `failed_retryable` is still owed a run.
 CREATE UNIQUE INDEX IF NOT EXISTS exomem_lifecycle_one_renewal_per_cell_idx
   ON exomem_lifecycle_operations (cell_id)
   WHERE operation_type = 'renew_authorization'
-    AND state IN ('pending', 'running');
+    AND state NOT IN ('succeeded', 'failed_terminal');
