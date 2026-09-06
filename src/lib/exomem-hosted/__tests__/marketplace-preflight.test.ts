@@ -28,7 +28,7 @@ const protectedMetadata = () =>
     resource: `${origin}/api/exomem/mcp/v1`,
     authorization_servers: [`${origin}/api/exomem/oauth`],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["exomem.read", "exomem.write"],
+    scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
   });
 const authorizationMetadata = () =>
   json({
@@ -119,7 +119,7 @@ describe("Exomem marketplace preflight", () => {
           return new Response(null, {
             status: 401,
             headers: {
-              "www-authenticate": `Bearer resource_metadata=\"${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1\"`,
+              "www-authenticate": `Bearer resource_metadata=\"${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1\", scope=\"exomem.read exomem.write offline_access\"`,
             },
           });
         }
@@ -213,7 +213,7 @@ describe("Exomem marketplace preflight", () => {
             return new Response(null, {
               status: 401,
               headers: {
-                "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`,
+                "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", scope="exomem.read exomem.write offline_access"`,
               },
             });
           }
@@ -245,7 +245,7 @@ describe("Exomem marketplace preflight", () => {
           return new Response(null, {
             status: 401,
             headers: {
-              "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`,
+              "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", scope="exomem.read exomem.write offline_access"`,
             },
           });
         }
@@ -310,7 +310,7 @@ describe("Exomem marketplace preflight", () => {
               : new Response(null, {
                   status: 401,
                   headers: {
-                    "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`,
+                    "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", scope="exomem.read exomem.write offline_access"`,
                   },
                 });
           }
@@ -374,7 +374,7 @@ describe("Exomem marketplace preflight", () => {
               : new Response(null, {
                   status: 401,
                   headers: {
-                    "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`,
+                    "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", scope="exomem.read exomem.write offline_access"`,
                   },
                 });
           }
@@ -578,7 +578,7 @@ describe("Exomem marketplace preflight", () => {
               : new Response(null, {
                   status: 401,
                   headers: {
-                    "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1"`,
+                    "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", scope="exomem.read exomem.write offline_access"`,
                   },
                 });
           }

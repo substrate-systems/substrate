@@ -13,7 +13,14 @@ const OAUTH_PATH = "/api/exomem/oauth";
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 const PKCE_VALUE = /^[A-Za-z0-9_-]{43,128}$/;
-const SUPPORTED_SCOPES = new Set(["exomem.read", "exomem.write", "offline_access"]);
+// One list, three places. The authorization-server document, the
+// protected-resource document and the bearer challenge each tell a client what
+// it may ask for, and they drifted: the resource document listed only the two
+// exomem scopes while the authorization server listed `offline_access` too.
+// `refresh_allowed` is derived from the scope the client actually requests, so
+// that omission decided, silently, which clients got a refresh token.
+const ADVERTISED_SCOPES = ["exomem.read", "exomem.write", "offline_access"] as const;
+const SUPPORTED_SCOPES = new Set<string>(ADVERTISED_SCOPES);
 
 export type OAuthClient = {
   clientId: string;
@@ -104,13 +111,21 @@ function paths(baseUrl: string): { issuer: string; resource: string } {
   return { issuer: `${origin}${OAUTH_PATH}`, resource: `${origin}${MCP_PATH}` };
 }
 
+// An MCP client discovers the resource before the authorization server, and
+// builds its authorize request from what it finds here (RFC 9728). A client
+// that never sees `offline_access` never asks for it, and never gets a refresh
+// token. That is not hypothetical: on 2026-09-06 the ChatGPT connector
+// authorized with exactly `exomem.write exomem.read` -- this document's list,
+// reordered -- and was dead fifteen minutes later when its access token
+// expired, while claude.ai (which requests `offline_access` regardless of what
+// the resource advertises) refreshed for hours against the same cell.
 export function buildProtectedResourceMetadata(baseUrl: string): Record<string, unknown> {
   const { issuer, resource } = paths(baseUrl);
   return {
     resource,
     authorization_servers: [issuer],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["exomem.read", "exomem.write"],
+    scopes_supported: [...ADVERTISED_SCOPES],
   };
 }
 
@@ -126,7 +141,7 @@ export function buildAuthorizationServerMetadata(baseUrl: string): Record<string
     code_challenge_methods_supported: ["S256"],
     client_id_metadata_document_supported: true,
     token_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
+    scopes_supported: [...ADVERTISED_SCOPES],
   };
 }
 
@@ -134,8 +149,16 @@ export function protectedResourceMetadataUrl(baseUrl: string): string {
   return `${parseExomemPublicBaseUrl(baseUrl)}/.well-known/oauth-protected-resource/api/exomem/mcp/v1`;
 }
 
+// The MCP authorization spec says a server SHOULD name the scopes it wants in
+// the challenge (RFC 6750 section 3). This is the earliest a client can learn
+// them -- it rides the 401 that starts the flow, before any metadata fetch --
+// so a client that honours it asks for `offline_access` on its first authorize
+// instead of finding out when its access token expires.
 export function bearerChallenge(baseUrl: string): string {
-  return `Bearer resource_metadata="${protectedResourceMetadataUrl(baseUrl)}"`;
+  return (
+    `Bearer resource_metadata="${protectedResourceMetadataUrl(baseUrl)}", ` +
+    `scope="${ADVERTISED_SCOPES.join(" ")}"`
+  );
 }
 
 export function mcpAuthenticateMeta(baseUrl: string): { "mcp/www_authenticate": string[] } {

@@ -23,7 +23,7 @@ describe("Exomem OAuth metadata routes", () => {
       resource: "https://hosted.example.test/api/exomem/mcp/v1",
       authorization_servers: ["https://hosted.example.test/api/exomem/oauth"],
       bearer_methods_supported: ["header"],
-      scopes_supported: ["exomem.read", "exomem.write"],
+      scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
     });
   });
 
