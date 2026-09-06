@@ -175,6 +175,7 @@ export interface CellProvisioner {
   health(request: CellTargetRequest): Promise<CellReadiness>;
   rotateCredential(request: RotateCredentialRequest): Promise<CredentialRotationResult>;
   quiesce(request: CellTargetRequest): Promise<void>;
+  renewAuthorization(request: CellTargetRequest): Promise<void>;
   resume(request: CellTargetRequest): Promise<void>;
   stop(request: CellTargetRequest): Promise<void>;
   export(request: CreateExportRequest): Promise<ExportRequestResult>;
@@ -831,6 +832,19 @@ export class HttpCellProvisioner implements CellProvisioner {
     await this.#call("quiesce", request, targetBody(request));
   }
 
+  /**
+   * Move the cell's attestation window forward while it is still in date.
+   *
+   * The window is one hour and nothing renewed it, so a cell stopped admitting
+   * mutations an hour after it was provisioned while continuing to serve reads
+   * normally. Once lapsed it cannot recover: minting is fenced off for a cell
+   * that has served, and the drain that would renew it needs a runtime
+   * attestation the expired cell can no longer sign.
+   */
+  async renewAuthorization(request: CellTargetRequest): Promise<void> {
+    await this.#call("renew-authorization", request, targetBody(request));
+  }
+
   async resume(request: CellTargetRequest): Promise<void> {
     await this.#call("resume", request, targetBody(request));
   }
@@ -1057,6 +1071,7 @@ type ProvisionerAction =
   | "health"
   | "rotate-credential"
   | "quiesce"
+  | "renew-authorization"
   | "resume"
   | "stop"
   | "export"
@@ -1356,6 +1371,16 @@ export class FakeCellProvisioner implements CellProvisioner {
     if (this.#results.has(key)) return;
     this.#resource(request).state = "quiesced";
     this.#after("quiesce", key, true);
+  }
+
+  async renewAuthorization(request: CellTargetRequest): Promise<void> {
+    const key = this.#before("renew-authorization", request, {
+      providerRef: request.providerRef,
+    });
+    if (this.#results.has(key)) return;
+    // Renewal deliberately leaves the cell serving: it moves the attestation
+    // window, it does not drain, close routes, or restart anything.
+    this.#after("renew-authorization", key, true);
   }
 
   async resume(request: CellTargetRequest): Promise<void> {
