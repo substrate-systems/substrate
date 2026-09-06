@@ -13,14 +13,14 @@ import {
 // test that borrowed it could not detect the pin drifting. These values are the
 // ten-field output of Exomem's `hosted_image_candidate.py verify` for v0.73.1.
 const target = {
-  releaseVersion: "0.72.1",
-  sourceCommit: "9720ccdfcc3e5e77ea47c56ddbddc53d75de40aa",
+  releaseVersion: "0.73.1",
+  sourceCommit: "956dcdbef56a62a697756c0369f5580a91ced35a",
   runtimeImage:
-    "ghcr.io/artexis10/exomem@sha256:aa61a1cd1f70308c1b702384ebc98e1bb5e3e70b511ef9403446ed47f7a5148c",
-  runtimeCandidateSha256: "642c8efa4539d1bcc370e60d6f1f461a216301417b34df0816a0481d223a8e47",
+    "ghcr.io/artexis10/exomem@sha256:fb6ebd669aa60832ddb135948b58762975639bfc7a642274c722848ae576c430",
+  runtimeCandidateSha256: "baf3465501de5d5221d64396d5626a0dba05bdbc491e98a65d10173c32609e8e",
   protocolVersion: "1",
   agentProfile: "hosted-alpha-agent-v4",
-  gatewayContractDigest: "a04bfa469343ec5ef5386d1921b9b3516ddf9a3c62c8b540e7d8110afa96a1b7",
+  gatewayContractDigest: "402284f29ec84b9a956a1c2f796e152e621c897f2bcd09e96e21ff84abf5091a",
   commandFingerprint: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
   schemaDigest: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
   compatibilityDigest: "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",

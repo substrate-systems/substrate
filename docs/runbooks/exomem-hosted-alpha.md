@@ -24,7 +24,7 @@ invitations require checkout before provisioning. Every route does require:
 1. migrations `0017` through `0051_exomem_oauth_operator_client_bound.sql` applied to the production Neon database;
 2. the immutable Exomem `0.73.1` cell image from commit
    `956dcdbef56a62a697756c0369f5580a91ced35a`, pinned as
-   `ghcr.io/artexis10/exomem@sha256:aa61a1cd1f70308c1b702384ebc98e1bb5e3e70b511ef9403446ed47f7a5148c`,
+   `ghcr.io/artexis10/exomem@sha256:fb6ebd669aa60832ddb135948b58762975639bfc7a642274c722848ae576c430`,
    exposing private protocol `1` and `hosted-alpha-agent-v4`;
 3. a provisioner endpoint with persistent, tenant-isolated volumes and encrypted
    export storage;
@@ -435,9 +435,9 @@ OpenAI archive `d04b967013e61336ecd724d5d5acecea7a56a306256c6f387baa22d62db7adc0
 registered app `b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46`,
 and private gateway `402284f29ec84b9a956a1c2f796e152e621c897f2bcd09e96e21ff84abf5091a`.
 The immutable runtime candidate is SHA-256
-`642c8efa4539d1bcc370e60d6f1f461a216301417b34df0816a0481d223a8e47`
+`baf3465501de5d5221d64396d5626a0dba05bdbc491e98a65d10173c32609e8e`
 and the image digest is
-`sha256:aa61a1cd1f70308c1b702384ebc98e1bb5e3e70b511ef9403446ed47f7a5148c`.
+`sha256:fb6ebd669aa60832ddb135948b58762975639bfc7a642274c722848ae576c430`.
 Verify both release Sigstore attestations before any cell rollforward.
 From a clean checkout at that exact commit, project both artifacts together:
 
