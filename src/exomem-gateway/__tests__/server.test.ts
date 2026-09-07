@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { describe, it } from "node:test";
+import { setOperationalEventSinkForTests } from "../../lib/exomem-hosted/observability";
 import { createGatewayServer, drainGatewayServer, validateGatewayEnvironment } from "../server";
 
 async function listen(server: ReturnType<typeof createServer>): Promise<string> {
@@ -62,6 +63,36 @@ describe("standalone Exomem gateway adapter", () => {
       assert.equal(response.headers.get("x-vercel-enable-rewrite-caching"), "0");
       assert.equal((await fetch(`${baseUrl}/api/exomem/admin`)).status, 404);
     } finally {
+      server.close();
+      await once(server, "close");
+    }
+  });
+
+  it("preserves the MCP operational-event sink for unauthenticated denials", async () => {
+    const lines: string[] = [];
+    const previousControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+    process.env.EXOMEM_CONTROL_PLANE_KEY = "a".repeat(43);
+    setOperationalEventSinkForTests((line) => lines.push(line));
+    const server = createGatewayServer();
+    const baseUrl = await listen(server);
+    try {
+      const response = await fetch(`${baseUrl}/api/exomem/mcp/v1`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+      assert.equal(response.status, 401);
+      assert.equal(lines.length, 1);
+      const event = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
+      assert.equal(event.event, "mcp.request");
+      assert.equal(event.outcome, "denied");
+      assert.equal(event.errorCode, "ACCESS_TOKEN_INVALID");
+      assert.equal(event.requestClass, "request");
+      assert.equal(event.retryBucket, "none");
+    } finally {
+      if (previousControlPlaneKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousControlPlaneKey;
+      setOperationalEventSinkForTests(null);
       server.close();
       await once(server, "close");
     }

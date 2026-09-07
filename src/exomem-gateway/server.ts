@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { handleHostedMcpRequest } from "../lib/exomem-hosted/mcp";
+import { emitOperationalEvent } from "../lib/exomem-hosted/observability";
 
 const MCP_PATH = "/api/exomem/mcp/v1";
 const CACHE_HEADERS = {
@@ -95,7 +96,9 @@ async function writeResponse(response: Response, target: ServerResponse): Promis
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}): Server {
-  const handleMcp = options.handleMcp ?? handleHostedMcpRequest;
+  const handleMcp =
+    options.handleMcp ??
+    ((request) => handleHostedMcpRequest(request, { telemetry: emitOperationalEvent }));
   const maxInflight = options.maxInflight ?? Number(process.env.EXOMEM_GATEWAY_MAX_INFLIGHT ?? 16);
   if (!Number.isInteger(maxInflight) || maxInflight < 1 || maxInflight > 128) {
     throw new Error("EXOMEM_GATEWAY_MAX_INFLIGHT must be an integer from 1 to 128");
