@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   attachOpenAiContractLocks,
+  activateExomemHostedRuntime,
+  certifyExomemHostedClientArtifact,
   demoteExomemAgentContractCandidate,
   getLiveExomemHostedCohortCandidateId,
   listExomemAgentContractStatus,
@@ -420,6 +422,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           claudeEvidence: body.claudeEvidence,
           openaiEvidence: body.openaiEvidence,
         }),
+      };
+    } else if (body.action === "activate-runtime") {
+      const candidateId = uuid(body.candidateId);
+      const expectedLiveCandidateId =
+        body.expectedLiveCandidateId === null ? null : uuid(body.expectedLiveCandidateId);
+      const expectedRoutableCellDigest = digest(body.expectedRoutableCellDigest);
+      if (
+        !candidateId ||
+        (body.expectedLiveCandidateId !== null && !expectedLiveCandidateId) ||
+        !expectedRoutableCellDigest
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
+      response = {
+        result: await activateExomemHostedRuntime({
+          candidateId,
+          expectedLiveCandidateId,
+          expectedRoutableCellDigest,
+        }),
+      };
+    } else if (body.action === "certify-client-artifact") {
+      const artifactId = uuid(body.artifactId);
+      const expectedEvidenceSha256 = digest(body.expectedEvidenceSha256);
+      if (!artifactId || !expectedEvidenceSha256) throw exomemErrors.invalidRequest();
+      response = {
+        result: await certifyExomemHostedClientArtifact({ artifactId, expectedEvidenceSha256 }),
       };
     } else if (body.action === "demote-agent") {
       const candidateId = uuid(body.candidateId);

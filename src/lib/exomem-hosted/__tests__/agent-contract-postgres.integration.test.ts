@@ -17,6 +17,7 @@ import { loadOwnerInstallActions } from "../account-install-actions";
 import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
   attachOpenAiContractLocks,
+  activateExomemHostedRuntime,
   getExomemAgentContractForOAuthAccess,
   getLiveExomemAgentContract,
   listExomemHostedRolloutStatus,
@@ -1113,6 +1114,55 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         { id: replacementCandidateId, state: "live" },
         { id: invalidCandidateId, state: "pending" },
       ].sort((left, right) => left.id.localeCompare(right.id))
+    );
+  });
+
+  it("activates a signed runtime without a client artifact", async () => {
+    const candidateId = await storeExomemAgentContractCandidate();
+    const cell = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_cells ORDER BY id LIMIT 1"
+    );
+    await recordRoutableCellObservation({
+      cellId: cell.rows[0]!.id,
+      sourceRelease: exomemHostedContractFixture.sourceRelease,
+      protocolVersion: exomemHostedContractFixture.compatibility.agent_contract.protocol_version,
+      commandSurfaceSha256: exomemHostedContractFixture.compatibility.command_surface_sha256,
+      schemaDigest: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      routable: true,
+    });
+    await seedExactBoundProof(candidateId);
+    const authority = await pool!.query<{ routable_set_digest: string }>(
+      `SELECT routable_set_digest
+       FROM exomem_agent_contract_profile_authority
+       WHERE profile_id = 'hosted-alpha-agent-v4'`
+    );
+    const live = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_agent_contract_candidates WHERE state = 'live'"
+    );
+    assert.equal(
+      await activateExomemHostedRuntime({
+        candidateId,
+        expectedLiveCandidateId: live.rows[0]?.id ?? null,
+        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+      }),
+      "activated"
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          "SELECT state FROM exomem_agent_contract_candidates WHERE id = $1",
+          [candidateId]
+        )
+      ).rows,
+      [{ state: "live" }]
+    );
+    assert.equal(
+      await pool!.query(
+        "SELECT 1 FROM exomem_client_artifacts WHERE contract_candidate_id = $1",
+        [candidateId]
+      ).then((result) => result.rowCount),
+      0
     );
   });
 

@@ -1784,7 +1784,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     assert.equal(await findMcpOAuthAccessToken(digest(269)), null);
   });
 
-  it("fails authorization client resolution closed when its own platform's artifact no longer matches", async () => {
+  it("keeps service-client admission independent of artifact certification", async () => {
     await seedClient();
     assert.ok(await resolveApprovedOAuthClient(clientId));
     // Another platform's artifact is not this client's business. A Claude client is
@@ -1798,17 +1798,17 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     await pool!.query(
       "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
     );
-    // Its own platform's artifact is its business: demoting that still fails closed.
+    // Certification is a distribution decision, not an OAuth admission predicate.
     await pool!.query(
       "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'claude'"
     );
-    assert.equal(await resolveApprovedOAuthClient(clientId), null);
+    assert.ok(await resolveApprovedOAuthClient(clientId));
     await pool!.query(
       "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'claude'"
     );
   });
 
-  it("admits only a client configuration bound to the matching promoted artifact", async () => {
+  it("admits a registered client without binding its service policy to an artifact", async () => {
     const admittedClientId = `https://bound-client.example.test/${randomUUID()}`;
     const redirectUri = "https://bound-client.example.test/callback";
     const configDigest = oauthClientConfigSha256({
@@ -1841,7 +1841,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       "UPDATE exomem_oauth_clients SET oauth_client_config_sha256 = $1 WHERE id = $2",
       ["0".repeat(64), registered.id]
     );
-    assert.equal(await resolveApprovedOAuthClient(admittedClientId), null);
+    assert.ok(await resolveApprovedOAuthClient(admittedClientId));
     await pool!.query(
       "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
       ["f".repeat(64), artifact.rows[0]!.id]
@@ -2626,7 +2626,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     }
   });
 
-  it("waits for artifact demotion before taking the cohort authorization snapshot", async () => {
+  it("serializes admission with artifact changes without making artifacts authoritative", async () => {
     await seedClient();
     const lock = await pool!.connect();
     const applicationName = `exomem-oauth-cohort-${randomUUID()}`;
@@ -2645,7 +2645,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
       await waitForAdvisoryLockWait(applicationName);
       assert.equal(settled, false);
       await lock.query("COMMIT");
-      assert.equal(await resolution, null);
+      assert.ok(await resolution);
     } finally {
       transactionApplicationName = undefined;
       await lock.query("ROLLBACK").catch(() => undefined);

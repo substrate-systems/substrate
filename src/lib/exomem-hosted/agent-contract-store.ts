@@ -626,8 +626,6 @@ export async function getExomemAgentContractForOAuthAccess(input: {
              candidate.protocol_version, candidate.mcp_protocol_versions, candidate.contract
       FROM exomem_agent_contract_candidates AS candidate
       JOIN access_tenant ON true
-      LEFT JOIN (SELECT DISTINCT candidate_id AS id FROM exomem_hosted_alpha_platform_cohort) AS cohort
-        ON cohort.id = candidate.id
       LEFT JOIN exomem_agent_contract_rollout_assignments AS assignment
         ON assignment.id = ${input.assignmentId ?? null}::uuid
        AND assignment.tenant_id = access_tenant.id
@@ -643,7 +641,6 @@ export async function getExomemAgentContractForOAuthAccess(input: {
           (
             ${candidateLineage} = false
             AND candidate.state = 'live'
-            AND cohort.id = candidate.id
             AND (
               access_tenant.bound_cell_id IS NULL OR (
                 binding.source_release = candidate.source_release
@@ -659,7 +656,6 @@ export async function getExomemAgentContractForOAuthAccess(input: {
             AND (
               (
                 candidate.state = 'live'
-                AND cohort.id = candidate.id
                 AND (
                   access_tenant.bound_cell_id IS NULL OR (
                     binding.source_release = candidate.source_release
@@ -922,7 +918,8 @@ export async function attachOpenAiContractLocks(input: {
     UPDATE exomem_agent_contract_candidates
     SET openai_package_lock = ${JSON.stringify(locks.packageLock)}::jsonb,
         openai_archive_lock = ${JSON.stringify(locks.archiveLock)}::jsonb
-    WHERE id = ${input.candidateId}::uuid AND profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'pending'
+    WHERE id = ${input.candidateId}::uuid AND profile_id = ${EXOMEM_HOSTED_PROFILE}
+      AND state IN ('pending', 'live')
       AND (
         (openai_package_lock IS NULL AND openai_archive_lock IS NULL)
         OR (
@@ -1044,6 +1041,232 @@ export async function recordRoutableCellObservation(input: {
 }
 
 export type ExomemHostedCohortPromotionResult = "promoted" | "already_live" | "precondition_failed";
+
+export type ExomemHostedRuntimeActivationResult =
+  | "activated"
+  | "already_active"
+  | "precondition_failed";
+
+/** Activate a signed runtime without coupling service authority to any client artifact. */
+export async function activateExomemHostedRuntime(input: {
+  candidateId: string;
+  expectedLiveCandidateId: string | null;
+  expectedRoutableCellDigest: string;
+}): Promise<ExomemHostedRuntimeActivationResult> {
+  const expected = sha256(input.expectedRoutableCellDigest, "routable cell digest");
+  const { rows: candidateRows } = await executeExomemSql`
+    SELECT state FROM exomem_agent_contract_candidates
+    WHERE id = ${input.candidateId}::uuid AND profile_id = ${EXOMEM_HOSTED_PROFILE}
+    LIMIT 1
+  `;
+  const alreadyActive = candidateRows[0]?.state === "live";
+  const health = alreadyActive
+    ? null
+    : await preparePromotionRuntimeHealth({
+        candidateId: input.candidateId,
+        expectedRoutableCellDigest: expected,
+      });
+  if (!alreadyActive && !health) return "precondition_failed";
+
+  try {
+    return await withExomemTransaction(async (transaction) => {
+      await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+      const failed = (): ExomemHostedRuntimeActivationResult => {
+        if (health) throw new PromotionRuntimePreconditionError();
+        return "precondition_failed";
+      };
+      await transaction`
+        SELECT profile_id FROM exomem_agent_contract_profile_authority
+        WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} FOR UPDATE
+      `;
+      const { rows: routableRows } = await transaction`
+        SELECT cell_id::text AS cell_id, source_release, protocol_version, command_fingerprint,
+               contract_digest, compatibility_digest
+        FROM exomem_routable_cell_contracts
+        WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
+        ORDER BY cell_id FOR UPDATE
+      `;
+      if (
+        routableRows.length === 0 ||
+        routableSetDigest(EXOMEM_HOSTED_PROFILE, routableRows as RoutableCellIdentity[]) !== expected
+      )
+        return failed();
+      if (
+        health &&
+        !(await recordPromotionRuntimeAuthorityInTransaction({
+          transaction,
+          candidateId: input.candidateId,
+          expectedRoutableCellDigest: expected,
+          probes: health,
+          refreshAuthority: refreshRoutableProfileAuthorityInTransaction,
+        }))
+      )
+        return "precondition_failed";
+      const { rows: liveRows } = await transaction`
+        SELECT id::text AS id FROM exomem_agent_contract_candidates
+        WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live'
+        ORDER BY id FOR UPDATE
+      `;
+      const liveIds = liveRows.flatMap((row) => (typeof row.id === "string" ? [row.id] : []));
+      if (
+        liveIds.length !== (input.expectedLiveCandidateId === null ? 0 : 1) ||
+        (input.expectedLiveCandidateId !== null && liveIds[0] !== input.expectedLiveCandidateId)
+      )
+        return failed();
+      const { rows: candidate } = await transaction`
+        SELECT candidate.id::text AS id, candidate.state
+        FROM exomem_agent_contract_candidates AS candidate
+        JOIN exomem_agent_contract_profile_authority AS authority
+          ON authority.profile_id = candidate.profile_id
+        WHERE candidate.id = ${input.candidateId}::uuid
+          AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
+          AND candidate.state IN ('pending', 'live')
+          AND authority.routable_set_digest = ${expected}
+          AND authority.routable_cell_count > 0
+          AND authority.observed_at > now() - interval '5 minutes'
+          AND authority.source_release = candidate.source_release
+          AND authority.protocol_version = candidate.protocol_version
+          AND authority.command_fingerprint = candidate.command_fingerprint
+          AND authority.contract_digest = candidate.schema_digest
+          AND authority.compatibility_digest = candidate.compatibility_digest
+          AND NOT EXISTS (
+            SELECT 1 FROM exomem_routable_cell_contracts AS route
+            WHERE route.profile_id = candidate.profile_id AND route.routable
+              AND (route.source_release <> candidate.source_release
+                OR route.protocol_version <> candidate.protocol_version
+                OR route.command_fingerprint <> candidate.command_fingerprint
+                OR route.contract_digest <> candidate.schema_digest
+                OR route.compatibility_digest <> candidate.compatibility_digest)
+          )
+        FOR UPDATE OF candidate
+      `;
+      if (candidate.length !== 1) return failed();
+      const terminalCandidateIds = [...new Set([...liveIds, input.candidateId])];
+      await transaction`
+        UPDATE exomem_agent_contract_candidates
+        SET state = 'retired', retired_at = now()
+        WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND state = 'live'
+          AND id <> ${input.candidateId}::uuid
+      `;
+      await transaction`
+        UPDATE exomem_agent_contract_candidates
+        SET state = 'live', promoted_at = COALESCE(promoted_at, now())
+        WHERE id = ${input.candidateId}::uuid AND state = 'pending'
+      `;
+      await transaction`
+        UPDATE exomem_agent_contract_rollout_assignments
+        SET state = 'retired', activated_at = NULL, ended_at = COALESCE(ended_at, now()),
+            version = version + 1, updated_at = now()
+        WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+          AND state IN ('preparing', 'active')
+      `;
+      await transaction`
+        UPDATE exomem_staged_client_releases
+        SET state = 'retired', evidenced_at = NULL, ended_at = COALESCE(ended_at, now()),
+            version = version + 1, updated_at = now()
+        WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+          AND state IN ('staged', 'evidenced')
+      `;
+      await transaction`
+        WITH credentials AS (
+          UPDATE exomem_marketplace_reviewer_credentials
+          SET revoked_at = COALESCE(revoked_at, now())
+          WHERE credential_kind = 'internal_canary'
+            AND candidate_id = ANY(${terminalCandidateIds}::uuid[])
+          RETURNING id
+        ), transactions AS (
+          UPDATE exomem_oauth_authorization_transactions
+          SET consumed_at = COALESCE(consumed_at, now())
+          WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+             OR reviewer_credential_id IN (SELECT id FROM credentials)
+          RETURNING id
+        ), grants AS (
+          UPDATE exomem_oauth_grants
+          SET revoked_at = COALESCE(revoked_at, now()), updated_at = now()
+          WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+             OR authorization_transaction_id IN (SELECT id FROM transactions)
+          RETURNING id
+        ), codes AS (
+          UPDATE exomem_oauth_authorization_codes
+          SET consumed_at = COALESCE(consumed_at, now())
+          WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+             OR grant_id IN (SELECT id FROM grants)
+          RETURNING grant_id
+        ), families AS (
+          UPDATE exomem_oauth_token_families
+          SET revoked_at = COALESCE(revoked_at, now()),
+              revoked_reason = COALESCE(revoked_reason, 'runtime_activated')
+          WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+             OR grant_id IN (SELECT id FROM grants)
+          RETURNING id
+        ), refresh AS (
+          UPDATE exomem_oauth_refresh_tokens
+          SET consumed_at = COALESCE(consumed_at, now())
+          WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+             OR family_id IN (SELECT id FROM families)
+        )
+        UPDATE exomem_oauth_access_tokens
+        SET revoked_at = COALESCE(revoked_at, now())
+        WHERE candidate_id = ANY(${terminalCandidateIds}::uuid[])
+           OR grant_id IN (SELECT id FROM grants)
+           OR family_id IN (SELECT id FROM families)
+      `;
+      return candidate[0]?.state === "live" ? "already_active" : "activated";
+    });
+  } catch (error) {
+    if (error instanceof PromotionRuntimePreconditionError) return "precondition_failed";
+    throw error;
+  }
+}
+
+/** Certify previously accepted exact artifact evidence against an active runtime. */
+export async function certifyExomemHostedClientArtifact(input: {
+  artifactId: string;
+  expectedEvidenceSha256: string;
+}): Promise<"certified" | "already_certified" | "precondition_failed"> {
+  const evidence = sha256(input.expectedEvidenceSha256, "artifact evidence digest");
+  return withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await transaction`
+      SELECT artifact.platform, artifact.state
+      FROM exomem_client_artifacts AS artifact
+      JOIN exomem_agent_contract_candidates AS candidate
+        ON candidate.id = artifact.contract_candidate_id
+       AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
+       AND candidate.state = 'live'
+      WHERE artifact.id = ${input.artifactId}::uuid
+        AND artifact.state IN ('pending', 'live')
+        AND artifact.evidence_sha256 = ${evidence}
+        AND artifact.compatibility_sha256 = candidate.compatibility_digest
+        AND artifact.contract_sha256 = candidate.schema_digest
+        AND artifact.package_sha256 = CASE artifact.platform
+          WHEN 'claude' THEN candidate.claude_package_lock->>'artifact_sha256'
+          ELSE candidate.openai_package_lock->>'artifact_sha256'
+        END
+        AND artifact.archive_sha256 = CASE artifact.platform
+          WHEN 'claude' THEN candidate.claude_archive_lock->>'archive_sha256'
+          ELSE candidate.openai_archive_lock->>'archive_sha256'
+        END
+      FOR UPDATE OF artifact, candidate
+    `;
+    const artifact = rows[0] as { platform: "claude" | "openai"; state: "pending" | "live" } | undefined;
+    if (!artifact) return "precondition_failed";
+    if (artifact.state === "live") return "already_certified";
+    await transaction`
+      UPDATE exomem_client_artifacts
+      SET state = 'retired', retired_at = now()
+      WHERE platform = ${artifact.platform} AND state = 'live'
+        AND id <> ${input.artifactId}::uuid
+    `;
+    const { rows: updated } = await transaction`
+      UPDATE exomem_client_artifacts
+      SET state = 'live', promoted_at = now()
+      WHERE id = ${input.artifactId}::uuid AND state = 'pending'
+      RETURNING id
+    `;
+    return updated.length === 1 ? "certified" : "precondition_failed";
+  });
+}
 
 /** Promote the contract and both native client artifacts as one locked cohort. */
 export async function promoteExomemHostedCohort(input: {
