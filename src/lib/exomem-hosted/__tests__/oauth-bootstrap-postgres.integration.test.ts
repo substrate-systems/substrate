@@ -1486,7 +1486,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         await resetDatabase();
         const prepared = await prepareBootstrap(70, 1_500);
         const before = await bootstrapGraphSnapshot();
-        await new Promise((resolve) => setTimeout(resolve, 1_600));
+        await waitForAuthorityWallExpiry(prepared.authority.id);
         assert.equal(
           await createAuthorizationTransaction({
             transactionDigest: digest(70_020),

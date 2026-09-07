@@ -327,6 +327,10 @@ export async function createAuthorizationTransaction(input: {
     ) AS bootstrap ON true
     WHERE client.client_id = ${input.clientId}
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+      AND NOT EXISTS (
+        SELECT 1 FROM expired_bootstraps AS expired
+        WHERE expired.oauth_client_id = client.id
+      )
       AND (client.admission_mode = 'pinned' OR (
         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
