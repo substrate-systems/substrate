@@ -44,22 +44,27 @@ const nextConfig: NextConfig = {
   // redirect would break the proxied requests.
   skipTrailingSlashRedirect: true,
   async rewrites() {
-    return [
+    return {
       // Cutover stays disabled until the companion tunnel origin is configured.
-      // This must precede the local MCP App Route so Vercel never invokes it.
-      ...exomemGatewayRewrite(),
-      // Pretty public URL for the Endstate installer. Served by the
-      // /api/download route which 302s to the current artifact.
-      { source: "/download", destination: "/api/download" },
-      // OIDC Discovery 1.0 §3 / RFC 8414 §3 require the discovery doc to
-      // live at `${issuer}/.well-known/openid-configuration`. The route
-      // handlers live under /api/.well-known/* (Next App Router); this
-      // rewrite makes the public URL match the issuer claim.
-      { source: "/.well-known/:path*", destination: "/api/.well-known/:path*" },
-      // Same-origin analytics ingest. Assets rule must precede the catch-all.
-      { source: "/ingest/static/:path*", destination: `${assetsHost(POSTHOG_HOST)}/static/:path*` },
-      { source: "/ingest/:path*", destination: `${POSTHOG_HOST}/:path*` },
-    ];
+      // beforeFiles runs before the local MCP App Route, so Vercel never invokes it.
+      beforeFiles: exomemGatewayRewrite(),
+      afterFiles: [
+        // Pretty public URL for the Endstate installer. Served by the
+        // /api/download route which 302s to the current artifact.
+        { source: "/download", destination: "/api/download" },
+        // OIDC Discovery 1.0 §3 / RFC 8414 §3 require the discovery doc to
+        // live at `${issuer}/.well-known/openid-configuration`. The route
+        // handlers live under /api/.well-known/* (Next App Router); this
+        // rewrite makes the public URL match the issuer claim.
+        { source: "/.well-known/:path*", destination: "/api/.well-known/:path*" },
+        // Same-origin analytics ingest. Assets rule must precede the catch-all.
+        {
+          source: "/ingest/static/:path*",
+          destination: `${assetsHost(POSTHOG_HOST)}/static/:path*`,
+        },
+        { source: "/ingest/:path*", destination: `${POSTHOG_HOST}/:path*` },
+      ],
+    };
   },
   async headers() {
     const privateHeaders = [

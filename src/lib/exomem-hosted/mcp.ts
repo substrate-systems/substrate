@@ -386,7 +386,29 @@ export function mcpProtocolSupported(
   return value !== null && Boolean(supported?.includes(value));
 }
 
-function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool> {
+const MAX_IMPORTED_TOOLS_CACHE_ENTRIES = 128;
+const importedToolsCache = new Map<string, Map<string, LiveTool>>();
+
+function importedToolsCacheKey(contract: LiveExomemAgentContract): string {
+  return [
+    contract.profile,
+    contract.sourceRelease,
+    contract.protocolVersion,
+    contract.commandFingerprint,
+    contract.schemaDigest,
+    contract.compatibilityDigest,
+  ].join("\0");
+}
+
+export function clearImportedToolsCacheForTests(): void {
+  importedToolsCache.clear();
+}
+
+export function importedToolsCacheSizeForTests(): number {
+  return importedToolsCache.size;
+}
+
+function compileImportedTools(contract: LiveExomemAgentContract): Map<string, LiveTool> {
   const compatibility = object(contract.contract);
   const agent = compatibility && object(compatibility.agent_contract);
   const commands = agent && Array.isArray(agent.commands) ? agent.commands : null;
@@ -452,6 +474,22 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
     !ListToolsResultSchema.safeParse({ tools: [...tools.values()].map(({ tool }) => tool) }).success
   )
     throw exomemErrors.protocolMismatch();
+  return tools;
+}
+
+function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool> {
+  const key = importedToolsCacheKey(contract);
+  const cached = importedToolsCache.get(key);
+  if (cached) {
+    importedToolsCache.delete(key);
+    importedToolsCache.set(key, cached);
+    return cached;
+  }
+  const tools = compileImportedTools(contract);
+  if (importedToolsCache.size >= MAX_IMPORTED_TOOLS_CACHE_ENTRIES) {
+    importedToolsCache.delete(importedToolsCache.keys().next().value as string);
+  }
+  importedToolsCache.set(key, tools);
   return tools;
 }
 

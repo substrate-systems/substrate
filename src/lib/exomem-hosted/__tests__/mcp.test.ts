@@ -4,13 +4,16 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   canonicalMcpArguments,
+  clearImportedToolsCacheForTests,
   hasMcpSelector,
+  importedToolsCacheSizeForTests,
   mcpProtocolSupported,
   type McpDependencies,
 } from "../mcp";
 import { handleHostedMcpRequest } from "../mcp";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "../agent-contract-fixture-0-35-0";
+import type { LiveExomemAgentContract } from "../agent-contract-store";
 import type { ActiveOAuthAccessToken } from "../oauth-store";
 import commandBinding from "../../../../contracts/hosted-agent-command-binding-v1.json";
 
@@ -151,6 +154,117 @@ function bootstrapResult() {
 }
 
 describe("Hosted MCP boundary", () => {
+  it("caches immutable imported tools by the complete contract identity with bounded eviction", async () => {
+    clearImportedToolsCacheForTests();
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => ACCESS,
+      takeRateLimit: async () => true,
+    };
+    const listTools = async (live: LiveExomemAgentContract = LIVE) =>
+      handleHostedMcpRequest(request({ jsonrpc: "2.0", id: 1, method: "tools/list" }), {
+        ...dependencies,
+        getContractForAccess: async () => live,
+      });
+
+    await listTools();
+    await listTools();
+    assert.equal(importedToolsCacheSizeForTests(), 1);
+    assert.equal(
+      (
+        await listTools({
+          ...LIVE,
+          contract: {} as LiveExomemAgentContract["contract"],
+        })
+      ).status,
+      200
+    );
+
+    assert.equal(
+      (
+        await listTools({
+          ...LIVE,
+          profile: "another-profile",
+        } as unknown as LiveExomemAgentContract)
+      ).status,
+      503
+    );
+    assert.equal(importedToolsCacheSizeForTests(), 1);
+
+    for (const live of [
+      { ...LIVE, sourceRelease: "0.73.0-next" },
+      { ...LIVE, protocolVersion: "999" },
+      { ...LIVE, commandFingerprint: "b".repeat(64) },
+      { ...LIVE, schemaDigest: "a".repeat(64) },
+      { ...LIVE, compatibilityDigest: "c".repeat(64) },
+    ]) {
+      await listTools(live);
+    }
+    assert.equal(importedToolsCacheSizeForTests(), 6);
+
+    for (let index = 0; index < 128; index += 1) {
+      await listTools({ ...LIVE, sourceRelease: `0.73.${index}` });
+    }
+    assert.equal(importedToolsCacheSizeForTests(), 128);
+  });
+
+  it("revalidates revoked and suspended access despite a warm tool cache", async () => {
+    clearImportedToolsCacheForTests();
+    let revoked = false;
+    let suspended = false;
+    let routes = 0;
+    const dependencies = {
+      baseUrl: "https://substratesystems.io",
+      findAccessToken: async () => (revoked ? null : ACCESS),
+      getContractForAccess: async () => LIVE,
+      statusForTenant: async () =>
+        suspended
+          ? { state: "suspended", code: "EXOMEM_SUSPENDED", retryable: false }
+          : { state: "ready", code: "READY", retryable: false },
+      routeCommand: async () => {
+        routes += 1;
+        return bootstrapResult();
+      },
+      takeRateLimit: async () => true,
+    };
+
+    assert.equal(
+      (
+        await handleHostedMcpRequest(
+          request({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+          dependencies
+        )
+      ).status,
+      200
+    );
+    assert.equal(importedToolsCacheSizeForTests(), 1);
+
+    revoked = true;
+    assert.equal(
+      (
+        await handleHostedMcpRequest(
+          request({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+          dependencies
+        )
+      ).status,
+      401
+    );
+
+    revoked = false;
+    suspended = true;
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      dependencies
+    );
+    assert.equal(response.status, 200);
+    assert.equal(routes, 0);
+  });
+
   it("rejects recursively supplied routing and authentication selectors", () => {
     for (const value of [
       { tenantId: "other" },

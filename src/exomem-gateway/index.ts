@@ -1,5 +1,6 @@
-import { createGatewayServer, drainGatewayServer } from "./server";
+import { createGatewayServer, drainGatewayServer, validateGatewayEnvironment } from "./server";
 
+validateGatewayEnvironment();
 const port = Number(process.env.EXOMEM_GATEWAY_PORT ?? 8080);
 if (!Number.isInteger(port) || port < 1 || port > 65_535)
   throw new Error("EXOMEM_GATEWAY_PORT is invalid");
