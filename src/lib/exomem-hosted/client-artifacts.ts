@@ -559,7 +559,8 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
           OR (candidate.state = 'live' AND stage.state = 'retired' AND assignment.state = 'retired')
         )
         AND stage.id = ${artifact.stagedClientReleaseId}::uuid
-        AND stage.expires_at > now() AND stage.created_at < ${artifact.observedAt}::timestamptz
+        AND stage.created_at < ${artifact.observedAt}::timestamptz
+        AND (candidate.state = 'live' OR stage.expires_at > now())
         AND stage.package_sha256 = ${artifact.packageSha256}
         AND stage.archive_sha256 = ${artifact.archiveSha256}
         AND stage.compatibility_sha256 = ${artifact.compatibilitySha256}
@@ -570,7 +571,7 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
         AND assignment.id = ${artifact.assignmentId}::uuid
         AND assignment.generation = ${artifact.assignmentGeneration}::bigint
         AND assignment.marketplace_reviewer_purpose = true
-        AND assignment.expires_at > now()
+        AND (candidate.state = 'live' OR assignment.expires_at > now())
       LIMIT 2
       FOR UPDATE OF stage, candidate, assignment
     `;

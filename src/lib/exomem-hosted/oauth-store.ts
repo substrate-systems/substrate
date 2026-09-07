@@ -1190,13 +1190,21 @@ export async function admitFirstOAuthInviteAtomic(input: {
         JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
           AND client.enabled = true
           AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
+        LEFT JOIN LATERAL (
+          SELECT admitted.host
+          FROM exomem_oauth_admitted_cimd_hosts AS admitted
+          WHERE admitted.platform = client.client_platform
+            AND admitted.host = client.cimd_host
+          FOR KEY SHARE
+        ) AS admitted_host ON true
+        WHERE transaction.transaction_digest = ${input.transactionDigest}
+          AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
           AND (client.admission_mode = 'pinned' OR (
             client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
             AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
             AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+            AND admitted_host.host IS NOT NULL
           ))
-        WHERE transaction.transaction_digest = ${input.transactionDigest}
-          AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
         FOR UPDATE OF transaction
       `;
       const authorization = authorizationResult.rows[0] as

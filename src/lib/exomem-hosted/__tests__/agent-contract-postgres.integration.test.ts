@@ -1412,12 +1412,71 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         },
       ]
     );
+    await pool!.query(
+      `UPDATE exomem_staged_client_releases
+       SET expires_at = created_at + interval '1 millisecond', version = version + 1, updated_at = now()
+       WHERE id = $1`,
+      [openAiStage.id]
+    );
+    await pool!.query(
+      `UPDATE exomem_agent_contract_rollout_assignments
+       SET expires_at = created_at + interval '1 millisecond', version = version + 1, updated_at = now()
+       WHERE id = $1`,
+      [assignment.id]
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT stage.expires_at < now() AS stage_expired,
+                  assignment.expires_at < now() AS assignment_expired
+           FROM exomem_staged_client_releases AS stage
+           JOIN exomem_agent_contract_rollout_assignments AS assignment ON assignment.id = $2
+           WHERE stage.id = $1`,
+          [openAiStage.id, assignment.id]
+        )
+      ).rows,
+      [{ stage_expired: true, assignment_expired: true }]
+    );
     const postActivationOpenAiEvidence = evidence("openai", "integration-secret", randomUUID(), {
       candidateId,
       stageId: openAiStage.id,
       assignmentId: assignment.id,
       assignmentGeneration: assignment.generation,
     });
+    await assert.rejects(
+      () =>
+        storeClientArtifact({
+          ...pendingArtifactFromEvidence("openai", postActivationOpenAiEvidence),
+          evidence: { ...postActivationOpenAiEvidence, result_sha256: sha("f") },
+        }),
+      /signature is invalid/,
+      "tampered live-runtime evidence is refused"
+    );
+    await assert.rejects(
+      () =>
+        storeClientArtifact({
+          ...pendingArtifactFromEvidence("openai", postActivationOpenAiEvidence),
+          clientIdentitySha256: sha("0"),
+        }),
+      /artifact fields do not match signed evidence/,
+      "a claimed client identity cannot differ from signed evidence"
+    );
+    const staleUnsigned: Record<string, unknown> = {
+      ...postActivationOpenAiEvidence,
+      timestamp: new Date(Date.now() - 24 * 60 * 60_000 - 1_000).toISOString(),
+    };
+    delete staleUnsigned.operator_signature;
+    const staleEvidence = {
+      ...staleUnsigned,
+      operator_signature: createHmac("sha256", "integration-secret")
+        .update(canonical(staleUnsigned))
+        .digest("hex"),
+    };
+    await assert.rejects(
+      () => storeClientArtifact(pendingArtifactFromEvidence("openai", staleEvidence)),
+      /outside (the )?evidence window|timestamp is stale/,
+      "stale live-runtime evidence is refused"
+    );
     const postActivationOpenAiArtifactId = await storeClientArtifact(
       pendingArtifactFromEvidence("openai", postActivationOpenAiEvidence)
     );

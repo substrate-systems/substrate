@@ -3730,6 +3730,172 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () =>
     }
   });
 
+  it("rolls back first invite admission when a resolved CIMD host is withdrawn", async () => {
+    const host = "continuation-withdrawn.example.test";
+    const dynamicClientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+    const redirectUri = `https://${host}/callback`;
+    const inviteDigest = digest(870);
+    const inviteEmail = `withdrawn-host-${randomUUID()}@example.test`;
+    const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+    process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 8).toString("base64url");
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2)",
+      ["claude", host]
+    );
+    try {
+      assert.ok(
+        await registerAdmittedCimdClient(dynamicClientId, {
+          fetchCimd: async () => cimdMetadata(dynamicClientId, [redirectUri], "withdrawn"),
+        })
+      );
+      const continuation = await createOAuthContinuation({
+        clientId: dynamicClientId,
+        redirectUri,
+        resource,
+        scopes: ["exomem.read"],
+        state: "withdrawn-host-state",
+        codeChallenge: "withdrawn-host-challenge",
+        offlineAccess: true,
+      });
+      assert.ok(continuation);
+      assert.ok(
+        await resolveOAuthContinuationToken(continuation!.transaction),
+        "the host is admitted when the continuation renders"
+      );
+      const transaction = await pool!.query<{ transaction_digest: Buffer }>(
+        `SELECT transaction_digest
+         FROM exomem_oauth_authorization_transactions
+         WHERE transaction_digest = digest(convert_to($1, 'utf8'), 'sha256')`,
+        [continuation!.transaction]
+      );
+      assert.equal(transaction.rowCount, 1);
+      await seedPool();
+      await pool!.query(
+        `INSERT INTO exomem_invites (
+           token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+           entitlement_limits, created_by_principal_digest, expires_at
+         ) VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, $3, now() + interval '1 hour')`,
+        [inviteDigest, inviteEmail, digest(871)]
+      );
+      const capacityBefore = await pool!.query(
+        "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
+      );
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+
+      assert.equal(
+        await admitFirstOAuthInviteAtomic({
+          inviteDigest,
+          transactionDigest: transaction.rows[0]!.transaction_digest,
+          sessionDigest: digest(872),
+          csrfDigest: digest(873),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+          codeDigest: digest(874),
+          codeExpiresAt: new Date(Date.now() + 60_000),
+        }),
+        null
+      );
+      assert.deepEqual(
+        (
+          await pool!.query(
+            "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
+          )
+        ).rows,
+        capacityBefore.rows
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NOT NULL",
+          [inviteDigest]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NOT NULL",
+          [transaction.rows[0]!.transaction_digest]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_sessions WHERE session_digest = $1", [
+          digest(872),
+        ]),
+        0
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1",
+          [digest(874)]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar("SELECT count(*) FROM users WHERE email = $1", [inviteEmail]),
+        0,
+        "withdrawn authority cannot create an owner or tenant"
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_grants WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)",
+          [dynamicClientId]
+        ),
+        0,
+        "withdrawn authority cannot create an OAuth grant"
+      );
+      assert.equal(
+        await scalar(
+          `SELECT count(*)
+           FROM exomem_capacity_allocations AS allocation
+           JOIN exomem_tenants AS tenant ON tenant.id = allocation.tenant_id
+           JOIN users AS owner ON owner.id = tenant.owner_user_id
+           WHERE owner.email = $1`,
+          [inviteEmail]
+        ),
+        0,
+        "withdrawn authority cannot reserve capacity"
+      );
+    } finally {
+      if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      await pool!.query(
+        `DELETE FROM exomem_oauth_authorization_transactions
+         WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+        [dynamicClientId]
+      );
+      await pool!.query(
+        `DELETE FROM exomem_oauth_grants
+         WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+        [dynamicClientId]
+      );
+      await pool!.query(
+        `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
+           SELECT id FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM owner)
+         ) DELETE FROM exomem_capacity_allocations WHERE tenant_id IN (SELECT id FROM tenant)`,
+        [inviteEmail]
+      );
+      await pool!.query(
+        `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
+           SELECT id FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM owner)
+         ) DELETE FROM exomem_lifecycle_operations WHERE tenant_id IN (SELECT id FROM tenant)`,
+        [inviteEmail]
+      );
+      await pool!.query("DELETE FROM exomem_invites WHERE token_digest = $1", [inviteDigest]);
+      await pool!.query(
+        `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
+           SELECT id FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM owner)
+         ) DELETE FROM exomem_sessions WHERE tenant_id IN (SELECT id FROM tenant)`,
+        [inviteEmail]
+      );
+      await pool!.query(
+        "DELETE FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM users WHERE email = $1)",
+        [inviteEmail]
+      );
+      await pool!.query("DELETE FROM users WHERE email = $1", [inviteEmail]);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [dynamicClientId]);
+    }
+  });
+
   it("refuses to register a CIMD client whose host is not allowlisted, without fetching it", async () => {
     const host = "connector-unlisted.example.test";
     const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
