@@ -730,7 +730,7 @@ describe("registry-derived Exomem gateway", () => {
     assert.equal(calls.length, 1);
     assert.equal(
       calls[0]?.url.pathname,
-      "/private/exomem/v2/agent/hosted-alpha-agent-v1/command/ask_memory"
+      `/private/exomem/v2/agent/${commandBinding.expectedTuple.surfaceProfile}/command/ask_memory`
     );
     assert.equal(calls[0]?.init?.method, commandBinding.route.method);
     const headers = new Headers(calls[0]?.init?.headers);
