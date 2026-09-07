@@ -56,8 +56,22 @@ describe("hosted gateway publication policy", () => {
   });
 
   test("requires an explicit public-package decision and anonymous pull check", () => {
-    assert.match(runbook(), /must already be public/);
+    assert.match(runbook(), /package owner must approve public distribution/);
+    assert.match(runbook(), /must be public before deployment/);
     assert.match(runbook(), /anonymous manifest readback/);
+  });
+
+  test("allows first publication without treating a private bootstrap as release proof", () => {
+    const text = runbook();
+    assert.match(text, /## First publication only/);
+    assert.doesNotMatch(text, /must already be public before\s+dispatching/);
+    assert.match(text, /Build and publish the source-bound gateway image/);
+    assert.match(text, /Attest the exact gateway image/);
+    assert.match(text, /Verify anonymous gateway manifest pull/);
+    assert.match(text, /failed bootstrap run is not deployment evidence/);
+    assert.match(text, /gh run rerun <bootstrap-run-id>/);
+    assert.match(text, /cannot be made private again/);
+    assert.match(text, /Only a fully successful attempt/);
   });
 
   test("rejects publishing without an anonymous exact-digest pull proof", () => {

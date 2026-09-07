@@ -6,11 +6,11 @@ changes the public MCP edge. Helm remains a separate, digest-pinned consumer.
 ## Prerequisites
 
 - The reviewed source is merged to `substrate-systems/substrate` `main`.
-- The gateway Helm Deployment has no image-pull credential path. The package
-  `ghcr.io/substrate-systems/substrate-gateway` must already be public before
-  dispatching the publisher and remain public for rollout. A package owner makes
-  that visibility decision separately in GitHub Packages; this workflow and
-  runbook never change package visibility. If a private package is required,
+- The gateway Helm Deployment has no image-pull credential path. A
+  package owner must approve public distribution of
+  `ghcr.io/substrate-systems/substrate-gateway`; it must be public before deployment
+  and remain public for rollout. Record that approval before publication. The
+  workflow never changes package visibility. If a private package is required,
   stop and add a reviewed Helm pull-secret path before publication or deployment;
   never add a personal registry token or a production secret.
 - The operator has authenticated `gh` and Docker access to the package.
@@ -50,6 +50,46 @@ Proceed only if the selected run has `headSha` equal to `source_sha`,
 `headBranch` `main`, event `workflow_dispatch`, and conclusion `success`. The
 workflow itself repeats the repository, ref, event, and exact-successful-CI
 checks before it logs in or pushes.
+
+## First publication only
+
+GitHub creates a new container package as private, including images published
+from public repositories. An absent package therefore cannot be made public
+before its first push. Follow the same source and successful-CI checks above,
+then dispatch the unchanged publisher once to create the package. This exception
+permits bootstrap publication, not deployment or a bypass of the final pull gate.
+
+If this first run fails, inspect the exact run and its steps:
+
+```bash
+gh run view <bootstrap-run-id> --repo "$repo" --json headSha,event,conclusion,jobs
+```
+
+Continue with visibility setup only when `Build and publish the source-bound gateway image`
+and `Attest the exact gateway image` both succeeded, and the only failed step is
+`Verify anonymous gateway manifest pull`, whose log confirms private-package
+authorization denial. A build, attestation, source, network, or unexpected failure
+needs its own diagnosis. The failed bootstrap run is not deployment evidence.
+
+The approving package owner then opens this exact package's **Package settings**
+in GitHub, selects **Change visibility → Public**, and confirms the package name.
+This is irreversible: the package cannot be made private again. Do not change
+organization-wide defaults, unrelated package visibility, or cluster credentials.
+If the owner cannot complete this step, leave the private package undeployed.
+See GitHub's [container publication defaults](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pushing-container-images)
+and [organization package visibility procedure](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-an-organization).
+
+After the owner confirms the visibility change, rerun that exact workflow run:
+
+```bash
+gh run rerun <bootstrap-run-id> --repo "$repo"
+```
+
+This repeats the entire job, including source admission, build, attestation and
+anonymous pull. Recheck the run identity and record the successful attempt number
+and its resulting digest; do not reuse the failed attempt's digest as evidence.
+Only a fully successful attempt may proceed to the exact-digest readback and
+provenance verification below. Subsequent publications use the ordinary path.
 
 ## Read back and verify before Helm
 
