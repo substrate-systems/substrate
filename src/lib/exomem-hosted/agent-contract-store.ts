@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixture0731 } from "./agent-contract-fixture-0-73-1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
@@ -47,8 +48,20 @@ export type TrustedRelease =
   | "0.68.1"
   | "0.68.3"
   | "0.72.1"
-  | "0.73.1";
+  | "0.73.1"
+  | "0.74.0";
 const TRUSTED_RELEASES = new Map([
+  [
+    "0.74.0",
+    {
+      sourceCommit: "bd95fc9826069ec66f142c821abfda4b2f1d0912",
+      command_surface_sha256: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+      schema_contract_sha256: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+      compatibility_sha256: "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
+      artifact_sha256: "2787c6a98e7552ff559d31a0738b272c3156bedc4d57b637b25b54445b0ea593",
+      archive_sha256: "dfdcf329c226ba1f18bd208bde9a2b6a780ca040794a50d9eaddcd9da3412708",
+    },
+  ],
   [
     "0.73.1",
     {
@@ -397,7 +410,8 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
     sourceRelease === "0.68.1" ||
     sourceRelease === "0.68.3" ||
     sourceRelease === "0.72.1" ||
-    sourceRelease === "0.73.1"
+    sourceRelease === "0.73.1" ||
+    sourceRelease === "0.74.0"
       ? EXOMEM_HOSTED_PROFILE
       : "hosted-alpha-agent-v1";
   const packageLock = record(source.packageLock, "Claude package lock");
@@ -532,7 +546,11 @@ export async function storeRetainedExomemAgentContractCandidate(
                             ? exomemHostedContractFixture0683
                             : sourceRelease === "0.72.1"
                               ? exomemHostedContractFixture0721
-                              : exomemHostedContractFixture;
+                              : sourceRelease === "0.73.1"
+                                ? exomemHostedContractFixture0731
+                                : (() => {
+                                    throw new Error("current release cannot be imported as retained");
+                                  })();
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
 

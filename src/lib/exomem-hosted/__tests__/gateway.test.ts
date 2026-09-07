@@ -14,7 +14,8 @@ import { exomemHostedContractFixture as agentFixture0340 } from "../agent-contra
 import { exomemHostedContractFixture as agentFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as agentFixture0392 } from "../agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as agentFixture0490 } from "../agent-contract-fixture-0-49-0";
-import { exomemHostedContractFixture as agentFixture0731 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0740 } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as agentFixture0731 } from "../agent-contract-fixture-0-73-1";
 import { exomemHostedContractFixture as agentFixture0721 } from "../agent-contract-fixture-0-72-1";
 import { exomemHostedContractFixture as agentFixture0683 } from "../agent-contract-fixture-0-68-3";
 import { exomemHostedContractFixture as agentFixture0660 } from "../agent-contract-fixture-0-66-0";
@@ -34,6 +35,7 @@ import fullContract0681 from "./gateway-contract-0-68-1.json";
 import fullContract0683 from "./gateway-contract-0-68-3.json";
 import fullContract0721 from "./gateway-contract-0-72-1.json";
 import fullContract0731 from "./gateway-contract-0-73-1.json";
+import fullContract0740 from "./gateway-contract-0-74-0.json";
 import commandBinding from "../../../../contracts/hosted-agent-command-binding-v1.json";
 
 const USER_A = "018f2d91-7c42-7000-8000-000000000071";
@@ -53,6 +55,7 @@ const FULL_CONTRACT_0681 = fullContract0681 as TestContract;
 const FULL_CONTRACT_0683 = fullContract0683 as TestContract;
 const FULL_CONTRACT_0721 = fullContract0721 as TestContract;
 const FULL_CONTRACT_0731 = fullContract0731 as TestContract;
+const FULL_CONTRACT_0740 = fullContract0740 as TestContract;
 const LIVE_HOSTED_CONTRACT = {
   profile: agentFixture0340.compatibility.profile,
   sourceRelease: agentFixture0340.sourceRelease,
@@ -153,12 +156,12 @@ const RETAINED_0721_HOSTED_CONTRACT = {
   compatibilityDigest: agentFixture0721.compatibility.compatibility_sha256,
 };
 const CURRENT_HOSTED_CONTRACT = {
-  profile: agentFixture0731.compatibility.profile,
-  sourceRelease: agentFixture0731.sourceRelease,
-  protocolVersion: agentFixture0731.compatibility.agent_contract.protocol_version,
-  commandFingerprint: agentFixture0731.compatibility.command_surface_sha256,
-  schemaDigest: agentFixture0731.compatibility.schema_contract_sha256,
-  compatibilityDigest: agentFixture0731.compatibility.compatibility_sha256,
+  profile: agentFixture0740.compatibility.profile,
+  sourceRelease: agentFixture0740.sourceRelease,
+  protocolVersion: agentFixture0740.compatibility.agent_contract.protocol_version,
+  commandFingerprint: agentFixture0740.compatibility.command_surface_sha256,
+  schemaDigest: agentFixture0740.compatibility.schema_contract_sha256,
+  compatibilityDigest: agentFixture0740.compatibility.compatibility_sha256,
 };
 
 const PUBLISHED_AGENT_CONTRACTS = new Map<string, Record<string, unknown>>(
@@ -177,6 +180,7 @@ const PUBLISHED_AGENT_CONTRACTS = new Map<string, Record<string, unknown>>(
     agentFixture0683,
     agentFixture0721,
     agentFixture0731,
+    agentFixture0740,
   ].map((fixture) => [
     fixture.sourceRelease,
     fixture.compatibility.agent_contract as unknown as Record<string, unknown>,
@@ -401,7 +405,18 @@ describe("registry-derived Exomem gateway", () => {
       ["0.68.1", RETAINED_0681_HOSTED_CONTRACT],
       ["0.68.3", RETAINED_0683_HOSTED_CONTRACT],
       ["0.72.1", RETAINED_0721_HOSTED_CONTRACT],
-      ["0.73.1", CURRENT_HOSTED_CONTRACT],
+      [
+        "0.73.1",
+        {
+          profile: agentFixture0731.compatibility.profile,
+          sourceRelease: agentFixture0731.sourceRelease,
+          protocolVersion: agentFixture0731.compatibility.agent_contract.protocol_version,
+          commandFingerprint: agentFixture0731.compatibility.command_surface_sha256,
+          schemaDigest: agentFixture0731.compatibility.schema_contract_sha256,
+          compatibilityDigest: agentFixture0731.compatibility.compatibility_sha256,
+        },
+      ],
+      ["0.74.0", CURRENT_HOSTED_CONTRACT],
     ] as const) {
       const row = target({
         userId: USER_A,
@@ -446,7 +461,19 @@ describe("registry-derived Exomem gateway", () => {
   // the retired release's contract -- as this test did after the 0.66.0
   // rotation -- proves nothing about either.
   for (const [label, hosted, full] of [
-    ["current 0.73.1", CURRENT_HOSTED_CONTRACT, FULL_CONTRACT_0731],
+    ["current 0.74.0", CURRENT_HOSTED_CONTRACT, FULL_CONTRACT_0740],
+    [
+      "retained 0.73.1",
+      {
+        profile: agentFixture0731.compatibility.profile,
+        sourceRelease: agentFixture0731.sourceRelease,
+        protocolVersion: agentFixture0731.compatibility.agent_contract.protocol_version,
+        commandFingerprint: agentFixture0731.compatibility.command_surface_sha256,
+        schemaDigest: agentFixture0731.compatibility.schema_contract_sha256,
+        compatibilityDigest: agentFixture0731.compatibility.compatibility_sha256,
+      },
+      FULL_CONTRACT_0731,
+    ],
     ["retained 0.72.1", RETAINED_0721_HOSTED_CONTRACT, FULL_CONTRACT_0721],
     ["retained 0.68.3", RETAINED_0683_HOSTED_CONTRACT, FULL_CONTRACT_0683],
     ["retained 0.68.1", RETAINED_0681_HOSTED_CONTRACT, FULL_CONTRACT_0681],
