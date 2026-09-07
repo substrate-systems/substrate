@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Record current activation, OAuth and private-route behavior from `oauth-store.ts`, `agent-contract-store.ts`, `hosted-cohort-target.ts`, `mcp.ts` and `gateway.ts`; verify the artifact gate with a failing approved-client/no-artifact PostgreSQL integration test and preserve an authenticated latency baseline without secrets.
 - [ ] 1.2 Import the Exomem companion's canonical command-binding fixture and pin its digest in contract compatibility; verify producer-shaped fixtures agree across repositories and malformed/duplicate expected headers are covered before wiring the new route.
-- [ ] 1.3 Reconcile artifact-admission wording in the active `scope-cohort-admission-per-platform` and `add-exomem-hosted-mcp-oauth` artifacts with this change while preserving their unaffected security contracts; verify no remaining current-plan service predicate requires a promoted artifact and run strict OpenSpec validation.
+- [ ] 1.3 Reconcile artifact-admission wording in the active `scope-cohort-admission-per-platform`, `add-exomem-hosted-mcp-oauth` and `admit-cimd-clients-by-host` artifacts with this change while preserving their unaffected security contracts; verify no remaining current-plan service predicate requires a promoted artifact and run strict OpenSpec validation.
 
 ## 2. Runtime activation and service admission
 

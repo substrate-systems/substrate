@@ -1,3 +1,9 @@
+> Admission boundary update: `simplify-hosted-launch-boundaries` supersedes the
+> artifact/live-platform-cohort gates described in this historical proposal.
+> Approved pinned clients and currently admitted CIMD hosts authorize under
+> ordinary service policy without artifact certification. Host validation,
+> metadata freshness, bounded registration and client isolation remain in force.
+
 ## Why
 
 No ChatGPT user other than the operator can connect to Exomem Hosted, and no

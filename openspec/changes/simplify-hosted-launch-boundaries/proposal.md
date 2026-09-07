@@ -24,4 +24,4 @@ Customer access currently depends on certification of a distributed client artif
 
 Touches the hosted OAuth and contract stores, candidate promotion, lifecycle target selection, canonical MCP/gateway handler, a standalone gateway entrypoint and its image, database migrations, tests and operational runbooks. The companion Exomem change with this same name owns the private command binding, cluster/edge deployment and end-to-end launch evidence. No production behavior changes in this planning PR.
 
-This change supersedes the artifact-as-service-admission portions of `scope-cohort-admission-per-platform` and `add-exomem-hosted-mcp-oauth`; it does not discard their client security or certification contracts. Generic arbitrary client registration from `admit-generic-mcp-clients` remains outside scope.
+This change supersedes the artifact-as-service-admission portions of `scope-cohort-admission-per-platform`, `add-exomem-hosted-mcp-oauth` and `admit-cimd-clients-by-host`; it does not discard their client security or certification contracts. Generic arbitrary client registration from `admit-generic-mcp-clients` remains outside scope.
