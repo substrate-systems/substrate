@@ -362,7 +362,7 @@ tenant; never redeem a reviewer invite through the ordinary invite path, which
 is legacy-unmetered and does not reserve capacity.
 
 1. Verify privately that the candidate is pending `hosted-alpha-agent-v4`
-   release `0.73.1`, contains exactly 25 ordered commands, the selected client
+   release `0.74.0`, contains exactly 25 ordered commands, the selected client
    release is still `staged`, capacity is
    configured, and there is no live cohort, active reviewer assignment,
    bound/ready reviewer cell, or active internal-canary credential.
@@ -627,7 +627,7 @@ the three-unit release set is `0.39.2/1`, `0.49.0/1`, plus `0.50.0/1`, with dige
 `85cdcbac931f3aa9357bf59c5530a1ba73ce1c81176286aa2b56b421276bdd79`.
 This is the already-completed outer-provisioner D1 expand gate, not the current
 agent-profile release pin. Do not rerun it merely to roll a cell from
-`0.57.2/v1` to `0.73.1/v4`; rerun it only when changing the outer provisioner
+`0.57.2/v1` to `0.74.0/v4`; rerun it only when changing the outer provisioner
 wire contract or when its own contraction/rollback procedure requires it.
 Supply `DATABASE_URL` to the process from the approved secret channel without
 placing it in argv or output, then run from this exact Substrate release:
@@ -674,7 +674,7 @@ v1 for rolling compatibility. A newly created operation uses v2 only when
 operations, `EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED=true` remains valid only
 after the D1 dual-serving expand proof and reviewed lock pair are live. Outer
 v2 carries the runtime target persisted on the lifecycle operation: a new
-`0.73.1` reviewer rollforward carries `hosted-alpha-agent-v4`, while historical
+`0.74.0` reviewer rollforward carries `hosted-alpha-agent-v4`, while historical
 operations retain their original v1 target.
 
 Actions are `provision`, `health`, `rotate-credential`, `quiesce`, `resume`,
