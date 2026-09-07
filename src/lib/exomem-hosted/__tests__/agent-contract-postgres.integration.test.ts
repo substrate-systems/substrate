@@ -18,6 +18,7 @@ import { resolveApprovedOAuthClient } from "../oauth-store";
 import {
   attachOpenAiContractLocks,
   activateExomemHostedRuntime,
+  certifyExomemHostedClientArtifact,
   getExomemAgentContractForOAuthAccess,
   getLiveExomemAgentContract,
   listExomemHostedRolloutStatus,
@@ -26,7 +27,7 @@ import {
   refreshRoutableProfileAuthorityInTransaction,
   storeExomemAgentContractCandidate,
 } from "../agent-contract-store";
-import { storeClientArtifact } from "../client-artifacts";
+import { reimportClientArtifactEvidence, storeClientArtifact } from "../client-artifacts";
 import { SqlLifecycleStore } from "../lifecycle-store";
 import {
   __setPromotionProvisionerForTests,
@@ -524,7 +525,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
                  $4, $5, $6, $7, $8, 'two-platform-evidence', $9, decode($10, 'hex'),
                  now() + interval '1 hour') RETURNING id`,
       [
-        sha("b"),
+        createHash("sha256").update(randomUUID()).digest("hex"),
         authorityOwner.rows[0]!.owner_user_id,
         authorityOwner.rows[0]!.tenant_id,
         candidateId,
@@ -634,6 +635,17 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     assert.deepEqual(
       (
         await pool!.query(
+          `SELECT evidence_payload->>'operator_signature' = $2 AS signature_preserved,
+                  evidence_provenance->>'verification' = 'operator-hmac-sha256' AS provenance_preserved
+           FROM exomem_client_artifacts WHERE id = $1`,
+          [claudeId, claudeEvidence.operator_signature]
+        )
+      ).rows,
+      [{ signature_preserved: true, provenance_preserved: true }]
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
           `SELECT credential.revoked_at IS NULL AS credential_active,
                   family.revoked_at IS NULL AS family_active
            FROM exomem_marketplace_reviewer_credentials AS credential
@@ -676,6 +688,19 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
         openaiEvidence: openAiEvidence,
       }),
       "promoted"
+    );
+    assert.equal(
+      await attachOpenAiContractLocks({ ...lockUnsigned, operatorSignature }),
+      true,
+      "an identical second-platform lock attachment remains safe after runtime activation"
+    );
+    assert.equal(
+      await attachOpenAiContractLocks({
+        ...differentUnsigned,
+        operatorSignature: differentSignature,
+      }),
+      false,
+      "a different second-platform lock cannot replace the live runtime tuple"
     );
     assert.deepEqual(
       (
@@ -1150,19 +1175,318 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
     );
     assert.deepEqual(
       (
-        await pool!.query(
-          "SELECT state FROM exomem_agent_contract_candidates WHERE id = $1",
-          [candidateId]
-        )
+        await pool!.query("SELECT state FROM exomem_agent_contract_candidates WHERE id = $1", [
+          candidateId,
+        ])
       ).rows,
       [{ state: "live" }]
     );
     assert.equal(
-      await pool!.query(
-        "SELECT 1 FROM exomem_client_artifacts WHERE contract_candidate_id = $1",
-        [candidateId]
-      ).then((result) => result.rowCount),
+      await pool!
+        .query("SELECT 1 FROM exomem_client_artifacts WHERE contract_candidate_id = $1", [
+          candidateId,
+        ])
+        .then((result) => result.rowCount),
       0
+    );
+  });
+
+  it("retains signed artifact evidence across runtime activation and certifies it afterward", async () => {
+    const previousLive = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_agent_contract_candidates WHERE state = 'live'"
+    );
+    await pool!.query(
+      `UPDATE exomem_agent_contract_rollout_assignments
+       SET state = 'retired', activated_at = NULL, ended_at = now(),
+           version = version + 1, updated_at = now()
+       WHERE candidate_id = $1 AND state = 'active'`,
+      [previousLive.rows[0]!.id]
+    );
+    const candidateId = await storeExomemAgentContractCandidate();
+    await seedExactBoundProof(candidateId);
+    const assignment = await seedActiveReviewerAssignment(candidateId);
+    const openAiLockUnsigned = {
+      candidateId,
+      packageLock: testOnlyOpenAiLocks.packageLock,
+      archiveLock: testOnlyOpenAiLocks.archiveLock,
+      operatorKeyId: "integration-importer",
+    };
+    assert.equal(
+      await attachOpenAiContractLocks({
+        ...openAiLockUnsigned,
+        operatorSignature: createHmac("sha256", "integration-import-secret")
+          .update(canonical(openAiLockUnsigned))
+          .digest("hex"),
+      }),
+      true
+    );
+    const stage = await createStagedClientRelease({
+      candidateId,
+      platform: "claude",
+      packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+      archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: null,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    const openAiStage = await createStagedClientRelease({
+      candidateId,
+      platform: "openai",
+      packageSha256: testOnlyOpenAiLocks.packageLock.artifact_sha256,
+      archiveSha256: testOnlyOpenAiLocks.archiveLock.archive_sha256,
+      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      pluginVersion: testOnlyOpenAiLocks.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: testOnlyOpenAiLocks.packageLock.registered_app_id_sha256,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    });
+    const owner = await pool!.query<{ tenant_id: string; owner_user_id: string }>(
+      `SELECT assignment.tenant_id, tenant.owner_user_id
+       FROM exomem_agent_contract_rollout_assignments AS assignment
+       JOIN exomem_tenants AS tenant ON tenant.id = assignment.tenant_id
+       WHERE assignment.id = $1`,
+      [assignment.id]
+    );
+    const canaryClient = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', false, '["https://canary.example.test/callback"]'::jsonb,
+                 digest(convert_to('["https://canary.example.test/callback"]', 'utf8'), 'sha256'),
+                 'claude', $2) RETURNING id`,
+      [`activation-canary-${randomUUID()}`, sha("a")]
+    );
+    const canaryCredential = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_marketplace_reviewer_credentials (
+         provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id,
+         fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
+       ) VALUES ('anthropic', 'internal_canary', decode($1, 'hex'), '$argon2id$integration', $2, $3,
+                 $4, $5, $6, $7, $8, 'activation-lineage', $9, decode($10, 'hex'),
+                 now() + interval '1 hour') RETURNING id`,
+      [
+        createHash("sha256").update(randomUUID()).digest("hex"),
+        owner.rows[0]!.owner_user_id,
+        owner.rows[0]!.tenant_id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        stage.id,
+        canaryClient.rows[0]!.id,
+        sha("c"),
+        sha("d"),
+      ]
+    );
+    const canaryFamily = await pool!.query<{ id: string; grant_id: string }>(
+      `WITH grant_row AS (
+         INSERT INTO exomem_oauth_grants (
+           user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
+           candidate_id, assignment_id, assignment_generation, staged_client_release_id
+         ) VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1',
+                   ARRAY['exomem.read'], true, $4, $5, $6, $7, $8) RETURNING id
+       ) INSERT INTO exomem_oauth_token_families (
+         grant_id, client_id, expires_at, candidate_id, assignment_id, assignment_generation,
+         staged_client_release_id, reviewer_credential_id
+       ) SELECT id, $3, now() + interval '1 hour', $5, $6, $7, $8, $4 FROM grant_row
+       RETURNING id, grant_id`,
+      [
+        owner.rows[0]!.owner_user_id,
+        owner.rows[0]!.tenant_id,
+        canaryClient.rows[0]!.id,
+        canaryCredential.rows[0]!.id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        stage.id,
+      ]
+    );
+    const canaryRefresh = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_refresh_tokens (
+         refresh_digest, family_id, expires_at, candidate_id, assignment_id, assignment_generation,
+         staged_client_release_id, reviewer_credential_id, oauth_client_id
+       ) VALUES (decode($1, 'hex'), $2, now() + interval '1 hour', $3, $4, $5, $6, $7, $8)
+       RETURNING id`,
+      [
+        sha("e"),
+        canaryFamily.rows[0]!.id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        stage.id,
+        canaryCredential.rows[0]!.id,
+        canaryClient.rows[0]!.id,
+      ]
+    );
+    const canaryAccess = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_access_tokens (
+         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at,
+         candidate_id, assignment_id, assignment_generation, staged_client_release_id,
+         reviewer_credential_id
+       ) VALUES (decode($1, 'hex'), $2, $3, $4, 'https://substratesystems.io/api/exomem/mcp/v1',
+                 ARRAY['exomem.read'], now() + interval '1 hour', $5, $6, $7, $8, $9)
+       RETURNING id`,
+      [
+        sha("f"),
+        canaryFamily.rows[0]!.grant_id,
+        canaryFamily.rows[0]!.id,
+        canaryClient.rows[0]!.id,
+        candidateId,
+        assignment.id,
+        assignment.generation,
+        stage.id,
+        canaryCredential.rows[0]!.id,
+      ]
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const signed = evidence("claude", "integration-secret", randomUUID(), {
+      candidateId,
+      stageId: stage.id,
+      assignmentId: assignment.id,
+      assignmentGeneration: assignment.generation,
+    });
+    const artifactId = await storeClientArtifact(pendingArtifactFromEvidence("claude", signed));
+    await assert.rejects(
+      () =>
+        storeClientArtifact({
+          ...pendingArtifactFromEvidence("claude", signed),
+          evidence: { ...signed, operator_signature: sha("f") },
+        }),
+      /signature is invalid/
+    );
+    const authority = await pool!.query<{ routable_set_digest: string }>(
+      `SELECT routable_set_digest
+       FROM exomem_agent_contract_profile_authority
+       WHERE profile_id = 'hosted-alpha-agent-v4'`
+    );
+    assert.equal(
+      await activateExomemHostedRuntime({
+        candidateId,
+        expectedLiveCandidateId: previousLive.rows[0]!.id,
+        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+      }),
+      "activated"
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT artifact.state, artifact.evidence_payload = $2::jsonb AS envelope_preserved,
+                  stage.state AS stage_state
+           FROM exomem_client_artifacts AS artifact
+           JOIN exomem_staged_client_releases AS stage ON stage.id = artifact.staged_client_release_id
+           WHERE artifact.id = $1`,
+          [artifactId, JSON.stringify(signed)]
+        )
+      ).rows,
+      [{ state: "pending", envelope_preserved: true, stage_state: "retired" }]
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT credential.revoked_at IS NOT NULL AS credential_revoked,
+                  grant_row.revoked_at IS NOT NULL AS grant_revoked,
+                  family.revoked_at IS NOT NULL AS family_revoked,
+                  refresh.consumed_at IS NOT NULL AS refresh_consumed,
+                  access.revoked_at IS NOT NULL AS access_revoked
+           FROM exomem_marketplace_reviewer_credentials AS credential
+           JOIN exomem_oauth_token_families AS family ON family.reviewer_credential_id = credential.id
+           JOIN exomem_oauth_grants AS grant_row ON grant_row.id = family.grant_id
+           JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.id = $2
+           JOIN exomem_oauth_access_tokens AS access ON access.id = $3
+           WHERE credential.id = $1`,
+          [canaryCredential.rows[0]!.id, canaryRefresh.rows[0]!.id, canaryAccess.rows[0]!.id]
+        )
+      ).rows,
+      [
+        {
+          credential_revoked: true,
+          grant_revoked: true,
+          family_revoked: true,
+          refresh_consumed: true,
+          access_revoked: true,
+        },
+      ]
+    );
+    const postActivationOpenAiEvidence = evidence("openai", "integration-secret", randomUUID(), {
+      candidateId,
+      stageId: openAiStage.id,
+      assignmentId: assignment.id,
+      assignmentGeneration: assignment.generation,
+    });
+    const postActivationOpenAiArtifactId = await storeClientArtifact(
+      pendingArtifactFromEvidence("openai", postActivationOpenAiEvidence)
+    );
+    assert.equal(
+      await certifyExomemHostedClientArtifact({
+        artifactId: postActivationOpenAiArtifactId,
+        expectedEvidenceSha256: createHash("sha256")
+          .update(canonical(postActivationOpenAiEvidence))
+          .digest("hex"),
+      }),
+      "certified",
+      "a live runtime accepts exact normal-service evidence without reviving a canary stage"
+    );
+    assert.equal(
+      await certifyExomemHostedClientArtifact({
+        artifactId,
+        expectedEvidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
+      }),
+      "certified"
+    );
+    assert.equal(
+      await certifyExomemHostedClientArtifact({ artifactId, expectedEvidenceSha256: sha("f") }),
+      "precondition_failed"
+    );
+    await pool!.query(
+      "ALTER TABLE exomem_client_artifacts DISABLE TRIGGER exomem_client_artifact_evidence_immutable"
+    );
+    try {
+      await pool!.query(
+        `UPDATE exomem_client_artifacts
+         SET evidence_payload = NULL, evidence_provenance = NULL
+         WHERE id = $1`,
+        [artifactId]
+      );
+    } finally {
+      await pool!.query(
+        "ALTER TABLE exomem_client_artifacts ENABLE TRIGGER exomem_client_artifact_evidence_immutable"
+      );
+    }
+    assert.equal(
+      await certifyExomemHostedClientArtifact({
+        artifactId,
+        expectedEvidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
+      }),
+      "precondition_failed",
+      "historical rows without the exact envelope cannot be certified"
+    );
+    assert.equal(
+      await reimportClientArtifactEvidence({ artifactId, evidence: signed }),
+      "reimported"
+    );
+    assert.equal(
+      await reimportClientArtifactEvidence({ artifactId, evidence: signed }),
+      "already_imported"
+    );
+    assert.equal(
+      await reimportClientArtifactEvidence({
+        artifactId,
+        evidence: { ...signed, operator_signature: sha("e") },
+      }),
+      "precondition_failed",
+      "a different envelope can never replace accepted evidence"
+    );
+    assert.equal(
+      await certifyExomemHostedClientArtifact({
+        artifactId,
+        expectedEvidenceSha256: createHash("sha256").update(canonical(signed)).digest("hex"),
+      }),
+      "already_certified"
     );
   });
 

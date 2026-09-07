@@ -17,6 +17,7 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0721 } from "
 import {
   loadClientArtifactLocks,
   promotionEvidenceDigest,
+  storedArtifactMatchesPromotionEvidence,
   validatePromotionEvidence,
 } from "./client-artifacts";
 import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-contract-canaries";
@@ -1088,7 +1089,8 @@ export async function activateExomemHostedRuntime(input: {
       `;
       if (
         routableRows.length === 0 ||
-        routableSetDigest(EXOMEM_HOSTED_PROFILE, routableRows as RoutableCellIdentity[]) !== expected
+        routableSetDigest(EXOMEM_HOSTED_PROFILE, routableRows as RoutableCellIdentity[]) !==
+          expected
       )
         return failed();
       if (
@@ -1228,7 +1230,14 @@ export async function certifyExomemHostedClientArtifact(input: {
   return withExomemTransaction(async (transaction) => {
     await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
     const { rows } = await transaction`
-      SELECT artifact.platform, artifact.state
+      SELECT artifact.platform, artifact.state, artifact.contract_candidate_id::text AS candidate_id,
+             artifact.evidence_payload, artifact.evidence_provenance, artifact.evidence_sha256,
+             artifact.result_sha256, artifact.package_sha256, artifact.archive_sha256,
+             artifact.compatibility_sha256, artifact.contract_sha256, artifact.plugin_version,
+             artifact.client_identity_sha256, artifact.paired_run_hmac_sha256,
+             artifact.exomem_identity_hmac_sha256, artifact.tenant_hmac_sha256,
+             artifact.oauth_client_config_sha256, artifact.staged_client_release_id::text,
+             artifact.observed_at
       FROM exomem_client_artifacts AS artifact
       JOIN exomem_agent_contract_candidates AS candidate
         ON candidate.id = artifact.contract_candidate_id
@@ -1237,6 +1246,8 @@ export async function certifyExomemHostedClientArtifact(input: {
       WHERE artifact.id = ${input.artifactId}::uuid
         AND artifact.state IN ('pending', 'live')
         AND artifact.evidence_sha256 = ${evidence}
+        AND artifact.evidence_payload IS NOT NULL
+        AND artifact.evidence_provenance = '{"version":1,"verification":"operator-hmac-sha256"}'::jsonb
         AND artifact.compatibility_sha256 = candidate.compatibility_digest
         AND artifact.contract_sha256 = candidate.schema_digest
         AND artifact.package_sha256 = CASE artifact.platform
@@ -1249,8 +1260,62 @@ export async function certifyExomemHostedClientArtifact(input: {
         END
       FOR UPDATE OF artifact, candidate
     `;
-    const artifact = rows[0] as { platform: "claude" | "openai"; state: "pending" | "live" } | undefined;
+    const artifact = rows[0] as
+      | {
+          platform: "claude" | "openai";
+          state: "pending" | "live";
+          candidate_id: string;
+          evidence_payload: unknown;
+          evidence_sha256: string;
+          result_sha256: string;
+          package_sha256: string;
+          archive_sha256: string;
+          compatibility_sha256: string;
+          contract_sha256: string;
+          plugin_version: string;
+          client_identity_sha256: string;
+          paired_run_hmac_sha256: string;
+          exomem_identity_hmac_sha256: string;
+          tenant_hmac_sha256: string;
+          oauth_client_config_sha256: string;
+          staged_client_release_id: string;
+          observed_at: string;
+        }
+      | undefined;
     if (!artifact) return "precondition_failed";
+    const locks = await loadClientArtifactLocks(
+      artifact.platform,
+      artifact.candidate_id,
+      transaction
+    );
+    const payload = validatePromotionEvidence(artifact.evidence_payload, artifact.platform, locks, {
+      requireFreshTimestamp: false,
+    });
+    if (
+      promotionEvidenceDigest(payload) !== evidence ||
+      !storedArtifactMatchesPromotionEvidence(
+        {
+          platform: artifact.platform,
+          evidenceSha256: artifact.evidence_sha256,
+          resultSha256: artifact.result_sha256,
+          packageSha256: artifact.package_sha256,
+          archiveSha256: artifact.archive_sha256,
+          compatibilitySha256: artifact.compatibility_sha256,
+          contractSha256: artifact.contract_sha256,
+          pluginVersion: artifact.plugin_version,
+          clientIdentitySha256: artifact.client_identity_sha256,
+          pairedRunHmacSha256: artifact.paired_run_hmac_sha256,
+          exomemIdentityHmacSha256: artifact.exomem_identity_hmac_sha256,
+          tenantHmacSha256: artifact.tenant_hmac_sha256,
+          oauthClientConfigSha256: artifact.oauth_client_config_sha256,
+          candidateId: artifact.candidate_id,
+          stagedClientReleaseId: artifact.staged_client_release_id,
+          observedAt: new Date(artifact.observed_at).toISOString(),
+        },
+        payload
+      )
+    )
+      return "precondition_failed";
     if (artifact.state === "live") return "already_certified";
     await transaction`
       UPDATE exomem_client_artifacts

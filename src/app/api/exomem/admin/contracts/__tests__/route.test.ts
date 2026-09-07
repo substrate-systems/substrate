@@ -41,7 +41,10 @@ before(() => {
     },
   });
   mock.module("@/lib/exomem-hosted/client-artifacts", {
-    namedExports: { storeClientArtifact: async () => "artifact-1" },
+    namedExports: {
+      reimportClientArtifactEvidence: async () => "reimported",
+      storeClientArtifact: async () => "artifact-1",
+    },
   });
   mock.module("@/lib/exomem-hosted/agent-contract-canaries", {
     namedExports: {
@@ -515,6 +518,33 @@ describe("Exomem operator contract controls", () => {
     assert.equal(response.status, 200);
     assert.equal((await response.json()).candidateId, "candidate-fresh");
     assert.equal(importedRelease, "0.54.1");
+  });
+
+  it("accepts an operator evidence re-import only for a well-formed artifact id", async () => {
+    const { POST } = await import("../route");
+    assert.equal(
+      (
+        await POST(
+          request(
+            { action: "reimport-client-artifact-evidence", artifactId: "not-a-uuid", evidence: {} },
+            `Bearer ${ADMIN_TOKEN}`
+          )
+        )
+      ).status,
+      400
+    );
+    const response = await POST(
+      request(
+        {
+          action: "reimport-client-artifact-evidence",
+          artifactId: "018f2d91-7c42-7000-8000-000000000022",
+          evidence: {},
+        },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).result, "reimported");
   });
 
   it("rejects releases outside the immutable retained catalog", async () => {

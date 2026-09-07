@@ -11,7 +11,10 @@ import {
   storeExomemAgentContractCandidate,
   storeRetainedExomemAgentContractCandidate,
 } from "@/lib/exomem-hosted/agent-contract-store";
-import { storeClientArtifact } from "@/lib/exomem-hosted/client-artifacts";
+import {
+  reimportClientArtifactEvidence,
+  storeClientArtifact,
+} from "@/lib/exomem-hosted/client-artifacts";
 import {
   createCanaryAssignment,
   createStagedClientRelease,
@@ -455,6 +458,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       response = { demoted: await demoteExomemAgentContractCandidate(candidateId) };
     } else if (body.action === "import-artifact") {
       response = { artifactId: await storeClientArtifact(body.artifact) };
+    } else if (body.action === "reimport-client-artifact-evidence") {
+      const artifactId = uuid(body.artifactId);
+      if (!artifactId) throw exomemErrors.invalidRequest();
+      response = {
+        result: await reimportClientArtifactEvidence({ artifactId, evidence: body.evidence }),
+      };
     } else if (body.action === "demote-artifact") {
       const artifactId = uuid(body.artifactId);
       if (!artifactId) throw exomemErrors.invalidRequest();
