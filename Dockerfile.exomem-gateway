@@ -1,0 +1,10 @@
+FROM node:24.18.1-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY src ./src
+COPY contracts ./contracts
+COPY tsconfig.json ./
+EXPOSE 8080
+ENV EXOMEM_GATEWAY_PORT=8080
+CMD ["node", "--import", "tsx", "src/exomem-gateway/index.ts"]

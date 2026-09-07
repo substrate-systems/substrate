@@ -8,6 +8,8 @@
     "build": "next build",
     "vercel-build": "tsx scripts/vercel-maybe-migrate.ts && next build",
     "start": "next start",
+    "gateway:start": "node --import tsx src/exomem-gateway/index.ts",
+    "gateway:build": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

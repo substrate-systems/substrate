@@ -12,6 +12,7 @@ import { handleHostedMcpRequest } from "../mcp";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "../agent-contract-fixture-0-35-0";
 import type { ActiveOAuthAccessToken } from "../oauth-store";
+import commandBinding from "../../../../contracts/hosted-agent-command-binding-v1.json";
 
 const ACCESS: ActiveOAuthAccessToken = {
   familyId: "family",
@@ -228,6 +229,36 @@ describe("Hosted MCP boundary", () => {
     }
     assert.equal(selections, 3);
     assert.equal(routes, 1);
+  });
+
+  it("carries only the signed command-binding feature into private command selection", async () => {
+    let received: Record<string, unknown> | undefined;
+    const live = {
+      ...LIVE,
+      contract: { ...LIVE.contract, features: [commandBinding.compatibilityFeature, "ignored"] },
+    };
+    const response = await handleHostedMcpRequest(
+      request({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bootstrap", arguments: {} },
+      }),
+      {
+        baseUrl: "https://substratesystems.io",
+        findAccessToken: async () => ACCESS,
+        getContractForAccess: async () => live,
+        statusForTenant: async () => ({ state: "ready", code: "READY", retryable: false }),
+        routeCommand: async (input) => {
+          received = input.hostedContract;
+          return bootstrapResult();
+        },
+        takeRateLimit: async () => true,
+      }
+    );
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(received?.features, [commandBinding.compatibilityFeature]);
   });
 
   it("rejects release selectors from query, headers, and cookies before bearer-derived routing", async () => {
@@ -609,6 +640,43 @@ describe("Hosted MCP boundary", () => {
     assert.equal(response.status, 429);
     assert.deepEqual(rateLimitScopes, ["exomem:mcp:ip"]);
     assert.equal(tokenLookups, 0);
+  });
+
+  it("uses only the ingress-overwritten source marker for the pre-authentication bucket", async () => {
+    const previousHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+    const previousValue = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-exomem-gateway-ingress";
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = "shared-edge";
+    const keys: string[] = [];
+    try {
+      const response = await handleHostedMcpRequest(
+        request(
+          { jsonrpc: "2.0", id: 1, method: "tools/list" },
+          {
+            "x-forwarded-for": "198.51.100.9",
+            "x-real-ip": "198.51.100.10",
+            "x-exomem-gateway-ingress": "shared-edge",
+          }
+        ),
+        {
+          baseUrl: "https://substratesystems.io",
+          findAccessToken: async () => null,
+          takeRateLimit: async (_rule, key) => {
+            keys.push(key);
+            return true;
+          },
+        }
+      );
+      assert.equal(response.status, 401);
+      assert.deepEqual(keys, ["trusted:shared-edge"]);
+    } finally {
+      if (previousHeader === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = previousHeader;
+      if (previousValue === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
+    }
   });
 
   it("returns stable preparing metadata without routing a tool to a cell", async () => {

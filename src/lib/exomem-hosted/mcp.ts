@@ -16,6 +16,7 @@ import {
 } from "./agent-contract-store";
 import { ExomemHostedError, exomemErrors } from "./errors";
 import {
+  AGENT_COMMAND_BINDING_FEATURE,
   hasForbiddenGatewayHeaders,
   routeExomemCommand,
   type HostedContractCommand,
@@ -25,7 +26,7 @@ import { findMcpOAuthAccessToken, type ActiveOAuthAccessToken } from "./oauth-st
 import { bearerChallenge, mcpAuthenticateMeta, parseBearerAuthorization } from "./oauth";
 import { exomemPublicBaseUrlFromEnv } from "./public-origin";
 import { buildOperationalEvent, type OperationalEvent } from "./observability";
-import { EXOMEM_RATE_LIMITS, clientAddressKey, takeExomemRateLimit } from "./rate-limit";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
 import { controlPlaneKeyFromEnv, digestSecret } from "./security";
 
 const MAX_MCP_REQUEST_BYTES = 1024 * 1024;
@@ -76,7 +77,6 @@ const MAX_FORWARDED_REMEDIATION_CHARS = 600;
 
 function forwardedRemediation(code: string, value: unknown): string | undefined {
   if (!FORWARDED_REMEDIATION_CODES.has(code) || typeof value !== "string") return undefined;
-  // eslint-disable-next-line no-control-regex
   const cleaned = value
     .replace(/[\u0000-\u001F\u007F]/g, " ")
     .replace(/\s+/g, " ")
@@ -455,6 +455,14 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
   return tools;
 }
 
+function compatibilityFeatures(contract: LiveExomemAgentContract): string[] {
+  const compatibility = object(contract.contract);
+  const features = compatibility?.features;
+  if (!Array.isArray(features) || features.some((feature) => typeof feature !== "string"))
+    return [];
+  return features.filter((feature) => feature === AGENT_COMMAND_BINDING_FEATURE);
+}
+
 function requiredScope(readOnly: boolean): "exomem.read" | "exomem.write" {
   return readOnly ? "exomem.read" : "exomem.write";
 }
@@ -715,6 +723,14 @@ function mcpOriginAllowed(origin: string | null, baseUrl: string): boolean {
   return allowed.every((candidate) => candidate !== null) && allowed.includes(exact);
 }
 
+function mcpNetworkSource(request: Request): string {
+  const header = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+  const value = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+  return header && value && request.headers.get(header) === value
+    ? `trusted:${value}`
+    : "aggregate";
+}
+
 function originRejected(): Response {
   return new Response(null, { status: 403, headers: { "cache-control": "no-store" } });
 }
@@ -745,8 +761,7 @@ export async function handleHostedMcpRequest(
     return unauthorized(baseUrl);
   }
   const take = dependencies.takeRateLimit ?? takeExomemRateLimit;
-  const ip = clientAddressKey(request);
-  if (ip && !(await take(EXOMEM_RATE_LIMITS.mcpIp, ip))) {
+  if (!(await take(EXOMEM_RATE_LIMITS.mcpIp, mcpNetworkSource(request)))) {
     emitMcpTelemetry(dependencies, request, { outcome: "denied", errorCode: "RATE_LIMITED" });
     return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
   }
@@ -1013,6 +1028,7 @@ export async function handleHostedMcpRequest(
                   commandFingerprint: live.commandFingerprint,
                   schemaDigest: live.schemaDigest,
                   compatibilityDigest: live.compatibilityDigest,
+                  features: compatibilityFeatures(live),
                 },
                 idempotencyKey: tool.readOnly
                   ? null
