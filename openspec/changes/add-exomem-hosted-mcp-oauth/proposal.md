@@ -1,3 +1,13 @@
+## Current contract
+
+The approved `simplify-hosted-launch-boundaries` change supersedes this change's
+combined runtime/artifact promotion gate, artifact-based ordinary client admission
+and continued internal-canary authority after activation. Ordinary approved
+service clients need no certified artifact; signed runtime activation and exact
+per-host certification are independent. The updated delta requirements carry
+this separation. Historical profile/release examples and completed task evidence
+are retained without asserting new implementation or launch completion.
+
 ## Why
 
 Exomem Hosted cannot deliver one-login plugin onboarding through the existing browser-only Home and private cell gateway. Claude and OpenAI clients need one public, standards-compatible MCP/OAuth boundary that turns a valid invite or entitlement into exactly one isolated tenant and then routes only the least-privilege Hosted agent profile.

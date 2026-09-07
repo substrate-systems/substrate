@@ -1,3 +1,12 @@
+## Supersession and evidence status
+
+The checked entries below record the earlier per-platform repair, not acceptance
+of `simplify-hosted-launch-boundaries`. That approved change owns removal of all
+ordinary artifact gates, independent runtime activation and later certification.
+Do not execute the historical 0.54.1 provisioning/promotion steps in section 6:
+use the new change's frozen runtime and resumable service acceptance instead.
+Unfinished historical checks are not marked complete by this reconciliation.
+
 ## 1. Sequencing
 
 - [x] 1.1 Confirm `admit-cimd-clients-by-host` archives before this change applies, since the `exomem-hosted-mcp-oauth` delta modifies a requirement that capability introduces and which is not yet in `openspec/specs/`

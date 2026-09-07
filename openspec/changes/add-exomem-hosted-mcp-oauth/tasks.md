@@ -1,3 +1,12 @@
+## Supersession and evidence status
+
+These task boxes record the original implementation. They do not prove the
+approved replacements in `simplify-hosted-launch-boundaries`, which owns
+artifact-independent service authorization, runtime-only activation, complete
+internal-canary revocation and separate per-host certification. Unfinished host
+runs remain certification evidence, not a prerequisite for ordinary service
+admission. No task is newly completed by reconciling its contract.
+
 ## 1. Pin Protocol, Security, And Data Contracts
 
 - [x] 1.1 Add failing pure tests for protected-resource and authorization-server metadata, `WWW-Authenticate`, supported MCP negotiation, bearer-header-only authority, resource/audience binding, PKCE S256, exact redirect validation, and content-free OAuth errors.

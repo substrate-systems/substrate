@@ -1,4 +1,16 @@
-## Why
+## Current contract
+
+The approved `simplify-hosted-launch-boundaries` change supersedes this change's
+artifact-based service admission and combined activation/promotion workflow.
+Per-platform cohorts now report artifact certification, never permission to
+authorize or refresh an approved service client. Runtime activation, ordinary
+service authorization and exact per-host certification are separate gates.
+The delta specs below carry that current contract; the rationale and scope that
+follow record the earlier per-platform repair, not instructions to restore its
+remaining artifact gate. PKCE, redirect, client-metadata and tenant policy checks
+are preserved.
+
+## Historical rationale
 
 Exomem Hosted cannot admit a single Claude user until an OpenAI app is registered.
 
