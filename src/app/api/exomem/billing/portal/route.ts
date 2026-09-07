@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { startOwnerPortal } from "@/lib/exomem-hosted/billing-account";
-import { exomemErrors, safeErrorResponse } from "@/lib/exomem-hosted/errors";
+import { exomemErrors } from "@/lib/exomem-hosted/errors";
+import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";

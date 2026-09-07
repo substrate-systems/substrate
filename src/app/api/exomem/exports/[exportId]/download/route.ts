@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ownerExportDownload } from "@/lib/exomem-hosted/durability";
-import { safeErrorResponse } from "@/lib/exomem-hosted/errors";
+import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";

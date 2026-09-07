@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { safeErrorResponse, exomemErrors } from "@/lib/exomem-hosted/errors";
+import { exomemErrors } from "@/lib/exomem-hosted/errors";
+import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { hasForbiddenGatewayHeaders } from "@/lib/exomem-hosted/gateway";
 import { newRequestId, readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {

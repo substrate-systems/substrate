@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { safeErrorResponse } from "@/lib/exomem-hosted/errors";
+import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { emitAccessEvent, newRequestId, readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {
   ALERT_MAX_BODY_BYTES,

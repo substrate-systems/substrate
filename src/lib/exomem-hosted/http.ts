@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
+import { ExomemHostedError, exomemErrors } from "./errors";
+import { safeErrorResponse } from "./next-error-response";
 import {
   buildOperationalEvent,
   emitOperationalEvent,

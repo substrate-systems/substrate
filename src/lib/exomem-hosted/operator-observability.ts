@@ -1,4 +1,5 @@
-import { ExomemHostedError, safeErrorResponse } from "./errors";
+import { ExomemHostedError } from "./errors";
+import { safeErrorResponse } from "./next-error-response";
 
 function emitOperatorEvent(input: {
   outcome: "succeeded" | "denied";
