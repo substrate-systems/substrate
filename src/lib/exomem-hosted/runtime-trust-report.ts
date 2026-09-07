@@ -31,10 +31,10 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const RELEASE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/;
 const IMAGE = /^ghcr\.io\/artexis10\/exomem@sha256:[a-f0-9]{64}$/;
-// The ten-field output from release CI's `hosted_image_candidate.py verify` for
-// Exomem v0.74.0. CI verifies the release's Sigstore attestation and cross-checks
-// the agent and gateway fixtures against the signed candidate; local checks only
-// reproduce the published bytes and projections. Do not hand-assemble this.
+// The reviewed v0.74.0 target is derived by the canonical
+// `runtime_target_from_verified_fixtures` helper. Release CI run 34121947678
+// verified both signed subjects; downloaded asset bytes and the paired fixture
+// tuple were checked locally. Do not hand-assemble this.
 const REVIEWED_TARGET: HostedRuntimeTrustTarget = {
   releaseVersion: "0.74.0",
   sourceCommit: "bd95fc9826069ec66f142c821abfda4b2f1d0912",
