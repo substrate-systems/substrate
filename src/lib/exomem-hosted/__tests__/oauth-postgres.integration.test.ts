@@ -569,7 +569,7 @@ function authorizationTransactionInput(input: {
   };
 }
 
-describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl }, () => {
+describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurrency: false }, () => {
   before(async () => {
     schema = `oauth_it_${randomUUID().replaceAll("-", "")}`;
     await ensureExomemPostgresTestExtensions(databaseUrl!);

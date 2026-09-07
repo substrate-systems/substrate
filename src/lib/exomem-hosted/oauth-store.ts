@@ -282,21 +282,28 @@ export async function createAuthorizationTransaction(input: {
   return withCohortLock(async (tx) => {
     const { rows } = await tx`
     /* exomem:create-oauth-authorization-transaction */
-    WITH expired_bootstraps AS (
+    WITH cutoff AS MATERIALIZED (
+      SELECT clock_timestamp() AS at
+    ), expired_bootstraps AS (
       UPDATE exomem_marketplace_reviewer_oauth_bootstrap_authorities
-      SET state = 'expired', expired_at = now()
-      WHERE state = 'active' AND expires_at <= now()
+      SET state = 'expired', expired_at = cutoff.at
+      FROM cutoff
+      WHERE state = 'active' AND expires_at <= cutoff.at
       RETURNING oauth_client_id
     ), disabled_bootstrap_clients AS (
       UPDATE exomem_oauth_clients AS client
-      SET enabled = false, authority_version = gen_random_uuid(), updated_at = now()
+      SET enabled = false, authority_version = gen_random_uuid(), updated_at = cutoff.at
+      FROM cutoff
       WHERE client.id IN (SELECT oauth_client_id FROM expired_bootstraps)
       RETURNING client.id
     ), pruned AS (
       DELETE FROM exomem_oauth_authorization_transactions
       WHERE id IN (
-        SELECT id FROM exomem_oauth_authorization_transactions
-        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
+        SELECT transaction.id
+        FROM exomem_oauth_authorization_transactions AS transaction
+        CROSS JOIN cutoff
+        WHERE transaction.expires_at <= cutoff.at
+           OR transaction.consumed_at < cutoff.at - interval '1 day'
         ORDER BY expires_at
         LIMIT 50
       )
@@ -313,16 +320,17 @@ export async function createAuthorizationTransaction(input: {
            ${input.pkceChallenge}, bootstrap.id,
            LEAST(${input.expiresAt.toISOString()}::timestamptz, COALESCE(bootstrap.expires_at, ${input.expiresAt.toISOString()}::timestamptz))
     FROM exomem_oauth_clients AS client
+    CROSS JOIN cutoff
     LEFT JOIN LATERAL (
       SELECT authority.id, authority.expires_at
       FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
       JOIN exomem_invites AS invite ON invite.id = authority.invite_id
-      WHERE authority.state = 'active' AND authority.expires_at > now()
+      WHERE authority.state = 'active' AND authority.expires_at > cutoff.at
         AND authority.oauth_client_id = client.id
         AND authority.oauth_client_authority_version = client.authority_version
         AND authority.oauth_client_config_sha256 = client.oauth_client_config_sha256
         AND authority.redirect_uri_digest = client.redirect_uris_digest
-        AND invite.consumed_at IS NULL AND invite.revoked_at IS NULL AND invite.expires_at > now()
+        AND invite.consumed_at IS NULL AND invite.revoked_at IS NULL AND invite.expires_at > cutoff.at
       LIMIT 1
     ) AS bootstrap ON true
     WHERE client.client_id = ${input.clientId}
@@ -334,7 +342,7 @@ export async function createAuthorizationTransaction(input: {
       AND (client.admission_mode = 'pinned' OR (
         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
-        AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
+        AND client.metadata_expires_at > cutoff.at AND client.cimd_host IS NOT NULL
       ))
       AND (
         (client.enabled = true AND (
@@ -351,16 +359,16 @@ export async function createAuthorizationTransaction(input: {
            AND assignment.candidate_id = credential.candidate_id
            AND assignment.generation = credential.assignment_generation
            AND assignment.marketplace_reviewer_purpose = true
-           AND assignment.state IN ('preparing', 'active') AND assignment.expires_at > now()
+           AND assignment.state IN ('preparing', 'active') AND assignment.expires_at > cutoff.at
           JOIN exomem_staged_client_releases AS stage
             ON stage.id = credential.staged_client_release_id
            AND stage.candidate_id = credential.candidate_id
            AND stage.platform = client.client_platform
            AND stage.oauth_client_config_sha256 = client.oauth_client_config_sha256
-           AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > now()
+           AND stage.state IN ('staged', 'evidenced') AND stage.expires_at > cutoff.at
           WHERE credential.credential_kind = 'internal_canary'
             AND credential.oauth_client_id = client.id
-            AND credential.revoked_at IS NULL AND credential.expires_at > now()
+            AND credential.revoked_at IS NULL AND credential.expires_at > cutoff.at
       ) OR bootstrap.id IS NOT NULL
       )
       AND (bootstrap.id IS NULL OR NOT EXISTS (
@@ -369,7 +377,7 @@ export async function createAuthorizationTransaction(input: {
       ))
       AND (
         SELECT count(*) FROM exomem_oauth_authorization_transactions
-        WHERE consumed_at IS NULL AND expires_at > now()
+        WHERE consumed_at IS NULL AND expires_at > cutoff.at
       ) < ${MAX_PENDING_OAUTH_AUTHORIZATIONS}
     ON CONFLICT DO NOTHING
     RETURNING id
