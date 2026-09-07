@@ -77,6 +77,13 @@ const RELEASES = {
     generatedDirectory: "plugins/hosted/generated/candidates/hosted-alpha-agent-v4",
     openai: true,
   },
+  bd95fc9826069ec66f142c821abfda4b2f1d0912: {
+    sourceRelease: "0.74.0",
+    profile: "hosted-alpha-agent-v4",
+    generatedDirectory:
+      "plugins/hosted/generated/candidates/hosted-alpha-agent-v4-command-binding-v1",
+    openai: true,
+  },
 };
 
 function fail(message) {

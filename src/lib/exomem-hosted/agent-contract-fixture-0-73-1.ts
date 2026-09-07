@@ -1,7 +1,7 @@
-// Generated from Exomem compatibility.json at commit bd95fc9826069ec66f142c821abfda4b2f1d0912 for cell release 0.74.0. Do not edit.
+// Generated from Exomem compatibility.json at commit 956dcdbef56a62a697756c0369f5580a91ced35a for cell release 0.73.1. Do not edit.
 export const exomemHostedContractFixture = {
-  "sourceCommit": "bd95fc9826069ec66f142c821abfda4b2f1d0912",
-  "sourceRelease": "0.74.0",
+  "sourceCommit": "956dcdbef56a62a697756c0369f5580a91ced35a",
+  "sourceRelease": "0.73.1",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
@@ -9877,12 +9877,9 @@ export const exomemHostedContractFixture = {
       "plan_memory",
       "query_dataset"
     ],
-    "compatibility_sha256": "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
-    "definition_sha256": "f8a7f4e4a36bc747a6413d5c5efb56bc0448b877bbedb78736b7089ee981436f",
+    "compatibility_sha256": "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",
+    "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
-    "features": [
-      "agent-command-binding-v1"
-    ],
     "minimum_records_reader_version": 2,
     "oauth_discovery": {
       "authorization_server_metadata": "https://substratesystems.io/.well-known/oauth-authorization-server/api/exomem/oauth",
@@ -10159,7 +10156,7 @@ export const exomemHostedContractFixture = {
     },
     "oauth_discovery_sha256": "2bb41729abcfd93cd911e5f0787c4e03b38814f93376ab284f7eeae2fa9a3fd0",
     "plugin_id": "exomem-hosted-parity",
-    "plugin_version": "0.4.1",
+    "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
     "schema_contract_sha256": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
     "schema_version": 1,
@@ -10207,51 +10204,51 @@ export const exomemHostedContractFixture = {
         "replace_memory"
       ]
     },
-    "skills_sha256": "274a6552f396048e24b5bb4f0ad987b67ae9be660eeba3c3f76c08a6abdbfe4b"
+    "skills_sha256": "51a6cf7089d689f17668959490dd755a9855258378176a9305c3bc878008b7da"
   },
   "packageLock": {
-    "artifact_sha256": "2787c6a98e7552ff559d31a0738b272c3156bedc4d57b637b25b54445b0ea593",
+    "artifact_sha256": "be9a2c4c32ff4cc1927fcda01aafe590d3df486ad2f570229582ba1fd371b241",
     "command_surface_sha256": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-    "compatibility_sha256": "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
-    "definition_sha256": "f8a7f4e4a36bc747a6413d5c5efb56bc0448b877bbedb78736b7089ee981436f",
+    "compatibility_sha256": "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",
+    "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
     "oauth_discovery_sha256": "2bb41729abcfd93cd911e5f0787c4e03b38814f93376ab284f7eeae2fa9a3fd0",
     "platform": "claude",
     "platform_schema_version": "1.0.0",
     "plugin_id": "exomem-hosted-parity",
-    "plugin_version": "0.4.1",
+    "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
     "schema_contract_sha256": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
     "schema_version": 1,
     "selection_cases_sha256": "7790efc3a68be9176fe63d3b2db15a8ae9e5409f97a3b4a944ee2a753896d022",
-    "skills_sha256": "274a6552f396048e24b5bb4f0ad987b67ae9be660eeba3c3f76c08a6abdbfe4b"
+    "skills_sha256": "51a6cf7089d689f17668959490dd755a9855258378176a9305c3bc878008b7da"
   },
   "archiveLock": {
-    "archive_sha256": "dfdcf329c226ba1f18bd208bde9a2b6a780ca040794a50d9eaddcd9da3412708",
+    "archive_sha256": "00e63dece4bdd62a1cf3e708f18e2de4d61680810bd42b2da8c22c2765e902f4",
     "platform": "claude"
   },
   "openaiPackageLock": {
-    "artifact_sha256": "a730c16ba3db1309aafa861214d291aa15eaba204c8f9b4c0a279b78b53c3723",
+    "artifact_sha256": "eaca4382bb3918ef0d49384de30f9d6c7d35798649702bd59c53b0315916698b",
     "command_surface_sha256": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-    "compatibility_sha256": "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
-    "definition_sha256": "f8a7f4e4a36bc747a6413d5c5efb56bc0448b877bbedb78736b7089ee981436f",
+    "compatibility_sha256": "636d271faaa57d38730a5638abb9f12797cb49189e99be9762632f03ae49117c",
+    "definition_sha256": "447f9e01207f32cd42f19f5230a7da721d6d0fa90f622e16e9831f9795d7ac5d",
     "endpoint": "https://substratesystems.io/api/exomem/mcp/v1",
     "minimum_records_reader_version": 2,
     "oauth_discovery_sha256": "2bb41729abcfd93cd911e5f0787c4e03b38814f93376ab284f7eeae2fa9a3fd0",
     "platform": "openai",
     "platform_schema_version": "1.0.0",
     "plugin_id": "exomem-hosted-parity",
-    "plugin_version": "0.4.1",
+    "plugin_version": "0.4.0",
     "profile": "hosted-alpha-agent-v4",
     "registered_app_id_sha256": "b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46",
     "schema_contract_sha256": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
     "schema_version": 1,
     "selection_cases_sha256": "7790efc3a68be9176fe63d3b2db15a8ae9e5409f97a3b4a944ee2a753896d022",
-    "skills_sha256": "274a6552f396048e24b5bb4f0ad987b67ae9be660eeba3c3f76c08a6abdbfe4b"
+    "skills_sha256": "51a6cf7089d689f17668959490dd755a9855258378176a9305c3bc878008b7da"
   },
   "openaiArchiveLock": {
-    "archive_sha256": "70a6402bfdb768cd77bcd6664bf8a624c0cadd41f5744c97bbd89f184f736853",
+    "archive_sha256": "d04b967013e61336ecd724d5d5acecea7a56a306256c6f387baa22d62db7adc0",
     "platform": "openai",
     "registered_app_id_sha256": "b089bdc50a051f64a3fb60c21df2c9598e7c8e601deeeb1b7bfbe15abf1d8b46"
   }

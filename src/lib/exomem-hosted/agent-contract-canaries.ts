@@ -13,6 +13,7 @@ import { exomemContractFixture0681 } from "./gateway-contract-0-68-1";
 import { exomemContractFixture0683 } from "./gateway-contract-0-68-3";
 import { exomemContractFixture0721 } from "./gateway-contract-0-72-1";
 import { exomemContractFixture0731 } from "./gateway-contract-0-73-1";
+import { exomemContractFixture0740 } from "./gateway-contract-0-74-0";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 
 type AssignmentState = "preparing" | "active" | "failed" | "expired" | "retired";
@@ -79,6 +80,10 @@ const gatewayContractDigests = new Map([
   [
     `${exomemContractFixture0731.release}:${exomemContractFixture0731.protocol}`,
     exomemContractFixture0731.digest,
+  ],
+  [
+    `${exomemContractFixture0740.release}:${exomemContractFixture0740.protocol}`,
+    exomemContractFixture0740.digest,
   ],
 ]);
 
@@ -545,6 +550,8 @@ export async function createCanaryAssignment(input: {
                    THEN ${gatewayContractDigests.get(exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol)}
                  WHEN ${exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol}
                    THEN ${gatewayContractDigests.get(exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol)}
+                 WHEN ${exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol}
+                   THEN ${gatewayContractDigests.get(exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol)}
                  ELSE NULL
                END,
                tenant.marketplace_reviewer_purpose, ${operatorPrincipalDigest}, ${expiresAt}::timestamptz
