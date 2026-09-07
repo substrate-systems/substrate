@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import type { NextResponse } from "next/server";
 import {
   HOSTED_COHORT_CLOSURE_REASONS,
   type HostedCohortClosureReason,
@@ -412,5 +412,7 @@ export function safeErrorResponse(
   requestId?: string
 ): NextResponse<ExomemHostedErrorEnvelope> {
   const status = error instanceof ExomemHostedError ? error.status : 500;
-  return NextResponse.json(safeErrorEnvelope(error, requestId), { status });
+  return Response.json(safeErrorEnvelope(error, requestId), {
+    status,
+  }) as NextResponse<ExomemHostedErrorEnvelope>;
 }
