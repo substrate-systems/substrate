@@ -130,7 +130,7 @@ describe("Exomem OAuth token store", () => {
     }
   });
 
-  it("fences MCP access under the shared cohort lock and accepts non-ready token context", async () => {
+  it("fences MCP access under the shared lock and accepts non-ready token context", async () => {
     const queries: string[] = [];
     setSqlForTests(async (strings) => {
       const query = strings.join("?");
@@ -154,7 +154,7 @@ describe("Exomem OAuth token store", () => {
 
     assert.equal((await findMcpOAuthAccessToken(Buffer.alloc(32, 1)))?.tenantId, "tenant-1");
     assert.match(queries[0] ?? "", /pg_advisory_xact_lock_shared/i);
-    assert.match(queries[1] ?? "", /exomem_hosted_alpha_platform_cohort/i);
+    assert.doesNotMatch(queries[1] ?? "", /exomem_hosted_alpha_platform_cohort/i);
     assert.match(queries[1] ?? "", /exomem_oauth_account_blocks/i);
     assert.match(queries[1] ?? "", /tenant\.status <> 'deleted'/i);
     assert.doesNotMatch(queries[1] ?? "", /tenant\.status IN \('provisioning', 'active'\)/i);
@@ -352,7 +352,7 @@ describe("Exomem OAuth token store", () => {
     assert.doesNotMatch(query, /client\.enabled = true/i);
   });
 
-  it("requires the live hosted cohort before resolving an authorization client", async () => {
+  it("resolves approved service clients without a live artifact cohort", async () => {
     let query = "";
     setSqlForTests(async (strings) => {
       query = strings.join("?");
@@ -360,10 +360,8 @@ describe("Exomem OAuth token store", () => {
     });
 
     assert.equal(await resolveApprovedOAuthClient("client-1"), null);
-    assert.match(query, /exomem_hosted_alpha_platform_cohort/i);
-    // The predicate must judge a client against its OWN platform's cohort:
-    // a live cohort for another platform must never admit it.
-    assert.match(query, /cohort\.platform = client\.client_platform/i);
+    assert.doesNotMatch(query, /exomem_hosted_alpha_platform_cohort/i);
+    assert.match(query, /exomem_oauth_admitted_cimd_hosts/i);
     assert.match(
       query,
       /redirect_uris_digest = digest\(convert_to\(redirect_uris::text, 'utf8'\), 'sha256'\)/i

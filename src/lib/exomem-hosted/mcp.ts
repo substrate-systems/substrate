@@ -16,6 +16,7 @@ import {
 } from "./agent-contract-store";
 import { ExomemHostedError, exomemErrors } from "./errors";
 import {
+  AGENT_COMMAND_BINDING_FEATURE,
   hasForbiddenGatewayHeaders,
   routeExomemCommand,
   type HostedContractCommand,
@@ -25,7 +26,7 @@ import { findMcpOAuthAccessToken, type ActiveOAuthAccessToken } from "./oauth-st
 import { bearerChallenge, mcpAuthenticateMeta, parseBearerAuthorization } from "./oauth";
 import { exomemPublicBaseUrlFromEnv } from "./public-origin";
 import { buildOperationalEvent, type OperationalEvent } from "./observability";
-import { EXOMEM_RATE_LIMITS, clientAddressKey, takeExomemRateLimit } from "./rate-limit";
+import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
 import { controlPlaneKeyFromEnv, digestSecret } from "./security";
 
 const MAX_MCP_REQUEST_BYTES = 1024 * 1024;
@@ -76,7 +77,6 @@ const MAX_FORWARDED_REMEDIATION_CHARS = 600;
 
 function forwardedRemediation(code: string, value: unknown): string | undefined {
   if (!FORWARDED_REMEDIATION_CODES.has(code) || typeof value !== "string") return undefined;
-  // eslint-disable-next-line no-control-regex
   const cleaned = value
     .replace(/[\u0000-\u001F\u007F]/g, " ")
     .replace(/\s+/g, " ")
@@ -386,7 +386,29 @@ export function mcpProtocolSupported(
   return value !== null && Boolean(supported?.includes(value));
 }
 
-function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool> {
+const MAX_IMPORTED_TOOLS_CACHE_ENTRIES = 128;
+const importedToolsCache = new Map<string, Map<string, LiveTool>>();
+
+function importedToolsCacheKey(contract: LiveExomemAgentContract): string {
+  return [
+    contract.profile,
+    contract.sourceRelease,
+    contract.protocolVersion,
+    contract.commandFingerprint,
+    contract.schemaDigest,
+    contract.compatibilityDigest,
+  ].join("\0");
+}
+
+export function clearImportedToolsCacheForTests(): void {
+  importedToolsCache.clear();
+}
+
+export function importedToolsCacheSizeForTests(): number {
+  return importedToolsCache.size;
+}
+
+function compileImportedTools(contract: LiveExomemAgentContract): Map<string, LiveTool> {
   const compatibility = object(contract.contract);
   const agent = compatibility && object(compatibility.agent_contract);
   const commands = agent && Array.isArray(agent.commands) ? agent.commands : null;
@@ -453,6 +475,30 @@ function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool>
   )
     throw exomemErrors.protocolMismatch();
   return tools;
+}
+
+function importedTools(contract: LiveExomemAgentContract): Map<string, LiveTool> {
+  const key = importedToolsCacheKey(contract);
+  const cached = importedToolsCache.get(key);
+  if (cached) {
+    importedToolsCache.delete(key);
+    importedToolsCache.set(key, cached);
+    return cached;
+  }
+  const tools = compileImportedTools(contract);
+  if (importedToolsCache.size >= MAX_IMPORTED_TOOLS_CACHE_ENTRIES) {
+    importedToolsCache.delete(importedToolsCache.keys().next().value as string);
+  }
+  importedToolsCache.set(key, tools);
+  return tools;
+}
+
+function compatibilityFeatures(contract: LiveExomemAgentContract): string[] {
+  const compatibility = object(contract.contract);
+  const features = compatibility?.features;
+  if (!Array.isArray(features) || features.some((feature) => typeof feature !== "string"))
+    return [];
+  return features.filter((feature) => feature === AGENT_COMMAND_BINDING_FEATURE);
 }
 
 function requiredScope(readOnly: boolean): "exomem.read" | "exomem.write" {
@@ -715,6 +761,14 @@ function mcpOriginAllowed(origin: string | null, baseUrl: string): boolean {
   return allowed.every((candidate) => candidate !== null) && allowed.includes(exact);
 }
 
+function mcpNetworkSource(request: Request): string {
+  const header = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+  const value = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+  return header && value && request.headers.get(header) === value
+    ? `trusted:${value}`
+    : "aggregate";
+}
+
 function originRejected(): Response {
   return new Response(null, { status: 403, headers: { "cache-control": "no-store" } });
 }
@@ -745,8 +799,7 @@ export async function handleHostedMcpRequest(
     return unauthorized(baseUrl);
   }
   const take = dependencies.takeRateLimit ?? takeExomemRateLimit;
-  const ip = clientAddressKey(request);
-  if (ip && !(await take(EXOMEM_RATE_LIMITS.mcpIp, ip))) {
+  if (!(await take(EXOMEM_RATE_LIMITS.mcpIp, mcpNetworkSource(request)))) {
     emitMcpTelemetry(dependencies, request, { outcome: "denied", errorCode: "RATE_LIMITED" });
     return Response.json({ error: "RATE_LIMITED" }, { status: 429 });
   }
@@ -1013,6 +1066,7 @@ export async function handleHostedMcpRequest(
                   commandFingerprint: live.commandFingerprint,
                   schemaDigest: live.schemaDigest,
                   compatibilityDigest: live.compatibilityDigest,
+                  features: compatibilityFeatures(live),
                 },
                 idempotencyKey: tool.readOnly
                   ? null

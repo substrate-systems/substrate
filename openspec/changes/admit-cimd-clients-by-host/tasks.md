@@ -1,3 +1,8 @@
+> These task records describe the original CIMD implementation, not current
+> artifact-gated service admission. `simplify-hosted-launch-boundaries` owns the
+> replacement predicate and its verification. Existing boxes are unchanged;
+> they do not establish completion of the replacement or authorize archival.
+
 ## 1. Schema
 
 - [x] 1.1 Write `migrations/0048_exomem_oauth_admitted_cimd_hosts.sql` creating `exomem_oauth_admitted_cimd_hosts(platform text, host text, primary key (platform, host))` with a CHECK restricting `platform` to `('claude','openai')` and `host` to a lowercase hostname shape

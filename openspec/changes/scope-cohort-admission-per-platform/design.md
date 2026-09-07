@@ -1,4 +1,15 @@
-## Context
+## Current contract
+
+`simplify-hosted-launch-boundaries` replaces the admission and activation
+decisions described in the historical design below. Keep per-platform and paired
+projections as certification/reporting state; neither is an ordinary OAuth
+predicate. An approved registered client or valid allowed-host CIMD client may
+authorize without a certified artifact. Activate the exact signed runtime using
+fresh strict fleet evidence, then certify each platform independently against
+that live runtime while retaining the other platform's certification. The new
+change owns implementation, migration, tests and deployment of this separation.
+
+## Historical design context
 
 Every admission predicate in the system gates on
 `EXISTS (SELECT 1 FROM exomem_hosted_alpha_cohort …)`. That view inner-joins a live

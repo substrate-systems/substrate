@@ -198,6 +198,7 @@ describe("Exomem access routes", () => {
     const magicCookies = magic.headers.getSetCookie().join("\n");
     assert.match(magicCookies, /exomem_magic_challenge=.*Max-Age=0/i);
     assert.doesNotMatch(magicCookies, /exomem_session=/i);
+    assert.equal(magic.cookies.get("exomem_magic_challenge")?.value, "");
     assert.equal(inviteCalls, 0);
   });
 

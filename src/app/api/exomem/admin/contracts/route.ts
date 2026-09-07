@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   attachOpenAiContractLocks,
+  activateExomemHostedRuntime,
+  certifyExomemHostedClientArtifact,
   demoteExomemAgentContractCandidate,
   getLiveExomemHostedCohortCandidateId,
   listExomemAgentContractStatus,
@@ -9,7 +11,10 @@ import {
   storeExomemAgentContractCandidate,
   storeRetainedExomemAgentContractCandidate,
 } from "@/lib/exomem-hosted/agent-contract-store";
-import { storeClientArtifact } from "@/lib/exomem-hosted/client-artifacts";
+import {
+  reimportClientArtifactEvidence,
+  storeClientArtifact,
+} from "@/lib/exomem-hosted/client-artifacts";
 import {
   createCanaryAssignment,
   createStagedClientRelease,
@@ -421,12 +426,44 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           openaiEvidence: body.openaiEvidence,
         }),
       };
+    } else if (body.action === "activate-runtime") {
+      const candidateId = uuid(body.candidateId);
+      const expectedLiveCandidateId =
+        body.expectedLiveCandidateId === null ? null : uuid(body.expectedLiveCandidateId);
+      const expectedRoutableCellDigest = digest(body.expectedRoutableCellDigest);
+      if (
+        !candidateId ||
+        (body.expectedLiveCandidateId !== null && !expectedLiveCandidateId) ||
+        !expectedRoutableCellDigest
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
+      response = {
+        result: await activateExomemHostedRuntime({
+          candidateId,
+          expectedLiveCandidateId,
+          expectedRoutableCellDigest,
+        }),
+      };
+    } else if (body.action === "certify-client-artifact") {
+      const artifactId = uuid(body.artifactId);
+      const expectedEvidenceSha256 = digest(body.expectedEvidenceSha256);
+      if (!artifactId || !expectedEvidenceSha256) throw exomemErrors.invalidRequest();
+      response = {
+        result: await certifyExomemHostedClientArtifact({ artifactId, expectedEvidenceSha256 }),
+      };
     } else if (body.action === "demote-agent") {
       const candidateId = uuid(body.candidateId);
       if (!candidateId) throw exomemErrors.invalidRequest();
       response = { demoted: await demoteExomemAgentContractCandidate(candidateId) };
     } else if (body.action === "import-artifact") {
       response = { artifactId: await storeClientArtifact(body.artifact) };
+    } else if (body.action === "reimport-client-artifact-evidence") {
+      const artifactId = uuid(body.artifactId);
+      if (!artifactId) throw exomemErrors.invalidRequest();
+      response = {
+        result: await reimportClientArtifactEvidence({ artifactId, evidence: body.evidence }),
+      };
     } else if (body.action === "demote-artifact") {
       const artifactId = uuid(body.artifactId);
       if (!artifactId) throw exomemErrors.invalidRequest();

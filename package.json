@@ -8,6 +8,9 @@
     "build": "next build",
     "vercel-build": "tsx scripts/vercel-maybe-migrate.ts && next build",
     "start": "next start",
+    "gateway:start": "node dist/exomem-gateway/index.cjs",
+    "gateway:typecheck": "tsc --noEmit",
+    "gateway:build": "esbuild src/exomem-gateway/index.ts --bundle --platform=node --format=cjs --target=node24 --packages=external --outfile=dist/exomem-gateway/index.cjs && node scripts/verify-exomem-gateway-bundle.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -73,6 +76,7 @@
     "@types/jsdom": "^28.0.3",
     "@types/pg": "^8.20.0",
     "@types/uuid": "^10.0.0",
+    "esbuild": "^0.27.7",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.1.1",
     "eslint-config-prettier": "^10.1.8",
@@ -80,6 +84,7 @@
     "lefthook": "^1.11.0",
     "prettier": "^3.7.4",
     "tidewave": "^0.6.0",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "yaml": "^2.8.2"
   }
 }

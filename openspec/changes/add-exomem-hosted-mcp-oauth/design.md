@@ -1,4 +1,20 @@
-## Context
+## Current contract
+
+`simplify-hosted-launch-boundaries` is the current design for runtime activation,
+service-client admission, certification and nearby gateway deployment. It
+supersedes the historical design below wherever that text links ordinary OAuth
+to promoted artifacts, requires paired host evidence to activate a runtime,
+preserves internal-canary credentials after activation, or treats paired host
+certification as the invite-only service launch gate. Runtime activation revokes
+all internal-canary lineage while preserving independently verifiable artifact
+evidence. Existing ordinary grants follow current service policy independently
+of transient cell readiness; commands still require the exact ready bound cell.
+All unaffected PKCE, resource, ownership, metadata, lifecycle fencing, immutable
+release and privacy requirements remain in force. The new change owns execution
+and verification of these replacements; this historical design is not a second
+current deployment plan.
+
+## Historical design context
 
 Substrate already has the hard Hosted foundations: invite/magic-link identity, product-scoped browser sessions, provider-neutral entitlements, one-owner/one-tenant constraints, durable lifecycle operations, isolated cell/volume provisioning, private authenticated command forwarding, suspension/deletion, and Home. Exomem now also has an immutable `hosted-alpha-agent-v1` private agent contract and profile-specific cell route.
 

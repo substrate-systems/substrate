@@ -40,6 +40,9 @@ type ClientArtifact = {
   assignmentId: string;
   assignmentGeneration: number;
 };
+type StoredClientArtifact = Omit<ClientArtifact, "state" | "installUrl" | "observedAt"> & {
+  observedAt: string;
+};
 export type PlatformLocks = {
   packageLock: Record<string, unknown>;
   archiveLock: Record<string, unknown>;
@@ -355,7 +358,8 @@ export async function loadClientArtifactLocks(
 export function validatePromotionEvidence(
   input: unknown,
   platform: Platform,
-  locks: PlatformLocks
+  locks: PlatformLocks,
+  options: { requireFreshTimestamp?: boolean } = {}
 ): Record<string, unknown> {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw new Error("promotion evidence must be an object");
@@ -420,7 +424,7 @@ export function validatePromotionEvidence(
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(String(evidence.timestamp)) ||
     Number.isNaN(timestamp.valueOf()) ||
     timestamp.valueOf() > Date.now() ||
-    timestamp.valueOf() < Date.now() - 24 * 60 * 60_000
+    (options.requireFreshTimestamp !== false && timestamp.valueOf() < Date.now() - 24 * 60 * 60_000)
   ) {
     throw new Error("promotion evidence timestamp is stale");
   }
@@ -459,6 +463,53 @@ export function promotionEvidenceDigest(evidence: Record<string, unknown>): stri
   return createHash("sha256").update(canonical(evidence)).digest("hex");
 }
 
+function artifactMatchesEvidence(
+  artifact: StoredClientArtifact,
+  evidence: Record<string, unknown>
+): boolean {
+  return (
+    artifact.evidenceSha256 === promotionEvidenceDigest(evidence) &&
+    artifact.resultSha256 === evidence.result_sha256 &&
+    artifact.packageSha256 === evidence.package_artifact_sha256 &&
+    artifact.archiveSha256 === evidence.archive_sha256 &&
+    artifact.compatibilitySha256 === evidence.compatibility_sha256 &&
+    artifact.contractSha256 === evidence.schema_contract_sha256 &&
+    artifact.pluginVersion === evidence.plugin_version &&
+    artifact.clientIdentitySha256 === evidence.clean_client_identity_hmac_sha256 &&
+    artifact.pairedRunHmacSha256 === evidence.paired_run_hmac_sha256 &&
+    artifact.exomemIdentityHmacSha256 === evidence.exomem_identity_hmac_sha256 &&
+    artifact.tenantHmacSha256 === evidence.tenant_hmac_sha256 &&
+    artifact.oauthClientConfigSha256 === evidence.oauth_client_config_sha256 &&
+    artifact.candidateId === evidence.contract_candidate_id &&
+    artifact.stagedClientReleaseId === evidence.staged_client_release_id &&
+    artifact.assignmentId === evidence.assignment_id &&
+    artifact.assignmentGeneration === evidence.assignment_generation &&
+    artifact.observedAt === evidence.timestamp
+  );
+}
+
+export function storedArtifactMatchesPromotionEvidence(
+  artifact: Omit<StoredClientArtifact, "assignmentId" | "assignmentGeneration">,
+  evidence: Record<string, unknown>
+): boolean {
+  return (
+    artifact.evidenceSha256 === promotionEvidenceDigest(evidence) &&
+    artifact.resultSha256 === evidence.result_sha256 &&
+    artifact.packageSha256 === evidence.package_artifact_sha256 &&
+    artifact.archiveSha256 === evidence.archive_sha256 &&
+    artifact.compatibilitySha256 === evidence.compatibility_sha256 &&
+    artifact.contractSha256 === evidence.schema_contract_sha256 &&
+    artifact.pluginVersion === evidence.plugin_version &&
+    artifact.clientIdentitySha256 === evidence.clean_client_identity_hmac_sha256 &&
+    artifact.pairedRunHmacSha256 === evidence.paired_run_hmac_sha256 &&
+    artifact.exomemIdentityHmacSha256 === evidence.exomem_identity_hmac_sha256 &&
+    artifact.tenantHmacSha256 === evidence.tenant_hmac_sha256 &&
+    artifact.oauthClientConfigSha256 === evidence.oauth_client_config_sha256 &&
+    artifact.candidateId === evidence.contract_candidate_id &&
+    artifact.stagedClientReleaseId === evidence.staged_client_release_id
+  );
+}
+
 export async function demoteClientArtifact(
   artifactId: string,
   reasonSha256: string
@@ -486,43 +537,30 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
       transaction
     );
     const evidence = validatePromotionEvidence(source.evidence, artifact.platform, locks);
-    const evidenceSha256 = promotionEvidenceDigest(evidence);
-    if (
-      artifact.evidenceSha256 !== evidenceSha256 ||
-      artifact.resultSha256 !== evidence.result_sha256 ||
-      artifact.packageSha256 !== evidence.package_artifact_sha256 ||
-      artifact.archiveSha256 !== evidence.archive_sha256 ||
-      artifact.compatibilitySha256 !== evidence.compatibility_sha256 ||
-      artifact.contractSha256 !== evidence.schema_contract_sha256 ||
-      artifact.pluginVersion !== evidence.plugin_version ||
-      artifact.clientIdentitySha256 !== evidence.clean_client_identity_hmac_sha256 ||
-      artifact.pairedRunHmacSha256 !== evidence.paired_run_hmac_sha256 ||
-      artifact.exomemIdentityHmacSha256 !== evidence.exomem_identity_hmac_sha256 ||
-      artifact.tenantHmacSha256 !== evidence.tenant_hmac_sha256 ||
-      artifact.oauthClientConfigSha256 !== evidence.oauth_client_config_sha256 ||
-      artifact.candidateId !== evidence.contract_candidate_id ||
-      artifact.stagedClientReleaseId !== evidence.staged_client_release_id ||
-      artifact.assignmentId !== evidence.assignment_id ||
-      artifact.assignmentGeneration !== evidence.assignment_generation ||
-      artifact.observedAt !== evidence.timestamp
-    ) {
+    if (!artifactMatchesEvidence(artifact, evidence)) {
       throw new Error("artifact fields do not match signed evidence");
     }
     const { rows: stageRows } = await transaction`
       /* exomem:lock-staged-client-release-for-artifact */
       SELECT stage.id::text AS id, assignment.tenant_id::text AS tenant_id,
-             assignment.id::text AS assignment_id, assignment.generation AS assignment_generation
+             assignment.id::text AS assignment_id, assignment.generation AS assignment_generation,
+             candidate.state AS candidate_state
       FROM exomem_staged_client_releases AS stage
       JOIN exomem_agent_contract_candidates AS candidate ON candidate.id = stage.candidate_id
       JOIN exomem_agent_contract_rollout_assignments AS assignment
         ON assignment.candidate_id = candidate.id
       WHERE candidate.id = ${artifact.candidateId}::uuid
         AND candidate.profile_id = ${String(evidence.profile)}
-        AND candidate.state = 'pending'
+        AND candidate.state IN ('pending', 'live')
         AND candidate.created_at < ${artifact.observedAt}::timestamptz
-        AND stage.platform = ${artifact.platform} AND stage.state = 'staged'
+        AND stage.platform = ${artifact.platform}
+        AND (
+          (candidate.state = 'pending' AND stage.state = 'staged' AND assignment.state = 'active')
+          OR (candidate.state = 'live' AND stage.state = 'retired' AND assignment.state = 'retired')
+        )
         AND stage.id = ${artifact.stagedClientReleaseId}::uuid
-        AND stage.expires_at > now() AND stage.created_at < ${artifact.observedAt}::timestamptz
+        AND stage.created_at < ${artifact.observedAt}::timestamptz
+        AND (candidate.state = 'live' OR stage.expires_at > now())
         AND stage.package_sha256 = ${artifact.packageSha256}
         AND stage.archive_sha256 = ${artifact.archiveSha256}
         AND stage.compatibility_sha256 = ${artifact.compatibilitySha256}
@@ -533,11 +571,16 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
         AND assignment.id = ${artifact.assignmentId}::uuid
         AND assignment.generation = ${artifact.assignmentGeneration}::bigint
         AND assignment.marketplace_reviewer_purpose = true
-        AND assignment.state = 'active' AND assignment.expires_at > now()
+        AND (candidate.state = 'live' OR assignment.expires_at > now())
       LIMIT 2
       FOR UPDATE OF stage, candidate, assignment
     `;
-    if (stageRows.length !== 1 || typeof stageRows[0]?.id !== "string")
+    const candidateState = stageRows[0]?.candidate_state ?? "pending";
+    if (
+      stageRows.length !== 1 ||
+      typeof stageRows[0]?.id !== "string" ||
+      (candidateState !== "pending" && candidateState !== "live")
+    )
       throw new Error("artifact stage precondition failed");
     const stageId = artifact.stagedClientReleaseId;
     const { rows } = await transaction`
@@ -546,26 +589,114 @@ export async function storeClientArtifact(input: unknown): Promise<string> {
         platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
         plugin_version, client_identity_sha256, paired_run_hmac_sha256, exomem_identity_hmac_sha256,
         tenant_hmac_sha256, install_url, evidence_sha256, result_sha256, contract_candidate_id,
-        registered_app_id_sha256, oauth_client_config_sha256, observed_at, staged_client_release_id
+        registered_app_id_sha256, oauth_client_config_sha256, observed_at, staged_client_release_id,
+        evidence_payload, evidence_provenance
       ) VALUES (
         ${artifact.platform}, ${artifact.state}, ${artifact.packageSha256}, ${artifact.archiveSha256},
         ${artifact.compatibilitySha256}, ${artifact.contractSha256}, ${artifact.pluginVersion},
         ${artifact.clientIdentitySha256}, ${artifact.pairedRunHmacSha256}, ${artifact.exomemIdentityHmacSha256},
         ${artifact.tenantHmacSha256}, ${artifact.installUrl}, ${artifact.evidenceSha256}, ${artifact.resultSha256},
         ${artifact.candidateId}::uuid, ${locks.registeredAppIdSha256}, ${artifact.oauthClientConfigSha256},
-        ${artifact.observedAt}, ${stageId}::uuid
+        ${artifact.observedAt}, ${stageId}::uuid, ${JSON.stringify(evidence)}::jsonb,
+        '{"version":1,"verification":"operator-hmac-sha256"}'::jsonb
       ) RETURNING id
     `;
     const id = rows[0]?.id;
     if (typeof id !== "string") throw new Error("client artifact insert returned no id");
-    const { rows: evidenced } = await transaction`
-      /* exomem:evidence-staged-client-release */
-      UPDATE exomem_staged_client_releases
-      SET state = 'evidenced', evidenced_at = now(), version = version + 1, updated_at = now()
-      WHERE id = ${stageId}::uuid AND state = 'staged'
-      RETURNING id
-    `;
-    if (evidenced.length !== 1) throw new Error("artifact stage precondition failed");
+    if (candidateState === "pending") {
+      const { rows: evidenced } = await transaction`
+        /* exomem:evidence-staged-client-release */
+        UPDATE exomem_staged_client_releases
+        SET state = 'evidenced', evidenced_at = now(), version = version + 1, updated_at = now()
+        WHERE id = ${stageId}::uuid AND state = 'staged'
+        RETURNING id
+      `;
+      if (evidenced.length !== 1) throw new Error("artifact stage precondition failed");
+    }
     return id;
+  });
+}
+
+/** Fill a legacy empty envelope only when it is the artifact's exact signed evidence. */
+export async function reimportClientArtifactEvidence(input: {
+  artifactId: string;
+  evidence: unknown;
+}): Promise<"reimported" | "already_imported" | "precondition_failed"> {
+  const artifactId = uuid(input.artifactId, "client artifact identity");
+  return withExomemTransaction(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+    const { rows } = await transaction`
+      SELECT artifact.platform, artifact.evidence_sha256, artifact.result_sha256,
+             artifact.package_sha256, artifact.archive_sha256, artifact.compatibility_sha256,
+             artifact.contract_sha256, artifact.plugin_version, artifact.client_identity_sha256,
+             artifact.paired_run_hmac_sha256, artifact.exomem_identity_hmac_sha256,
+             artifact.tenant_hmac_sha256, artifact.oauth_client_config_sha256,
+             artifact.contract_candidate_id::text AS candidate_id,
+             artifact.staged_client_release_id::text AS staged_client_release_id,
+             artifact.observed_at,
+             artifact.evidence_payload, artifact.evidence_provenance
+      FROM exomem_client_artifacts AS artifact
+      JOIN exomem_staged_client_releases AS stage ON stage.id = artifact.staged_client_release_id
+      WHERE artifact.id = ${artifactId}::uuid
+      FOR UPDATE OF artifact
+    `;
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (!row || (row.evidence_payload && row.evidence_provenance)) {
+      if (
+        row?.evidence_payload &&
+        row.evidence_provenance &&
+        canonical(row.evidence_payload) === canonical(input.evidence)
+      )
+        return "already_imported";
+      return "precondition_failed";
+    }
+    if (
+      (row.platform !== "claude" && row.platform !== "openai") ||
+      typeof row.candidate_id !== "string" ||
+      typeof row.staged_client_release_id !== "string"
+    )
+      return "precondition_failed";
+    const locks = await loadClientArtifactLocks(row.platform, row.candidate_id, transaction);
+    const evidence = validatePromotionEvidence(input.evidence, row.platform, locks, {
+      requireFreshTimestamp: false,
+    });
+    const artifact = {
+      platform: row.platform as Platform,
+      packageSha256: String(row.package_sha256),
+      archiveSha256: String(row.archive_sha256),
+      compatibilitySha256: String(row.compatibility_sha256),
+      contractSha256: String(row.contract_sha256),
+      pluginVersion: String(row.plugin_version),
+      clientIdentitySha256: String(row.client_identity_sha256),
+      pairedRunHmacSha256: String(row.paired_run_hmac_sha256),
+      exomemIdentityHmacSha256: String(row.exomem_identity_hmac_sha256),
+      tenantHmacSha256: String(row.tenant_hmac_sha256),
+      evidenceSha256: String(row.evidence_sha256),
+      resultSha256: String(row.result_sha256),
+      oauthClientConfigSha256: String(row.oauth_client_config_sha256),
+      candidateId: row.candidate_id,
+      stagedClientReleaseId: row.staged_client_release_id,
+      observedAt: new Date(String(row.observed_at)).toISOString(),
+    };
+    if (!storedArtifactMatchesPromotionEvidence(artifact, evidence)) return "precondition_failed";
+    const { rowCount: lineageCount } = await transaction`
+      SELECT 1
+      FROM exomem_staged_client_releases AS stage
+      JOIN exomem_agent_contract_rollout_assignments AS assignment
+        ON assignment.id = ${String(evidence.assignment_id)}::uuid
+       AND assignment.candidate_id = stage.candidate_id
+       AND assignment.generation = ${Number(evidence.assignment_generation)}::bigint
+      WHERE stage.id = ${String(evidence.staged_client_release_id)}::uuid
+        AND stage.candidate_id = ${row.candidate_id}::uuid
+    `;
+    if (lineageCount !== 1) return "precondition_failed";
+    const { rowCount } = await transaction`
+      UPDATE exomem_client_artifacts
+      SET evidence_payload = ${JSON.stringify(evidence)}::jsonb,
+          evidence_provenance = '{"version":1,"verification":"operator-hmac-sha256"}'::jsonb
+      WHERE id = ${artifactId}::uuid
+        AND evidence_payload IS NULL AND evidence_provenance IS NULL
+    `;
+    return rowCount === 1 ? "reimported" : "precondition_failed";
   });
 }

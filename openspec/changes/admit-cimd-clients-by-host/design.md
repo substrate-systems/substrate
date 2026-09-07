@@ -1,3 +1,8 @@
+> Historical design: the cohort-based service predicate below is superseded by
+> `simplify-hosted-launch-boundaries`. Its shared ordinary-service predicate is
+> authoritative at every OAuth stage, including atomic first-invite commit.
+> Retain this change's host/metadata and bounded auto-registration protections.
+
 ## Context
 
 Exomem Hosted admits an OAuth client through one entry point,

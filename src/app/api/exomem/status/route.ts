@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { safeErrorResponse } from "@/lib/exomem-hosted/errors";
+import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { getOwnerLifecycleStatus } from "@/lib/exomem-hosted/reconcile-runtime";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
 import type { LifecycleStatus } from "@/lib/exomem-hosted/reconciler";

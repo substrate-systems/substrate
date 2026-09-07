@@ -548,7 +548,7 @@ async function consumeInviteForMutation(
   );
 }
 
-describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl }, () => {
+describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl, concurrency: false }, () => {
   before(async () => {
     schema = `oauth_bootstrap_${randomUUID().replaceAll("-", "")}`;
     await ensureExomemPostgresTestExtensions(databaseUrl!);
@@ -1486,7 +1486,7 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
         await resetDatabase();
         const prepared = await prepareBootstrap(70, 1_500);
         const before = await bootstrapGraphSnapshot();
-        await new Promise((resolve) => setTimeout(resolve, 1_600));
+        await waitForAuthorityWallExpiry(prepared.authority.id);
         assert.equal(
           await createAuthorizationTransaction({
             transactionDigest: digest(70_020),
@@ -1640,6 +1640,67 @@ describe("reviewer OAuth bootstrap PostgreSQL integration", { skip: !databaseUrl
           transaction_consumed_at: null,
         },
       ]
+    );
+  });
+
+  it("rejects authorization begun before bootstrap expiry when the cohort lock is acquired after expiry", async () => {
+    const fixture = await createBootstrapFixture(78);
+    const authority = await createReviewerOAuthBootstrapAuthority({
+      inviteId: fixture.inviteId,
+      stagedClientReleaseId: fixture.stageId,
+      oauthClientId: fixture.clientIdRecord,
+      expiresAt: new Date(Date.now() + 2_500),
+      operatorPrincipalDigest: digest(78_001),
+    });
+    assert.ok(authority);
+    const transactionDigest = digest(78_020);
+    const blocker = await pool!.connect();
+    let authorization: Promise<Awaited<ReturnType<typeof createAuthorizationTransaction>>> | undefined;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
+      authorization = createAuthorizationTransaction({
+        transactionDigest,
+        stateDigest: digest(78_021),
+        stateEnvelope: {
+          version: 1,
+          algorithm: "A256GCM",
+          iv: "iv",
+          ciphertext: "cipher",
+          tag: "tag",
+        },
+        formNonceDigest: digest(78_022),
+        continuationBinding: digest(78_023),
+        clientId: fixture.clientId,
+        redirectUri: fixture.redirectUri,
+        resource,
+        scopes: ["exomem.read"],
+        pkceChallenge: "authorization-expiry",
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      });
+      await waitForCohortLockWaiters();
+      await waitForAuthorityWallExpiry(authority.id);
+      await blocker.query("COMMIT");
+    } catch (error) {
+      await blocker.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      blocker.release();
+    }
+    assert.equal(await authorization!, null);
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT authority.state, client.enabled, clock_timestamp() >= authority.expires_at AS wall_expired,
+                  (SELECT count(*) FROM exomem_oauth_authorization_transactions
+                   WHERE transaction_digest = $2)::text AS transaction_count
+           FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+           JOIN exomem_oauth_clients AS client ON client.id = authority.oauth_client_id
+           WHERE authority.id = $1`,
+          [authority.id, transactionDigest]
+        )
+      ).rows,
+      [{ state: "expired", enabled: false, wall_expired: true, transaction_count: "0" }]
     );
   });
 

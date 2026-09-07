@@ -34,6 +34,7 @@ import fullContract0681 from "./gateway-contract-0-68-1.json";
 import fullContract0683 from "./gateway-contract-0-68-3.json";
 import fullContract0721 from "./gateway-contract-0-72-1.json";
 import fullContract0731 from "./gateway-contract-0-73-1.json";
+import commandBinding from "../../../../contracts/hosted-agent-command-binding-v1.json";
 
 const USER_A = "018f2d91-7c42-7000-8000-000000000071";
 const TENANT_A = "018f2d91-7c42-7000-8000-000000000072";
@@ -675,6 +676,164 @@ describe("registry-derived Exomem gateway", () => {
       (error: unknown) =>
         error instanceof ExomemHostedError && error.code === "CELL_PROTOCOL_MISMATCH"
     );
+  });
+
+  it("uses the command-binding route and exact expected tuple when the signed feature is present", async () => {
+    const hosted = {
+      profile: commandBinding.expectedTuple.surfaceProfile,
+      sourceRelease: commandBinding.expectedTuple.release,
+      protocolVersion: "1",
+      commandFingerprint: commandBinding.expectedTuple.commandFingerprint,
+      schemaDigest: commandBinding.expectedTuple.contractDigest,
+      compatibilityDigest: "c".repeat(64),
+      features: [commandBinding.compatibilityFeature],
+    };
+    const row = {
+      ...target({
+        userId: USER_A,
+        tenantId: TENANT_A,
+        cellId: "cell-command-binding",
+        endpoint: "https://cell-command-binding.internal/",
+        releaseVersion: commandBinding.expectedTuple.release,
+        hosted,
+      }),
+    };
+    const calls: Array<{ url: URL; init: RequestInit | undefined }> = [];
+
+    const result = await routeExomemCommand({
+      session: { userId: USER_A, tenantId: TENANT_A },
+      commandName: "ask_memory",
+      args: { query: "single hop" },
+      command: {
+        name: "ask_memory",
+        params: [{ name: "query", type: "str", required: true }],
+        read_only: true,
+        mode: "read",
+        tier: 1,
+        capability: "core",
+        guarded_fields: [],
+      },
+      hostedContract: hosted,
+      dependencies: {
+        resolveTarget: async () => row,
+        fetch: async (input, init) => {
+          calls.push({ url: new URL(String(input)), init });
+          return Response.json({ success: true, data: {} });
+        },
+        expectedProtocol: "1",
+        decrypt,
+        principalScope: () => "A".repeat(43),
+      },
+    });
+
+    assert.equal(result.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0]?.url.pathname,
+      `/private/exomem/v2/agent/${commandBinding.expectedTuple.surfaceProfile}/command/ask_memory`
+    );
+    assert.equal(calls[0]?.init?.method, commandBinding.route.method);
+    const headers = new Headers(calls[0]?.init?.headers);
+    assert.equal(headers.get("x-exomem-expected-release"), hosted.sourceRelease);
+    assert.equal(headers.get("x-exomem-expected-command-fingerprint"), hosted.commandFingerprint);
+    assert.equal(headers.get("x-exomem-expected-contract-digest"), hosted.schemaDigest);
+    assert.equal(headers.has("x-exomem-expected-compatibility-digest"), false);
+  });
+
+  it("does not select command binding when the mapped compatibility tuple differs", async () => {
+    const hosted = {
+      profile: commandBinding.expectedTuple.surfaceProfile,
+      sourceRelease: commandBinding.expectedTuple.release,
+      protocolVersion: "1",
+      commandFingerprint: commandBinding.expectedTuple.commandFingerprint,
+      schemaDigest: commandBinding.expectedTuple.contractDigest,
+      compatibilityDigest: "c".repeat(64),
+      features: [commandBinding.compatibilityFeature],
+    };
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-mismatched-binding",
+      endpoint: "https://cell-mismatched-binding.internal/",
+      releaseVersion: hosted.sourceRelease,
+      hosted: { ...hosted, compatibilityDigest: "d".repeat(64) },
+    });
+    let calls = 0;
+    await assert.rejects(
+      routeExomemCommand({
+        session: { userId: USER_A, tenantId: TENANT_A },
+        commandName: "ask_memory",
+        args: { query: "mismatch" },
+        command: {
+          name: "ask_memory",
+          params: [{ name: "query", type: "str", required: true }],
+          read_only: true,
+          mode: "read",
+          tier: 1,
+          capability: "core",
+          guarded_fields: [],
+        },
+        hostedContract: hosted,
+        dependencies: {
+          resolveTarget: async () => row,
+          fetch: async () => {
+            calls += 1;
+            return Response.json({ success: true, data: {} });
+          },
+          expectedProtocol: "1",
+          decrypt,
+          principalScope: () => "A".repeat(43),
+        },
+      }),
+      (error: unknown) =>
+        error instanceof ExomemHostedError && error.code === "CELL_PROTOCOL_MISMATCH"
+    );
+    assert.equal(calls, 0);
+  });
+
+  it("translates only an exact mapped control endpoint to the configured cluster ingress", async () => {
+    const row = target({
+      userId: USER_A,
+      tenantId: TENANT_A,
+      cellId: "cell-local",
+      endpoint: "https://control.example.test/cells/cell-local",
+    });
+    const calls: Array<{ url: URL; init: RequestInit | undefined }> = [];
+    await routeExomemCommand({
+      session: { userId: USER_A, tenantId: TENANT_A },
+      commandName: "ask_memory",
+      args: { query: "local" },
+      command: {
+        name: "ask_memory",
+        params: [{ name: "query", type: "str", required: true }],
+        read_only: true,
+        mode: "read",
+        tier: 1,
+        capability: "core",
+        guarded_fields: [],
+      },
+      dependencies: {
+        resolveTarget: async () => row,
+        fetch: async (input, init) => {
+          calls.push({ url: new URL(String(input)), init });
+          return Response.json({ success: true, data: {} });
+        },
+        expectedProtocol: "1",
+        privateTransport: {
+          controlHostname: "control.example.test",
+          internalOrigin: "http://traefik.example.test:80",
+        },
+        decrypt,
+        principalScope: () => "A".repeat(43),
+      },
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(
+      calls[0]?.url.toString(),
+      "http://traefik.example.test/cells/cell-local/private/exomem/v1/command/ask_memory"
+    );
+    assert.equal(new Headers(calls[0]?.init?.headers).get("host"), "control.example.test");
   });
 
   it("accepts the exact hosted private profile-contract response shape", async () => {

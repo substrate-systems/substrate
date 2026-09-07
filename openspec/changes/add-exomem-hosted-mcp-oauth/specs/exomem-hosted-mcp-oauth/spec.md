@@ -2,7 +2,7 @@
 
 ### Requirement: Public MCP Is A Standards-Compatible Protected Resource
 
-The system SHALL expose one versioned production HTTPS Streamable HTTP MCP resource for Exomem Hosted and SHALL publish the OAuth Protected Resource Metadata, Authorization Server Metadata, challenges, protocol negotiation, and transport behavior required by the promoted Claude and OpenAI clients. Every protected MCP request MUST carry a bearer access token in the `Authorization` header; tokens in URLs, cookies, MCP arguments, or session identifiers MUST be rejected or ignored as authority.
+The system SHALL expose one versioned production HTTPS Streamable HTTP MCP resource for Exomem Hosted and SHALL publish the OAuth Protected Resource Metadata, Authorization Server Metadata, challenges, protocol negotiation, and transport behavior required by approved service clients. Artifact certification and marketplace publication MUST NOT gate ordinary authorization or resource use. Every protected MCP request MUST carry a bearer access token in the `Authorization` header; tokens in URLs, cookies, MCP arguments, or session identifiers MUST be rejected or ignored as authority.
 
 #### Scenario: Unauthenticated client discovers authorization
 
@@ -12,7 +12,7 @@ The system SHALL expose one versioned production HTTPS Streamable HTTP MCP resou
 
 #### Scenario: Client negotiates Streamable HTTP
 
-- **WHEN** an authorized promoted client initializes using a supported MCP protocol version
+- **WHEN** an authorized approved client initializes using a supported MCP protocol version
 - **THEN** the server negotiates only its pinned compatible protocol range and returns the registered Exomem server capabilities
 - **AND** losing or replacing an MCP session identifier cannot change tenant authority or provision infrastructure
 
@@ -23,11 +23,11 @@ The system SHALL expose one versioned production HTTPS Streamable HTTP MCP resou
 
 ### Requirement: OAuth Authorization Is Client-Bound And Exomem-Owned
 
-The authorization server SHALL implement authorization code with PKCE S256, exact redirect URI binding, short-lived single-use codes, CSRF-safe browser state, resource-indicator/audience binding, explicit read/write scopes, and the client registration mechanisms proven necessary by the promoted hosts. It MUST NOT accept or pass through another provider's access token as an Exomem credential, and generic arbitrary client admission MUST remain disabled during the friends alpha.
+The authorization server SHALL implement authorization code with PKCE S256, exact redirect URI binding, short-lived single-use codes, CSRF-safe browser state, resource-indicator/audience binding, explicit read/write scopes, and approved pre-registration or validated allowed-host CIMD. Every ordinary stage, including authorization start/completion, invite bootstrap, code exchange, access, refresh and contract lookup, SHALL apply the same service-client eligibility independent of artifacts. It MUST NOT accept or pass through another provider's access token as an Exomem credential, and generic arbitrary client admission MUST remain disabled during the friends alpha.
 
 #### Scenario: Approved public client authorizes correctly
 
-- **WHEN** a promoted client presents an approved pre-registration, validated HTTPS Client ID Metadata Document, or explicitly enabled bounded registration with an exact redirect, resource, scopes, state, and PKCE challenge
+- **WHEN** an approved client presents a pinned pre-registration or validated unexpired allowed-host HTTPS Client ID Metadata Document with an exact redirect, resource, scopes, state, and PKCE challenge, even when no certified artifact exists
 - **THEN** the server begins one short-lived Exomem authorization transaction bound to those values
 
 #### Scenario: Authorization code is intercepted or replayed
@@ -58,7 +58,7 @@ An OAuth authorization transaction SHALL resume through the existing email-bound
 
 #### Scenario: Existing entitled owner authorizes another client
 
-- **WHEN** an identity that already owns one eligible Exomem tenant authorizes a promoted second client
+- **WHEN** an identity that already owns one eligible Exomem tenant authorizes an approved second client
 - **THEN** the new client grant binds to the existing tenant
 - **AND** no invite, tenant, entitlement, capacity reservation, provisioning operation, cell, or volume is duplicated
 
@@ -82,7 +82,7 @@ An OAuth authorization transaction SHALL resume through the existing email-bound
 
 ### Requirement: Token Families Provide Durable Revocable Continuity
 
-The authorization server SHALL issue high-entropy opaque authorization codes, short-lived access tokens, and one-time rotating refresh tokens while storing only their digests. Every token MUST be bound to the Exomem issuer, exact MCP resource audience, client, identity, grant, scopes, and token family. Access checks SHALL enforce current grant, entitlement, tenant, and lifecycle state; refresh replay MUST revoke the affected family; raw credentials MUST NOT be logged or persisted.
+The authorization server SHALL issue high-entropy opaque authorization codes, short-lived access tokens, and one-time rotating refresh tokens while storing only their digests. Every token MUST be bound to the Exomem issuer, exact MCP resource audience, client, identity, grant, scopes, and token family. Access checks SHALL enforce current grant, entitlement, tenant, and explicit account/lifecycle policy; transient cell readiness MUST NOT revoke or prevent an otherwise valid ordinary refresh. Command dispatch SHALL separately require the exact ready compatible cell. Refresh replay MUST revoke the affected family; raw credentials MUST NOT be logged or persisted.
 
 #### Scenario: Client restarts after initial login
 
@@ -189,27 +189,27 @@ The control plane SHALL allow only an authenticated operator to create a bounded
 - **THEN** its candidate-bound grants, codes, token families, access tokens, and refresh descendants are revoked atomically and discovery and calls fail closed for that tenant
 - **AND** neither OAuth nor MCP falls back to a mismatched live contract or another cell
 
-#### Scenario: Candidate becomes the live cohort
+#### Scenario: Candidate becomes the active runtime
 
-- **WHEN** paired clean-client evidence is fresh, every routable cell reports the candidate, and the existing cohort promotion compare-and-swap succeeds
-- **THEN** the candidate and its paired artifacts become live atomically and obsolete assignments retire in the same locked transition
-- **AND** token descendants bound to that candidate remain valid through promotion while no tenant observes a mixed contract/client/cell identity
+- **WHEN** signed candidate identity and nonempty fresh strict-v2 matching fleet evidence pass the runtime activation compare-and-swap
+- **THEN** the runtime becomes live without requiring or certifying any client artifact and obsolete assignments/stages retire atomically
+- **AND** every internal-canary credential, transaction, code, grant, family, access token and refresh descendant for the activated or retired candidates is revoked while exact signed artifact evidence is retained for later certification
 
 #### Scenario: Ordinary tenant exits rollout maintenance
 
 - **WHEN** the assigned candidate becomes globally live
-- **THEN** the ordinary tenant exits rollout maintenance only after a fresh authorization against the now-live client creates matching lineage
+- **THEN** the ordinary tenant exits rollout maintenance under an eligible ordinary grant and the exact ready runtime binding, using fresh authorization if its previous grant was explicitly revoked
 - **AND** previously revoked live-client tokens are not resurrected
 
 ### Requirement: Staged Client Releases Are Pre-Evidence And Non-Promotable
 
-For each supported platform, an authenticated operator MAY create an immutable, bounded staged client-release declaration that binds one pending candidate to its exact package digest, archive digest, compatibility digest, schema digest, plugin version, OAuth client configuration digest, and registered-app identity where applicable. The declaration SHALL include operator provenance but no acceptance result, SHALL NOT be a client artifact, SHALL NOT become live, and SHALL NOT satisfy any promotion precondition. Candidate OAuth registration and enablement MAY use only an exact non-expired declaration. A later signed pending client artifact MUST match the declaration byte-for-byte and still provide fresh content-bearing evidence. Importing that exact artifact SHALL atomically mark the declaration `evidenced`; declaration expiry, removal, failure, or retirement before this transition SHALL revoke every code and token descendant that relied on it, while an evidenced declaration remains auditable authority for its exact matching artifact and cannot be replaced by another declaration.
+For each supported platform, an authenticated operator MAY create an immutable, bounded staged client-release declaration that binds one pending candidate to its exact package digest, archive digest, compatibility digest, schema digest, plugin version, OAuth client configuration digest, and registered-app identity where applicable. The declaration SHALL include operator provenance but no acceptance result, SHALL NOT be a client artifact, SHALL NOT become live, and SHALL NOT satisfy certification. Internal-canary registration MAY use only an exact non-expired declaration; ordinary approved service registration does not require one. A later signed pending client artifact MUST match its declaration exactly and provide content-bearing evidence. Its complete signed envelope and immutable provenance SHALL remain independently verifiable after stage retirement. Runtime activation SHALL revoke all internal-canary authority, including evidenced lineage, without deleting that evidence. Independent later certification against the already-live runtime MUST NOT require an active historical stage.
 
 #### Scenario: Candidate client authorizes before evidence exists
 
 - **WHEN** the operator has staged an exact client release, activated a reviewer-purpose tenant assignment, and minted an exact short-lived internal-canary credential but no signed client artifact exists yet
 - **THEN** that exact candidate client may complete authorization for the assigned reviewer tenant and run the clean-client proof
-- **AND** the candidate remains unpromotable until fresh signed evidence creates the matching pending artifact
+- **AND** no artifact is certified until fresh signed evidence proves it; runtime activation remains a separate fleet-evidence decision
 
 #### Scenario: Staged declaration differs from candidate locks
 
@@ -232,7 +232,7 @@ For each supported platform, an authenticated operator MAY create an immutable, 
 #### Scenario: Exact evidence supersedes staging authority
 
 - **WHEN** a fresh signed pending artifact matches the declaration byte-for-byte
-- **THEN** the declaration becomes evidenced atomically and existing exact lineage may continue to rely on that immutable declaration/artifact pair
+- **THEN** the declaration becomes evidenced atomically while the assignment remains valid, and its complete signed evidence survives later retirement independently of canary authority
 - **AND** the evidence transition still does not promote the candidate by itself
 
 ### Requirement: Internal Canary Credentials Precede External Reviewer Credentials
@@ -253,7 +253,7 @@ An authenticated operator MAY mint a short-lived `internal_canary` reviewer cred
 
 ### Requirement: Candidate OAuth Lineage Is Generation-Bound And Revocable
 
-OAuth MAY resolve a pending candidate client before identity is known only while an exact non-expired staged client-release declaration, matching internal-canary credential, and reviewer-purpose preparing or active assignment exist for that candidate. Authorization completion MUST prove the authenticated owner resolves to the assignment's tenant and that the same generation is active before issuing a code or grant. The candidate ID, assignment generation, declaration ID, and OAuth client identity SHALL be copied durably through the authorization transaction, grant, authorization code, token family, access-token record, and every refresh descendant. Code exchange, access lookup, refresh, discovery, and calls SHALL accept candidate-bound lineage only while the exact generation remains active or the exact candidate is now live, the client belongs to that same candidate cohort, and the declaration is non-expired or evidenced by the exact matching pending/live artifact. Public client metadata, redirect state, cookies, headers, and parameters SHALL NOT supply or override lineage. Activating an assignment SHALL atomically revoke all existing tenant grants, codes, token families, access tokens, and refresh descendants whose client/candidate lineage differs, including ordinary live-client families.
+OAuth MAY resolve an internal-canary pending client before identity is known only while an exact non-expired staged declaration, matching internal-canary credential, and reviewer-purpose preparing or active assignment exist. Completion MUST prove the authenticated owner resolves to the assigned tenant and the same generation is active. Candidate, generation, declaration and client identity SHALL remain bound throughout transaction, code, grant, family, access and refresh lineage. Code exchange, access, refresh, discovery and calls SHALL accept that internal-canary lineage only while its exact pending candidate, assignment and declaration remain authorized. A live candidate MUST NOT preserve or revive it: runtime activation revokes the complete internal-canary lineage atomically, including unused codes and credentials. Public inputs cannot supply or override lineage. Ordinary approved service grants follow current service policy independently of artifacts; this requirement grants no provider-review authority.
 
 #### Scenario: Assignment changes after authorization begins
 
@@ -263,15 +263,15 @@ OAuth MAY resolve a pending candidate client before identity is known only while
 
 #### Scenario: Refresh is attempted after candidate retirement
 
-- **WHEN** a refresh token is bound to a candidate generation that is no longer active and whose candidate did not become live
+- **WHEN** an internal-canary refresh token is bound to a generation that is no longer active, including because its candidate became live
 - **THEN** the family and its access descendants are revoked and refresh fails
 - **AND** no token is rebound to the current live candidate
 
 #### Scenario: Candidate is promoted between code issue and exchange
 
 - **WHEN** a valid code names the exact candidate and assignment generation and that candidate becomes live before exchange
-- **THEN** exchange and later refresh may continue against the now-live candidate
-- **AND** promotion does not silently change the candidate identity recorded on the lineage
+- **THEN** activation revokes the internal-canary code and exchange fails
+- **AND** ordinary service access requires an independently eligible ordinary grant, never conversion of the canary lineage
 
 #### Scenario: Old live-client token is used after assignment activation
 
@@ -279,11 +279,11 @@ OAuth MAY resolve a pending candidate client before identity is known only while
 - **THEN** activation has revoked that family and discovery, calls, and refresh fail closed
 - **AND** the old client artifact cannot drive the pending contract or cell
 
-#### Scenario: Matching candidate token survives promotion
+#### Scenario: Matching internal-canary token cannot survive activation
 
 - **WHEN** a candidate-bound token names the promoted candidate and its assignment retires as part of promotion
-- **THEN** access and refresh continue under the same now-live candidate identity
-- **AND** no token is rebound to a different client or candidate
+- **THEN** its internal-canary access and refresh fail after atomic revocation
+- **AND** preserved signed artifact evidence may still be certified against the live runtime without reviving the token or retired stage
 
 ### Requirement: Lifecycle Operations Pin One Server-Selected Cell Release
 
@@ -315,7 +315,7 @@ Before the first provider or cell side effect, every cell-scoped lifecycle opera
 
 ### Requirement: Hosted Rollback Replays The Normal Forward Promotion Path
 
-Rollback SHALL retain the prior immutable image, contract, and paired client artifacts and import them as a new pending candidate rather than reviving a retired row. Operators SHALL create fresh assignment generations, roll affected tenants back through the same quiesce/export/restore/rebind sequence, collect fresh paired clean-client evidence against the restored candidate, and promote it through the normal routable-set compare-and-swap. Evidence from the prior promotion MUST NOT be reused. Until each tenant is rolled, the current live cohort SHALL remain authoritative for that tenant; any cell/selection mismatch SHALL fail closed.
+Rollback SHALL retain prior immutable images, contracts and artifact evidence and import the selected release as a new pending runtime candidate rather than reviving a retired row. Operators SHALL create fresh generations, use the governed quiesce/export/restore/rebind sequence, and activate only with fresh strict matching runtime evidence through the nonempty routable-set compare-and-swap. Old fleet evidence MUST NOT substitute for current observation. Platform certification is a separate exact-artifact decision, never a prerequisite for runtime rollback. Until each tenant is rolled, its server-selected target remains authoritative; any cell/selection mismatch SHALL fail closed.
 
 #### Scenario: Operator requests rollback after promotion
 
@@ -331,7 +331,7 @@ Rollback SHALL retain the prior immutable image, contract, and paired client art
 
 #### Scenario: Rollback candidate reaches global promotion
 
-- **WHEN** every routable tenant reports the rollback candidate and fresh paired evidence passes
+- **WHEN** every routable tenant reports the rollback candidate and fresh strict runtime evidence passes
 - **THEN** the ordinary locked promotion retires the faulty live cohort and makes the rollback candidate live atomically
 - **AND** obsolete assignments retire without reusing historical evidence or reviving retired records
 
@@ -450,7 +450,7 @@ Operational records and logs SHALL contain only opaque request, client, grant-fa
 
 ### Requirement: Live Acceptance Proves The Complete Cross-Client Journey
 
-Before friends distribution, one evidence-bound run shared with `add-hosted-client-plugins` SHALL prove on real clean Claude and OpenAI clients that a valid invitee installs one plugin, completes one uninterrupted Exomem login/authorization per installation, and uses governed long-term memory automatically from a fresh chat without configuration or Exomem-specific prompting. Success MUST include seeded content recall, citation, durable capture, later fresh-chat recall, same-tenant attachment by the other client, refresh/restart continuity, and measured cost/latency budgets.
+Before certifying a platform artifact, an exact evidence-bound run SHALL prove its genuine host journey: one valid ordinary authorization, content-bearing recall with resolvable citation, durable capture, fresh-chat recall, same-tenant continuity and measured safety/latency evidence. Each platform is certified independently against the active runtime; paired claims retain their shared-identity checks. Invite-only service launch SHALL instead pass the agent-run service acceptance in `simplify-hosted-launch-boundaries` and MUST NOT wait for unrelated host certification or marketplace publication. Generic protocol results cannot certify a host, and neither kind of acceptance may pass on connectivity alone.
 
 #### Scenario: First client completes the product target
 
@@ -460,14 +460,14 @@ Before friends distribution, one evidence-bound run shared with `add-hosted-clie
 
 #### Scenario: Other client attaches to the same memory
 
-- **WHEN** the same Exomem identity separately authorizes the other promoted client
+- **WHEN** the same Exomem identity separately authorizes another approved client
 - **THEN** it reaches the same seeded and newly captured content through its own token family
 - **AND** the infrastructure counts remain one tenant, one active cell, and one volume
 
 #### Scenario: Connectivity-only smoke is attempted
 
 - **WHEN** a run proves only OAuth, initialization, tool listing, bootstrap, metadata, or a content-free read
-- **THEN** acceptance fails and neither the contract nor package is promoted on that evidence
+- **THEN** service/host acceptance fails and no artifact is certified on that evidence; runtime activation still requires its separate strict fleet evidence
 
 #### Scenario: Adversarial lifecycle matrix runs
 

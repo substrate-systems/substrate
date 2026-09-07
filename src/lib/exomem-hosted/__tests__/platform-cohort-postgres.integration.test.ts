@@ -253,7 +253,7 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
     }
   });
 
-  it("promotes Claude alone, and then cannot pair OpenAI onto that candidate at all", async () => {
+  it("keeps ordinary OAuth admission independent while a Claude-only promotion cannot be paired later", async () => {
     const fixture = exomemHostedContractFixture.compatibility;
     const cellId = await seedBoundCell();
     await recordRoutableCellObservation({
@@ -340,9 +340,8 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
       pendingArtifactFromEvidence("openai", openAiEvidence)
     );
     const claudeClientId = await registerPinnedClient("claude");
-    // Deliberately the SAME configuration digest as the Claude client. Under the
-    // old paired predicate this client matched cohort.openai_oauth_client_config_sha256;
-    // it must now be refused, because its own platform has no live cohort.
+    // Deliberately the SAME configuration digest as the Claude client. Ordinary
+    // OAuth client admission is independent from client-artifact/cohort state.
     const openAiClientId = await registerPinnedClient("openai");
 
     const status = (await listExomemHostedRolloutStatus()).find(
@@ -379,17 +378,14 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
 
     assert.ok(
       await resolveApprovedOAuthClient(claudeClientId),
-      "a Claude client is admitted on the strength of the Claude artifact"
+      "a Claude client remains admitted independently of cohort state"
     );
-    assert.equal(
+    assert.ok(
       await resolveApprovedOAuthClient(openAiClientId),
-      null,
-      "an OpenAI client is refused: a Claude cohort must never admit another platform"
+      "an OpenAI client remains admitted without a matching OpenAI cohort"
     );
 
-    // The host-allowlist branch is scoped to the client's own platform too.
-    // Before this change it sat inside the whole-cohort EXISTS, so it inherited
-    // whatever the paired view said rather than asking about its own platform.
+    // The host-allowlist branch is likewise independent from cohort state.
     const claudeCimdClientId = await registerCimdClient("claude", "claude.ai");
     const openAiCimdClientId = await registerCimdClient("openai", "chatgpt.com");
 
@@ -397,11 +393,9 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
       await resolveApprovedOAuthClient(claudeCimdClientId),
       "a host-allowlisted Claude client is admitted without matching any pinned digest"
     );
-    assert.equal(
+    assert.ok(
       await resolveApprovedOAuthClient(openAiCimdClientId),
-      null,
-      "a host-allowlisted ChatGPT connector is still refused while OpenAI has no cohort: " +
-        "the allowlist widens which client, never which platform"
+      "a host-allowlisted ChatGPT connector remains admitted without an OpenAI cohort"
     );
 
     // ---- Later pairing -------------------------------------------------------
@@ -470,12 +464,9 @@ describe("per-platform cohort admission", { skip: !databaseUrl }, () => {
       0,
       "and the paired view stays empty"
     );
-    assert.equal(
+    assert.ok(
       await resolveApprovedOAuthClient(openAiCimdClientId),
-      null,
-      "so a ChatGPT connector is still refused, and there is no way to change that " +
-        "on this candidate: enabling OpenAI needs a fresh candidate and a whole new " +
-        "promotion window, including a fresh Claude evidence run"
+      "the refused pairing does not affect ordinary ChatGPT connector admission"
     );
     assert.ok(await resolveApprovedOAuthClient(claudeClientId), "Claude admission is unaffected");
   });

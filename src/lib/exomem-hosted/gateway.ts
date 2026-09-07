@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import commandBinding from "../../../contracts/hosted-agent-command-binding-v1.json";
 import {
   cloudflareAccessConfigFromEnv,
   cloudflareAccessHeaders,
@@ -203,6 +204,7 @@ export type ResolvedPrivateTarget = {
   endpoint: URL;
   credential: SensitiveSecret;
   principalScope: string;
+  trustedHost?: string;
 };
 
 export type GatewayResult = {
@@ -221,6 +223,10 @@ export type GatewayDependencies = {
   principalScope?: typeof opaquePrincipalScope;
   access?: CloudflareAccessConfig | null;
   signal?: AbortSignal;
+  privateTransport?: {
+    controlHostname: string;
+    internalOrigin: string;
+  } | null;
 };
 
 export type ExpectedHostedContract = {
@@ -230,7 +236,10 @@ export type ExpectedHostedContract = {
   commandFingerprint: string;
   schemaDigest: string;
   compatibilityDigest: string;
+  features?: readonly string[];
 };
+
+export const AGENT_COMMAND_BINDING_FEATURE = commandBinding.compatibilityFeature;
 
 type CachedContract = {
   contract: HostedContract;
@@ -268,11 +277,15 @@ export function hasReservedSelector(
 }
 
 export function hasForbiddenGatewayHeaders(headers: Headers): boolean {
+  const trustedIngressHeader =
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER?.toLowerCase();
   for (const [name, value] of headers) {
     const normalized = name.toLowerCase();
     const selector = normalizeField(normalized);
     if (
-      (normalized.startsWith("x-exomem-") && normalized !== "x-exomem-csrf") ||
+      (normalized.startsWith("x-exomem-") &&
+        normalized !== "x-exomem-csrf" &&
+        normalized !== trustedIngressHeader) ||
       normalized.startsWith("x-tenant") ||
       normalized === "x-cell-id" ||
       normalized === "x-vault-path" ||
@@ -470,6 +483,7 @@ export function privateGatewayHeaders(
     "x-exomem-protocol-version": target.row.protocolVersion,
     "x-exomem-request-id": requestId,
     "x-exomem-principal-scope": target.principalScope,
+    ...(target.trustedHost ? { host: target.trustedHost } : {}),
   };
 }
 
@@ -571,6 +585,48 @@ function validatePrivateEndpoint(secret: SensitiveSecret): URL {
   return endpoint;
 }
 
+function configuredPrivateTransport(
+  dependencies: GatewayDependencies
+): NonNullable<GatewayDependencies["privateTransport"]> | null {
+  if (dependencies.privateTransport !== undefined) return dependencies.privateTransport;
+  const controlHostname = process.env.EXOMEM_GATEWAY_CONTROL_HOSTNAME;
+  const internalOrigin = process.env.EXOMEM_GATEWAY_INTERNAL_ORIGIN;
+  if (!controlHostname && !internalOrigin) return null;
+  if (!controlHostname || !internalOrigin) throw exomemErrors.cellUnavailable();
+  return { controlHostname, internalOrigin };
+}
+
+function translateClusterEndpoint(
+  endpoint: URL,
+  cellId: string,
+  transport: NonNullable<GatewayDependencies["privateTransport"]>
+): { endpoint: URL; trustedHost: string } {
+  let internalOrigin: URL;
+  try {
+    internalOrigin = new URL(transport.internalOrigin);
+  } catch {
+    throw exomemErrors.cellUnavailable();
+  }
+  if (
+    internalOrigin.protocol !== "http:" ||
+    internalOrigin.username ||
+    internalOrigin.password ||
+    internalOrigin.pathname !== "/" ||
+    internalOrigin.search ||
+    internalOrigin.hash ||
+    !/^[A-Za-z0-9.-]+$/.test(transport.controlHostname) ||
+    endpoint.hostname !== transport.controlHostname ||
+    endpoint.port ||
+    endpoint.pathname !== `/cells/${encodeURIComponent(cellId)}`
+  ) {
+    throw exomemErrors.cellUnavailable();
+  }
+  return {
+    endpoint: new URL(endpoint.pathname, `${internalOrigin.origin}/`),
+    trustedHost: transport.controlHostname,
+  };
+}
+
 function assertRoutable(target: GatewayTarget, expectedProtocol: string): void {
   if (target.manuallySuspended || target.tenantStatus === "suspended") {
     throw exomemErrors.suspensionActive();
@@ -607,13 +663,18 @@ export async function resolveGatewayPrivateTarget(
   const decrypt = dependencies.decrypt ?? decryptSecret;
   const credential = decrypt(target.credentialCiphertext as SecretEnvelope);
   const endpointSecret = decrypt(target.endpointCiphertext as SecretEnvelope);
-  const endpoint = validatePrivateEndpoint(endpointSecret);
+  const remoteEndpoint = validatePrivateEndpoint(endpointSecret);
+  const transport = configuredPrivateTransport(dependencies);
+  const local = transport
+    ? translateClusterEndpoint(remoteEndpoint, target.cellId, transport)
+    : null;
+  const endpoint = local?.endpoint ?? remoteEndpoint;
   const principalScope = (dependencies.principalScope ?? opaquePrincipalScope)({
     product: "exomem",
     userId: session.userId,
     tenantId: session.tenantId,
   });
-  return { row: target, endpoint, credential, principalScope };
+  return { row: target, endpoint, credential, principalScope, ...(local ?? {}) };
 }
 
 function cacheKey(target: GatewayTarget, digest: string): string {
@@ -799,11 +860,16 @@ async function forwardCommand(input: {
   idempotencyKey: string | null;
   requestId: string;
   dependencies: GatewayDependencies;
-  hostedProfile: string | null;
+  hostedContract: ExpectedHostedContract | null;
 }): Promise<GatewayResult> {
   const fetchImpl = input.dependencies.fetch ?? fetch;
+  const commandBindingEnabled = Boolean(
+    input.hostedContract?.features?.includes(AGENT_COMMAND_BINDING_FEATURE)
+  );
   const url = new URL(
-    `${input.hostedProfile ? `private/exomem/v1/agent/${encodeURIComponent(input.hostedProfile)}` : "private/exomem/v1"}/command/${encodeURIComponent(input.command.name)}`,
+    commandBindingEnabled
+      ? `private/exomem/v2/agent/${encodeURIComponent(input.hostedContract!.profile)}/command/${encodeURIComponent(input.command.name)}`
+      : `${input.hostedContract ? `private/exomem/v1/agent/${encodeURIComponent(input.hostedContract.profile)}` : "private/exomem/v1"}/command/${encodeURIComponent(input.command.name)}`,
     `${input.target.endpoint.toString().replace(/\/$/, "")}/`
   );
   const headers: Record<string, string> = {
@@ -812,6 +878,11 @@ async function forwardCommand(input: {
   };
   if (!input.command.read_only && input.idempotencyKey) {
     headers["idempotency-key"] = input.idempotencyKey;
+  }
+  if (commandBindingEnabled) {
+    headers["x-exomem-expected-release"] = input.hostedContract!.sourceRelease;
+    headers["x-exomem-expected-command-fingerprint"] = input.hostedContract!.commandFingerprint;
+    headers["x-exomem-expected-contract-digest"] = input.hostedContract!.schemaDigest;
   }
   const body = JSON.stringify(input.args);
   const attempts = !input.command.read_only && !input.idempotencyKey ? 1 : 2;
@@ -885,7 +956,6 @@ export async function routeExomemCommand(input: {
   if (dependencies.signal?.aborted) throw exomemErrors.cellUnavailable();
   if (input.hostedContract) {
     const expected = input.hostedContract;
-    contractFixture(target.row, expected);
     if (
       target.row.hostedProfile !== expected.profile ||
       target.row.hostedSourceRelease !== expected.sourceRelease ||
@@ -896,7 +966,10 @@ export async function routeExomemCommand(input: {
     ) {
       throw exomemErrors.protocolMismatch();
     }
-    await verifyHostedPrivateContract(target, expected, dependencies, requestId);
+    if (!expected.features?.includes(AGENT_COMMAND_BINDING_FEATURE)) {
+      contractFixture(target.row, expected);
+      await verifyHostedPrivateContract(target, expected, dependencies, requestId);
+    }
   }
   const contract = input.command ? null : await fetchContract(target, dependencies, requestId);
   const command =
@@ -916,7 +989,7 @@ export async function routeExomemCommand(input: {
     idempotencyKey,
     requestId,
     dependencies,
-    hostedProfile: input.hostedContract?.profile ?? null,
+    hostedContract: input.hostedContract ?? null,
   });
 }
 
