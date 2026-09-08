@@ -177,4 +177,54 @@ describe("standalone Exomem gateway adapter", () => {
     server.close();
     await once(server, "close");
   });
+
+  it("serves direct discovery while rejecting host and path spoofing before MCP handling", async () => {
+    const previousProfile = process.env.EXOMEM_HOSTED_INGRESS_PROFILE;
+    const previousResource = process.env.EXOMEM_HOSTED_DIRECT_RESOURCE;
+    const previousBaseUrl = process.env.EXOMEM_PUBLIC_BASE_URL;
+    process.env.EXOMEM_HOSTED_INGRESS_PROFILE = "direct-v1";
+    process.env.EXOMEM_HOSTED_DIRECT_RESOURCE =
+      "https://exomem-direct.substratesystems.io/api/exomem/mcp/v1";
+    process.env.EXOMEM_PUBLIC_BASE_URL = "https://substratesystems.io";
+    let handled = 0;
+    const server = createGatewayServer({
+      handleMcp: async () => {
+        handled += 1;
+        return new Response("unreachable");
+      },
+    });
+    await listen(server);
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+      const metadata = await connectedSocket(address.port);
+      metadata.write(
+        "GET /.well-known/oauth-protected-resource/api/exomem/mcp/v1 HTTP/1.1\r\nHost: exomem-direct.substratesystems.io\r\nConnection: close\r\n\r\n"
+      );
+      assert.match(await readHeaders(metadata), /^HTTP\/1\.1 200 /);
+
+      for (const [request, status] of [
+        ["POST /api/exomem/mcp/v1 HTTP/1.1\r\nHost: hosted.example.test", 400],
+        [
+          "POST http://exomem-direct.substratesystems.io/api/exomem/mcp/v1 HTTP/1.1\r\nHost: exomem-direct.substratesystems.io",
+          400,
+        ],
+        ["POST /api/exomem/mcp/%76%31 HTTP/1.1\r\nHost: exomem-direct.substratesystems.io", 404],
+      ]) {
+        const socket = await connectedSocket(address.port);
+        socket.write(`${request}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+        assert.match(await readHeaders(socket), new RegExp(`^HTTP\\/1\\.1 ${status} `));
+      }
+      assert.equal(handled, 0);
+    } finally {
+      server.close();
+      await once(server, "close");
+      if (previousProfile === undefined) delete process.env.EXOMEM_HOSTED_INGRESS_PROFILE;
+      else process.env.EXOMEM_HOSTED_INGRESS_PROFILE = previousProfile;
+      if (previousResource === undefined) delete process.env.EXOMEM_HOSTED_DIRECT_RESOURCE;
+      else process.env.EXOMEM_HOSTED_DIRECT_RESOURCE = previousResource;
+      if (previousBaseUrl === undefined) delete process.env.EXOMEM_PUBLIC_BASE_URL;
+      else process.env.EXOMEM_PUBLIC_BASE_URL = previousBaseUrl;
+    }
+  });
 });

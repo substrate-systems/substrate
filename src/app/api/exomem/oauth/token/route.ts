@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { hostedIngressFromEnv } from "@/lib/exomem-hosted/hosted-ingress";
 import {
   isPkceVerifier,
   mintOpaqueTokenMaterial,
@@ -130,7 +131,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     if (!allowed) return rateLimited();
     const form = await readOAuthForm(request, TOKEN_FIELDS, { ignoreUnrecognized: true });
-    const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
+    const resource = hostedIngressFromEnv(exomemPublicBaseUrlFromEnv()).resource;
     if (form.grant_type === "authorization_code") {
       if (
         !hasExactFields(form, [

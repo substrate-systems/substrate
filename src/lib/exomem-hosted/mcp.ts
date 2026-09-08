@@ -10,7 +10,6 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   EXOMEM_HOSTED_PROFILE,
-  EXOMEM_HOSTED_RESOURCE,
   getExomemAgentContractForOAuthAccess,
   type LiveExomemAgentContract,
 } from "./agent-contract-store";
@@ -24,6 +23,7 @@ import {
 import { SqlLifecycleStore } from "./lifecycle-store";
 import { findMcpOAuthAccessToken, type ActiveOAuthAccessToken } from "./oauth-store";
 import { bearerChallenge, mcpAuthenticateMeta, parseBearerAuthorization } from "./oauth";
+import { hostedIngressFromEnv } from "./hosted-ingress";
 import { exomemPublicBaseUrlFromEnv } from "./public-origin";
 import { buildOperationalEvent, type OperationalEvent } from "./observability";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
@@ -728,12 +728,15 @@ async function withConcurrency<T>(key: string, operation: () => Promise<T>): Pro
   }
 }
 
-function unauthorized(baseUrl: string): Response {
+function unauthorized(baseUrl: string, resource: string): Response {
   return Response.json(
-    { _meta: mcpAuthenticateMeta(baseUrl) },
+    { _meta: mcpAuthenticateMeta(baseUrl, resource) },
     {
       status: 401,
-      headers: { "www-authenticate": bearerChallenge(baseUrl), "cache-control": "no-store" },
+      headers: {
+        "www-authenticate": bearerChallenge(baseUrl, resource),
+        "cache-control": "no-store",
+      },
     }
   );
 }
@@ -779,6 +782,7 @@ export async function handleHostedMcpRequest(
   dependencies: McpDependencies = {}
 ): Promise<Response> {
   const baseUrl = dependencies.baseUrl ?? exomemPublicBaseUrlFromEnv();
+  const ingress = hostedIngressFromEnv(baseUrl);
   if (!mcpOriginAllowed(request.headers.get("origin"), baseUrl)) return originRejected();
   if (
     hasForbiddenGatewayHeaders(request.headers) ||
@@ -796,7 +800,7 @@ export async function handleHostedMcpRequest(
       outcome: "denied",
       errorCode: "ACCESS_TOKEN_INVALID",
     });
-    return unauthorized(baseUrl);
+    return unauthorized(baseUrl, ingress.resource);
   }
   const take = dependencies.takeRateLimit ?? takeExomemRateLimit;
   if (!(await take(EXOMEM_RATE_LIMITS.mcpIp, mcpNetworkSource(request)))) {
@@ -806,12 +810,12 @@ export async function handleHostedMcpRequest(
   const access = await (dependencies.findAccessToken ?? findMcpOAuthAccessToken)(
     digestSecret(bearer)
   );
-  if (!access || access.resource !== EXOMEM_HOSTED_RESOURCE) {
+  if (!access || access.resource !== ingress.resource) {
     emitMcpTelemetry(dependencies, request, {
       outcome: "denied",
       errorCode: "ACCESS_TOKEN_INVALID",
     });
-    return unauthorized(baseUrl);
+    return unauthorized(baseUrl, ingress.resource);
   }
   const requestId = randomUUID();
   const emitAuthenticatedTelemetry = (
@@ -868,11 +872,7 @@ export async function handleHostedMcpRequest(
           ? async () => dependencies.getLiveContract!()
           : getExomemAgentContractForOAuthAccess)
       )(access);
-      if (
-        !live ||
-        live.profile !== EXOMEM_HOSTED_PROFILE ||
-        live.endpoint !== EXOMEM_HOSTED_RESOURCE
-      ) {
+      if (!live || live.profile !== EXOMEM_HOSTED_PROFILE || live.endpoint !== ingress.resource) {
         return authenticatedDenial(
           "HOSTED_CONTRACT_UNAVAILABLE",
           Response.json({ error: "HOSTED_CONTRACT_UNAVAILABLE" }, { status: 503 })

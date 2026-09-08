@@ -106,9 +106,9 @@ export class OAuthProtocolError extends Error {
   }
 }
 
-function paths(baseUrl: string): { issuer: string; resource: string } {
+function paths(baseUrl: string, selectedResource?: string): { issuer: string; resource: string } {
   const origin = parseExomemPublicBaseUrl(baseUrl);
-  return { issuer: `${origin}${OAUTH_PATH}`, resource: `${origin}${MCP_PATH}` };
+  return { issuer: `${origin}${OAUTH_PATH}`, resource: selectedResource ?? `${origin}${MCP_PATH}` };
 }
 
 // An MCP client discovers the resource before the authorization server, and
@@ -119,8 +119,11 @@ function paths(baseUrl: string): { issuer: string; resource: string } {
 // reordered -- and was dead fifteen minutes later when its access token
 // expired, while claude.ai (which requests `offline_access` regardless of what
 // the resource advertises) refreshed for hours against the same cell.
-export function buildProtectedResourceMetadata(baseUrl: string): Record<string, unknown> {
-  const { issuer, resource } = paths(baseUrl);
+export function buildProtectedResourceMetadata(
+  baseUrl: string,
+  selectedResource?: string
+): Record<string, unknown> {
+  const { issuer, resource } = paths(baseUrl, selectedResource);
   return {
     resource,
     authorization_servers: [issuer],
@@ -145,8 +148,10 @@ export function buildAuthorizationServerMetadata(baseUrl: string): Record<string
   };
 }
 
-export function protectedResourceMetadataUrl(baseUrl: string): string {
-  return `${parseExomemPublicBaseUrl(baseUrl)}/.well-known/oauth-protected-resource/api/exomem/mcp/v1`;
+export function protectedResourceMetadataUrl(baseUrl: string, selectedResource?: string): string {
+  const { resource } = paths(baseUrl, selectedResource);
+  const resourceUrl = new URL(resource);
+  return `${resourceUrl.origin}/.well-known/oauth-protected-resource/api/exomem/mcp/v1`;
 }
 
 // The MCP authorization spec says a server SHOULD name the scopes it wants in
@@ -154,15 +159,18 @@ export function protectedResourceMetadataUrl(baseUrl: string): string {
 // them -- it rides the 401 that starts the flow, before any metadata fetch --
 // so a client that honours it asks for `offline_access` on its first authorize
 // instead of finding out when its access token expires.
-export function bearerChallenge(baseUrl: string): string {
+export function bearerChallenge(baseUrl: string, selectedResource?: string): string {
   return (
-    `Bearer resource_metadata="${protectedResourceMetadataUrl(baseUrl)}", ` +
+    `Bearer resource_metadata="${protectedResourceMetadataUrl(baseUrl, selectedResource)}", ` +
     `scope="${ADVERTISED_SCOPES.join(" ")}"`
   );
 }
 
-export function mcpAuthenticateMeta(baseUrl: string): { "mcp/www_authenticate": string[] } {
-  return { "mcp/www_authenticate": [bearerChallenge(baseUrl)] };
+export function mcpAuthenticateMeta(
+  baseUrl: string,
+  selectedResource?: string
+): { "mcp/www_authenticate": string[] } {
+  return { "mcp/www_authenticate": [bearerChallenge(baseUrl, selectedResource)] };
 }
 
 /** Returns a raw credential only when it appears as the sole bearer header value. */

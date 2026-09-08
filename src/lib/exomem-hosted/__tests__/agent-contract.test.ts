@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/types.js";
 import { __setExomemSqlForTests, __setExomemTransactionForTests } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as directFixture } from "../agent-contract-fixture-direct-v1";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as retainedFixture0490 } from "../agent-contract-fixture-0-49-0";
@@ -15,6 +16,7 @@ import {
   promoteExomemHostedCohort,
   recordRoutableCellObservation,
   storeExomemAgentContractCandidate,
+  storeExomemDirectAgentContractCandidate,
   storeRetainedExomemAgentContractCandidate,
 } from "../agent-contract-store";
 import { demoteClientArtifact, storeClientArtifact } from "../client-artifacts";
@@ -43,6 +45,21 @@ afterEach(() => {
 });
 
 describe("Exomem Hosted agent contracts", () => {
+  it("imports the direct fixture only as its separately pinned pending candidate", async () => {
+    const queries: string[] = [];
+    __setExomemSqlForTests(async (strings) => {
+      queries.push(strings.join("?"));
+      return { rows: [{ id: "contract-direct" }] };
+    });
+    assert.equal(await storeExomemDirectAgentContractCandidate(), "contract-direct");
+    assert.equal(directFixture.sourceCommit, "e74ca4eb89763b6104787456a2636e6469054b1a");
+    assert.equal(directFixture.sourceRelease, "0.75.0");
+    assert.equal(
+      directFixture.compatibility.endpoint,
+      "https://exomem-direct.substratesystems.io/api/exomem/mcp/v1"
+    );
+    assert.match(queries[0]!, /'pending'/i);
+  });
   it("selects a pending contract only through the exact bearer assignment generation and bound cell", async () => {
     const queries: string[] = [];
     __setExomemSqlForTests(async (strings) => {
@@ -50,6 +67,7 @@ describe("Exomem Hosted agent contracts", () => {
       return {
         rows: [
           {
+            endpoint: "https://substratesystems.io/api/exomem/mcp/v1",
             source_release: candidateFixture0350.sourceRelease,
             command_fingerprint: candidateFixture0350.compatibility.command_surface_sha256,
             schema_digest: candidateFixture0350.compatibility.schema_contract_sha256,
@@ -90,7 +108,16 @@ describe("Exomem Hosted agent contracts", () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
   it("ships retained 0.57.2/v1 through 0.73.1/v4 beside the exact current 0.74.0/v4 fixture", () => {
-    for (const retained of ["0-57-2", "0-63-1", "0-66-0", "0-68-0", "0-68-1", "0-68-3", "0-72-1", "0-73-1"]) {
+    for (const retained of [
+      "0-57-2",
+      "0-63-1",
+      "0-66-0",
+      "0-68-0",
+      "0-68-1",
+      "0-68-3",
+      "0-72-1",
+      "0-73-1",
+    ]) {
       assert.equal(
         existsSync(
           fileURLToPath(new URL(`../agent-contract-fixture-${retained}.ts`, import.meta.url))

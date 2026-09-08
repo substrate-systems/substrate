@@ -2,8 +2,12 @@ import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { handleHostedMcpRequest } from "../lib/exomem-hosted/mcp";
 import { emitOperationalEvent } from "../lib/exomem-hosted/observability";
+import { hostedIngressFromEnv } from "../lib/exomem-hosted/hosted-ingress";
+import { buildProtectedResourceMetadata } from "../lib/exomem-hosted/oauth";
+import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
 
 const MCP_PATH = "/api/exomem/mcp/v1";
+const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource/api/exomem/mcp/v1";
 const CACHE_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
   "x-vercel-enable-rewrite-caching": "0",
@@ -62,6 +66,11 @@ function requestFromNode(request: IncomingMessage, signal: AbortSignal): Request
   } as RequestInit);
 }
 
+function directIngressRequestAllowed(request: IncomingMessage, resource: string): boolean {
+  const rawUrl = request.url ?? "";
+  return request.headers.host === new URL(resource).hostname && rawUrl.startsWith("/");
+}
+
 async function writeResponse(response: Response, target: ServerResponse): Promise<void> {
   target.writeHead(response.status, responseHeaders(response));
   if (!response.body) {
@@ -109,13 +118,40 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
     let counted = false;
     let abort: AbortController | undefined;
     try {
-      const path = new URL(request.url ?? "/", "http://gateway.invalid").pathname;
+      const rawUrl = request.url ?? "";
+      const path = rawUrl.split("?", 1)[0];
       if (path === "/healthz") {
         response.writeHead(200, CACHE_HEADERS).end();
         return;
       }
       if (path === "/readyz") {
         response.writeHead(state.draining ? 503 : 200, CACHE_HEADERS).end();
+        return;
+      }
+      const publicBaseUrl = exomemPublicBaseUrlFromEnv();
+      const ingress = hostedIngressFromEnv(publicBaseUrl);
+      if (
+        ingress.profile === "direct-v1" &&
+        !directIngressRequestAllowed(request, ingress.resource)
+      ) {
+        response.writeHead(400, CACHE_HEADERS).end();
+        return;
+      }
+      if (
+        path === PROTECTED_RESOURCE_METADATA_PATH &&
+        ["GET", "HEAD"].includes(request.method ?? "") &&
+        rawUrl === path
+      ) {
+        const metadata = Response.json(
+          buildProtectedResourceMetadata(publicBaseUrl, ingress.resource),
+          {
+            headers: CACHE_HEADERS,
+          }
+        );
+        await writeResponse(
+          request.method === "HEAD" ? new Response(null, { headers: metadata.headers }) : metadata,
+          response
+        );
         return;
       }
       if (path !== MCP_PATH || !["GET", "POST", "DELETE"].includes(request.method ?? "")) {

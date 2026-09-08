@@ -15,6 +15,7 @@ import {
   resolveApprovedOAuthClient,
 } from "@/lib/exomem-hosted/oauth-store";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { hostedIngressFromEnv } from "@/lib/exomem-hosted/hosted-ingress";
 import {
   clientAddressKey,
   EXOMEM_RATE_LIMITS,
@@ -215,7 +216,8 @@ export async function GET(request: Request): Promise<NextResponse> {
     // code, and that nonce cookie is httpOnly.
     if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthAuthorizeClient, client.clientId)))
       return authorizationError(callback.redirectUri, callback.state, "temporarily_unavailable");
-    const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
+    const publicBaseUrl = exomemPublicBaseUrlFromEnv();
+    const resource = hostedIngressFromEnv(publicBaseUrl).resource;
     const authorization = validateAuthorizationRequest({
       client: { clientId: client.clientId, redirectUris: client.redirectUris },
       resource,
@@ -232,7 +234,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     const response = NextResponse.redirect(
       new URL(
         `/exomem/authorize?confirmation=${encodeURIComponent(oauthConfirmationHandle(transaction.transaction))}`,
-        exomemPublicBaseUrlFromEnv()
+        publicBaseUrl
       ),
       303
     );

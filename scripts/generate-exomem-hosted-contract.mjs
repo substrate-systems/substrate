@@ -84,6 +84,13 @@ const RELEASES = {
       "plugins/hosted/generated/candidates/hosted-alpha-agent-v4-command-binding-v1",
     openai: true,
   },
+  e74ca4eb89763b6104787456a2636e6469054b1a: {
+    sourceRelease: "0.75.0",
+    profile: "hosted-alpha-agent-v4",
+    endpoint: "https://exomem-direct.substratesystems.io/api/exomem/mcp/v1",
+    generatedDirectory: "plugins/hosted/generated/candidates/hosted-alpha-agent-v4-direct-v1",
+    openai: true,
+  },
 };
 
 function fail(message) {
@@ -241,6 +248,7 @@ const release = RELEASES[expectedCommit];
 if (!release || release.sourceRelease !== sourceRelease)
   fail("generator only accepts a pinned Exomem release and its exact source release");
 const profile = release.profile ?? "hosted-alpha-agent-v1";
+const endpoint = release.endpoint ?? RESOURCE;
 if (Boolean(gatewayOutputArg) !== Boolean(gatewayJsonOutputArg))
   fail("full gateway output requires both --gateway-output and --gateway-json-output");
 const repo = resolve(repoArg);
@@ -395,7 +403,7 @@ const openaiArchiveLock = release.openai
 if (
   compatibility.schema_version !== 1 ||
   compatibility.profile !== profile ||
-  compatibility.endpoint !== RESOURCE ||
+  compatibility.endpoint !== endpoint ||
   agentProfile.profile !== profile ||
   agentContract.protocol_version !== "1" ||
   digest.algorithm !== "sha256" ||
@@ -461,7 +469,7 @@ delete compatibilityBase.compatibility_sha256;
 if (canonicalSha256(compatibilityBase) !== compatibility.compatibility_sha256)
   fail("compatibility digest does not match committed content");
 for (const [key, expected] of Object.entries({
-  endpoint: RESOURCE,
+  endpoint,
   profile,
   command_surface_sha256: compatibility.command_surface_sha256,
   schema_contract_sha256: compatibility.schema_contract_sha256,
@@ -479,7 +487,7 @@ sha256(packageLock.artifact_sha256, "Claude package artifact digest");
 sha256(archiveLock.archive_sha256, "Claude archive digest");
 function verifyPlatform(platform, platformPackageLock, platformArchiveLock) {
   for (const [key, expected] of Object.entries({
-    endpoint: RESOURCE,
+    endpoint,
     profile,
     command_surface_sha256: compatibility.command_surface_sha256,
     schema_contract_sha256: compatibility.schema_contract_sha256,
