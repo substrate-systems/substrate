@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
@@ -41,25 +41,49 @@ describe("Exomem Hosted contract generator catalog", () => {
     assert.match(mixed.stderr, /only accepts a pinned Exomem release/i);
   });
 
-  it("generates only the approved direct candidate with its pinned endpoint", () => {
-    const output = mkdtempSync(join(tmpdir(), "exomem-hosted-direct-generator-"));
-    const direct = spawnSync(
-      process.execPath,
-      [
-        generator,
-        "--exomem-repo",
-        "/home/hugoa/projects/exomem-hosted-direct-artifacts",
-        "--output",
-        join(output, "fixture.ts"),
-        "--json-output",
-        join(output, "fixture.json"),
-        "--expected-commit",
-        directCommit,
-        "--source-release",
-        "0.75.0",
-      ],
-      { encoding: "utf8" }
-    );
-    assert.equal(direct.status, 0, direct.stderr);
-  });
+  const directProducerRepo = process.env.EXOMEM_TEST_PRODUCER_REPO;
+  it(
+    "generates the approved direct fixture bytes from its pinned producer",
+    {
+      skip: directProducerRepo
+        ? false
+        : "set EXOMEM_TEST_PRODUCER_REPO to the pinned Exomem producer checkout",
+    },
+    () => {
+      const output = mkdtempSync(join(tmpdir(), "exomem-hosted-direct-generator-"));
+      try {
+        const direct = spawnSync(
+          process.execPath,
+          [
+            generator,
+            "--exomem-repo",
+            directProducerRepo!,
+            "--output",
+            join(output, "fixture.ts"),
+            "--json-output",
+            join(output, "fixture.json"),
+            "--expected-commit",
+            directCommit,
+            "--source-release",
+            "0.75.0",
+          ],
+          { encoding: "utf8" }
+        );
+        assert.equal(direct.status, 0, direct.stderr);
+        assert.equal(
+          readFileSync(join(output, "fixture.ts"), "utf8"),
+          readFileSync(resolve("src/lib/exomem-hosted/agent-contract-fixture-direct-v1.ts"), "utf8")
+        );
+        assert.equal(
+          readFileSync(join(output, "fixture.json"), "utf8"),
+          readFileSync(
+            resolve("src/lib/exomem-hosted/__tests__/agent-contract-fixture-direct-v1.json"),
+            "utf8"
+          )
+        );
+      } finally {
+        rmSync(output, { recursive: true, force: true });
+      }
+    }
+  );
 });
