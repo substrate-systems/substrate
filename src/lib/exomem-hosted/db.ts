@@ -1,6 +1,7 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { Pool, type PoolClient } from "pg";
 import { exomemErrors } from "./errors";
+import { verifiedPostgresConfig } from "../database-transport";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 // Type-only in the other direction, so this pair does not form a runtime cycle.
 import { hasLiveHostedCohortTarget, probeHostedCohortTarget } from "./hosted-cohort-target";
@@ -87,7 +88,7 @@ export async function executeExomemTransaction(
   if (transactionClient) return transactionClient(work);
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
-  const pool = new Pool({ connectionString: databaseUrl, max: 1 });
+  const pool = new Pool({ ...verifiedPostgresConfig(databaseUrl), max: 1 });
   let client: PoolClient | undefined;
   try {
     client = await pool.connect();
@@ -134,7 +135,7 @@ export async function withExomemTransaction<T>(
 
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is not set");
-  transactionPool ??= new Pool({ connectionString: databaseUrl });
+  transactionPool ??= new Pool(verifiedPostgresConfig(databaseUrl));
   const client = await transactionPool.connect();
   try {
     await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
