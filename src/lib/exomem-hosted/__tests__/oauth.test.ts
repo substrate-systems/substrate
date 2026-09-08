@@ -14,6 +14,7 @@ import {
   validateCimdMetadata,
   validateAuthorizationRequest,
 } from "../oauth";
+import { DIRECT_V1_RESOURCE } from "../hosted-ingress";
 
 const baseUrl = "https://hosted.example.test";
 const resource = `${baseUrl}/api/exomem/mcp/v1`;
@@ -45,6 +46,20 @@ describe("Exomem Hosted OAuth protocol", () => {
     assert.equal(
       bearerChallenge(baseUrl),
       `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", ` +
+        `scope="exomem.read exomem.write offline_access"`
+    );
+  });
+
+  it("keeps the issuer on the website while advertising the selected direct resource", () => {
+    assert.deepEqual(buildProtectedResourceMetadata(baseUrl, DIRECT_V1_RESOURCE), {
+      resource: DIRECT_V1_RESOURCE,
+      authorization_servers: [`${baseUrl}/api/exomem/oauth`],
+      bearer_methods_supported: ["header"],
+      scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
+    });
+    assert.equal(
+      bearerChallenge(baseUrl, DIRECT_V1_RESOURCE),
+      `Bearer resource_metadata="https://exomem-direct.substratesystems.io/.well-known/oauth-protected-resource/api/exomem/mcp/v1", ` +
         `scope="exomem.read exomem.write offline_access"`
     );
   });

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixtureDirectV1 } from "./agent-contract-fixture-direct-v1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0731 } from "./agent-contract-fixture-0-73-1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0340 } from "./agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "./agent-contract-fixture-0-35-0";
@@ -24,6 +25,7 @@ import {
 import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-contract-canaries";
 import { routableSetDigest, type RoutableCellIdentity } from "./routable-authority";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
+import { DIRECT_V1_RESOURCE } from "./hosted-ingress";
 import {
   PromotionRuntimePreconditionError,
   preparePromotionRuntimeHealth,
@@ -32,6 +34,16 @@ import {
 
 export { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 export const EXOMEM_HOSTED_RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
+const DIRECT_TRUSTED_CANDIDATE = {
+  sourceCommit: "e74ca4eb89763b6104787456a2636e6469054b1a",
+  sourceRelease: "0.75.0",
+  endpoint: DIRECT_V1_RESOURCE,
+  command_surface_sha256: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+  schema_contract_sha256: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+  compatibility_sha256: "6d274522d7b09600ed78b29e624100a6baa52470104e6fe9c61346ef9206dd57",
+  artifact_sha256: "411cc156c0012126b441d8351708a38f7f5a77b73f9fde9acbd3bc1827209854",
+  archive_sha256: "bf612f0383b99babd87c40d2bf5af49c273b36ca7bb3db9d4c4fbe6e050d3cb9",
+} as const;
 type ExomemHostedProfile = "hosted-alpha-agent-v1" | typeof EXOMEM_HOSTED_PROFILE;
 /** Releases whose fixtures are pinned here; the bare fixture is the live one. */
 export type TrustedRelease =
@@ -227,7 +239,7 @@ type ContractState = "pending" | "live" | "failed" | "retired";
 type ExomemAgentContractCandidate = {
   state: ContractState;
   profile: ExomemHostedProfile;
-  endpoint: typeof EXOMEM_HOSTED_RESOURCE;
+  endpoint: string;
   sourceRelease: string;
   commandSurfaceSha256: string;
   schemaDigest: string;
@@ -244,7 +256,7 @@ type ExomemAgentContractCandidate = {
 
 export type LiveExomemAgentContract = {
   profile: typeof EXOMEM_HOSTED_PROFILE;
-  endpoint: typeof EXOMEM_HOSTED_RESOURCE;
+  endpoint: string;
   sourceRelease: string;
   commandFingerprint: string;
   schemaDigest: string;
@@ -307,6 +319,7 @@ function checkedOpenAiLocks(
   // rotating the bare fixture silently drops it otherwise.
   const claudeLocks = [
     record(exomemHostedContractFixture.packageLock, "Claude package lock"),
+    record(exomemHostedContractFixtureDirectV1.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0340.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0350.packageLock, "Claude package lock"),
     record(exomemHostedContractFixture0392.packageLock, "Claude package lock"),
@@ -381,23 +394,38 @@ function checkedOpenAiLocks(
  * contract cannot leave the new release trusted for import but unpromotable.
  */
 function trustedReleaseAllowlist(): string {
-  return JSON.stringify(
-    [...TRUSTED_RELEASES].map(([sourceRelease, trusted]) => ({
+  return JSON.stringify([
+    ...[...TRUSTED_RELEASES].map(([sourceRelease, trusted]) => ({
       source_release: sourceRelease,
+      endpoint: EXOMEM_HOSTED_RESOURCE,
       command_surface_sha256: trusted.command_surface_sha256,
       schema_contract_sha256: trusted.schema_contract_sha256,
       compatibility_sha256: trusted.compatibility_sha256,
       artifact_sha256: trusted.artifact_sha256,
       archive_sha256: trusted.archive_sha256,
-    }))
-  );
+    })),
+    {
+      source_release: DIRECT_TRUSTED_CANDIDATE.sourceRelease,
+      endpoint: DIRECT_TRUSTED_CANDIDATE.endpoint,
+      command_surface_sha256: DIRECT_TRUSTED_CANDIDATE.command_surface_sha256,
+      schema_contract_sha256: DIRECT_TRUSTED_CANDIDATE.schema_contract_sha256,
+      compatibility_sha256: DIRECT_TRUSTED_CANDIDATE.compatibility_sha256,
+      artifact_sha256: DIRECT_TRUSTED_CANDIDATE.artifact_sha256,
+      archive_sha256: DIRECT_TRUSTED_CANDIDATE.archive_sha256,
+    },
+  ]);
 }
 
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
 function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContractCandidate {
   const source = record(fixture, "fixture");
   const sourceRelease = string(source.sourceRelease, "fixture source release");
-  const trusted = TRUSTED_RELEASES.get(sourceRelease as TrustedRelease);
+  const direct =
+    sourceRelease === DIRECT_TRUSTED_CANDIDATE.sourceRelease &&
+    source.sourceCommit === DIRECT_TRUSTED_CANDIDATE.sourceCommit;
+  const trusted = direct
+    ? DIRECT_TRUSTED_CANDIDATE
+    : TRUSTED_RELEASES.get(sourceRelease as TrustedRelease);
   if (!trusted) throw new Error("agent contract fixture has an untrusted source release");
   if (source.sourceCommit !== trusted.sourceCommit)
     throw new Error("agent contract fixture has an untrusted source commit");
@@ -411,7 +439,8 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
     sourceRelease === "0.68.3" ||
     sourceRelease === "0.72.1" ||
     sourceRelease === "0.73.1" ||
-    sourceRelease === "0.74.0"
+    sourceRelease === "0.74.0" ||
+    direct
       ? EXOMEM_HOSTED_PROFILE
       : "hosted-alpha-agent-v1";
   const packageLock = record(source.packageLock, "Claude package lock");
@@ -428,7 +457,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   if (compatibility.schema_version !== 1) throw new Error("unsupported compatibility schema");
   if (
     compatibility.profile !== expectedProfile ||
-    compatibility.endpoint !== EXOMEM_HOSTED_RESOURCE
+    compatibility.endpoint !== (direct ? DIRECT_TRUSTED_CANDIDATE.endpoint : EXOMEM_HOSTED_RESOURCE)
   ) {
     throw new Error("compatibility identity is not the Hosted agent contract");
   }
@@ -470,7 +499,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
     throw new Error("agent contract digests disagree");
   }
   for (const [key, expected] of Object.entries({
-    endpoint: EXOMEM_HOSTED_RESOURCE,
+    endpoint: direct ? DIRECT_TRUSTED_CANDIDATE.endpoint : EXOMEM_HOSTED_RESOURCE,
     profile: expectedProfile,
     command_surface_sha256: commandSurfaceSha256,
     schema_contract_sha256: schemaDigest,
@@ -486,7 +515,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   return {
     state: "pending",
     profile: expectedProfile,
-    endpoint: EXOMEM_HOSTED_RESOURCE,
+    endpoint: direct ? DIRECT_TRUSTED_CANDIDATE.endpoint : EXOMEM_HOSTED_RESOURCE,
     sourceRelease,
     commandSurfaceSha256,
     schemaDigest,
@@ -512,6 +541,12 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
 export async function storeExomemAgentContractCandidate(): Promise<string> {
   return storeCheckedExomemAgentContractCandidate(
     checkedExomemAgentContractCandidate(exomemHostedContractFixture)
+  );
+}
+
+export async function storeExomemDirectAgentContractCandidate(): Promise<string> {
+  return storeCheckedExomemAgentContractCandidate(
+    checkedExomemAgentContractCandidate(exomemHostedContractFixtureDirectV1)
   );
 }
 
@@ -549,7 +584,9 @@ export async function storeRetainedExomemAgentContractCandidate(
                               : sourceRelease === "0.73.1"
                                 ? exomemHostedContractFixture0731
                                 : (() => {
-                                    throw new Error("current release cannot be imported as retained");
+                                    throw new Error(
+                                      "current release cannot be imported as retained"
+                                    );
                                   })();
   return storeCheckedExomemAgentContractCandidate(checkedExomemAgentContractCandidate(fixture));
 }
@@ -655,7 +692,7 @@ export async function getExomemAgentContractForOAuthAccess(input: {
        AND binding.profile_id = ${EXOMEM_HOSTED_PROFILE}
        AND binding.routable = true
       WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
-        AND candidate.endpoint = ${EXOMEM_HOSTED_RESOURCE}
+        AND candidate.endpoint IN (${EXOMEM_HOSTED_RESOURCE}, ${DIRECT_TRUSTED_CANDIDATE.endpoint})
         AND (
           (
             ${candidateLineage} = false
@@ -707,7 +744,7 @@ export async function getExomemAgentContractForOAuthAccess(input: {
   try {
     return {
       profile: EXOMEM_HOSTED_PROFILE,
-      endpoint: EXOMEM_HOSTED_RESOURCE,
+      endpoint: string(row.endpoint, "selected endpoint"),
       sourceRelease: string(row.source_release, "selected source release"),
       commandFingerprint: sha256(row.command_fingerprint, "selected command fingerprint"),
       schemaDigest: sha256(row.schema_digest, "selected schema digest"),
@@ -1616,6 +1653,7 @@ export async function promoteExomemHostedCohort(input: {
         AND EXISTS (
           SELECT 1 FROM jsonb_array_elements(${trustedReleaseAllowlist()}::jsonb) AS trusted
           WHERE candidate.source_release = trusted->>'source_release'
+            AND candidate.endpoint = trusted->>'endpoint'
             AND candidate.command_fingerprint = trusted->>'command_surface_sha256'
             AND candidate.schema_digest = trusted->>'schema_contract_sha256'
             AND candidate.compatibility_digest = trusted->>'compatibility_sha256'

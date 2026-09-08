@@ -4,6 +4,7 @@ import { exomemHostedContractFixture as exomemHostedContractFixture0350 } from "
 import { exomemHostedContractFixture as exomemHostedContractFixture0392 } from "./agent-contract-fixture-0-39-2";
 import { exomemHostedContractFixture as exomemHostedContractFixture0490 } from "./agent-contract-fixture-0-49-0";
 import { exomemHostedContractFixture as exomemHostedContractFixture0740 } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as exomemHostedContractFixtureDirectV1 } from "./agent-contract-fixture-direct-v1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0731 } from "./agent-contract-fixture-0-73-1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0721 } from "./agent-contract-fixture-0-72-1";
 import { exomemHostedContractFixture as exomemHostedContractFixture0683 } from "./agent-contract-fixture-0-68-3";
@@ -217,7 +218,7 @@ export async function loadClientArtifactLocks(
 ): Promise<PlatformLocks> {
   const { rows } = await sql`
     /* exomem:load-client-artifact-contract-locks */
-    SELECT id::text AS candidate_id, profile_id, source_release, claude_package_lock, claude_archive_lock,
+    SELECT id::text AS candidate_id, profile_id, endpoint, source_release, claude_package_lock, claude_archive_lock,
            openai_package_lock, openai_archive_lock
     FROM exomem_agent_contract_candidates
     WHERE id = ${candidateId}::uuid
@@ -259,8 +260,14 @@ export async function loadClientArtifactLocks(
                                 ? exomemHostedContractFixture0731
                                 : row.source_release === "0.74.0"
                                   ? exomemHostedContractFixture0740
-                                : null;
-  if (!fixture || row.profile_id !== fixture.compatibility.profile)
+                                  : row.source_release === "0.75.0"
+                                    ? exomemHostedContractFixtureDirectV1
+                                    : null;
+  if (
+    !fixture ||
+    row.profile_id !== fixture.compatibility.profile ||
+    (row.source_release === "0.75.0" && row.endpoint !== fixture.compatibility.endpoint)
+  )
     throw new Error("artifact contract candidate profile differs from the checked release");
   if (platform === "claude") {
     if (

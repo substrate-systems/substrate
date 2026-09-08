@@ -641,6 +641,34 @@ describe("Hosted MCP boundary", () => {
     assert.match(response.headers.get("www-authenticate") ?? "", /resource_metadata/);
   });
 
+  it("rejects a legacy bearer and challenges for the selected direct resource", async () => {
+    const previousProfile = process.env.EXOMEM_HOSTED_INGRESS_PROFILE;
+    const previousResource = process.env.EXOMEM_HOSTED_DIRECT_RESOURCE;
+    process.env.EXOMEM_HOSTED_INGRESS_PROFILE = "direct-v1";
+    process.env.EXOMEM_HOSTED_DIRECT_RESOURCE =
+      "https://exomem-direct.substratesystems.io/api/exomem/mcp/v1";
+    try {
+      const response = await handleHostedMcpRequest(
+        request({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        {
+          baseUrl: "https://substratesystems.io",
+          takeRateLimit: async () => true,
+          findAccessToken: async () => ACCESS,
+        }
+      );
+      assert.equal(response.status, 401);
+      assert.match(
+        response.headers.get("www-authenticate") ?? "",
+        /https:\/\/exomem-direct\.substratesystems\.io\/\.well-known\/oauth-protected-resource/
+      );
+    } finally {
+      if (previousProfile === undefined) delete process.env.EXOMEM_HOSTED_INGRESS_PROFILE;
+      else process.env.EXOMEM_HOSTED_INGRESS_PROFILE = previousProfile;
+      if (previousResource === undefined) delete process.env.EXOMEM_HOSTED_DIRECT_RESOURCE;
+      else process.env.EXOMEM_HOSTED_DIRECT_RESOURCE = previousResource;
+    }
+  });
+
   it("returns static OAuth challenges without database configuration for missing or malformed bearers", async () => {
     const previousBaseUrl = process.env.EXOMEM_PUBLIC_BASE_URL;
     const previousControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;

@@ -13,6 +13,7 @@ import {
   resolveStagedClientRelease,
 } from "../agent-contract-canaries";
 import { exomemContractFixture0500 } from "../gateway-contract-0-50-0";
+import { exomemContractFixture0750 } from "../gateway-contract-0-75-0";
 
 const tenantId = "018f2d91-7c42-7000-8000-000000000071";
 const candidateId = "018f2d91-7c42-7000-8000-000000000072";
@@ -33,6 +34,44 @@ afterEach(() => {
 });
 
 describe("Hosted canary assignments", () => {
+  it("enrolls 0.75.0 only with the pinned direct endpoint and gateway digest", async () => {
+    const queries: string[] = [];
+    const values: unknown[] = [];
+    const sql = async (strings: TemplateStringsArray, ...parameters: unknown[]) => {
+      const query = strings.join("?");
+      queries.push(query);
+      values.push(...parameters);
+      return {
+        rows: query.includes("create-canary-assignment")
+          ? [
+              {
+                id: assignmentId,
+                generation: 2,
+                version: 1,
+                state: "preparing",
+                expires_at: expiresAt,
+              },
+            ]
+          : [],
+      };
+    };
+    __setExomemTransactionForTests(async (work) => work(sql));
+
+    await createCanaryAssignment({
+      tenantId,
+      candidateId,
+      expiresAt: new Date(expiresAt),
+      operatorPrincipalDigest: sha("a"),
+    });
+
+    assert.match(queries[1]!, /candidate\.endpoint/i);
+    assert.equal(values.includes(exomemContractFixture0750.digest), true);
+    assert.equal(
+      values.includes("https://exomem-direct.substratesystems.io/api/exomem/mcp/v1"),
+      true
+    );
+  });
+
   it("revokes every conflicting tenant OAuth lineage during exact activation", async () => {
     const queries: string[] = [];
     const sql = async (strings: TemplateStringsArray) => {

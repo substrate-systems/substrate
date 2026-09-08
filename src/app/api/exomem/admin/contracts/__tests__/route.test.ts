@@ -3,6 +3,7 @@ import { after, before, describe, it, mock } from "node:test";
 
 const ADMIN_TOKEN = Buffer.alloc(32, 0x71).toString("base64url");
 let importedRelease: string | null = null;
+let importedDirect = false;
 let createdAssignment: Record<string, unknown> | null = null;
 let promotionInput: Record<string, unknown> | null = null;
 let recoveryInput: Record<string, unknown> | null = null;
@@ -34,6 +35,10 @@ before(() => {
         return "promoted";
       },
       storeExomemAgentContractCandidate: async () => "candidate-current",
+      storeExomemDirectAgentContractCandidate: async () => {
+        importedDirect = true;
+        return "candidate-direct";
+      },
       storeRetainedExomemAgentContractCandidate: async (sourceRelease: string) => {
         importedRelease = sourceRelease;
         return "candidate-fresh";
@@ -152,6 +157,39 @@ function request(body: unknown, authorization?: string) {
 }
 
 describe("Exomem operator contract controls", () => {
+  it("imports only the pinned direct candidate through the exact operator action", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request({ action: "import-direct-agent" }, `Bearer ${ADMIN_TOKEN}`)
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(Object.keys(await response.json()).sort(), [
+      "candidateId",
+      "requestId",
+      "success",
+    ]);
+    assert.equal(importedDirect, true);
+  });
+
+  it("rejects unauthenticated and selector-bearing direct imports", async () => {
+    const { POST } = await import("../route");
+    assert.equal((await POST(request({ action: "import-direct-agent" }))).status, 401);
+    assert.equal(
+      (
+        await POST(
+          request(
+            {
+              action: "import-direct-agent",
+              endpoint: "https://attacker.example.test/api/exomem/mcp/v1",
+            },
+            `Bearer ${ADMIN_TOKEN}`
+          )
+        )
+      ).status,
+      400
+    );
+  });
+
   it("keeps reviewer-cleanup preflight and recovery bounded and content-free", async () => {
     const { POST } = await import("../route");
     const sourceOperationId = "018f2d91-7c42-7000-8000-000000000091";

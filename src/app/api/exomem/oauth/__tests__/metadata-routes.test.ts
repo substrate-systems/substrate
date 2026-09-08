@@ -27,6 +27,31 @@ describe("Exomem OAuth metadata routes", () => {
     });
   });
 
+  it("advertises direct resource metadata from the standalone ingress origin", async () => {
+    const previousProfile = process.env.EXOMEM_HOSTED_INGRESS_PROFILE;
+    const previousResource = process.env.EXOMEM_HOSTED_DIRECT_RESOURCE;
+    process.env.EXOMEM_HOSTED_INGRESS_PROFILE = "direct-v1";
+    process.env.EXOMEM_HOSTED_DIRECT_RESOURCE =
+      "https://exomem-direct.substratesystems.io/api/exomem/mcp/v1";
+    try {
+      const { GET } =
+        await import("../../../../.well-known/oauth-protected-resource/api/exomem/mcp/v1/route");
+      const response = await GET();
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), {
+        resource: "https://exomem-direct.substratesystems.io/api/exomem/mcp/v1",
+        authorization_servers: ["https://hosted.example.test/api/exomem/oauth"],
+        bearer_methods_supported: ["header"],
+        scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
+      });
+    } finally {
+      if (previousProfile === undefined) delete process.env.EXOMEM_HOSTED_INGRESS_PROFILE;
+      else process.env.EXOMEM_HOSTED_INGRESS_PROFILE = previousProfile;
+      if (previousResource === undefined) delete process.env.EXOMEM_HOSTED_DIRECT_RESOURCE;
+      else process.env.EXOMEM_HOSTED_DIRECT_RESOURCE = previousResource;
+    }
+  });
+
   it("returns authorization-server metadata with PKCE S256 only", async () => {
     const { GET } =
       await import("../../../../.well-known/oauth-authorization-server/api/exomem/oauth/route");
