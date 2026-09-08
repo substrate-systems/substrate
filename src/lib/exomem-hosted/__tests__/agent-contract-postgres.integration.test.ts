@@ -16,7 +16,14 @@ import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-co
 import { exomemContractFixture0740 } from "../gateway-contract-0-74-0";
 import { exomemContractFixture0750 } from "../gateway-contract-0-75-0";
 import { loadOwnerInstallActions } from "../account-install-actions";
-import { findMcpOAuthAccessToken, resolveApprovedOAuthClient } from "../oauth-store";
+import { createOAuthContinuation } from "../oauth-continuity";
+import {
+  attachExistingOwnerAuthorizationAtomic,
+  findMcpOAuthAccessToken,
+  issueOAuthTokensFromCodeAtomic,
+  resolveApprovedOAuthClient,
+  rotateOAuthRefreshTokenAtomic,
+} from "../oauth-store";
 import {
   attachOpenAiContractLocks,
   activateExomemHostedRuntime,
@@ -1259,6 +1266,8 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
        VALUES ($1, 'complimentary', 'active', 'active')`,
       [tenant.rows[0]!.id]
     );
+    const redirectUri = "https://direct-resource.example.test/callback";
+    const clientId = `direct-resource-${randomUUID()}`;
     const client = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_oauth_clients (
          client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
@@ -1266,7 +1275,7 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
        ) VALUES ($1, 'pinned', true, '["https://direct-resource.example.test/callback"]'::jsonb,
                  digest(convert_to('["https://direct-resource.example.test/callback"]', 'utf8'), 'sha256'),
                  'claude', $2) RETURNING id`,
-      [`direct-resource-${randomUUID()}`, sha("b")]
+      [clientId, sha("b")]
     );
     const old = await pool!.query<{ grant_id: string; family_id: string }>(
       `WITH grant_row AS (
@@ -1326,34 +1335,81 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       "promoted"
     );
     assert.equal(await findMcpOAuthAccessToken(Buffer.from(sha("3"), "hex")), null);
-    const fresh = await pool!.query<{ grant_id: string }>(
-      `WITH grant_row AS (
-         INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
-         VALUES ($1, $2, $3, 'https://exomem-direct.substratesystems.io/api/exomem/mcp/v1',
-                 ARRAY['exomem.read']) RETURNING id
-       ), family AS (
-         INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
-         SELECT id, $3, now() + interval '1 hour' FROM grant_row RETURNING id, grant_id
-       ), access AS (
-         INSERT INTO exomem_oauth_access_tokens (
-           access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
-         ) SELECT decode($4, 'hex'), family.grant_id, family.id, $3,
-                  'https://exomem-direct.substratesystems.io/api/exomem/mcp/v1',
-                  ARRAY['exomem.read'], now() + interval '1 hour' FROM family
-       ) SELECT grant_id::text FROM family`,
-      [owner.rows[0]!.id, tenant.rows[0]!.id, client.rows[0]!.id, sha("4")]
+    assert.equal(
+      (await resolveApprovedOAuthClient(clientId))?.id,
+      client.rows[0]!.id,
+      "the direct-resource client's pinned metadata must admit authorization"
+    );
+    const session = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id`,
+      [
+        owner.rows[0]!.id,
+        tenant.rows[0]!.id,
+        Buffer.from(sha("4"), "hex"),
+        Buffer.from(sha("5"), "hex"),
+      ]
+    );
+    const continuation = await createOAuthContinuation({
+      clientId,
+      redirectUri,
+      resource: directFixture.compatibility.endpoint,
+      scopes: ["exomem.read"],
+      state: `direct-resource-${randomUUID()}`,
+      codeChallenge: "direct-resource-pkce",
+      offlineAccess: true,
+    });
+    assert.ok(continuation, "direct-resource authorization must create a continuation");
+    const attached = await attachExistingOwnerAuthorizationAtomic({
+      sessionId: session.rows[0]!.id,
+      transactionDigest: digestSecret(continuation!.transaction),
+      codeDigest: Buffer.from(sha("6"), "hex"),
+      codeExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.ok(attached, "the direct-resource owner authorization must attach a code");
+    const fresh = await issueOAuthTokensFromCodeAtomic({
+      codeDigest: Buffer.from(sha("6"), "hex"),
+      clientId,
+      redirectUri,
+      resource: directFixture.compatibility.endpoint,
+      pkceChallenge: "direct-resource-pkce",
+      refreshDigest: Buffer.from(sha("7"), "hex"),
+      refreshExpiresAt: new Date(Date.now() + 3_600_000),
+      accessDigest: Buffer.from(sha("8"), "hex"),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+    });
+    assert.equal(fresh?.grantId, attached!.grantId, "the direct-resource code exchange must issue");
+    assert.equal(
+      fresh?.refreshInserted,
+      true,
+      "the direct-resource exchange must issue a refresh token"
     );
     assert.equal(
-      (await findMcpOAuthAccessToken(Buffer.from(sha("4"), "hex")))?.grantId,
-      fresh.rows[0]!.grant_id
+      (await findMcpOAuthAccessToken(Buffer.from(sha("8"), "hex")))?.grantId,
+      fresh!.grantId,
+      "the freshly exchanged direct-resource bearer must authorize MCP"
+    );
+    const refreshed = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: Buffer.from(sha("7"), "hex"),
+      replacementRefreshDigest: Buffer.from(sha("9"), "hex"),
+      accessDigest: Buffer.from(sha("a"), "hex"),
+      accessExpiresAt: new Date(Date.now() + 60_000),
+      clientId,
+      resource: directFixture.compatibility.endpoint,
+    });
+    assert.equal(refreshed?.grantId, fresh!.grantId, "the direct-resource refresh must rotate");
+    assert.equal(
+      (await findMcpOAuthAccessToken(Buffer.from(sha("a"), "hex")))?.grantId,
+      fresh!.grantId,
+      "the refreshed direct-resource bearer must authorize MCP"
     );
     const legacyCandidateId = await storeExomemAgentContractCandidate();
     await transaction(async (tx) => {
       await revokeConflictingCandidateOAuthLineageInTransaction(tx, legacyCandidateId);
     });
     assert.equal(
-      (await findMcpOAuthAccessToken(Buffer.from(sha("4"), "hex")))?.grantId,
-      fresh.rows[0]!.grant_id,
+      (await findMcpOAuthAccessToken(Buffer.from(sha("a"), "hex")))?.grantId,
+      fresh!.grantId,
       "a legacy candidate cannot revoke an ordinary direct-resource grant"
     );
     assert.deepEqual(
