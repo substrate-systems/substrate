@@ -9,6 +9,7 @@ import {
   listExomemHostedRolloutStatus,
   promoteExomemHostedCohort,
   storeExomemAgentContractCandidate,
+  storeExomemDirectAgentContractCandidate,
   storeRetainedExomemAgentContractCandidate,
 } from "@/lib/exomem-hosted/agent-contract-store";
 import {
@@ -231,6 +232,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (!corrected) throw exomemErrors.invalidRequest();
         response = { outcome: corrected.outcome, assignmentId: corrected.assignmentId };
       }
+    } else if (body.action === "import-direct-agent") {
+      if (Object.keys(body).length !== 1) throw exomemErrors.invalidRequest();
+      response = { candidateId: await storeExomemDirectAgentContractCandidate() };
     } else if (body.action === "import-agent") {
       response = { candidateId: await storeExomemAgentContractCandidate() };
     } else if (body.action === "import-retained-agent") {

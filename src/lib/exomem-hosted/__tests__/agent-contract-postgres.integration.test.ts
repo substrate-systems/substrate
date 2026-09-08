@@ -11,10 +11,12 @@ import {
   type ExomemTransaction,
 } from "../db";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture as directFixture } from "../agent-contract-fixture-direct-v1";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemContractFixture0740 } from "../gateway-contract-0-74-0";
+import { exomemContractFixture0750 } from "../gateway-contract-0-75-0";
 import { loadOwnerInstallActions } from "../account-install-actions";
-import { resolveApprovedOAuthClient } from "../oauth-store";
+import { findMcpOAuthAccessToken, resolveApprovedOAuthClient } from "../oauth-store";
 import {
   attachOpenAiContractLocks,
   activateExomemHostedRuntime,
@@ -26,6 +28,7 @@ import {
   recordRoutableCellObservation,
   refreshRoutableProfileAuthorityInTransaction,
   storeExomemAgentContractCandidate,
+  storeExomemDirectAgentContractCandidate,
 } from "../agent-contract-store";
 import { reimportClientArtifactEvidence, storeClientArtifact } from "../client-artifacts";
 import { SqlLifecycleStore } from "../lifecycle-store";
@@ -41,6 +44,7 @@ import {
   createCanaryAssignment,
   createStagedClientRelease,
   expireCanaryAuthority,
+  revokeConflictingCandidateOAuthLineageInTransaction,
   resolveActiveCanaryAssignment,
 } from "../agent-contract-canaries";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -48,6 +52,8 @@ import {
   canonicalPromotionJson as canonical,
   evidence,
   pendingArtifactFromEvidence,
+  signedPromotionEvidence,
+  testOpenAiLocks,
   testOnlyOpenAiLocks,
 } from "./agent-contract-promotion-fixture";
 
@@ -178,7 +184,10 @@ async function seedActiveReviewerAssignment(candidateId: string): Promise<{
   return { id: rows[0]!.id, generation: Number(rows[0]!.generation) };
 }
 
-async function seedExactBoundProof(candidateId: string): Promise<void> {
+async function seedExactBoundProof(
+  candidateId: string,
+  gatewayDigest: string = exomemContractFixture0740.digest
+): Promise<void> {
   await pool!.query(
     `WITH target AS (
        SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
@@ -207,7 +216,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        SELECT 1 FROM exomem_agent_contract_rollout_assignments AS assignment
        WHERE assignment.tenant_id = routed_cells.tenant_id AND assignment.state IN ('preparing', 'active')
      )`,
-    [candidateId, exomemContractFixture0740.digest, sha("9")]
+    [candidateId, gatewayDigest, sha("9")]
   );
   await pool!.query(
     `WITH target AS (
@@ -228,7 +237,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
          observed_compatibility_digest = target.compatibility_digest
      FROM bound_cells, target
      WHERE cell.id = bound_cells.id`,
-    [candidateId, exomemContractFixture0740.digest]
+    [candidateId, gatewayDigest]
   );
   await pool!.query(
     `INSERT INTO exomem_lifecycle_operations (
@@ -252,7 +261,7 @@ async function seedExactBoundProof(candidateId: string): Promise<void> {
        ON assignment.tenant_id = cell.tenant_id AND assignment.candidate_id = target.id
       AND assignment.state = 'active' AND assignment.expires_at > now()
      WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable`,
-    [candidateId, exomemContractFixture0740.digest]
+    [candidateId, gatewayDigest]
   );
 }
 
@@ -1141,6 +1150,251 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       ].sort((left, right) => left.id.localeCompare(right.id))
     );
   });
+
+  async function promoteDirectCandidateAndRevokeLegacyOAuth(): Promise<void> {
+    await pool!.query(
+      `WITH retained AS (
+         SELECT DISTINCT ON (cell.tenant_id) route.cell_id
+         FROM exomem_routable_cell_contracts AS route
+         JOIN exomem_cells AS cell ON cell.id = route.cell_id
+         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+         JOIN users AS owner ON owner.id = tenant.owner_user_id
+         WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable
+           AND owner.email LIKE 'agent-contract-%@example.test'
+         ORDER BY cell.tenant_id, route.cell_id
+       )
+       UPDATE exomem_routable_cell_contracts AS route
+       SET routable = false
+       WHERE route.profile_id = 'hosted-alpha-agent-v4' AND route.routable
+         AND route.cell_id NOT IN (SELECT cell_id FROM retained)`
+    );
+    for (const cell of (
+      await pool!.query<{ id: string }>(
+        `SELECT cell_id::text AS id FROM exomem_routable_cell_contracts
+         WHERE profile_id = 'hosted-alpha-agent-v4' AND routable ORDER BY cell_id`
+      )
+    ).rows) {
+      await recordRoutableCellObservation({
+        cellId: cell.id,
+        sourceRelease: directFixture.sourceRelease,
+        protocolVersion: directFixture.compatibility.agent_contract.protocol_version,
+        commandSurfaceSha256: directFixture.compatibility.command_surface_sha256,
+        schemaDigest: directFixture.compatibility.schema_contract_sha256,
+        compatibilitySha256: directFixture.compatibility.compatibility_sha256,
+        routable: true,
+      });
+    }
+    const directCandidateId = await storeExomemDirectAgentContractCandidate();
+    await seedExactBoundProof(directCandidateId, exomemContractFixture0750.digest);
+    const assignment = await seedActiveReviewerAssignment(directCandidateId);
+    const stageExpiry = new Date(Date.now() + 60 * 60_000);
+    const claudeStage = await createStagedClientRelease({
+      candidateId: directCandidateId,
+      platform: "claude",
+      packageSha256: directFixture.packageLock.artifact_sha256,
+      archiveSha256: directFixture.archiveLock.archive_sha256,
+      compatibilitySha256: directFixture.compatibility.compatibility_sha256,
+      contractSha256: directFixture.compatibility.schema_contract_sha256,
+      pluginVersion: directFixture.packageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: null,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: stageExpiry,
+    });
+    const openAiStage = await createStagedClientRelease({
+      candidateId: directCandidateId,
+      platform: "openai",
+      packageSha256: directFixture.openaiPackageLock.artifact_sha256,
+      archiveSha256: directFixture.openaiArchiveLock.archive_sha256,
+      compatibilitySha256: directFixture.compatibility.compatibility_sha256,
+      contractSha256: directFixture.compatibility.schema_contract_sha256,
+      pluginVersion: directFixture.openaiPackageLock.plugin_version,
+      oauthClientConfigSha256: sha("a"),
+      registeredAppIdSha256: directFixture.openaiPackageLock.registered_app_id_sha256,
+      operatorPrincipalDigest: sha("9"),
+      expiresAt: stageExpiry,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const claudeEvidence = signedPromotionEvidence({
+      platform: "claude",
+      release: "0.75.0",
+      secret: "integration-secret",
+      suffix: randomUUID(),
+      candidateId: directCandidateId,
+      stageId: claudeStage.id,
+      assignmentId: assignment.id,
+      assignmentGeneration: assignment.generation,
+      oauthClientConfigSha256: sha("a"),
+    });
+    const openAiEvidence = signedPromotionEvidence({
+      platform: "openai",
+      release: "0.75.0",
+      secret: "integration-secret",
+      suffix: randomUUID(),
+      candidateId: directCandidateId,
+      stageId: openAiStage.id,
+      assignmentId: assignment.id,
+      assignmentGeneration: assignment.generation,
+      oauthClientConfigSha256: sha("a"),
+      openAiLocks: testOpenAiLocks("0.75.0"),
+    });
+    const claudeArtifactId = await storeClientArtifact(
+      pendingArtifactFromEvidence("claude", claudeEvidence)
+    );
+    const openAiArtifactId = await storeClientArtifact(
+      pendingArtifactFromEvidence("openai", openAiEvidence)
+    );
+
+    const owner = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ($1) RETURNING id",
+      [`direct-resource-owner-${randomUUID()}@example.test`]
+    );
+    const tenant = await pool!.query<{ id: string; bound_cell_id: string | null }>(
+      `INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
+       VALUES ($1, 'active', 'running') RETURNING id, bound_cell_id`,
+      [owner.rows[0]!.id]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+       VALUES ($1, 'complimentary', 'active', 'active')`,
+      [tenant.rows[0]!.id]
+    );
+    const client = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256
+       ) VALUES ($1, 'pinned', true, '["https://direct-resource.example.test/callback"]'::jsonb,
+                 digest(convert_to('["https://direct-resource.example.test/callback"]', 'utf8'), 'sha256'),
+                 'claude', $2) RETURNING id`,
+      [`direct-resource-${randomUUID()}`, sha("b")]
+    );
+    const old = await pool!.query<{ grant_id: string; family_id: string }>(
+      `WITH grant_row AS (
+         INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
+         VALUES ($1, $2, $3, 'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'], true)
+         RETURNING id
+       ), family AS (
+         INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+         SELECT id, $3, now() + interval '1 hour' FROM grant_row RETURNING id, grant_id
+       ), code AS (
+         INSERT INTO exomem_oauth_authorization_codes (
+           code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, expires_at
+         ) SELECT decode($4, 'hex'), grant_id, $3, 'https://direct-resource.example.test/callback',
+                  'https://substratesystems.io/api/exomem/mcp/v1', 'direct-resource-pkce', now() + interval '1 hour'
+           FROM family
+       ), refresh AS (
+         INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
+         SELECT decode($5, 'hex'), id, now() + interval '1 hour' FROM family
+       ), access AS (
+         INSERT INTO exomem_oauth_access_tokens (
+           access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
+         ) SELECT decode($6, 'hex'), family.grant_id, family.id, $3,
+                  'https://substratesystems.io/api/exomem/mcp/v1', ARRAY['exomem.read'], now() + interval '1 hour'
+           FROM family
+       ) SELECT grant_id::text, id::text AS family_id FROM family`,
+      [owner.rows[0]!.id, tenant.rows[0]!.id, client.rows[0]!.id, sha("1"), sha("2"), sha("3")]
+    );
+    const custodyBefore = (
+      await pool!.query(
+        `SELECT tenant.id::text AS tenant_id, tenant.bound_cell_id::text AS bound_cell_id,
+              tenant.status, tenant.desired_state, cell.provider_ref, cell.service_credential_digest
+       FROM exomem_tenants AS tenant
+       LEFT JOIN exomem_cells AS cell ON cell.id = tenant.bound_cell_id
+       WHERE tenant.id = $1`,
+        [tenant.rows[0]!.id]
+      )
+    ).rows;
+    const expectedLiveCandidateId = (
+      await pool!.query<{ id: string }>(
+        "SELECT id::text AS id FROM exomem_agent_contract_candidates WHERE state = 'live' AND profile_id = 'hosted-alpha-agent-v4'"
+      )
+    ).rows[0]!.id;
+    const authority = await pool!.query<{ routable_set_digest: string }>(
+      `SELECT routable_set_digest FROM exomem_agent_contract_profile_authority
+       WHERE profile_id = 'hosted-alpha-agent-v4'`
+    );
+    assert.equal(
+      await promoteExomemHostedCohort({
+        candidateId: directCandidateId,
+        claudeArtifactId,
+        openaiArtifactId: openAiArtifactId,
+        expectedLiveCandidateId,
+        expectedRoutableCellDigest: authority.rows[0]!.routable_set_digest,
+        claudeEvidence,
+        openaiEvidence: openAiEvidence,
+      }),
+      "promoted"
+    );
+    assert.equal(await findMcpOAuthAccessToken(Buffer.from(sha("3"), "hex")), null);
+    const fresh = await pool!.query<{ grant_id: string }>(
+      `WITH grant_row AS (
+         INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+         VALUES ($1, $2, $3, 'https://exomem-direct.substratesystems.io/api/exomem/mcp/v1',
+                 ARRAY['exomem.read']) RETURNING id
+       ), family AS (
+         INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+         SELECT id, $3, now() + interval '1 hour' FROM grant_row RETURNING id, grant_id
+       ), access AS (
+         INSERT INTO exomem_oauth_access_tokens (
+           access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
+         ) SELECT decode($4, 'hex'), family.grant_id, family.id, $3,
+                  'https://exomem-direct.substratesystems.io/api/exomem/mcp/v1',
+                  ARRAY['exomem.read'], now() + interval '1 hour' FROM family
+       ) SELECT grant_id::text FROM family`,
+      [owner.rows[0]!.id, tenant.rows[0]!.id, client.rows[0]!.id, sha("4")]
+    );
+    assert.equal(
+      (await findMcpOAuthAccessToken(Buffer.from(sha("4"), "hex")))?.grantId,
+      fresh.rows[0]!.grant_id
+    );
+    const legacyCandidateId = await storeExomemAgentContractCandidate();
+    await transaction(async (tx) => {
+      await revokeConflictingCandidateOAuthLineageInTransaction(tx, legacyCandidateId);
+    });
+    assert.equal(
+      (await findMcpOAuthAccessToken(Buffer.from(sha("4"), "hex")))?.grantId,
+      fresh.rows[0]!.grant_id,
+      "a legacy candidate cannot revoke an ordinary direct-resource grant"
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT grant_row.revoked_at IS NOT NULL AS grant_revoked,
+                  family.revoked_at IS NOT NULL AS family_revoked,
+                  code.consumed_at IS NOT NULL AS code_consumed,
+                  refresh.consumed_at IS NOT NULL AS refresh_consumed,
+                  access.revoked_at IS NOT NULL AS access_revoked
+           FROM exomem_oauth_grants AS grant_row
+           JOIN exomem_oauth_token_families AS family ON family.grant_id = grant_row.id
+           JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant_row.id
+           JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = family.id
+           JOIN exomem_oauth_access_tokens AS access ON access.family_id = family.id
+           WHERE grant_row.id = $1 AND family.id = $2`,
+          [old.rows[0]!.grant_id, old.rows[0]!.family_id]
+        )
+      ).rows[0],
+      {
+        grant_revoked: true,
+        family_revoked: true,
+        code_consumed: true,
+        refresh_consumed: true,
+        access_revoked: true,
+      }
+    );
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT tenant.id::text AS tenant_id, tenant.bound_cell_id::text AS bound_cell_id,
+                tenant.status, tenant.desired_state, cell.provider_ref, cell.service_credential_digest
+         FROM exomem_tenants AS tenant
+         LEFT JOIN exomem_cells AS cell ON cell.id = tenant.bound_cell_id
+         WHERE tenant.id = $1`,
+          [tenant.rows[0]!.id]
+        )
+      ).rows,
+      custodyBefore
+    );
+  }
 
   it("activates a signed runtime without a client artifact", async () => {
     const candidateId = await storeExomemAgentContractCandidate();
@@ -2406,5 +2660,9 @@ describe("agent contract PostgreSQL constraints", { skip: !databaseUrl }, () => 
       [created.value.id]
     );
     assert.deepEqual(expired.rows, [{ state: "expired", activated_cleared: true }]);
+  });
+
+  it("promotes the pinned direct candidate by revoking only old-resource legacy OAuth lineages", async () => {
+    await promoteDirectCandidateAndRevokeLegacyOAuth();
   });
 });

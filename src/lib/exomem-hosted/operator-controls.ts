@@ -15,6 +15,8 @@ import {
   type OperatorOAuthClientRegistration,
 } from "./oauth-client-admission";
 import { exomemContractFixture0740 } from "./gateway-contract-0-74-0";
+import { exomemContractFixture0750 } from "./gateway-contract-0-75-0";
+import { DIRECT_V1_RESOURCE } from "./hosted-ingress";
 
 export type OperatorOAuthClient = {
   id: string;
@@ -1401,14 +1403,20 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
       ), stage AS (
         SELECT stage.id, stage.candidate_id, stage.platform, stage.oauth_client_config_sha256,
                stage.expires_at, candidate.profile_id, candidate.schema_digest AS contract_sha256,
-               candidate.source_release, candidate.protocol_version, candidate.command_fingerprint,
+               candidate.source_release, candidate.protocol_version, candidate.endpoint,
+               candidate.command_fingerprint,
                candidate.compatibility_digest
         FROM exomem_staged_client_releases AS stage
         JOIN exomem_agent_contract_candidates AS candidate
          ON candidate.id = stage.candidate_id
          AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
-         AND candidate.source_release = ${exomemContractFixture0740.release}
-         AND candidate.protocol_version = ${exomemContractFixture0740.protocol}
+         AND (
+           (candidate.source_release = ${exomemContractFixture0740.release}
+            AND candidate.protocol_version = ${exomemContractFixture0740.protocol})
+           OR (candidate.source_release = ${exomemContractFixture0750.release}
+               AND candidate.protocol_version = ${exomemContractFixture0750.protocol}
+               AND candidate.endpoint = ${DIRECT_V1_RESOURCE})
+         )
          AND candidate.state = 'pending'
         WHERE stage.id = ${input.stagedClientReleaseId}::uuid
          AND stage.state = 'staged' AND stage.expires_at > now()
@@ -1463,7 +1471,13 @@ export async function createReviewerOAuthBootstrapAuthority(input: {
           operator_principal_digest, expires_at
         )
         SELECT 'active', invite.id, stage.candidate_id, stage.profile_id, stage.contract_sha256,
-               stage.source_release, stage.protocol_version, ${exomemContractFixture0740.digest},
+               stage.source_release, stage.protocol_version,
+               CASE WHEN stage.source_release = ${exomemContractFixture0750.release}
+                          AND stage.protocol_version = ${exomemContractFixture0750.protocol}
+                          AND stage.endpoint = ${DIRECT_V1_RESOURCE}
+                    THEN ${exomemContractFixture0750.digest}
+                    ELSE ${exomemContractFixture0740.digest}
+               END,
                stage.command_fingerprint, stage.contract_sha256, stage.compatibility_digest,
                stage.id, stage.platform, stage.oauth_client_config_sha256, client.id,
                client.authority_version, client.oauth_client_config_sha256, client.redirect_uris_digest,

@@ -14,6 +14,8 @@ import { exomemContractFixture0683 } from "./gateway-contract-0-68-3";
 import { exomemContractFixture0721 } from "./gateway-contract-0-72-1";
 import { exomemContractFixture0731 } from "./gateway-contract-0-73-1";
 import { exomemContractFixture0740 } from "./gateway-contract-0-74-0";
+import { exomemContractFixture0750 } from "./gateway-contract-0-75-0";
+import { DIRECT_V1_RESOURCE } from "./hosted-ingress";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 
 type AssignmentState = "preparing" | "active" | "failed" | "expired" | "retired";
@@ -84,6 +86,10 @@ const gatewayContractDigests = new Map([
   [
     `${exomemContractFixture0740.release}:${exomemContractFixture0740.protocol}`,
     exomemContractFixture0740.digest,
+  ],
+  [
+    `${exomemContractFixture0750.release}:${exomemContractFixture0750.protocol}`,
+    exomemContractFixture0750.digest,
   ],
 ]);
 
@@ -271,19 +277,32 @@ export async function revokeConflictingCandidateOAuthLineageInTransaction(
   const preservedCandidateId = uuid(candidateId, "candidate ID");
   const { rows } = await tx`
     /* exomem:revoke-conflicting-candidate-oauth-lineage */
-    WITH grants_revoked AS (
+    WITH selected_candidate AS (
+      SELECT endpoint
+      FROM exomem_agent_contract_candidates
+      WHERE id = ${preservedCandidateId}::uuid
+      FOR UPDATE
+    ), grants_revoked AS (
       UPDATE exomem_oauth_grants AS grant_row
       SET revoked_at = COALESCE(grant_row.revoked_at, now()), updated_at = now()
-      WHERE grant_row.candidate_id IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1
-          FROM exomem_client_artifacts AS artifact
-          JOIN exomem_oauth_clients AS client ON client.id = grant_row.client_id
-          WHERE artifact.state = 'live'
-            AND artifact.contract_candidate_id = ${preservedCandidateId}::uuid
-            AND artifact.staged_client_release_id = grant_row.staged_client_release_id
-            AND artifact.platform = client.client_platform
-            AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
+      WHERE (
+          (
+            grant_row.candidate_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM exomem_client_artifacts AS artifact
+              JOIN exomem_oauth_clients AS client ON client.id = grant_row.client_id
+              WHERE artifact.state = 'live'
+                AND artifact.contract_candidate_id = ${preservedCandidateId}::uuid
+                AND artifact.staged_client_release_id = grant_row.staged_client_release_id
+                AND artifact.platform = client.client_platform
+                AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
+            )
+          ) OR (
+            grant_row.candidate_id IS NULL
+            AND (SELECT endpoint FROM selected_candidate) = ${DIRECT_V1_RESOURCE}
+            AND grant_row.resource <> (SELECT endpoint FROM selected_candidate)
+          )
         )
         AND grant_row.revoked_at IS NULL
       RETURNING grant_row.id
@@ -492,6 +511,7 @@ export async function createCanaryAssignment(input: {
       /* exomem:create-canary-assignment */
       WITH candidate AS (
         SELECT candidate.id, candidate.source_release, candidate.protocol_version,
+               candidate.endpoint,
                candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
         FROM exomem_agent_contract_candidates AS candidate
         WHERE candidate.id = ${candidateId}::uuid
@@ -552,6 +572,10 @@ export async function createCanaryAssignment(input: {
                    THEN ${gatewayContractDigests.get(exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol)}
                  WHEN ${exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol}
                    THEN ${gatewayContractDigests.get(exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol)}
+                 WHEN ${exomemContractFixture0750.release + ":" + exomemContractFixture0750.protocol}
+                   THEN CASE WHEN candidate.endpoint = ${DIRECT_V1_RESOURCE}
+                             THEN ${gatewayContractDigests.get(exomemContractFixture0750.release + ":" + exomemContractFixture0750.protocol)}
+                             ELSE NULL END
                  ELSE NULL
                END,
                tenant.marketplace_reviewer_purpose, ${operatorPrincipalDigest}, ${expiresAt}::timestamptz

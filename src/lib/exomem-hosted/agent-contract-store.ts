@@ -394,16 +394,26 @@ function checkedOpenAiLocks(
  * contract cannot leave the new release trusted for import but unpromotable.
  */
 function trustedReleaseAllowlist(): string {
-  return JSON.stringify(
-    [...TRUSTED_RELEASES].map(([sourceRelease, trusted]) => ({
+  return JSON.stringify([
+    ...[...TRUSTED_RELEASES].map(([sourceRelease, trusted]) => ({
       source_release: sourceRelease,
+      endpoint: EXOMEM_HOSTED_RESOURCE,
       command_surface_sha256: trusted.command_surface_sha256,
       schema_contract_sha256: trusted.schema_contract_sha256,
       compatibility_sha256: trusted.compatibility_sha256,
       artifact_sha256: trusted.artifact_sha256,
       archive_sha256: trusted.archive_sha256,
-    }))
-  );
+    })),
+    {
+      source_release: DIRECT_TRUSTED_CANDIDATE.sourceRelease,
+      endpoint: DIRECT_TRUSTED_CANDIDATE.endpoint,
+      command_surface_sha256: DIRECT_TRUSTED_CANDIDATE.command_surface_sha256,
+      schema_contract_sha256: DIRECT_TRUSTED_CANDIDATE.schema_contract_sha256,
+      compatibility_sha256: DIRECT_TRUSTED_CANDIDATE.compatibility_sha256,
+      artifact_sha256: DIRECT_TRUSTED_CANDIDATE.artifact_sha256,
+      archive_sha256: DIRECT_TRUSTED_CANDIDATE.archive_sha256,
+    },
+  ]);
 }
 
 /** Import only the checked, pinned Exomem release fixture; callers cannot supply a contract. */
@@ -505,7 +515,7 @@ function checkedExomemAgentContractCandidate(fixture: unknown): ExomemAgentContr
   return {
     state: "pending",
     profile: expectedProfile,
-    endpoint: EXOMEM_HOSTED_RESOURCE,
+    endpoint: direct ? DIRECT_TRUSTED_CANDIDATE.endpoint : EXOMEM_HOSTED_RESOURCE,
     sourceRelease,
     commandSurfaceSha256,
     schemaDigest,
@@ -1643,6 +1653,7 @@ export async function promoteExomemHostedCohort(input: {
         AND EXISTS (
           SELECT 1 FROM jsonb_array_elements(${trustedReleaseAllowlist()}::jsonb) AS trusted
           WHERE candidate.source_release = trusted->>'source_release'
+            AND candidate.endpoint = trusted->>'endpoint'
             AND candidate.command_fingerprint = trusted->>'command_surface_sha256'
             AND candidate.schema_digest = trusted->>'schema_contract_sha256'
             AND candidate.compatibility_digest = trusted->>'compatibility_sha256'

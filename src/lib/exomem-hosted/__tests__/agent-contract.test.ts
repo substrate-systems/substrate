@@ -47,8 +47,10 @@ afterEach(() => {
 describe("Exomem Hosted agent contracts", () => {
   it("imports the direct fixture only as its separately pinned pending candidate", async () => {
     const queries: string[] = [];
-    __setExomemSqlForTests(async (strings) => {
+    const values: unknown[] = [];
+    __setExomemSqlForTests(async (strings, ...parameters) => {
       queries.push(strings.join("?"));
+      values.push(...parameters);
       return { rows: [{ id: "contract-direct" }] };
     });
     assert.equal(await storeExomemDirectAgentContractCandidate(), "contract-direct");
@@ -59,6 +61,8 @@ describe("Exomem Hosted agent contracts", () => {
       "https://exomem-direct.substratesystems.io/api/exomem/mcp/v1"
     );
     assert.match(queries[0]!, /'pending'/i);
+    assert.equal(values.includes(directFixture.compatibility.endpoint), true);
+    assert.equal(values.includes("https://substratesystems.io/api/exomem/mcp/v1"), false);
   });
   it("selects a pending contract only through the exact bearer assignment generation and bound cell", async () => {
     const queries: string[] = [];
