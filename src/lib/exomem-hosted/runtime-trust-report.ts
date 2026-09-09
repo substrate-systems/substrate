@@ -31,19 +31,19 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const COMMIT = /^[a-f0-9]{40}$/;
 const RELEASE = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/;
 const IMAGE = /^ghcr\.io\/artexis10\/exomem@sha256:[a-f0-9]{64}$/;
-// The reviewed v0.74.0 target is derived by the canonical
-// `runtime_target_from_verified_fixtures` helper. Release CI run 34121947678
+// The reviewed v0.77.0 target is derived by the canonical
+// `runtime_target_from_verified_fixtures` helper. Release CI run 34394672858
 // verified both signed subjects; downloaded asset bytes and the paired fixture
 // tuple were checked locally. Do not hand-assemble this.
 const REVIEWED_TARGET: HostedRuntimeTrustTarget = {
-  releaseVersion: "0.74.0",
-  sourceCommit: "bd95fc9826069ec66f142c821abfda4b2f1d0912",
+  releaseVersion: "0.77.0",
+  sourceCommit: "9e7040a3a518627327a1d1287028667cb22bb5b3",
   runtimeImage:
-    "ghcr.io/artexis10/exomem@sha256:4fc9c71d051196bad097f7cfd5a0d3c25969abf53c7be2d767218b467586b083",
-  runtimeCandidateSha256: "60e19a9611e967ff7ea23d0576ce6122415b68193ae728bc9885d0276734665c",
+    "ghcr.io/artexis10/exomem@sha256:73ab2439e653d490b800eb810c370e297da0efcad176557756b46b89b5c82172",
+  runtimeCandidateSha256: "fa38854367f564ae33292b5b2f27f0c6ba9aef6a179bccfb98876e3a6be89326",
   protocolVersion: "1",
   agentProfile: "hosted-alpha-agent-v4",
-  gatewayContractDigest: "84b2957477dce6c4301b3460e0ab824550fca14ba0f79e7751164efdc125ec08",
+  gatewayContractDigest: "fa554d6c379d0c98aa8bf9cb31525d1b5be6ff19647afedba35f3e2058b85be1",
   commandFingerprint: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
   schemaDigest: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
   compatibilityDigest: "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
