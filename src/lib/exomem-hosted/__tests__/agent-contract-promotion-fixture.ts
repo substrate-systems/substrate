@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { exomemHostedContractFixture as liveFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as retainedFixture0731 } from "../agent-contract-fixture-0-73-1";
+import { exomemHostedContractFixture as retainedFixture0740 } from "../agent-contract-fixture-0-74-0";
 import { exomemHostedContractFixture as candidateFixture0340 } from "../agent-contract-fixture-0-34-0";
 import { exomemHostedContractFixture as candidateFixture0350 } from "../agent-contract-fixture-0-35-0";
 import { exomemHostedContractFixture as retainedFixture0392 } from "../agent-contract-fixture-0-39-2";
@@ -14,7 +15,8 @@ export type PromotionFixtureRelease =
   | "0.49.0"
   | "0.50.0"
   | "0.73.1"
-  | "0.74.0";
+  | "0.74.0"
+  | "0.77.0";
 
 export function canonicalPromotionJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalPromotionJson).join(",")}]`;
@@ -35,14 +37,15 @@ export function promotionContractFixture(release: PromotionFixtureRelease) {
   if (release === "0.39.2") return retainedFixture0392;
   if (release === "0.49.0") return retainedFixture0490;
   if (release === "0.50.0") return retainedFixture0500;
-  return release === "0.73.1" ? retainedFixture0731 : liveFixture;
+  if (release === "0.73.1") return retainedFixture0731;
+  return release === "0.74.0" ? retainedFixture0740 : liveFixture;
 }
 
 export function testOpenAiLocks(
   release: PromotionFixtureRelease,
   digests?: { artifact: string; archive: string; registeredApp: string }
 ) {
-  if (release === "0.74.0" && digests === undefined) {
+  if (release === "0.77.0" && digests === undefined) {
     return {
       packageLock: liveFixture.openaiPackageLock,
       archiveLock: liveFixture.openaiArchiveLock,
@@ -161,7 +164,7 @@ export function evidence(
 ): Record<string, unknown> {
   return signedPromotionEvidence({
     platform,
-    release: "0.74.0",
+    release: "0.77.0",
     secret,
     suffix,
     ...binding,

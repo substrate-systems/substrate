@@ -1,6 +1,6 @@
 {
-  "sourceCommit": "bd95fc9826069ec66f142c821abfda4b2f1d0912",
-  "sourceRelease": "0.74.0",
+  "sourceCommit": "9e7040a3a518627327a1d1287028667cb22bb5b3",
+  "sourceRelease": "0.77.0",
   "compatibility": {
     "agent_contract": {
       "agent_profile": {
