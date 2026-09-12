@@ -48,10 +48,28 @@ export async function runBoundedLifecycleReconcile(
     maxOperations?: number;
     timeBudgetMs?: number;
     tenantId?: string;
+    /**
+     * How long to wait for the next step of work this tick has already started,
+     * before concluding the queue is empty. Zero, the default, preserves the
+     * original stop-on-first-idle behaviour for every other caller.
+     *
+     * A step that finishes typically schedules its successor a second or two
+     * out. Without this the tick returns immediately and that successor waits
+     * for the next cron minute, so an operation advances one checkpoint per
+     * tick: measured 2026-09-12, a cell delete took 23 minutes of which under a
+     * second was work, and a provision the same. Waiting here is what lets one
+     * tick carry an operation through several checkpoints.
+     */
+    idleWaitMs?: number;
   } = {}
 ): Promise<ReconcileSummary> {
-  const maxOperations = Math.min(20, Math.max(1, input.maxOperations ?? 10));
-  const timeBudgetMs = Math.min(20_000, Math.max(250, input.timeBudgetMs ?? 8_000));
+  const maxOperations = Math.min(200, Math.max(1, input.maxOperations ?? 10));
+  const timeBudgetMs = Math.min(55_000, Math.max(250, input.timeBudgetMs ?? 8_000));
+  const idleWaitMs = Math.min(5_000, Math.max(0, input.idleWaitMs ?? 0));
+  // Bounds the polling an in-flight operation can cause. Past this many waits
+  // with nothing to claim, the work this tick started is finished or parked
+  // further out than a tick can usefully wait.
+  const maxIdleWaits = 10;
   const startedAt = Date.now();
   const { store, reconciler } = runtime();
   const owner = `substrate-${randomUUID()}`;
@@ -79,13 +97,34 @@ export async function runBoundedLifecycleReconcile(
   summary.renewalsEnqueued = renewals.enqueued;
   summary.renewalsBlocked = renewals.blocked;
   summary.renewalsFailed = renewals.failed;
-  for (let index = 0; index < maxOperations; index += 1) {
+  let idleWaits = 0;
+  let attemptsLeft = maxOperations;
+  while (attemptsLeft > 0) {
     if (Date.now() - startedAt >= timeBudgetMs) break;
     const result = await reconciler.reconcileOne({
       owner,
       ...(input.tenantId ? { tenantId: input.tenantId } : {}),
     });
-    if (result.kind === "idle") break;
+    if (result.kind === "idle") {
+      // Only wait for work that is actually producing steps. An empty queue
+      // must cost exactly one claim, as it did before: the endpoint is billed
+      // for being awake, so an idle tick that polls is the expensive mistake
+      // this change would otherwise introduce.
+      //
+      // Progress, not attempts: a `retry_scheduled` operation backs off
+      // exponentially to a minute, far past anything worth waiting for, and a
+      // `terminal` one is finished. Keying on attempts would let a single
+      // backed-off operation hold every tick open for its full wait budget,
+      // indefinitely.
+      if (idleWaitMs === 0 || summary.advanced + summary.succeeded === 0) break;
+      if (idleWaits >= maxIdleWaits) break;
+      if (timeBudgetMs - (Date.now() - startedAt) <= idleWaitMs) break;
+      idleWaits += 1;
+      await new Promise((resolve) => setTimeout(resolve, idleWaitMs));
+      continue;
+    }
+    idleWaits = 0;
+    attemptsLeft -= 1;
     summary.attempted += 1;
     if (result.kind === "advanced") summary.advanced += 1;
     if (result.kind === "succeeded") summary.succeeded += 1;

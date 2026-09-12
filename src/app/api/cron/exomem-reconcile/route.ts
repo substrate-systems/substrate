@@ -5,6 +5,10 @@ import { runBoundedPaddleReconcile } from "@/lib/exomem-hosted/paddle-reconcilia
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The tick is the only thing that moves a lifecycle operation, so its ceiling
+// is the cell's latency floor. At the previous 8-second budget an operation
+// advanced one checkpoint per cron interval whatever the interval was.
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!verifyHostedSchedulerAuth(request).ok) {
@@ -16,8 +20,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const [lifecycleResult, paddleResult] = await Promise.allSettled([
       runBoundedLifecycleReconcile({
-        maxOperations: 10,
-        timeBudgetMs: 8_000,
+        maxOperations: 60,
+        // Sized to land inside the scheduler contract, not inside the platform
+        // ceiling: the caller is a K3s CronJob whose contract pins a 20 s total
+        // timeout and a 30 s activeDeadline. A pass that outlived those would
+        // still finish its work -- the client disconnecting does not stop the
+        // function -- but every draining tick would be recorded as a failed
+        // run, and two in a row raise an alert. So the budget stays under the
+        // client's timeout, and the gain comes from the waits inside it.
+        // 12s, not 15s: the deadline is checked between steps, so a step that
+        // starts just inside the budget still runs its provisioner call, which
+        // is 5s by default. 12 + 5 leaves margin under the 20s client timeout.
+        timeBudgetMs: 12_000,
+        // Keep working while the operations this tick started are still
+        // producing steps; an empty queue still costs one claim and returns.
+        idleWaitMs: 1_500,
       }),
       runBoundedPaddleReconcile({
         maxSubscriptions: 5,
