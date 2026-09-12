@@ -28,7 +28,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         // function -- but every draining tick would be recorded as a failed
         // run, and two in a row raise an alert. So the budget stays under the
         // client's timeout, and the gain comes from the waits inside it.
-        timeBudgetMs: 15_000,
+        // 12s, not 15s: the deadline is checked between steps, so a step that
+        // starts just inside the budget still runs its provisioner call, which
+        // is 5s by default. 12 + 5 leaves margin under the 20s client timeout.
+        timeBudgetMs: 12_000,
         // Keep working while the operations this tick started are still
         // producing steps; an empty queue still costs one claim and returns.
         idleWaitMs: 1_500,
