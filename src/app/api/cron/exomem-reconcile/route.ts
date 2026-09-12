@@ -21,7 +21,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const [lifecycleResult, paddleResult] = await Promise.allSettled([
       runBoundedLifecycleReconcile({
         maxOperations: 60,
-        timeBudgetMs: 45_000,
+        // Sized to land inside the scheduler contract, not inside the platform
+        // ceiling: the caller is a K3s CronJob whose contract pins a 20 s total
+        // timeout and a 30 s activeDeadline. A pass that outlived those would
+        // still finish its work -- the client disconnecting does not stop the
+        // function -- but every draining tick would be recorded as a failed
+        // run, and two in a row raise an alert. So the budget stays under the
+        // client's timeout, and the gain comes from the waits inside it.
+        timeBudgetMs: 15_000,
         // Keep working while the operations this tick started are still
         // producing steps; an empty queue still costs one claim and returns.
         idleWaitMs: 1_500,

@@ -106,11 +106,17 @@ export async function runBoundedLifecycleReconcile(
       ...(input.tenantId ? { tenantId: input.tenantId } : {}),
     });
     if (result.kind === "idle") {
-      // Only wait for work this tick has already touched. An empty queue must
-      // cost exactly one claim, as it did before: the endpoint is billed for
-      // being awake, so an idle tick that polls for a minute is the expensive
-      // mistake this change would otherwise introduce.
-      if (idleWaitMs === 0 || summary.attempted === 0) break;
+      // Only wait for work that is actually producing steps. An empty queue
+      // must cost exactly one claim, as it did before: the endpoint is billed
+      // for being awake, so an idle tick that polls is the expensive mistake
+      // this change would otherwise introduce.
+      //
+      // Progress, not attempts: a `retry_scheduled` operation backs off
+      // exponentially to a minute, far past anything worth waiting for, and a
+      // `terminal` one is finished. Keying on attempts would let a single
+      // backed-off operation hold every tick open for its full wait budget,
+      // indefinitely.
+      if (idleWaitMs === 0 || summary.advanced + summary.succeeded === 0) break;
       if (idleWaits >= maxIdleWaits) break;
       if (timeBudgetMs - (Date.now() - startedAt) <= idleWaitMs) break;
       idleWaits += 1;

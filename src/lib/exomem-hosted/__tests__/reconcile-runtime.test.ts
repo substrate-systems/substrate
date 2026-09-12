@@ -120,6 +120,45 @@ describe("bounded lifecycle reconcile", () => {
     assert.equal(claimCalls, 2);
   });
 
+  it("does not wait for an operation that only scheduled a retry", async () => {
+    // Retry backoff runs to a minute, so waiting for one is waiting for nothing.
+    // Keyed on attempts rather than progress, a single backed-off operation
+    // would hold every tick open for its whole wait budget, for as long as it
+    // stayed in backoff.
+    const { runBoundedLifecycleReconcile } = await import("../reconcile-runtime");
+    scripted = [{ kind: "retry_scheduled" }];
+    const startedAt = Date.now();
+
+    const summary = await runBoundedLifecycleReconcile({
+      maxOperations: 20,
+      timeBudgetMs: 5_000,
+      idleWaitMs: 50,
+    });
+
+    assert.equal(summary.retryScheduled, 1);
+    assert.equal(claimCalls, 2, "one claim for the retry, one that finds the queue empty");
+    assert.ok(Date.now() - startedAt < 1_000, "a backed-off operation must not hold the tick open");
+  });
+
+  it("does not start a wait it cannot finish inside the budget", async () => {
+    // The caller is a CronJob with its own timeout, so overshooting the budget
+    // turns a draining tick into a recorded failure. A wait longer than what is
+    // left must not be started at all: the loop's own deadline check would only
+    // notice after the wait had already overrun it.
+    const { runBoundedLifecycleReconcile } = await import("../reconcile-runtime");
+    scripted = [{ kind: "advanced" }];
+    const startedAt = Date.now();
+
+    await runBoundedLifecycleReconcile({
+      maxOperations: 20,
+      timeBudgetMs: 300,
+      idleWaitMs: 1_000,
+    });
+
+    const elapsed = Date.now() - startedAt;
+    assert.ok(elapsed < 500, `returned inside its budget rather than after a wait, took ${elapsed}ms`);
+  });
+
   it("never exceeds its work budget", async () => {
     const { runBoundedLifecycleReconcile } = await import("../reconcile-runtime");
     scripted = Array.from({ length: 20 }, () => ({ kind: "advanced" }) as Claim);
