@@ -5,6 +5,10 @@ import { runBoundedPaddleReconcile } from "@/lib/exomem-hosted/paddle-reconcilia
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The tick is the only thing that moves a lifecycle operation, so its ceiling
+// is the cell's latency floor. At the previous 8-second budget an operation
+// advanced one checkpoint per cron interval whatever the interval was.
+export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!verifyHostedSchedulerAuth(request).ok) {
@@ -16,8 +20,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const [lifecycleResult, paddleResult] = await Promise.allSettled([
       runBoundedLifecycleReconcile({
-        maxOperations: 10,
-        timeBudgetMs: 8_000,
+        maxOperations: 60,
+        timeBudgetMs: 45_000,
+        // Keep working while the operations this tick started are still
+        // producing steps; an empty queue still costs one claim and returns.
+        idleWaitMs: 1_500,
       }),
       runBoundedPaddleReconcile({
         maxSubscriptions: 5,
