@@ -182,6 +182,24 @@ key only when there are no pending candidates or evidence records; old signed
 evidence becomes invalid and must be recollected. Do not reuse any of these
 values as an OAuth, scheduler, provisioner, or cell credential.
 
+### Withdrawing or reviving a self-registering client
+
+A client is admitted when it is enabled and either pinned or serving a valid
+metadata document from a host in `exomem_oauth_admitted_cimd_hosts`
+(`chatgpt.com` → `openai`, `claude.ai` → `claude`). Clients on an admitted host
+register and refresh themselves on contact with `/authorize`.
+
+**To withdraw one, delete its allowlist row.** Setting `enabled = false` on the
+client is not a durable off switch for these: the next anonymous contact
+re-enables it. Deleting the row for `claude.ai` withdraws every Claude client,
+because claude.ai serves one global client document for all users.
+
+Cached metadata lives 24 hours. When it lapses the row is disabled, and both
+bearer validation and refresh require unexpired metadata, so clients see a
+Connect prompt until the next `/authorize` re-fetches the document and revives
+the row. One user reconnecting revives it for everyone on that client. A lapse
+is not a revocation and burns no refresh token.
+
 ## Marketplace readiness and domain proof
 
 Do not submit a directory listing or claim a public install channel before the

@@ -7,6 +7,7 @@
 
 - [x] 1.1 Write `migrations/0048_exomem_oauth_admitted_cimd_hosts.sql` creating `exomem_oauth_admitted_cimd_hosts(platform text, host text, primary key (platform, host))` with a CHECK restricting `platform` to `('claude','openai')` and `host` to a lowercase hostname shape
 - [x] 1.2 Seed the table with `chatgpt.com` → `openai`. claude.ai is deliberately NOT seeded: it is admitted by pinned digest today and works, so adding it would widen the predicate for a client that does not need it
+  - **Superseded by `0055_exomem_admit_claude_ai_cimd_host.sql`.** Removing artifact admission removed the pinned-digest path this rationale relied on, which left claude.ai with no admission path at all. 0055 seeds `claude.ai` → `claude`. It also hands operator-registered CIMD clients on an admitted host to the self-registration path: expiry maintenance disables them, and only that path revives them. Clients that ever held reviewer bootstrap authority keep operator provenance.
 - [x] 1.3 Add an `auto_registered boolean NOT NULL DEFAULT false` column to `exomem_oauth_clients` so provenance is explicit rather than inferred from `admission_mode`
 - [x] 1.4 Replace the single client population bound with a partitioned bound: separate limits for `auto_registered = true` and `auto_registered = false`, leaving the operator partition at its current effective size
 - [x] 1.5 Verify the migration applies to a database already holding pinned and CIMD clients without violating the existing `exomem_oauth_clients_cimd_metadata_valid` or `..._config_sha256_valid` CHECKs

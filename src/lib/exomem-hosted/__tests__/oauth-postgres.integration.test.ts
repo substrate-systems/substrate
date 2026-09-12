@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -4247,6 +4249,81 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     } finally {
       await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
       await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+    }
+  });
+
+  it("admits claude.ai and lets its stale operator-registered row revive itself", async () => {
+    // Production, 2026-09-11: once artifact admission was removed, claude.ai had no
+    // way in. 0048 never allowlisted it because the cohort digest admitted it, and
+    // its one client row is operator-registered, so expiry maintenance disabled it
+    // and the self-registration upsert -- the only path that refreshes lapsed
+    // metadata -- is not allowed to touch it.
+    const admitted = await pool!.query(
+      "SELECT platform FROM exomem_oauth_admitted_cimd_hosts WHERE host = 'claude.ai'"
+    );
+    assert.deepEqual(admitted.rows, [{ platform: "claude" }], "a migrated schema admits claude.ai");
+
+    const clientId = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+    const redirectUris = ["https://claude.ai/api/mcp/auth_callback"];
+    const bootstrapHeld = `https://claude.ai/oauth/${randomUUID()}/client.json`;
+    const unadmitted = `https://unadmitted.example.test/oauth/${randomUUID()}/client.json`;
+    const insertStaleOperatorClient = (id: string, host: string, bootstrap: boolean) =>
+      pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, auto_registered, reviewer_bootstrap_ever_authorized,
+           redirect_uris, redirect_uris_digest, client_platform, oauth_client_config_sha256,
+           cimd_host, metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds,
+           metadata_expires_at, metadata_provenance
+         ) VALUES (
+           $1, 'cimd', false, false, $3, $4::jsonb,
+           digest(convert_to($4::jsonb::text, 'utf8'), 'sha256'), 'claude',
+           encode(digest(convert_to($1, 'utf8'), 'sha256'), 'hex'), $2,
+           digest(convert_to($1, 'utf8'), 'sha256'), now() - interval '2 days', 86400,
+           now() - interval '1 day', '{}'::jsonb
+         )`,
+        [id, host, bootstrap, JSON.stringify([`https://${host}/callback`])]
+      );
+    await insertStaleOperatorClient(clientId, "claude.ai", false);
+    // Neighbours the hand-over must leave alone.
+    await insertStaleOperatorClient(bootstrapHeld, "claude.ai", true);
+    await insertStaleOperatorClient(unadmitted, "unadmitted.example.test", false);
+    try {
+      assert.equal(
+        await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "before"),
+        }),
+        null,
+        "an operator-registered row blocks self-registration"
+      );
+
+      const migration = readFileSync(
+        resolve(process.cwd(), "migrations/0055_exomem_admit_claude_ai_cimd_host.sql"),
+        "utf8"
+      );
+      await pool!.query(migration);
+      await pool!.query(migration);
+
+      const provenance = await pool!.query<{ client_id: string; auto_registered: boolean }>(
+        "SELECT client_id, auto_registered FROM exomem_oauth_clients WHERE client_id = ANY($1)",
+        [[clientId, bootstrapHeld, unadmitted]]
+      );
+      assert.deepEqual(
+        Object.fromEntries(provenance.rows.map((row) => [row.client_id, row.auto_registered])),
+        { [clientId]: true, [bootstrapHeld]: false, [unadmitted]: false }
+      );
+
+      assert.ok(
+        await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "after"),
+        }),
+        "claude.ai must be able to revive its own row"
+      );
+      const client = await resolveApprovedOAuthClient(clientId);
+      assert.deepEqual(client?.redirectUris, redirectUris);
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
+        [clientId, bootstrapHeld, unadmitted],
+      ]);
     }
   });
 
