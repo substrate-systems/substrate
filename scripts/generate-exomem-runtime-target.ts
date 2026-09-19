@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import {
-  buildHostedRuntimeTrustReport,
+  buildHostedRuntimeConsumerPinReport,
   canonicalHostedRuntimeTrustReport,
 } from "../src/lib/exomem-hosted/runtime-trust-report";
 
@@ -134,7 +134,7 @@ async function main() {
       { stdio: "inherit", env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" } }
     );
     const target = JSON.parse(readFileSync(targetPath, "utf8"));
-    const report = await buildHostedRuntimeTrustReport({
+    const report = await buildHostedRuntimeConsumerPinReport({
       repository: process.cwd(),
       consumerCommit,
       target,
@@ -150,7 +150,7 @@ async function main() {
       throw new Error("source-derived fixtures differ from the checked consumer commit");
     const manifest = {
       artifact: "exomem-hosted-runtime-target-verification",
-      schemaVersion: 1,
+      schemaVersion: 2,
       target,
       fixtureSha256s: fixtures,
       provenance: {
@@ -162,7 +162,7 @@ async function main() {
         verifierCommit,
         verifierSha256: sha256(verifierBytes),
         consumerCommit,
-        consumerReportSha256: sha256(canonicalHostedRuntimeTrustReport(report)),
+        consumerPinReportSha256: sha256(canonicalHostedRuntimeTrustReport(report)),
         imageBundleSha256: sha256(imageBundleBytes),
         candidateBundleSha256: sha256(candidateBundleBytes),
       },

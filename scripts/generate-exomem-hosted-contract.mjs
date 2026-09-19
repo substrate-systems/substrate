@@ -9,6 +9,13 @@ import { ListToolsResultSchema, ToolSchema } from "@modelcontextprotocol/sdk/typ
 
 const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
 const RELEASES = {
+  cefa987cce5dfc5efe70dc1a51ab37037afb6ea8: {
+    sourceRelease: "0.89.0",
+    profile: "hosted-alpha-agent-v4",
+    generatedDirectory:
+      "plugins/hosted/generated/candidates/hosted-alpha-agent-v4-command-binding-v1",
+    openai: true,
+  },
   "253c9aa365d7afd8829dc7843f1cac53353ac825": {
     sourceRelease: "0.34.0",
     archiveSha256: "ca5cac5ada03c02642b64906acb2dfad2faeda3d25eb7110446c55b213cd32c9",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { exomemHostedContractFixture } from "../agent-contract-fixture";
+import { exomemHostedContractFixture } from "../agent-contract-fixture-0-77-0";
 import { exomemContractFixture0770 } from "../gateway-contract-0-77-0";
 import { getTrustedHostedRuntimeTarget } from "../runtime-target-registry";
 

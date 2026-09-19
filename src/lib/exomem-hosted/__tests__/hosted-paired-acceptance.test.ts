@@ -14,7 +14,7 @@ import {
 } from "../agent-contract-store";
 import { exomemHostedContractFixture } from "../agent-contract-fixture";
 import { exomemHostedContractFixture as acceptedFixture0340 } from "../agent-contract-fixture-0-34-0";
-import { exomemContractFixture0770 } from "../gateway-contract-0-77-0";
+import { exomemContractFixture0890 } from "../gateway-contract-0-89-0";
 import { createCanaryAssignment } from "../agent-contract-canaries";
 import { loadOwnerInstallActions } from "../account-install-actions";
 import {
@@ -920,7 +920,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
               candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest, $2,
               true, $3, now() + interval '1 hour'
        FROM exomem_agent_contract_candidates AS candidate WHERE candidate.id = $4`,
-      [admitted.tenantId, exomemContractFixture0770.digest, sha("9"), candidate.id]
+      [admitted.tenantId, exomemContractFixture0890.digest, sha("9"), candidate.id]
     );
     const reconciler = new LifecycleReconciler({
       store: new SqlLifecycleStore(),
@@ -978,7 +978,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
            observed_compatibility_digest = $4
        WHERE cell.id = (SELECT bound_cell_id FROM exomem_tenants WHERE id = $5)`,
       [
-        exomemContractFixture0770.digest,
+        exomemContractFixture0890.digest,
         exomemHostedContractFixture.compatibility.command_surface_sha256,
         exomemHostedContractFixture.compatibility.schema_contract_sha256,
         exomemHostedContractFixture.compatibility.compatibility_sha256,
@@ -998,7 +998,7 @@ describe("Hosted Exomem paired control-plane acceptance", { skip: !databaseUrl }
     ).rows[0]!;
     assert.deepEqual(
       { profile: liveBefore.profile_id, release: liveBefore.source_release },
-      { profile: "hosted-alpha-agent-v4", release: "0.77.0" }
+      { profile: "hosted-alpha-agent-v4", release: "0.89.0" }
     );
 
     const user = await pool!.query<{ id: string }>(

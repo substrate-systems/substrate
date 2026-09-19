@@ -156,6 +156,13 @@ An authenticated target import SHALL validate provenance and the distinct runtim
 
 Import SHALL select a checked server-side target and verification manifest by candidate ID. The manifest MUST bind verified immutable image and runtime-candidate subjects plus exact source-derived producer/consumer fixtures. The request MUST NOT accept caller-provided target fields or verification assertions. Deployment composition evidence SHALL remain separately checked before live launch; changing infrastructure composition MUST NOT mutate an imported runtime identity.
 
+#### Scenario: New release verification precedes manifest publication
+
+- **WHEN** a release has verified original image and candidate subjects and an exact committed set of consumer fixtures and source pins, but its target manifest has not yet been committed
+- **THEN** the generator SHALL produce a schema-2 manifest binding a distinct consumer-pin report and its prerequisite commit without requiring its own output as input
+- **AND** deployment and composition SHALL reject that preparatory report and require the full runtime-trust report against a final commit containing the matching target manifest
+- **AND** previously reviewed schema-1 manifests SHALL remain supported without fabricated or rewritten evidence
+
 #### Scenario: Operator supplies a replacement target or proof assertion
 
 - **WHEN** a target import includes arbitrary digests, extra target fields or a caller-supplied verification flag

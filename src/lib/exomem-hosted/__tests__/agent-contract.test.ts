@@ -89,7 +89,7 @@ describe("Exomem Hosted agent contracts", () => {
   it("exposes one atomic cohort promotion entrypoint instead of independent live swaps", async () => {
     assert.equal(typeof promoteExomemHostedCohort, "function");
   });
-  it("ships retained 0.57.2/v1 through 0.74.0/v4 beside the exact current 0.77.0/v4 fixture", () => {
+  it("ships retained 0.57.2/v1 through 0.77.0/v4 beside the exact current 0.89.0/v4 fixture", () => {
     for (const retained of [
       "0-57-2",
       "0-63-1",
@@ -100,6 +100,7 @@ describe("Exomem Hosted agent contracts", () => {
       "0-72-1",
       "0-73-1",
       "0-74-0",
+      "0-77-0",
     ]) {
       assert.equal(
         existsSync(
@@ -116,9 +117,9 @@ describe("Exomem Hosted agent contracts", () => {
     }
     assert.equal(
       exomemHostedContractFixture.sourceCommit,
-      "9e7040a3a518627327a1d1287028667cb22bb5b3"
+      "cefa987cce5dfc5efe70dc1a51ab37037afb6ea8"
     );
-    assert.equal(exomemHostedContractFixture.sourceRelease, "0.77.0");
+    assert.equal(exomemHostedContractFixture.sourceRelease, "0.89.0");
     assert.equal(exomemHostedContractFixture.compatibility.profile, "hosted-alpha-agent-v4");
     assert.equal(exomemHostedContractFixture.compatibility.commands.length, 25);
     assert.equal(exomemHostedContractFixture.packageLock.platform, "claude");
@@ -224,8 +225,8 @@ describe("Exomem Hosted agent contracts", () => {
   });
 
   // `checkedOpenAiLocks` validates an OpenAI lock against a cumulative allowlist
-  // of Claude locks whose first entry is the current release. Adopting 0.77.0
-  // rotates that entry off 0.74.0, so 0.74.0 must be added explicitly or the
+  // of Claude locks whose first entry is the current release. Adopting 0.89.0
+  // rotates that entry off 0.77.0, so 0.77.0 must be added explicitly or the
   // retained release drops from the set and its own import throws.
   // Every release the retained-import switch can name must round-trip.
   for (const release of [
@@ -244,6 +245,7 @@ describe("Exomem Hosted agent contracts", () => {
     "0.72.1",
     "0.73.1",
     "0.74.0",
+    "0.77.0",
   ] as const) {
     it(`accepts the OpenAI locks of retained release ${release}`, async () => {
       __setExomemSqlForTests(async () => ({
@@ -270,7 +272,7 @@ describe("Exomem Hosted agent contracts", () => {
     });
     try {
       delete fixture.compatibility.source_release;
-      assert.equal(fixture.sourceRelease, "0.77.0");
+      assert.equal(fixture.sourceRelease, "0.89.0");
       assert.equal(await storeExomemAgentContractCandidate(), "contract-1");
       fixture.sourceRelease = "0.39.3";
       await assert.rejects(() => storeExomemAgentContractCandidate(), /untrusted source release/);

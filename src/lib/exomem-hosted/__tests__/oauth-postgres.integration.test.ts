@@ -1,4 +1,4 @@
-import { exomemContractFixture0770 } from "../gateway-contract-0-77-0";
+import { exomemContractFixture0890 } from "../gateway-contract-0-89-0";
 import { importTrustedHostedRuntimeTarget } from "../runtime-target-store";
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
@@ -211,7 +211,7 @@ async function seedLiveCohort(): Promise<void> {
        compatibility_digest, protocol_version, mcp_protocol_versions, contract, claude_package_lock, claude_archive_lock,
        openai_package_lock, openai_archive_lock, promoted_at
      ) VALUES (
-       'live', 'hosted-alpha-agent-v4', $1, '0.77.0', $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
+       'live', 'hosted-alpha-agent-v4', $1, '0.89.0', $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
        $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, now()
      ) RETURNING id`,
     [
@@ -936,7 +936,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         {
           provisioner_wire_protocol: "exomem-cell-provisioner.v2",
           target_candidate_id: candidate.rows[0]!.id,
-          target_gateway_contract_digest: exomemContractFixture0770.digest,
+          target_gateway_contract_digest: exomemContractFixture0890.digest,
         },
       ]);
     } finally {
@@ -1019,7 +1019,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         {
           provisioner_wire_protocol: "exomem-cell-provisioner.v2",
           target_candidate_id: candidate.rows[0]!.id,
-          target_gateway_contract_digest: exomemContractFixture0770.digest,
+          target_gateway_contract_digest: exomemContractFixture0890.digest,
         },
       ]);
       await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [

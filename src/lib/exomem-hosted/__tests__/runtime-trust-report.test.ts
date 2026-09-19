@@ -11,19 +11,19 @@ import {
 
 // Deliberately restated rather than imported: REVIEWED_TARGET is unexported, and a
 // test that borrowed it could not detect the pin drifting. These values are the
-// ten-field output of Exomem's `hosted_image_candidate.py verify` for v0.77.0.
+// ten-field output of Exomem's `hosted_image_candidate.py verify` for v0.89.0.
 const target = {
-  releaseVersion: "0.77.0",
-  sourceCommit: "9e7040a3a518627327a1d1287028667cb22bb5b3",
-  runtimeImage:
-    "ghcr.io/artexis10/exomem@sha256:73ab2439e653d490b800eb810c370e297da0efcad176557756b46b89b5c82172",
-  runtimeCandidateSha256: "fa38854367f564ae33292b5b2f27f0c6ba9aef6a179bccfb98876e3a6be89326",
-  protocolVersion: "1",
   agentProfile: "hosted-alpha-agent-v4",
-  gatewayContractDigest: "fa554d6c379d0c98aa8bf9cb31525d1b5be6ff19647afedba35f3e2058b85be1",
   commandFingerprint: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
-  schemaDigest: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
   compatibilityDigest: "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
+  gatewayContractDigest: "dd24d80b33c21d849467a30e1c38ebf94d5e0c7f3b96cb540eccbed17f441692",
+  protocolVersion: "1",
+  releaseVersion: "0.89.0",
+  runtimeCandidateSha256: "ba2469d49b26260dad02ef7d9c50a72eac6ed7810468b535316144e51458c57f",
+  runtimeImage:
+    "ghcr.io/artexis10/exomem@sha256:7d1039ab2e07cefe56cf2dd2e247f233d19205a7a2c7cfcb94336c438cd05d4b",
+  schemaDigest: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+  sourceCommit: "cefa987cce5dfc5efe70dc1a51ab37037afb6ea8",
 };
 const consumerCommit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
@@ -150,9 +150,9 @@ describe("hosted runtime trust report", () => {
 
   it("couples the generated TypeScript fixtures to the reviewed JSON projections", () => {
     const agentJson = JSON.parse(source("__tests__/agent-contract-fixture.json"));
-    const gatewayJson = JSON.parse(source("__tests__/gateway-contract-0-77-0.json"));
+    const gatewayJson = JSON.parse(source("__tests__/gateway-contract-0-89-0.json"));
     const agentTypeScript = source("agent-contract-fixture.ts");
-    const gatewayTypeScript = source("gateway-contract-0-77-0.ts");
+    const gatewayTypeScript = source("gateway-contract-0-89-0.ts");
 
     assert.doesNotThrow(() =>
       assertRuntimeTrustFixtureProjection({
@@ -168,7 +168,7 @@ describe("hosted runtime trust report", () => {
         assertRuntimeTrustFixtureProjection({
           agentTypeScript: mutate(
             agentTypeScript,
-            '"sourceRelease": "0.77.0"',
+            '"sourceRelease": "0.89.0"',
             '"sourceRelease": "0.68.0"'
           ),
           agentJson,
@@ -200,7 +200,7 @@ describe("hosted runtime trust report", () => {
       name: "agent-canaries",
       path: "agent-contract-canaries.ts",
       exact:
-        'WHEN ${exomemContractFixture0770.release + ":" + exomemContractFixture0770.protocol}\n                   THEN ${gatewayContractDigests.get(exomemContractFixture0770.release + ":" + exomemContractFixture0770.protocol)}',
+        'WHEN ${exomemContractFixture0890.release + ":" + exomemContractFixture0890.protocol}\n                   THEN ${gatewayContractDigests.get(exomemContractFixture0890.release + ":" + exomemContractFixture0890.protocol)}',
       decoy:
         '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol} THEN ${gatewayContractDigests.get(exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol)}`;\n',
     },
@@ -215,7 +215,7 @@ describe("hosted runtime trust report", () => {
     {
       name: "client-artifacts",
       path: "client-artifacts.ts",
-      exact: 'row.source_release === "0.77.0"',
+      exact: 'row.source_release === "0.89.0"',
       replacement: 'row.source_release === "9.9.9"',
       decoy:
         '\nconst runtimeTrustDecoy = row.source_release === "0.74.0" ? exomemHostedContractFixture0740 : null;\n',
@@ -223,7 +223,7 @@ describe("hosted runtime trust report", () => {
     {
       name: "gateway-store",
       path: "gateway.ts",
-      exact: "Object.freeze({ full: exomemContractFixture0770, agent: agentFixture0770 }),",
+      exact: "Object.freeze({ full: exomemContractFixture0890, agent: agentFixture0890 }),",
       decoy:
         "\nconst runtimeTrustDecoy = { full: exomemContractFixture0740, agent: agentFixture0740 };\n",
     },
@@ -237,7 +237,7 @@ describe("hosted runtime trust report", () => {
     {
       name: "reviewer-operator",
       path: "operator-controls.ts",
-      exact: "candidate.source_release = ${exomemContractFixture0770.release}",
+      exact: "candidate.source_release = ${exomemContractFixture0890.release}",
       replacement: "candidate.source_release = '0.68.0'",
       decoy:
         "\nconst runtimeTrustDecoy = sql`candidate.source_release = ${exomemContractFixture0740.release} AND candidate.protocol_version = ${exomemContractFixture0740.protocol} THEN ${exomemContractFixture0740.digest}`;\n",
@@ -245,7 +245,7 @@ describe("hosted runtime trust report", () => {
   ] as const;
 
   for (const site of siteMutations) {
-    it(`rejects a missing exact 0.77.0 branch at ${site.name}`, () => {
+    it(`rejects a missing exact 0.89.0 branch at ${site.name}`, () => {
       const original = source(site.path);
       assert.doesNotThrow(() => assertRuntimeTrustSitePin(original, site.name, target));
       assert.throws(

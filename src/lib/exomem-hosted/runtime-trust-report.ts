@@ -49,6 +49,25 @@ const REVIEWED_TARGET: HostedRuntimeTrustTarget = {
   compatibilityDigest: "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
 };
 
+// Derived by the release verifier from both signed 0.89.0 subjects and exact source fixtures.
+const REVIEWED_TARGET_0890: HostedRuntimeTrustTarget = {
+  agentProfile: "hosted-alpha-agent-v4",
+  commandFingerprint: "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+  compatibilityDigest: "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
+  gatewayContractDigest: "dd24d80b33c21d849467a30e1c38ebf94d5e0c7f3b96cb540eccbed17f441692",
+  protocolVersion: "1",
+  releaseVersion: "0.89.0",
+  runtimeCandidateSha256: "ba2469d49b26260dad02ef7d9c50a72eac6ed7810468b535316144e51458c57f",
+  runtimeImage:
+    "ghcr.io/artexis10/exomem@sha256:7d1039ab2e07cefe56cf2dd2e247f233d19205a7a2c7cfcb94336c438cd05d4b",
+  schemaDigest: "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+  sourceCommit: "cefa987cce5dfc5efe70dc1a51ab37037afb6ea8",
+};
+
+export type HostedRuntimeConsumerPinReport = Omit<HostedRuntimeTrustReport, "artifact"> & {
+  artifact: "exomem-hosted-substrate-runtime-consumer-pins";
+};
+
 function record(value: unknown, label: string): JsonRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -135,7 +154,9 @@ function canonicalValue(value: unknown): unknown {
   return value;
 }
 
-export function canonicalHostedRuntimeTrustReport(report: HostedRuntimeTrustReport): string {
+export function canonicalHostedRuntimeTrustReport(
+  report: HostedRuntimeTrustReport | HostedRuntimeConsumerPinReport
+): string {
   return `${JSON.stringify(canonicalValue(report))}\n`;
 }
 
@@ -683,14 +704,19 @@ export function assertRuntimeTrustSitePin(
   if (!pinned) throw new Error(`${label} does not pin the exact runtime target`);
 }
 
-export async function buildHostedRuntimeTrustReport(input: {
+export async function buildHostedRuntimeConsumerPinReport(input: {
   repository: string;
   consumerCommit: string;
   target: unknown;
-}): Promise<HostedRuntimeTrustReport> {
+}): Promise<HostedRuntimeConsumerPinReport> {
   if (!COMMIT.test(input.consumerCommit)) throw new Error("consumer commit is invalid");
   const target = exactTarget(input.target);
-  if (JSON.stringify(canonicalValue(target)) !== JSON.stringify(canonicalValue(REVIEWED_TARGET))) {
+  if (
+    ![REVIEWED_TARGET, REVIEWED_TARGET_0890].some(
+      (reviewed) =>
+        JSON.stringify(canonicalValue(target)) === JSON.stringify(canonicalValue(reviewed))
+    )
+  ) {
     throw new Error("runtime target differs from the reviewed release pin");
   }
   const versionSlug = target.releaseVersion.replaceAll(".", "-");
@@ -794,32 +820,48 @@ export async function buildHostedRuntimeTrustReport(input: {
         assertRuntimeTrustImport(source, site.name, trustedImport);
       }
       assertRuntimeTrustSitePin(source, site.name, target);
-      if (site.name === "lifecycle-store" && source.includes("#enqueueInTransaction")) {
-        const manifest = record(
-          JSON.parse(
-            committedBytes(
-              root,
-              input.consumerCommit,
-              `src/lib/exomem-hosted/runtime-target-${versionSlug}.json`
-            ).toString("utf8")
-          ),
-          "runtime target manifest"
-        );
-        if (
-          JSON.stringify(canonicalValue(exactTarget(manifest.target))) !==
-          JSON.stringify(canonicalValue(target))
-        ) {
-          throw new Error("imported runtime manifest differs from the exact runtime target");
-        }
-      }
     })
   );
   return {
-    artifact: "exomem-hosted-substrate-runtime-trust",
+    artifact: "exomem-hosted-substrate-runtime-consumer-pins",
     schemaVersion: 1,
     consumerCommit: input.consumerCommit,
     target,
     pinnedSites: sites.map((site) => site.name).sort(),
     fixtureSha256s: { agent: sha256(agentBytes), gateway: sha256(gatewayBytes) },
   };
+}
+
+export async function buildHostedRuntimeTrustReport(input: {
+  repository: string;
+  consumerCommit: string;
+  target: unknown;
+}): Promise<HostedRuntimeTrustReport> {
+  const pins = await buildHostedRuntimeConsumerPinReport(input);
+  const root = resolve(input.repository);
+  const lifecycle = committedBytes(
+    root,
+    input.consumerCommit,
+    "src/lib/exomem-hosted/lifecycle-store.ts"
+  ).toString("utf8");
+  if (lifecycle.includes("#enqueueInTransaction")) {
+    const versionSlug = pins.target.releaseVersion.replaceAll(".", "-");
+    const manifest = record(
+      JSON.parse(
+        committedBytes(
+          root,
+          input.consumerCommit,
+          `src/lib/exomem-hosted/runtime-target-${versionSlug}.json`
+        ).toString("utf8")
+      ),
+      "runtime target manifest"
+    );
+    if (
+      JSON.stringify(canonicalValue(exactTarget(manifest.target))) !==
+      JSON.stringify(canonicalValue(pins.target))
+    ) {
+      throw new Error("imported runtime manifest differs from the exact runtime target");
+    }
+  }
+  return { ...pins, artifact: "exomem-hosted-substrate-runtime-trust" };
 }

@@ -17,6 +17,11 @@ function describeTarget(overrides: Record<string, string> = {}) {
 }
 
 describe("connected rehearsal runtime selection", () => {
+  it("selects the repaired release from its reviewed target", () => {
+    const result = describeTarget({ EXOMEM_REHEARSAL_RELEASE: "0.89.0" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), getTrustedHostedRuntimeTarget("0.89.0")!.target);
+  });
   it("describes the reviewed target without credentials, database or cluster effects", () => {
     const result = describeTarget();
     assert.equal(result.status, 0, result.stderr);

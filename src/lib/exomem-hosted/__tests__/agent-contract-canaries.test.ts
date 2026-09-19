@@ -13,6 +13,7 @@ import {
   resolveStagedClientRelease,
 } from "../agent-contract-canaries";
 import { exomemContractFixture0500 } from "../gateway-contract-0-50-0";
+import { exomemContractFixture0890 } from "../gateway-contract-0-89-0";
 
 const tenantId = "018f2d91-7c42-7000-8000-000000000071";
 const candidateId = "018f2d91-7c42-7000-8000-000000000072";
@@ -61,7 +62,7 @@ describe("Hosted canary assignments", () => {
     assert.doesNotMatch(query, /grant_row\.tenant_id = .*candidate_id =/i);
   });
 
-  it("creates an existing-cohort 0.50.0 assignment with the exact gateway digest", async () => {
+  it("catalogs both legacy 0.50.0 and current 0.89.0 gateway digests for assignments", async () => {
     const queries: string[] = [];
     const values: unknown[] = [];
     const sql = async (strings: TemplateStringsArray, ...parameters: unknown[]) => {
@@ -102,6 +103,7 @@ describe("Hosted canary assignments", () => {
     assert.match(queries[1]!, /candidate\.state = 'pending'/i);
     assert.match(queries[1]!, /gateway_contract_digest/i);
     assert.equal(values.includes(exomemContractFixture0500.digest), true);
+    assert.equal(values.includes(exomemContractFixture0890.digest), true);
     assert.match(queries[1]!, /prior\.generation \+ 1/i);
     assert.match(queries[1]!, /current\.state = 'preparing'/i);
     assert.doesNotMatch(queries[1]!, /current\.state IN \('preparing', 'active'\)/i);

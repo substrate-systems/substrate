@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { exomemHostedContractFixture } from "./agent-contract-fixture";
+import { exomemHostedContractFixture as agent0770 } from "./agent-contract-fixture-0-77-0";
 import { exomemContractFixture0770 } from "./gateway-contract-0-77-0";
 import manifest0770 from "./runtime-target-0-77-0.json";
 
@@ -40,18 +40,54 @@ function digest(value: unknown): string {
     .digest("hex");
 }
 
-function checked0770(): TrustedHostedRuntimeTarget {
-  const target = manifest0770.target;
-  const agent = exomemHostedContractFixture;
+type VerificationManifest = {
+  artifact: string;
+  schemaVersion: number;
+  target: HostedRuntimeTarget;
+  verification: {
+    consumerCommit: string;
+    consumerReportSha256?: string;
+    consumerPinReportSha256?: string;
+  };
+};
+type AgentIdentity = {
+  sourceRelease: string;
+  sourceCommit: string;
+  compatibility: {
+    profile: string;
+    command_surface_sha256: string;
+    schema_contract_sha256: string;
+    compatibility_sha256: string;
+  };
+};
+
+function checked(
+  release: string,
+  manifest: VerificationManifest,
+  agent: AgentIdentity,
+  gateway: { protocol: string; digest: string }
+): TrustedHostedRuntimeTarget {
+  const target = manifest.target;
+  const verification = manifest.verification;
+  const validReport =
+    manifest.schemaVersion === 1
+      ? typeof verification.consumerReportSha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(verification.consumerReportSha256) &&
+        verification.consumerPinReportSha256 === undefined
+      : manifest.schemaVersion === 2 &&
+        typeof verification.consumerPinReportSha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(verification.consumerPinReportSha256) &&
+        verification.consumerReportSha256 === undefined;
   if (
-    manifest0770.artifact !== "exomem-hosted-runtime-target-verification" ||
-    manifest0770.schemaVersion !== 1 ||
-    target.releaseVersion !== "0.77.0" ||
+    manifest.artifact !== "exomem-hosted-runtime-target-verification" ||
+    !validReport ||
+    !/^[a-f0-9]{40}$/.test(verification.consumerCommit) ||
+    target.releaseVersion !== release ||
     target.releaseVersion !== agent.sourceRelease ||
     target.sourceCommit !== agent.sourceCommit ||
     target.agentProfile !== agent.compatibility.profile ||
-    target.protocolVersion !== exomemContractFixture0770.protocol ||
-    target.gatewayContractDigest !== exomemContractFixture0770.digest ||
+    target.protocolVersion !== gateway.protocol ||
+    target.gatewayContractDigest !== gateway.digest ||
     target.commandFingerprint !== agent.compatibility.command_surface_sha256 ||
     target.schemaDigest !== agent.compatibility.schema_contract_sha256 ||
     target.compatibilityDigest !== agent.compatibility.compatibility_sha256
@@ -61,11 +97,11 @@ function checked0770(): TrustedHostedRuntimeTarget {
   return Object.freeze({
     target: Object.freeze({ ...target }),
     runtimeTargetDigest: digest(target),
-    verificationManifestDigest: digest(manifest0770),
+    verificationManifestDigest: digest(manifest),
   });
 }
 
-const trusted0770 = checked0770();
+const trusted0770 = checked("0.77.0", manifest0770, agent0770, exomemContractFixture0770);
 
 /** Only reviewed build-time verification evidence can populate this registry. */
 export function getTrustedHostedRuntimeTarget(
