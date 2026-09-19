@@ -6,7 +6,7 @@ Separate safe hosted runtime activation, customer service authorization and clie
 
 ### Requirement: Runtime activation is independent of artifact certification
 
-An authorized operator SHALL be able to activate exactly one signed runtime candidate per hosted profile without any promoted client artifact. Activation MUST validate the candidate's immutable identity and a fresh, nonempty, uniformly matching strict v2 routable-cell set under the lifecycle/activation transaction fence. A stale or changed set MUST reject activation without partial state changes.
+An authorized operator SHALL be able to activate exactly one signed runtime candidate per hosted profile without any promoted client artifact. Activation MUST validate an authenticated immutable provisioning target independently of observed customer cells. On an empty fleet it MUST atomically prove the absence of bound cells and conflicting in-flight lifecycle work under the lifecycle/activation fence. When a fleet exists it MUST retain fresh uniformly matching strict v2 fleet verification. A stale or changed target or set MUST reject activation without partial state changes. Activation MUST NOT itself make an unverified cell routable.
 
 #### Scenario: Valid runtime has no certified artifact
 
@@ -117,3 +117,56 @@ Authorized MCP initialization and tool listing SHALL use one immutable approved 
 - **WHEN** an otherwise-authorized client initializes or lists tools with no approved runtime contract available
 - **THEN** discovery returns a stable temporary service outcome without inventing a tool surface
 - **AND** the valid OAuth family remains intact
+
+### Requirement: First admission works without a preexisting cell
+
+A verified approved provisioning target SHALL supply every immutable identity required by first admission without reading a bound cell. The same target resolver SHALL govern email-first, OAuth-first and payment-triggered provisioning. Invite consumption, ownership, capacity and operation creation MUST remain atomic and idempotent. Repeated admission MUST return the existing authorized tenant/attempt without consuming another invite or allocating another cell. Removing the last cell MUST NOT remove the approved target. Runtime readiness and actual command serving MUST remain separate from admission.
+
+#### Scenario: Empty installation admits its first owner
+
+- **WHEN** an operator activates a verified target on an empty installation and an eligible owner redeems an ordinary complimentary invite
+- **THEN** exactly one tenant, capacity allocation and provision operation are created against that target without reviewer or artifact-certification prerequisites
+- **AND** the owner can authenticate and see preparing until actual compatible governance-ready binding permits commands
+
+#### Scenario: Empty routable projection hides conflicting work
+
+- **WHEN** no routable rows exist but a bound cell or nonterminal lifecycle operation with a conflicting target or preparation authority that activation would retire exists
+- **THEN** empty-fleet activation refuses atomically without changing selection or consuming customer resources
+
+#### Scenario: Interrupted admission and concurrent first customers
+
+- **WHEN** an admission response is lost or two customers redeem while activation races
+- **THEN** retries recover the original committed result and each admitted tenant has one coherent target and one capacity reservation
+- **AND** excess demand is refused before payment or provisioning, without weakening the capacity reserve
+
+#### Scenario: Last cell is deleted
+
+- **WHEN** governed deletion removes the last cell while its approved target remains valid
+- **THEN** the next eligible customer can provision against that target without recreating a reviewer tenant
+
+#### Scenario: Friend has not completed checkout
+
+- **WHEN** a paid invitation is redeemed before a verified payment entitlement becomes active
+- **THEN** no provision operation is queued and no tool use is granted
+- **AND** verified webhook replay starts at most one provision and preserves the existing tenant and checkout identity
+
+### Requirement: Target import preserves signed identity
+
+An authenticated target import SHALL validate provenance and the distinct runtime gateway, agent schema and packaging compatibility identities for one immutable release. Reimport SHALL be absent-or-identical. Missing, changed, unsigned or ambiguous target identity MUST block activation without modifying prior candidates or in-flight operations.
+
+Import SHALL select a checked server-side target and verification manifest by candidate ID. The manifest MUST bind verified immutable image and runtime-candidate subjects plus exact source-derived producer/consumer fixtures. The request MUST NOT accept caller-provided target fields or verification assertions. Deployment composition evidence SHALL remain separately checked before live launch; changing infrastructure composition MUST NOT mutate an imported runtime identity.
+
+#### Scenario: Operator supplies a replacement target or proof assertion
+
+- **WHEN** a target import includes arbitrary digests, extra target fields or a caller-supplied verification flag
+- **THEN** the request is refused without storing a target or changing activation
+
+#### Scenario: Checked target is imported twice
+
+- **WHEN** the checked server-side target and candidate identity are unchanged across two import requests
+- **THEN** both requests return the same runtime target digest and the second returns unchanged without rewriting provenance
+
+#### Scenario: Similar packages have different compatibility identities
+
+- **WHEN** two packaging variants expose the same agent profile and schema but different signed compatibility artifacts
+- **THEN** activation uses the variant named by the approved release target and rejects substitution of the sibling variant

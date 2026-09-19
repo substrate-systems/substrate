@@ -57,3 +57,12 @@ The gateway SHALL omit the per-command contract fetch only when the approved com
 
 - **WHEN** the cell rejects a changed or mismatched expected tuple
 - **THEN** the gateway returns the stable compatibility failure and does not try a legacy route or another cell
+
+### Requirement: Gateway relocation does not gate private-alpha admission
+
+The existing public gateway SHALL remain a supported private-alpha transport while the nearby-gateway rollout is pending. All existing authorization, contract, isolation and recovery requirements MUST apply on that transport. Relocation acceptance and optimization targets SHALL be evaluated at the later infrastructure milestone, without claiming they passed during owner or friends acceptance.
+
+#### Scenario: Owner acceptance precedes gateway cutover
+
+- **WHEN** the selected runtime and current gateway pass the required private-alpha service checks
+- **THEN** the owner can use the vault and the friends milestone can proceed without a new gateway deployment or marketplace publication

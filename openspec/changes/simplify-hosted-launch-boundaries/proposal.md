@@ -25,3 +25,11 @@ Customer access currently depends on certification of a distributed client artif
 Touches the hosted OAuth and contract stores, candidate promotion, lifecycle target selection, canonical MCP/gateway handler, a standalone gateway entrypoint and its image, database migrations, tests and operational runbooks. The companion Exomem change with this same name owns the private command binding, cluster/edge deployment and end-to-end launch evidence. No production behavior changes in this planning PR.
 
 This change supersedes the artifact-as-service-admission portions of `scope-cohort-admission-per-platform`, `add-exomem-hosted-mcp-oauth` and `admit-cimd-clients-by-host`; it does not discard their client security or certification contracts. Generic arbitrary client registration from `admit-generic-mcp-clients` remains outside scope.
+
+## Delivery phases
+
+The supported sequence is **owner alpha → invited friends → operational redesign → public launch**. Owner and friends acceptance use the existing public gateway. Gateway relocation, its latency targets, marketplace certification, additional client hosts and public self-service are later milestones, not dependencies of the first private vault. Security, durable storage, useful memory, bounded convergence, recovery and supported-client continuity remain required.
+
+A launch is one durable attempt: the runner owns ordinary waiting, retries and restart recovery. A repeated invocation resumes that attempt. It must not mint replacement invites, aliases, clients or tenants to recover progress. Unexpected faults remain visible and recoverable; no component promises that a cloud provider cannot fail.
+
+This phase order replaces earlier wording that makes the gateway cutover, both client hosts, performance targets or recovery of a particular historic tenant prerequisites of private-alpha admission. Preserve their contracts and evidence as later work. The retained-operation recovery sections are conditional procedures, not instructions to recreate an operation or cell that has since been deleted.
