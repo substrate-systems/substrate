@@ -5,6 +5,7 @@ import { chmod, link, lstat, mkdir, unlink, writeFile } from "node:fs/promises";
 import { isIP, type AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { isDeepStrictEqual } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Pool, type PoolClient } from "pg";
@@ -119,6 +120,27 @@ function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Missing required environment: ${name}`);
   return value;
+}
+
+function selectedRuntimeTarget() {
+  const release = process.env.EXOMEM_REHEARSAL_RELEASE ?? "0.77.0";
+  const trusted = getTrustedHostedRuntimeTarget(release);
+  if (!trusted || trusted.target.releaseVersion !== exomemHostedContractFixture.sourceRelease) {
+    throw new Error("rehearsal requires a reviewed runtime target and matching candidate fixture");
+  }
+  const expected = process.env.EXOMEM_REHEARSAL_EXPECTED_TARGET;
+  if (expected !== undefined) {
+    let supplied: unknown;
+    try {
+      supplied = JSON.parse(expected);
+    } catch {
+      throw new Error("paired runtime target must be valid JSON");
+    }
+    if (!isDeepStrictEqual(supplied, trusted.target)) {
+      throw new Error("paired runtime target differs from the reviewed consumer target");
+    }
+  }
+  return trusted;
 }
 
 function isLoopbackHostname(value: string): boolean {
@@ -240,8 +262,7 @@ async function importAndActivateRuntime(): Promise<{
   candidateId: string;
   runtimeTargetDigest: string;
 }> {
-  const trusted = getTrustedHostedRuntimeTarget("0.77.0");
-  assert.ok(trusted);
+  const trusted = selectedRuntimeTarget();
   const candidateId = await storeExomemAgentContractCandidate();
   const imported = await importTrustedHostedRuntimeTarget({
     candidateId,
@@ -588,8 +609,7 @@ async function reconcileProvision(input: {
       throw error;
     }
   };
-  const trusted = getTrustedHostedRuntimeTarget("0.77.0");
-  assert.ok(trusted);
+  const trusted = selectedRuntimeTarget();
   const reconciler = new LifecycleReconciler({
     store: new SqlLifecycleStore(),
     provisioner: new HttpCellProvisioner(
@@ -726,6 +746,15 @@ async function waitForFinish(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const selected = selectedRuntimeTarget();
+  if (process.argv.length === 3 && process.argv[2] === "--describe-runtime-target") {
+    process.stdout.write(`${JSON.stringify(selected.target)}\n`);
+    return;
+  }
+  if (process.argv.length !== 2) throw new Error("unknown rehearsal arguments");
+  if (!process.env.EXOMEM_REHEARSAL_EXPECTED_TARGET) {
+    throw new Error("paired runtime target is required before creating rehearsal resources");
+  }
   const databaseUrl = explicitDatabaseUrl(requiredEnvironment("EXOMEM_TEST_DATABASE_URL"));
   const providerUrl = loopbackHttpOrigin(
     "EXOMEM_REHEARSAL_PROVIDER_URL",
@@ -824,8 +853,7 @@ async function main(): Promise<void> {
       operationId: admission.operationId,
       fence: ready.fence,
     });
-    const trusted = getTrustedHostedRuntimeTarget("0.77.0");
-    assert.ok(trusted);
+    const trusted = selectedRuntimeTarget();
     await writeHandoff(stateDirectory, {
       mcp_endpoint: gateway.endpoint,
       access_token: admission.accessToken.reveal(),
@@ -838,6 +866,7 @@ async function main(): Promise<void> {
         release_version: trusted.target.releaseVersion,
         protocol_version: trusted.target.protocolVersion,
         runtime_target_digest: target.runtimeTargetDigest,
+        runtime_target: trusted.target,
       },
     });
     handoffWritten = true;
