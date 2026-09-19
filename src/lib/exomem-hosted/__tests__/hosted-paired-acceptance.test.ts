@@ -1,3 +1,4 @@
+import { importTrustedHostedRuntimeTarget } from "../runtime-target-store";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
@@ -249,6 +250,7 @@ async function seedCohort(): Promise<Cohort> {
     ]
   );
   const candidateId = candidate.rows[0]!.id;
+  await importTrustedHostedRuntimeTarget({ candidateId, operatorPrincipalDigest: digest(91) });
   const catalogOwner = await pool!.query<{ id: string }>(
     "INSERT INTO users (email) VALUES ($1) RETURNING id",
     [`paired-catalog-${randomUUID()}@example.test`]

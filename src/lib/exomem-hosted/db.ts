@@ -786,23 +786,21 @@ export async function redeemInviteAtomic(
              NULL::bigint AS assignment_generation,
              candidate.source_release,
              candidate.protocol_version,
-             MIN(catalog_cell.observed_gateway_contract_digest) AS gateway_contract_digest,
+             runtime_target.gateway_contract_digest,
              candidate.command_fingerprint,
              candidate.schema_digest,
              candidate.compatibility_digest
       FROM exomem_agent_contract_candidates AS candidate
-      JOIN exomem_cells AS catalog_cell
-        ON catalog_cell.routing_state = 'bound'
-       AND catalog_cell.release_version = candidate.source_release
-       AND catalog_cell.protocol_version = candidate.protocol_version
-       AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
-       AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
-       AND catalog_cell.observed_schema_digest = candidate.schema_digest
+      JOIN exomem_runtime_targets AS runtime_target
+        ON runtime_target.candidate_id = candidate.id
+       AND runtime_target.release_version = candidate.source_release
+       AND runtime_target.protocol_version = candidate.protocol_version
+       AND runtime_target.agent_profile = candidate.profile_id
+       AND runtime_target.command_fingerprint = candidate.command_fingerprint
+       AND runtime_target.schema_digest = candidate.schema_digest
+       AND runtime_target.compatibility_digest = candidate.compatibility_digest
       WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
         AND candidate.state = 'live'
-      GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
-               candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
-      HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
     ),
     target AS MATERIALIZED (
       SELECT candidate_id, assignment_id, assignment_generation, source_release, protocol_version,

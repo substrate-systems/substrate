@@ -5,6 +5,7 @@ const ADMIN_TOKEN = Buffer.alloc(32, 0x71).toString("base64url");
 let importedRelease: string | null = null;
 let createdAssignment: Record<string, unknown> | null = null;
 let promotionInput: Record<string, unknown> | null = null;
+let runtimeTargetImport: Record<string, unknown> | null = null;
 let recoveryInput: Record<string, unknown> | null = null;
 const queuedOperations: Array<Record<string, unknown>> = [];
 
@@ -44,6 +45,26 @@ before(() => {
     namedExports: {
       reimportClientArtifactEvidence: async () => "reimported",
       storeClientArtifact: async () => "artifact-1",
+    },
+  });
+  mock.module("@/lib/exomem-hosted/runtime-target-store", {
+    namedExports: {
+      importTrustedHostedRuntimeTarget: async (input: Record<string, unknown>) => {
+        runtimeTargetImport = input;
+        return {
+          candidateId: input.candidateId,
+          runtimeTargetDigest: "c".repeat(64),
+          outcome: "imported",
+        };
+      },
+      listHostedRuntimeTargetStatus: async () => [
+        {
+          candidateId: "018f2d91-7c42-7000-8000-000000000021",
+          sourceRelease: "0.77.0",
+          importReady: true,
+          runtimeTargetDigest: "c".repeat(64),
+        },
+      ],
     },
   });
   mock.module("@/lib/exomem-hosted/agent-contract-canaries", {
@@ -327,6 +348,49 @@ describe("Exomem operator contract controls", () => {
       unfinishedV1Operations: 2,
       retainedV1Exports: 1,
     });
+    assert.deepEqual(body.runtimeTargets, [
+      {
+        candidateId: "018f2d91-7c42-7000-8000-000000000021",
+        sourceRelease: "0.77.0",
+        importReady: true,
+        runtimeTargetDigest: "c".repeat(64),
+      },
+    ]);
+  });
+
+  it("imports only the trusted runtime target named by its candidate", async () => {
+    const { POST } = await import("../route");
+    runtimeTargetImport = null;
+    const candidateId = "018f2d91-7c42-7000-8000-000000000021";
+    const response = await POST(
+      request({ action: "import-runtime-target", candidateId }, `Bearer ${ADMIN_TOKEN}`)
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.success, true);
+    assert.equal(body.candidateId, candidateId);
+    assert.equal(body.runtimeTargetDigest, "c".repeat(64));
+    assert.equal(body.outcome, "imported");
+    assert.equal(typeof body.requestId, "string");
+    const imported = runtimeTargetImport as Record<string, unknown> | null;
+    assert.ok(imported);
+    assert.equal(imported.candidateId, candidateId);
+    assert.equal(typeof imported.operatorPrincipalDigest, "object");
+  });
+
+  it("rejects extra runtime target fields", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request(
+        {
+          action: "import-runtime-target",
+          candidateId: "018f2d91-7c42-7000-8000-000000000021",
+          runtimeTargetDigest: "c".repeat(64),
+        },
+        `Bearer ${ADMIN_TOKEN}`
+      )
+    );
+    assert.equal(response.status, 400);
   });
 
   it("creates a canary assignment with the authenticated operator digest", async () => {

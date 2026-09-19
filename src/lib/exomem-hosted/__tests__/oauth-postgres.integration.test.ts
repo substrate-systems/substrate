@@ -1,3 +1,5 @@
+import { exomemContractFixture0770 } from "../gateway-contract-0-77-0";
+import { importTrustedHostedRuntimeTarget } from "../runtime-target-store";
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { createHash, randomUUID } from "node:crypto";
@@ -194,8 +196,8 @@ async function seedLiveCohort(): Promise<void> {
     platform,
     artifact_sha256: packageSha256,
     archive_sha256: archiveSha256,
-    compatibility_sha256: "c".repeat(64),
-    schema_contract_sha256: "d".repeat(64),
+    compatibility_sha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+    schema_contract_sha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
     plugin_version: "1.0.0",
   });
   const claude = lock("claude", "a".repeat(64), "b".repeat(64));
@@ -209,20 +211,24 @@ async function seedLiveCohort(): Promise<void> {
        compatibility_digest, protocol_version, mcp_protocol_versions, contract, claude_package_lock, claude_archive_lock,
        openai_package_lock, openai_archive_lock, promoted_at
      ) VALUES (
-       'live', 'hosted-alpha-agent-v4', $1, 'test', $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
+       'live', 'hosted-alpha-agent-v4', $1, '0.77.0', $2, $3, $4, '1', '["2025-11-25"]'::jsonb, '{}'::jsonb,
        $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, now()
      ) RETURNING id`,
     [
       resource,
-      "1".repeat(64),
-      "d".repeat(64),
-      "c".repeat(64),
+      exomemHostedContractFixture.compatibility.command_surface_sha256,
+      exomemHostedContractFixture.compatibility.schema_contract_sha256,
+      exomemHostedContractFixture.compatibility.compatibility_sha256,
       JSON.stringify(claude),
       JSON.stringify(claude),
       JSON.stringify(openai),
       JSON.stringify(openai),
     ]
   );
+  await importTrustedHostedRuntimeTarget({
+    candidateId: contract.rows[0].id,
+    operatorPrincipalDigest: digest(91),
+  });
   for (const candidate of [claude, openai]) {
     await pool!.query(
       `INSERT INTO exomem_client_artifacts (
@@ -667,7 +673,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     assert.equal(await scalar("SELECT count(*) FROM exomem_lifecycle_operations"), 0);
   });
 
-  it("rolls back v2 legacy invitation redemption without a catalog target", async () => {
+  it("rolls back v2 legacy invitation redemption without an imported target", async () => {
     await createInviteRecord({
       tokenDigest: digest(400),
       emailNormalized: "legacy-v2-missing-target@example.test",
@@ -686,6 +692,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         scalar("SELECT count(*) FROM exomem_sessions"),
         scalar("SELECT count(*) FROM exomem_lifecycle_operations"),
       ]);
+    const live = await pool!.query("SELECT id FROM exomem_agent_contract_candidates WHERE state = 'live'");
+    await pool!.query("DELETE FROM exomem_runtime_targets WHERE candidate_id = $1", [live.rows[0].id]);
     const before = await counts();
     const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
     process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
@@ -702,6 +710,10 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
       else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
     }
+    await importTrustedHostedRuntimeTarget({
+      candidateId: live.rows[0].id,
+      operatorPrincipalDigest: digest(91),
+    });
     assert.deepEqual(await counts(), before);
     assert.equal(
       await scalar(
@@ -846,7 +858,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     );
   });
 
-  it("snapshots the catalog-backed v2 target for legacy invitation provisioning", async () => {
+  it("snapshots the imported v2 target for legacy invitation provisioning", async () => {
     const candidate = await pool!.query<{
       id: string;
       source_release: string;
@@ -924,7 +936,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         {
           provisioner_wire_protocol: "exomem-cell-provisioner.v2",
           target_candidate_id: candidate.rows[0]!.id,
-          target_gateway_contract_digest: "e".repeat(64),
+          target_gateway_contract_digest: exomemContractFixture0770.digest,
         },
       ]);
     } finally {
@@ -933,7 +945,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     }
   });
 
-  it("snapshots the catalog-backed v2 target for OAuth invitation provisioning", async () => {
+  it("snapshots the imported v2 target for OAuth invitation provisioning", async () => {
     const candidate = await pool!.query<{
       id: string;
       source_release: string;
@@ -1007,7 +1019,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         {
           provisioner_wire_protocol: "exomem-cell-provisioner.v2",
           target_candidate_id: candidate.rows[0]!.id,
-          target_gateway_contract_digest: "e".repeat(64),
+          target_gateway_contract_digest: exomemContractFixture0770.digest,
         },
       ]);
       await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [

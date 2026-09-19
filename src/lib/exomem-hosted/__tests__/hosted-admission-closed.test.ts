@@ -15,7 +15,6 @@ import {
   safeErrorEnvelope,
 } from "../errors";
 import {
-  HOSTED_COHORT_CLOSURE_REASONS,
   hasLiveHostedCohortTarget,
   probeHostedCohortTarget,
 } from "../hosted-cohort-target";
@@ -45,28 +44,14 @@ const params = {
   sessionExpiresAt: new Date("2026-08-18T00:00:00.000Z"),
 };
 
-/**
- * Every fleet state the cohort probe can tell apart, as the aggregate row its
- * single statement returns: how many candidates are live for the profile, how
- * many of those have bound cells agreeing on one gateway contract digest, and
- * how many have bound cells that disagree.
- *
- * Three of the four are closures, and each is named for the reason the probe
- * must report for it. `routable` is the state that admits.
- */
+/** Candidate and imported-target counts returned by the admission probe. */
 const COHORT_STATES = {
-  no_live_candidate: { live_candidates: 0, routable_targets: 0, disagreeing_candidates: 0 },
-  no_bound_cell_for_live_candidate: {
+  no_live_candidate: { live_candidates: 0, imported_targets: 0 },
+  no_imported_runtime_target: {
     live_candidates: 1,
-    routable_targets: 0,
-    disagreeing_candidates: 0,
+    imported_targets: 0,
   },
-  bound_cells_disagree_on_contract: {
-    live_candidates: 1,
-    routable_targets: 0,
-    disagreeing_candidates: 1,
-  },
-  routable: { live_candidates: 1, routable_targets: 1, disagreeing_candidates: 0 },
+  routable: { live_candidates: 1, imported_targets: 1 },
 } as const;
 type CohortState = keyof typeof COHORT_STATES;
 
@@ -259,7 +244,7 @@ describe("the closed cohort classifies itself for the operator", () => {
   // updated, which is true and names nothing.
   const FLEET_NOUNS = /tenant|cohort|candidate|fleet|cell|bootstrap|runbook|virgin-install/i;
 
-  it("classifies an empty fleet as no-live-candidate and names the bootstrap", async () => {
+  it("classifies missing activation and names the runtime activation procedure", async () => {
     process.env[V2] = "true";
     fakeDatabase({ cohort: "no_live_candidate", redeemRows: [] });
 
@@ -273,17 +258,14 @@ describe("the closed cohort classifies itself for the operator", () => {
     assert.ok(operator, "an admission refusal must carry its classification");
     assert.equal(operator.closureReason, "no_live_candidate");
     assert.equal(operator.closureSite, "invite_redemption_precheck");
-    assert.equal(operator.closureProcedure, "virgin-install-reviewer-oauth-bootstrap");
+    assert.equal(operator.closureProcedure, "runtime-activation-for-the-first-private-owner");
     assert.match(String(operator.closureRunbook), /exomem-hosted-alpha\.md#/);
   });
 
   // The defect this replaced: every closed state was reported as the empty
   // fleet, so an operator part way through an ordinary rotation was sent to a
   // procedure that builds a second reviewer-purpose tenant.
-  for (const cohort of [
-    "no_bound_cell_for_live_candidate",
-    "bound_cells_disagree_on_contract",
-  ] as const) {
+  for (const cohort of ["no_imported_runtime_target"] as const) {
     it(`refuses a fleet in ${cohort} without offering the bootstrap`, async () => {
       process.env[V2] = "true";
       fakeDatabase({ cohort, redeemRows: [] });
@@ -489,20 +471,13 @@ describe("the cohort probe asks exactly what the target CTEs ask", () => {
   it("is true only when one candidate is live on one gateway contract digest", async () => {
     assert.equal(await hasLiveHostedCohortTarget(answering("routable")), true);
     assert.equal(await hasLiveHostedCohortTarget(answering("no_live_candidate")), false);
-    assert.equal(
-      await hasLiveHostedCohortTarget(answering("no_bound_cell_for_live_candidate")),
-      false
-    );
-    assert.equal(
-      await hasLiveHostedCohortTarget(answering("bound_cells_disagree_on_contract")),
-      false
-    );
+    assert.equal(await hasLiveHostedCohortTarget(answering("no_imported_runtime_target")), false);
     // Two routable candidates is as unroutable as none: nothing selects between
     // them. `exomem_agent_contract_candidates_one_live_idx` makes the state
     // unreachable, and the decision refuses it anyway.
     assert.equal(
       await hasLiveHostedCohortTarget((async () => ({
-        rows: [{ live_candidates: 2, routable_targets: 2, disagreeing_candidates: 0 }],
+        rows: [{ live_candidates: 2, imported_targets: 2 }],
       })) as ExomemSql),
       false
     );
@@ -523,12 +498,10 @@ describe("the cohort probe asks exactly what the target CTEs ask", () => {
     for (const predicate of [
       /candidate\.profile_id = \?/,
       /candidate\.state = 'live'/,
-      /catalog_cell\.routing_state = 'bound'/,
-      /observed_command_fingerprint = candidate\.command_fingerprint/,
-      /observed_schema_digest = candidate\.schema_digest/,
-      // The routable count is the old `HAVING COUNT(DISTINCT …) = 1` moved into
-      // an aggregate, so the classification and the decision share one snapshot.
-      /COUNT\(\*\) FILTER \(WHERE contract_digests = 1\)::int AS routable_targets/,
+      /target\.candidate_id = candidate\.id/,
+      /target\.command_fingerprint = candidate\.command_fingerprint/,
+      /target\.schema_digest = candidate\.schema_digest/,
+      /COUNT\(\*\) FILTER \(WHERE imported\)::int AS imported_targets/,
     ]) {
       assert.match(statement, predicate);
     }
@@ -553,8 +526,7 @@ describe("the cohort probe asks exactly what the target CTEs ask", () => {
 
     assert.deepEqual(decisions, [
       ["no_live_candidate", false, "no_live_candidate"],
-      ["no_bound_cell_for_live_candidate", false, "no_bound_cell_for_live_candidate"],
-      ["bound_cells_disagree_on_contract", false, "bound_cells_disagree_on_contract"],
+      ["no_imported_runtime_target", false, "no_imported_runtime_target"],
       ["routable", true, undefined],
     ]);
   });
@@ -566,7 +538,7 @@ describe("the cohort probe asks exactly what the target CTEs ask", () => {
       if (!probe.live) proved.add(probe.reason);
     }
 
-    assert.deepEqual([...proved].sort(), [...HOSTED_COHORT_CLOSURE_REASONS].sort());
+    assert.deepEqual([...proved].sort(), ["no_imported_runtime_target", "no_live_candidate"]);
   });
 });
 

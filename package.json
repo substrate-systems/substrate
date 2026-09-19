@@ -25,6 +25,7 @@
     "openspec:list:specs": "openspec list --specs",
     "openspec:validate": "openspec validate --all --strict --no-interactive",
     "openspec:validate:ci": "pwsh -NoProfile -File scripts/openspec_validate.ps1",
+    "test:hosted-admission": "node scripts/test-hosted-admission.mjs",
     "test:e2e": "npm run build && playwright test",
     "test:e2e:only": "playwright test"
   },

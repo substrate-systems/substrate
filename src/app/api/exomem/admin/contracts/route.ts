@@ -12,6 +12,10 @@ import {
   storeRetainedExomemAgentContractCandidate,
 } from "@/lib/exomem-hosted/agent-contract-store";
 import {
+  importTrustedHostedRuntimeTarget,
+  listHostedRuntimeTargetStatus,
+} from "@/lib/exomem-hosted/runtime-target-store";
+import {
   reimportClientArtifactEvidence,
   storeClientArtifact,
 } from "@/lib/exomem-hosted/client-artifacts";
@@ -76,12 +80,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       liveCohortCandidateId,
       rolloutStatus,
       contractionReadiness,
+      runtimeTargets,
     ] = await Promise.all([
       listExomemAgentContractStatus(),
       listOperatorClientArtifacts(),
       getLiveExomemHostedCohortCandidateId(),
       listExomemHostedRolloutStatus(),
       getExomemHostedContractionReadiness(),
+      listHostedRuntimeTargetStatus(),
     ]);
     operatorSuccessEvent(requestId);
     return NextResponse.json({
@@ -91,6 +97,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       liveCohortCandidateId,
       rolloutStatus,
       contractionReadiness,
+      runtimeTargets,
       requestId,
     });
   } catch (error) {
@@ -426,6 +433,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           openaiEvidence: body.openaiEvidence,
         }),
       };
+    } else if (body.action === "import-runtime-target") {
+      const candidateId = uuid(body.candidateId);
+      if (!candidateId || Object.keys(body).length !== 2) throw exomemErrors.invalidRequest();
+      response = await importTrustedHostedRuntimeTarget({
+        candidateId,
+        operatorPrincipalDigest: operator.principalDigest,
+      });
     } else if (body.action === "activate-runtime") {
       const candidateId = uuid(body.candidateId);
       const expectedLiveCandidateId =

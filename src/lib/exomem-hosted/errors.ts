@@ -138,8 +138,12 @@ const ADMISSION_CLOSURE_REMEDIES: Readonly<
 > = {
   no_live_candidate: {
     summary: "no hosted cohort candidate is live, so a v2 provision has no exact contract to name",
-    procedure: "virgin-install-reviewer-oauth-bootstrap",
-    runbook: "docs/runbooks/exomem-hosted-alpha.md#virgin-install-reviewer-oauth-bootstrap",
+    procedure: "runtime-activation-for-the-first-private-owner",
+    runbook: "docs/runbooks/exomem-hosted-alpha.md#runtime-activation-for-the-first-private-owner",
+  },
+  no_imported_runtime_target: {
+    summary:
+      "a hosted cohort candidate is live, but its reviewed runtime target has not been imported",
   },
   no_bound_cell_for_live_candidate: {
     summary:
@@ -150,15 +154,9 @@ const ADMISSION_CLOSURE_REMEDIES: Readonly<
       "the bound cells serving the live hosted cohort candidate report more than one gateway contract digest",
   },
   live_cohort_lost: {
-    // Reachable only if the target moved between the pre-check and the
-    // settlement inside one transaction. `redeemInviteAtomic` takes the
-    // `exomem-hosted-alpha-cohort` advisory lock before the pre-check, so the
-    // candidate side cannot move under it; whether every `exomem_cells` writer
-    // takes the matching lock has not been audited. So observing this at all is
-    // a louder fact than the summary says: it may mean a rotation raced a
-    // redemption, or it may mean that advisory-lock invariant is broken. Either
-    // way there is no procedure to send anyone to, because nothing here
-    // establishes which.
+    // The shared transaction fence should make this unreachable. Keep a
+    // distinct diagnostic for a broken admission invariant without suggesting
+    // a recovery procedure based only on that symptom.
     summary:
       "a live hosted cohort target was present at the pre-check and gone before the redemption settled",
   },

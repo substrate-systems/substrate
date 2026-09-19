@@ -3,6 +3,10 @@ import { describe, it } from "node:test";
 import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
 
+function storeWithSql(sql: ExomemPaddleSql) {
+  return createSqlExomemPaddleEventStore((work) => work(sql));
+}
+
 const USER_ID = "018f2d91-7c42-7000-8000-000000000061";
 const TENANT_ID = "018f2d91-7c42-7000-8000-000000000062";
 
@@ -42,7 +46,7 @@ function application(
 }
 
 describe("SQL Exomem Paddle event store", () => {
-  it("uses one atomic statement for receipt, monotonic projection and applied marker", async () => {
+  it("takes the cohort fence before atomic receipt, projection and applied marker", async () => {
     let calls = 0;
     let sqlText = "";
     let values: unknown[] = [];
@@ -52,12 +56,12 @@ describe("SQL Exomem Paddle event store", () => {
       values = nextValues;
       return { rows: [{ outcome: "applied" }] };
     };
-    const store = createSqlExomemPaddleEventStore(sql);
+    const store = storeWithSql(sql);
 
     const result = await store.applyVerifiedEventAndMarkProcessedAtomically(application());
 
     assert.deepEqual(result, { outcome: "applied" });
-    assert.equal(calls, 1, "the adapter must expose no split begin/apply window");
+    assert.equal(calls, 2, "fence and fresh-snapshot apply share one transaction");
     assert.match(sqlText, /WITH authoritative_target AS/i);
     assert.match(sqlText, /provider_transaction_ref/i);
     assert.match(sqlText, /provider_environment/i);
@@ -85,7 +89,7 @@ describe("SQL Exomem Paddle event store", () => {
 
   it("releases the reserved initial provision inside the activation statement", async () => {
     let sqlText = "";
-    const store = createSqlExomemPaddleEventStore(async (strings) => {
+    const store = storeWithSql(async (strings) => {
       sqlText = strings.join("?");
       return { rows: [{ outcome: "applied" }] };
     });
@@ -113,7 +117,7 @@ describe("SQL Exomem Paddle event store", () => {
 
   it("preserves every store outcome without inventing a successful apply", async () => {
     for (const outcome of ["duplicate", "stale", "ignored"] as const) {
-      const store = createSqlExomemPaddleEventStore(async () => ({
+      const store = storeWithSql(async () => ({
         rows: [{ outcome }],
       }));
       assert.deepEqual(await store.applyVerifiedEventAndMarkProcessedAtomically(application()), {
@@ -123,7 +127,7 @@ describe("SQL Exomem Paddle event store", () => {
   });
 
   it("fails retryably when the atomic statement commits no disposition", async () => {
-    const store = createSqlExomemPaddleEventStore(async () => ({ rows: [] }));
+    const store = storeWithSql(async () => ({ rows: [] }));
     await assert.rejects(
       store.applyVerifiedEventAndMarkProcessedAtomically(application()),
       /EXOMEM_PADDLE_ATOMIC_APPLY_FAILED/

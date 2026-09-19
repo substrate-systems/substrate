@@ -25,6 +25,7 @@ import {
 import { revokeConflictingCandidateOAuthLineageInTransaction } from "./agent-contract-canaries";
 import { routableSetDigest, type RoutableCellIdentity } from "./routable-authority";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
+import { getImportedHostedRuntimeTarget } from "./runtime-target-store";
 import {
   PromotionRuntimePreconditionError,
   preparePromotionRuntimeHealth,
@@ -1099,13 +1100,28 @@ export async function activateExomemHostedRuntime(input: {
     LIMIT 1
   `;
   const alreadyActive = candidateRows[0]?.state === "live";
+  const { rows: importedTargetRows } = await executeExomemSql`
+    SELECT 1 FROM exomem_runtime_targets
+    WHERE candidate_id = ${input.candidateId}::uuid
+  `;
+  const hasImportedTarget = importedTargetRows.length === 1;
+  const { rows: routableTargetRows } = await executeExomemSql`
+    SELECT EXISTS (
+      SELECT 1 FROM exomem_routable_cell_contracts
+      WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
+    ) AS has_routable_target
+  `;
+  const hasRoutableTarget = routableTargetRows[0]?.has_routable_target === true;
   const health = alreadyActive
     ? null
-    : await preparePromotionRuntimeHealth({
-        candidateId: input.candidateId,
-        expectedRoutableCellDigest: expected,
-      });
-  if (!alreadyActive && !health) return "precondition_failed";
+    : !hasImportedTarget || hasRoutableTarget
+      ? await preparePromotionRuntimeHealth({
+          candidateId: input.candidateId,
+          expectedRoutableCellDigest: expected,
+        })
+      : null;
+  if (!alreadyActive && !health && (!hasImportedTarget || hasRoutableTarget))
+    return "precondition_failed";
 
   try {
     return await withExomemTransaction(async (transaction) => {
@@ -1125,12 +1141,42 @@ export async function activateExomemHostedRuntime(input: {
         WHERE profile_id = ${EXOMEM_HOSTED_PROFILE} AND routable = true
         ORDER BY cell_id FOR UPDATE
       `;
+      const importedTarget = await getImportedHostedRuntimeTarget(input.candidateId, transaction);
+      const emptyFleet = routableRows.length === 0;
+      const { rows: lockedCandidateRows } = await transaction`
+        SELECT state FROM exomem_agent_contract_candidates
+        WHERE id = ${input.candidateId}::uuid
+          AND profile_id = ${EXOMEM_HOSTED_PROFILE}
+        FOR UPDATE
+      `;
       if (
-        routableRows.length === 0 ||
+        importedTarget &&
+        lockedCandidateRows[0]?.state === "live" &&
+        input.expectedLiveCandidateId === input.candidateId
+      )
+        return "already_active";
+      if (
         routableSetDigest(EXOMEM_HOSTED_PROFILE, routableRows as RoutableCellIdentity[]) !==
-          expected
+        expected
       )
         return failed();
+      if (emptyFleet) {
+        if (!importedTarget) return failed();
+        const { rows: servingCells } = await transaction`
+          SELECT id FROM exomem_cells
+          WHERE routing_state = 'bound'
+          FOR UPDATE
+        `;
+        const { rows: liveOperations } = await transaction`
+          SELECT id FROM exomem_lifecycle_operations
+          WHERE operation_type IN ('provision', 'restore', 'rollforward')
+            AND state NOT IN ('succeeded', 'failed_terminal')
+          FOR UPDATE
+        `;
+        if (servingCells.length > 0 || liveOperations.length > 0) return failed();
+      } else if (!health && !alreadyActive) {
+        return failed();
+      }
       if (
         health &&
         !(await recordPromotionRuntimeAuthorityInTransaction({
@@ -1156,20 +1202,39 @@ export async function activateExomemHostedRuntime(input: {
       const { rows: candidate } = await transaction`
         SELECT candidate.id::text AS id, candidate.state
         FROM exomem_agent_contract_candidates AS candidate
-        JOIN exomem_agent_contract_profile_authority AS authority
+        LEFT JOIN exomem_agent_contract_profile_authority AS authority
           ON authority.profile_id = candidate.profile_id
         WHERE candidate.id = ${input.candidateId}::uuid
           AND candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
           AND candidate.state IN ('pending', 'live')
-          AND authority.routable_set_digest = ${expected}
-          AND authority.routable_cell_count > 0
-          AND authority.observed_at > now() - interval '5 minutes'
-          AND authority.source_release = candidate.source_release
-          AND authority.protocol_version = candidate.protocol_version
-          AND authority.command_fingerprint = candidate.command_fingerprint
-          AND authority.contract_digest = candidate.schema_digest
-          AND authority.compatibility_digest = candidate.compatibility_digest
-          AND NOT EXISTS (
+          AND (
+            (
+              ${emptyFleet}
+              AND ${importedTarget?.release_version ?? null} = candidate.source_release
+              AND ${importedTarget?.protocol_version ?? null} = candidate.protocol_version
+              AND ${importedTarget?.agent_profile ?? null} = candidate.profile_id
+              AND ${importedTarget?.command_fingerprint ?? null} = candidate.command_fingerprint
+              AND ${importedTarget?.schema_digest ?? null} = candidate.schema_digest
+              AND ${importedTarget?.compatibility_digest ?? null} = candidate.compatibility_digest
+            )
+            OR (
+              NOT ${emptyFleet}
+              AND authority.routable_set_digest = ${expected}
+              AND authority.routable_cell_count > 0
+              AND authority.observed_at > now() - interval '5 minutes'
+            )
+          )
+          AND (
+            ${emptyFleet}
+            OR (
+              authority.source_release = candidate.source_release
+              AND authority.protocol_version = candidate.protocol_version
+              AND authority.command_fingerprint = candidate.command_fingerprint
+              AND authority.contract_digest = candidate.schema_digest
+              AND authority.compatibility_digest = candidate.compatibility_digest
+            )
+          )
+          AND (${emptyFleet} OR NOT EXISTS (
             SELECT 1 FROM exomem_routable_cell_contracts AS route
             WHERE route.profile_id = candidate.profile_id AND route.routable
               AND (route.source_release <> candidate.source_release
@@ -1177,7 +1242,7 @@ export async function activateExomemHostedRuntime(input: {
                 OR route.command_fingerprint <> candidate.command_fingerprint
                 OR route.contract_digest <> candidate.schema_digest
                 OR route.compatibility_digest <> candidate.compatibility_digest)
-          )
+          ))
         FOR UPDATE OF candidate
       `;
       if (candidate.length !== 1) return failed();

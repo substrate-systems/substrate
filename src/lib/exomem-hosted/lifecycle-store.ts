@@ -268,6 +268,29 @@ export class SqlLifecycleStore implements LifecycleStore {
     cellId: string | null = null,
     options: LifecycleEnqueueOptions = {}
   ): Promise<LifecycleOperation> {
+    return withExomemTransaction(async (tx) => {
+      // Take the fence in its own statement so the target is read from a fresh
+      // READ COMMITTED snapshot after a competing activation commits.
+      await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+      return this.#enqueueInTransaction(
+        tx,
+        tenantId,
+        operationType,
+        idempotencyKey,
+        cellId,
+        options
+      );
+    });
+  }
+
+  async #enqueueInTransaction(
+    tx: ExomemSql,
+    tenantId: string,
+    operationType: LifecycleOperationType,
+    idempotencyKey: string,
+    cellId: string | null = null,
+    options: LifecycleEnqueueOptions = {}
+  ): Promise<LifecycleOperation> {
     // Renewal, like rollforward, exists only on v2: v1 is the frozen rollback
     // corpus and never gains an action. Taking the wire from the environment
     // would raise a row the schema refuses.
@@ -294,13 +317,11 @@ export class SqlLifecycleStore implements LifecycleStore {
     if (operationType === "restore") {
       const exportId = options.restoreBinding?.exportId;
       if (!exportId) throw exomemErrors.invalidRequest();
-      const { rows } = await executeExomemSql`
+      const { rows } = await tx`
         /* exomem:lifecycle-enqueue-restore */
-        WITH cohort_lock AS MATERIALIZED (
-          SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-        ), tenant AS (
+        WITH tenant AS (
           SELECT tenant.*
-          FROM exomem_tenants AS tenant CROSS JOIN cohort_lock
+          FROM exomem_tenants AS tenant
           WHERE tenant.id = ${tenantId}
             AND tenant.status <> 'deleted'
             AND tenant.desired_state <> 'deleted'
@@ -336,57 +357,21 @@ export class SqlLifecycleStore implements LifecycleStore {
           SELECT candidate.id AS candidate_id, NULL::uuid AS assignment_id,
                  NULL::bigint AS assignment_generation, candidate.source_release,
                  candidate.protocol_version,
-                 CASE candidate.source_release || ':' || candidate.protocol_version
-                   WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
-                     THEN ${exomemContractFixture0340.digest}
-                   WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
-                     THEN ${exomemContractFixture0350.digest}
-                   WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
-                     THEN ${exomemContractFixture0392.digest}
-                   WHEN ${exomemContractFixture0490.release + ":" + exomemContractFixture0490.protocol}
-                     THEN ${exomemContractFixture0490.digest}
-                   WHEN ${exomemContractFixture0500.release + ":" + exomemContractFixture0500.protocol}
-                     THEN ${exomemContractFixture0500.digest}
-                   WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
-                     THEN ${exomemContractFixture0541.digest}
-                   WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
-                     THEN ${exomemContractFixture0572.digest}
-                   WHEN ${exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol}
-                     THEN ${exomemContractFixture0631.digest}
-                   WHEN ${exomemContractFixture0660.release + ":" + exomemContractFixture0660.protocol}
-                     THEN ${exomemContractFixture0660.digest}
-                   WHEN ${exomemContractFixture0680.release + ":" + exomemContractFixture0680.protocol}
-                     THEN ${exomemContractFixture0680.digest}
-                   WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol}
-                     THEN ${exomemContractFixture0681.digest}
-                   WHEN ${exomemContractFixture0683.release + ":" + exomemContractFixture0683.protocol}
-                     THEN ${exomemContractFixture0683.digest}
-                   WHEN ${exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol}
-                     THEN ${exomemContractFixture0721.digest}
-                   WHEN ${exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol}
-                     THEN ${exomemContractFixture0731.digest}
-                   WHEN ${exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol}
-                     THEN ${exomemContractFixture0740.digest}
-                   WHEN ${exomemContractFixture0770.release + ":" + exomemContractFixture0770.protocol}
-                     THEN ${exomemContractFixture0770.digest}
-                   ELSE NULL
-                 END AS gateway_contract_digest,
+                 runtime_target.gateway_contract_digest,
                  candidate.command_fingerprint, candidate.schema_digest,
                  candidate.compatibility_digest
           FROM exomem_agent_contract_candidates AS candidate
-          JOIN exomem_cells AS catalog_cell
-            ON catalog_cell.routing_state = 'bound'
-           AND catalog_cell.release_version = candidate.source_release
-           AND catalog_cell.protocol_version = candidate.protocol_version
-           AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
-           AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
-           AND catalog_cell.observed_schema_digest = candidate.schema_digest
+          JOIN exomem_runtime_targets AS runtime_target
+          ON runtime_target.candidate_id = candidate.id
+         AND runtime_target.release_version = candidate.source_release
+         AND runtime_target.protocol_version = candidate.protocol_version
+         AND runtime_target.agent_profile = candidate.profile_id
+         AND runtime_target.command_fingerprint = candidate.command_fingerprint
+         AND runtime_target.schema_digest = candidate.schema_digest
+         AND runtime_target.compatibility_digest = candidate.compatibility_digest
           WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
             AND candidate.state = 'live'
             AND NOT EXISTS (SELECT 1 FROM assignment_target)
-          GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
-                   candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
-          HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
         ), target AS MATERIALIZED (
           SELECT * FROM assignment_target
           UNION ALL
@@ -440,13 +425,11 @@ export class SqlLifecycleStore implements LifecycleStore {
       if (!row) throw exomemErrors.idempotencyConflict();
       return operationFromRow(row);
     }
-    const { rows } = await executeExomemSql`
+    const { rows } = await tx`
       /* exomem:lifecycle-enqueue */
-      WITH cohort_lock AS MATERIALIZED (
-        SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))
-      ), tenant AS (
+      WITH tenant AS (
         SELECT tenant.*
-        FROM exomem_tenants AS tenant CROSS JOIN cohort_lock
+        FROM exomem_tenants AS tenant
         WHERE tenant.id = ${tenantId}
           AND tenant.status <> 'deleted'
         FOR UPDATE OF tenant
@@ -484,58 +467,22 @@ export class SqlLifecycleStore implements LifecycleStore {
                NULL::bigint AS assignment_generation,
                candidate.source_release,
                candidate.protocol_version,
-               CASE candidate.source_release || ':' || candidate.protocol_version
-                 WHEN ${exomemContractFixture0340.release + ":" + exomemContractFixture0340.protocol}
-                   THEN ${exomemContractFixture0340.digest}
-                 WHEN ${exomemContractFixture0350.release + ":" + exomemContractFixture0350.protocol}
-                   THEN ${exomemContractFixture0350.digest}
-                 WHEN ${exomemContractFixture0392.release + ":" + exomemContractFixture0392.protocol}
-                   THEN ${exomemContractFixture0392.digest}
-                 WHEN ${exomemContractFixture0490.release + ":" + exomemContractFixture0490.protocol}
-                   THEN ${exomemContractFixture0490.digest}
-                 WHEN ${exomemContractFixture0500.release + ":" + exomemContractFixture0500.protocol}
-                   THEN ${exomemContractFixture0500.digest}
-                 WHEN ${exomemContractFixture0541.release + ":" + exomemContractFixture0541.protocol}
-                   THEN ${exomemContractFixture0541.digest}
-                 WHEN ${exomemContractFixture0572.release + ":" + exomemContractFixture0572.protocol}
-                   THEN ${exomemContractFixture0572.digest}
-                 WHEN ${exomemContractFixture0631.release + ":" + exomemContractFixture0631.protocol}
-                   THEN ${exomemContractFixture0631.digest}
-                 WHEN ${exomemContractFixture0660.release + ":" + exomemContractFixture0660.protocol}
-                   THEN ${exomemContractFixture0660.digest}
-                 WHEN ${exomemContractFixture0680.release + ":" + exomemContractFixture0680.protocol}
-                   THEN ${exomemContractFixture0680.digest}
-                 WHEN ${exomemContractFixture0681.release + ":" + exomemContractFixture0681.protocol}
-                   THEN ${exomemContractFixture0681.digest}
-                 WHEN ${exomemContractFixture0683.release + ":" + exomemContractFixture0683.protocol}
-                   THEN ${exomemContractFixture0683.digest}
-                 WHEN ${exomemContractFixture0721.release + ":" + exomemContractFixture0721.protocol}
-                   THEN ${exomemContractFixture0721.digest}
-                 WHEN ${exomemContractFixture0731.release + ":" + exomemContractFixture0731.protocol}
-                   THEN ${exomemContractFixture0731.digest}
-                 WHEN ${exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol}
-                   THEN ${exomemContractFixture0740.digest}
-                 WHEN ${exomemContractFixture0770.release + ":" + exomemContractFixture0770.protocol}
-                   THEN ${exomemContractFixture0770.digest}
-                 ELSE NULL
-               END AS gateway_contract_digest,
+               runtime_target.gateway_contract_digest,
                candidate.command_fingerprint,
                candidate.schema_digest,
                candidate.compatibility_digest
         FROM exomem_agent_contract_candidates AS candidate
-        JOIN exomem_cells AS catalog_cell
-          ON catalog_cell.routing_state = 'bound'
-         AND catalog_cell.release_version = candidate.source_release
-         AND catalog_cell.protocol_version = candidate.protocol_version
-         AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
-         AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
-         AND catalog_cell.observed_schema_digest = candidate.schema_digest
+        JOIN exomem_runtime_targets AS runtime_target
+          ON runtime_target.candidate_id = candidate.id
+         AND runtime_target.release_version = candidate.source_release
+         AND runtime_target.protocol_version = candidate.protocol_version
+         AND runtime_target.agent_profile = candidate.profile_id
+         AND runtime_target.command_fingerprint = candidate.command_fingerprint
+         AND runtime_target.schema_digest = candidate.schema_digest
+         AND runtime_target.compatibility_digest = candidate.compatibility_digest
         WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
           AND candidate.state = 'live'
           AND NOT EXISTS (SELECT 1 FROM assignment_target)
-        GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
-                 candidate.command_fingerprint, candidate.schema_digest, candidate.compatibility_digest
-        HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
       ), bound_assignment_target AS MATERIALIZED (
         SELECT assignment.candidate_id,
                assignment.id AS assignment_id,

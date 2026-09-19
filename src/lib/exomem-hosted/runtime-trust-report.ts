@@ -605,8 +605,9 @@ export function assertRuntimeTrustSitePin(
       const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
       const key = `${gateway.localName}.release+":"+${gateway.localName}.protocol`;
       const branch = `WHEN\${${key}}THEN\${${gateway.localName}.digest}`;
+      const importedEnqueue = classMethod(sourceFile, "SqlLifecycleStore", "#enqueueInTransaction");
       const requiredMethods: Array<[string, number]> = [
-        ["enqueue", 2],
+        ...(!importedEnqueue ? [["enqueue", 2] as [string, number]] : []),
         ["#snapshotLegacyTarget", 1],
         ["#deriveLegacyTarget", 1],
       ];
@@ -625,6 +626,36 @@ export function assertRuntimeTrustSitePin(
           ).length === expectedBranches
         );
       });
+      if (pinned && importedEnqueue) {
+        const joins = [
+          "JOINexomem_runtime_targetsASruntime_target",
+          "runtime_target.candidate_id=candidate.id",
+          ...[
+            "release_version:source_release",
+            "protocol_version:protocol_version",
+            "agent_profile:profile_id",
+            "command_fingerprint:command_fingerprint",
+            "schema_digest:schema_digest",
+            "compatibility_digest:compatibility_digest",
+          ].map((pair) => {
+            const [stored, candidate] = pair.split(":");
+            return `runtime_target.${stored}=candidate.${candidate}`;
+          }),
+          "runtime_target.gateway_contract_digest",
+        ];
+        const enqueue = classMethod(sourceFile, "SqlLifecycleStore", "enqueue");
+        const enqueueText = enqueue ? compact(enqueue.getText(sourceFile)) : "";
+        pinned =
+          descendants(importedEnqueue, ts.isTaggedTemplateExpression).filter((template) => {
+            const text = compact(template.getText(sourceFile));
+            return joins.every((join) => text.includes(join)) && !text.includes("AScatalog_cell");
+          }).length === 2 &&
+          enqueueText.includes("withExomemTransaction(async(tx)=>") &&
+          enqueueText.includes(
+            "awaittx`SELECTpg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`"
+          ) &&
+          enqueueText.includes("this.#enqueueInTransaction(tx,");
+      }
     } else if (label === "reviewer-operator") {
       const gateway = importedBinding(parsed, gatewayModule, gatewayExport);
       const production = topLevelFunction(sourceFile, "createReviewerOAuthBootstrapAuthority");
@@ -763,6 +794,24 @@ export async function buildHostedRuntimeTrustReport(input: {
         assertRuntimeTrustImport(source, site.name, trustedImport);
       }
       assertRuntimeTrustSitePin(source, site.name, target);
+      if (site.name === "lifecycle-store" && source.includes("#enqueueInTransaction")) {
+        const manifest = record(
+          JSON.parse(
+            committedBytes(
+              root,
+              input.consumerCommit,
+              `src/lib/exomem-hosted/runtime-target-${versionSlug}.json`
+            ).toString("utf8")
+          ),
+          "runtime target manifest"
+        );
+        if (
+          JSON.stringify(canonicalValue(exactTarget(manifest.target))) !==
+          JSON.stringify(canonicalValue(target))
+        ) {
+          throw new Error("imported runtime manifest differs from the exact runtime target");
+        }
+      }
     })
   );
   return {

@@ -34,7 +34,7 @@ function capture(error: unknown): Record<string, unknown> {
 afterEach(() => setOperationalEventSinkForTests(null));
 
 describe("the denial log names the closure and its remedy", () => {
-  it("carries the code, the reason, the site and the bootstrap procedure", () => {
+  it("carries the code, the reason, the site and the activation procedure", () => {
     const event = capture(
       exomemErrors.admissionClosed({
         reason: "no_live_candidate",
@@ -45,7 +45,7 @@ describe("the denial log names the closure and its remedy", () => {
     assert.equal(event.errorCode, "HOSTED_ADMISSION_CLOSED");
     assert.equal(event.closureReason, "no_live_candidate");
     assert.equal(event.closureSite, "invite_redemption_precheck");
-    assert.equal(event.closureProcedure, "virgin-install-reviewer-oauth-bootstrap");
+    assert.equal(event.closureProcedure, "runtime-activation-for-the-first-private-owner");
   });
 
   it("does not send an operator to the bootstrap for a cohort that was live", () => {

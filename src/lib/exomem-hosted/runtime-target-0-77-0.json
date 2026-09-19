@@ -1,0 +1,40 @@
+{
+  "artifact": "exomem-hosted-runtime-target-verification",
+  "fixtureSha256s": {
+    "agent": "9d07c82ce5bf336c9a2a48903b5831b7727f8b0a5eefc4981b9e01d038a4b76f",
+    "gateway": "67864e5a41f15906b78ed8f9a6cf85a494565cb07c81a36dc5519c818f2e9c47"
+  },
+  "provenance": {
+    "event": "push",
+    "oidcSourceCommit": "9e7040a3a518627327a1d1287028667cb22bb5b3",
+    "oidcSourceRef": "refs/heads/main",
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "producerRepository": "Artexis10/exomem",
+    "repository": "Artexis10/exomem",
+    "runAttempt": "1",
+    "runId": "34394672858",
+    "signerWorkflow": "Artexis10/exomem/.github/workflows/release-please.yml",
+    "signerWorkflowDigest": "9e7040a3a518627327a1d1287028667cb22bb5b3"
+  },
+  "schemaVersion": 1,
+  "target": {
+    "agentProfile": "hosted-alpha-agent-v4",
+    "commandFingerprint": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+    "compatibilityDigest": "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
+    "gatewayContractDigest": "fa554d6c379d0c98aa8bf9cb31525d1b5be6ff19647afedba35f3e2058b85be1",
+    "protocolVersion": "1",
+    "releaseVersion": "0.77.0",
+    "runtimeCandidateSha256": "fa38854367f564ae33292b5b2f27f0c6ba9aef6a179bccfb98876e3a6be89326",
+    "runtimeImage": "ghcr.io/artexis10/exomem@sha256:73ab2439e653d490b800eb810c370e297da0efcad176557756b46b89b5c82172",
+    "schemaDigest": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+    "sourceCommit": "9e7040a3a518627327a1d1287028667cb22bb5b3"
+  },
+  "verification": {
+    "candidateBundleSha256": "574573f60cd260488886537c92577ec930dff8639ef7c398c2e507222747b571",
+    "consumerCommit": "7e78d89a37f1ee3e817b9357ea50184a58dc6df4",
+    "consumerReportSha256": "e83ba978bc02dd77227477216707a09a0963202dbb1b45e3950a5d1b8fac3500",
+    "imageBundleSha256": "784529f1fac26fa1a76829960be4e8ff58bd60a1e846e743d3b875a8ce192655",
+    "verifierCommit": "a403fe02ffe0410194e3408ef7d5193c95b0085c",
+    "verifierSha256": "01d1a51edc2719d47bbf5838e53063c2fd574fe0dddc40f4edb7bbb864b91bb3"
+  }
+}

@@ -3,7 +3,7 @@ import type {
   ExomemPaddleEventApplication,
   ExomemPaddleStoreResult,
 } from "./paddle-webhook";
-import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { withExomemTransaction, type ExomemTransactionRunner } from "./db";
 import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
@@ -32,10 +32,10 @@ const OUTCOMES = new Set<ExomemPaddleStoreResult["outcome"]>([
  * The single data-modifying CTE is itself one transaction: receipt claiming,
  * authoritative owner/tenant correlation, monotonic source projection and the
  * terminal applied marker either commit together or all roll back. Production
- * wiring passes the foundation module's `executeExomemSql` into this factory.
+ * wiring takes the cohort fence before reading provisioning authority.
  */
 export function createSqlExomemPaddleEventStore(
-  sql: ExomemPaddleSql
+  transaction: ExomemTransactionRunner = withExomemTransaction
 ): AtomicExomemPaddleEventStore {
   return {
     async applyVerifiedEventAndMarkProcessedAtomically(
@@ -52,7 +52,9 @@ export function createSqlExomemPaddleEventStore(
         application.eventType === "subscription.created" ||
         application.eventType === "subscription.activated";
 
-      const { rows } = await sql`
+      return transaction(async (sql) => {
+        await sql`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
+        const { rows } = await sql`
         /* exomem:paddle-event-atomic-apply */
         WITH authoritative_target AS (
           SELECT tenant.id AS tenant_id,
@@ -152,24 +154,21 @@ export function createSqlExomemPaddleEventStore(
                  NULL::bigint AS assignment_generation,
                  candidate.source_release,
                  candidate.protocol_version,
-                 MIN(catalog_cell.observed_gateway_contract_digest) AS gateway_contract_digest,
+                 runtime_target.gateway_contract_digest,
                  candidate.command_fingerprint,
                  candidate.schema_digest,
                  candidate.compatibility_digest
           FROM exomem_agent_contract_candidates AS candidate
-          JOIN exomem_cells AS catalog_cell
-            ON catalog_cell.routing_state = 'bound'
-           AND catalog_cell.release_version = candidate.source_release
-           AND catalog_cell.protocol_version = candidate.protocol_version
-           AND catalog_cell.observed_gateway_contract_digest IS NOT NULL
-           AND catalog_cell.observed_command_fingerprint = candidate.command_fingerprint
-           AND catalog_cell.observed_schema_digest = candidate.schema_digest
+          JOIN exomem_runtime_targets AS runtime_target
+            ON runtime_target.candidate_id = candidate.id
+           AND runtime_target.release_version = candidate.source_release
+           AND runtime_target.protocol_version = candidate.protocol_version
+           AND runtime_target.agent_profile = candidate.profile_id
+           AND runtime_target.command_fingerprint = candidate.command_fingerprint
+           AND runtime_target.schema_digest = candidate.schema_digest
+           AND runtime_target.compatibility_digest = candidate.compatibility_digest
           WHERE candidate.profile_id = ${EXOMEM_HOSTED_PROFILE}
             AND candidate.state = 'live'
-          GROUP BY candidate.id, candidate.source_release, candidate.protocol_version,
-                   candidate.command_fingerprint, candidate.schema_digest,
-                   candidate.compatibility_digest
-          HAVING COUNT(DISTINCT catalog_cell.observed_gateway_contract_digest) = 1
         ),
         provision_target AS MATERIALIZED (
           SELECT candidate_id, assignment_id, assignment_generation, source_release,
@@ -344,15 +343,16 @@ export function createSqlExomemPaddleEventStore(
         CROSS JOIN completion
       `;
 
-      const outcome = rows[0]?.outcome;
-      if (typeof outcome !== "string" || !OUTCOMES.has(outcome as never)) {
-        // Stable and identifier-free. A thrown statement/shape error leaves a
-        // new receipt uncommitted, so the same Paddle delivery remains retryable.
-        throw new Error("EXOMEM_PADDLE_ATOMIC_APPLY_FAILED");
-      }
-      return {
-        outcome: outcome as ExomemPaddleStoreResult["outcome"],
-      };
+        const outcome = rows[0]?.outcome;
+        if (typeof outcome !== "string" || !OUTCOMES.has(outcome as never)) {
+          // Stable and identifier-free. A thrown statement/shape error leaves a
+          // new receipt uncommitted, so the same Paddle delivery remains retryable.
+          throw new Error("EXOMEM_PADDLE_ATOMIC_APPLY_FAILED");
+        }
+        return {
+          outcome: outcome as ExomemPaddleStoreResult["outcome"],
+        };
+      });
     },
   };
 }
@@ -362,15 +362,6 @@ let defaultStore: AtomicExomemPaddleEventStore | null = null;
 /** Lazy production wiring; importing webhook dispatch never opens a DB client. */
 export function getDefaultSqlExomemPaddleEventStore(): AtomicExomemPaddleEventStore {
   if (defaultStore) return defaultStore;
-  let client: NeonQueryFunction<false, true> | null = null;
-  const execute: ExomemPaddleSql = (strings, ...values) => {
-    if (!client) {
-      const databaseUrl = process.env.DATABASE_URL;
-      if (!databaseUrl) throw new Error("EXOMEM_PADDLE_STORE_UNAVAILABLE");
-      client = neon(databaseUrl, { fullResults: true });
-    }
-    return client(strings, ...values) as Promise<ExomemPaddleSqlResult>;
-  };
-  defaultStore = createSqlExomemPaddleEventStore(execute);
+  defaultStore = createSqlExomemPaddleEventStore();
   return defaultStore;
 }

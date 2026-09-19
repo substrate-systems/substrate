@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import {
   __setExomemSqlForTests,
+  executeExomemSql,
   __setExomemTransactionForTests,
   consumeDeletionConfirmationAtomic,
   type ExomemSql,
 } from "../db";
 import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifecycle-store";
 import { exomemContractFixture0490 } from "../gateway-contract-0-49-0";
-import { exomemContractFixture0500 } from "../gateway-contract-0-50-0";
 import { normalizeProvisionerWireProtocol } from "../provisioner-wire-protocol";
+
+beforeEach(() => {
+  __setExomemTransactionForTests((work) => work(executeExomemSql));
+});
 
 afterEach(() => {
   __setExomemSqlForTests(null);
@@ -407,7 +411,7 @@ describe("SQL lifecycle operation store", () => {
     let statement = "";
     const values: unknown[] = [];
     __setExomemSqlForTests(async (strings, ...parameters) => {
-      statement = strings.join("?");
+      statement += strings.join("?");
       values.push(...parameters);
       return { rows: [] };
     });
@@ -437,23 +441,13 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /input_export_id/);
     assert.match(statement, /source_export\.storage_reference_ciphertext/);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
-    assert.equal(
-      values.includes(`${exomemContractFixture0490.release}:${exomemContractFixture0490.protocol}`),
-      true
-    );
-    assert.equal(values.includes(exomemContractFixture0490.digest), true);
-    assert.equal(
-      values.includes(`${exomemContractFixture0500.release}:${exomemContractFixture0500.protocol}`),
-      true
-    );
-    assert.equal(values.includes(exomemContractFixture0500.digest), true);
   });
 
-  it("snapshots the exact 0.50.0 server-selected target when provision is enqueued", async () => {
+  it("snapshots the imported server-selected target when provision is enqueued", async () => {
     let statement = "";
     const values: unknown[] = [];
     __setExomemSqlForTests(async (strings, ...parameters) => {
-      statement = strings.join("?");
+      statement += strings.join("?");
       values.push(...parameters);
       return { rows: [], rowCount: 0 };
     });
@@ -475,12 +469,8 @@ describe("SQL lifecycle operation store", () => {
     assert.match(statement, /target_compatibility_digest/i);
     assert.match(statement, /state = 'preparing'/i);
     assert.match(statement, /state = 'live'/i);
+    assert.match(statement, /JOIN exomem_runtime_targets/);
     assert.match(statement, /pg_advisory_xact_lock\(hashtext\('exomem-hosted-alpha-cohort'\)\)/i);
-    assert.equal(
-      values.includes(`${exomemContractFixture0500.release}:${exomemContractFixture0500.protocol}`),
-      true
-    );
-    assert.equal(values.includes(exomemContractFixture0500.digest), true);
   });
 
   it("recovers a legacy v1 provision against the exact 0.49.0 target", async () => {
@@ -710,7 +700,9 @@ describe("SQL lifecycle operation store", () => {
       tokenDigest: Buffer.alloc(32, 0x41),
     });
 
-    for (const statement of statements) {
+    const targetStatements = statements.filter((text) => text.includes("strict_v1_reviewer_target"));
+    assert.equal(targetStatements.length, 2);
+    for (const statement of targetStatements) {
       const strictV1Target = statement.match(
         /strict_v1_reviewer_target AS MATERIALIZED \([\s\S]*?\),\s*origin_target_identities/i
       )?.[0];

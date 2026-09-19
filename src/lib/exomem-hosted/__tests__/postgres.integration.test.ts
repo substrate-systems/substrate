@@ -1,3 +1,5 @@
+import { importTrustedHostedRuntimeTarget } from "../runtime-target-store";
+import { exomemHostedContractFixture as currentFixture } from "../agent-contract-fixture";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -31,7 +33,7 @@ import { hasLiveHostedCohortTarget, probeHostedCohortTarget } from "../hosted-co
 import { getExomemHostedContractionReadiness, SqlLifecycleStore } from "../lifecycle-store";
 import { getOwnerExport, listOwnerExports } from "../durability";
 import { SqlExportGcStore } from "../export-gc";
-import { createSqlExomemPaddleEventStore, type ExomemPaddleSql } from "../paddle-event-store";
+import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
 import {
   claimPaddleReconciliationTargets,
@@ -144,6 +146,33 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     } finally {
       client.release();
     }
+  }
+
+  // These pre-existing tests start after activation. First-install authority is
+  // exercised without seeded live state in runtime-target-admission.integration.
+  async function seedImportedLiveTarget(candidateId = randomUUID()): Promise<void> {
+    const contract = currentFixture.compatibility;
+    await pool.query(
+      `INSERT INTO exomem_agent_contract_candidates (
+      id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
+      compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock, promoted_at
+    ) VALUES ($1, 'live', $2, 'https://agent.example.test', $3, $4, $5, $6, '1', $7, $8, $9, now())`,
+      [
+        candidateId,
+        contract.profile,
+        currentFixture.sourceRelease,
+        contract.command_surface_sha256,
+        contract.schema_contract_sha256,
+        contract.compatibility_sha256,
+        JSON.stringify(contract),
+        JSON.stringify(currentFixture.packageLock),
+        JSON.stringify(currentFixture.archiveLock),
+      ]
+    );
+    await importTrustedHostedRuntimeTarget({
+      candidateId,
+      operatorPrincipalDigest: Buffer.alloc(32, 91),
+    });
   }
 
   // Own schema, own migrations, like every other suite in this CI step. This one used
@@ -793,7 +822,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     assert.equal(thrown.operatorDetail?.closureSite, "invite_redemption_precheck");
     assert.equal(
       thrown.operatorDetail?.closureProcedure,
-      "virgin-install-reviewer-oauth-bootstrap"
+      "runtime-activation-for-the-first-private-owner"
     );
 
     // The whole point of refusing in the open: the person can open the same
@@ -840,7 +869,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
    * run verbatim as the oracle. A fake cannot answer this: both statements have
    * to meet the same rows.
    */
-  it("classifies each closed-cohort state without moving the admission decision", async () => {
+  it("refuses legacy live candidates without an import even when bound cells exist", async () => {
     const fingerprint = "a".repeat(64);
     const schemaDigest = "b".repeat(64);
     const compatibilityDigest = "c".repeat(64);
@@ -920,9 +949,9 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
 
     assert.deepEqual(observed, [
       { decision: false, oracle: false, reason: "no_live_candidate" },
-      { decision: false, oracle: false, reason: "no_bound_cell_for_live_candidate" },
-      { decision: true, oracle: true, reason: null },
-      { decision: false, oracle: false, reason: "bound_cells_disagree_on_contract" },
+      { decision: false, oracle: false, reason: "no_imported_runtime_target" },
+      { decision: false, oracle: true, reason: "no_imported_runtime_target" },
+      { decision: false, oracle: false, reason: "no_imported_runtime_target" },
     ]);
   });
 
@@ -1043,15 +1072,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        VALUES ($1, $2, 'active', 'running')`,
       [catalogTenantId, catalogUserId]
     );
-    await pool.query(
-      `INSERT INTO exomem_agent_contract_candidates (
-         id, state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-         compatibility_digest, protocol_version, contract, claude_package_lock,
-         claude_archive_lock, promoted_at
-       ) VALUES ($1, 'live', 'hosted-alpha-agent-v4', 'https://agent.example.test', '0.54.1',
-                 $2, $3, $4, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
-      [candidateId, "a".repeat(64), "b".repeat(64), "c".repeat(64)]
-    );
+    await seedImportedLiveTarget(candidateId);
     await pool.query(
       `INSERT INTO exomem_cells (
          id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
@@ -1088,15 +1109,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         WHERE pool_key = 'exomem-hosted-alpha'`,
       [TENANT]
     );
-    const sql: ExomemPaddleSql = async (strings, ...values) => {
-      const text = strings.reduce(
-        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
-        ""
-      );
-      const result = await pool.query(text, values);
-      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
-    };
-    const store = createSqlExomemPaddleEventStore(sql);
+    const store = createSqlExomemPaddleEventStore(interactiveTransaction);
     const application = paidActivationApplication({
       eventId: "evt_atomic_fresh",
       transactionId: "txn_atomic_fresh",
@@ -1186,7 +1199,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        ) VALUES ($1, 'paddle', 'awaiting_checkout', 'provisioning', '[]', '{}', 'sandbox', $2)`,
       [TENANT, transactionId]
     );
-    const store = createSqlExomemPaddleEventStore(taggedSql(pool));
+    const store = createSqlExomemPaddleEventStore(interactiveTransaction);
 
     await assert.rejects(
       store.applyVerifiedEventAndMarkProcessedAtomically(
@@ -1239,7 +1252,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
     const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
     process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
     try {
-      const store = createSqlExomemPaddleEventStore(taggedSql(pool));
+      const store = createSqlExomemPaddleEventStore(interactiveTransaction);
       await assert.rejects(
         store.applyVerifiedEventAndMarkProcessedAtomically(
           paidActivationApplication({ eventId: "evt_missing_target", transactionId })
@@ -1546,15 +1559,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       }
     );
 
-    const eventSql: ExomemPaddleSql = async (strings, ...values) => {
-      const text = strings.reduce(
-        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
-        ""
-      );
-      const result = await pool.query(text, values);
-      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
-    };
-    const eventStore = createSqlExomemPaddleEventStore(eventSql);
+    const eventStore = createSqlExomemPaddleEventStore(interactiveTransaction);
     assert.deepEqual(
       await eventStore.applyVerifiedEventAndMarkProcessedAtomically({
         eventId: "evt_after_billing_gate",
@@ -1621,15 +1626,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        )`,
       [TENANT, "sub_deletion_pending"]
     );
-    const sql: ExomemPaddleSql = async (strings, ...values) => {
-      const text = strings.reduce(
-        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
-        ""
-      );
-      const result = await pool.query(text, values);
-      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
-    };
-    const store = createSqlExomemPaddleEventStore(sql);
+    const store = createSqlExomemPaddleEventStore(interactiveTransaction);
 
     assert.deepEqual(
       await store.applyVerifiedEventAndMarkProcessedAtomically({
@@ -1748,6 +1745,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
   });
 
   it("leases each due Paddle subscription once and excludes future or deleting tenants", async () => {
+    const sql = taggedSql(pool);
     await pool.query("INSERT INTO users (id, email) VALUES ($1, $2)", [USER, "owner@example.com"]);
     await pool.query(
       `INSERT INTO exomem_tenants (id, owner_user_id, status, desired_state)
@@ -1761,14 +1759,6 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        ) VALUES ($1, 'paddle', 'active', 'active', '[]', '{}', 'sandbox', $2)`,
       [TENANT, "sub_reconciliation_lease"]
     );
-    const sql: ExomemPaddleSql = async (strings, ...values) => {
-      const text = strings.reduce(
-        (query, part, index) => query + part + (index < values.length ? `$${index + 1}` : ""),
-        ""
-      );
-      const result = await pool.query(text, values);
-      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
-    };
     const firstOwner = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const secondOwner = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     const claims = await Promise.all([
@@ -2483,15 +2473,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        VALUES ($1, $2, 'provisioning', 'running')`,
       [TENANT, USER]
     );
-    await pool.query(
-      `INSERT INTO exomem_agent_contract_candidates (
-         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
-         promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v4', 'https://agent.example.test', '0.50.0',
-                 $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
-      ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
-    );
+    await seedImportedLiveTarget();
     await pool.query(
       `INSERT INTO exomem_cells (
          id, tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
@@ -3549,15 +3531,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
        VALUES ($1, $2, 'active', 'running', 7)`,
       [TENANT, USER]
     );
-    await pool.query(
-      `INSERT INTO exomem_agent_contract_candidates (
-         state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-         compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock,
-         promoted_at
-       ) VALUES ('live', 'hosted-alpha-agent-v4', 'https://agent.example.test', '0.50.0',
-                 $1, $2, $3, '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, now())`,
-      ["a".repeat(64), "b".repeat(64), "c".repeat(64)]
-    );
+    await seedImportedLiveTarget();
     await pool.query(
       `INSERT INTO exomem_cells (
          id, tenant_id, lifecycle_state, routing_state, desired_state,
@@ -6382,8 +6356,14 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       // checkpoints, and `failed_retryable` is still owed a run. `claim` refuses
       // a sibling in either, so raising a renewal against one produces work that
       // can never be handed out -- and which then suppresses every later tick.
-      { name: "a cell with an operation waiting between checkpoints", seed: { inflightState: "waiting" } },
-      { name: "a cell with an operation awaiting retry", seed: { inflightState: "failed_retryable" } },
+      {
+        name: "a cell with an operation waiting between checkpoints",
+        seed: { inflightState: "waiting" },
+      },
+      {
+        name: "a cell with an operation awaiting retry",
+        seed: { inflightState: "failed_retryable" },
+      },
     ];
 
     for (const skip of skipped) {
@@ -6553,10 +6533,9 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
         [operation.rows[0]!.id]
       );
       assert.equal(await store.markAuthorizationRenewed(operation.rows[0]!.id, "worker-a"), true);
-      await pool.query(
-        "UPDATE exomem_lifecycle_operations SET state = 'succeeded' WHERE id = $1",
-        [operation.rows[0]!.id]
-      );
+      await pool.query("UPDATE exomem_lifecycle_operations SET state = 'succeeded' WHERE id = $1", [
+        operation.rows[0]!.id,
+      ]);
 
       assert.deepEqual(await store.enqueueDueAuthorizationRenewals(), {
         enqueued: 0,
@@ -6593,7 +6572,10 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       process.env.EXOMEM_CELL_RELEASE_VERSION = "2026.09.06";
       try {
         const { runBoundedLifecycleReconcile } = await import("../reconcile-runtime");
-        const summary = await runBoundedLifecycleReconcile({ maxOperations: 2, timeBudgetMs: 2_000 });
+        const summary = await runBoundedLifecycleReconcile({
+          maxOperations: 2,
+          timeBudgetMs: 2_000,
+        });
 
         assert.equal(summary.renewalsBlocked, 1);
         assert.equal(summary.renewalsEnqueued, 0);

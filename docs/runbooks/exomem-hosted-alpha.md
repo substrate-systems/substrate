@@ -21,7 +21,7 @@ owners stay at checkout and no provider operation is created.
 Complimentary access does **not** require Paddle or a price. Paid operator
 invitations require checkout before provisioning. Every route does require:
 
-1. migrations `0017` through `0051_exomem_oauth_operator_client_bound.sql` applied to the production Neon database;
+1. migrations `0017` through `0056_exomem_runtime_targets.sql` applied to the production Neon database;
 2. the immutable Exomem `0.77.0` cell image from commit
    `9e7040a3a518627327a1d1287028667cb22bb5b3`, pinned as
    `ghcr.io/artexis10/exomem@sha256:73ab2439e653d490b800eb810c370e297da0efcad176557756b46b89b5c82172`,
@@ -31,7 +31,8 @@ invitations require checkout before provisioning. Every route does require:
 4. all required Substrate secrets below;
 5. the external K3s scheduler reaching `/api/cron/exomem-reconcile` every minute;
    and
-6. a two-cell isolation/export/deletion drill before a real invite is sent.
+6. a connected empty-installation rehearsal before owner acceptance, followed by
+   a two-cell isolation/export/deletion drill before inviting friends.
 
 Public launch remains deferred. Configure only the existing Exomem product and
 €5 monthly price for authenticated paid invitees. Do not configure or expose the
@@ -257,9 +258,84 @@ allocation, claim lease, operation checkpoint, and stable error code together;
 never free capacity because a provider response timed out or an operator cannot
 find a cell by hand.
 
-### Promotion run sheet (start here)
+### Runtime activation for the first private owner
 
-The procedure below is the specification. Drive it with the harness in the
+Import the current agent candidate with `import-agent`, then import its reviewed
+provisioning target using the returned candidate ID. These are authenticated
+operator requests to `POST /api/exomem/admin/contracts`:
+
+```json
+{ "action": "import-runtime-target", "candidateId": "<candidate UUID>" }
+```
+
+The request accepts only those two fields. The server selects the checked-in
+target and verification evidence; it does not accept supplied digests or a claim
+that verification succeeded. The response includes `candidateId`,
+`runtimeTargetDigest`, and `outcome` (`imported` or `unchanged`). Repeating the
+request is safe. `GET /api/exomem/admin/contracts` exposes `runtimeTargets` with
+import readiness and the persisted digest.
+
+Before activation, verify the deployment composition lock, its source closure
+and signed runtime/provisioner images, and compare the deployed identities with
+the imported target. On a genuinely empty fleet, use the existing activation
+action with the observed previous live candidate and the all-zero empty routable
+set digest. A bound cell or conflicting in-flight lifecycle operation prevents
+empty-fleet activation. A populated fleet still needs its fresh strict-v2 health
+evidence and observed routable-set digest.
+
+Activation permits ordinary admission; it does not assert that a cell is ready.
+The first owner uses an ordinary complimentary invite through the Claude OAuth
+flow, which reserves capacity. The legacy email redemption path remains unmetered
+and is not the owner acceptance path. Provisioning freezes the
+approved target, and commands wait for the owner's verified ready cell. Deleting
+the last cell does not erase the approved target. Client certification and the
+legacy reviewer procedure below are separate from first-owner admission.
+
+#### Local admission acceptance
+
+On disposable PostgreSQL, run:
+
+```sh
+EXOMEM_TEST_DATABASE_URL="$DISPOSABLE_DATABASE_URL" \
+  CONFIRM_ENDSTATE_CLOUD_RELEASE_A=yes npm run test:hosted-admission
+```
+
+The command refuses a missing database URL. Each case applies the production
+migrations in its own schema. It covers target import, empty-fleet activation,
+OAuth admission and capacity, conflicting work, retries, and target persistence
+after cell removal. This store-level check precedes the connected runtime/cluster
+and owner acceptance runs; it does not prove serving readiness or browser consent.
+
+#### Regenerating the checked runtime target
+
+Use an Exomem dependency environment whose `python3` is on `PATH`, with `gh`
+attestation verification available. From the Substrate checkout:
+
+```sh
+node --import tsx scripts/generate-exomem-runtime-target.ts \
+  --exomem-repo "$EXOMEM_SOURCE_REPOSITORY" \
+  --verifier-commit "$VERIFIER_COMMIT" \
+  --consumer-commit "$SUBSTRATE_COMMIT" \
+  --candidate "$RUNTIME_CANDIDATE" \
+  --candidate-bundle "$CANDIDATE_BUNDLE" \
+  --image-bundle "$IMAGE_BUNDLE" \
+  --output "$NEW_MANIFEST"
+```
+
+Both commits must be full reviewed commit IDs. The generator creates its own
+exact-source checkout, verifies the signed image and candidate-file subjects,
+regenerates the producer fixtures and checks the committed consumer pins. It
+writes a new manifest only after those checks pass, and refuses to overwrite an
+existing file. Review the generated manifest with the server change; it is not
+an uploadable proof or an activation command. Runtime target and verification
+manifest digests use recursively key-sorted compact UTF-8 JSON with one trailing
+newline; they are separate from the gateway/schema digests.
+
+### Legacy paired-artifact promotion run sheet
+
+The following retained procedure applies to legacy paired-artifact promotion,
+not ordinary first-owner admission. Current contracts live in OpenSpec. Drive
+legacy promotion with the harness in the
 `exomem` repository rather than by hand — `scripts/reviewer_bootstrap.py`
 (`preflight`, `prepare`, `run`) and `scripts/promotion_evidence.py` (`observe`,
 `sign`, `import`, `promote`). Every step run by hand has been got wrong at least

@@ -4,6 +4,18 @@ import { resolve } from "node:path";
 import { describe, it } from "node:test";
 
 describe("Exomem agent-contract artifact migration", () => {
+  it("adds immutable reviewed runtime targets without populating a candidate", () => {
+    const sql = readFileSync(
+      resolve(process.cwd(), "migrations/0056_exomem_runtime_targets.sql"),
+      "utf8"
+    );
+    assert.match(sql, /CREATE TABLE exomem_runtime_targets/i);
+    assert.match(sql, /candidate_id uuid PRIMARY KEY REFERENCES exomem_agent_contract_candidates/i);
+    assert.match(sql, /verification_manifest_digest text NOT NULL/i);
+    assert.match(sql, /imported_by_principal_digest bytea NOT NULL/i);
+    assert.doesNotMatch(sql, /INSERT INTO exomem_(?:agent_contract_candidates|runtime_targets)/i);
+  });
+
   it("adds immutable strict-v1 operation provenance without control-plane side effects", () => {
     const sql = readFileSync(
       resolve(process.cwd(), "migrations/0039_exomem_provisioner_wire_protocol.sql"),

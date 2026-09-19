@@ -230,8 +230,7 @@ describe("hosted runtime trust report", () => {
     {
       name: "lifecycle-store",
       path: "lifecycle-store.ts",
-      exact:
-        'WHEN ${exomemContractFixture0770.release + ":" + exomemContractFixture0770.protocol}\n                     THEN ${exomemContractFixture0770.digest}',
+      exact: "runtime_target.schema_digest = candidate.schema_digest",
       decoy:
         '\nconst runtimeTrustDecoy = sql`WHEN ${exomemContractFixture0740.release + ":" + exomemContractFixture0740.protocol} THEN ${exomemContractFixture0740.digest}`;\n',
     },
