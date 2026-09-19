@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -17,13 +19,41 @@ import {
   type ExomemSql,
 } from "../db";
 import { exomemContractFixture0770 } from "../gateway-contract-0-77-0";
-import { admitFirstOAuthInviteAtomic } from "../oauth-store";
+import { handleHostedMcpRequest } from "../mcp";
+import { mintOpaqueTokenMaterial } from "../oauth";
+import { parseCimdDocument } from "../oauth-client-admission";
+import {
+  admitFirstOAuthInviteAtomic,
+  createAuthorizationTransaction,
+  findMcpOAuthAccessToken,
+  issueOAuthTokensFromCodeAtomic,
+  registerAdmittedCimdClient,
+  resolveApprovedOAuthClient,
+  revokeOAuthTokenFamily,
+  rotateOAuthRefreshTokenAtomic,
+} from "../oauth-store";
 import { routableSetDigest } from "../routable-authority";
 import { getTrustedHostedRuntimeTarget } from "../runtime-target-registry";
 import { importTrustedHostedRuntimeTarget } from "../runtime-target-store";
+import { encryptSecret } from "../security";
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const resource = "https://substratesystems.io/api/exomem/mcp/v1";
+const claudeClientId = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+const claudeRedirectUri = "https://claude.ai/api/mcp/auth_callback";
+const claudeCimdRaw = JSON.stringify({
+  client_id: claudeClientId,
+  client_name: "Claude",
+  client_uri: "https://claude.ai",
+  redirect_uris: [claudeRedirectUri],
+  grant_types: [
+    "authorization_code",
+    "refresh_token",
+    "urn:ietf:params:oauth:grant-type:jwt-bearer",
+  ],
+  response_types: ["code"],
+  token_endpoint_auth_method: "none",
+});
 const emptyRoutableDigest = routableSetDigest("hosted-alpha-agent-v4", []);
 const previousV2Issuance = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
 let pool: Pool | undefined;
@@ -156,6 +186,123 @@ async function seedOAuthAdmission(sequence: number) {
     codeDigest: digest(sequence + 22),
     codeExpiresAt: new Date(Date.now() + 60 * 60_000),
   };
+}
+
+async function admitConnectedClaude(sequence: number) {
+  const candidateId = await importAndActivate();
+  await configureCapacity();
+  const cimd = parseCimdDocument(claudeCimdRaw, claudeClientId);
+  const registered = await registerAdmittedCimdClient(claudeClientId, {
+    fetchCimd: async () => cimd,
+  });
+  assert.ok(registered);
+  assert.deepEqual(registered, {
+    id: registered.id,
+    clientId: claudeClientId,
+    redirectUris: [claudeRedirectUri],
+    admissionMode: "cimd",
+  });
+  assert.deepEqual(await resolveApprovedOAuthClient(claudeClientId), registered);
+  await createOrdinaryInvite(sequence);
+  const transactionDigest = digest(sequence + 10);
+  assert.ok(
+    await createAuthorizationTransaction({
+      transactionDigest,
+      stateDigest: digest(sequence + 11),
+      stateEnvelope: encryptSecret(
+        JSON.stringify({ version: 1, state: `connected-service-${sequence}` }),
+        { key: digest(sequence + 14) }
+      ),
+      formNonceDigest: digest(sequence + 12),
+      continuationBinding: digest(sequence + 13),
+      clientId: claudeClientId,
+      redirectUri: claudeRedirectUri,
+      resource,
+      scopes: ["exomem.read", "offline_access"],
+      pkceChallenge: "connected-service-challenge",
+      expiresAt: new Date(Date.now() + 60 * 60_000),
+    })
+  );
+  const admitted = await admitFirstOAuthInviteAtomic({
+    inviteDigest: digest(sequence),
+    transactionDigest,
+    sessionDigest: digest(sequence + 20),
+    csrfDigest: digest(sequence + 21),
+    sessionExpiresAt: new Date(Date.now() + 60 * 60_000),
+    codeDigest: digest(sequence + 22),
+    codeExpiresAt: new Date(Date.now() + 60 * 60_000),
+  });
+  assert.ok(admitted?.operationId);
+  const tokens = mintOpaqueTokenMaterial({ refreshAllowed: true });
+  const issued = await issueOAuthTokensFromCodeAtomic({
+    codeDigest: digest(sequence + 22),
+    clientId: claudeClientId,
+    redirectUri: claudeRedirectUri,
+    resource,
+    pkceChallenge: "connected-service-challenge",
+    refreshDigest: tokens.refreshTokenDigest!,
+    refreshExpiresAt: new Date(Date.now() + 60 * 60_000),
+    accessDigest: tokens.accessTokenDigest,
+    accessExpiresAt: tokens.accessTokenExpiresAt,
+  });
+  assert.ok(issued);
+  assert.equal(issued.refreshInserted, true);
+  assert.equal(
+    (await findMcpOAuthAccessToken(tokens.accessTokenDigest))?.tenantId,
+    admitted.tenantId
+  );
+  assert.deepEqual(
+    await Promise.all([
+      count("exomem_tenants"),
+      count("exomem_lifecycle_operations"),
+      count("exomem_capacity_allocations"),
+      count("exomem_client_artifacts"),
+      count("exomem_cells"),
+    ]),
+    [1, 1, 1, 0, 0]
+  );
+  return { admitted, candidateId, issued, tokens };
+}
+
+async function connectMcp(accessToken: string) {
+  const transport = new StreamableHTTPClientTransport(new URL(resource), {
+    requestInit: { headers: { authorization: `Bearer ${accessToken}` } },
+    fetch: (input, init) =>
+      handleHostedMcpRequest(new Request(input.toString(), init), {
+        baseUrl: "https://substratesystems.io",
+        takeRateLimit: async () => true,
+      }),
+  });
+  const client = new Client({ name: "runtime-target-service-acceptance", version: "1" });
+  await client.connect(transport);
+  return { client, transport };
+}
+
+async function assertDiscoveryAndPreparing(accessToken: string): Promise<void> {
+  const { client, transport } = await connectMcp(accessToken);
+  try {
+    const listed = await client.listTools();
+    assert.deepEqual(
+      listed.tools.map((tool) => tool.name),
+      exomemHostedContractFixture.compatibility.agent_contract.commands.map(
+        (command) => command.mcp_tool.name
+      )
+    );
+    const result = await client.callTool({ name: "coordination_status", arguments: {} });
+    assert.equal(result.isError, true);
+    const content = (result.content as Array<{ type: string; text?: string }>)[0];
+    assert.equal(content?.type, "text");
+    const refusal = JSON.parse(content?.type === "text" ? (content.text ?? "{}") : "{}") as {
+      code?: string;
+      retryable?: boolean;
+      remediation?: string;
+    };
+    assert.equal(refusal.code, "CELL_PREPARING");
+    assert.equal(refusal.retryable, true);
+    assert.equal(refusal.remediation, "retry_later");
+  } finally {
+    await transport.close();
+  }
 }
 
 async function assertFrozenOperation(
@@ -318,6 +465,132 @@ describe("Hosted runtime target admission", { skip: !databaseUrl, concurrency: f
     const admitted = await admitFirstOAuthInviteAtomic(await seedOAuthAdmission(200));
     assert.ok(admitted?.operationId);
     await assertFrozenOperation(admitted.operationId, candidateId, 1);
+  });
+
+  it("connects Claude through real OAuth admission while the empty fleet prepares", async () => {
+    const service = await admitConnectedClaude(800);
+    const initialAccess = service.tokens.accessToken.reveal();
+    await assertDiscoveryAndPreparing(initialAccess);
+    assert.equal(
+      (await findMcpOAuthAccessToken(service.tokens.accessTokenDigest))?.familyId,
+      service.issued.familyId
+    );
+
+    const rotatedTokens = mintOpaqueTokenMaterial({ refreshAllowed: true });
+    assert.equal(
+      await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: service.tokens.refreshTokenDigest!,
+        replacementRefreshDigest: rotatedTokens.refreshTokenDigest!,
+        accessDigest: rotatedTokens.accessTokenDigest,
+        accessExpiresAt: rotatedTokens.accessTokenExpiresAt,
+        clientId: claudeClientId,
+        resource: `${resource}/wrong`,
+      }),
+      null
+    );
+    assert.ok(await findMcpOAuthAccessToken(service.tokens.accessTokenDigest));
+    const rotated = await rotateOAuthRefreshTokenAtomic({
+      refreshDigest: service.tokens.refreshTokenDigest!,
+      replacementRefreshDigest: rotatedTokens.refreshTokenDigest!,
+      accessDigest: rotatedTokens.accessTokenDigest,
+      accessExpiresAt: rotatedTokens.accessTokenExpiresAt,
+      clientId: claudeClientId,
+      resource,
+    });
+    assert.equal(rotated?.familyId, service.issued.familyId);
+    assert.equal(
+      (await findMcpOAuthAccessToken(rotatedTokens.accessTokenDigest))?.tenantId,
+      service.admitted.tenantId
+    );
+    await assertDiscoveryAndPreparing(rotatedTokens.accessToken.reveal());
+    assert.deepEqual(
+      await Promise.all([
+        count("exomem_tenants"),
+        count("exomem_lifecycle_operations"),
+        count("exomem_capacity_allocations"),
+      ]),
+      [1, 1, 1]
+    );
+
+    await revokeOAuthTokenFamily(service.issued.familyId);
+    assert.equal(await findMcpOAuthAccessToken(rotatedTokens.accessTokenDigest), null);
+    const denied = await handleHostedMcpRequest(
+      new Request(resource, {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${rotatedTokens.accessToken.reveal()}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "revoked-service-acceptance", version: "1" },
+          },
+        }),
+      }),
+      { baseUrl: "https://substratesystems.io", takeRateLimit: async () => true }
+    );
+    assert.equal(denied.status, 401);
+    assert.deepEqual(
+      (
+        await pool!.query(
+          `SELECT count(*)::int AS total,
+                  count(*) FILTER (WHERE consumed_at IS NOT NULL)::int AS consumed
+           FROM exomem_invites`
+        )
+      ).rows,
+      [{ total: 1, consumed: 1 }]
+    );
+  });
+
+  it("keeps discovery available when the admitted tenant has a nonready bound cell", async () => {
+    const service = await admitConnectedClaude(900);
+    const cell = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version,
+         release_version
+       ) VALUES ($1, 'active', 'bound', 'running', $2, $3) RETURNING id`,
+      [
+        service.admitted.tenantId,
+        exomemContractFixture0770.protocol,
+        exomemHostedContractFixture.sourceRelease,
+      ]
+    );
+    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+      cell.rows[0]!.id,
+      service.admitted.tenantId,
+    ]);
+    assert.equal(await count("exomem_routable_cell_contracts"), 0);
+
+    await assertDiscoveryAndPreparing(service.tokens.accessToken.reveal());
+    const rotatedTokens = mintOpaqueTokenMaterial({ refreshAllowed: true });
+    assert.equal(
+      (
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: service.tokens.refreshTokenDigest!,
+          replacementRefreshDigest: rotatedTokens.refreshTokenDigest!,
+          accessDigest: rotatedTokens.accessTokenDigest,
+          accessExpiresAt: rotatedTokens.accessTokenExpiresAt,
+          clientId: claudeClientId,
+          resource,
+        })
+      )?.familyId,
+      service.issued.familyId
+    );
+    assert.ok(await findMcpOAuthAccessToken(rotatedTokens.accessTokenDigest));
+    assert.deepEqual(
+      await Promise.all([
+        count("exomem_tenants"),
+        count("exomem_lifecycle_operations"),
+        count("exomem_capacity_allocations"),
+      ]),
+      [1, 1, 1]
+    );
   });
 
   it("refuses empty-fleet activation without an imported target and changes no state", async () => {

@@ -20,6 +20,17 @@ canary refusal. Independent payment and lifecycle races verify the shared fence.
 These are store-level proofs: browser consent, full deletion/recovery workflow,
 real provisioning, useful MCP and live owner acceptance remain P.4/P.7 work.
 
+P.3 service checkpoint: the fresh-schema acceptance now registers Claude through
+the admitted-host CIMD path using its public metadata shape, creates ordinary
+authorization and token state, and exercises the real MCP handler through the
+official client. Initialization, tool listing and refresh work without a cell or
+certified artifact, including after a nonready cell is attached; commands remain
+`CELL_PREPARING`, wrong-resource refresh is refused, and family revocation denies
+access. Ordinary discovery no longer depends on the routable-cell projection.
+This is an in-process protocol/database test, not Claude host consent or real
+cell serving. P.3 remains open for its remaining audit/negative coverage, and the
+resumable public-route and real-cluster journey remains P.4/P.7.
+
 ### Delegation contract
 
 The design's Runtime target import contract fixes P.1's producer, verifier, schema and API. P.1 verifies/materializes that contract and reproduces the defect before dispatch of dependent work; a contradictory result returns to the primary lane. Then use one Substrate author for P.2–P.4 and one Exomem author for the coordinator/drill, each in its own worktree with no overlapping files, isolated test state and a per-task resume pointer. P.5 billing checks can remain with the Substrate author. Integrate after both satisfy their local contracts; one independent reviewer checks the paired admission/lifecycle interaction and its important negative reproductions. A final verifier owns the actual end-to-end milestone report. These roles answer different questions; do not add duplicate review layers.

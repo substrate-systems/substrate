@@ -632,8 +632,9 @@ export async function getLiveExomemAgentContract(): Promise<LiveExomemAgentContr
 }
 
 /**
- * MCP contract selection is derived solely from the access-token lineage and
- * the tenant's attested binding. Candidate lineage never falls back to live.
+ * Ordinary MCP discovery uses the approved live contract even while a cell is
+ * preparing or unavailable. Command routing separately checks its attested binding.
+ * Candidate lineage remains bound to its exact assignment and never falls back.
  */
 export async function getExomemAgentContractForOAuthAccess(input: {
   tenantId: string;
@@ -681,15 +682,6 @@ export async function getExomemAgentContractForOAuthAccess(input: {
           (
             ${candidateLineage} = false
             AND candidate.state = 'live'
-            AND (
-              access_tenant.bound_cell_id IS NULL OR (
-                binding.source_release = candidate.source_release
-                AND binding.protocol_version = candidate.protocol_version
-                AND binding.command_fingerprint = candidate.command_fingerprint
-                AND binding.contract_digest = candidate.schema_digest
-                AND binding.compatibility_digest = candidate.compatibility_digest
-              )
-            )
           ) OR (
             ${candidateLineage} = true
             AND candidate.id = ${candidateId ?? null}::uuid
