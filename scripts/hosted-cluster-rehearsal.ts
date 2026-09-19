@@ -123,7 +123,7 @@ function requiredEnvironment(name: string): string {
 }
 
 function selectedRuntimeTarget() {
-  const release = process.env.EXOMEM_REHEARSAL_RELEASE ?? "0.77.0";
+  const release = process.env.EXOMEM_REHEARSAL_RELEASE ?? exomemHostedContractFixture.sourceRelease;
   const trusted = getTrustedHostedRuntimeTarget(release);
   if (!trusted || trusted.target.releaseVersion !== exomemHostedContractFixture.sourceRelease) {
     throw new Error("rehearsal requires a reviewed runtime target and matching candidate fixture");

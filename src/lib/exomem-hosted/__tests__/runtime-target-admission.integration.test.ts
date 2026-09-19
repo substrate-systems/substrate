@@ -18,7 +18,7 @@ import {
   redeemInviteAtomic,
   type ExomemSql,
 } from "../db";
-import { exomemContractFixture0770 } from "../gateway-contract-0-77-0";
+import { exomemContractFixture0890 } from "../gateway-contract-0-89-0";
 import { handleHostedMcpRequest } from "../mcp";
 import { mintOpaqueTokenMaterial } from "../oauth";
 import { parseCimdDocument } from "../oauth-client-admission";
@@ -111,7 +111,7 @@ async function importAndActivate(): Promise<string> {
     await importTrustedHostedRuntimeTarget({ candidateId, operatorPrincipalDigest: digest(1) }),
     {
       candidateId,
-      runtimeTargetDigest: getTrustedHostedRuntimeTarget("0.77.0")!.runtimeTargetDigest,
+      runtimeTargetDigest: getTrustedHostedRuntimeTarget("0.89.0")!.runtimeTargetDigest,
       outcome: "imported",
     }
   );
@@ -310,7 +310,7 @@ async function assertFrozenOperation(
   candidateId: string,
   expectedReservations: 0 | 1
 ): Promise<void> {
-  const trusted = getTrustedHostedRuntimeTarget("0.77.0")!;
+  const trusted = getTrustedHostedRuntimeTarget("0.89.0")!;
   const operation = await pool!.query(
     `SELECT provisioner_wire_protocol, target_candidate_id::text, target_assignment_id::text,
             target_assignment_generation::text, target_source_release, target_protocol_version,
@@ -557,7 +557,7 @@ describe("Hosted runtime target admission", { skip: !databaseUrl, concurrency: f
        ) VALUES ($1, 'active', 'bound', 'running', $2, $3) RETURNING id`,
       [
         service.admitted.tenantId,
-        exomemContractFixture0770.protocol,
+        exomemContractFixture0890.protocol,
         exomemHostedContractFixture.sourceRelease,
       ]
     );
@@ -739,7 +739,7 @@ describe("Hosted runtime target admission", { skip: !databaseUrl, concurrency: f
        ) VALUES ($1, 'active', 'bound', 'running', $2, $3, 'CELL_READY')`,
       [
         tenant.rows[0]!.id,
-        exomemContractFixture0770.protocol,
+        exomemContractFixture0890.protocol,
         exomemHostedContractFixture.sourceRelease,
       ]
     );
@@ -782,9 +782,9 @@ describe("Hosted runtime target admission", { skip: !databaseUrl, concurrency: f
        RETURNING id`,
       [
         tenant.rows[0]!.id,
-        exomemContractFixture0770.protocol,
+        exomemContractFixture0890.protocol,
         exomemHostedContractFixture.sourceRelease,
-        exomemContractFixture0770.digest,
+        exomemContractFixture0890.digest,
         exomemHostedContractFixture.compatibility.command_surface_sha256,
         exomemHostedContractFixture.compatibility.schema_contract_sha256,
         exomemHostedContractFixture.compatibility.compatibility_sha256,
@@ -798,7 +798,7 @@ describe("Hosted runtime target admission", { skip: !databaseUrl, concurrency: f
       [
         cell.rows[0]!.id,
         exomemHostedContractFixture.sourceRelease,
-        exomemContractFixture0770.protocol,
+        exomemContractFixture0890.protocol,
         exomemHostedContractFixture.compatibility.command_surface_sha256,
         exomemHostedContractFixture.compatibility.schema_contract_sha256,
         exomemHostedContractFixture.compatibility.compatibility_sha256,
@@ -872,7 +872,7 @@ describe("Hosted runtime target admission", { skip: !databaseUrl, concurrency: f
       candidateId,
       operatorPrincipalDigest: digest(700),
     });
-    const target = getTrustedHostedRuntimeTarget("0.77.0")!.target;
+    const target = getTrustedHostedRuntimeTarget("0.89.0")!.target;
     const owner = await pool!.query<{ id: string }>(
       "INSERT INTO users (email) VALUES ($1) RETURNING id",
       [`canary-prep-${randomUUID()}@example.test`]

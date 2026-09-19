@@ -25,7 +25,7 @@ describe("connected rehearsal runtime selection", () => {
   it("describes the reviewed target without credentials, database or cluster effects", () => {
     const result = describeTarget();
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), getTrustedHostedRuntimeTarget("0.77.0")!.target);
+    assert.deepEqual(JSON.parse(result.stdout), getTrustedHostedRuntimeTarget("0.89.0")!.target);
   });
 
   it("refuses an unreviewed release before asking for database credentials", () => {
@@ -36,7 +36,7 @@ describe("connected rehearsal runtime selection", () => {
   });
 
   it("rejects every mismatching identity field in the paired runtime target", () => {
-    const target = getTrustedHostedRuntimeTarget("0.77.0")!.target;
+    const target = getTrustedHostedRuntimeTarget("0.89.0")!.target;
     for (const key of Object.keys(target)) {
       const result = describeTarget({
         EXOMEM_REHEARSAL_EXPECTED_TARGET: JSON.stringify({ ...target, [key]: "wrong" }),
