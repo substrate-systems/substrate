@@ -1,0 +1,40 @@
+{
+  "artifact": "exomem-hosted-runtime-target-verification",
+  "fixtureSha256s": {
+    "agent": "542d07ed4b3959a5caa6dd2251589e0ab4ac686401540121123151173f0f7aba",
+    "gateway": "c24336ccbd11b0fae89d540802965c5fc6b8c298dbc135cd09f7b213c891cbf5"
+  },
+  "provenance": {
+    "event": "push",
+    "oidcSourceCommit": "cefa987cce5dfc5efe70dc1a51ab37037afb6ea8",
+    "oidcSourceRef": "refs/heads/main",
+    "predicateType": "https://slsa.dev/provenance/v1",
+    "producerRepository": "Artexis10/exomem",
+    "repository": "Artexis10/exomem",
+    "runAttempt": "1",
+    "runId": "35473445016",
+    "signerWorkflow": "Artexis10/exomem/.github/workflows/release-please.yml",
+    "signerWorkflowDigest": "cefa987cce5dfc5efe70dc1a51ab37037afb6ea8"
+  },
+  "schemaVersion": 2,
+  "target": {
+    "agentProfile": "hosted-alpha-agent-v4",
+    "commandFingerprint": "4b4b71280fec7915042483207b1ab0e15e916148ac1b88ef965e03671de80968",
+    "compatibilityDigest": "320e75168c5f72b73551e56f43a82b8d3ee77bf39158ae42ef3292a25b576ec6",
+    "gatewayContractDigest": "dd24d80b33c21d849467a30e1c38ebf94d5e0c7f3b96cb540eccbed17f441692",
+    "protocolVersion": "1",
+    "releaseVersion": "0.89.0",
+    "runtimeCandidateSha256": "ba2469d49b26260dad02ef7d9c50a72eac6ed7810468b535316144e51458c57f",
+    "runtimeImage": "ghcr.io/artexis10/exomem@sha256:7d1039ab2e07cefe56cf2dd2e247f233d19205a7a2c7cfcb94336c438cd05d4b",
+    "schemaDigest": "60b5aec6f872874234a214e778e26ce57fa5805af8ce744bdd68efe8ca0fcb26",
+    "sourceCommit": "cefa987cce5dfc5efe70dc1a51ab37037afb6ea8"
+  },
+  "verification": {
+    "candidateBundleSha256": "a7eaee2383eedfe04f835a71fc6747b4db0bc7fcf5469f1524f532b3cb25d01c",
+    "consumerCommit": "08d194631003761fec1156902758735701960694",
+    "consumerPinReportSha256": "15c4aeeab776e0bed95d69821dc66e8301e739ff20840e085d51febeb8662dbf",
+    "imageBundleSha256": "5cd0a710e0f10c1593cab84e17cbe1722f14cb23e07ddf137875268ae5eacd6a",
+    "verifierCommit": "cefa987cce5dfc5efe70dc1a51ab37037afb6ea8",
+    "verifierSha256": "01d1a51edc2719d47bbf5838e53063c2fd574fe0dddc40f4edb7bbb864b91bb3"
+  }
+}

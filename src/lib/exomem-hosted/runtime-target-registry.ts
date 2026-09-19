@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { exomemHostedContractFixture as agent0770 } from "./agent-contract-fixture-0-77-0";
 import { exomemContractFixture0770 } from "./gateway-contract-0-77-0";
 import manifest0770 from "./runtime-target-0-77-0.json";
+import { exomemHostedContractFixture as agent0890 } from "./agent-contract-fixture";
+import { exomemContractFixture0890 } from "./gateway-contract-0-89-0";
+import manifest0890 from "./runtime-target-0-89-0.json";
 
 export type HostedRuntimeTarget = Readonly<{
   releaseVersion: string;
@@ -102,10 +105,12 @@ function checked(
 }
 
 const trusted0770 = checked("0.77.0", manifest0770, agent0770, exomemContractFixture0770);
+const trusted0890 = checked("0.89.0", manifest0890, agent0890, exomemContractFixture0890);
 
 /** Only reviewed build-time verification evidence can populate this registry. */
 export function getTrustedHostedRuntimeTarget(
   sourceRelease: string
 ): TrustedHostedRuntimeTarget | null {
+  if (sourceRelease === "0.89.0") return trusted0890;
   return sourceRelease === "0.77.0" ? trusted0770 : null;
 }
