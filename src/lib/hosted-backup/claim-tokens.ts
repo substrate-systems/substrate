@@ -11,20 +11,10 @@
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { sql as pgSql, type PgSqlResult } from "../db/pg-sql";
 
-let _sql: NeonQueryFunction<false, true> | null = null;
-
-function sql(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-): ReturnType<NeonQueryFunction<false, true>> {
-  if (!_sql) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
-    _sql = neon(url, { fullResults: true });
-  }
-  return _sql(strings, ...values);
+function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<PgSqlResult> {
+  return pgSql(strings, ...values);
 }
 
 // 30 days, per the spec. Plenty for a buyer to come back from a holiday.

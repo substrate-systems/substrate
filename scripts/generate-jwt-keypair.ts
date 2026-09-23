@@ -13,7 +13,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
-import { neon } from '@neondatabase/serverless';
+import { closePgSqlPool, sql } from '../src/lib/db/pg-sql';
 
 ed.hashes.sha512 = (msg: Uint8Array) => sha512(msg);
 ed.hashes.sha512Async = async (msg: Uint8Array) => sha512(msg);
@@ -48,11 +48,15 @@ async function main() {
       console.error('--commit set but DATABASE_URL is not. Aborting insert.');
       process.exit(1);
     }
-    const sql = neon(url, { fullResults: true });
-    await sql`
-      INSERT INTO signing_keys (kid, public_key, algorithm)
-      VALUES (${kid}, ${Buffer.from(publicKey)}, 'EdDSA')
-    `;
+    try {
+      await sql`
+        INSERT INTO signing_keys (kid, public_key, algorithm)
+        VALUES (${kid}, ${Buffer.from(publicKey)}, 'EdDSA')
+      `;
+    } finally {
+      // Otherwise the process hangs for up to 10s on the idle pooled client.
+      await closePgSqlPool();
+    }
     console.log(`# Inserted signing_keys row for kid=${kid}`);
   } else {
     console.log('# Re-run with --commit to insert the public key into signing_keys');

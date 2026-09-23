@@ -58,12 +58,14 @@ jobs:
           src/lib/exomem-hosted/__tests__/agent-contract-routing-cas.integration.test.ts
           src/lib/exomem-hosted/__tests__/migration-runner.integration.test.ts
           src/lib/exomem-hosted/__tests__/postgres.integration.test.ts
-      - name: Hosted Backup version-commit and lifecycle PostgreSQL authority
+      - name: Hosted Backup version-commit and lifecycle PostgreSQL authority, shared driver
         env:
           EXOMEM_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/substrate_test
+          CONFIRM_ENDSTATE_CLOUD_RELEASE_A: "yes"
         run: >-
           node --import tsx --experimental-test-module-mocks --test
           src/lib/hosted-backup/__tests__/version-commit-postgres.integration.test.ts
+          src/lib/db/__tests__/pg-sql-driver.integration.test.ts
 
   e2e:
     name: onboarding end-to-end

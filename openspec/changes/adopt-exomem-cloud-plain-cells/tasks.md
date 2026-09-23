@@ -6,8 +6,8 @@
 
 ## 2. Standard Postgres driver (lane D2, lands first)
 
-- [ ] 2.1 Write red-first tests that run the `neon()` modules against a disposable standard Postgres through the new adapter, including `fullResults` shapes and the `transaction` commit and rollback paths
-- [ ] 2.2 Implement the `pg`-backed `sql` adapter (D6), switch `exomem-hosted/db.ts`, `exomem-hosted/paddle-event-store.ts`, `hosted-backup/db.ts`, `hosted-backup/claim-tokens.ts` and `scripts/generate-jwt-keypair.ts`, and remove `@neondatabase/serverless`
+- [x] 2.1 Write red-first tests that run the `neon()` modules against a disposable standard Postgres through the new adapter, including `fullResults` shapes and the `transaction` commit and rollback paths
+- [x] 2.2 Implement the `pg`-backed `sql` adapter (D6), switch `exomem-hosted/db.ts`, `exomem-hosted/paddle-event-store.ts`, `hosted-backup/db.ts`, `hosted-backup/claim-tokens.ts` and `scripts/generate-jwt-keypair.ts`, and remove `@neondatabase/serverless`
 - [ ] 2.3 Run the real-PostgreSQL matrix and the main suite, add the driver test to the CI integration list, and confirm behaviour against Neon is unchanged before cutover
 
 ## 3. Cloud control plane (lane C, after lane D2)
