@@ -35,9 +35,13 @@ The `exomem_capacity_pools` reservation is not used for Cloud.
 
 - A complimentary invite starts `running`.
 - A paid invite whose tenant is `awaiting_checkout` starts `stopped`. cellctl creates nothing for a row that has never run.
+- The `stopped` row holds its capacity slot from redemption, because capacity counts rows. Activation therefore needs no second capacity check, and a completed payment always has a slot.
 - The row becomes `running` when checkout activates the entitlement.
-- A row still `awaiting_checkout` after 7 days is set to `deleted`, so an unpaid invite cannot hold capacity indefinitely.
-- Capacity is checked again at activation. A full fleet at that moment returns the typed refusal before the provider charge is accepted.
+- **Expiry.** A tenant still `awaiting_checkout` after 7 days is expired, so an unpaid invite cannot hold capacity indefinitely:
+  1. Expiry first cancels the tenant's pending provider transaction.
+  2. If the provider reports the transaction already completed, expiry does nothing and the activation webhook proceeds as usual.
+  3. Otherwise the row is set to `deleted`.
+  No payment can complete without a cell.
 
 The OAuth invite path follows the same order.
 
@@ -77,12 +81,13 @@ Every lifecycle transition is an `UPDATE` of `desired_state`. The C1 trigger bum
 | Effective entitlement | read / write | `desired_state` |
 |---|---|---|
 | `active`, `trialing`, complimentary active | allow / allow | `running` |
-| `grace` (`past_due`), provider `paused`, `cancelled` | allow / deny | `read_only` |
+| `grace` (`past_due`), provider `paused` | allow / deny | `read_only` |
+| `cancelled` | allow / deny | `read_only` for a 30-day export window (`EXOMEM_CLOUD_CANCELLED_RETENTION_DAYS`), then `deleted` |
 | `suspended` (manual), complimentary revoked | deny / deny | `stopped` |
 | Tenant `awaiting_checkout` (no entitlement yet) | no cell | `stopped`, then `deleted` after 7 days |
 | Account deletion | — | `deleted`; only a content-free receipt remains once cellctl reports `deleted` |
 
-Export for read-only tenants uses the operator export runbook until a self-serve export exists. Cloud cells get no lifecycle operation, reconciler claim, fence or provisioner call. The existing v1 queue stays dormant for legacy rows until retirement.
+Export for read-only tenants uses the operator export runbook (Exomem D8) until a self-serve export exists. The cancelled-tenant export window is stated on the public terms page, and the cancellation email names its end date. Resubscribing within the window returns the row to `running`. Cloud cells get no lifecycle operation, reconciler claim, fence or provisioner call. The existing v1 queue stays dormant for legacy rows until retirement.
 
 ### D5. The release is one setting
 
@@ -107,11 +112,11 @@ The four modules and `scripts/generate-jwt-keypair.ts` switch to it, and `@neond
 
 ### D7. Database roles and grants
 
-- **Migrations** run as `substrate_owner`, through `DATABASE_MIGRATION_URL` in the build-time migration step.
+- **Migrations** run as `substrate_owner`, through `DATABASE_MIGRATION_URL` in the build-time migration step. That URL names PgBouncer's session-mode alias, because `scripts/migrate.ts` holds a session-level advisory lock that transaction pooling would leak.
 - **The application** runs as `substrate_app`, which is not the schema owner.
 - **Grants** live in `scripts/exomem-cloud-grants.sql` and are idempotent. The migration runner applies them after migrations whenever the roles exist, and the cutover applies them after restore. They are not buried in a migration that ran on a database where the roles did not yet exist.
-- **Gateway:** `exomem_gateway` receives `SELECT` on the token, tenant, entitlement and cell routing columns, plus `INSERT`/`UPDATE` on `exomem_rate_limit_buckets`.
-- **cellctl:** `exomem_cellctl` receives exactly the column privileges in the Exomem design (D12).
+- **Gateway:** `exomem_gateway` receives `SELECT` on the token, tenant and entitlement columns it reads, plus `INSERT`/`UPDATE` on `exomem_rate_limit_buckets`.
+- **Cloud tables:** every role's privileges on C1 through C1d are exactly the C1 privilege table in the Exomem design. This script is its single implementation.
 
 ### D8. Cutover from Neon
 
@@ -122,13 +127,17 @@ A single runbook and script. They preserve every write, carry Endstate unchanged
    - the old platform's in-cluster gateway and provisioner, both scaled to zero before the window;
    - node CronJobs;
    - operator scripts.
-2. **Freeze Neon:** open the maintenance window by setting Neon to `default_transaction_read_only = on` and terminating existing sessions. A late write then fails instead of being lost.
-3. **Copy:** `pg_dump --no-owner --no-acl`, then restore as `substrate_owner`.
+2. **Freeze Neon.** Open the maintenance window by locking out every application role, so no client can write:
+   - `ALTER ROLE … NOLOGIN` and rotate the password of each role the consumers use;
+   - terminate their existing sessions;
+   - as a second layer, set `default_transaction_read_only = on` for the database.
+   The setting alone is only a session default that a client can override, so the lockout is what guarantees that a late write fails instead of being lost.
+3. **Copy:** `pg_dump --no-owner --no-acl` as a separate dump role, then restore as `substrate_owner`.
 4. **Grant:** run the grants script.
 5. **Verify** extensions and sequence values, and compare per-table row counts and checksums.
 6. **Switch:** set the Vercel `DATABASE_URL` and `DATABASE_MIGRATION_URL`, then redeploy production so the new environment takes effect.
 7. **Post-check:** an Exomem admission dry run, an Endstate backup read, and a Paddle webhook replay against the new database.
-8. **Retain** Neon, read-only, as the rollback until retirement.
+8. **Retain** Neon, locked out and read-only, as the rollback until retirement. Rolling back re-enables the application roles.
 
 ## Shared contracts with Exomem
 

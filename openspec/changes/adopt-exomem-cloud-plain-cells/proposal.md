@@ -20,7 +20,7 @@ Neon is replaced by our own Postgres.
 
 ## What Changes
 
-- **Admission.** An invite, a session, an entitlement and a capacity check create a tenant and an `exomem_cloud_cells` row with `desired_state = running`. No live-target, cohort or contract predicate participates.
+- **Admission.** An invite, a session, an entitlement and a capacity check create a tenant and an `exomem_cloud_cells` row: `running` for a complimentary invite, `stopped` until checkout for a paid one. No live-target, cohort or contract predicate participates.
 - **OAuth client admission.** It keeps the approved CIMD host allowlist, redirect validation and client enablement, and drops the cohort `EXISTS` and reviewer-credential branches for Cloud.
 - **Pass-through gateway.** It runs in the Exomem cluster from `src/exomem-gateway`. It authenticates the OAuth access token, derives the tenant and cell from the principal, and streams MCP bytes to the cell with the derived per-cell bearer. It keeps rate limits, concurrency guards and content-free telemetry. It does no contract fetch, digest comparison or private command routing.
 - **Lifecycle as desired state.** Suspension, resumption and deletion become writes to the row's desired state. The in-cluster controller converges them, so Cloud cells need no provisioner calls, no reconciler lease and no fence.

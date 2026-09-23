@@ -8,7 +8,8 @@ Redeeming a valid Cloud invite SHALL create the tenant, its entitlement and one 
 - Admission MUST NOT depend on a live cohort, contract candidate, rollout assignment, client artifact, capacity-pool reservation or any existing cell.
 - The capacity check SHALL run before any write-bearing statement, under a transaction-scoped lock.
 - When capacity is exhausted, admission SHALL answer with a typed, retryable refusal that leaves the invite unconsumed.
-- A row whose tenant is still awaiting checkout after 7 days SHALL be set to `deleted`.
+- A paid invite's row SHALL hold its capacity slot from redemption, so activation SHALL NOT require a second capacity check.
+- A tenant still awaiting checkout after 7 days SHALL be expired: its pending provider transaction is cancelled and its row set to `deleted`. If the provider reports the transaction already completed, the tenant SHALL be activated instead.
 
 #### Scenario: First user on an empty fleet
 
@@ -30,12 +31,17 @@ Redeeming a valid Cloud invite SHALL create the tenant, its entitlement and one 
 
 - **WHEN** a paid invite is redeemed and checkout has not completed
 - **THEN** the cell row has `desired_state = stopped`, and no cell resources exist for it
-- **AND** the row becomes `running` when checkout activates the entitlement
+- **AND** the row becomes `running` when checkout activates the entitlement, even if the fleet has since filled
 
 #### Scenario: Unpaid invite expires
 
-- **WHEN** a tenant remains awaiting checkout for 7 days
+- **WHEN** a tenant remains awaiting checkout for 7 days and its pending transaction is cancelled
 - **THEN** its cell row's `desired_state` becomes `deleted`, releasing the slot
+
+#### Scenario: Payment completes as the invite expires
+
+- **WHEN** expiry finds that the provider has already completed the tenant's transaction
+- **THEN** the row is not deleted, and the activation webhook sets it `running`
 
 ### Requirement: Cloud OAuth clients are admitted by approved host, not by cohort
 
@@ -116,7 +122,8 @@ It SHALL answer with a typed 502 `CELL_AUTH_MISMATCH` when the cell rejects the 
 Every lifecycle transition of a Cloud tenant SHALL be expressed only as an update to its cell row's `desired_state`, and each update SHALL increment `generation` and notify the controller. The mapping from the effective entitlement SHALL be:
 
 - `running` while writes are allowed (active, trialing, complimentary active);
-- `read_only` while reads are allowed and writes are denied (grace, provider-paused, cancelled);
+- `read_only` while reads are allowed and writes are denied (grace, provider-paused);
+- `read_only` for a bounded export window after cancellation, then `deleted`;
 - `stopped` while reads are denied (manually suspended, complimentary revoked);
 - `deleted` on account deletion.
 
@@ -131,6 +138,11 @@ The control plane MUST NOT call a provisioner, claim a lifecycle lease or hold a
 
 - **WHEN** a `read_only` tenant's payment succeeds
 - **THEN** its cell row's `desired_state` becomes `running`
+
+#### Scenario: Cancelled tenant's export window ends
+
+- **WHEN** a cancelled tenant's export window ends without a resubscription
+- **THEN** its cell row's `desired_state` becomes `deleted`
 
 #### Scenario: Manual suspension
 
@@ -185,8 +197,10 @@ Migrations SHALL run as the schema-owning role, through a separate migration con
 
 The gateway and controller roles SHALL receive only the privileges their contracts name:
 
-- the gateway may write rate-limit buckets;
-- the controller may write only the observed columns of the cell rows.
+- the gateway may write rate-limit buckets, and may read only the routing columns of cell rows;
+- the controller may write only the observed columns of cell rows, capacity rows, and the rollout row's pause, error, held-cell and last-good-image fields.
+
+Migrations SHALL connect through a session-mode pool.
 
 Grants SHALL live in an idempotent script, applied after migrations and after any restore.
 
@@ -202,9 +216,9 @@ Grants SHALL live in an idempotent script, applied after migrations and after an
 
 ### Requirement: Cutover from the managed database loses no write
 
-The cutover SHALL freeze the source database against writes before the dump, so that a late write fails instead of being silently lost. The cutover SHALL verify per-table row counts and checksums before switching traffic, and SHALL keep the source read-only as the rollback until retirement.
+The cutover SHALL lock every application role out of the source database before the dump, so that a late write fails instead of being silently lost. A session-level read-only default alone SHALL NOT count as the freeze. The cutover SHALL verify per-table row counts and checksums before switching traffic, and SHALL keep the source read-only as the rollback until retirement.
 
 #### Scenario: A consumer writes during the window
 
-- **WHEN** any consumer attempts a write to the source database after the freeze
+- **WHEN** any consumer attempts a write to the source database after the freeze, including one that overrides the read-only default
 - **THEN** the write fails, and the new database is not missing an acknowledged write

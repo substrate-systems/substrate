@@ -16,16 +16,16 @@
   - C1 with every desired and observed column, the partial unique index on `tenant_id` for non-deleted rows, and the generation trigger with `pg_notify`;
   - C1b `exomem_cloud_settings`, C1c `exomem_cloud_capacity` and C1d `exomem_cloud_rollout` (one row, id 1).
   Test the trigger, the index and the constraint checks against real Postgres.
-- [ ] 3.2 Add `scripts/exomem-cloud-grants.sql` and wire it into the migration runner after migrations, when the roles exist (D7). Run migrations through `DATABASE_MIGRATION_URL`. Test against real Postgres that:
-  - the controller role can write only observed columns;
-  - the gateway role can write only rate-limit buckets;
+- [ ] 3.2 Add `scripts/exomem-cloud-grants.sql` and wire it into the migration runner after migrations, when the roles exist (D7). The script implements exactly the C1 privilege table in the Exomem design. Run migrations through `DATABASE_MIGRATION_URL` on PgBouncer's session-mode alias. Test against real Postgres that:
+  - the controller role can write only C1 observed columns, C1c, and the C1d fields it owns, and cannot write desired columns or C1b;
+  - the gateway role can read only C1 routing columns and write only rate-limit buckets;
   - a second run changes nothing.
 - [ ] 3.3 Write red-first admission tests against real Postgres covering:
   - the first invite on an empty fleet;
   - capacity exhausted with the invite unconsumed;
   - concurrent redemption at the last free slot;
-  - a paid invite before checkout (`stopped`), activation (`running`) and the full-fleet refusal at activation;
-  - the 7-day expiry of unpaid rows.
+  - a paid invite before checkout (`stopped`), and activation to `running` with no second capacity check, even on a full fleet;
+  - the 7-day expiry: the pending provider transaction is cancelled and the row deleted, or, when the provider reports it completed, the row is left for activation.
 - [ ] 3.4 Implement Cloud admission (D1) under `EXOMEM_CLOUD_ENABLED`, without `exomem_capacity_pools`
 - [ ] 3.5 Implement Cloud OAuth client admission and exact-resource token binding (D2). Test an empty cohort with an approved CIMD host, and cross-resource token refusal in both directions
 - [ ] 3.6 Implement the gateway Cloud handler and protected-resource metadata (D3). Test against a real cell process for:
@@ -36,12 +36,12 @@
   - `CELL_NOT_READY` for a stopped cell and for an unreachable one;
   - `CELL_AUTH_MISMATCH` on a cell 401;
   - IP rate limits keyed on the ingress-recorded client address, and identity limits.
-- [ ] 3.7 Map every effective entitlement to desired state per the D4 table, including `read_only` for grace, provider-paused and cancelled, and test each transition and its generation bump
+- [ ] 3.7 Map every effective entitlement to desired state per the D4 table, including `read_only` for grace and provider-paused, and the cancelled export window followed by `deleted`. Test each transition and its generation bump, and resubscription within the window. State the window on the terms page and in the cancellation email
 - [ ] 3.8 Add the owner-only release route (D5): set `cell_image`, clear a paused rollout, set or clear a row's `desired_image`, and an operator view of observed cell state, rollout state and capacity. Test the non-owner refusal
 
 ## 4. Cutover and acceptance (P4)
 
-- [ ] 4.1 Write the cutover runbook and script (D8): consumer inventory, Neon read-only freeze, `pg_dump --no-owner --no-acl`, restore as `substrate_owner`, grants script, per-table counts and checksums, `DATABASE_URL` and `DATABASE_MIGRATION_URL` switch with a production redeploy, and post-checks. Rehearse it against a disposable copy
+- [ ] 4.1 Write the cutover runbook and script (D8): consumer inventory, Neon lockout (`NOLOGIN` and password rotation for every application role, session termination, then the read-only default), `pg_dump --no-owner --no-acl` as a separate dump role, restore as `substrate_owner`, grants script, per-table counts and checksums, `DATABASE_URL` and `DATABASE_MIGRATION_URL` switch with a production redeploy, and post-checks. Rehearse it against a disposable copy
 - [ ] 4.2 After the Exomem control server is up, run the cutover in a maintenance window, and keep Neon read-only as the rollback
 - [ ] 4.3 Enable `EXOMEM_CLOUD_ENABLED`, and run owner acceptance with the Exomem change's task 6.3
 
