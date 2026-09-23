@@ -1,5 +1,5 @@
-import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { Pool, type PoolClient } from "pg";
+import { sql as pgSql } from "../db/pg-sql";
 import { exomemErrors } from "./errors";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 // Type-only in the other direction, so this pair does not form a runtime cycle.
@@ -20,7 +20,6 @@ export type ExomemSql = (
   ...values: unknown[]
 ) => Promise<ExomemSqlResult>;
 
-let sqlClient: ExomemSql | null = null;
 let injectedSqlClient: ExomemSql | null = null;
 let transactionPool: Pool | null = null;
 
@@ -49,16 +48,7 @@ let transactionClient:
 
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<ExomemSqlResult> {
   if (injectedSqlClient) return injectedSqlClient(strings, ...values);
-  if (!sqlClient) {
-    const databaseUrl = process.env.DATABASE_URL;
-    if (!databaseUrl) throw new Error("DATABASE_URL is not set");
-    const client: NeonQueryFunction<false, true> = neon(databaseUrl, {
-      fullResults: true,
-    });
-    sqlClient = (queryStrings, ...queryValues) =>
-      client(queryStrings, ...queryValues) as Promise<ExomemSqlResult>;
-  }
-  return sqlClient(strings, ...values);
+  return pgSql(strings, ...values);
 }
 
 export function __setExomemSqlForTests(next: ExomemSql | null): void {
@@ -121,8 +111,9 @@ export function executeExomemSql(
 
 /**
  * Execute dependent reads and writes on one PostgreSQL connection. The normal
- * read/write path remains Neon HTTP; only flows that need row-lock ordering use
- * this interactive transaction boundary.
+ * read/write path is the shared `pg`-backed adapter's pooled one-off queries;
+ * only flows that need row-lock ordering use this interactive transaction
+ * boundary.
  */
 export async function withExomemTransaction<T>(
   callback: (tx: ExomemSql) => Promise<T>

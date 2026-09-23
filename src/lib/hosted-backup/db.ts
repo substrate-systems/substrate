@@ -1,12 +1,11 @@
 /**
- * Neon Postgres queries for Hosted Backup auth.
+ * PostgreSQL queries for Hosted Backup auth, via the shared `pg`-backed
+ * adapter in `src/lib/db/pg-sql.ts`.
  * Mirrors the lazy-singleton, template-literal pattern in `src/lib/license/db.ts`.
  */
 
-import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { sql as pgSql, transaction as pgTransaction } from "../db/pg-sql";
 import type { KdfParams, SubscriptionStatus } from "./types";
-
-let _sql: NeonQueryFunction<false, true> | null = null;
 
 export type HostedBackupSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -22,12 +21,7 @@ let _injectedSql: HostedBackupSql | null = null;
 
 function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<HostedBackupSqlResult> {
   if (_injectedSql) return _injectedSql(strings, ...values);
-  if (!_sql) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
-    _sql = neon(url, { fullResults: true });
-  }
-  return _sql(strings, ...values) as Promise<HostedBackupSqlResult>;
+  return pgSql(strings, ...values);
 }
 
 /**
@@ -35,7 +29,7 @@ function sql(strings: TemplateStringsArray, ...values: unknown[]): Promise<Hoste
  * integration suite point these queries at a real Postgres (via a `pg` pool
  * wrapped in the same tagged-template shape) so the SQL in this file — not a
  * copy of it, and not a mock standing in for it — is what gets exercised.
- * Pass `null` to restore the Neon client.
+ * Pass `null` to restore the default client.
  */
 export function __setHostedBackupSqlForTests(next: HostedBackupSql | null): void {
   _injectedSql = next;
@@ -224,13 +218,8 @@ export async function recoverFinalizeAtomic(params: {
   kdfParams: KdfParams;
   wrappedDek: Uint8Array;
 }): Promise<{ tokenAlreadyUsed: boolean }> {
-  if (!_sql) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
-    _sql = neon(url, { fullResults: true });
-  }
   try {
-    await _sql.transaction((tx) => [
+    await pgTransaction((tx) => [
       tx`
         INSERT INTO recovery_tokens_used (jti, user_id)
         VALUES (${params.jti}, ${params.userId})
@@ -859,8 +848,8 @@ export type BackupVersionOperationRow = {
 
 /**
  * The version-visibility rule (contract §8), stated once here because it is
- * repeated inline in every read query below — Neon's tagged-template client
- * has no way to compose a SQL fragment, so the predicate is written out each
+ * repeated inline in every read query below — this module's tagged-template
+ * client has no way to compose a SQL fragment, so the predicate is written out each
  * time rather than built by string concatenation.
  *
  *     deleted_at IS NULL
