@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import {
   comparePaddleRevisions,
   dispatchVerifiedExomemPaddleEvent,
   mapPaddleSubscriptionState,
   type AtomicExomemPaddleEventStore,
+  type CloudPaddleHook,
   type ExomemPaddleEventApplication,
   type ExomemPaddleStoreResult,
 } from "../paddle-webhook";
@@ -314,6 +315,65 @@ describe("Exomem Paddle webhook dispatcher", () => {
     assert.equal(store.projection?.sourceState, "paused");
   });
 
+  // Item 2 / tasks 3.4 & 3.7: the post-commit Cloud hook (activateCloudCellOnCheckoutAtomic +
+  // reconcileCloudCellDesiredState) runs exactly once per authoritative event.
+  // The store's own outcome -- "applied" exactly once per genuine change,
+  // "duplicate" on redelivery, "stale" on an event that arrives out of order
+  // behind a newer one -- is the only idempotency logic this hook relies on,
+  // so this proves it end to end through the real dispatcher rather than
+  // through the hook function in isolation. Before dispatchVerifiedExomemPaddleEvent
+  // calls the injected hook at all, hookCalls stays empty and this fails at
+  // the very first assertion.
+  it("calls the Cloud post-commit hook exactly once per authoritative event, never on duplicate or stale redelivery", async () => {
+    const store = new MemoryAtomicStore();
+    const hookCalls: ExomemPaddleEventApplication[] = [];
+    const cloudHook: CloudPaddleHook = async (application) => {
+      hookCalls.push(application);
+    };
+
+    const first = await dispatchVerifiedExomemPaddleEvent(event(), {
+      env: env(),
+      store,
+      cloudHook,
+    });
+    assert.deepEqual(first, { kind: "handled", outcome: "applied" });
+    assert.equal(hookCalls.length, 1);
+    assert.equal(hookCalls[0]!.correlation.tenantId, TENANT_ID);
+
+    // Same event redelivered by Paddle: the store answers "duplicate" and the
+    // hook must not run a second time.
+    const replay = await dispatchVerifiedExomemPaddleEvent(event(), {
+      env: env(),
+      store,
+      cloudHook,
+    });
+    assert.deepEqual(replay, { kind: "handled", outcome: "duplicate" });
+    assert.equal(hookCalls.length, 1);
+
+    // An older event for the same tenant arriving after a newer one: "stale",
+    // no additional hook call -- the store's own revision ordering is what
+    // this hook leans on for idempotency, not any logic of its own.
+    const stale = await dispatchVerifiedExomemPaddleEvent(
+      event({ event_id: "evt_exomem_0_earlier", occurred_at: "2026-07-12T09:00:00.000Z" }),
+      { env: env(), store, cloudHook }
+    );
+    assert.deepEqual(stale, { kind: "handled", outcome: "stale" });
+    assert.equal(hookCalls.length, 1);
+
+    // A genuinely new, later, distinct authoritative change: exactly one more
+    // hook call.
+    const next = await dispatchVerifiedExomemPaddleEvent(
+      event({
+        event_id: "evt_exomem_2_later",
+        event_type: "subscription.paused",
+        occurred_at: "2026-07-12T11:00:00.000Z",
+      }),
+      { env: env(), store, cloudHook }
+    );
+    assert.deepEqual(next, { kind: "handled", outcome: "applied" });
+    assert.equal(hookCalls.length, 2);
+  });
+
   it("never lets a newer provider event clear manual suspension", async () => {
     const store = new MemoryAtomicStore();
     await dispatchVerifiedExomemPaddleEvent(event(), { env: env(), store });
@@ -368,5 +428,131 @@ describe("Exomem Paddle webhook dispatcher", () => {
       }
     );
     assert.equal(store.calls, 0);
+  });
+});
+
+// Item 2 / tasks 3.4 & 3.7: the real (non-injected) default Cloud hook --
+// flag gating and reconcile-driven active/trialing "checkout completed"
+// handling -- rather than the dispatcher's exactly-once invocation contract
+// proved above.
+//
+// Security review finding 13: there is no separate "activate on checkout"
+// call any more. reconcileCloudCellDesiredState alone maps an active/trialing
+// entitlement to `running`, so activateCloudCellOnCheckoutAtomic was deleted
+// and this suite no longer mocks or asserts on it.
+describe("Exomem Paddle webhook default Cloud post-commit hook", () => {
+  let reconcileCalls: string[] = [];
+  let cancellationNoticeCalls: Array<{ tenantId: string; sourceOccurredAt: Date }> = [];
+
+  before(() => {
+    mock.module("@/lib/exomem-hosted/cloud-lifecycle", {
+      namedExports: {
+        reconcileCloudCellDesiredState: async (tenantId: string) => {
+          reconcileCalls.push(tenantId);
+          return "running";
+        },
+      },
+    });
+    // Item 5 / task 3.7: a distinct fake from the one above -- if the hook
+    // never called this at all, cancellationNoticeCalls would stay empty
+    // even on a "cancelled" event, and the flag-on test below would fail on
+    // that assertion.
+    mock.module("@/lib/exomem-hosted/cloud-cancellation-notice", {
+      namedExports: {
+        sendCloudCancellationNoticeOnce: async (tenantId: string, sourceOccurredAt: Date) => {
+          cancellationNoticeCalls.push({ tenantId, sourceOccurredAt });
+          return true;
+        },
+      },
+    });
+  });
+
+  after(() => mock.reset());
+
+  beforeEach(() => {
+    reconcileCalls = [];
+    cancellationNoticeCalls = [];
+    delete process.env.EXOMEM_CLOUD_ENABLED;
+  });
+
+  afterEach(() => {
+    delete process.env.EXOMEM_CLOUD_ENABLED;
+  });
+
+  it("flag off: never imports or calls either Cloud function", async () => {
+    const store = new MemoryAtomicStore();
+    const result = await dispatchVerifiedExomemPaddleEvent(event(), { env: env(), store });
+    assert.deepEqual(result, { kind: "handled", outcome: "applied" });
+    assert.equal(reconcileCalls.length, 0);
+    assert.equal(cancellationNoticeCalls.length, 0);
+  });
+
+  it("flag on: an active/trialing checkout event reconciles the cell; other entitlement events reconcile too", async () => {
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    const store = new MemoryAtomicStore();
+
+    const activation = await dispatchVerifiedExomemPaddleEvent(event(), { env: env(), store });
+    assert.deepEqual(activation, { kind: "handled", outcome: "applied" });
+    assert.deepEqual(reconcileCalls, [TENANT_ID]);
+
+    const paused = await dispatchVerifiedExomemPaddleEvent(
+      event({
+        event_id: "evt_exomem_paused",
+        event_type: "subscription.paused",
+        occurred_at: "2026-07-12T12:00:00.000Z",
+      }),
+      { env: env(), store }
+    );
+    assert.deepEqual(paused, { kind: "handled", outcome: "applied" });
+    // Every authoritative event reconciles, whether it's a fresh checkout or
+    // a later transition -- reconcileCloudCellDesiredState is the only thing
+    // that ever moves the cell towards running.
+    assert.deepEqual(reconcileCalls, [TENANT_ID, TENANT_ID]);
+    // Not a cancellation either.
+    assert.equal(cancellationNoticeCalls.length, 0);
+  });
+
+  it("flag on: a cancellation event sends the cancellation notice keyed on the event's own occurredAt; other entitlement events do not", async () => {
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    const store = new MemoryAtomicStore();
+
+    const cancelled = await dispatchVerifiedExomemPaddleEvent(
+      event({
+        event_id: "evt_exomem_cancelled",
+        event_type: "subscription.canceled",
+        occurred_at: "2026-07-12T12:00:00.000Z",
+      }),
+      { env: env(), store }
+    );
+    assert.deepEqual(cancelled, { kind: "handled", outcome: "applied" });
+    assert.equal(cancellationNoticeCalls.length, 1);
+    assert.equal(cancellationNoticeCalls[0]!.tenantId, TENANT_ID);
+    assert.equal(
+      cancellationNoticeCalls[0]!.sourceOccurredAt.toISOString(),
+      "2026-07-12T12:00:00.000Z"
+    );
+    assert.deepEqual(reconcileCalls, [TENANT_ID]);
+
+    const paused = await dispatchVerifiedExomemPaddleEvent(
+      event({
+        event_id: "evt_exomem_paused_2",
+        event_type: "subscription.paused",
+        occurred_at: "2026-07-12T13:00:00.000Z",
+      }),
+      { env: env(), store }
+    );
+    assert.deepEqual(paused, { kind: "handled", outcome: "applied" });
+    // Unchanged: still exactly the one cancellation call above.
+    assert.equal(cancellationNoticeCalls.length, 1);
+  });
+
+  it("flag off: a cancellation event never calls the cancellation notice", async () => {
+    const store = new MemoryAtomicStore();
+    const cancelled = await dispatchVerifiedExomemPaddleEvent(
+      event({ event_type: "subscription.canceled" }),
+      { env: env(), store }
+    );
+    assert.deepEqual(cancelled, { kind: "handled", outcome: "applied" });
+    assert.equal(cancellationNoticeCalls.length, 0);
   });
 });

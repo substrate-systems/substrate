@@ -25,6 +25,7 @@ import {
   type InstallAction,
   createSingleFlight,
   nextStatusPollDelayMs,
+  parseCloudConnectorUrl,
   parseInstallActions,
   parseLifecycleResponse,
 } from "./home-state";
@@ -164,6 +165,11 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
     portalAvailable: boolean;
   } | null>(null);
   const [installActions, setInstallActions] = useState<InstallAction[]>([]);
+  // Item 6 / task 3.7: null until /api/exomem/status returns one (only ever
+  // happens under EXOMEM_CLOUD_ENABLED) -- flag off, this never leaves null
+  // and every render below falls through to the hosted `serverUrl` prop
+  // exactly as before.
+  const [cloudConnectorUrl, setCloudConnectorUrl] = useState<string | null>(null);
   const [urlCopied, setUrlCopied] = useState(false);
   const [promLevel, setPromLevel] = useState<PromLevel>(DEFAULT_PROM_LEVEL);
   const [instructionsCopied, setInstructionsCopied] = useState(false);
@@ -180,6 +186,8 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
       const response = await getPrivateJson("/api/exomem/status");
       const next = parseLifecycleResponse(response);
       if (!next) throw new Error("invalid status");
+      const connectorUrl = parseCloudConnectorUrl(response);
+      if (connectorUrl) setCloudConnectorUrl(connectorUrl);
       return next;
     } catch (error) {
       if (error instanceof HostedBrowserError && error.status === 401) throw error;
@@ -572,6 +580,11 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
   }
 
   const sections = homeSections();
+  // Item 6 / task 3.7: the Cloud connector URL, when /api/exomem/status has
+  // returned one, replaces the hosted `serverUrl` prop everywhere it is
+  // shown -- the same MCP server address concept, pointed at the tenant's
+  // Cloud cell instead of the shared hosted MCP endpoint.
+  const effectiveServerUrl = cloudConnectorUrl ?? serverUrl;
 
   async function copyInstructions() {
     try {
@@ -586,7 +599,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
 
   async function copyServerUrl() {
     try {
-      await navigator.clipboard.writeText(serverUrl);
+      await navigator.clipboard.writeText(cloudConnectorUrl ?? serverUrl);
       setUrlCopied(true);
       window.setTimeout(() => mountedRef.current && setUrlCopied(false), 2000);
     } catch {
@@ -612,7 +625,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
 
         <p className={styles.connectLabel}>Step 1 · Your Exomem server address</p>
         <p className={styles.serverUrl}>
-          <span className={styles.serverUrlValue}>{serverUrl}</span>
+          <span className={styles.serverUrlValue}>{effectiveServerUrl}</span>
           <button className={styles.quietButton} type="button" onClick={() => void copyServerUrl()}>
             {urlCopied ? "Copied" : "Copy"}
           </button>
@@ -694,7 +707,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
                 </div>
                 {guide.commands && !action ? (
                   <pre className={styles.connectCommands}>
-                    <code>{guide.commands(serverUrl)}</code>
+                    <code>{guide.commands(effectiveServerUrl)}</code>
                   </pre>
                 ) : null}
               </div>

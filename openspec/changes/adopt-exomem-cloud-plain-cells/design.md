@@ -41,7 +41,9 @@ The `exomem_capacity_pools` reservation is not used for Cloud.
   1. Expiry first cancels the tenant's pending provider transaction.
   2. If the provider reports the transaction already completed, expiry does nothing and the activation webhook proceeds as usual.
   3. Otherwise the row is set to `deleted`.
-  No payment can complete without a cell.
+  No payment can complete without a cell. While a tenant has no non-deleted cell row, checkout is refused. A new invite re-admits that tenant under the same capacity check and creates a new row.
+- **Pre-payment rows belong to D1, not D4.** The periodic D4 sweep skips a row whose tenant is still `awaiting_checkout` or `checkout_pending`. An entitlement state the mapping does not recognise yields `stopped`, never a state that allows reads.
+- **Activation is D4's job.** A completed checkout makes the entitlement active, and the D4 reconcile then moves the row to `running`. There is no separate activation call.
 
 The OAuth invite path follows the same order.
 
@@ -55,7 +57,13 @@ The OAuth invite path follows the same order.
 
 The whole-cohort `EXISTS` and the reviewer-credential branch do not apply to the Cloud resource.
 
-The Cloud MCP resource is a distinct configured URL, `EXOMEM_CLOUD_MCP_URL`. Tokens are bound to it by **exact resource equality**, as hosted tokens already are. A hosted-resource token is never accepted on the Cloud path, and a Cloud-resource token is never accepted on the hosted path. Cloud-resource tokens are issued only when the principal owns a non-deleted cell row.
+The Cloud MCP resource is a distinct configured URL, `EXOMEM_CLOUD_MCP_URL`. Tokens are bound to it by **exact resource equality**, as hosted tokens already are. A hosted-resource token is never accepted on the Cloud path, and a Cloud-resource token is never accepted on the hosted path. Cloud-resource tokens are issued, at code exchange and at refresh, only when the principal owns a non-deleted cell row.
+
+**Scopes.** A cell sees one fixed non-owner principal and cannot enforce a read-only grant. A Cloud-resource grant therefore always carries both `exomem.read` and `exomem.write`:
+- An authorization request for the Cloud resource that omits `scope` receives both.
+- A request naming only a subset is refused with `invalid_scope`, whose description says Exomem Cloud needs both.
+- The gateway refuses a token lacking either scope with 403 `INSUFFICIENT_SCOPE`.
+Per-token read-only access is deferred. It would need a C3 request flag that the cell enforces.
 
 ### D3. The gateway is a pass-through
 
@@ -63,14 +71,15 @@ The Cloud MCP resource is a distinct configured URL, `EXOMEM_CLOUD_MCP_URL`. Tok
 
 1. Answers `GET` with 405, as hosted does.
 2. Rejects forbidden selector headers.
-3. Applies the IP rate limit, keyed on the client address our own Traefik ingress records. The header is trusted only on connections arriving from Traefik.
-4. Parses the bearer, looks up the access token for the Cloud resource, and applies identity rate limits and concurrency guards. Rate-limit buckets are the existing upserted table, so the gateway role can write them.
+3. Applies the IP rate limit, keyed on `X-Real-Ip`. Our own Traefik overwrites that header, and a NetworkPolicy admits only Traefik to the gateway (Exomem D11). If the request carries no client address, the IP bucket is skipped. It is never collapsed into one shared bucket, because a single sender could then rate-limit every user. The identity limit and the in-flight cap still apply.
+4. Parses the bearer, looks up the access token for the Cloud resource, requires both scopes (D2), and applies identity rate limits and concurrency guards. A per-identity concurrency slot is held until the relayed response body ends, errors or is cancelled, not merely until headers arrive. Rate-limit buckets are the existing upserted table, so the gateway role can write them.
 5. Resolves the principal's tenant and cell row. It proxies only while `desired_state` is `running` or `read_only`, and answers 503 `CELL_NOT_READY` otherwise. It gates on desired state, not on the eventually consistent `ready` column.
 6. Derives the cell bearer from `EXOMEM_CLOUD_CELL_TOKEN_KEY` (contract C4).
 7. Streams to the cell per contract C3:
    - it forwards only `content-type`, `accept`, `mcp-session-id` and `mcp-protocol-version`, and adds `x-request-id`;
    - an upstream connect failure maps to 503 `CELL_NOT_READY`;
-   - a cell 401 maps to 502 `CELL_AUTH_MISMATCH`.
+   - a cell 401 maps to 502 `CELL_AUTH_MISMATCH`;
+   - it sends `accept-encoding: identity` upstream, and relays only the response headers `content-type`, `mcp-session-id` and `mcp-protocol-version`, setting its own `cache-control`. The cell's `cell_id` is validated against the C1 format before it is used in a URL or HMAC.
 
 Responses are `private, no-store`. Telemetry stays content-free. The gateway image keeps the existing main-only publish workflow, and the Exomem platform chart consumes it by digest.
 
@@ -82,16 +91,16 @@ Every lifecycle transition is an `UPDATE` of `desired_state`. The C1 trigger bum
 |---|---|---|
 | `active`, `trialing`, complimentary active | allow / allow | `running` |
 | `grace` (`past_due`), provider `paused` | allow / deny | `read_only` |
-| `cancelled` | allow / deny | `read_only` for a 30-day export window (`EXOMEM_CLOUD_CANCELLED_RETENTION_DAYS`), then `deleted` |
+| `cancelled` | allow / deny | `read_only` for a fixed 30-day export window from the cancellation's `source_occurred_at`, then `deleted` |
 | `suspended` (manual), complimentary revoked | deny / deny | `stopped` |
 | Tenant `awaiting_checkout` (no entitlement yet) | no cell | `stopped`, then `deleted` after 7 days |
 | Account deletion | — | `deleted`; only a content-free receipt remains once cellctl reports `deleted` |
 
-Export for read-only tenants uses the operator export runbook (Exomem D8) until a self-serve export exists. The cancelled-tenant export window is stated on the public terms page, and the cancellation email names its end date. Resubscribing within the window returns the row to `running`. Cloud cells get no lifecycle operation, reconciler claim, fence or provisioner call. The existing v1 queue stays dormant for legacy rows until retirement.
+Export for read-only tenants uses the operator export runbook (Exomem D8) until a self-serve export exists. The cancelled-tenant export window is a constant, not a setting, so the terms page, the email and the deletion always agree. The terms page states it. The cancellation email names its end date, computed exactly as the deletion is. The email is sent at most once per cancellation: a failed send releases its claim and is logged, and a return to `running` clears the claim so a later cancellation is noticed again. Resubscribing within the window returns the row to `running`. Cloud cells get no lifecycle operation, reconciler claim, fence or provisioner call. The existing v1 queue stays dormant for legacy rows until retirement.
 
 ### D5. The release is one setting
 
-An owner-only admin route sets `exomem_cloud_settings.cell_image`. The same route can:
+An owner-only admin route sets `exomem_cloud_settings.cell_image`. Every image it accepts, for the setting or for a row, must be exactly `<configured cell repository>@sha256:<64 lowercase hex>`. Anything else is refused as an invalid request. The same route can:
 
 - clear a paused `exomem_cloud_rollout`;
 - set or clear a single row's `desired_image`;
@@ -115,8 +124,10 @@ The four modules and `scripts/generate-jwt-keypair.ts` switch to it, and `@neond
 - **Migrations** run as `substrate_owner`, through `DATABASE_MIGRATION_URL` in the build-time migration step. That URL names PgBouncer's session-mode alias, because `scripts/migrate.ts` holds a session-level advisory lock that transaction pooling would leak.
 - **The application** runs as `substrate_app`, which is not the schema owner.
 - **Grants** live in `scripts/exomem-cloud-grants.sql` and are idempotent. The migration runner applies them after migrations whenever the roles exist, and the cutover applies them after restore. They are not buried in a migration that ran on a database where the roles did not yet exist.
+- **Application:** `substrate_app` receives `SELECT`, `INSERT`, `UPDATE` and `DELETE` on every table in the `public` schema, and `USAGE` and `SELECT` on every sequence. `ALTER DEFAULT PRIVILEGES FOR ROLE substrate_owner` extends the same grants to tables and sequences created by later migrations. The cutover restores with `--no-acl`, so without these grants the website, OAuth, Paddle and Endstate would all lose access to their tables. The only exceptions are C1 through C1d.
 - **Gateway:** `exomem_gateway` receives `SELECT` on the token, tenant and entitlement columns it reads, plus `INSERT`/`UPDATE` on `exomem_rate_limit_buckets`.
-- **Cloud tables:** every role's privileges on C1 through C1d are exactly the C1 privilege table in the Exomem design. This script is its single implementation.
+- **Cloud tables:** every role's privileges on C1 through C1d are exactly the C1 privilege table in the Exomem design. The script revokes `substrate_app`'s schema-wide grants on those four tables and then applies the exact table. That makes the script the single implementation of the C1 table, and a rerun converges to the same state.
+- **Proof as the real roles.** Tests that connect as a superuser cannot see a missing grant. A real-Postgres test applies every migration and the script, then checks as `substrate_app` that every `public` table except C1 through C1d accepts all four operations, that every sequence is usable, and that C1 through C1d match the C1 table exactly. The local rehearsal runs Substrate as `substrate_app` and the gateway and cellctl as their own roles.
 
 ### D8. Cutover from Neon
 

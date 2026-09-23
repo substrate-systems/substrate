@@ -8,12 +8,12 @@ import {
 import {
   createOAuthContinuation,
   oauthConfirmationHandle,
+  resolveActiveOAuthClient,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import {
-  registerAdmittedCimdClient,
-  resolveApprovedOAuthClient,
-} from "@/lib/exomem-hosted/oauth-store";
+import { exomemCloudEnabled, loadExomemCloudConfig } from "@/lib/exomem-hosted/cloud-config";
+import { resolveCloudAuthorizationScope } from "@/lib/exomem-hosted/cloud-oauth";
+import { registerAdmittedCimdClient } from "@/lib/exomem-hosted/oauth-store";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import {
   clientAddressKey,
@@ -116,11 +116,13 @@ function callbackState(params: URLSearchParams): string | null {
 function authorizationError(
   redirectUri: string,
   state: string | null,
-  errorCode: "invalid_request" | "temporarily_unavailable"
+  errorCode: "invalid_request" | "invalid_scope" | "temporarily_unavailable",
+  errorDescription?: string
 ): NextResponse {
   try {
     const redirect = new URL(redirectUri);
     redirect.searchParams.set("error", errorCode);
+    if (errorDescription) redirect.searchParams.set("error_description", errorDescription);
     if (state !== null) redirect.searchParams.set("state", state);
     const response = NextResponse.redirect(redirect, 303);
     response.headers.set("cache-control", "no-store");
@@ -159,7 +161,14 @@ export async function GET(request: Request): Promise<NextResponse> {
     const clientId = parameter(url.searchParams, "client_id");
     if (!clientId || clientId.length > 2048) return error();
     stage = "client_resolution";
-    let client = await resolveApprovedOAuthClient(clientId);
+    // Item 4 / task 3.5 (design D2), and the lane C follow-up ruling:
+    // resolveActiveOAuthClient (oauth-continuity.ts) is the single flag-gated
+    // resolver shared by initial admission here and by every later
+    // re-validation of the continuation it mints. `registerAdmittedCimdClient`
+    // stays unconditional: it inserts into the same `exomem_oauth_clients` /
+    // admitted-CIMD-host tables that resolveApprovedCloudOAuthClient reads, so
+    // a fresh CIMD client still self-registers under either resolver.
+    let client = await resolveActiveOAuthClient(clientId);
     if (!client) {
       // A client we cannot admit may simply be one we have never met. Register it
       // when its host is allowlisted, then re-resolve so admission stays the single
@@ -175,7 +184,7 @@ export async function GET(request: Request): Promise<NextResponse> {
           clientAddressKey(request) ?? "unavailable"
         );
         if (registerAllowed && (await registerAdmittedCimdClient(clientId))) {
-          client = await resolveApprovedOAuthClient(clientId);
+          client = await resolveActiveOAuthClient(clientId);
         }
       } catch {
         client = null;
@@ -215,13 +224,39 @@ export async function GET(request: Request): Promise<NextResponse> {
     // code, and that nonce cookie is httpOnly.
     if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthAuthorizeClient, client.clientId)))
       return authorizationError(callback.redirectUri, callback.state, "temporarily_unavailable");
-    const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
+    // Cloud replaces the hosted resource entirely once the flag is on, same
+    // as client resolution above -- a misconfigured Cloud deployment throws
+    // ExomemCloudConfigurationError here, which the outer catch below turns
+    // into the bound client's temporarily_unavailable callback rather than a
+    // silent fall-through to the hosted resource.
+    const cloudEnabled = exomemCloudEnabled();
+    const resource = cloudEnabled
+      ? loadExomemCloudConfig().mcpUrl
+      : `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
+    // D2: a Cloud-resource grant always carries both exomem.read and
+    // exomem.write. An omitted scope receives both; a request naming only a
+    // subset is refused with invalid_scope before validateAuthorizationRequest
+    // ever runs, since that function's own subset-accepting rule is correct
+    // for the hosted resource and would otherwise silently under-grant here.
+    let scope = parameters.scope ?? "";
+    if (cloudEnabled) {
+      const resolved = resolveCloudAuthorizationScope(scope);
+      if (resolved === null) {
+        return authorizationError(
+          callback.redirectUri,
+          callback.state,
+          "invalid_scope",
+          "Exomem Cloud needs both exomem.read and exomem.write"
+        );
+      }
+      scope = resolved;
+    }
     const authorization = validateAuthorizationRequest({
       client: { clientId: client.clientId, redirectUris: client.redirectUris },
       resource,
       requestedResource: parameters.resource,
       redirectUri: parameters.redirect_uri,
-      scope: parameters.scope,
+      scope,
       state: parameters.state,
       codeChallenge: parameters.code_challenge,
       codeChallengeMethod: parameters.code_challenge_method,

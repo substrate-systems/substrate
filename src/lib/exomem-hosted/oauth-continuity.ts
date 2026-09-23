@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 import { NextResponse } from "next/server";
+import { exomemCloudEnabled } from "./cloud-config";
+import { resolveApprovedCloudOAuthClient } from "./cloud-oauth";
 import { mintAuthorizationCode, type AuthorizationCodeRecord } from "./oauth";
 import {
   createAuthorizationTransaction,
@@ -185,6 +187,29 @@ export function matchesOAuthConfirmationHandle(
   );
 }
 
+export type ApprovedOAuthContinuationClient = { clientId: string; redirectUris: string[] };
+
+// Lane C follow-up ruling: an OAuth continuation must be re-validated with
+// the same client resolver that admitted it at /authorize. EXOMEM_CLOUD_ENABLED
+// switches the live resolver everywhere a client is resolved for OAuth
+// purposes -- not only at initial admission (authorize/route.ts, which now
+// calls this same function) but at every later re-validation of an
+// already-minted continuation (the invite POST, /authorize/complete, and the
+// access-redeem routes, all of which call resolveOAuthContinuation below).
+// Before this fix, resolveOAuthContinuationToken always re-validated through
+// the hosted resolveApprovedOAuthClient, regardless of the flag -- so a
+// client that lost Cloud admission after its continuation was minted could
+// still pass re-validation if it happened to qualify under the hosted
+// resolver's whole-cohort or marketplace-reviewer-bootstrap OR-branches,
+// neither of which is supposed to apply to Cloud at all.
+export async function resolveActiveOAuthClient(
+  clientId: string
+): Promise<ApprovedOAuthContinuationClient | null> {
+  return exomemCloudEnabled()
+    ? resolveApprovedCloudOAuthClient(clientId)
+    : resolveApprovedOAuthClient(clientId);
+}
+
 export async function resolveOAuthContinuation(
   request: Request
 ): Promise<OAuthContinuation | null> {
@@ -233,7 +258,7 @@ export async function resolveOAuthContinuationToken(
     ) {
       return null;
     }
-    const client = await resolveApprovedOAuthClient(pending.clientId);
+    const client = await resolveActiveOAuthClient(pending.clientId);
     if (!client || !client.redirectUris.includes(pending.redirectUri)) return null;
     return { ...pending, state: value.state };
   } catch {

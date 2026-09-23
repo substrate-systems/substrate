@@ -69,6 +69,12 @@ export default function ExomemTermsPage() {
         verified account deletion at any time. Ending access does not erase information already sent
         to a third-party client; manage that information with the client provider.
       </p>
+      <p>
+        If you cancel an Exomem Cloud subscription, your data remains available in a read-only state
+        for 30 days after cancellation so you can export it. We will name the exact end date in the
+        cancellation email. If you resubscribe before that date, access is restored; after it, your
+        Cloud cell and its data are deleted.
+      </p>
 
       <h2>Intellectual property and feedback</h2>
       <p>

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   createSingleFlight,
   nextStatusPollDelayMs,
+  parseCloudConnectorUrl,
   parseInstallActions,
   parseLifecycleResponse,
 } from "../home-state";
@@ -72,6 +73,27 @@ describe("hosted Home lifecycle state", () => {
           installUrl: "https://claude.ai/plugins/exomem-hosted",
         },
       ]
+    );
+  });
+
+  it("accepts only a tenant-neutral HTTPS Cloud connector URL", () => {
+    assert.equal(
+      parseCloudConnectorUrl({ cloudConnectorUrl: "https://cloud.example.test/mcp/v1" }),
+      "https://cloud.example.test/mcp/v1"
+    );
+    assert.equal(parseCloudConnectorUrl({}), null);
+    assert.equal(parseCloudConnectorUrl({ cloudConnectorUrl: "not a url" }), null);
+    assert.equal(
+      parseCloudConnectorUrl({ cloudConnectorUrl: "http://cloud.example.test/mcp/v1" }),
+      null
+    );
+    assert.equal(
+      parseCloudConnectorUrl({ cloudConnectorUrl: "https://user:pass@cloud.example.test/mcp/v1" }),
+      null
+    );
+    assert.equal(
+      parseCloudConnectorUrl({ cloudConnectorUrl: "https://cloud.example.test/mcp/v1?tenant=1" }),
+      null
     );
   });
 

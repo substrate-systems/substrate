@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { exomemCloudEnabled, loadExomemCloudConfig } from "@/lib/exomem-hosted/cloud-config";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import {
   isPkceVerifier,
@@ -45,6 +46,7 @@ type TokenRejectionStage =
   | "refresh_fields"
   | "refresh_shape"
   | "refresh_rotation"
+  | "cloud_cell_missing"
   | "protocol_error"
   | "unhandled";
 
@@ -92,6 +94,61 @@ function invalidRequest(
   );
 }
 
+// Item 4 / task 3.5 (design D2): exact-resource binding, extended to admit
+// a second live resource rather than swapping the one hosted resource for a
+// Cloud one. A refresh token minted before EXOMEM_CLOUD_ENABLED was ever set
+// must keep rotating against the hosted resource regardless of the flag's
+// current value -- only /authorize's admission path is flag-switched
+// (item 4's authorize wiring); this endpoint has no "current path", only
+// codes and refresh credentials already bound to one resource or the other,
+// and it must keep validating whichever one each credential was minted for.
+// Misconfigured Cloud (flag on, config incomplete) is deliberately silent
+// here -- the resource then simply never matches, which is the same
+// invalid_request/invalid_grant response already returned for any other
+// mismatched resource.
+function resolveRequestedResource(
+  requested: string | undefined,
+  hostedResource: string
+): string | null {
+  if (requested === hostedResource) return hostedResource;
+  if (requested && exomemCloudEnabled()) {
+    try {
+      const cloudResource = loadExomemCloudConfig().mcpUrl;
+      if (requested === cloudResource) return cloudResource;
+    } catch {
+      // Cloud flagged on but unconfigured: fall through to the null return.
+    }
+  }
+  return null;
+}
+
+/**
+ * Security review finding 7: `resolveRequestedResource` returns either the
+ * hosted resource or, only when Cloud is enabled and configured, the Cloud
+ * one -- so any resource other than hosted here is the Cloud resource, and
+ * D2's cell-ownership requirement applies. Called after a mint has already
+ * succeeded but before its material is revealed to the caller: on refusal,
+ * the already-minted (but never revealed) token rows are simply orphaned,
+ * exactly as any other post-mint admission failure in this route already
+ * behaves for the caller.
+ */
+async function assertCloudTokenIssuancePermitted(
+  resource: string,
+  hostedResource: string,
+  grantId: string
+): Promise<boolean> {
+  if (resource === hostedResource) return true;
+  try {
+    const { assertGrantOwnsCloudCell } = await import("@/lib/exomem-hosted/cloud-oauth");
+    await assertGrantOwnsCloudCell(grantId);
+    return true;
+  } catch (error) {
+    const { CloudPrincipalHasNoCellError } = await import("@/lib/exomem-hosted/cloud-oauth");
+    if (error instanceof CloudPrincipalHasNoCellError) return false;
+    throw error;
+  }
+}
+
 function rateLimited(): NextResponse {
   return NextResponse.json(
     { error: "temporarily_unavailable" },
@@ -130,8 +187,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     if (!allowed) return rateLimited();
     const form = await readOAuthForm(request, TOKEN_FIELDS, { ignoreUnrecognized: true });
-    const resource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
+    const hostedResource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
     if (form.grant_type === "authorization_code") {
+      const resource = resolveRequestedResource(form.resource, hostedResource);
       if (
         !hasExactFields(form, [
           "grant_type",
@@ -145,13 +203,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         !form.client_id ||
         !form.redirect_uri ||
         !form.code_verifier ||
-        form.resource !== resource
+        resource === null
       )
         // The resource mismatch is the one a client gets wrong on its own, and it
         // is indistinguishable from a missing field without this.
         return invalidRequest("code_fields", {
           field_names: Object.keys(form).sort().join(",") || "none",
-          resource_matches: form.resource === resource,
+          resource_matches: resource !== null,
         });
       if (!tokenDigest(form.code) || !isPkceVerifier(form.code_verifier))
         return invalidGrant("code_shape", {
@@ -180,6 +238,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           client_id: form.client_id,
           redirect_uri: form.redirect_uri,
         });
+      if (!(await assertCloudTokenIssuancePermitted(resource, hostedResource, issued.grantId)))
+        return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
         ...(issued.refreshInserted ? { refreshToken: material.refreshToken!.reveal() } : {}),
@@ -187,15 +247,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
     }
     if (form.grant_type === "refresh_token") {
+      const resource = resolveRequestedResource(form.resource, hostedResource);
       if (
         !hasExactFields(form, ["grant_type", "refresh_token", "client_id", "resource"]) ||
         !form.refresh_token ||
         !form.client_id ||
-        form.resource !== resource
+        resource === null
       )
         return invalidRequest("refresh_fields", {
           field_names: Object.keys(form).sort().join(",") || "none",
-          resource_matches: form.resource === resource,
+          resource_matches: resource !== null,
         });
       const refreshDigest = tokenDigest(form.refresh_token);
       if (!refreshDigest) return invalidGrant("refresh_shape");
@@ -211,6 +272,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Rotation also answers null for a replayed refresh token, which revokes
       // the family -- so this line is the operator's only sight of a replay.
       if (!issued) return invalidGrant("refresh_rotation", { client_id: form.client_id });
+      if (!(await assertCloudTokenIssuancePermitted(resource, hostedResource, issued.grantId)))
+        return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
         refreshToken: material.refreshToken!.reveal(),
