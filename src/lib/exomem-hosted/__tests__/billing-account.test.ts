@@ -61,6 +61,62 @@ describe("owner Exomem billing account", () => {
     assert.equal(result.checkoutUrl, "https://checkout.paddle.test/exomem");
   });
 
+  // Security review finding 4: while a Cloud tenant has no non-deleted cell
+  // row, checkout is refused under the flag -- the same ownership guard
+  // token issuance already enforces (assertPrincipalOwnsCloudCell), so a
+  // subscription can never be bought for a tenant reconcile has nothing to
+  // apply it to.
+  it("Cloud flag on, no live cell: refuses checkout instead of creating a Paddle transaction", async () => {
+    let checkoutCalled = false;
+    let ownershipCheckedTenantId: string | undefined;
+    await assert.rejects(
+      startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+        load: async () => ACCOUNT,
+        checkout: async () => {
+          checkoutCalled = true;
+          return { checkoutUrl: "https://checkout.paddle.test/exomem" };
+        },
+        cloudEnabled: () => true,
+        assertCloudCellOwnership: async (tenantId) => {
+          ownershipCheckedTenantId = tenantId;
+          const { CloudPrincipalHasNoCellError } = await import("../cloud-oauth");
+          throw new CloudPrincipalHasNoCellError();
+        },
+      }),
+      (error) => error instanceof ExomemHostedError && error.code === "EXOMEM_ENTITLEMENT_DENIED"
+    );
+    assert.equal(checkoutCalled, false);
+    assert.equal(ownershipCheckedTenantId, ACCOUNT.tenantId);
+  });
+
+  it("Cloud flag on, a live cell: checks ownership but still creates checkout as normal", async () => {
+    let ownershipChecked = false;
+    const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+      load: async () => ACCOUNT,
+      checkout: async () => ({ checkoutUrl: "https://checkout.paddle.test/exomem" }),
+      cloudEnabled: () => true,
+      assertCloudCellOwnership: async () => {
+        ownershipChecked = true;
+      },
+    });
+    assert.equal(ownershipChecked, true);
+    assert.equal(result.checkoutUrl, "https://checkout.paddle.test/exomem");
+  });
+
+  it("Cloud flag off: never checks cell ownership at all", async () => {
+    let ownershipChecked = false;
+    const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+      load: async () => ACCOUNT,
+      checkout: async () => ({ checkoutUrl: "https://checkout.paddle.test/exomem" }),
+      cloudEnabled: () => false,
+      assertCloudCellOwnership: async () => {
+        ownershipChecked = true;
+      },
+    });
+    assert.equal(ownershipChecked, false);
+    assert.equal(result.checkoutUrl, "https://checkout.paddle.test/exomem");
+  });
+
   it("reuses the authoritative Paddle transaction instead of creating an orphan retry", async () => {
     const transactionRef = `txn_${"a".repeat(26)}`;
     let resumed: unknown;

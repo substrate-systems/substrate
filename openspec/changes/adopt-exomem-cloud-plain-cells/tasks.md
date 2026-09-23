@@ -8,27 +8,28 @@
 
 - [x] 2.1 Write red-first tests that run the `neon()` modules against a disposable standard Postgres through the new adapter, including `fullResults` shapes and the `transaction` commit and rollback paths
 - [x] 2.2 Implement the `pg`-backed `sql` adapter (D6), switch `exomem-hosted/db.ts`, `exomem-hosted/paddle-event-store.ts`, `hosted-backup/db.ts`, `hosted-backup/claim-tokens.ts` and `scripts/generate-jwt-keypair.ts`, and remove `@neondatabase/serverless`
-- [ ] 2.3 Run the real-PostgreSQL matrix and the main suite, add the driver test to the CI integration list, and confirm behaviour against Neon is unchanged before cutover
+- [x] 2.3 Run the real-PostgreSQL matrix and the main suite, add the driver test to the CI integration list, and confirm behaviour against Neon is unchanged before cutover
 
 ## 3. Cloud control plane (lane C, after lane D2)
 
-- [ ] 3.1 Add migration `0056_exomem_cloud_cells.sql` as the schema of record for:
+- [x] 3.1 Add migration `0056_exomem_cloud_cells.sql` as the schema of record for:
   - C1 with every desired and observed column, the partial unique index on `tenant_id` for non-deleted rows, and the generation trigger with `pg_notify`;
   - C1b `exomem_cloud_settings`, C1c `exomem_cloud_capacity` and C1d `exomem_cloud_rollout` (one row, id 1).
   Test the trigger, the index and the constraint checks against real Postgres.
-- [ ] 3.2 Add `scripts/exomem-cloud-grants.sql` and wire it into the migration runner after migrations, when the roles exist (D7). The script implements exactly the C1 privilege table in the Exomem design. Run migrations through `DATABASE_MIGRATION_URL` on PgBouncer's session-mode alias. Test against real Postgres that:
+- [x] 3.2 Add `scripts/exomem-cloud-grants.sql` and wire it into the migration runner after migrations, when the roles exist (D7). The script grants `substrate_app` DML on every `public` table and sequence, with default privileges for later migrations, and implements exactly the C1 privilege table in the Exomem design for C1 through C1d. Run migrations through `DATABASE_MIGRATION_URL` on PgBouncer's session-mode alias. Test against real Postgres that:
   - the controller role can write only C1 observed columns, C1c, and the C1d fields it owns, and cannot write desired columns or C1b;
   - the gateway role can read only C1 routing columns and write only rate-limit buckets;
+  - as `substrate_app`, every `public` table except C1 through C1d accepts SELECT, INSERT, UPDATE and DELETE, every sequence is usable, and a table created by a later migration inherits the same grants;
   - a second run changes nothing.
-- [ ] 3.3 Write red-first admission tests against real Postgres covering:
+- [x] 3.3 Write red-first admission tests against real Postgres covering:
   - the first invite on an empty fleet;
   - capacity exhausted with the invite unconsumed;
   - concurrent redemption at the last free slot;
   - a paid invite before checkout (`stopped`), and activation to `running` with no second capacity check, even on a full fleet;
   - the 7-day expiry: the pending provider transaction is cancelled and the row deleted, or, when the provider reports it completed, the row is left for activation.
-- [ ] 3.4 Implement Cloud admission (D1) under `EXOMEM_CLOUD_ENABLED`, without `exomem_capacity_pools`
-- [ ] 3.5 Implement Cloud OAuth client admission and exact-resource token binding (D2). Test an empty cohort with an approved CIMD host, and cross-resource token refusal in both directions
-- [ ] 3.6 Implement the gateway Cloud handler and protected-resource metadata (D3). Test against a real cell process for:
+- [x] 3.4 Implement Cloud admission (D1) under `EXOMEM_CLOUD_ENABLED`, without `exomem_capacity_pools`
+- [x] 3.5 Implement Cloud OAuth client admission and exact-resource token binding (D2). Test an empty cohort with an approved CIMD host, and cross-resource token refusal in both directions
+- [x] 3.6 Implement the gateway Cloud handler and protected-resource metadata (D3). Test against a real cell process for:
   - header allowlisting and principal-only routing;
   - no forwarding of `Authorization`;
   - streaming;
@@ -36,8 +37,8 @@
   - `CELL_NOT_READY` for a stopped cell and for an unreachable one;
   - `CELL_AUTH_MISMATCH` on a cell 401;
   - IP rate limits keyed on the ingress-recorded client address, and identity limits.
-- [ ] 3.7 Map every effective entitlement to desired state per the D4 table, including `read_only` for grace and provider-paused, and the cancelled export window followed by `deleted`. Test each transition and its generation bump, and resubscription within the window. State the window on the terms page and in the cancellation email
-- [ ] 3.8 Add the owner-only release route (D5): set `cell_image`, clear a paused rollout, set or clear a row's `desired_image`, and an operator view of observed cell state, rollout state and capacity. Test the non-owner refusal
+- [x] 3.7 Map every effective entitlement to desired state per the D4 table, including `read_only` for grace and provider-paused, and the cancelled export window followed by `deleted`. Test each transition and its generation bump, and resubscription within the window. State the window on the terms page and in the cancellation email
+- [x] 3.8 Add the owner-only release route (D5): set `cell_image`, clear a paused rollout, set or clear a row's `desired_image`, and an operator view of observed cell state, rollout state and capacity. Test the non-owner refusal
 
 ## 4. Cutover and acceptance (P4)
 

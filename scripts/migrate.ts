@@ -17,24 +17,52 @@
  *   tsx scripts/migrate.ts --dry  # list pending migrations without applying
  */
 
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, type ClientBase } from "pg";
 
 const DEFAULT_MIGRATIONS_DIR = resolve(process.cwd(), "migrations");
+const DEFAULT_GRANTS_FILE = resolve(process.cwd(), "scripts/exomem-cloud-grants.sql");
 const MIGRATION_LOCK_NAMESPACE = 0x45584f4d; // "EXOM"
 const MIGRATION_LOCK_ID = 0x454d; // "EM"
 const RELEASE_A_MIGRATION = "0040_backup_version_commit.sql";
 
 type Sql = Pick<ClientBase, "query">;
 
+/**
+ * `DATABASE_MIGRATION_URL`, when set, names PgBouncer's session-mode alias
+ * (design D7): the schema-owning connection this runner holds a session-level
+ * advisory lock on, which transaction-mode pooling would leak. An explicit
+ * `databaseUrl` argument (the test seam) always wins; otherwise, with the env
+ * var unset, behaviour is unchanged from before it existed.
+ */
 function getClient(databaseUrl?: string): Client {
-  const url = databaseUrl ?? process.env.DATABASE_URL;
+  const url = databaseUrl ?? process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL;
   if (!url) {
     throw new Error("DATABASE_URL is not set");
   }
   return new Client({ connectionString: url });
+}
+
+/**
+ * Applies scripts/exomem-cloud-grants.sql as one statement batch (the simple
+ * query protocol runs a multi-statement string, including a dollar-quoted DO
+ * block, as one implicit transaction). Idempotent and role-existence-gated —
+ * see the script's own header — so this is safe to run on every invocation,
+ * including a database that has not yet provisioned any Cloud role.
+ */
+async function applyGrants(sql: Sql, grantsFile: string): Promise<void> {
+  if (!existsSync(grantsFile)) return;
+  const content = readFileSync(grantsFile, "utf8");
+  await sql.query("BEGIN");
+  try {
+    await sql.query(content);
+    await sql.query("COMMIT");
+  } catch (error) {
+    await sql.query("ROLLBACK");
+    throw error;
+  }
 }
 
 async function ensureTrackingTable(sql: Sql): Promise<void> {
@@ -147,9 +175,15 @@ async function applyFile(sql: Sql, migrationsDir: string, filename: string): Pro
  * non-zero exit / etc.
  */
 export async function applyMigrations(
-  opts: { dry?: boolean; databaseUrl?: string; migrationsDir?: string } = {}
+  opts: {
+    dry?: boolean;
+    databaseUrl?: string;
+    migrationsDir?: string;
+    grantsFile?: string;
+  } = {}
 ): Promise<void> {
-  const { dry = false, migrationsDir = DEFAULT_MIGRATIONS_DIR } = opts;
+  const { dry = false, migrationsDir = DEFAULT_MIGRATIONS_DIR, grantsFile = DEFAULT_GRANTS_FILE } =
+    opts;
   const client = getClient(opts.databaseUrl);
   await client.connect();
   let locked = false;
@@ -179,30 +213,45 @@ export async function applyMigrations(
 
     if (pending.length === 0) {
       console.log(`[migrate] up to date — ${all.length} migrations applied`);
-      return;
+    } else {
+      console.log(
+        `[migrate] ${pending.length} pending migration${pending.length === 1 ? "" : "s"}:`
+      );
+      for (const name of pending) console.log(`  - ${name}`);
+
+      if (dry) {
+        console.log("[migrate] --dry: not applying");
+      } else {
+        for (const name of pending) {
+          process.stdout.write(`[migrate] applying ${name} ... `);
+          try {
+            await applyFile(client, migrationsDir, name);
+            console.log("ok");
+          } catch (err) {
+            console.log("FAIL");
+            throw new Error(
+              `migration ${name} failed: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
+        console.log("[migrate] done");
+      }
     }
 
-    console.log(`[migrate] ${pending.length} pending migration${pending.length === 1 ? "" : "s"}:`);
-    for (const name of pending) console.log(`  - ${name}`);
-
-    if (dry) {
-      console.log("[migrate] --dry: not applying");
-      return;
-    }
-
-    for (const name of pending) {
-      process.stdout.write(`[migrate] applying ${name} ... `);
+    // Grants are applied after every non-dry run, whether or not any
+    // migration file was pending — a database that just gained the
+    // exomem_cellctl or exomem_gateway role (D7) needs its grants applied on
+    // the next ordinary migration run, not only alongside a schema change.
+    if (!dry) {
+      process.stdout.write("[migrate] applying grants ... ");
       try {
-        await applyFile(client, migrationsDir, name);
+        await applyGrants(client, grantsFile);
         console.log("ok");
       } catch (err) {
         console.log("FAIL");
-        throw new Error(
-          `migration ${name} failed: ${err instanceof Error ? err.message : String(err)}`
-        );
+        throw new Error(`grants failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    console.log("[migrate] done");
   } finally {
     if (locked) {
       await client

@@ -1,3 +1,4 @@
+import { exomemCloudEnabled } from "./cloud-config";
 import {
   EXOMEM_PADDLE_PRODUCT_KEY,
   ExomemPaddleConfigurationError,
@@ -79,10 +80,63 @@ export type ExomemPaddleDispatchResult =
       status: 400 | 503;
     };
 
+/**
+ * Item 2 / tasks 3.4 & 3.7 (design D1/D4): the post-commit Cloud hook,
+ * injectable so unit tests can count invocations without a real database.
+ * Called only after `store.applyVerifiedEventAndMarkProcessedAtomically` has
+ * already resolved -- i.e. only after the event-store's own single-statement
+ * transaction has committed.
+ */
+export type CloudPaddleHook = (application: ExomemPaddleEventApplication) => Promise<void>;
+
 type DispatchDependencies = {
   env?: Record<string, string | undefined>;
   store?: AtomicExomemPaddleEventStore;
+  cloudHook?: CloudPaddleHook;
 };
+
+/**
+ * The smallest possible hook onto a completely unmodified
+ * paddle-event-store.ts: nothing here touches its CTEs, and it runs strictly
+ * after that file's single query has already committed. Both target
+ * functions are idempotent by construction (cloud-admission.ts,
+ * cloud-lifecycle.ts), so a second call from a retried delivery is harmless
+ * -- but gating on `outcome === "applied"` means that mostly never happens
+ * anyway, since the store itself already answers "duplicate" for a replayed
+ * event and "stale" for one that arrives out of order behind a newer one
+ * (comparePaddleRevisions), leaving exactly one "applied" outcome, and so
+ * exactly one hook call, per authoritative change.
+ *
+ * `reconcileCloudCellDesiredState` runs on every applied event, matching
+ * D4's "every entitlement-affecting event" -- it is a no-op read+UPDATE when
+ * the tenant has no Cloud cell row or the target state hasn't changed, and
+ * it already maps an active/trialing entitlement to `running` on its own
+ * (security review finding 13: a separate `activateCloudCellOnCheckoutAtomic`
+ * call here was redundant with what reconcile already does, and has been
+ * removed along with the function itself).
+ */
+async function defaultCloudPaddleHook(application: ExomemPaddleEventApplication): Promise<void> {
+  if (!exomemCloudEnabled()) return;
+  const { reconcileCloudCellDesiredState } = await import("./cloud-lifecycle");
+  await reconcileCloudCellDesiredState(application.correlation.tenantId);
+  // Item 5 / task 3.7 (design D4): the one-time cancellation notice, keyed
+  // on the same signal that already tells us the entitlement just became
+  // cancelled -- sendCloudCancellationNoticeOnce's own claim column
+  // (migration 0057) is what actually makes this idempotent under
+  // redelivery; gating on outcome === "applied" above already means this
+  // only runs once per genuine cancellation, but the claim is the real
+  // guarantee, not this gate.
+  if (application.sourceState === "cancelled") {
+    const { sendCloudCancellationNoticeOnce } = await import("./cloud-cancellation-notice");
+    // Security review finding 9c: the deletion date is computed from the
+    // Paddle event's own occurredAt, matching desiredCloudCellState's export
+    // window exactly, not from whenever this best-effort hook happens to run.
+    await sendCloudCancellationNoticeOnce(
+      application.correlation.tenantId,
+      new Date(application.revision.occurredAt)
+    );
+  }
+}
 
 const INTERNAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -293,6 +347,21 @@ export async function dispatchVerifiedExomemPaddleEvent(
 
   try {
     const result = await store.applyVerifiedEventAndMarkProcessedAtomically(application);
+    if (result.outcome === "applied") {
+      try {
+        await (dependencies.cloudHook ?? defaultCloudPaddleHook)(application);
+      } catch {
+        // Best-effort: a Cloud side effect failing must never turn an
+        // already committed webhook receipt into a retryable failure --
+        // Paddle would then redeliver an event the store has already marked
+        // applied, and the periodic Cloud reconcile sweep
+        // (runBoundedCloudReconcile) revisits this tenant regardless.
+        console.error({
+          event: "exomem_cloud_paddle_hook_failed",
+          event_type: application.eventType,
+        });
+      }
+    }
     return { kind: "handled", outcome: result.outcome };
   } catch {
     return {

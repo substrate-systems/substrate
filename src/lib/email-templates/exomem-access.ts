@@ -160,6 +160,45 @@ export function renderExomemMagicLinkEmail(input: {
   });
 }
 
+/**
+ * Item 5 / task 3.7 (design D4), Cloud-only. Sent once, when a Cloud
+ * tenant's Paddle subscription becomes cancelled. No call to action, like
+ * `renderExomemWaitlistEmail` -- there is nothing to click; the cell has
+ * already switched to read-only, and resubscribing (through the product's
+ * ordinary billing flow, not this email) is what reverses it.
+ */
+export function renderExomemCloudCancellationEmail(input: {
+  deletionDate: Date;
+  retentionDays: number;
+}): RenderedExomemAccessEmail {
+  const deletionDateLabel = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(input.deletionDate);
+  const introduction =
+    `Your Exomem subscription has been cancelled. Your memories stay in place and readable for ` +
+    `${input.retentionDays} days, but Exomem can no longer accept new memories during that window.`;
+  const windowLine =
+    `If you resubscribe before ${deletionDateLabel}, Exomem returns to normal automatically. ` +
+    `Otherwise, your Exomem and everything in it is permanently deleted on ${deletionDateLabel}.`;
+  const htmlContent = `<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
+    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(introduction)}</p>
+    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">${escapeHtml(windowLine)}</p>
+    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
+  </body>
+</html>`;
+  const textContent = `${introduction}
+
+${windowLine}
+
+— Exomem by Substrate Systems`;
+  return { subject: "Your Exomem subscription was cancelled", htmlContent, textContent };
+}
+
 export function renderExomemDeletionEmail(input: {
   accessUrl: string;
   expiresAt: Date;

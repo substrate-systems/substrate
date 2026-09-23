@@ -19,7 +19,7 @@ const PKCE_VALUE = /^[A-Za-z0-9_-]{43,128}$/;
 // exomem scopes while the authorization server listed `offline_access` too.
 // `refresh_allowed` is derived from the scope the client actually requests, so
 // that omission decided, silently, which clients got a refresh token.
-const ADVERTISED_SCOPES = ["exomem.read", "exomem.write", "offline_access"] as const;
+export const ADVERTISED_SCOPES = ["exomem.read", "exomem.write", "offline_access"] as const;
 const SUPPORTED_SCOPES = new Set<string>(ADVERTISED_SCOPES);
 
 export type OAuthClient = {

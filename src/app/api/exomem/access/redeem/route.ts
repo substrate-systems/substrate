@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redeemInvite } from "@/lib/exomem-hosted/access";
+import { admitFirstCloudOAuthInviteAtomic, redeemCloudInvite } from "@/lib/exomem-hosted/cloud-admission";
+import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
 import {
@@ -58,15 +60,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (!inviteDigest) throw exomemErrors.accessTokenInvalid();
       const session = mintSessionMaterial();
       const code = mintContinuationCode(continuation);
-      const admitted = await admitFirstOAuthInviteAtomic({
-        inviteDigest,
-        transactionDigest,
-        sessionDigest: session.sessionDigest,
-        csrfDigest: session.csrfDigest,
-        sessionExpiresAt: session.expiresAt,
-        codeDigest: code.codeDigest,
-        codeExpiresAt: code.codeExpiresAt,
-      });
+      const admitted = exomemCloudEnabled()
+        ? await admitFirstCloudOAuthInviteAtomic({
+            inviteDigest,
+            transactionDigest,
+            sessionDigest: session.sessionDigest,
+            csrfDigest: session.csrfDigest,
+            sessionExpiresAt: session.expiresAt,
+            codeDigest: code.codeDigest,
+            codeExpiresAt: code.codeExpiresAt,
+          })
+        : await admitFirstOAuthInviteAtomic({
+            inviteDigest,
+            transactionDigest,
+            sessionDigest: session.sessionDigest,
+            csrfDigest: session.csrfDigest,
+            sessionExpiresAt: session.expiresAt,
+            codeDigest: code.codeDigest,
+            codeExpiresAt: code.codeExpiresAt,
+          });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
       const response = NextResponse.json(
         {
@@ -81,7 +93,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       clearOAuthContinuationCookie(response);
       return response;
     }
-    const redeemed = await redeemInvite(body.token);
+    const redeemed = exomemCloudEnabled()
+      ? await redeemCloudInvite(body.token)
+      : await redeemInvite(body.token);
     const response = NextResponse.json(
       {
         success: true,

@@ -70,6 +70,28 @@ export function parseLifecycleResponse(value: unknown): Lifecycle | null {
   };
 }
 
+/**
+ * Item 6 / task 3.7: the Cloud MCP connector URL /api/exomem/status returns
+ * under EXOMEM_CLOUD_ENABLED. Validated the same way `parseInstallActions`
+ * validates an install URL -- https, no credentials, no query/fragment --
+ * even though this is our own server's response, for the same reason that
+ * function already applies that rigor to one.
+ */
+export function parseCloudConnectorUrl(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = (value as Record<string, unknown>).cloudConnectorUrl;
+  if (typeof candidate !== "string") return null;
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+      return null;
+    }
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
 export function parseInstallActions(value: unknown): InstallAction[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return [];
   const actions = (value as Record<string, unknown>).installActions;

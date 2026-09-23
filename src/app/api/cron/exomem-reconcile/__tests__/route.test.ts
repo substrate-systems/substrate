@@ -2,14 +2,36 @@ import assert from "node:assert/strict";
 import { after, afterEach, before, describe, it, mock } from "node:test";
 
 const ORIGINAL_SCHEDULER_SECRET = process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
+const ORIGINAL_CLOUD_ENABLED = process.env.EXOMEM_CLOUD_ENABLED;
 const SENTINEL = "cron-provider-credential-query-path-sentinel";
 let runCalls = 0;
 let paddleRunCalls = 0;
+let cloudExpireCalls = 0;
+let cloudReconcileCalls = 0;
 let lifecycleGate: Promise<void> | null = null;
 let paddleGate: Promise<void> | null = null;
 let lifecycleShouldFail = false;
 
 before(() => {
+  mock.module("@/lib/exomem-hosted/cloud-admission", {
+    namedExports: {
+      expireCloudAwaitingCheckoutTenants: async () => {
+        cloudExpireCalls += 1;
+        return [
+          { tenantId: "t-expired", outcome: "expired" },
+          { tenantId: "t-skipped", outcome: "skipped" },
+        ];
+      },
+    },
+  });
+  mock.module("@/lib/exomem-hosted/cloud-lifecycle", {
+    namedExports: {
+      runBoundedCloudReconcile: async () => {
+        cloudReconcileCalls += 1;
+        return { reconciled: 4, deleted: 1 };
+      },
+    },
+  });
   mock.module("@/lib/exomem-hosted/reconcile-runtime", {
     namedExports: {
       runBoundedLifecycleReconcile: async () => {
@@ -55,11 +77,15 @@ after(() => mock.reset());
 afterEach(() => {
   runCalls = 0;
   paddleRunCalls = 0;
+  cloudExpireCalls = 0;
+  cloudReconcileCalls = 0;
   lifecycleGate = null;
   paddleGate = null;
   lifecycleShouldFail = false;
   if (ORIGINAL_SCHEDULER_SECRET === undefined) delete process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
   else process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = ORIGINAL_SCHEDULER_SECRET;
+  if (ORIGINAL_CLOUD_ENABLED === undefined) delete process.env.EXOMEM_CLOUD_ENABLED;
+  else process.env.EXOMEM_CLOUD_ENABLED = ORIGINAL_CLOUD_ENABLED;
 });
 
 function request(token?: string) {
@@ -161,6 +187,35 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.deepEqual(await response.json(), {
       success: false,
       error: { code: "CONTROL_PLANE_UNAVAILABLE", retryable: true },
+    });
+  });
+
+  it("never touches the Cloud lane when EXOMEM_CLOUD_ENABLED is unset", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    delete process.env.EXOMEM_CLOUD_ENABLED;
+    const { GET } = await import("../route");
+    const response = await GET(request("cron-secret"));
+    assert.equal(response.status, 200);
+    assert.equal(cloudExpireCalls, 0);
+    assert.equal(cloudReconcileCalls, 0);
+    const body = (await response.json()) as { result: Record<string, unknown> };
+    assert.equal("cloud" in body.result, false);
+  });
+
+  it("runs the Cloud expiry and reconcile sweep on the same schedule when the flag is on", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    const { GET } = await import("../route");
+    const response = await GET(request("cron-secret"));
+    assert.equal(response.status, 200);
+    assert.equal(cloudExpireCalls, 1);
+    assert.equal(cloudReconcileCalls, 1);
+    const body = (await response.json()) as { result: { cloud: Record<string, number> } };
+    assert.deepEqual(body.result.cloud, {
+      expired: 1,
+      activationsSkipped: 1,
+      reconciled: 4,
+      deleted: 1,
     });
   });
 });

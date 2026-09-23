@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  renderExomemCloudCancellationEmail,
   renderExomemDeletionEmail,
   renderExomemInviteEmail,
   renderExomemMagicLinkEmail,
@@ -8,6 +9,19 @@ import {
 } from "../exomem-access";
 
 describe("Exomem access emails", () => {
+  it("states the Cloud cancellation window and deletion date, with no call to action", () => {
+    const rendered = renderExomemCloudCancellationEmail({
+      deletionDate: new Date("2026-08-11T00:00:00.000Z"),
+      retentionDays: 30,
+    });
+    assert.match(rendered.subject, /cancelled/i);
+    const all = `${rendered.htmlContent}\n${rendered.textContent}`;
+    assert.match(all, /30 days/);
+    assert.match(all, /11 August 2026/);
+    assert.equal(/href="https?:/.test(rendered.htmlContent), false);
+  });
+
+
   it("keeps invite bearer material in the URL fragment", () => {
     const token = Buffer.alloc(32, 0x61).toString("base64url");
     const accessUrl = `https://substratesystems.io/exomem/invite#${token}`;

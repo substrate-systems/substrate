@@ -1,5 +1,7 @@
 import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { buildCloudProtectedResourceMetadata, handleCloudMcpRequest } from "./cloud-handler";
+import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import { handleHostedMcpRequest } from "../lib/exomem-hosted/mcp";
 import { emitOperationalEvent } from "../lib/exomem-hosted/observability";
 
@@ -23,6 +25,7 @@ class InvalidNodeRequestError extends Error {}
 
 export type GatewayServerOptions = {
   handleMcp?: typeof handleHostedMcpRequest;
+  handleCloudMcp?: typeof handleCloudMcpRequest;
   maxInflight?: number;
 };
 
@@ -99,6 +102,16 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
   const handleMcp =
     options.handleMcp ??
     ((request) => handleHostedMcpRequest(request, { telemetry: emitOperationalEvent }));
+  const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
+  // Absent unless a Cloud deployment configures it — every existing hosted
+  // deployment and test leaves this unset, so `cloudMcpPath`/
+  // `cloudMetadataPath` are never truthy and every branch below that checks
+  // them is dead code for those callers, identical to before this option
+  // existed.
+  const cloudMcpPath = process.env.EXOMEM_CLOUD_MCP_PATH?.trim() || null;
+  const cloudMetadataPath = cloudMcpPath
+    ? `/.well-known/oauth-protected-resource${cloudMcpPath}`
+    : null;
   const maxInflight = options.maxInflight ?? Number(process.env.EXOMEM_GATEWAY_MAX_INFLIGHT ?? 16);
   if (!Number.isInteger(maxInflight) || maxInflight < 1 || maxInflight > 128) {
     throw new Error("EXOMEM_GATEWAY_MAX_INFLIGHT must be an integer from 1 to 128");
@@ -118,7 +131,20 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
         response.writeHead(state.draining ? 503 : 200, CACHE_HEADERS).end();
         return;
       }
-      if (path !== MCP_PATH || !["GET", "POST", "DELETE"].includes(request.method ?? "")) {
+      if (cloudMetadataPath && path === cloudMetadataPath) {
+        if (request.method !== "GET") {
+          response.writeHead(404, CACHE_HEADERS).end();
+          return;
+        }
+        const body = JSON.stringify(buildCloudProtectedResourceMetadata(loadExomemCloudConfig()));
+        response
+          .writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" })
+          .end(body);
+        return;
+      }
+      const activeHandler =
+        path === MCP_PATH ? handleMcp : cloudMcpPath && path === cloudMcpPath ? handleCloudMcp : null;
+      if (!activeHandler || !["GET", "POST", "DELETE"].includes(request.method ?? "")) {
         response.writeHead(404, CACHE_HEADERS).end();
         return;
       }
@@ -134,7 +160,10 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       const cancel = () => controller.abort();
       request.once("aborted", cancel);
       response.once("close", cancel);
-      await writeResponse(await handleMcp(requestFromNode(request, controller.signal)), response);
+      await writeResponse(
+        await activeHandler(requestFromNode(request, controller.signal)),
+        response
+      );
     } catch (error) {
       if (!response.headersSent)
         response
