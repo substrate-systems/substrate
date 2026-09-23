@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 The final friends-only Hosted cohort cannot complete its paired Claude and OpenAI run: consuming the one-shot reviewer bootstrap seals its original client, while the credential gate rejects the fresh sibling clients that must take over. Promotion can also outlive its five-minute recorded route observation even while every routed cell is healthy.

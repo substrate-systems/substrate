@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 Hosted Exomem already has production OAuth/MCP and invite-based user access, but marketplace reviewers need reusable credentials that work without access to a private email inbox, SMS, MFA, or network. Reusing a founder or friend account is neither reproducible nor safely revocable, so review access needs one narrow, explicit security boundary.

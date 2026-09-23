@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells` for its remaining tasks; the shipped OAuth authorization server and CIMD host allowlist are kept.
+
 > Admission boundary update: `simplify-hosted-launch-boundaries` supersedes the
 > artifact/live-platform-cohort gates described in this historical proposal.
 > Approved pinned clients and currently admitted CIMD hosts authorize under

@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 Customer access currently depends on certification of a distributed client artifact, while certifying that artifact requires working customer access. Separate those decisions and remove avoidable network work so the hosted alpha can launch on one durable service path.
