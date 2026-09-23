@@ -1,8 +1,8 @@
 ## 1. Specification (S)
 
-- [ ] 1.1 Get an independent critic review of this change together with the Exomem companion, and resolve every blocking finding
-- [ ] 1.2 Add a one-line superseded banner to the proposal of every change listed as superseded in design.md
-- [ ] 1.3 Close the superseded Exomem-hosted PRs with a one-line reason, and keep their branches
+- [x] 1.1 Get an independent critic review of this change together with the Exomem companion, and resolve every blocking finding
+- [x] 1.2 Add a one-line superseded banner to the proposal of every change listed as superseded in design.md
+- [x] 1.3 Close the superseded Exomem-hosted PRs with a one-line reason, and keep their branches
 
 ## 2. Standard Postgres driver (lane D2, lands first)
 
