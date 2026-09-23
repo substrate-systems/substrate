@@ -12,6 +12,7 @@
 
 import { randomBytes } from "node:crypto";
 import { loadExomemCloudConfig } from "./cloud-config";
+import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors } from "./errors";
 import {
@@ -143,29 +144,12 @@ export async function redeemCloudInviteAtomic(
     `;
     if (blockedResult.rows[0]) throw exomemErrors.accessTokenInvalid();
 
-    // exomem_tenants.owner_user_id is UNIQUE, so a prior tenant for this
-    // owner is the tenant-dedupe check; FOR UPDATE serializes a second
-    // concurrent redemption for the same owner against this same lock.
-    // Security review finding 4: the dedupe check used to reject ANY prior
-    // tenant, even one whose Cloud cell was fully expired/deleted — meaning
-    // an owner who never paid, or whose export window elapsed, could never
-    // be re-admitted by a fresh invite. It now rejects only a tenant that
-    // still has a live (non-deleted) cell; a cell-less tenant is reused
-    // under this same capacity check, with its admission columns reset
-    // (a fully-deleted prior cell leaves status/desired_state/deleted_at at
-    // 'deleted', which a fresh admission must not inherit).
-    const existingTenant = await tx`
-      SELECT tenant.id,
-             EXISTS (
-               SELECT 1 FROM exomem_cloud_cells AS cell
-               WHERE cell.tenant_id = tenant.id AND cell.desired_state <> 'deleted'
-             ) AS has_live_cell
-      FROM exomem_tenants AS tenant
-      WHERE tenant.owner_user_id = ${owner.id}::uuid
-      FOR UPDATE
-    `;
-    const existing = existingTenant.rows[0] as { id: string; has_live_cell: boolean } | undefined;
-    if (existing?.has_live_cell) throw exomemErrors.accessTokenInvalid();
+    // Security review finding 4: a cell-less tenant within the re-admission
+    // scope is reused under this same capacity check, with its admission
+    // columns reset (a fully-deleted prior cell leaves status/desired_state/
+    // deleted_at at 'deleted', which a fresh admission must not inherit).
+    const existing = await lockExistingCloudTenant(tx, owner.id);
+    if (existing === REFUSED) throw exomemErrors.accessTokenInvalid();
 
     let tenantId: string;
     if (existing) {
@@ -223,6 +207,7 @@ export async function redeemCloudInviteAtomic(
           provider_customer_ref = NULL,
           provider_subscription_ref = NULL,
           provider_transaction_ref = NULL,
+          provider_environment = NULL,
           updated_at = now()
       RETURNING tenant_id
     `;
@@ -261,6 +246,60 @@ export async function redeemCloudInviteAtomic(
 
     return { userId: owner.id, tenantId, sessionId: session.id, cellId };
   });
+}
+
+const REFUSED = Symbol("cloud-readmission-refused");
+
+/**
+ * Locks the owner's prior tenant, if any, and decides whether a fresh invite
+ * may reuse it (Cloud design D1 "Re-admission scope"). Returns `undefined`
+ * for an owner with no tenant, the tenant for one that may be re-admitted,
+ * and `REFUSED` otherwise, which the caller turns into its own refusal so the
+ * invite is left unconsumed.
+ *
+ * Re-admission applies only to a tenant with no live cell whose status is
+ * `deleted`, or to a pre-payment tenant (`awaiting_checkout` or
+ * `checkout_pending`). A `deletion_pending` tenant, or one with a live
+ * provider subscription, is never re-admitted: its deletion or its billing
+ * is still in flight. exomem_tenants.owner_user_id is UNIQUE, so this row is
+ * the tenant-dedupe check, and FOR UPDATE serializes a concurrent redemption
+ * for the same owner against the same lock.
+ */
+async function lockExistingCloudTenant(
+  tx: ExomemSql,
+  ownerUserId: string
+): Promise<{ id: string } | undefined | typeof REFUSED> {
+  const { rows } = await tx`
+    SELECT tenant.id, tenant.status,
+           entitlement.source_state, entitlement.provider_subscription_ref,
+           EXISTS (
+             SELECT 1 FROM exomem_cloud_cells AS cell
+             WHERE cell.tenant_id = tenant.id AND cell.desired_state <> 'deleted'
+           ) AS has_live_cell
+    FROM exomem_tenants AS tenant
+    LEFT JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
+    WHERE tenant.owner_user_id = ${ownerUserId}::uuid
+    FOR UPDATE OF tenant
+  `;
+  const row = rows[0] as
+    | {
+        id: string;
+        status: string;
+        source_state: string | null;
+        provider_subscription_ref: string | null;
+        has_live_cell: boolean;
+      }
+    | undefined;
+  if (!row) return undefined;
+  if (row.has_live_cell || row.status === "deletion_pending") return REFUSED;
+  const liveSubscription =
+    row.provider_subscription_ref !== null &&
+    ["active", "trialing", "past_due", "paused"].includes(row.source_state ?? "");
+  if (liveSubscription) return REFUSED;
+  const prePayment =
+    row.source_state === "awaiting_checkout" || row.source_state === "checkout_pending";
+  if (row.status === "deleted" || prePayment) return { id: row.id };
+  return REFUSED;
 }
 
 export type RedeemedCloudBrowserAccess = {
@@ -410,21 +449,9 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       `;
       if (blockedResult.rows[0]) throw new CloudOAuthAdmissionRejected();
 
-      // See redeemCloudInviteAtomic's matching block: security review
-      // finding 4 -- reuse a cell-less tenant instead of permanently
-      // refusing re-admission.
-      const existingTenant = await tx`
-        SELECT tenant.id,
-               EXISTS (
-                 SELECT 1 FROM exomem_cloud_cells AS cell
-                 WHERE cell.tenant_id = tenant.id AND cell.desired_state <> 'deleted'
-               ) AS has_live_cell
-        FROM exomem_tenants AS tenant
-        WHERE tenant.owner_user_id = ${owner.id}::uuid
-        FOR UPDATE
-      `;
-      const existing = existingTenant.rows[0] as { id: string; has_live_cell: boolean } | undefined;
-      if (existing?.has_live_cell) throw new CloudOAuthAdmissionRejected();
+      // See redeemCloudInviteAtomic's matching block.
+      const existing = await lockExistingCloudTenant(tx, owner.id);
+      if (existing === REFUSED) throw new CloudOAuthAdmissionRejected();
 
       let tenantId: string;
       if (existing) {
@@ -473,6 +500,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
             provider_customer_ref = NULL,
             provider_subscription_ref = NULL,
             provider_transaction_ref = NULL,
+            provider_environment = NULL,
             updated_at = now()
         RETURNING tenant_id
       `;
@@ -581,16 +609,23 @@ async function findExpiredCloudAwaitingCheckoutTenants(
   }));
 }
 
-/** Sets a Cloud cell's row to `deleted`, releasing its capacity slot. */
+/**
+ * Sets a Cloud cell's row to `deleted`, releasing its capacity slot, and
+ * revokes the tenant's Cloud consent in the same transaction (D2).
+ */
 async function expireCloudCellAtomic(tenantId: string): Promise<boolean> {
-  const { rowCount } = await executeExomemSql`
-    /* exomem-cloud:expire-cell */
-    UPDATE exomem_cloud_cells
-    SET desired_state = 'deleted'
-    WHERE tenant_id = ${tenantId}::uuid
-      AND desired_state = 'stopped'
-  `;
-  return (rowCount ?? 0) > 0;
+  return withExomemTransaction(async (tx) => {
+    const { rowCount } = await tx`
+      /* exomem-cloud:expire-cell */
+      UPDATE exomem_cloud_cells
+      SET desired_state = 'deleted'
+      WHERE tenant_id = ${tenantId}::uuid
+        AND desired_state = 'stopped'
+    `;
+    if ((rowCount ?? 0) === 0) return false;
+    await revokeCloudResourceConsent(tx, tenantId);
+    return true;
+  });
 }
 
 export type CloudInviteExpiryOutcome =

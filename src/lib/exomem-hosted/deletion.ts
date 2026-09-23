@@ -1,6 +1,8 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { renderExomemDeletionEmail } from "@/lib/email-templates/exomem-access";
+import { exomemCloudEnabled } from "./cloud-config";
+import { reconcileCloudCellDesiredState } from "./cloud-lifecycle";
 import {
   consumeDeletionConfirmationAtomic,
   createDeletionConfirmationToken,
@@ -29,6 +31,7 @@ export type DeletionDependencies = {
   markFailed: typeof markAccessTokenDeliveryFailed;
   consume: typeof consumeDeletionConfirmationAtomic;
   reconcile: typeof immediateBestEffortReconcile;
+  reconcileCloud: (tenantId: string) => Promise<unknown>;
   sendEmail: typeof sendTransactionalEmail;
 };
 
@@ -43,6 +46,7 @@ function defaults(): DeletionDependencies {
     markFailed: markAccessTokenDeliveryFailed,
     consume: consumeDeletionConfirmationAtomic,
     reconcile: immediateBestEffortReconcile,
+    reconcileCloud: (tenantId) => reconcileCloudCellDesiredState(tenantId),
     sendEmail: sendTransactionalEmail,
   };
 }
@@ -114,5 +118,10 @@ export async function confirmDeletion(
   });
   if (!result) throw exomemErrors.accessTokenInvalid();
   await deps.reconcile(session.tenantId).catch(() => undefined);
+  // Cloud: the confirmed deletion reaches the tenant's cell row (and revokes
+  // its consent) now; the periodic Cloud sweep is the backstop.
+  if (exomemCloudEnabled()) {
+    await deps.reconcileCloud(session.tenantId).catch(() => undefined);
+  }
   return { ...result, state: "deletion_pending" };
 }

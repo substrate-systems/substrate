@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { beforeEach, describe, it } from "node:test";
+import { beforeEach, describe, it, mock } from "node:test";
 import { deriveCloudCellBearer } from "../../lib/exomem-hosted/cloud-cell-bearer";
 import type { ExomemCloudConfig } from "../../lib/exomem-hosted/cloud-config";
 import type { ActiveCloudOAuthAccessToken } from "../../lib/exomem-hosted/cloud-oauth";
 import {
   buildCloudProtectedResourceMetadata,
+  cloudGatewayIpBucketSkips,
   handleCloudMcpRequest,
   resetCloudGatewayConcurrencyForTests,
   type CloudGatewayDependencies,
@@ -259,6 +260,8 @@ describe("Exomem Cloud gateway handler", () => {
   // ingress-trust config is absent or the trusted header is present without
   // an x-real-ip value.
   it("skips the IP bucket entirely, never a shared one, when there is no trusted client address", async () => {
+    resetCloudGatewayConcurrencyForTests();
+    const warn = mock.method(console, "warn", () => undefined);
     for (const headers of [
       undefined,
       { "x-ingress-trusted": "traefik" }, // trust header configured below but request omits x-real-ip
@@ -294,6 +297,22 @@ describe("Exomem Cloud gateway handler", () => {
           delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
         else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
       }
+    }
+    // Cloud design D3 step 3: a skip is counted and logged, content-free, so
+    // an ingress that blanks the header is visible rather than silent.
+    try {
+      assert.equal(cloudGatewayIpBucketSkips(), 2);
+      const logged = warn.mock.calls.map((call) => JSON.stringify(call.arguments));
+      assert.ok(
+        logged.some((line) => line.includes("exomem_cloud_gateway_ip_bucket_skipped")),
+        "the skip must be logged"
+      );
+      for (const line of logged) {
+        assert.equal(line.includes(CLIENT_BEARER), false);
+        assert.equal(line.includes("traefik"), false);
+      }
+    } finally {
+      warn.mock.restore();
     }
   });
 

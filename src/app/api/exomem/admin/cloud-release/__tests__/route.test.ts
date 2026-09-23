@@ -41,6 +41,15 @@ let setCloudReleaseImageCalls: string[] = [];
 let clearPausedCloudRolloutCalls = 0;
 let setCloudCellDesiredImageCalls: Array<{ cellId: string; image: string | null }> = [];
 
+const MISSING_CELL_ID = "zzzzzzzzzzzzzzzz";
+
+class MockCloudReleaseCellNotFoundError extends Error {
+  constructor() {
+    super("cell not found");
+    this.name = "CloudReleaseCellNotFoundError";
+  }
+}
+
 class MockInvalidCloudCellImageError extends Error {
   constructor(readonly image: string) {
     super("invalid cell image");
@@ -56,22 +65,30 @@ before(() => {
       // Mirrors the real assertValidCloudCellImage just enough for the
       // "invalid image becomes a 400" test below to exercise the route's
       // actual error-mapping branch, not a route-side re-implementation.
-      setCloudReleaseImage: async (image: string) => {
+      // Mirrors the real applyCloudReleaseChanges: every image is validated
+      // before any change is recorded, so a partly invalid request records
+      // nothing -- the route's own error mapping is what is under test.
+      applyCloudReleaseChanges: async (changes: {
+        cellImage?: string;
+        clearRolloutPause?: true;
+        cellDesiredImage?: { cellId: string; image: string | null };
+      }) => {
         const prefix = `${CELL_REPOSITORY}@sha256:`;
-        if (!image.startsWith(prefix) || !/^[0-9a-f]{64}$/.test(image.slice(prefix.length))) {
-          throw new MockInvalidCloudCellImageError(image);
+        for (const image of [changes.cellImage, changes.cellDesiredImage?.image]) {
+          if (image === undefined || image === null) continue;
+          if (!image.startsWith(prefix) || !/^[0-9a-f]{64}$/.test(image.slice(prefix.length))) {
+            throw new MockInvalidCloudCellImageError(image);
+          }
         }
-        setCloudReleaseImageCalls.push(image);
-      },
-      clearPausedCloudRollout: async () => {
-        clearPausedCloudRolloutCalls += 1;
-        return true;
-      },
-      setCloudCellDesiredImage: async (cellId: string, image: string | null) => {
-        setCloudCellDesiredImageCalls.push({ cellId, image });
-        return true;
+        if (changes.cellDesiredImage?.cellId === MISSING_CELL_ID) {
+          throw new MockCloudReleaseCellNotFoundError();
+        }
+        if (changes.cellImage !== undefined) setCloudReleaseImageCalls.push(changes.cellImage);
+        if (changes.clearRolloutPause) clearPausedCloudRolloutCalls += 1;
+        if (changes.cellDesiredImage) setCloudCellDesiredImageCalls.push(changes.cellDesiredImage);
       },
       InvalidCloudCellImageError: MockInvalidCloudCellImageError,
+      CloudReleaseCellNotFoundError: MockCloudReleaseCellNotFoundError,
     },
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {
@@ -198,6 +215,24 @@ describe("Exomem Cloud owner release route", () => {
     );
     assert.equal(response.status, 200);
     assert.deepEqual(setCloudCellDesiredImageCalls, [{ cellId: "abcdefghijklmnop", image: null }]);
+  });
+
+  it("applies nothing from a mixed request whose cell override is invalid", async () => {
+    setCloudReleaseImageCalls = [];
+    clearPausedCloudRolloutCalls = 0;
+    setCloudCellDesiredImageCalls = [];
+    const { PUT } = await import("../route");
+    for (const body of [
+      { cellImage: IMAGE_V2, clearRolloutPause: true, cellId: "abcdefghijklmnop", cellDesiredImage: "x:tag" },
+      { cellImage: IMAGE_V2, cellId: MISSING_CELL_ID, cellDesiredImage: null },
+      { cellImage: IMAGE_V2, clearRolloutPause: "yes" },
+    ]) {
+      const response = await PUT(putRequest(`Bearer ${ADMIN_TOKEN}`, body));
+      assert.equal(response.status, 400);
+    }
+    assert.deepEqual(setCloudReleaseImageCalls, []);
+    assert.equal(clearPausedCloudRolloutCalls, 0);
+    assert.deepEqual(setCloudCellDesiredImageCalls, []);
   });
 
   it("rejects an empty mutation body", async () => {

@@ -44,11 +44,30 @@ const REQUIRED_CLOUD_SCOPES = ["exomem.read", "exomem.write"] as const;
 
 let activeCloudCalls = 0;
 const activeCloudCallsByIdentity = new Map<string, number>();
+let ipBucketSkips = 0;
 
-/** Test-only: clears the module-level concurrency counters between tests. */
+/** Test-only: clears the module-level counters between tests. */
 export function resetCloudGatewayConcurrencyForTests(): void {
   activeCloudCalls = 0;
   activeCloudCallsByIdentity.clear();
+  ipBucketSkips = 0;
+}
+
+/** Requests this process served without an IP bucket (D3 step 3). */
+export function cloudGatewayIpBucketSkips(): number {
+  return ipBucketSkips;
+}
+
+/**
+ * Counts an IP-bucket skip and logs it, content-free, so an ingress that
+ * blanks `x-real-ip` is visible. Logged on the 1st, 2nd, 4th, 8th... skip,
+ * which keeps a sustained misconfiguration loud without one line per request.
+ */
+function recordIpBucketSkip(): void {
+  ipBucketSkips += 1;
+  if ((ipBucketSkips & (ipBucketSkips - 1)) === 0) {
+    console.warn({ event: "exomem_cloud_gateway_ip_bucket_skipped", count: ipBucketSkips });
+  }
 }
 
 /**
@@ -199,7 +218,9 @@ export async function handleCloudMcpRequest(
   // entirely when there is none to key on (security review finding 6) —
   // never collapsed into one shared bucket.
   const ipKey = trustedIngressClientAddress(request);
-  if (ipKey !== null && !(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+  if (ipKey === null) {
+    recordIpBucketSkip();
+  } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
     return errorResponse(429, "RATE_LIMITED");
   }
 

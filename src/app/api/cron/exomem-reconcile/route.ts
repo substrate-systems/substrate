@@ -5,11 +5,13 @@ import { runBoundedPaddleReconcile } from "@/lib/exomem-hosted/paddle-reconcilia
 import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { expireCloudAwaitingCheckoutTenants } from "@/lib/exomem-hosted/cloud-admission";
 import { runBoundedCloudReconcile } from "@/lib/exomem-hosted/cloud-lifecycle";
+import { retryPendingCloudCancellationNotices } from "@/lib/exomem-hosted/cloud-cancellation-notice";
 
 // Task 3.4/3.7's time-driven Cloud sweep, added to the same authenticated
 // schedule the hosted lanes already run on (design D1/D4) rather than a new
 // scheduled job: the 7-day awaiting-checkout expiry, and the day-30
-// cancelled -> deleted transition that no webhook ever fires. A true no-op
+// cancelled -> deleted transition that no webhook ever fires, and the retry
+// of a cancellation notice whose send failed (D4). A true no-op
 // with the flag off -- it never runs a query in that case, matching every
 // other flag-off Cloud code path in this codebase.
 async function runCloudLane(): Promise<{
@@ -17,14 +19,17 @@ async function runCloudLane(): Promise<{
   activationsSkipped: number;
   reconciled: number;
   deleted: number;
+  noticesRetried: number;
+  noticesSent: number;
 } | null> {
   if (!exomemCloudEnabled()) return null;
   // Security review finding 8: expiry and the reconcile sweep run
   // independently — a failure in one (each already isolates its own
   // per-tenant failures) must not prevent the other from running this tick.
-  const [expiryResult, sweepResult] = await Promise.allSettled([
+  const [expiryResult, sweepResult, noticeResult] = await Promise.allSettled([
     expireCloudAwaitingCheckoutTenants(),
     runBoundedCloudReconcile({ maxTenants: 200 }),
+    retryPendingCloudCancellationNotices(),
   ]);
   if (expiryResult.status === "rejected") {
     console.error("exomem-cloud: awaiting-checkout expiry lane failed");
@@ -32,13 +37,20 @@ async function runCloudLane(): Promise<{
   if (sweepResult.status === "rejected") {
     console.error("exomem-cloud: lifecycle reconcile sweep lane failed");
   }
+  if (noticeResult.status === "rejected") {
+    console.error("exomem-cloud: cancellation notice retry lane failed");
+  }
   const expiryOutcomes = expiryResult.status === "fulfilled" ? expiryResult.value : [];
   const sweep = sweepResult.status === "fulfilled" ? sweepResult.value : { reconciled: 0, deleted: 0 };
+  const notices =
+    noticeResult.status === "fulfilled" ? noticeResult.value : { attempted: 0, sent: 0 };
   return {
     expired: expiryOutcomes.filter((outcome) => outcome.outcome === "expired").length,
     activationsSkipped: expiryOutcomes.filter((outcome) => outcome.outcome === "skipped").length,
     reconciled: sweep.reconciled,
     deleted: sweep.deleted,
+    noticesRetried: notices.attempted,
+    noticesSent: notices.sent,
   };
 }
 

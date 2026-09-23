@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
   newRequestId,
@@ -159,6 +160,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (body.credentialKind !== undefined && body.credentialKind !== "provider_review")
       throw exomemErrors.invalidRequest();
+    // Cloud design D2: the reviewer-credential branch does not apply to the
+    // Cloud resource, so no provider-review credential is issued while Cloud
+    // is on. Revoking one (DELETE) stays available.
+    if (exomemCloudEnabled()) throw exomemErrors.invalidRequest();
     const selected = provider(body.provider);
     if (
       !selected ||

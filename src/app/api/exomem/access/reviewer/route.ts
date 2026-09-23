@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {
   marketplaceReviewerAccessEnabled,
@@ -34,7 +35,10 @@ function authenticationFailed(): NextResponse {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  if (!marketplaceReviewerAccessEnabled()) return authenticationFailed();
+  // Cloud design D2: the reviewer-credential branch does not apply under
+  // Cloud, so a credential issued before the flag was turned on no longer
+  // redeems.
+  if (!marketplaceReviewerAccessEnabled() || exomemCloudEnabled()) return authenticationFailed();
   try {
     validatePublicAccessRequest(request);
     const continuation = await resolveOAuthContinuation(request);

@@ -15,6 +15,7 @@
  * or "provider-paused" or "manually suspended" actually allow.
  */
 
+import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
 import {
   evaluateExomemEntitlement,
@@ -189,16 +190,28 @@ export async function reconcileCloudCellDesiredState(
     const { rows } = await tx`
       /* exomem-cloud:reconcile-entitlement */
       SELECT entitlement.tenant_id, entitlement.source, entitlement.source_state,
-             entitlement.manual_suspended_at, entitlement.source_occurred_at
+             entitlement.manual_suspended_at, entitlement.source_occurred_at,
+             tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state
       FROM exomem_entitlements AS entitlement
       JOIN exomem_cloud_cells AS cell
         ON cell.tenant_id = entitlement.tenant_id
        AND cell.desired_state <> 'deleted'
+      JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
       WHERE entitlement.tenant_id = ${tenantId}::uuid
       LIMIT 1
     `;
-    const row = rows[0] as EntitlementRow | undefined;
+    const row = rows[0] as
+      | (EntitlementRow & { tenant_status: string; tenant_desired_state: string })
+      | undefined;
     if (!row) return null;
+
+    // Account deletion (D4 table): a tenant whose deletion was confirmed has
+    // its Cloud cell deleted, whatever its entitlement says. Its tenant row
+    // stays `deletion_pending`, because billing deletion keys on that status
+    // to cancel the provider subscription.
+    const deletionPending = row.tenant_status === "deletion_pending";
+    const accountDeleted =
+      deletionPending || row.tenant_status === "deleted" || row.tenant_desired_state === "deleted";
 
     const sourceProjection = toSourceProjection(row);
     // An unrecognised source_state (pre-payment awaiting_checkout /
@@ -207,7 +220,9 @@ export async function reconcileCloudCellDesiredState(
     // recognised paddle branches allows at least a read, so guessing one
     // would risk repeating the finding-1 bug. `stopped` is the only D1/D4
     // answer for "the mapping does not recognise this state."
-    const target = sourceProjection
+    const target: CloudDesiredCellState = accountDeleted
+      ? "deleted"
+      : sourceProjection
       ? desiredCloudCellState(
           {
             tenantId,
@@ -233,7 +248,10 @@ export async function reconcileCloudCellDesiredState(
         AND desired_state <> 'deleted'
     `;
 
-    const mirror = cloudDesiredStateToTenantMirror(target);
+    // D2: the transaction that deletes the cell also revokes consent.
+    if (target === "deleted") await revokeCloudResourceConsent(tx, tenantId);
+
+    const mirror = deletionPending ? null : cloudDesiredStateToTenantMirror(target);
     if (mirror) {
       const deletedAt = mirror.status === "deleted" ? (options.now ?? new Date()) : null;
       await tx`
@@ -272,10 +290,16 @@ async function findActiveCloudTenantIds(limit: number): Promise<string[]> {
     SELECT cell.tenant_id
     FROM exomem_cloud_cells AS cell
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
+    JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
     WHERE cell.desired_state <> 'deleted'
-      AND NOT (
-        entitlement.source = 'paddle'
-        AND entitlement.source_state IN ('awaiting_checkout', 'checkout_pending')
+      AND (
+        -- A confirmed account deletion is swept even before payment.
+        tenant.status IN ('deletion_pending', 'deleted')
+        OR tenant.desired_state = 'deleted'
+        OR NOT (
+          entitlement.source = 'paddle'
+          AND entitlement.source_state IN ('awaiting_checkout', 'checkout_pending')
+        )
       )
     ORDER BY random()
     LIMIT ${limit}
@@ -286,6 +310,7 @@ async function findActiveCloudTenantIds(limit: number): Promise<string[]> {
 export type CloudReconcileResult = {
   reconciled: number;
   deleted: number;
+  failed: number;
 };
 
 /**
@@ -298,22 +323,36 @@ export type CloudReconcileResult = {
  * every tick, including overlapping ticks, is safe.
  */
 export async function runBoundedCloudReconcile(
-  options: { maxTenants?: number; cancelledRetentionDays?: number } = {}
+  options: {
+    maxTenants?: number;
+    cancelledRetentionDays?: number;
+    reconcileTenant?: typeof reconcileCloudCellDesiredState;
+  } = {}
 ): Promise<CloudReconcileResult> {
   const maxTenants = options.maxTenants ?? 200;
+  const reconcileTenant = options.reconcileTenant ?? reconcileCloudCellDesiredState;
   const tenantIds = await findActiveCloudTenantIds(maxTenants);
   let reconciled = 0;
   let deleted = 0;
+  let failed = 0;
   for (const tenantId of tenantIds) {
-    const target = await reconcileCloudCellDesiredState(tenantId, {
-      cancelledRetentionDays: options.cancelledRetentionDays,
-    });
-    if (target !== null) {
-      reconciled += 1;
-      if (target === "deleted") deleted += 1;
+    // Each tenant is isolated, as the expiry lane's are (security review
+    // finding 8): one tenant that throws must not stop every other tenant's
+    // reconcile, and account deletion relies on this sweep as its backstop.
+    try {
+      const target = await reconcileTenant(tenantId, {
+        cancelledRetentionDays: options.cancelledRetentionDays,
+      });
+      if (target !== null) {
+        reconciled += 1;
+        if (target === "deleted") deleted += 1;
+      }
+    } catch {
+      failed += 1;
+      console.error("exomem-cloud: lifecycle reconcile failed for one tenant");
     }
   }
-  return { reconciled, deleted };
+  return { reconciled, deleted, failed };
 }
 
 export { CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS };

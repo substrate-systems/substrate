@@ -3,8 +3,9 @@
  * `adopt-exomem-cloud-plain-cells`).
  *
  * Additive and gated: nothing here is called from any hosted code path.
- * Called only from paddle-webhook.ts's post-commit Cloud hook, when a Cloud
- * tenant's Paddle source state transitions to "cancelled". Sent once per
+ * Called from paddle-webhook.ts's post-commit Cloud hook, when a Cloud
+ * tenant's Paddle source state transitions to "cancelled", and from the
+ * periodic Cloud sweep, which retries a notice whose claim is still null. Sent once per
  * cancellation: `claimCloudCancellationNotice` atomically claims the send
  * with `UPDATE ... WHERE cancellation_notice_sent_at IS NULL` (migration
  * 0057), the same claim-then-act idiom every other one-time write in this
@@ -31,8 +32,11 @@ export type CloudCancellationNoticeDependencies = {
 
 /**
  * Claims the send and returns the owner's email and the exact claimed
- * timestamp, or `null` if there is no live (non-deleted) Cloud cell for this
- * tenant, or the notice was already claimed by an earlier call. The claim
+ * timestamp, or `null` if the tenant's Cloud cell is not a cancelled
+ * `read_only` cell, or the notice was already claimed by an earlier call.
+ * Re-checking the state here, in the claim itself, means a retry that
+ * reaches a tenant who resubscribed after the batch was listed sends
+ * nothing and leaves no stale claim behind. The claim
  * and the email lookup happen in the same statement, so nothing observes
  * "claimed" without also having the address to send to. The returned
  * timestamp is what a failed send's un-claim matches against, so it only
@@ -51,10 +55,13 @@ async function claimCloudCancellationNotice(
     /* exomem-cloud:claim-cancellation-notice */
     UPDATE exomem_cloud_cells AS cell
     SET cancellation_notice_sent_at = now()
-    FROM exomem_tenants AS tenant, users AS owner
+    FROM exomem_tenants AS tenant, users AS owner, exomem_entitlements AS entitlement
     WHERE cell.tenant_id = ${tenantId}::uuid
-      AND cell.desired_state <> 'deleted'
+      AND cell.desired_state = 'read_only'
       AND cell.cancellation_notice_sent_at IS NULL
+      AND entitlement.tenant_id = cell.tenant_id
+      AND entitlement.source = 'paddle'
+      AND entitlement.source_state = 'cancelled'
       AND tenant.id = cell.tenant_id
       AND owner.id = tenant.owner_user_id
     RETURNING owner.email AS email, cell.cancellation_notice_sent_at::text AS claimed_at
@@ -104,17 +111,67 @@ export async function sendCloudCancellationNoticeOnce(
   const deletionDate = new Date(sourceOccurredAt.getTime() + retentionDays * 24 * 60 * 60 * 1000);
   const rendered = renderExomemCloudCancellationEmail({ deletionDate, retentionDays });
   const sendEmail = dependencies.sendEmail ?? sendTransactionalEmail;
-  const result = await sendEmail({
-    to: claimed.email,
-    senderName: "Exomem",
-    subject: rendered.subject,
-    htmlContent: rendered.htmlContent,
-    textContent: rendered.textContent,
-  });
-  if (!result.success) {
+  let delivered = false;
+  try {
+    const result = await sendEmail({
+      to: claimed.email,
+      senderName: "Exomem",
+      subject: rendered.subject,
+      htmlContent: rendered.htmlContent,
+      textContent: rendered.textContent,
+    });
+    delivered = result.success;
+  } catch {
+    // A thrown send is a failed send (D4): the claim is released below.
+  }
+  if (!delivered) {
     await unclaimCloudCancellationNotice(tenantId, claimed.claimedAt);
     console.error("exomem-cloud: cancellation notice send failed, claim released");
     return false;
   }
   return true;
+}
+
+export type CloudCancellationNoticeRetryResult = { attempted: number; sent: number };
+
+/**
+ * D4: the periodic sweep retries the notice for every cancelled `read_only`
+ * cell whose claim is null -- a send that failed, or one the webhook never
+ * reached. The same claim guards it, so a retry that races the webhook
+ * still sends once. Bounded per tick; each tenant is isolated, so one
+ * failure never stops the rest.
+ */
+export async function retryPendingCloudCancellationNotices(
+  dependencies: CloudCancellationNoticeDependencies & { limit?: number } = {}
+): Promise<CloudCancellationNoticeRetryResult> {
+  const limit = dependencies.limit ?? 20;
+  const retentionDays = dependencies.retentionDays ?? DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS;
+  // Only notices whose export window is still open: a notice that names a
+  // deletion date already past is worse than none. Random order, so rows
+  // whose sends keep failing cannot starve newer ones out of a bounded batch.
+  const { rows } = await executeExomemSql`
+    /* exomem-cloud:pending-cancellation-notices */
+    SELECT cell.tenant_id, entitlement.source_occurred_at
+    FROM exomem_cloud_cells AS cell
+    JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
+    WHERE cell.desired_state = 'read_only'
+      AND cell.cancellation_notice_sent_at IS NULL
+      AND entitlement.source = 'paddle'
+      AND entitlement.source_state = 'cancelled'
+      AND entitlement.source_occurred_at > now() - (${retentionDays} * interval '1 day')
+    ORDER BY random()
+    LIMIT ${limit}
+  `;
+  let sent = 0;
+  for (const row of rows) {
+    try {
+      const occurredAt = new Date(row.source_occurred_at as string | Date);
+      if (await sendCloudCancellationNoticeOnce(String(row.tenant_id), occurredAt, dependencies)) {
+        sent += 1;
+      }
+    } catch {
+      console.error("exomem-cloud: cancellation notice retry failed for one tenant");
+    }
+  }
+  return { attempted: rows.length, sent };
 }

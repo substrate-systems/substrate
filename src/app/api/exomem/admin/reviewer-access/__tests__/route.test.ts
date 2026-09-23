@@ -127,6 +127,41 @@ describe("Exomem operator reviewer access", () => {
     assert.equal(JSON.stringify(body).includes(TENANT_ID), false);
   });
 
+  it("refuses a provider-review credential while Exomem Cloud is enabled, but still revokes one", async () => {
+    const { POST, DELETE } = await import("../route");
+    process.env.EXOMEM_CLOUD_ENABLED = "1";
+    try {
+      const response = await POST(
+        request("POST", {
+          authorization: `Bearer ${ADMIN_TOKEN}`,
+          body: {
+            provider: "openai",
+            ownerUserId: OWNER_ID,
+            tenantId: TENANT_ID,
+            fixtureVersion: "review-fixture-v1",
+            fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
+            expiresAt: "2026-08-01T00:00:00.000Z",
+          },
+        })
+      );
+      assert.equal(response.status, 400);
+      assert.equal(created, null);
+      const body = (await response.json()) as Record<string, unknown>;
+      assert.equal(JSON.stringify(body).includes(PASSWORD), false);
+
+      const revokeResponse = await DELETE(
+        request("DELETE", {
+          authorization: `Bearer ${ADMIN_TOKEN}`,
+          body: { provider: "openai" },
+        })
+      );
+      assert.equal(revokeResponse.status, 200);
+      assert.notEqual(revoked, null);
+    } finally {
+      delete process.env.EXOMEM_CLOUD_ENABLED;
+    }
+  });
+
   it("rejects missing or malformed fixture payload digests before credential persistence", async () => {
     const { POST } = await import("../route");
     for (const fixturePayloadDigest of [undefined, "A".repeat(64), "a".repeat(63)]) {

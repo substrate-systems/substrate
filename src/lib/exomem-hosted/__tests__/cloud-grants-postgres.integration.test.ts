@@ -196,7 +196,9 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
 
   it("gives substrate_app SELECT/INSERT/UPDATE/DELETE on every public table except C1-C1d, proven with a real round trip", async () => {
     const tableNames = await publicTableNames();
-    const nonCloudTables = tableNames.filter((name) => !(C1_TABLES as readonly string[]).includes(name));
+    const nonCloudTables = tableNames.filter(
+      (name) => !(C1_TABLES as readonly string[]).includes(name) && name !== "schema_migrations"
+    );
     assert.ok(nonCloudTables.length > 10, "sanity: the schema of record has plenty of non-Cloud tables");
     const privileges = await tablePrivileges("substrate_app", nonCloudTables);
     for (const name of nonCloudTables) {
@@ -225,6 +227,20 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       [host]
     );
     assert.equal(gone.rowCount, 0);
+  });
+
+  // D7: schema_migrations belongs to the migration runner. No runtime code
+  // reads it, so substrate_app holds nothing on it, and a rerun of the
+  // schema-wide grant never hands it back.
+  it("gives substrate_app no privilege at all on schema_migrations", async () => {
+    const privileges = await tablePrivileges("substrate_app", ["schema_migrations"]);
+    assert.deepEqual(privileges.schema_migrations, {
+      select: false,
+      insert: false,
+      update: false,
+      delete: false,
+    });
+    await assert.rejects(appPool!.query("SELECT 1 FROM schema_migrations LIMIT 1"), /permission denied/);
   });
 
   it("grants substrate_app nothing extra on C1-C1d beyond the exact C1 privilege table -- no DELETE, no observed columns", async () => {
