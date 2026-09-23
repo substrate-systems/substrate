@@ -11,7 +11,7 @@
  */
 
 import { loadCloudCellImageRepository } from "./cloud-config";
-import { executeExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 
 const CELL_IMAGE_SETTINGS_KEY = "cell_image";
 const CELL_IMAGE_DIGEST_HEX = /^[0-9a-f]{64}$/;
@@ -50,18 +50,22 @@ export function assertValidCloudCellImage(
   }
 }
 
+async function writeReleaseImage(sql: ExomemSql, image: string): Promise<void> {
+  await sql`
+    /* exomem-cloud:set-release-image */
+    INSERT INTO exomem_cloud_settings (key, value)
+    VALUES (${CELL_IMAGE_SETTINGS_KEY}, ${JSON.stringify(image)}::jsonb)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+  `;
+}
+
 /** Sets the fleet-wide default image new/reconciled cells roll out to. */
 export async function setCloudReleaseImage(
   image: string,
   dependencies: CloudCellImageValidationDependencies = {}
 ): Promise<void> {
   assertValidCloudCellImage(image, dependencies);
-  await executeExomemSql`
-    /* exomem-cloud:set-release-image */
-    INSERT INTO exomem_cloud_settings (key, value)
-    VALUES (${CELL_IMAGE_SETTINGS_KEY}, ${JSON.stringify(image)}::jsonb)
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
-  `;
+  await writeReleaseImage(executeExomemSql, image);
 }
 
 /**
@@ -72,7 +76,11 @@ export async function setCloudReleaseImage(
  * Returns whether a paused row was found and cleared.
  */
 export async function clearPausedCloudRollout(): Promise<boolean> {
-  const { rowCount } = await executeExomemSql`
+  return writeClearPausedRollout(executeExomemSql);
+}
+
+async function writeClearPausedRollout(sql: ExomemSql): Promise<boolean> {
+  const { rowCount } = await sql`
     /* exomem-cloud:clear-paused-rollout */
     UPDATE exomem_cloud_rollout
     SET paused = false, error_code = NULL, held_cell_id = NULL
@@ -93,13 +101,58 @@ export async function setCloudCellDesiredImage(
   dependencies: CloudCellImageValidationDependencies = {}
 ): Promise<boolean> {
   if (image !== null) assertValidCloudCellImage(image, dependencies);
-  const { rowCount } = await executeExomemSql`
+  return writeCellDesiredImage(executeExomemSql, cellId, image);
+}
+
+async function writeCellDesiredImage(
+  sql: ExomemSql,
+  cellId: string,
+  image: string | null
+): Promise<boolean> {
+  const { rowCount } = await sql`
     /* exomem-cloud:set-cell-desired-image */
     UPDATE exomem_cloud_cells
     SET desired_image = ${image}
     WHERE cell_id = ${cellId} AND desired_state <> 'deleted'
   `;
   return (rowCount ?? 0) > 0;
+}
+
+/** The named cell has no non-deleted row; nothing in the request was applied. */
+export class CloudReleaseCellNotFoundError extends Error {
+  constructor() {
+    super("Exomem Cloud cell not found");
+    this.name = "CloudReleaseCellNotFoundError";
+  }
+}
+
+export type CloudReleaseChanges = {
+  cellImage?: string;
+  clearRolloutPause?: true;
+  cellDesiredImage?: { cellId: string; image: string | null };
+};
+
+/**
+ * D5: a request that changes several values validates all of them before
+ * writing any, then writes them in one transaction, so a partly invalid
+ * request -- a bad image, or a cell that does not exist -- changes nothing.
+ */
+export async function applyCloudReleaseChanges(
+  changes: CloudReleaseChanges,
+  dependencies: CloudCellImageValidationDependencies = {}
+): Promise<void> {
+  if (changes.cellImage !== undefined) assertValidCloudCellImage(changes.cellImage, dependencies);
+  const cellChange = changes.cellDesiredImage;
+  if (cellChange && cellChange.image !== null) {
+    assertValidCloudCellImage(cellChange.image, dependencies);
+  }
+  await withExomemTransaction(async (tx) => {
+    if (changes.cellImage !== undefined) await writeReleaseImage(tx, changes.cellImage);
+    if (changes.clearRolloutPause) await writeClearPausedRollout(tx);
+    if (cellChange && !(await writeCellDesiredImage(tx, cellChange.cellId, cellChange.image))) {
+      throw new CloudReleaseCellNotFoundError();
+    }
+  });
 }
 
 export type CloudOperatorCellView = {

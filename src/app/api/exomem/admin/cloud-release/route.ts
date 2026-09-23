@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  clearPausedCloudRollout,
+  applyCloudReleaseChanges,
+  CloudReleaseCellNotFoundError,
   getCloudOperatorView,
   InvalidCloudCellImageError,
-  setCloudCellDesiredImage,
-  setCloudReleaseImage,
+  type CloudReleaseChanges,
 } from "@/lib/exomem-hosted/cloud-release";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
@@ -51,40 +51,44 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       throw exomemErrors.invalidRequest();
     }
 
-    // Security review finding 10: an image that isn't
-    // <configured repository>@sha256:<64 lowercase hex> is a 400
-    // invalid_request, not an internal error -- setCloudReleaseImage and
-    // setCloudCellDesiredImage both enforce this themselves
-    // (assertValidCloudCellImage), so this only remaps the error code.
+    // D5: every value is parsed and validated before anything is written,
+    // and applyCloudReleaseChanges writes them in one transaction, so a
+    // partly invalid request changes nothing. Security review finding 10: an
+    // image that isn't <configured repository>@sha256:<64 lowercase hex> is a
+    // 400 invalid_request, not an internal error.
+    const changes: CloudReleaseChanges = {};
+    if (hasCellImage) {
+      const image = nonEmptyString(body.cellImage);
+      if (!image) throw exomemErrors.invalidRequest();
+      changes.cellImage = image;
+    }
+    if (hasClearRolloutPause) {
+      if (body.clearRolloutPause !== true) throw exomemErrors.invalidRequest();
+      changes.clearRolloutPause = true;
+    }
+    if (hasCellDesiredImage) {
+      const cellId = nonEmptyString(body.cellId);
+      if (!cellId) throw exomemErrors.invalidRequest();
+      // Present but not a non-empty string (e.g. explicit `null`) clears the
+      // per-cell override back to the fleet default.
+      const cellDesiredImage =
+        "cellDesiredImage" in body && body.cellDesiredImage !== null
+          ? nonEmptyString(body.cellDesiredImage)
+          : null;
+      if ("cellDesiredImage" in body && body.cellDesiredImage !== null && !cellDesiredImage) {
+        throw exomemErrors.invalidRequest();
+      }
+      changes.cellDesiredImage = { cellId, image: cellDesiredImage };
+    }
     try {
-      if (hasCellImage) {
-        const image = nonEmptyString(body.cellImage);
-        if (!image) throw exomemErrors.invalidRequest();
-        await setCloudReleaseImage(image);
-      }
-
-      if (hasClearRolloutPause) {
-        if (body.clearRolloutPause !== true) throw exomemErrors.invalidRequest();
-        await clearPausedCloudRollout();
-      }
-
-      if (hasCellDesiredImage) {
-        const cellId = nonEmptyString(body.cellId);
-        if (!cellId) throw exomemErrors.invalidRequest();
-        // Present but not a non-empty string (e.g. explicit `null`) clears the
-        // per-cell override back to the fleet default.
-        const cellDesiredImage =
-          "cellDesiredImage" in body && body.cellDesiredImage !== null
-            ? nonEmptyString(body.cellDesiredImage)
-            : null;
-        if ("cellDesiredImage" in body && body.cellDesiredImage !== null && !cellDesiredImage) {
-          throw exomemErrors.invalidRequest();
-        }
-        const applied = await setCloudCellDesiredImage(cellId, cellDesiredImage);
-        if (!applied) throw exomemErrors.invalidRequest();
-      }
+      await applyCloudReleaseChanges(changes);
     } catch (error) {
-      if (error instanceof InvalidCloudCellImageError) throw exomemErrors.invalidRequest();
+      if (
+        error instanceof InvalidCloudCellImageError ||
+        error instanceof CloudReleaseCellNotFoundError
+      ) {
+        throw exomemErrors.invalidRequest();
+      }
       throw error;
     }
 

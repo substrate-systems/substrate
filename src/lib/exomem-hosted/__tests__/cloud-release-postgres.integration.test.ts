@@ -5,13 +5,15 @@ import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
 import {
+  applyCloudReleaseChanges,
   clearPausedCloudRollout,
+  CloudReleaseCellNotFoundError,
   getCloudOperatorView,
   InvalidCloudCellImageError,
   setCloudCellDesiredImage,
   setCloudReleaseImage,
 } from "../cloud-release";
-import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // Task 3.8: the owner-only release route's data layer (design D5) against
@@ -44,6 +46,21 @@ function taggedSql(client: Pool | PoolClient): ExomemSql {
     const result = await client.query(text, values);
     return { rows: result.rows as Array<Record<string, unknown>>, rowCount: result.rowCount ?? 0 };
   };
+}
+
+async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  const client = await pool!.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL READ COMMITTED");
+    const result = await callback(taggedSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function resetFleet(): Promise<void> {
@@ -89,10 +106,12 @@ describe("Exomem Cloud release control PostgreSQL integration", { skip: !databas
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });
     __setExomemSqlForTests(taggedSql(pool));
+    __setExomemTransactionForTests(interactiveTransaction);
   });
 
   after(async () => {
     __setExomemSqlForTests(null);
+    __setExomemTransactionForTests(null);
     if (pool) await pool.end();
     if (schema) {
       const admin = new Pool({ connectionString: databaseUrl });
@@ -190,6 +209,55 @@ describe("Exomem Cloud release control PostgreSQL integration", { skip: !databas
     const { cellId } = await seedCell("deleted");
     const applied = await setCloudCellDesiredImage(cellId, IMAGE_V9);
     assert.equal(applied, false);
+  });
+
+  // D5: a request that changes several values validates all of them before
+  // writing any and writes them in one transaction, so a partly invalid
+  // request changes nothing.
+  it("applies a mixed release change atomically: all of it, or none of it", async () => {
+    await resetFleet();
+    const { cellId } = await seedCell();
+    await setCloudReleaseImage(IMAGE_V1);
+    await pool!.query(
+      "UPDATE exomem_cloud_rollout SET paused = true, error_code = 'PROBE_FAILED', held_cell_id = $1 WHERE id = 1",
+      [cellId]
+    );
+
+    // A cell that does not exist: the fleet image and the pause stay as they were.
+    await assert.rejects(
+      applyCloudReleaseChanges({
+        cellImage: IMAGE_V2,
+        clearRolloutPause: true,
+        cellDesiredImage: { cellId: randomCloudCellId(), image: IMAGE_CANARY },
+      }),
+      CloudReleaseCellNotFoundError
+    );
+    let view = await getCloudOperatorView();
+    assert.equal(view.cellImage, IMAGE_V1);
+    assert.equal(view.rollout?.paused, true);
+
+    // An invalid override image is refused before anything is written.
+    await assert.rejects(
+      applyCloudReleaseChanges({
+        cellImage: IMAGE_V2,
+        cellDesiredImage: { cellId, image: "registry.example.test/exomem-cell:canary" },
+      }),
+      InvalidCloudCellImageError
+    );
+    view = await getCloudOperatorView();
+    assert.equal(view.cellImage, IMAGE_V1);
+    assert.equal(view.cells[0]?.desiredImage, null);
+
+    // A fully valid request applies every part.
+    await applyCloudReleaseChanges({
+      cellImage: IMAGE_V2,
+      clearRolloutPause: true,
+      cellDesiredImage: { cellId, image: IMAGE_CANARY },
+    });
+    view = await getCloudOperatorView();
+    assert.equal(view.cellImage, IMAGE_V2);
+    assert.equal(view.rollout?.paused, false);
+    assert.equal(view.cells[0]?.desiredImage, IMAGE_CANARY);
   });
 
   it("reports observed cell state, rollout state and capacity together", async () => {

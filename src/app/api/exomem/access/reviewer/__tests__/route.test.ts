@@ -115,6 +115,22 @@ describe("POST /api/exomem/access/reviewer", () => {
     assert.equal(JSON.stringify(body).includes("review-fixture-v1"), false);
   });
 
+  // Cloud design D2: the reviewer-credential branch does not apply under
+  // Cloud, so a credential issued before the flag was turned on no longer
+  // redeems either.
+  it("refuses reviewer redemption while Exomem Cloud is enabled", async () => {
+    const { POST } = await import("../route");
+    process.env.EXOMEM_CLOUD_ENABLED = "1";
+    try {
+      const response = await POST(request());
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), { success: false, error: "authentication_failed" });
+      assert.equal(bindCalls.length, 0);
+    } finally {
+      delete process.env.EXOMEM_CLOUD_ENABLED;
+    }
+  });
+
   it("uses one generic no-store failure for disabled, missing continuation, invalid credentials, and malformed credentials", async () => {
     const { POST } = await import("../route");
     const failures: Response[] = [];

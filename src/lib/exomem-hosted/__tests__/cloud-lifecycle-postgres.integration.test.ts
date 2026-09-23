@@ -612,6 +612,145 @@ describe("Exomem Cloud lifecycle reconciliation PostgreSQL integration", { skip:
     assert.equal(target, null);
   });
 
+  // Cloud design D2 "Deletion revokes consent" and the D4 account-deletion row.
+  async function admitWithTokens(): Promise<{ tenantId: string; cellId: string }> {
+    const fixture = await createCloudOAuthFixture();
+    const codeDigest = randomBytes(32);
+    const admission = await admitFirstCloudOAuthInviteAtomic({
+      inviteDigest: fixture.inviteDigest,
+      transactionDigest: fixture.transactionDigest,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      codeDigest,
+      codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    assert.ok(admission);
+    const issued = await issueOAuthTokensFromCodeAtomic({
+      codeDigest,
+      clientId: fixture.clientId,
+      redirectUri: fixture.redirectUri,
+      resource: "https://cloud.example.test/mcp/v1",
+      pkceChallenge: "challenge",
+      refreshDigest: randomBytes(32),
+      refreshExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      accessDigest: randomBytes(32),
+      accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
+    assert.ok(issued, "sanity: the admitted tenant holds live Cloud tokens");
+    return { tenantId: admission!.tenantId, cellId: admission!.cellId };
+  }
+
+  async function liveConsent(tenantId: string): Promise<{ grants: number; families: number; tokens: number }> {
+    const { rows } = await pool!.query(
+      `SELECT
+         (SELECT count(*)::int FROM exomem_oauth_grants
+           WHERE tenant_id = $1 AND revoked_at IS NULL) AS grants,
+         (SELECT count(*)::int FROM exomem_oauth_token_families AS family
+           JOIN exomem_oauth_grants AS g ON g.id = family.grant_id
+           WHERE g.tenant_id = $1 AND family.revoked_at IS NULL) AS families,
+         (SELECT count(*)::int FROM exomem_oauth_access_tokens AS token
+           JOIN exomem_oauth_grants AS g ON g.id = token.grant_id
+           WHERE g.tenant_id = $1 AND token.revoked_at IS NULL) AS tokens`,
+      [tenantId]
+    );
+    return rows[0] as { grants: number; families: number; tokens: number };
+  }
+
+  it("revokes Cloud grants, token families and access tokens in the transaction that deletes the cell", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const { tenantId, cellId } = await admitWithTokens();
+    assert.deepEqual(await liveConsent(tenantId), { grants: 1, families: 1, tokens: 1 });
+    await pool!.query(
+      `UPDATE exomem_entitlements
+       SET source = 'paddle', source_state = 'cancelled', source_occurred_at = '2026-01-01T00:00:00Z'
+       WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    const target = await reconcileCloudCellDesiredState(tenantId, {
+      cancelledRetentionDays: 30,
+      now: new Date("2026-03-01T00:00:00Z"),
+    });
+    assert.equal(target, "deleted");
+    assert.equal((await cellState(cellId)).desiredState, "deleted");
+    assert.deepEqual(await liveConsent(tenantId), { grants: 0, families: 0, tokens: 0 });
+  });
+
+  it("deletes the Cloud cell of a confirmed account deletion, leaving the tenant deletion_pending for billing", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const { tenantId, cellId } = await admitWithTokens();
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+      [tenantId]
+    );
+    const target = await reconcileCloudCellDesiredState(tenantId);
+    assert.equal(target, "deleted");
+    assert.equal((await cellState(cellId)).desiredState, "deleted");
+    const tenant = await tenantState(tenantId);
+    assert.equal(tenant.status, "deletion_pending", "billing deletion keys on deletion_pending");
+    assert.deepEqual(await liveConsent(tenantId), { grants: 0, families: 0, tokens: 0 });
+  });
+
+  // A deletion must not depend on configuration the control plane does not
+  // otherwise need: with the Cloud env absent, deleting a cell still revokes
+  // every grant the tenant holds.
+  it("revokes consent and deletes the cell even when the Cloud configuration is absent", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const { tenantId, cellId } = await admitWithTokens();
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+      [tenantId]
+    );
+    const saved = { ...process.env };
+    for (const key of Object.keys(CLOUD_CONFIG_ENV)) delete process.env[key];
+    try {
+      assert.equal(await reconcileCloudCellDesiredState(tenantId), "deleted");
+    } finally {
+      Object.assign(process.env, saved);
+    }
+    assert.equal((await cellState(cellId)).desiredState, "deleted");
+    assert.deepEqual(await liveConsent(tenantId), { grants: 0, families: 0, tokens: 0 });
+  });
+
+  it("the sweep isolates a tenant whose reconcile throws, so every other tenant is still reconciled", async () => {
+    await resetFleet();
+    const cancelledAt = new Date("2026-01-01T00:00:00Z");
+    const broken = await seedTenant({ source: "complimentary", sourceState: "complimentary_active" });
+    const healthy = await seedTenant({
+      source: "paddle",
+      sourceState: "cancelled",
+      sourceOccurredAt: cancelledAt,
+      initialDesiredState: "read_only",
+    });
+    const result = await runBoundedCloudReconcile({
+      cancelledRetentionDays: 30,
+      reconcileTenant: async (tenantId, options) => {
+        if (tenantId === broken.tenantId) throw new Error("simulated one-tenant failure");
+        return reconcileCloudCellDesiredState(tenantId, options);
+      },
+    });
+    assert.equal((await cellState(healthy.cellId)).desiredState, "deleted");
+    assert.equal(result.failed, 1);
+  });
+
+  it("the sweep deletes a pre-payment tenant's cell once its account deletion is confirmed", async () => {
+    await resetFleet();
+    const { tenantId, cellId } = await seedTenant({
+      source: "paddle",
+      sourceState: "awaiting_checkout",
+      initialDesiredState: "stopped",
+    });
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+      [tenantId]
+    );
+    await runBoundedCloudReconcile();
+    assert.equal((await cellState(cellId)).desiredState, "deleted");
+  });
+
   it("refuses an OAuth token exchange once the mirror drives a tenant to stopped, but not to read_only", async () => {
     await resetFleet();
     await configureCapacity(2);

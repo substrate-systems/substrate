@@ -76,6 +76,41 @@ describe("Exomem product-scoped deletion confirmation", () => {
     assert.equal(result.state, "deletion_pending");
   });
 
+  // Cloud design D4 table: account deletion reaches the tenant's Cloud cell
+  // row at once; the periodic Cloud sweep is only the backstop.
+  it("reconciles the Cloud cell on a confirmed deletion only while Cloud is enabled", async () => {
+    const consume = async () => ({
+      operationId: "018f2d91-7c42-7000-8000-000000000093",
+      requestId: "018f2d91-7c42-7000-8000-000000000094",
+    });
+    const reconcile = async () => ({ attempted: true, code: "RECONCILE_STEP_ACCEPTED" }) as const;
+    const reconciledCloud: string[] = [];
+    const reconcileCloud = async (tenantId: string) => {
+      reconciledCloud.push(tenantId);
+    };
+
+    delete process.env.EXOMEM_CLOUD_ENABLED;
+    await confirmDeletion("c".repeat(43), SESSION, { consume, reconcile, reconcileCloud });
+    assert.deepEqual(reconciledCloud, []);
+
+    process.env.EXOMEM_CLOUD_ENABLED = "1";
+    try {
+      await confirmDeletion("d".repeat(43), SESSION, { consume, reconcile, reconcileCloud });
+      // A failing Cloud reconcile never fails the confirmation itself.
+      const result = await confirmDeletion("e".repeat(43), SESSION, {
+        consume,
+        reconcile,
+        reconcileCloud: async () => {
+          throw new Error("transient");
+        },
+      });
+      assert.equal(result.state, "deletion_pending");
+    } finally {
+      delete process.env.EXOMEM_CLOUD_ENABLED;
+    }
+    assert.deepEqual(reconciledCloud, [SESSION.tenantId]);
+  });
+
   it("maps replay and wrong-owner confirmation to one safe failure", async () => {
     await assert.rejects(
       confirmDeletion("b".repeat(43), SESSION, {

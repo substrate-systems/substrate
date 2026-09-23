@@ -39,6 +39,19 @@
   - IP rate limits keyed on the ingress-recorded client address, and identity limits.
 - [x] 3.7 Map every effective entitlement to desired state per the D4 table, including `read_only` for grace and provider-paused, and the cancelled export window followed by `deleted`. Test each transition and its generation bump, and resubscription within the window. State the window on the terms page and in the cancellation email
 - [x] 3.8 Add the owner-only release route (D5): set `cell_image`, clear a paused rollout, set or clear a row's `desired_image`, and an operator view of observed cell state, rollout state and capacity. Test the non-owner refusal
+- [x] 3.9 Close the review follow-ups before friends are invited, each tested against real Postgres where it touches the database:
+  - re-admission only for a `deleted` or pre-payment tenant, resetting every provider field (D1);
+  - the reviewer route's provider-review branch refused under Cloud, and every cell deletion (expiry, reconcile, account deletion) revoking the tenant's Cloud grants, token families and access tokens in the same transaction (D2);
+  - account deletion reaching the Cloud cell row (deleted, consent revoked) at confirmation and on the sweep;
+  - the gateway's IP-bucket skip counted and logged (D3);
+  - a failed or thrown cancellation notice releasing its claim, and the sweep retrying it (D4);
+  - the release PUT validating everything before one transactional write (D5);
+  - `schema_migrations` excluded from `substrate_app`'s schema-wide grant (D7)
+- [ ] 3.10 Finish Cloud account deletion without the v1 lifecycle (D4 "Cloud deletion finish"), before friends are invited:
+  - no v1 delete operation for a tenant that owns a Cloud cell row, deleted rows included;
+  - the finish selecting `deletion_pending` tenants that own any Cloud cell row, so a cell deleted before confirmation (expired unpaid invite) is still finished;
+  - billing cancelled through billing deletion, then the tenant scrubbed in one transaction, retried by the sweep;
+  - tested against real Postgres from confirmation to a `deleted` tenant, for both a live cell and one already deleted, leaving exactly the D4 receipt.
 
 ## 4. Cutover and acceptance (P4)
 

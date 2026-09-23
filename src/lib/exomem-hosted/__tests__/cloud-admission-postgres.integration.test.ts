@@ -360,6 +360,115 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(invite.rows[0]!.consumed_at, null);
   });
 
+  // Cloud design D1 "Re-admission scope": re-admission applies only to a
+  // `deleted` tenant or a pre-payment one. A tenant whose deletion or billing
+  // is still in flight is never re-admitted, and its invite stays unconsumed.
+  async function admitThenDeleteCell(email: string): Promise<{ tenantId: string; cellId: string }> {
+    const first = await createInvite("complimentary", email);
+    const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
+    assert.ok(admitted);
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [
+      admitted!.cellId,
+    ]);
+    return { tenantId: admitted!.tenantId, cellId: admitted!.cellId };
+  }
+
+  async function assertRefusedAndUnconsumed(email: string): Promise<void> {
+    const invite = await createInvite("complimentary", email);
+    // A clean refusal, not an incidental constraint violation further on.
+    await assert.rejects(redeemCloudInviteAtomic(redemptionInput(invite.tokenDigest)), (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "ACCESS_TOKEN_INVALID");
+      return true;
+    });
+    const row = await pool!.query("SELECT consumed_at FROM exomem_invites WHERE token_digest = $1", [
+      invite.tokenDigest,
+    ]);
+    assert.equal(row.rows[0]!.consumed_at, null);
+  }
+
+  it("refuses re-admission for a tenant whose deletion is still pending", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const email = `cloud-readmit-pending-${randomUUID()}@example.test`;
+    const { tenantId } = await admitThenDeleteCell(email);
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+      [tenantId]
+    );
+    await assertRefusedAndUnconsumed(email);
+  });
+
+  it("refuses re-admission for a tenant that still has a live provider subscription", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const email = `cloud-readmit-subscribed-${randomUUID()}@example.test`;
+    const { tenantId } = await admitThenDeleteCell(email);
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
+      [tenantId]
+    );
+    await pool!.query(
+      `UPDATE exomem_entitlements
+       SET source = 'paddle', source_state = 'active', provider_subscription_ref = 'sub_live',
+           provider_environment = 'sandbox'
+       WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    await assertRefusedAndUnconsumed(email);
+  });
+
+  it("re-admits an expired pre-payment tenant and resets every provider field", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const email = `cloud-readmit-unpaid-${randomUUID()}@example.test`;
+    const { tenantId } = await admitThenDeleteCell(email);
+    // The 7-day expiry leaves the tenant `provisioning` with an
+    // awaiting_checkout entitlement and a cancelled checkout on record.
+    await pool!.query(
+      `UPDATE exomem_entitlements
+       SET source = 'paddle', source_state = 'awaiting_checkout',
+           provider_transaction_ref = 'txn_cancelled', provider_environment = 'sandbox'
+       WHERE tenant_id = $1`,
+      [tenantId]
+    );
+    const invite = await createInvite("complimentary", email);
+    const readmitted = await redeemCloudInviteAtomic(redemptionInput(invite.tokenDigest));
+    assert.ok(readmitted);
+    assert.equal(readmitted!.tenantId, tenantId);
+    const entitlement = await pool!.query(
+      "SELECT provider_environment, provider_transaction_ref FROM exomem_entitlements WHERE tenant_id = $1",
+      [tenantId]
+    );
+    assert.equal(entitlement.rows[0]!.provider_environment, null);
+    assert.equal(entitlement.rows[0]!.provider_transaction_ref, null);
+  });
+
+  it("refuses Cloud OAuth re-admission for a tenant whose deletion is still pending", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const email = `cloud-oauth-readmit-pending-${randomUUID()}@example.test`;
+    const { tenantId } = await admitThenDeleteCell(email);
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+      [tenantId]
+    );
+    const fixture = await createCloudOAuthFixture(email);
+    const result = await admitFirstCloudOAuthInviteAtomic({
+      inviteDigest: fixture.inviteDigest,
+      transactionDigest: fixture.transactionDigest,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      codeDigest: randomBytes(32),
+      codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    assert.equal(result, null);
+    const invite = await pool!.query("SELECT consumed_at FROM exomem_invites WHERE token_digest = $1", [
+      fixture.inviteDigest,
+    ]);
+    assert.equal(invite.rows[0]!.consumed_at, null);
+  });
+
   it("starts a paid invite stopped and activates it with no second capacity check, even on a full fleet", async () => {
     await resetFleet();
     await configureCapacity(1);
@@ -427,6 +536,47 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       [result!.cellId]
     );
     assert.equal(cell.rows[0]!.desired_state, "deleted");
+  });
+
+  // Cloud design D2 "Deletion revokes consent": the unpaid-invite expiry that
+  // deletes the cell also revokes the tenant's Cloud grants.
+  it("revokes the tenant's Cloud consent when the unpaid-invite expiry deletes its cell", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const fixture = await createCloudOAuthFixture();
+    const admission = await admitFirstCloudOAuthInviteAtomic({
+      inviteDigest: fixture.inviteDigest,
+      transactionDigest: fixture.transactionDigest,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      codeDigest: randomBytes(32),
+      codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    assert.ok(admission);
+    // Recast as an unpaid invite past its 7-day window, with no checkout.
+    await pool!.query(
+      "UPDATE exomem_entitlements SET source = 'paddle', source_state = 'awaiting_checkout' WHERE tenant_id = $1",
+      [admission!.tenantId]
+    );
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1", [
+      admission!.cellId,
+    ]);
+    await pool!.query("UPDATE exomem_tenants SET created_at = now() - interval '8 days' WHERE id = $1", [
+      admission!.tenantId,
+    ]);
+    const live = () =>
+      pool!.query("SELECT count(*)::int AS n FROM exomem_oauth_grants WHERE tenant_id = $1 AND revoked_at IS NULL", [
+        admission!.tenantId,
+      ]);
+    assert.equal((await live()).rows[0]!.n, 1, "sanity: admission created a live Cloud grant");
+
+    const outcomes = await expireCloudAwaitingCheckoutTenants({ config: FAKE_PADDLE_CONFIG });
+    assert.deepEqual(
+      outcomes.map((o) => o.outcome),
+      ["expired"]
+    );
+    assert.equal((await live()).rows[0]!.n, 0);
   });
 
   it("leaves the row for activation when the provider reports the transaction already completed", async () => {

@@ -8,6 +8,7 @@ let runCalls = 0;
 let paddleRunCalls = 0;
 let cloudExpireCalls = 0;
 let cloudReconcileCalls = 0;
+let cloudNoticeRetryCalls = 0;
 let lifecycleGate: Promise<void> | null = null;
 let paddleGate: Promise<void> | null = null;
 let lifecycleShouldFail = false;
@@ -21,6 +22,14 @@ before(() => {
           { tenantId: "t-expired", outcome: "expired" },
           { tenantId: "t-skipped", outcome: "skipped" },
         ];
+      },
+    },
+  });
+  mock.module("@/lib/exomem-hosted/cloud-cancellation-notice", {
+    namedExports: {
+      retryPendingCloudCancellationNotices: async () => {
+        cloudNoticeRetryCalls += 1;
+        return { attempted: 2, sent: 1 };
       },
     },
   });
@@ -79,6 +88,7 @@ afterEach(() => {
   paddleRunCalls = 0;
   cloudExpireCalls = 0;
   cloudReconcileCalls = 0;
+  cloudNoticeRetryCalls = 0;
   lifecycleGate = null;
   paddleGate = null;
   lifecycleShouldFail = false;
@@ -198,6 +208,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(response.status, 200);
     assert.equal(cloudExpireCalls, 0);
     assert.equal(cloudReconcileCalls, 0);
+    assert.equal(cloudNoticeRetryCalls, 0);
     const body = (await response.json()) as { result: Record<string, unknown> };
     assert.equal("cloud" in body.result, false);
   });
@@ -210,12 +221,15 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(response.status, 200);
     assert.equal(cloudExpireCalls, 1);
     assert.equal(cloudReconcileCalls, 1);
+    assert.equal(cloudNoticeRetryCalls, 1);
     const body = (await response.json()) as { result: { cloud: Record<string, number> } };
     assert.deepEqual(body.result.cloud, {
       expired: 1,
       activationsSkipped: 1,
       reconciled: 4,
       deleted: 1,
+      noticesRetried: 2,
+      noticesSent: 1,
     });
   });
 });
