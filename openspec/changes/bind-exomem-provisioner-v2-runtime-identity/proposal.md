@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 Substrate already snapshots the selected Exomem candidate and runtime contract, but its provisioner client always emits v1 and does not persist the outer wire protocol. Enabling a richer request from a process-wide flag would let retries change header/body identity after a restart, while current health wording incorrectly treats candidate compatibility as something a cell reports.

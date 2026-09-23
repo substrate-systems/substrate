@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 An expired marketplace-reviewer assignment can leave its unbound candidate in mandatory cleanup after the owner session and reviewer authority have been revoked. If the provider has already removed the candidate but its same-fence DISCARD could not release the original capacity reservation, ordinary retry is permanently poisoned and the existing owner-confirmation path is unreachable.

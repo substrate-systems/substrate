@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells` for its remaining tasks; the shipped OAuth authorization server and CIMD host allowlist are kept.
+
 ## Current contract
 
 The approved `simplify-hosted-launch-boundaries` change supersedes this change's

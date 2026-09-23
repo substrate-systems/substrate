@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 Exomem Hosted still serves the `0.57.2` `hosted-alpha-agent-v1` contract, which limits Claude and ChatGPT to 13 tools even though stable Exomem `0.63.1` contains the reviewed `hosted-alpha-agent-v4` 25-tool surface. The paid private alpha needs that exact stable release and profile now, using the existing same-cell rollforward and paired-review promotion flow rather than another bespoke migration.

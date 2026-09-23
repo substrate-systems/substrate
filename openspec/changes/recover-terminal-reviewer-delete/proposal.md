@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 A reviewer tenant's provider DESTROY completed, but its old local finalizer hit bootstrap-lineage foreign keys and exhausted retries before the retention fix deployed. The exact delete is now terminal at the already-proven `destroyed` checkpoint, so normal scheduling cannot finish the control-plane cleanup.

@@ -1,3 +1,5 @@
+> **Superseded (2026-09-23)** by `adopt-exomem-cloud-plain-cells`. Not to be implemented further; removed with its code in that change's retirement phase.
+
 ## Why
 
 A reviewer bootstrap can provision and bind its dedicated cell before the human-timed evidence ceremony fails or expires. The existing expired-reviewer recovery deliberately accepts only an unbound candidate in `candidate-cleanup`, so this successful-but-expired reviewer tenant blocks every fresh bootstrap while its sealed owner session cannot reach ordinary deletion.
