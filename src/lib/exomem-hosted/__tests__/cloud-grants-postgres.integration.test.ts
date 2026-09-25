@@ -427,7 +427,21 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       gatewayPool!.query("SELECT 1 FROM exomem_cloud_settings LIMIT 1"),
       /permission denied/
     );
-    await assert.rejects(gatewayPool!.query("SELECT 1 FROM exomem_tenants LIMIT 1"), /permission denied/);
+    // L3: exomem_gateway also reads the tenant's own status, column-scoped
+    // exactly like every other table it runs findCloudOAuthAccessToken
+    // against below -- id and status only, nothing else and no write.
+    const tenantRead = await gatewayPool!.query("SELECT id, status FROM exomem_tenants WHERE id = $1", [
+      tenantId,
+    ]);
+    assert.equal(tenantRead.rows[0]!.id, tenantId);
+    await assert.rejects(
+      gatewayPool!.query("SELECT owner_user_id FROM exomem_tenants WHERE id = $1", [tenantId]),
+      /permission denied/
+    );
+    await assert.rejects(
+      gatewayPool!.query("UPDATE exomem_tenants SET status = 'active' WHERE id = $1", [tenantId]),
+      /permission denied/
+    );
     await assert.rejects(gatewayPool!.query("SELECT 1 FROM users LIMIT 1"), /permission denied/);
   });
 

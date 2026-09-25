@@ -352,7 +352,7 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       tenantId: seed.tenantId,
       tokenDigest: confirmationDigest,
     });
-    assert.ok(consumed);
+    assert.ok(consumed?.operationId, "a v1 tenant's confirmation queues a v1 delete operation");
     const operationId = consumed.operationId;
     const confirmationTokenId = confirmation.tokenId;
     await pool.query(

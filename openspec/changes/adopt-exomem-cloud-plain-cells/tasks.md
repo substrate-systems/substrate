@@ -28,6 +28,7 @@
   - a paid invite before checkout (`stopped`), and activation to `running` with no second capacity check, even on a full fleet;
   - the 7-day expiry: the pending provider transaction is cancelled and the row deleted, or, when the provider reports it completed, the row is left for activation.
 - [x] 3.4 Implement Cloud admission (D1) under `EXOMEM_CLOUD_ENABLED`, without `exomem_capacity_pools`
+  - fix the paid-activation webhook's `requires_provision_release` guard throwing `division by zero` for a Cloud tenant (it has no v1 capacity allocation to release), tested through the real Paddle event store
 - [x] 3.5 Implement Cloud OAuth client admission and exact-resource token binding (D2). Test an empty cohort with an approved CIMD host, and cross-resource token refusal in both directions
 - [x] 3.6 Implement the gateway Cloud handler and protected-resource metadata (D3). Test against a real cell process for:
   - header allowlisting and principal-only routing;
@@ -47,7 +48,7 @@
   - a failed or thrown cancellation notice releasing its claim, and the sweep retrying it (D4);
   - the release PUT validating everything before one transactional write (D5);
   - `schema_migrations` excluded from `substrate_app`'s schema-wide grant (D7)
-- [ ] 3.10 Finish Cloud account deletion without the v1 lifecycle (D4 "Cloud deletion finish"), before friends are invited:
+- [x] 3.10 Finish Cloud account deletion without the v1 lifecycle (D4 "Cloud deletion finish"), before friends are invited:
   - no v1 delete operation for a tenant that owns a Cloud cell row, deleted rows included;
   - the finish selecting `deletion_pending` tenants that own any Cloud cell row, so a cell deleted before confirmation (expired unpaid invite) is still finished;
   - billing cancelled through billing deletion, then the tenant scrubbed in one transaction, retried by the sweep;
