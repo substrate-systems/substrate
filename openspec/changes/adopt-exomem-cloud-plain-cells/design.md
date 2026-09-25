@@ -143,17 +143,18 @@ A single runbook and script. They preserve every write, carry Endstate unchanged
    - the old platform's in-cluster gateway and provisioner, both scaled to zero before the window;
    - node CronJobs;
    - operator scripts.
-2. **Freeze Neon.** Open the maintenance window by locking out every application role, so no client can write:
-   - `ALTER ROLE … NOLOGIN` and rotate the password of each role the consumers use;
-   - terminate their existing sessions;
-   - as a second layer, set `default_transaction_read_only = on` for the database.
+2. **Freeze Neon.** Open the maintenance window by making it impossible for any client but the operator's to connect, so no client can write:
+   - record the database's `datacl`, then `REVOKE CONNECT` on the database from `PUBLIC` and from every role holding it, and `GRANT CONNECT` only to the dump role. A role that cannot connect cannot write, whatever its table privileges, so no writer has to be discovered and no role's password or login flag changes;
+   - the database owner keeps `CONNECT`. When a consumer connects as the owner (the Vercel–Neon default), rotate the owner's password through Neon's API, which owns that role, and record the new one only in the operator's 0600 file;
+   - as a second layer, set `default_transaction_read_only = on` for the database;
+   - then terminate every other client session of the database.
    The setting alone is only a session default that a client can override, so the lockout is what guarantees that a late write fails instead of being lost.
 3. **Copy:** `pg_dump --no-owner --no-acl` as a separate dump role, then restore as `substrate_owner`.
 4. **Grant:** run the grants script.
 5. **Verify** extensions and sequence values, and compare per-table row counts and checksums.
 6. **Switch:** set the Vercel `DATABASE_URL` and `DATABASE_MIGRATION_URL`, then redeploy production so the new environment takes effect.
 7. **Post-check:** an Exomem admission dry run, an Endstate backup read, and a Paddle webhook replay against the new database.
-8. **Retain** Neon, locked out and read-only, as the rollback until retirement. Rolling back re-enables the application roles.
+8. **Retain** Neon, locked out and read-only, as the rollback until retirement. Rolling back restores the recorded `datacl` exactly and resets the read-only default; a rotated owner password stays rotated, and the switch-back hands it to Vercel.
 
 ## Shared contracts with Exomem
 
@@ -193,7 +194,7 @@ The remaining tasks of `add-exomem-hosted-mcp-oauth` and `admit-cimd-clients-by-
 - **Serverless connection fan-out.** Mitigated by PgBouncer in transaction mode and a small per-instance pool. The gateway, which is on the hot path, holds a normal long-lived pool on the private network.
 - **A paid invite reserves a row, not a volume,** until checkout activates it. Stale unpaid rows expire after 7 days.
 - **The capacity check under an advisory lock serializes admissions.** That is negligible at alpha volume.
-- **Cutover correctness for Endstate.** The same `pg_dump`/restore carries Endstate tables. The cutover runbook verifies row counts and checksums, and exercises one Endstate backup read before re-enabling traffic.
+- **Cutover correctness for Endstate.** The same `pg_dump`/restore carries Endstate tables. Before the switch, the cutover's verify step compares row counts and checksums for every table, the Endstate tables included. One functional Endstate backup read is a post-switch check.
 
 ## Migration Plan
 

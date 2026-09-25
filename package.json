@@ -20,6 +20,8 @@
     "reconcile:legacy-generations": "tsx scripts/reconcile-legacy-generations.ts",
     "cutover:strict-generation-visibility": "tsx scripts/strict-generation-visibility-cutover.ts",
     "import:legacy-patron": "tsx scripts/import-legacy-patron.ts",
+    "cutover:neon": "tsx scripts/neon-cutover.ts",
+    "rehearse:neon-cutover": "RUN_NEON_CUTOVER_REHEARSAL=1 node --import tsx --experimental-test-module-mocks --test src/lib/db/__tests__/neon-cutover-rehearsal.test.ts",
     "test": "node --import tsx --experimental-test-module-mocks --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "openspec:list": "openspec list",
     "openspec:list:specs": "openspec list --specs",
