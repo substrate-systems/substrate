@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   runCutover,
-  scramSha256Verifier,
   withReadWriteOverride,
   type CutoverEnv,
 } from "../../../../scripts/neon-cutover";
@@ -64,12 +63,13 @@ describe("neon-cutover guards", () => {
     assert.doesNotMatch(grants.output, /not-a-real-secret/);
   });
 
-  it("create-dump-role takes the role and its password from CUTOVER_SOURCE_DUMP_URL only", async () => {
-    const { code, output } = await run(["create-dump-role", "--confirm-production"], {
-      CUTOVER_SOURCE_ADMIN_URL: REMOTE,
-    });
+  it("rollback needs the password file that recorded the database's ACL", async () => {
+    const { code, output } = await run(
+      ["rollback", "--app-roles=app", "--confirm-production"],
+      remoteEnv
+    );
     assert.equal(code, 1, output);
-    assert.match(output, /CUTOVER_SOURCE_DUMP_URL is not set/);
+    assert.match(output, /--password-file/);
   });
 
   it("refuses a transaction-pooled endpoint for the phases that hold session state", async () => {
@@ -119,19 +119,5 @@ describe("neon-cutover guards", () => {
     assert.equal(probe.hostname, "ep-quiet-sky-123456.eu-central-1.aws.neon.tech");
     assert.equal(probe.searchParams.get("options"), "-c default_transaction_read_only=off");
     assert.equal(probe.searchParams.get("sslmode"), "require");
-  });
-
-  it("builds a SCRAM-SHA-256 verifier in PostgreSQL's stored format", () => {
-    // The inputs of RFC 7677's test vector (password "pencil", this salt, 4096
-    // iterations); the expected keys were derived independently with Python's hashlib.
-    const verifier = scramSha256Verifier(
-      "pencil",
-      Buffer.from("W22ZaJ0SNY7soEsUEjb6gQ==", "base64"),
-      4096
-    );
-    assert.equal(
-      verifier,
-      "SCRAM-SHA-256$4096:W22ZaJ0SNY7soEsUEjb6gQ==$WG5d8oPm3OtcPnkdi4Uo7BkeZkBFzpcXkuLmtbsT4qY=:wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU="
-    );
   });
 });

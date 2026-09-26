@@ -7,60 +7,61 @@
  *
  * Every phase runs alone and prints its plan before it acts:
  *
- *   inventory    read-only: versions, schemas, extensions, login roles, sessions
- *                and restore blockers on the source; with --app-roles, a login with
- *                each role's credential must succeed (step 1's go/no-go);
+ *   inventory    read-only: versions, schemas, extensions, the database ACL, login
+ *                roles, sessions and restore blockers on the source; with --app-roles,
+ *                each consumer's credential must log in (step 1's go/no-go);
  *                --expect-frozen checks the lock instead
- *   create-dump-role  create the dump role named by CUTOVER_SOURCE_DUMP_URL, its
- *                password sent as a SCRAM verifier, and grant it pg_read_all_data
- *   freeze       lock the named application roles out of the source: each role's
- *                credential proven by a login first, each password rotated (never
- *                printed) on one of the two paths below, NOLOGIN on all but the admin,
- *                default_transaction_read_only = on for the database, then every
- *                other client session of the database terminated; then prove it
- *   dump         pg_dump --no-owner --no-acl as the separate dump role, custom format,
- *                with a sha256 file beside the archive
+ *   create-dump-role  create the dump role through Neon's API, which returns its
+ *                password, record it, and grant it pg_read_all_data (or, where
+ *                that is refused, USAGE and SELECT object by object); an existing
+ *                role gets the grants again
+ *   freeze       record the database's ACL, then take CONNECT from PUBLIC and from
+ *                every role but the owner, and give it to the dump role; reset the
+ *                owner's password through Neon's API when a consumer connects as
+ *                the owner; set the read-only default; end every other client
+ *                session; then prove it
+ *   dump         pg_dump --no-owner --no-acl as the dump role, custom format, with a
+ *                sha256 file beside the archive
  *   restore      pg_restore into the empty target as substrate_owner, in one transaction
  *   grants       scripts/exomem-cloud-grants.sql through scripts/migrate.ts, then the
  *                D7 role checks
  *   verify       extensions, schemas, sequences, and per table its definition, row
  *                count and content checksum
  *   switch-plan  print the Vercel commands for the switch and the switch back; runs nothing
- *   rollback     re-enable the named roles on the source, each on its own, and clear
- *                its read-only default; a SQL-path role gets its pre-freeze password
- *                back, an API-path role keeps its rotated one
- *   switch-back-url  write an API-path role's Neon URL, with its rotated password, to a
- *                pipe into `vercel env add`; never to a terminal
+ *   rollback     restore the recorded ACL entry by entry, reset the read-only default,
+ *                and prove every consumer connects and can write; it sets no password
+ *   switch-back-url  write the owner's Neon URL, with its rotated password, to a pipe
+ *                into `vercel env add`; never to a terminal
  *
- * Two rotation paths. A role created with SQL takes the SQL path: NOLOGIN and
- * a SCRAM-rotated password. A console-managed role (--api-roles), such as
- * the owner role the freeze runs as, takes the Neon API path: its
- * password is reset through Neon's reset-password endpoint, so a compute
- * restart re-applies the new password instead of undoing it. The new
- * password is written only to --rotated-password-file (0600, never printed),
- * which freeze opens and checks before any Neon call. The file is only
- * appended to; a role's newest entry is its password, and every later phase
- * reads it from there.
+ * The password file (--password-file, 0600, never printed) is this window's
+ * only record of what Neon generated: the dump role's password, the owner's
+ * rotated one, and the database's ACL before the freeze. Every entry is
+ * timestamped and only ever appended; a role's newest entry is its password.
+ * create-dump-role and freeze open and check it before any Neon call, and
+ * freeze refuses a file whose first entry is more than 24 h old, since each
+ * window starts a new one. Freeze and rollback hold an exclusive flock on it
+ * throughout.
  *
  * Connection strings come only from the environment, never from arguments,
  * and are never printed (only user@host:port/database is):
  *
- *   CUTOVER_SOURCE_ADMIN_URL   Neon, the role that administers the application roles
- *   CUTOVER_SOURCE_DUMP_URL    Neon, the separate pg_read_all_data dump role
+ *   CUTOVER_SOURCE_ADMIN_URL   Neon, the database owner (or a role that can act as it)
  *   CUTOVER_TARGET_OWNER_URL   the new server as substrate_owner, through PgBouncer's
  *                              session alias or directly on 5432
- *   CUTOVER_ROLE_URL_<ROLE>    each application role's pre-freeze connection string,
- *                              as its consumer holds it (role name upper-cased, every
- *                              other character as "_")
+ *   CUTOVER_ROLE_URL_<ROLE>    each consumer's connection string, as it holds it (role
+ *                              name upper-cased, every other character as "_")
+ *   CUTOVER_SOURCE_DUMP_URL    optional, dump only: another database to dump (by
+ *                              default the dump role on the admin's host, with its
+ *                              recorded password)
  *   NEON_API_KEY, NEON_PROJECT_ID, NEON_BRANCH_ID
- *                              the API path's key (never printed), project and branch;
- *                              the branch must be the one the admin host's ep-... endpoint
+ *                              the API's key (never printed), project and branch; the
+ *                              branch must be the one the admin host's ep-... endpoint
  *                              serves (NEON_ENDPOINT_ID names the endpoint for a local host)
  *
  * Options:
- *   --app-roles=<a,b>      application roles (freeze, rollback, inventory)
- *   --api-roles=<a,b>      the application roles on the Neon API path (empty: none)
- *   --rotated-password-file=<path>  where the API path records rotated passwords
+ *   --app-roles=<a,b>      the roles the consumers connect as (inventory, freeze, rollback)
+ *   --password-file=<path> the window's password file
+ *   --dump-role=<role>     the dump role (default neon_cutover_dump)
  *   --role=<role>          switch-back-url: the role whose URL to write
  *   --archive=<path>       dump output / restore input
  *   --pg-bin-dir=<dir>     directory holding pg_dump and pg_restore (default: PATH)
@@ -68,14 +69,14 @@
  *   --confirm-production   required by freeze, rollback and create-dump-role against a
  *                          non-local host (restore and grants are bounded by an empty
  *                          target and an exact migration match instead)
- *   --expect-frozen        inventory: exit 2 unless every named role is locked out
+ *   --expect-frozen        inventory: exit 2 unless the lock holds
  *   --allow-unfrozen       dump: permit a dump of a source that is not frozen (timing trials)
  *
  * Exit status: 0 success, 1 refused or failed to run, 2 a check failed.
  */
 
 import { spawn } from "node:child_process";
-import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   constants as fsConstants,
@@ -113,6 +114,9 @@ const USER_SCHEMA = `n.nspname NOT IN ('pg_catalog', 'information_schema')
   AND n.nspname NOT LIKE 'pg\\_toast%' AND n.nspname NOT LIKE 'pg\\_temp\\_%'`;
 const NOT_EXTENSION_MEMBER = `NOT EXISTS (SELECT 1 FROM pg_depend d
   WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')`;
+const DEFAULT_DUMP_ROLE = "neon_cutover_dump";
+/** Each window writes a new password file; an older one belongs to another window. */
+const PASSWORD_FILE_MAX_AGE_MS = 24 * 3_600_000;
 
 const PHASES = [
   "inventory",
@@ -130,8 +134,8 @@ type Phase = (typeof PHASES)[number];
 
 type Options = {
   appRoles: string[];
-  apiRoles: string[];
-  rotatedPasswordFile?: string;
+  passwordFile?: string;
+  dumpRole: string;
   role?: string;
   archive?: string;
   pgBinDir?: string;
@@ -306,29 +310,6 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Passwords
-
-/**
- * PostgreSQL's stored SCRAM-SHA-256 verifier for `password`. Sending the
- * verifier rather than the password keeps the plaintext out of server logs.
- * SASLprep is the identity on printable ASCII, the only input accepted here.
- */
-export function scramSha256Verifier(
-  password: string,
-  salt = randomBytes(16),
-  iterations = 4096
-): string {
-  if (!/^[\x20-\x7e]+$/.test(password)) {
-    throw new CutoverError("a role password must be non-empty printable ASCII");
-  }
-  const salted = pbkdf2Sync(password, salt, iterations, 32, "sha256");
-  const clientKey = createHmac("sha256", salted).update("Client Key").digest();
-  const storedKey = createHash("sha256").update(clientKey).digest();
-  const serverKey = createHmac("sha256", salted).update("Server Key").digest();
-  return `SCRAM-SHA-256$${iterations}:${salt.toString("base64")}$${storedKey.toString("base64")}:${serverKey.toString("base64")}`;
-}
-
 /** `url` with its password replaced; a password never travels any other way. */
 function withPassword(url: string, password: string): string {
   const parsed = new URL(url);
@@ -336,13 +317,21 @@ function withPassword(url: string, password: string): string {
   return parsed.toString();
 }
 
+/** `url` logging in as `role` with `password`. */
+function asRole(url: string, role: string, password: string): string {
+  const parsed = new URL(withPassword(url, password));
+  parsed.username = encodeURIComponent(role);
+  return parsed.toString();
+}
+
 // ---------------------------------------------------------------------------
-// The Neon API rotation path
+// Neon's API
 //
 // Neon's control plane owns the spec of a role created in its console or API
-// and re-applies it when a compute restarts, which can undo a SQL-only
-// rotation. A reset through the control plane is what it re-applies instead.
+// and re-applies it when a compute restarts, so the owner's password is reset
+// and the dump role created through it, never with SQL alone.
 //   https://api-docs.neon.tech/reference/getprojectendpoint
+//   https://api-docs.neon.tech/reference/createprojectbranchrole
 //   https://api-docs.neon.tech/reference/resetprojectbranchrolepassword
 //   https://api-docs.neon.tech/reference/getprojectoperation
 //   https://neon.com/docs/manage/operations (the terminal statuses)
@@ -399,30 +388,32 @@ async function neonJson(
   return fields;
 }
 
-/**
- * Resets `role`'s password on the branch and returns it once the last
- * operation has finished, which is when Neon says the password is ready.
- * `record` receives the password as soon as Neon issues it, so a failure
- * while waiting never loses it.
- */
-export async function rotateNeonRolePassword(input: {
+type RolePasswordRequest = {
   transport: NeonTransport;
   projectId: string;
   branchId: string;
   role: string;
+  /** Receives the password as soon as Neon issues it, so a failure while waiting never loses it. */
   record?: (password: string) => void;
   pollIntervalMs?: number;
   timeoutMs?: number;
-}): Promise<string> {
+};
+
+/**
+ * Sends a request that answers with `role` and its new password, and
+ * returns the password once every operation it started has finished, which
+ * is when Neon says the password is ready.
+ */
+async function neonRolePassword(
+  input: RolePasswordRequest,
+  path: string,
+  init: RequestInit,
+  purpose: string,
+  recovery: string
+): Promise<string> {
   const { transport, role, record, pollIntervalMs = 1_000, timeoutMs = 120_000 } = input;
-  const project = encodeURIComponent(input.projectId);
-  const reset = await neonJson(
-    transport,
-    `/projects/${project}/branches/${encodeURIComponent(input.branchId)}/roles/${encodeURIComponent(role)}/reset_password`,
-    { method: "POST" },
-    `reset the password of ${role}`
-  );
-  const returned = reset.role as { name?: unknown; password?: unknown } | undefined;
+  const answer = await neonJson(transport, path, init, purpose);
+  const returned = answer.role as { name?: unknown; password?: unknown } | undefined;
   if (
     !returned ||
     returned.name !== role ||
@@ -430,22 +421,22 @@ export async function rotateNeonRolePassword(input: {
     !/^[\x20-\x7e]{8,}$/.test(returned.password)
   ) {
     throw new CutoverError(
-      `the Neon API did not return the new password for ${role}; it may now hold a password nobody ` +
-        "knows, so rerun freeze with the same --rotated-password-file to reset it again"
+      `the Neon API did not return the new password for ${role}; it may now hold a password nobody knows, so ${recovery}`
     );
   }
   const password = returned.password;
   record?.(password);
-  const branch = (reset.role as { branch_id?: unknown }).branch_id;
+  const branch = (answer.role as { branch_id?: unknown }).branch_id;
   if (branch !== input.branchId) {
     throw new CutoverError(
-      `the Neon API reset ${role} on branch ${String(branch)}, not ${input.branchId}; ` +
+      `the Neon API answered for ${role} on branch ${String(branch)}, not ${input.branchId}; ` +
         "its new password is recorded, but stop and check NEON_BRANCH_ID"
     );
   }
 
+  const project = encodeURIComponent(input.projectId);
   const deadline = Date.now() + timeoutMs;
-  const operations = Array.isArray(reset.operations) ? reset.operations : [];
+  const operations = Array.isArray(answer.operations) ? answer.operations : [];
   for (const operation of operations as Array<{ id?: unknown; status?: unknown }>) {
     const id = typeof operation.id === "string" ? operation.id : undefined;
     let status = operation.status;
@@ -470,6 +461,106 @@ export async function rotateNeonRolePassword(input: {
   }
   return password;
 }
+
+function branchPath(input: RolePasswordRequest): string {
+  return `/projects/${encodeURIComponent(input.projectId)}/branches/${encodeURIComponent(input.branchId)}`;
+}
+
+/** Resets `role`'s password on the branch and returns the new one. */
+export function rotateNeonRolePassword(input: RolePasswordRequest): Promise<string> {
+  return neonRolePassword(
+    input,
+    `${branchPath(input)}/roles/${encodeURIComponent(input.role)}/reset_password`,
+    { method: "POST" },
+    `reset the password of ${input.role}`,
+    "rerun the phase with the same --password-file to reset it again"
+  );
+}
+
+/** Creates `role` on the branch; Neon generates its password and returns it. */
+export function createNeonRole(input: RolePasswordRequest): Promise<string> {
+  return neonRolePassword(
+    input,
+    `${branchPath(input)}/roles`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role: { name: input.role } }),
+    },
+    `create role ${input.role}`,
+    "rerun create-dump-role with the same --password-file, which resets the password of a role that exists"
+  );
+}
+
+type NeonApi = { transport: NeonTransport; projectId: string; branchId: string };
+
+/** The Neon API's inputs, all checked before anything connects. */
+function neonApi(ctx: Context): NeonApi {
+  const missing = ["NEON_API_KEY", "NEON_PROJECT_ID", "NEON_BRANCH_ID"].filter(
+    (name) => !ctx.env[name]
+  );
+  if (!ctx.options.passwordFile) missing.push("--password-file");
+  if (missing.length > 0) {
+    throw new CutoverError(`${ctx.phase} calls the Neon API and needs ${missing.join(", ")}`);
+  }
+  const projectId = ctx.env.NEON_PROJECT_ID!;
+  const branchId = ctx.env.NEON_BRANCH_ID!;
+  if (!NEON_ID.test(projectId) || !NEON_ID.test(branchId)) {
+    throw new CutoverError("NEON_PROJECT_ID and NEON_BRANCH_ID must be Neon ids ([a-z0-9-])");
+  }
+  return {
+    transport: ctx.deps.neonTransport ?? neonHttpTransport(ctx.env.NEON_API_KEY!),
+    projectId,
+    branchId,
+  };
+}
+
+/**
+ * Proves NEON_BRANCH_ID is the branch the admin URL's compute serves, before
+ * any Neon change: a stale branch ID (P5's, say) would otherwise change the
+ * roles of whichever branch it names. The endpoint is the admin host's first
+ * label (ep-...); a local host (the rehearsal) names it with NEON_ENDPOINT_ID.
+ */
+async function requireEndpointOnBranch(ctx: Context, api: NeonApi, adminUrl: string): Promise<void> {
+  const label = hostOf(new URL(adminUrl)).split(".")[0]!;
+  const endpoint = /^ep-[a-z0-9-]+$/.test(label)
+    ? label
+    : isLocalUrl(adminUrl)
+      ? ctx.env.NEON_ENDPOINT_ID
+      : undefined;
+  if (!endpoint || !/^ep-[a-z0-9-]{1,60}$/.test(endpoint)) {
+    throw new CutoverError(
+      `CUTOVER_SOURCE_ADMIN_URL names no Neon endpoint (ep-...), so NEON_BRANCH_ID cannot be checked against it`
+    );
+  }
+  const answer = await neonJson(
+    api.transport,
+    `/projects/${encodeURIComponent(api.projectId)}/endpoints/${encodeURIComponent(endpoint)}`,
+    { method: "GET" },
+    `look up endpoint ${endpoint}`
+  );
+  const branch = (answer.endpoint as { branch_id?: unknown } | undefined)?.branch_id;
+  if (branch !== api.branchId) {
+    throw new CutoverError(
+      `endpoint ${endpoint} serves branch ${String(branch)}, not NEON_BRANCH_ID ${api.branchId}; nothing was changed`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The password file
+//
+// One JSON object per line, each with the time it was written ("at"): a
+// role's password ({"role", "password"}) or a database's ACL before the
+// freeze ({"database", "datacl"}). Only ever appended to; the newest entry
+// is the one that counts, and the older ones stay as the history.
+
+type EntryBody = { at: string } & (
+  | { role: string; password: string }
+  | { database: string; datacl: string | null }
+);
+/** One valid line of the password file. */
+export type PasswordFileEntry = { line: number } & EntryBody;
 
 /**
  * Opens `path` without following a symbolic link, and checks that it is a
@@ -505,18 +596,29 @@ function openPrivateFile(path: string, flags: number): number {
   return fd;
 }
 
-/**
- * The rotated-password file: one JSON object per line, `{"role", "password"}`,
- * only ever appended to. The newest entry for a role is its current password;
- * the older ones stay as the history.
- */
-export function readRotatedPasswords(path: string): Map<string, string> {
-  const passwords = new Map<string, string>();
+function parseEntry(line: string): EntryBody | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!value || typeof value !== "object") return undefined;
+  const { at, role, password, database, datacl } = value as Record<string, unknown>;
+  if (typeof at !== "string" || Number.isNaN(Date.parse(at))) return undefined;
+  if (typeof role === "string" && typeof password === "string") return { at, role, password };
+  if (typeof database === "string" && (typeof datacl === "string" || datacl === null))
+    return { at, database, datacl };
+  return undefined;
+}
+
+/** Every valid entry in file order, and the line numbers of those skipped as invalid. */
+export function readPasswordFile(path: string): { entries: PasswordFileEntry[]; skipped: number[] } {
   let fd: number;
   try {
     fd = openPrivateFile(path, fsConstants.O_RDONLY);
   } catch (error) {
-    if (errorCode(error) === "ENOENT") return passwords;
+    if (errorCode(error) === "ENOENT") return { entries: [], skipped: [] };
     throw error;
   }
   let text: string;
@@ -525,64 +627,134 @@ export function readRotatedPasswords(path: string): Map<string, string> {
   } finally {
     closeSync(fd);
   }
+  const entries: PasswordFileEntry[] = [];
+  const skipped: number[] = [];
   for (const [index, line] of text.split("\n").entries()) {
     if (!line.trim()) continue;
-    let entry: { role?: unknown; password?: unknown };
-    try {
-      entry = JSON.parse(line) as typeof entry;
-    } catch {
-      throw new CutoverError(`${path} line ${index + 1} is not a rotated-password entry`);
-    }
-    if (typeof entry.role !== "string" || typeof entry.password !== "string") {
-      throw new CutoverError(`${path} line ${index + 1} is not a rotated-password entry`);
-    }
-    passwords.set(entry.role, entry.password);
+    const entry = parseEntry(line);
+    if (entry) entries.push({ line: index + 1, ...entry });
+    else skipped.push(index + 1);
   }
+  return { entries, skipped };
+}
+
+function passwordsOf(entries: PasswordFileEntry[]): Map<string, string> {
+  const passwords = new Map<string, string>();
+  for (const entry of entries) if ("role" in entry) passwords.set(entry.role, entry.password);
   return passwords;
 }
 
-/**
- * Opens the rotated-password file for appending, creating it 0600. Freeze
- * opens it before any Neon call, so a reset can always be recorded.
- */
-export function openRotatedPasswordFile(path: string): number {
-  return openPrivateFile(
-    path,
-    fsConstants.O_RDWR | fsConstants.O_CREAT | fsConstants.O_APPEND
-  );
+/** Each role's newest recorded password. */
+export function readPasswords(path: string): Map<string, string> {
+  return passwordsOf(readPasswordFile(path).entries);
 }
 
-/** Appends one entry through `fd`, on a line of its own, and syncs it to disk. */
-export function appendRotatedPassword(fd: number, role: string, password: string): void {
+function aclRecordOf(
+  entries: PasswordFileEntry[],
+  database: string
+): { at: string; datacl: string | null } | undefined {
+  let record: { at: string; datacl: string | null } | undefined;
+  for (const entry of entries)
+    if ("database" in entry && entry.database === database)
+      record = { at: entry.at, datacl: entry.datacl };
+  return record;
+}
+
+/** Opens the password file for appending, creating it 0600. */
+export function openPasswordFile(path: string): number {
+  return openPrivateFile(path, fsConstants.O_RDWR | fsConstants.O_CREAT | fsConstants.O_APPEND);
+}
+
+/** Appends one timestamped entry through `fd`, on a line of its own, and syncs it to disk. */
+function appendEntry(
+  fd: number,
+  entry: { role: string; password: string } | { database: string; datacl: string | null }
+): void {
   const size = fstatSync(fd).size;
   const last = Buffer.alloc(1);
   const newline = size > 0 && readSync(fd, last, 0, 1, size - 1) === 1 && last[0] !== 0x0a;
-  writeSync(fd, `${newline ? "\n" : ""}${JSON.stringify({ role, password })}\n`);
+  writeSync(fd, `${newline ? "\n" : ""}${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
   fsyncSync(fd);
 }
 
-export function recordRotatedPassword(path: string, role: string, password: string): void {
-  const fd = openRotatedPasswordFile(path);
+export function recordPassword(path: string, role: string, password: string): void {
+  const fd = openPasswordFile(path);
   try {
-    appendRotatedPassword(fd, role, password);
+    appendEntry(fd, { role, password });
   } finally {
     closeSync(fd);
   }
 }
 
-function rotatedPasswords(ctx: Context): Map<string, string> {
-  const file = ctx.options.rotatedPasswordFile;
-  return file ? readRotatedPasswords(resolve(file)) : new Map();
+function passwordFilePath(ctx: Context): string {
+  if (!ctx.options.passwordFile) throw new CutoverError(`${ctx.phase} needs --password-file`);
+  return resolve(ctx.options.passwordFile);
+}
+
+/** Reads the password file, naming every line it skipped. */
+function readWindowFile(ctx: Context, path: string): PasswordFileEntry[] {
+  const { entries, skipped } = readPasswordFile(path);
+  if (skipped.length > 0)
+    say(ctx, `note: ${path} line(s) ${skipped.join(", ")} hold no valid entry and were skipped`);
+  return entries;
 }
 
 /**
- * A session as the source admin: with its newest recorded password once the
- * API path has rotated the admin's own role, or with CUTOVER_SOURCE_ADMIN_URL
- * as it is when Neon refuses that one (a reset that never took effect).
+ * An exclusive flock(2) on the open password file, held until `fd` is
+ * closed: util-linux flock takes it on the open file description it shares
+ * with this process, and the lock outlives it.
+ */
+async function lockPasswordFile(fd: number, path: string): Promise<void> {
+  const status = await new Promise<number>((done, fail) => {
+    const child = spawn("flock", ["--exclusive", "--nonblock", "--conflict-exit-code", "75", "3"], {
+      stdio: ["ignore", "ignore", "ignore", fd],
+    });
+    child.on("error", (error) =>
+      fail(new CutoverError(`could not run flock (util-linux) to lock ${path}: ${error.message}`))
+    );
+    child.on("close", (code) => done(code ?? 1));
+  });
+  if (status === 75) {
+    throw new CutoverError(`${path} is locked by another freeze or rollback; let it finish first`);
+  }
+  if (status !== 0) throw new CutoverError(`flock could not lock ${path} (exit ${status})`);
+}
+
+/** The file's first entry dates the window it belongs to. */
+function requireFreshFile(path: string, entries: PasswordFileEntry[]): void {
+  const first = entries[0];
+  if (first && Date.now() - Date.parse(first.at) > PASSWORD_FILE_MAX_AGE_MS) {
+    throw new CutoverError(
+      `${path} starts with an entry written at ${first.at}, more than 24 h old: it belongs to an earlier ` +
+        "window. Name a new file, and run create-dump-role with it first; nothing was changed"
+    );
+  }
+}
+
+/** The dump role's connection string: the admin's host and database, with its recorded password. */
+function dumpRoleUrl(ctx: Context, path: string, passwords: Map<string, string>): string {
+  const role = ctx.options.dumpRole;
+  const password = passwords.get(role);
+  if (!password) {
+    throw new CutoverError(
+      `${path} holds no password for the dump role ${role}: run create-dump-role with this --password-file first`
+    );
+  }
+  return asRole(envUrl(ctx, "CUTOVER_SOURCE_ADMIN_URL"), role, password);
+}
+
+/**
+ * A session as the source admin: with its newest recorded password once
+ * the freeze has rotated the admin's own role, or with
+ * CUTOVER_SOURCE_ADMIN_URL as it is when Neon refuses that one (a reset
+ * that never took effect).
  */
 async function connectSourceAdmin(ctx: Context, applicationName: string): Promise<Client> {
   const url = envUrl(ctx, "CUTOVER_SOURCE_ADMIN_URL");
-  const rotated = rotatedPasswords(ctx).get(decodeURIComponent(new URL(url).username));
+  const file = ctx.options.passwordFile;
+  const rotated = file
+    ? readPasswords(resolve(file)).get(decodeURIComponent(new URL(url).username))
+    : undefined;
   if (rotated) {
     try {
       return await connect(withPassword(url, rotated), applicationName);
@@ -591,70 +763,6 @@ async function connectSourceAdmin(ctx: Context, applicationName: string): Promis
     }
   }
   return connect(url, applicationName);
-}
-
-type ApiPath = { transport: NeonTransport; projectId: string; branchId: string; file: string };
-
-/** The API path's inputs, all checked before anything connects. */
-function apiPathInputs(ctx: Context): ApiPath | undefined {
-  const { apiRoles, appRoles, rotatedPasswordFile } = ctx.options;
-  if (apiRoles.length === 0) return undefined;
-  const stray = apiRoles.filter((role) => !appRoles.includes(role));
-  if (stray.length > 0) {
-    throw new CutoverError(`--api-roles must be a subset of --app-roles (${stray.join(", ")})`);
-  }
-  const missing = ["NEON_API_KEY", "NEON_PROJECT_ID", "NEON_BRANCH_ID"].filter(
-    (name) => !ctx.env[name]
-  );
-  if (!rotatedPasswordFile) missing.push("--rotated-password-file");
-  if (missing.length > 0) {
-    throw new CutoverError(
-      `the Neon API path for ${apiRoles.join(", ")} needs ${missing.join(", ")}`
-    );
-  }
-  const projectId = ctx.env.NEON_PROJECT_ID!;
-  const branchId = ctx.env.NEON_BRANCH_ID!;
-  if (!NEON_ID.test(projectId) || !NEON_ID.test(branchId)) {
-    throw new CutoverError("NEON_PROJECT_ID and NEON_BRANCH_ID must be Neon ids ([a-z0-9-])");
-  }
-  return {
-    transport: ctx.deps.neonTransport ?? neonHttpTransport(ctx.env.NEON_API_KEY!),
-    projectId,
-    branchId,
-    file: resolve(rotatedPasswordFile!),
-  };
-}
-
-/**
- * Proves NEON_BRANCH_ID is the branch the admin URL's compute serves, before
- * any reset: a stale branch ID (P5's, say) would otherwise reset the roles
- * of whichever branch it names. The endpoint is the admin host's first label
- * (ep-...); a local host (the rehearsal) names it with NEON_ENDPOINT_ID.
- */
-async function requireEndpointOnBranch(ctx: Context, api: ApiPath, adminUrl: string): Promise<void> {
-  const label = hostOf(new URL(adminUrl)).split(".")[0]!.replace(/-pooler$/, "");
-  const endpoint = /^ep-[a-z0-9-]+$/.test(label)
-    ? label
-    : isLocalUrl(adminUrl)
-      ? ctx.env.NEON_ENDPOINT_ID
-      : undefined;
-  if (!endpoint || !/^ep-[a-z0-9-]{1,60}$/.test(endpoint)) {
-    throw new CutoverError(
-      `CUTOVER_SOURCE_ADMIN_URL names no Neon endpoint (ep-...), so NEON_BRANCH_ID cannot be checked against it`
-    );
-  }
-  const answer = await neonJson(
-    api.transport,
-    `/projects/${encodeURIComponent(api.projectId)}/endpoints/${encodeURIComponent(endpoint)}`,
-    { method: "GET" },
-    `look up endpoint ${endpoint}`
-  );
-  const branch = (answer.endpoint as { branch_id?: unknown } | undefined)?.branch_id;
-  if (branch !== api.branchId) {
-    throw new CutoverError(
-      `endpoint ${endpoint} serves branch ${String(branch)}, not NEON_BRANCH_ID ${api.branchId}; no password was reset`
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -728,80 +836,55 @@ function say(ctx: Context, line: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Source role administration (freeze, rollback)
+// The source database's lock (freeze, rollback, inventory)
 
-/** `problems` concern the admin itself; `roleProblems` one application role each. */
-type AdminFacts = {
+type SourceFacts = {
   me: string;
   database: string;
-  problems: string[];
-  roleProblems: Map<string, string>;
+  owner: string;
+  superuser: boolean;
+  actsAsOwner: boolean;
+  canSignal: boolean;
+  datacl: string | null;
 };
 
-/**
- * What the admin role must be able to do on the source, checked before
- * anything changes. `apiRoles` are reset through the Neon API, so the admin
- * may be one of them; it must still be able to alter every other role.
- */
-async function adminPreflight(
-  client: Client,
-  sqlRoles: string[],
-  apiRoles: string[] = []
-): Promise<AdminFacts> {
-  const facts = await client.query<{
+async function sourceFacts(client: Client): Promise<SourceFacts> {
+  const { rows } = await client.query<{
     me: string;
     database: string;
+    owner: string;
     superuser: boolean;
-    owns_database: boolean;
+    acts_as_owner: boolean;
     can_signal: boolean;
-    major: string;
+    datacl: string | null;
   }>(
-    `SELECT current_user AS me, current_database() AS database,
+    `SELECT current_user AS me, d.datname AS database, pg_get_userbyid(d.datdba) AS owner,
             (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) AS superuser,
-            pg_has_role(current_user, (SELECT datdba FROM pg_database WHERE datname = current_database()), 'USAGE') AS owns_database,
+            pg_has_role(current_user, d.datdba, 'USAGE') AS acts_as_owner,
             pg_has_role(current_user, 'pg_signal_backend', 'USAGE') AS can_signal,
-            current_setting('server_version_num') AS major`
+            d.datacl::text AS datacl
+     FROM pg_database d WHERE d.datname = current_database()`
   );
-  const { me, database, superuser, owns_database, can_signal } = facts.rows[0]!;
-  const major = Math.floor(Number(facts.rows[0]!.major) / 10_000);
+  const row = rows[0]!;
+  return {
+    me: row.me,
+    database: row.database,
+    owner: row.owner,
+    superuser: row.superuser,
+    actsAsOwner: row.acts_as_owner,
+    canSignal: row.can_signal,
+    datacl: row.datacl,
+  };
+}
+
+/** What the admin must be able to do on the source, checked before anything changes. */
+function adminProblems(facts: SourceFacts): string[] {
   const problems: string[] = [];
-  const roleProblems = new Map<string, string>();
-  // Only the SQL path locks a role out with NOLOGIN; the API path rotates the
-  // admin's own password and carries on with the new one.
-  if (sqlRoles.includes(me)) {
-    roleProblems.set(
-      me,
-      `this phase runs as ${me}, which is a SQL-path application role it would lock out; put it on --api-roles`
-    );
-  }
-  if (!superuser && !owns_database) problems.push(`${me} does not own database ${database}`);
-  if (!superuser && !can_signal) problems.push(`${me} is not a member of pg_signal_backend`);
-  for (const role of [...sqlRoles, ...apiRoles.filter((apiRole) => apiRole !== me)]) {
-    if (roleProblems.has(role)) continue;
-    const { rows } = await client.query<{
-      exists: boolean;
-      super: boolean;
-      admin: boolean;
-      createrole: boolean;
-    }>(
-      `SELECT r.rolname IS NOT NULL AS exists, coalesce(r.rolsuper, false) AS super,
-              r.rolname IS NOT NULL AND pg_has_role(current_user, r.oid, 'MEMBER WITH ADMIN OPTION') AS admin,
-              (SELECT rolcreaterole FROM pg_roles WHERE rolname = current_user) AS createrole
-       FROM (SELECT $1::text AS name) wanted LEFT JOIN pg_roles r ON r.rolname = wanted.name`,
-      [role]
-    );
-    const row = rows[0]!;
-    if (!row.exists) roleProblems.set(role, `role ${role} does not exist`);
-    else if (row.super && !superuser)
-      roleProblems.set(role, `role ${role} is a superuser and cannot be locked by ${me}`);
-    else if (!superuser && !(major >= 16 ? row.admin : row.createrole)) {
-      roleProblems.set(
-        role,
-        `${me} cannot alter role ${role} (needs ADMIN OPTION on it, or CREATEROLE before PostgreSQL 16)`
-      );
-    }
-  }
-  return { me, database, problems, roleProblems };
+  if (!facts.superuser && !facts.actsAsOwner)
+    problems.push(`${facts.me} does not own database ${facts.database}`);
+  if (!facts.superuser && !facts.canSignal)
+    problems.push(`${facts.me} is not a member of pg_signal_backend`);
+  return problems;
 }
 
 /**
@@ -819,37 +902,48 @@ async function sessionVisibilityProblem(client: Client): Promise<string | undefi
         "Neon's console roles have pg_monitor through neon_superuser";
 }
 
-/**
- * Login roles, other than this session's and the named application roles,
- * that could write to this database: a member of pg_write_all_data (every
- * Neon console role, through neon_superuser), a role with a write privilege
- * on a table, or one that can create in a schema. The freeze locks out only
- * the roles it names, so each of these could still write after FROZEN.
- */
-async function unlistedWriters(client: Client, roles: string[]): Promise<string[]> {
+/** A superuser passes every CONNECT check, so no lockout can stop a consumer that connects as one. */
+async function superuserConsumers(client: Client, roles: string[]): Promise<string[]> {
   const { rows } = await client.query<{ rolname: string }>(
-    `SELECT r.rolname FROM pg_roles r
-     WHERE r.rolcanlogin AND NOT r.rolsuper AND r.rolname <> current_user
-       AND r.rolname <> ALL($1::text[])
-       AND has_database_privilege(r.oid, current_database(), 'CONNECT')
-       AND (pg_has_role(r.oid, 'pg_write_all_data', 'MEMBER')
-         OR EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                    WHERE ${USER_SCHEMA} AND c.relkind IN ('r', 'p')
-                      AND has_table_privilege(r.oid, c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE'))
-         OR EXISTS (SELECT 1 FROM pg_namespace n
-                    WHERE ${USER_SCHEMA} AND has_schema_privilege(r.oid, n.oid, 'CREATE')))
-     ORDER BY 1`,
+    "SELECT rolname FROM pg_roles WHERE rolsuper AND rolname = ANY($1::text[]) ORDER BY 1",
     [roles]
   );
-  return rows.map((row) => row.rolname);
-}
-
-function unlistedWritersProblem(writers: string[], database: string): string {
-  return (
-    `login role(s) ${writers.join(", ")} can write to ${database} but are not in --app-roles: ` +
-    "add each with its CUTOVER_ROLE_URL_<ROLE>, or take away its LOGIN if no consumer uses it"
+  return rows.map(
+    (row) =>
+      `${row.rolname} is a superuser, which no CONNECT lockout stops: stop, and give that consumer a role of its own`
   );
 }
+
+type AclEntry = { grantee: string; grantor: string; privilege: string; grantable: boolean };
+
+/** `datacl`, or the database's default ACL when it is null, one entry per privilege. */
+async function aclEntries(client: Client, datacl: string | null): Promise<AclEntry[]> {
+  const { rows } = await client.query<AclEntry>(
+    `SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,
+            pg_get_userbyid(a.grantor) AS grantor, a.privilege_type AS privilege, a.is_grantable AS grantable
+     FROM pg_database d, aclexplode(coalesce($1::aclitem[], acldefault('d', d.datdba))) a
+     WHERE d.datname = current_database() ORDER BY 1, 2, 3`,
+    [datacl]
+  );
+  return rows;
+}
+
+const aclText = (entry: AclEntry): string =>
+  `${entry.grantee}=${entry.privilege}${entry.grantable ? "*" : ""}/${entry.grantor}`;
+
+/** The grantees, PUBLIC included, that hold CONNECT on the database other than its owner. */
+function connectGrantees(entries: AclEntry[], owner: string): string[] {
+  return [
+    ...new Set(
+      entries
+        .filter((entry) => entry.privilege === "CONNECT" && entry.grantee !== owner)
+        .map((entry) => entry.grantee)
+    ),
+  ];
+}
+
+const grantee = (client: Client, name: string): string =>
+  name === "PUBLIC" ? "PUBLIC" : client.escapeIdentifier(name);
 
 /** Every other client session of this database, whatever its role. */
 const OTHER_CLIENT_SESSIONS = `a.datname = current_database() AND a.backend_type = 'client backend'
@@ -886,13 +980,14 @@ async function otherClientSessions(
   }
 }
 
-function appRoleUrls(ctx: Context): Array<{ role: string; url: string }> {
+/** Each consumer's connection string, from CUTOVER_ROLE_URL_<ROLE>. */
+function consumerUrls(ctx: Context): Array<{ role: string; url: string }> {
   const roles = ctx.options.appRoles;
   if (roles.length === 0) throw new CutoverError(`${ctx.phase} needs --app-roles`);
   const missing = roles.filter((role) => !ctx.env[roleUrlEnvName(role)]).map(roleUrlEnvName);
   if (missing.length > 0) {
     throw new CutoverError(
-      `${ctx.phase} needs each role's pre-freeze credential: set ${missing.join(", ")}`
+      `${ctx.phase} needs each consumer's credential: set ${missing.join(", ")}`
     );
   }
   return roles.map((role) => {
@@ -904,6 +999,44 @@ function appRoleUrls(ctx: Context): Array<{ role: string; url: string }> {
   });
 }
 
+/**
+ * The same connection string, with the read-only default overridden the way
+ * any client could. A Neon pooled host is swapped for its direct endpoint:
+ * the pooler may reject the `options` startup parameter, and the compute
+ * behind both is what enforces the lockout.
+ */
+export function withReadWriteOverride(url: string): string {
+  const parsed = new URL(url);
+  parsed.hostname = parsed.hostname.replace(/^([^.]+)-pooler\./, "$1.");
+  const options = parsed.searchParams.get("options");
+  parsed.searchParams.set(
+    "options",
+    `${options ? `${options} ` : ""}-c default_transaction_read_only=off`
+  );
+  return parsed.toString();
+}
+
+/**
+ * Logs in with `url` on the direct endpoint, overriding the read-only
+ * default, then out again: undefined when the login succeeded, else why it
+ * did not (a SQLSTATE such as 28P01 or 42501, or a connection error's code).
+ */
+async function loginRefusal(url: string, applicationName: string): Promise<string | undefined> {
+  try {
+    const probe = await connect(withReadWriteOverride(url), applicationName);
+    await probe.end().catch(() => undefined);
+    return undefined;
+  } catch (error) {
+    return errorCode(error) ?? "no SQLSTATE";
+  }
+}
+
+/** Where a lost reset leaves the owner, and the way back (the runbook's freeze step). */
+const LOST_RESET =
+  "If an earlier freeze's reset lost its response, nobody holds the owner's live password: " +
+  "reset it in the Neon console, set CUTOVER_SOURCE_ADMIN_URL (when it logs in as the owner) and " +
+  "the owner's CUTOVER_ROLE_URL_<ROLE> to the console's connection string, and rerun freeze";
+
 // ---------------------------------------------------------------------------
 // Phases
 
@@ -914,9 +1047,11 @@ async function inventory(ctx: Context): Promise<number> {
   if (expectFrozen && ctx.options.appRoles.length === 0) {
     throw new CutoverError("--expect-frozen needs --app-roles");
   }
-  // With --app-roles, every role's credential is part of the answer.
-  const targets = ctx.options.appRoles.length > 0 ? appRoleUrls(ctx) : [];
+  const path = expectFrozen ? passwordFilePath(ctx) : undefined;
+  // With --app-roles, every consumer's credential is part of the answer.
+  const targets = ctx.options.appRoles.length > 0 ? consumerUrls(ctx) : [];
   const roles = targets.map((target) => target.role);
+  const dumpRole = ctx.options.dumpRole;
   plan(ctx, [
     `read-only catalog queries against ${describeUrl(url)}; nothing is changed`,
     ...(targets.length > 0 && !expectFrozen
@@ -924,29 +1059,31 @@ async function inventory(ctx: Context): Promise<number> {
       : []),
     ...(expectFrozen
       ? [
-          "with --expect-frozen, a login with each CUTOVER_ROLE_URL_<ROLE> must be refused, and no other client session may remain",
+          "with --expect-frozen, prove the lock as the freeze does: every consumer is refused, the dump role connects, no other client session remains, and a new session cannot write",
         ]
       : []),
   ]);
+  const failures: string[] = [];
   const client = await connectSourceAdmin(ctx, "neon-cutover-inventory");
+  let facts: SourceFacts;
   try {
     const blind = await sessionVisibilityProblem(client);
     if (blind) throw new CutoverError(`${blind}; without it the session list would be incomplete`);
-    const about = await client.query<{
-      version: string;
-      me: string;
-      database: string;
-      read_only: string | null;
-    }>(
-      `SELECT current_setting('server_version') AS version, current_user AS me, current_database() AS database,
+    facts = await sourceFacts(client);
+    const about = await client.query<{ version: string; read_only: string | null }>(
+      `SELECT current_setting('server_version') AS version,
               (SELECT substring(setting FROM '^default_transaction_read_only=(.*)$')
                  FROM pg_db_role_setting s, unnest(s.setconfig) AS setting
                 WHERE s.setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())
                   AND s.setrole = 0 AND setting LIKE 'default_transaction_read_only=%') AS read_only`
     );
-    const { version, me, database, read_only } = about.rows[0]!;
-    say(ctx, `server ${version}; connected as ${me} to ${database}`);
+    const { version, read_only } = about.rows[0]!;
+    say(ctx, `server ${version}; connected as ${facts.me} to ${facts.database}, owned by ${facts.owner}`);
     say(ctx, `database default_transaction_read_only: ${read_only ?? "unset (off)"}`);
+    say(
+      ctx,
+      `database ACL: ${(await aclEntries(client, facts.datacl)).map(aclText).join(" ")}${facts.datacl === null ? " (the default)" : ""}`
+    );
 
     const schemas = await client.query<{ nspname: string; tables: number; sequences: number }>(
       `SELECT n.nspname, count(c.oid) FILTER (WHERE c.relkind IN ('r', 'p'))::int AS tables,
@@ -995,25 +1132,17 @@ async function inventory(ctx: Context): Promise<number> {
     );
     say(ctx, "login roles (can log in, superuser):");
     for (const row of logins.rows) {
-      const tag = roles.includes(row.rolname)
-        ? "  [application role]"
-        : row.rolname === me
-          ? "  [this session]"
-          : "";
-      ctx.io.log(`  ${row.rolname.padEnd(32)} ${row.rolcanlogin} ${row.rolsuper}${tag}`);
-    }
-    const unlisted = logins.rows.filter(
-      (row) =>
-        row.rolcanlogin && !row.rolsuper && row.rolname !== me && !roles.includes(row.rolname)
-    );
-    const writers = roles.length > 0 ? await unlistedWriters(client, roles) : [];
-    if (roles.length > 0 && unlisted.length > 0) {
-      say(
-        ctx,
-        `note: login roles not named in --app-roles: ${unlisted.map((row) => row.rolname).join(", ")}; ` +
-          "each must be the dump role or a role no consumer uses, and none may be able to write"
+      const tags = [
+        row.rolname === facts.owner ? "[owner]" : "",
+        roles.includes(row.rolname) ? "[consumer]" : "",
+        row.rolname === dumpRole ? "[dump role]" : "",
+        row.rolname === facts.me ? "[this session]" : "",
+      ].filter(Boolean);
+      ctx.io.log(
+        `  ${row.rolname.padEnd(32)} ${row.rolcanlogin} ${row.rolsuper}${tags.length > 0 ? `  ${tags.join(" ")}` : ""}`
       );
     }
+    failures.push(...(await superuserConsumers(client, roles)));
 
     const sessions = await client.query<{
       usename: string | null;
@@ -1035,78 +1164,61 @@ async function inventory(ctx: Context): Promise<number> {
         `  ${row.usename ?? "?"} ${row.datname ?? "?"} "${row.application_name}" ${row.client_addr ?? "local"} ${row.state ?? "?"} ${row.n}`
       );
     }
-
-    if (targets.length === 0) return 0;
-    const failures: string[] = [];
-    if (writers.length > 0) failures.push(unlistedWritersProblem(writers, database));
-
-    if (!expectFrozen) {
-      // Step 1's go/no-go: a credential that does not log in now would later
-      // pass for a lockout, and rollback would restore it.
-      for (const { role, url: roleUrl } of targets) {
-        const refusal = await loginRefusal(roleUrl, "neon-cutover-inventory-probe");
-        if (refusal === undefined) ctx.io.log(`  OK   ${role}: its CUTOVER_ROLE_URL logs in`);
-        else {
-          ctx.io.log(`  FAIL ${role}: its CUTOVER_ROLE_URL does not log in (${refusal})`);
-          failures.push(`${role}'s credential does not log in`);
-        }
-      }
-      if (failures.length > 0) {
-        say(ctx, `NO-GO: ${failures.join("; ")}`);
-        return 2;
-      }
-      say(ctx, `GO: every CUTOVER_ROLE_URL of ${roles.join(", ")} logs in`);
-      return 0;
-    }
-
-    if (read_only !== "on") failures.push("the database read-only default is not on");
-    const { others, superuser } = await otherClientSessions(client);
-    if (others.length > 0)
-      failures.push(`other client session(s) of ${database} remain: ${others.join(", ")}`);
-    if (superuser > 0)
-      ctx.io.log(`  note ${superuser} superuser session(s) on ${database}, which only a superuser can end`);
-    for (const { role, url: roleUrl } of targets) {
-      const row = logins.rows.find((candidate) => candidate.rolname === role);
-      // The admin's own API-path role keeps LOGIN: only its password changed.
-      const keepsLogin = role === me && ctx.options.apiRoles.includes(role);
-      if (!row) failures.push(`role ${role} does not exist`);
-      else if (row.rolcanlogin && !keepsLogin)
-        failures.push(`role ${role} can log in; rerun freeze`);
-      // A compute restart that re-applied a role's old settings shows here.
-      const code = await preFreezeLoginRefusal(roleUrl);
-      if (code) ctx.io.log(`  OK   ${role}: its pre-freeze credential is refused (${code})`);
-      else
-        failures.push(`role ${role}'s pre-freeze credential logs in or the attempt was inconclusive`);
-    }
-    if (failures.length > 0) {
-      say(ctx, `NOT FROZEN: ${failures.join("; ")}`);
-      return 2;
-    }
-    say(
-      ctx,
-      `FROZEN: ${roles.join(", ")} locked out, no other client session, read-only default on`
-    );
-    return 0;
   } finally {
+    // Closed before the lock is proven: it would count as another session.
     await client.end().catch(() => undefined);
   }
+
+  if (targets.length === 0) return 0;
+  if (!expectFrozen) {
+    // Step 1's go/no-go: a credential that does not log in now is not the
+    // one the consumer holds.
+    for (const { role, url: roleUrl } of targets) {
+      const refusal = await loginRefusal(roleUrl, "neon-cutover-inventory-probe");
+      if (refusal === undefined) say(ctx, `OK   ${role}: its CUTOVER_ROLE_URL logs in`);
+      else {
+        say(ctx, `FAIL ${role}: its CUTOVER_ROLE_URL does not log in (${refusal})`);
+        failures.push(`${role}'s credential does not log in`);
+      }
+    }
+    if (failures.length > 0) {
+      say(ctx, `NO-GO: ${failures.join("; ")}`);
+      return 2;
+    }
+    say(ctx, `GO: every CUTOVER_ROLE_URL of ${roles.join(", ")} logs in`);
+    return 0;
+  }
+
+  const passwords = passwordsOf(readWindowFile(ctx, path!));
+  failures.push(...(await frozenFailures(ctx, targets, facts.owner, dumpRoleUrl(ctx, path!, passwords), passwords)));
+  if (failures.length > 0) {
+    for (const failure of failures) say(ctx, `FAIL ${failure}`);
+    say(ctx, `NOT FROZEN: ${failures.join("; ")}`);
+    return 2;
+  }
+  say(ctx, `FROZEN: only ${facts.owner} and ${dumpRole} can connect, no other client session, new sessions cannot write`);
+  return 0;
 }
 
 async function freeze(ctx: Context): Promise<number> {
   const baseAdminUrl = envUrl(ctx, "CUTOVER_SOURCE_ADMIN_URL");
   refuseTransactionPooler("CUTOVER_SOURCE_ADMIN_URL", baseAdminUrl);
   requireLocalOrConfirmed(ctx, [["CUTOVER_SOURCE_ADMIN_URL", baseAdminUrl]]);
-  const api = apiPathInputs(ctx);
-  const targets = appRoleUrls(ctx);
-  const roles = targets.map((target) => target.role);
-  const apiRoles = ctx.options.apiRoles;
-  const sqlRoles = roles.filter((role) => !apiRoles.includes(role));
-  // Before any Neon call: the file that must record every reset, and the branch.
-  const fd = api ? openRotatedPasswordFile(api.file) : undefined;
+  const targets = consumerUrls(ctx);
+  const api = neonApi(ctx);
+  const path = passwordFilePath(ctx);
+  const dumpRole = ctx.options.dumpRole;
+  // Before any Neon call: the file that must record the owner's new password
+  // and the ACL, locked for the whole phase.
+  const fd = openPasswordFile(path);
   let client: Client | undefined;
-  let admin = "";
   try {
-    if (api) await requireEndpointOnBranch(ctx, api, baseAdminUrl);
+    await lockPasswordFile(fd, path);
+    const entries = readWindowFile(ctx, path);
+    requireFreshFile(path, entries);
+    const recorded = passwordsOf(entries);
+    const dumpUrl = dumpRoleUrl(ctx, path, recorded);
+    await requireEndpointOnBranch(ctx, api, baseAdminUrl);
     try {
       client = await connectSourceAdmin(ctx, "neon-cutover-freeze");
     } catch (error) {
@@ -1115,105 +1227,130 @@ async function freeze(ctx: Context): Promise<number> {
         `CUTOVER_SOURCE_ADMIN_URL's password is refused, and no recorded one logs in. ${LOST_RESET}`
       );
     }
-    // A rerun meets a database whose default is already read-only, and ALTER
-    // ROLE and ALTER DATABASE are refused inside a read-only transaction.
+    // A rerun meets a database whose default is already read-only, and
+    // GRANT, REVOKE and ALTER DATABASE are refused inside a read-only transaction.
     await client.query("SET default_transaction_read_only = off");
-    const facts = await adminPreflight(client, sqlRoles, apiRoles);
-    const problems = [...facts.problems, ...facts.roleProblems.values()];
+    const facts = await sourceFacts(client);
+    const { owner, database } = facts;
+    const problems = adminProblems(facts);
     const blind = await sessionVisibilityProblem(client);
     if (blind) problems.push(blind);
-    const writers = await unlistedWriters(client, roles);
-    if (writers.length > 0) problems.push(unlistedWritersProblem(writers, facts.database));
+    const dumpExists = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [dumpRole]);
+    if (!dumpExists.rowCount) problems.push(`the dump role ${dumpRole} does not exist: run create-dump-role first`);
+    problems.push(...(await superuserConsumers(client, targets.map((target) => target.role))));
     if (problems.length > 0)
       throw new CutoverError(`freeze preflight failed: ${problems.join("; ")}`);
-    admin = facts.me;
 
-    // Each role's credential is proven by a login in this run, before
-    // anything changes: a stale one would pass for a lockout, and rollback
-    // would restore it. An API role whose newest recorded password is live
-    // was rotated by an earlier run; its pre-freeze credential died then.
-    const recorded = api ? readRotatedPasswords(api.file) : new Map<string, string>();
-    const rotatedEarlier: string[] = [];
+    // Each consumer's credential is proven before anything changes. A 42501
+    // comes only after the password is accepted: an earlier freeze took
+    // CONNECT. The owner's newest recorded password, when it logs in, was
+    // set by an earlier freeze of this window, whose reset is not repeated.
+    let ownerRotatedEarlier = false;
     const unproven: string[] = [];
     for (const { role, url } of targets) {
-      const password = apiRoles.includes(role) ? recorded.get(role) : undefined;
-      if (password) {
-        const refusal = await loginRefusal(withPassword(url, password), "neon-cutover-freeze-probe");
-        if (refusal === undefined || refusal === "28000") {
-          rotatedEarlier.push(role);
-          continue;
-        }
+      const password = role === owner ? recorded.get(role) : undefined;
+      if (password && (await loginRefusal(withPassword(url, password), "neon-cutover-freeze-probe")) === undefined) {
+        ownerRotatedEarlier = true;
+        continue;
       }
       const refusal = await loginRefusal(url, "neon-cutover-freeze-probe");
-      if (refusal !== undefined) unproven.push(`${role} (${refusal})`);
+      if (refusal !== undefined && !(refusal === "42501" && role !== owner))
+        unproven.push(`${role} (${refusal})`);
     }
     if (unproven.length > 0) {
       throw new CutoverError(
-        `the pre-freeze credential of ${unproven.join(", ")} does not log in; nothing was changed. ` +
-          "Fix a stale CUTOVER_ROLE_URL_<ROLE>. If an earlier freeze of this window rotated a " +
-          `SQL-path role, run rollback, then freeze again. For an API-path role: ${LOST_RESET}`
+        `the credential of ${unproven.join(", ")} does not log in; nothing was changed. ` +
+          `Fix a stale CUTOVER_ROLE_URL_<ROLE>. For the owner: ${LOST_RESET}`
       );
     }
-    // The API path's extra layer: NOLOGIN too, on every API role but the admin's own.
-    const extraNologin = apiRoles.filter((role) => role !== admin);
-    const toRotate = apiRoles.filter((role) => !rotatedEarlier.includes(role));
+    const rotateOwner = targets.some((target) => target.role === owner) && !ownerRotatedEarlier;
+
+    // The ACL to restore is the one before the first freeze. A database
+    // that is locked already keeps the record that freeze made.
+    const current = await aclEntries(client, facts.datacl);
+    const revoke = connectGrantees(current, owner).filter((name) => name !== dumpRole);
+    const locked = revoke.length === 0;
+    const record = aclRecordOf(entries, database);
+    if (locked && !record) {
+      throw new CutoverError(
+        `${database} is locked already, and ${path} holds no record of its ACL before the freeze; ` +
+          "name the password file of the freeze that locked it; nothing was changed"
+      );
+    }
     plan(ctx, [
-      ...(api
-        ? [
-            `reset the password of ${apiRoles.join(", ")} through the Neon API ` +
-              (rotatedEarlier.length === 0 ? "" : `(already rotated: ${rotatedEarlier.join(", ")}) `) +
-              `and record it only in ${api.file} (0600, never printed)`,
-          ]
-        : []),
-      ...(sqlRoles.length > 0
-        ? [`ALTER ROLE ... NOLOGIN PASSWORD <random, never printed> for ${sqlRoles.join(", ")}`]
-        : []),
-      ...(extraNologin.length > 0 ? [`ALTER ROLE ... NOLOGIN for ${extraNologin.join(", ")}`] : []),
-      `ALTER DATABASE ${facts.database} SET default_transaction_read_only = on`,
-      `then terminate every other client session of ${facts.database}, whatever its role`,
-      "prove it: every pre-freeze credential is refused at login, an API role's rotated password is the one recorded, and no other client session remains",
+      locked
+        ? `${database} is already locked; keep the ACL recorded at ${record!.at} as the one rollback restores`
+        : `record ${database}'s ACL (${current.map(aclText).join(" ")}) in ${path}`,
+      ...(rotateOwner
+        ? [`reset the password of the owner ${owner}, which a consumer connects as, through the Neon API, and record it only in ${path} (0600, never printed)`]
+        : ownerRotatedEarlier
+          ? [`already rotated: ${owner}, whose recorded password logs in`]
+          : []),
+      ...(locked ? [] : [`REVOKE CONNECT ON DATABASE ${database} FROM ${revoke.join(", ")} CASCADE`]),
+      `GRANT CONNECT ON DATABASE ${database} TO ${dumpRole}; ${owner}, the owner, keeps CONNECT`,
+      `ALTER DATABASE ${database} SET default_transaction_read_only = on`,
+      `then terminate every other client session of ${database}, whatever its role`,
+      "prove it: every consumer is refused at login, the dump role connects, no other client session remains, and a new session cannot write",
     ]);
 
-    if (api) {
-      for (const role of toRotate) {
-        await rotateNeonRolePassword({
-          transport: api.transport,
-          projectId: api.projectId,
-          branchId: api.branchId,
-          role,
-          record: (password) => appendRotatedPassword(fd!, role, password),
-        });
-        say(ctx, `${role}: password reset through the Neon API and recorded in ${api.file}`);
+    if (!locked) {
+      appendEntry(fd, { database, datacl: facts.datacl });
+      say(ctx, `${database}: ACL recorded in ${path}`);
+    }
+    if (rotateOwner) {
+      await rotateNeonRolePassword({
+        transport: api.transport,
+        projectId: api.projectId,
+        branchId: api.branchId,
+        role: owner,
+        record: (password) => appendEntry(fd, { role: owner, password }),
+      });
+      say(ctx, `${owner}: password reset through the Neon API and recorded in ${path}`);
+      if (facts.me === owner) {
+        // Carry on in a session opened with the admin's new password.
+        await client.end().catch(() => undefined);
+        client = await connectSourceAdmin(ctx, "neon-cutover-freeze");
+        await client.query("SET default_transaction_read_only = off");
       }
-      // The admin may be one of them: carry on in a session opened with its new password.
-      await client.end().catch(() => undefined);
-      client = await connectSourceAdmin(ctx, "neon-cutover-freeze");
-      await client.query("SET default_transaction_read_only = off");
     }
-    for (const role of sqlRoles) {
-      // The random password is hashed here and discarded: nobody ever learns it.
-      const verifier = scramSha256Verifier(randomBytes(32).toString("base64url"));
+    await client.query("BEGIN");
+    if (!locked) {
       await client.query(
-        `ALTER ROLE ${client.escapeIdentifier(role)} WITH NOLOGIN PASSWORD ${client.escapeLiteral(verifier)}`
+        `REVOKE CONNECT ON DATABASE ${client.escapeIdentifier(database)} FROM ${revoke.map((name) => grantee(client!, name)).join(", ")} CASCADE`
       );
-      say(ctx, `${role}: NOLOGIN, password rotated`);
     }
-    for (const role of extraNologin) {
-      await client.query(`ALTER ROLE ${client.escapeIdentifier(role)} WITH NOLOGIN`);
-      say(ctx, `${role}: NOLOGIN`);
-    }
+    await client.query(
+      `GRANT CONNECT ON DATABASE ${client.escapeIdentifier(database)} TO ${client.escapeIdentifier(dumpRole)}`
+    );
+    await client.query("COMMIT");
+    say(ctx, `${database}: CONNECT held by ${owner} and ${dumpRole} only`);
     // The default first, so a session that connects during the sweep starts read-only.
     await client.query(
-      `ALTER DATABASE ${client.escapeIdentifier(facts.database)} SET default_transaction_read_only = on`
+      `ALTER DATABASE ${client.escapeIdentifier(database)} SET default_transaction_read_only = on`
     );
-    say(ctx, `${facts.database}: default_transaction_read_only = on`);
+    say(ctx, `${database}: default_transaction_read_only = on`);
     const terminated = await terminateOtherSessions(client);
-    say(ctx, `terminated ${terminated} other client session(s) of ${facts.database}`);
+    say(ctx, `terminated ${terminated} other client session(s) of ${database}`);
+    // Closed before the proof: it would count as another session.
+    await client.end().catch(() => undefined);
+    client = undefined;
+
+    const failures = await frozenFailures(ctx, targets, owner, dumpUrl, readPasswords(path));
+    if (failures.length > 0) {
+      for (const failure of failures) say(ctx, `FAIL ${failure}`);
+      say(ctx, "FREEZE NOT PROVEN: do not dump; see the runbook's freeze step");
+      return 2;
+    }
+    say(
+      ctx,
+      `FROZEN: only ${owner} and ${dumpRole} can connect to ${database}, every consumer is refused, no other client session remains, and new sessions cannot write`
+    );
+    return 0;
   } finally {
     await client?.end().catch(() => undefined);
-    if (fd !== undefined) closeSync(fd);
+    // Closing the file releases the lock.
+    closeSync(fd);
   }
-  return proveFrozen(ctx, targets, admin);
 }
 
 /**
@@ -1237,73 +1374,25 @@ async function terminateOtherSessions(client: Client): Promise<number> {
   }
 }
 
-/** Where a lost reset leaves a role, and the way back (the runbook's freeze step). */
-const LOST_RESET =
-  "If an earlier freeze's reset lost its response, nobody holds the role's live password: " +
-  "reset it in the Neon console, set CUTOVER_SOURCE_ADMIN_URL (for the admin) and the role's " +
-  "CUTOVER_ROLE_URL_<ROLE> to the console's connection string, and rerun freeze";
-
 /**
- * The same connection string, with the read-only default overridden the way
- * any client could. A Neon pooled host is swapped for its direct endpoint:
- * the pooler may reject the `options` startup parameter, and the compute
- * behind both is what enforces the lockout.
+ * The lock, proven (freeze's last step and inventory --expect-frozen):
+ * - a new admin session defaults to read-only, and a write in it gets 25006;
+ * - no other non-superuser client session of the database remains;
+ * - no login role but the owner, the dump role and this session's holds CONNECT;
+ * - every consumer is refused at login: 28P01 for the owner, whose password
+ *   was rotated (its recorded one logs in), and 42501 for every other, which
+ *   Postgres returns only after accepting the password;
+ * - the dump role connects.
+ * Returns the failures; each success is printed as it is proven.
  */
-export function withReadWriteOverride(url: string): string {
-  const parsed = new URL(url);
-  parsed.hostname = parsed.hostname.replace(/^([^.]+)-pooler\./, "$1.");
-  const options = parsed.searchParams.get("options");
-  parsed.searchParams.set(
-    "options",
-    `${options ? `${options} ` : ""}-c default_transaction_read_only=off`
-  );
-  return parsed.toString();
-}
-
-/**
- * Attempts a writable login with a pre-freeze credential. Returns the
- * SQLSTATE when the server refuses it at login (28P01 wrong password,
- * 28000 NOLOGIN), or undefined when it logged in or the attempt was
- * inconclusive, which is never evidence of a lockout.
- */
-async function preFreezeLoginRefusal(url: string): Promise<string | undefined> {
-  const code = await loginRefusal(url, "neon-cutover-freeze-probe");
-  return code === "28000" || code === "28P01" ? code : undefined;
-}
-
-/**
- * Logs in with `url` on the direct endpoint, then out again: undefined when
- * the login succeeded, else why it did not (a SQLSTATE such as 28P01, or a
- * connection error's code).
- */
-async function loginRefusal(url: string, applicationName: string): Promise<string | undefined> {
-  try {
-    const probe = await connect(withReadWriteOverride(url), applicationName);
-    await probe.end().catch(() => undefined);
-    return undefined;
-  } catch (error) {
-    return errorCode(error) ?? "no SQLSTATE";
-  }
-}
-
-/**
- * The freeze counts only once it is proven:
- * - each role's pre-freeze credential is refused at login, even when the
- *   client overrides the read-only default;
- * - an API role's recorded password is the live one: the admin's own role
- *   logs in with it, and any other API role is refused only by NOLOGIN;
- * - no other client session of the database remains, and a new session is
- *   read-only.
- */
-async function proveFrozen(
+async function frozenFailures(
   ctx: Context,
   targets: Array<{ role: string; url: string }>,
-  admin: string
-): Promise<number> {
-  const roles = targets.map((target) => target.role);
-  const apiRoles = ctx.options.apiRoles;
-  const mustBeNologin = roles.filter((role) => !(role === admin && apiRoles.includes(role)));
-  const rotated = rotatedPasswords(ctx);
+  owner: string,
+  dumpUrl: string,
+  passwords: Map<string, string>
+): Promise<string[]> {
+  const dumpRole = ctx.options.dumpRole;
   const failures: string[] = [];
   const check = await connectSourceAdmin(ctx, "neon-cutover-freeze-proof");
   try {
@@ -1313,121 +1402,204 @@ async function proveFrozen(
     if (setting.rows[0]!.value !== "on") failures.push("a new session is not read-only");
     try {
       await check.query("CREATE TEMP TABLE neon_cutover_freeze_probe (x int)");
-      failures.push("a new session could still write");
+      failures.push("a write from a new admin session succeeded");
     } catch (error) {
-      if (errorCode(error) !== "25006")
-        failures.push(`the read-only probe failed unexpectedly (${errorCode(error)})`);
+      if (errorCode(error) === "25006") say(ctx, "OK   a write from a new admin session is refused (25006)");
+      else failures.push(`the read-only probe failed unexpectedly (${errorCode(error) ?? "no SQLSTATE"})`);
     }
-    const locked = await check.query<{ rolname: string; rolcanlogin: boolean }>(
-      "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname = ANY($1::text[])",
-      [mustBeNologin]
-    );
-    for (const row of locked.rows)
-      if (row.rolcanlogin) failures.push(`${row.rolname} can still log in`);
     const { others, superuser } = await otherClientSessions(check);
     if (others.length > 0) failures.push(`other client session(s) remain: ${others.join(", ")}`);
     if (superuser > 0)
       say(ctx, `note ${superuser} superuser session(s), which only a superuser can end, were left`);
+    const { rows } = await check.query<{ rolname: string }>(
+      `SELECT r.rolname FROM pg_roles r, pg_database d
+       WHERE d.datname = current_database() AND r.rolcanlogin AND NOT r.rolsuper
+         AND r.oid <> d.datdba AND r.rolname <> $1 AND r.rolname <> current_user
+         AND has_database_privilege(r.oid, d.oid, 'CONNECT')
+       ORDER BY 1`,
+      [dumpRole]
+    );
+    if (rows.length > 0)
+      failures.push(`login role(s) ${rows.map((row) => row.rolname).join(", ")} can still connect`);
   } finally {
     await check.end().catch(() => undefined);
   }
 
   for (const { role, url } of targets) {
-    const code = await preFreezeLoginRefusal(url);
-    if (code)
-      say(
-        ctx,
-        `OK   ${role}: a write with its pre-freeze credential is refused at login (${code})`
-      );
-    else
-      failures.push(`${role}: its pre-freeze credential logs in, or the attempt was inconclusive`);
-    if (!apiRoles.includes(role)) continue;
-
-    const password = rotated.get(role);
-    if (!password) {
-      failures.push(`${role}: no rotated password is recorded`);
-      continue;
-    }
-    try {
-      const session = await connect(withPassword(url, password), "neon-cutover-freeze-proof");
-      await session.end().catch(() => undefined);
-      if (role === admin) say(ctx, `OK   ${role}: logs in with its rotated password only`);
-      else failures.push(`${role} logs in with its rotated password although it should be NOLOGIN`);
-    } catch (error) {
-      const refused = errorCode(error);
-      if (role !== admin && refused === "28000") {
-        say(ctx, `OK   ${role}: its rotated password is live and NOLOGIN refuses it (28000)`);
-      } else {
-        failures.push(
-          `${role}: its recorded rotated password does not log in (${refused ?? "no SQLSTATE"})`
-        );
+    const code = await loginRefusal(url, "neon-cutover-freeze-probe");
+    if (role === owner) {
+      if (code === "28P01") say(ctx, `OK   ${role}: its pre-freeze password is refused (28P01)`);
+      else failures.push(`${role}: its pre-freeze password is not refused (${code ?? "it logs in"})`);
+      const rotated = passwords.get(role);
+      if (!rotated) failures.push(`${role}: no rotated password is recorded`);
+      else {
+        const refused = await loginRefusal(withPassword(url, rotated), "neon-cutover-freeze-proof");
+        if (refused === undefined) say(ctx, `OK   ${role}: logs in with its recorded, rotated password only`);
+        else failures.push(`${role}: its recorded password does not log in (${refused})`);
       }
-    }
+    } else if (code === "42501") say(ctx, `OK   ${role}: refused at login (42501)`);
+    else failures.push(`${role}: not refused with 42501 (${code ?? "it logs in"})`);
   }
-
-  if (failures.length > 0) {
-    for (const failure of failures) ctx.io.log(`  FAIL ${failure}`);
-    say(ctx, "FREEZE NOT PROVEN: do not dump; see the runbook's freeze step");
-    return 2;
-  }
-  say(
-    ctx,
-    `FROZEN: every pre-freeze credential of ${roles.join(", ")} is refused, no other client session remains, and new sessions are read-only`
-  );
-  return 0;
+  const dumpRefusal = await loginRefusal(dumpUrl, "neon-cutover-freeze-proof");
+  if (dumpRefusal === undefined) say(ctx, `OK   ${dumpRole} connects`);
+  else failures.push(`${dumpRole} cannot connect (${dumpRefusal})`);
+  return failures;
 }
 
 /**
- * Creates the dump role named by CUTOVER_SOURCE_DUMP_URL, with that URL's
- * password sent as a SCRAM verifier, so the plaintext reaches neither a
- * command line nor the server log. Then grants it pg_read_all_data and logs
- * in as it.
+ * Gives the dump role read access as each object's owner would: the admin
+ * grants what it owns, and acts as the owner of the rest when it may.
+ */
+async function grantReadPerObject(client: Client, me: string, role: string): Promise<string[]> {
+  const { rows } = await client.query<{ kind: string; name: string; owner: string }>(
+    `SELECT 'SCHEMA' AS kind, quote_ident(n.nspname) AS name, pg_get_userbyid(n.nspowner) AS owner
+     FROM pg_namespace n WHERE ${USER_SCHEMA}
+     UNION ALL
+     SELECT CASE WHEN c.relkind = 'S' THEN 'SEQUENCE' ELSE 'TABLE' END,
+            format('%I.%I', n.nspname, c.relname), pg_get_userbyid(c.relowner)
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE ${USER_SCHEMA} AND c.relkind IN ('r', 'p', 'S', 'm') AND ${NOT_EXTENSION_MEMBER}
+     ORDER BY 1, 2`
+  );
+  const failed: string[] = [];
+  const target = client.escapeIdentifier(role);
+  for (const row of rows) {
+    const statement =
+      row.kind === "SCHEMA"
+        ? `GRANT USAGE ON SCHEMA ${row.name} TO ${target}`
+        : `GRANT SELECT ON ${row.kind === "SEQUENCE" ? "SEQUENCE " : "TABLE "}${row.name} TO ${target}`;
+    try {
+      await client.query(statement);
+    } catch (error) {
+      if (errorCode(error) !== "42501" || row.owner === me) {
+        failed.push(`${row.name} (${errorCode(error) ?? "error"})`);
+        continue;
+      }
+      try {
+        await client.query(`SET ROLE ${client.escapeIdentifier(row.owner)}`);
+        await client.query(statement);
+      } catch (retry) {
+        failed.push(`${row.name} (${errorCode(retry) ?? "error"} as ${row.owner})`);
+      } finally {
+        await client.query("RESET ROLE");
+      }
+    }
+  }
+  return failed;
+}
+
+/**
+ * Creates the dump role through Neon's API, which generates its password
+ * and returns it once, so it is recorded before anything else. A role that
+ * exists already is kept; when the file holds no working password for it,
+ * its password is reset through the API instead. Either way it is then
+ * granted pg_read_all_data, or, where the server refuses that (42501), USAGE
+ * on each user schema and SELECT on every table and sequence.
  */
 async function createDumpRole(ctx: Context): Promise<number> {
   const adminUrl = envUrl(ctx, "CUTOVER_SOURCE_ADMIN_URL");
-  const dumpUrl = envUrl(ctx, "CUTOVER_SOURCE_DUMP_URL");
   refuseTransactionPooler("CUTOVER_SOURCE_ADMIN_URL", adminUrl);
-  refuseTransactionPooler("CUTOVER_SOURCE_DUMP_URL", dumpUrl);
   requireLocalOrConfirmed(ctx, [["CUTOVER_SOURCE_ADMIN_URL", adminUrl]]);
-  const role = decodeURIComponent(new URL(dumpUrl).username);
-  const verifier = scramSha256Verifier(decodeURIComponent(new URL(dumpUrl).password));
-  const client = await connect(adminUrl, "neon-cutover-create-dump-role");
+  const api = neonApi(ctx);
+  const path = passwordFilePath(ctx);
+  const role = ctx.options.dumpRole;
+  // Before any Neon call: the file that must record the generated password.
+  const fd = openPasswordFile(path);
+  let client: Client | undefined;
+  let unreadable: string[] = [];
   try {
-    const existing = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
-    if (existing.rowCount) throw new CutoverError(`role ${role} already exists; it is left as it is`);
-    plan(ctx, [
-      `CREATE ROLE ${role} LOGIN PASSWORD <CUTOVER_SOURCE_DUMP_URL's password, sent as a SCRAM verifier>`,
-      `GRANT pg_read_all_data TO ${role}`,
-      `log in with CUTOVER_SOURCE_DUMP_URL (${describeUrl(dumpUrl)})`,
-    ]);
-    await client.query(
-      `CREATE ROLE ${client.escapeIdentifier(role)} LOGIN PASSWORD ${client.escapeLiteral(verifier)}`
+    const recorded = passwordsOf(readWindowFile(ctx, path)).get(role);
+    await requireEndpointOnBranch(ctx, api, adminUrl);
+    client = await connectSourceAdmin(ctx, "neon-cutover-create-dump-role");
+    await client.query("SET default_transaction_read_only = off");
+    const me = (await sourceFacts(client)).me;
+    const exists = Boolean(
+      (await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role])).rowCount
     );
-    say(ctx, `${role}: created`);
+    const reset =
+      exists &&
+      (!recorded ||
+        (await loginRefusal(asRole(adminUrl, role, recorded), "neon-cutover-create-dump-role")) === "28P01");
+    plan(ctx, [
+      exists
+        ? reset
+          ? `${role} exists, and ${path} holds no password that logs in: reset it through the Neon API and record it there (0600, never printed)`
+          : `${role} exists, and its recorded password logs in: keep it`
+        : `create ${role} through the Neon API, and record the password Neon generates only in ${path} (0600, never printed)`,
+      `GRANT pg_read_all_data TO ${role}; if that is refused, USAGE on each user schema and SELECT on every table and sequence, as each one's owner`,
+      `log in as ${role} with its recorded password`,
+    ]);
+    const request = {
+      transport: api.transport,
+      projectId: api.projectId,
+      branchId: api.branchId,
+      role,
+      record: (password: string) => appendEntry(fd, { role, password }),
+    };
+    if (!exists) {
+      await createNeonRole(request);
+      say(ctx, `${role}: created through the Neon API; its password is recorded in ${path}`);
+    } else {
+      say(ctx, `${role} already exists; it is kept`);
+      if (reset) {
+        await rotateNeonRolePassword(request);
+        say(ctx, `${role}: password reset through the Neon API and recorded in ${path}`);
+      }
+    }
     try {
       await client.query(`GRANT pg_read_all_data TO ${client.escapeIdentifier(role)}`);
+      say(ctx, `${role}: granted pg_read_all_data`);
     } catch (error) {
       if (errorCode(error) !== "42501") throw error;
       say(
         ctx,
-        `the server refused GRANT pg_read_all_data (42501); have the tables' owner grant ${role} ` +
-          "USAGE and SELECT on every schema, table and sequence instead (see the runbook)"
+        `the server refused GRANT pg_read_all_data (42501); granting ${role} USAGE and SELECT object by object`
       );
-      return 2;
+      const failed = await grantReadPerObject(client, me, role);
+      if (failed.length > 0) say(ctx, `FAIL could not grant: ${failed.join(", ")}`);
     }
-    say(ctx, `${role}: granted pg_read_all_data`);
+    const { rows } = await client.query<{ name: string }>(
+      `SELECT format('%I.%I', n.nspname, c.relname) AS name
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE ${USER_SCHEMA} AND c.relkind IN ('r', 'p', 'S', 'm')
+         AND NOT (has_schema_privilege($1, n.oid, 'USAGE') AND CASE WHEN c.relkind = 'S'
+           THEN has_sequence_privilege($1, c.oid, 'SELECT') ELSE has_table_privilege($1, c.oid, 'SELECT') END)
+       ORDER BY 1`,
+      [role]
+    );
+    unreadable = rows.map((row) => row.name);
   } finally {
-    await client.end().catch(() => undefined);
+    await client?.end().catch(() => undefined);
+    closeSync(fd);
   }
-  const probe = await connect(dumpUrl, "neon-cutover-create-dump-role");
+  const probe = await connect(
+    dumpRoleUrl(ctx, path, readPasswords(path)),
+    "neon-cutover-create-dump-role"
+  );
   await probe.end().catch(() => undefined);
-  say(ctx, `${role}: logs in with CUTOVER_SOURCE_DUMP_URL`);
+  say(ctx, `${role}: logs in with its recorded password`);
+  if (unreadable.length > 0) {
+    say(ctx, `FAIL ${role} cannot read ${unreadable.length} relation(s): ${unreadable.join(", ")}`);
+    return 2;
+  }
   return 0;
 }
 
+/**
+ * What dump and verify read the source as: CUTOVER_SOURCE_DUMP_URL when it
+ * is set (a dump of the new server after a rollback), else the dump role
+ * with its recorded password.
+ */
+function sourceReadUrl(ctx: Context): string {
+  const url = ctx.env.CUTOVER_SOURCE_DUMP_URL
+    ? envUrl(ctx, "CUTOVER_SOURCE_DUMP_URL")
+    : dumpRoleUrl(ctx, passwordFilePath(ctx), readPasswords(passwordFilePath(ctx)));
+  refuseTransactionPooler("the source connection", url);
+  return url;
+}
+
 async function dump(ctx: Context): Promise<number> {
-  const url = envUrl(ctx, "CUTOVER_SOURCE_DUMP_URL");
-  refuseTransactionPooler("CUTOVER_SOURCE_DUMP_URL", url);
+  const url = sourceReadUrl(ctx);
   const archive = ctx.options.archive ? resolve(ctx.options.archive) : undefined;
   if (!archive) throw new CutoverError("dump needs --archive=<path>");
   if (existsSync(archive) || existsSync(`${archive}.sha256`)) {
@@ -1495,6 +1667,7 @@ async function dump(ctx: Context): Promise<number> {
   );
   return 0;
 }
+
 
 type ArchiveToc = { dumpedFrom: number; dumpedBy: number; schemas: string[]; tables: number };
 
@@ -1762,9 +1935,8 @@ async function roleShapeFailures(client: Client): Promise<string[]> {
 }
 
 async function verify(ctx: Context): Promise<number> {
-  const sourceUrl = envUrl(ctx, "CUTOVER_SOURCE_DUMP_URL");
+  const sourceUrl = sourceReadUrl(ctx);
   const targetUrl = envUrl(ctx, "CUTOVER_TARGET_OWNER_URL");
-  refuseTransactionPooler("CUTOVER_SOURCE_DUMP_URL", sourceUrl);
   refuseTransactionPooler("CUTOVER_TARGET_OWNER_URL", targetUrl);
   plan(ctx, [
     `compare ${describeUrl(sourceUrl)} with ${describeUrl(targetUrl)}, read-only`,
@@ -1998,9 +2170,10 @@ async function sequencePositions(
   return positions;
 }
 
+
 function switchPlan(ctx: Context): number {
   const host = ctx.options.targetHost ?? "<postgres_database_hostname>";
-  const file = ctx.options.rotatedPasswordFile ?? "$ROTATED";
+  const file = ctx.options.passwordFile ?? "$PASSWORDS";
   plan(ctx, ["print the commands below; this phase runs nothing and reads no secret"]);
   const lines = [
     "# Run from a checkout linked to the production Vercel project (vercel link).",
@@ -2026,37 +2199,36 @@ function switchPlan(ctx: Context): number {
     "",
     "# Switch back (rollback), after the rollback phase: point both variables at Neon again, then redeploy.",
     "vercel env rm DATABASE_URL production --yes",
-    "# Vercel's role on the Neon API path: its pre-freeze password is gone, so feed the rotated one on stdin.",
-    `node --import tsx scripts/neon-cutover.ts switch-back-url --role=<role> --rotated-password-file="${file}" | vercel env add DATABASE_URL production --sensitive`,
-    "# Vercel's role on the SQL path instead: rollback restored its pre-freeze password.",
+    "# When Vercel connects as the Neon owner, the freeze rotated that password: feed the rotated one on stdin.",
+    `node --import tsx scripts/neon-cutover.ts switch-back-url --role=<owner> --password-file="${file}" | vercel env add DATABASE_URL production --sensitive`,
+    "# When Vercel connects as another role, its password never changed.",
     "printf '%s' \"$NEON_DATABASE_URL\" | vercel env add DATABASE_URL production --sensitive",
     "vercel env rm DATABASE_MIGRATION_URL production --yes",
     "# only if it was set before the window, the same way (switch-back-url, or $NEON_DATABASE_MIGRATION_URL):",
     "printf '%s' \"$NEON_DATABASE_MIGRATION_URL\" | vercel env add DATABASE_MIGRATION_URL production --sensitive",
     "vercel redeploy <recorded-pre-switch-deployment-url> --target=production",
-    "# On the SQL path only, vercel rollback <recorded-pre-switch-deployment-url> is faster: that deployment",
-    "# holds the pre-freeze password. On the API path it holds a password Neon no longer accepts.",
+    "# When Vercel's role is not the owner, vercel rollback <recorded-pre-switch-deployment-url> is faster:",
+    "# that deployment holds a password that still works. The owner's no longer does.",
   ];
   for (const line of lines) ctx.io.log(line);
   return 0;
 }
 
 /**
- * Writes an API-path role's pre-freeze Neon URL with its rotated password to
- * stdout, without a newline, for `vercel env add` to read. It refuses a
- * terminal, so the password is never printed.
+ * Writes a role's Neon URL with its newest recorded password (the owner's
+ * rotated one) to stdout, without a newline, for `vercel env add` to read.
+ * It refuses a terminal, so the password is never printed.
  */
 function switchBackUrl(ctx: Context): number {
   const role = ctx.options.role;
   if (!role) throw new CutoverError("switch-back-url needs --role=<role>");
-  const file = ctx.options.rotatedPasswordFile;
-  if (!file) throw new CutoverError("switch-back-url needs --rotated-password-file");
+  const file = passwordFilePath(ctx);
   const base = envUrl(ctx, roleUrlEnvName(role));
   const user = decodeURIComponent(new URL(base).username);
   if (user !== role)
     throw new CutoverError(`${roleUrlEnvName(role)} logs in as ${user}, not ${role}`);
-  const password = readRotatedPasswords(resolve(file)).get(role);
-  if (!password) throw new CutoverError(`${file} holds no rotated password for ${role}`);
+  const password = readPasswords(file).get(role);
+  if (!password) throw new CutoverError(`${file} holds no password for ${role}`);
   const out = ctx.io.stdout ?? process.stdout;
   if (out.isTTY) {
     throw new CutoverError(
@@ -2064,122 +2236,173 @@ function switchBackUrl(ctx: Context): number {
     );
   }
   ctx.io.error(
-    `[cutover:switch-back-url] plan: write ${describeUrl(base)} with ${role}'s rotated password to stdout, for vercel env add`
+    `[cutover:switch-back-url] plan: write ${describeUrl(base)} with ${role}'s recorded password to stdout, for vercel env add`
   );
   out.write(withPassword(base, password));
   return 0;
+}
+
+/**
+ * Restores the recorded ACL entry by entry: an entry the freeze took away
+ * is granted again, and one the record lacks (the dump role's CONNECT, or
+ * anything granted since) is revoked. Only the owner's grants are touched;
+ * an entry another grantor made is named for the operator. Each entry
+ * succeeds or fails on its own.
+ */
+async function restoreAcl(
+  ctx: Context,
+  client: Client,
+  facts: SourceFacts,
+  recorded: AclEntry[]
+): Promise<string[]> {
+  const failures: string[] = [];
+  const key = (entry: AclEntry) => `${entry.grantee}|${entry.grantor}|${entry.privilege}`;
+  const current = new Map((await aclEntries(client, facts.datacl)).map((entry) => [key(entry), entry]));
+  const wanted = new Map(recorded.map((entry) => [key(entry), entry]));
+  const database = client.escapeIdentifier(facts.database);
+  const steps: Array<[description: string, grantor: string, statement: string]> = [];
+  for (const [id, entry] of wanted) {
+    const now = current.get(id);
+    if (now && now.grantable === entry.grantable) continue;
+    if (now && now.grantable && !entry.grantable) {
+      steps.push([
+        `take back the grant option of ${aclText(now)}`,
+        entry.grantor,
+        `REVOKE GRANT OPTION FOR ${entry.privilege} ON DATABASE ${database} FROM ${grantee(client, entry.grantee)} CASCADE`,
+      ]);
+      continue;
+    }
+    steps.push([
+      `grant ${aclText(entry)}`,
+      entry.grantor,
+      `GRANT ${entry.privilege} ON DATABASE ${database} TO ${grantee(client, entry.grantee)}${entry.grantable ? " WITH GRANT OPTION" : ""}`,
+    ]);
+  }
+  for (const [id, entry] of current) {
+    if (wanted.has(id)) continue;
+    steps.push([
+      `revoke ${aclText(entry)}`,
+      entry.grantor,
+      `REVOKE ${entry.privilege} ON DATABASE ${database} FROM ${grantee(client, entry.grantee)} CASCADE`,
+    ]);
+  }
+  for (const [description, grantor, statement] of steps) {
+    if (grantor !== facts.owner) {
+      say(ctx, `FAIL ${description}: granted by ${grantor}, not the owner; restore it by hand`);
+      failures.push(`the ACL entry ${description.replace(/^\S+ /, "")}`);
+      continue;
+    }
+    try {
+      await client.query(statement);
+      say(ctx, `OK   ${description}`);
+    } catch (error) {
+      say(ctx, `FAIL ${description}: ${errorCode(error) ?? "error"} ${error instanceof Error ? error.message : String(error)}`);
+      failures.push(`the ACL entry ${description.replace(/^\S+ /, "")}`);
+    }
+  }
+  return failures;
 }
 
 async function rollback(ctx: Context): Promise<number> {
   const baseAdminUrl = envUrl(ctx, "CUTOVER_SOURCE_ADMIN_URL");
   refuseTransactionPooler("CUTOVER_SOURCE_ADMIN_URL", baseAdminUrl);
   requireLocalOrConfirmed(ctx, [["CUTOVER_SOURCE_ADMIN_URL", baseAdminUrl]]);
-  const targets = appRoleUrls(ctx);
-  const roles = targets.map((target) => target.role);
-  const apiRoles = ctx.options.apiRoles;
-  const stray = apiRoles.filter((role) => !roles.includes(role));
-  if (stray.length > 0) {
-    throw new CutoverError(`--api-roles must be a subset of --app-roles (${stray.join(", ")})`);
-  }
-  if (apiRoles.length > 0 && !ctx.options.rotatedPasswordFile) {
-    throw new CutoverError("rollback of an API-path role needs --rotated-password-file");
-  }
-  const rotated = rotatedPasswords(ctx);
-  const sqlRoles = roles.filter((role) => !apiRoles.includes(role));
-  // Each role is restored, proven and reported on its own: one that cannot
-  // be restored never holds back the others.
-  const failures = new Map<string, string>();
-  const describeError = (error: unknown): string =>
-    `${errorCode(error) ?? "error"} ${error instanceof Error ? error.message : String(error)}`;
-  const client = await connectSourceAdmin(ctx, "neon-cutover-rollback");
-  let database = "";
+  const targets = consumerUrls(ctx);
+  const path = passwordFilePath(ctx);
+  let fd: number;
   try {
-    // The database default is read-only by now, and ALTER ROLE and ALTER
-    // DATABASE are refused inside a read-only transaction.
-    await client.query("SET default_transaction_read_only = off");
-    const facts = await adminPreflight(client, sqlRoles, apiRoles);
-    database = facts.database;
-    for (const [role, problem] of facts.roleProblems) failures.set(role, problem);
-    const relogin = apiRoles.filter((role) => role !== facts.me);
-    plan(ctx, [
-      `ALTER DATABASE ${facts.database} RESET default_transaction_read_only`,
-      ...(sqlRoles.length > 0
-        ? [
-            `ALTER ROLE ... LOGIN PASSWORD <each role's pre-freeze password, sent as a SCRAM verifier> for ${sqlRoles.join(", ")}`,
-          ]
-        : []),
-      ...(relogin.length > 0 ? [`ALTER ROLE ... LOGIN for ${relogin.join(", ")}`] : []),
-      ...(apiRoles.length > 0
-        ? [
-            `keep the newest recorded password of ${apiRoles.join(", ")}: the pre-freeze one cannot be restored, so their consumers switch to it (switch-back-url); a role Neon never reset keeps its pre-freeze one`,
-          ]
-        : []),
-      "prove it, role by role: each logs in with the credential its consumers will use, and gets a read-write session",
-    ]);
-    try {
-      await client.query(
-        `ALTER DATABASE ${client.escapeIdentifier(facts.database)} RESET default_transaction_read_only`
-      );
-    } catch (error) {
-      say(ctx, `FAIL ${facts.database}: RESET default_transaction_read_only: ${describeError(error)}`);
-    }
-    for (const { role, url } of targets) {
-      if (failures.has(role) || !(sqlRoles.includes(role) || relogin.includes(role))) continue;
-      try {
-        const password = sqlRoles.includes(role)
-          ? ` PASSWORD ${client.escapeLiteral(scramSha256Verifier(decodeURIComponent(new URL(url).password)))}`
-          : "";
-        await client.query(`ALTER ROLE ${client.escapeIdentifier(role)} WITH LOGIN${password}`);
-      } catch (error) {
-        failures.set(role, describeError(error));
-      }
-    }
-  } finally {
-    await client.end().catch(() => undefined);
+    fd = openPrivateFile(path, fsConstants.O_RDWR);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") throw new CutoverError(`${path} does not exist; name the freeze's password file`);
+    throw error;
   }
-
-  for (const { role, url } of targets) {
-    const failure = failures.get(role);
-    if (failure) {
-      say(ctx, `FAIL ${role}: ${failure}`);
-      continue;
-    }
-    // An API role logs in with its newest recorded password. One that Neon
-    // never reset, or whose reset never took effect, still has its pre-freeze one.
-    const recorded = apiRoles.includes(role) ? rotated.get(role) : undefined;
-    const candidates: Array<[credential: string, url: string]> = [
-      ...(recorded
-        ? [["its rotated password", withPassword(url, recorded)] as [string, string]]
-        : []),
-      ["its pre-freeze credential", url],
-    ];
-    for (const [credential, candidate] of candidates) {
+  // Each consumer and each ACL entry is restored and reported on its own:
+  // one that fails never holds back the others.
+  const failures: string[] = [];
+  try {
+    await lockPasswordFile(fd, path);
+    const entries = readWindowFile(ctx, path);
+    const passwords = passwordsOf(entries);
+    const client = await connectSourceAdmin(ctx, "neon-cutover-rollback");
+    let facts: SourceFacts;
+    try {
+      // The database default is read-only by now, and GRANT, REVOKE and
+      // ALTER DATABASE are refused inside a read-only transaction.
+      await client.query("SET default_transaction_read_only = off");
+      facts = await sourceFacts(client);
+      const problems = adminProblems(facts);
+      if (problems.length > 0) throw new CutoverError(`rollback preflight failed: ${problems.join("; ")}`);
+      const record = aclRecordOf(entries, facts.database);
+      if (!record) {
+        throw new CutoverError(
+          `${path} holds no record of ${facts.database}'s ACL, so rollback cannot restore it; nothing was changed`
+        );
+      }
+      const recorded = await aclEntries(client, record.datacl);
+      plan(ctx, [
+        `restore ${facts.database}'s ACL as recorded at ${record.at}, entry by entry: ${recorded.map(aclText).join(" ")}`,
+        `ALTER DATABASE ${facts.database} RESET default_transaction_read_only`,
+        "no password changes: the owner's rotated one stays, and its consumers switch to it (switch-back-url)",
+        "prove it: the ACL equals the record, and every consumer connects and gets a read-write session",
+      ]);
+      failures.push(...(await restoreAcl(ctx, client, facts, recorded)));
       try {
-        const probe = await connect(candidate, "neon-cutover-rollback-probe");
+        await client.query(
+          `ALTER DATABASE ${client.escapeIdentifier(facts.database)} RESET default_transaction_read_only`
+        );
+        say(ctx, `OK   ${facts.database}: default_transaction_read_only reset`);
+      } catch (error) {
+        say(ctx, `FAIL ${facts.database}: RESET default_transaction_read_only: ${errorCode(error) ?? "error"}`);
+        failures.push(`${facts.database}'s read-only default`);
+      }
+      const now = (await sourceFacts(client)).datacl;
+      const after = (await aclEntries(client, now)).map(aclText);
+      const expected = recorded.map(aclText);
+      const missing = expected.filter((entry) => !after.includes(entry));
+      const extra = after.filter((entry) => !expected.includes(entry));
+      if (missing.length === 0 && extra.length === 0) say(ctx, `OK   ${facts.database}: ACL restored exactly`);
+      else {
+        say(ctx, `FAIL ${facts.database}: ACL differs from the record: missing ${missing.join(" ") || "nothing"}; extra ${extra.join(" ") || "nothing"}`);
+        if (!failures.includes(`${facts.database}'s ACL`)) failures.push(`${facts.database}'s ACL`);
+      }
+    } finally {
+      await client.end().catch(() => undefined);
+    }
+
+    for (const { role, url } of targets) {
+      // The owner's consumers switch to its rotated password; every other
+      // consumer's password never changed.
+      const rotated = role === facts.owner ? passwords.get(role) : undefined;
+      const credential = rotated ? " with its rotated password" : "";
+      try {
+        const probe = await connect(rotated ? withPassword(url, rotated) : url, "neon-cutover-rollback-probe");
         try {
           const { rows } = await probe.query<{ value: string }>(
             "SELECT current_setting('transaction_read_only') AS value"
           );
-          if (rows[0]!.value !== "off") throw new Error("session is read-only");
+          if (rows[0]!.value !== "off") throw new Error("its session is read-only");
         } finally {
           await probe.end().catch(() => undefined);
         }
-        say(ctx, `OK   ${role} logs in with ${credential} and can write`);
-        failures.delete(role);
-        break;
+        say(ctx, `OK   ${role} connects${credential} and can write`);
       } catch (error) {
-        failures.set(role, describeError(error));
-        if (errorCode(error) !== "28P01") break;
+        say(ctx, `FAIL ${role}: ${errorCode(error) ?? "error"} ${error instanceof Error ? error.message : String(error)}`);
+        failures.push(role);
       }
     }
-    if (failures.has(role)) say(ctx, `FAIL ${role}: ${failures.get(role)}`);
+    if (failures.length > 0) {
+      say(ctx, `not proven: ${failures.join(", ")}`);
+      return 2;
+    }
+    say(
+      ctx,
+      `ROLLED BACK: ${facts.database}'s ACL is the recorded one, its read-only default is reset, and every consumer connects and can write`
+    );
+    return 0;
+  } finally {
+    // Closing the file releases the lock.
+    closeSync(fd);
   }
-  if (failures.size > 0) {
-    say(ctx, `${failures.size} role(s) not restored: ${[...failures.keys()].join(", ")}`);
-    return 2;
-  }
-  say(ctx, `ROLLED BACK: application roles log in again and ${database} accepts writes`);
-  return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -2190,7 +2413,7 @@ function parseArgs(argv: string[]): { phase: Phase; options: Options } {
   if (!phase || !(PHASES as readonly string[]).includes(phase)) throw new CutoverError(USAGE);
   const options: Options = {
     appRoles: [],
-    apiRoles: [],
+    dumpRole: DEFAULT_DUMP_ROLE,
     confirmProduction: false,
     expectFrozen: false,
     allowUnfrozen: false,
@@ -2212,15 +2435,13 @@ function parseArgs(argv: string[]): { phase: Phase; options: Options } {
           .map((role) => role.trim())
           .filter(Boolean);
         break;
-      case "api-roles":
-        // Empty (--api-roles=) means no role takes the API path.
-        options.apiRoles = (inline ?? value())
-          .split(",")
-          .map((role) => role.trim())
-          .filter(Boolean);
+      case "password-file":
+        options.passwordFile = value();
         break;
-      case "rotated-password-file":
-        options.rotatedPasswordFile = value();
+      case "dump-role":
+        options.dumpRole = value();
+        if (!/^[a-z_][a-z0-9_]{0,62}$/.test(options.dumpRole))
+          throw new CutoverError("--dump-role must be a lower-case role name");
         break;
       case "role":
         options.role = value();

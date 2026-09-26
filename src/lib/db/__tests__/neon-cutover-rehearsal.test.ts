@@ -18,9 +18,9 @@ import { promisify } from "node:util";
 import { Client, Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import {
-  readRotatedPasswords,
+  readPasswordFile,
+  readPasswords,
   runCutover,
-  scramSha256Verifier,
   type CutoverEnv,
   type NeonTransport,
 } from "../../../../scripts/neon-cutover";
@@ -42,17 +42,20 @@ import { __resetPgSqlPoolForTests } from "../pg-sql";
 // Task 4.1 (design D8): the Neon-to-self-hosted cutover, rehearsed end to end
 // against two disposable local containers. A PostgreSQL 16 source stands in
 // for Neon: a NOSUPERUSER, CREATEROLE admin owns the database the way
-// Neon's neondb_owner does, the website's role ran the migrations and owns
-// the schema, and a separate pg_read_all_data role dumps it. A PostgreSQL 17
-// target is set up the way infra/ansible/roles/postgres sets up the control
-// server: four NOSUPERUSER roles, and exomem_control owned by substrate_owner.
+// Neon's neondb_owner does, and the website's role ran the migrations and
+// owns the schema. A PostgreSQL 17 target is set up the way
+// infra/ansible/roles/postgres sets up the control server: four NOSUPERUSER
+// roles, and exomem_control owned by substrate_owner.
 //
-// The admin also plays Neon's console-managed owner role, which a consumer
-// logs in as: it is an application role on the Neon API path, and a fake
-// Neon control plane applies each password reset to the source container.
+// The admin also plays Neon's owner role, which a consumer logs in as, so
+// the freeze resets its password through Neon's API. A fake Neon control
+// plane applies each reset to the source container, and creates the dump
+// role there when create-dump-role asks for it.
 //
 // Opt-in: it needs Docker and pulls postgres:16 and postgres:17.
 //   npm run rehearse:neon-cutover
+// Containers are named <prefix>-*, with the prefix from
+// NEON_CUTOVER_REHEARSAL_CONTAINER_PREFIX (default cutover-rehearsal).
 
 const enabled = process.env.RUN_NEON_CUTOVER_REHEARSAL === "1";
 const execFileAsync = promisify(execFile);
@@ -60,8 +63,9 @@ const REPO_ROOT = resolve(__dirname, "../../../..");
 const SEED_SQL = join(__dirname, "fixtures", "neon-cutover-seed.sql");
 
 const rand = randomBytes(4).toString("hex");
-const SRC_CONTAINER = `cutover-rehearsal-src-${rand}`;
-const DST_CONTAINER = `cutover-rehearsal-dst-${rand}`;
+const PREFIX = process.env.NEON_CUTOVER_REHEARSAL_CONTAINER_PREFIX || "cutover-rehearsal";
+const SRC_CONTAINER = `${PREFIX}-src-${rand}`;
+const DST_CONTAINER = `${PREFIX}-dst-${rand}`;
 const secret = (): string => randomBytes(18).toString("base64url");
 const PW = {
   srcSuper: secret(),
@@ -69,12 +73,12 @@ const PW = {
   admin: secret(),
   web: secret(),
   gateway: secret(),
-  dump: secret(),
   owner: secret(),
   app: secret(),
   exomemGateway: secret(),
   cellctl: secret(),
 };
+const DUMP_ROLE = "neon_cutover_dump";
 
 // Every table seeded because it carries Endstate, Paddle or OAuth state (or
 // the Cloud tables the grants script governs), plus the type probe.
@@ -148,7 +152,6 @@ const dstSuperUrl = (db = "exomem_control") => url(dstPort, "postgres", PW.dstSu
 const adminUrl = () => url(srcPort, "cutover_admin", PW.admin, "neondb");
 const webUrl = () => url(srcPort, "substrate_web", PW.web, "neondb");
 const legacyGatewayUrl = () => url(srcPort, "exomem_hosted_gateway", PW.gateway, "neondb");
-const dumpUrl = () => url(srcPort, "cutover_dump", PW.dump, "neondb");
 const ownerUrl = () => url(dstPort, "substrate_owner", PW.owner, "exomem_control");
 const appUrl = () => url(dstPort, "substrate_app", PW.app, "exomem_control");
 const cellctlUrl = () => url(dstPort, "exomem_cellctl", PW.cellctl, "exomem_control");
@@ -225,7 +228,6 @@ function cutoverEnv(): CutoverEnv {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     CUTOVER_SOURCE_ADMIN_URL: adminUrl(),
-    CUTOVER_SOURCE_DUMP_URL: dumpUrl(),
     CUTOVER_TARGET_OWNER_URL: ownerUrl(),
     CUTOVER_ROLE_URL_SUBSTRATE_WEB: webUrl(),
     CUTOVER_ROLE_URL_EXOMEM_HOSTED_GATEWAY: legacyGatewayUrl(),
@@ -245,15 +247,43 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-// A fake Neon control plane with the documented response shapes: a reset
-// sets a new random password on the compute and returns it with a running
-// operation, which reports finished on its second poll.
+/** Sets `role`'s password on the source as Neon's control plane would. */
+const applyPassword = (role: string, password: string) =>
+  onFrozenSource((client) =>
+    client.query(
+      `ALTER ROLE ${client.escapeIdentifier(role)} PASSWORD ${client.escapeLiteral(password)}`
+    )
+  );
+
+// A fake Neon control plane with the documented response shapes. A role
+// creation (201) or a password reset sets a new random password on the
+// compute and returns it with a running operation, which reports finished
+// on its second poll.
 let neonResets = 0;
+let neonCreates = 0;
 const operationPolls = new Map<string, number>();
 const fakeNeon: NeonTransport = async (path, init) => {
   if (path === "/projects/rehearsal-project/endpoints/ep-rehearsal") {
     return json(200, {
       endpoint: { id: "ep-rehearsal", project_id: "rehearsal-project", branch_id: "br-rehearsal" },
+    });
+  }
+  if (path === "/projects/rehearsal-project/branches/br-rehearsal/roles" && init?.method === "POST") {
+    neonCreates += 1;
+    const name = (JSON.parse(String(init.body)) as { role: { name: string } }).role.name;
+    const password = `npg_${randomBytes(12).toString("base64url")}`;
+    const exists = await onFrozenSource((client) =>
+      client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [name])
+    );
+    if (exists.rowCount) return json(409, { code: "CONFLICT", message: "role already exists" });
+    await onFrozenSource((client) =>
+      client.query(
+        `CREATE ROLE ${client.escapeIdentifier(name)} LOGIN PASSWORD ${client.escapeLiteral(password)}`
+      )
+    );
+    return json(201, {
+      role: { branch_id: "br-rehearsal", name, password, protected: false },
+      operations: [{ id: `op-create-${neonCreates}`, action: "apply_config", status: "running" }],
     });
   }
   const reset =
@@ -264,11 +294,7 @@ const fakeNeon: NeonTransport = async (path, init) => {
     neonResets += 1;
     const role = decodeURIComponent(reset[1]!);
     const password = `npg_${randomBytes(12).toString("base64url")}`;
-    await onFrozenSource((client) =>
-      client.query(
-        `ALTER ROLE ${client.escapeIdentifier(role)} PASSWORD ${client.escapeLiteral(scramSha256Verifier(password))}`
-      )
-    );
+    await applyPassword(role, password);
     return json(200, {
       role: { branch_id: "br-rehearsal", name: role, password, protected: false },
       operations: [{ id: `op-reset-${neonResets}`, action: "apply_config", status: "running" }],
@@ -307,29 +333,91 @@ async function cutover(
   return { code, output: lines.join("\n"), stdout: written.join("") };
 }
 
-// cutover_admin stands in for the owner role, which takes the Neon API path.
+// cutover_admin stands in for the owner role, which a consumer logs in as.
 const APP_ROLES = "--app-roles=substrate_web,exomem_hosted_gateway,cutover_admin";
-const rotatedFile = () => join(workDir, "neon-rotated.jsonl");
-const ROLES = () => [
-  APP_ROLES,
-  "--api-roles=cutover_admin",
-  `--rotated-password-file=${rotatedFile()}`,
-];
-const rotatedAdminPassword = (): string =>
-  readRotatedPasswords(rotatedFile()).get("cutover_admin")!;
+const passwordFile = () => join(workDir, "neon-passwords.jsonl");
+const FILE = () => `--password-file=${passwordFile()}`;
+const ROLES = () => [APP_ROLES, FILE()];
+const rotatedAdminPassword = (): string => readPasswords(passwordFile()).get("cutover_admin")!;
 const rotatedAdminUrl = () => url(srcPort, "cutover_admin", rotatedAdminPassword(), "neondb");
+const dumpPassword = (file = passwordFile()): string => readPasswords(file).get(DUMP_ROLE)!;
+const dumpUrl = (db = "neondb", file = passwordFile()) => url(srcPort, DUMP_ROLE, dumpPassword(file), db);
+const aclRecords = (file = passwordFile()) =>
+  readPasswordFile(file).entries.filter((entry) => "datacl" in entry);
 const refusedWith = (code: string) => (error: { code?: string }) => error.code === code;
 
-/** Connects as `connectionString`'s role, overriding the read-only default the way a misbehaving consumer could, and writes. */
-async function writeAs(connectionString: string): Promise<void> {
+/** `connectionString` with the read-only default overridden, the way a misbehaving consumer could. */
+function readWrite(connectionString: string): string {
   const target = new URL(connectionString);
   target.searchParams.set("options", "-c default_transaction_read_only=off");
-  await once(target.toString(), async (client) => {
-    await client.query(
-      "INSERT INTO rate_limit_events (scope, key) VALUES ('cutover-probe', 'late-write')"
-    );
+  return target.toString();
+}
+
+/** Connects as `connectionString`'s role, overriding the read-only default, and writes. */
+async function writeAs(connectionString: string, key = "late-write"): Promise<void> {
+  await once(readWrite(connectionString), async (client) => {
+    await client.query("INSERT INTO rate_limit_events (scope, key) VALUES ('cutover-probe', $1)", [
+      key,
+    ]);
   });
 }
+
+/** A consumer that reconnects and writes every 100 ms, as a retrying serverless function would. */
+function reconnectingWriter(connectionString: string) {
+  let running = true;
+  const writes: number[] = [];
+  const refusals = new Set<string>();
+  let tries = 0;
+  const loop = (async () => {
+    while (running) {
+      tries += 1;
+      try {
+        await writeAs(connectionString, "reconnecting");
+        writes.push(Date.now());
+      } catch (error) {
+        refusals.add((error as { code?: string }).code ?? "no SQLSTATE");
+      }
+      await new Promise((done) => setTimeout(done, 100));
+    }
+  })();
+  return {
+    stop: async () => {
+      running = false;
+      await loop;
+      return { tries, writes, refusals };
+    },
+  };
+}
+
+/** A database's effective ACL, one `grantee=PRIVILEGE[*]/grantor` line per entry, sorted. */
+async function aclEntries(db: string): Promise<string[]> {
+  return once(url(srcPort, "postgres", PW.srcSuper, "postgres"), async (client) => {
+    const { rows } = await client.query<{ entry: string }>(
+      `SELECT coalesce((SELECT rolname FROM pg_roles WHERE oid = a.grantee), 'PUBLIC') || '=' ||
+              a.privilege_type || CASE WHEN a.is_grantable THEN '*' ELSE '' END || '/' ||
+              (SELECT rolname FROM pg_roles WHERE oid = a.grantor) AS entry
+       FROM pg_database d, aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) a
+       WHERE d.datname = $1 ORDER BY 1`,
+      [db]
+    );
+    return rows.map((row) => row.entry);
+  });
+}
+
+/** What the freeze changes on `db`: its ACL and its read-only default. */
+async function lockState(db: string) {
+  const acl = await aclEntries(db);
+  const readOnly = await once(url(srcPort, "postgres", PW.srcSuper, db), async (client) => {
+    const { rows } = await client.query<{ value: string }>(
+      "SELECT current_setting('default_transaction_read_only') AS value"
+    );
+    return rows[0]!.value;
+  });
+  return { acl, readOnly };
+}
+
+const connectGrantees = (acl: string[]) =>
+  acl.filter((entry) => /=CONNECT\*?\//.test(entry)).map((entry) => entry.split("=")[0]);
 
 async function tablePrivileges(role: string, tables: readonly string[]) {
   return once(ownerUrl(), async (client) => {
@@ -389,7 +477,7 @@ function writePgWrapper(name: "pg_dump" | "pg_restore"): void {
   ]
     .map((variable) => `-e ${variable}`)
     .join(" ");
-  const script = `#!/bin/sh\nexec docker run --rm --network host --user "$(id -u):$(id -g)" -v "${workDir}:${workDir}" ${passthrough} postgres:17 ${name} "$@"\n`;
+  const script = `#!/bin/sh\nexec docker run --rm --name "${PREFIX}-${name.replace("_", "-")}-$$" --network host --user "$(id -u):$(id -g)" -v "${workDir}:${workDir}" ${passthrough} postgres:17 ${name} "$@"\n`;
   writeFileSync(join(binDir, name), script);
   chmodSync(join(binDir, name), 0o755);
 }
@@ -400,22 +488,22 @@ function writePgWrapper(name: "pg_dump" | "pg_restore"): void {
 // main sequence. Their roles have privileges on their own database only.
 
 type SideSource = {
-  roles: { admin: string; web: string; rw: string; other: string };
-  password: { admin: string; web: string; rw: string; other: string };
+  roles: { admin: string; web: string; other: string };
+  password: { admin: string; web: string; other: string };
   db: string;
-  url: (role: "admin" | "web" | "rw" | "other", password?: string) => string;
+  file: string;
+  url: (role: "admin" | "web" | "other", password?: string) => string;
   env: (extra?: CutoverEnv) => CutoverEnv;
 };
 
-/** With `other`, a second application role that can write to `events`. */
+/** With `other`, a second consumer role that can write to `events`. */
 async function sideSource(suffix: string, { other = false } = {}): Promise<SideSource> {
   const roles = {
     admin: `side_admin_${suffix}`,
     web: `side_web_${suffix}`,
-    rw: `side_rw_${suffix}`,
     other: `side_other_${suffix}`,
   };
-  const password = { admin: secret(), web: secret(), rw: secret(), other: secret() };
+  const password = { admin: secret(), web: secret(), other: secret() };
   const db = `side_${suffix}`;
   const sideUrl = (role: keyof typeof roles, pw = password[role]) =>
     url(srcPort, roles[role], pw, db);
@@ -436,6 +524,7 @@ async function sideSource(suffix: string, { other = false } = {}): Promise<SideS
     roles,
     password,
     db,
+    file: join(workDir, `side-${suffix}-passwords.jsonl`),
     url: sideUrl,
     env: (extra = {}) => ({
       PATH: process.env.PATH,
@@ -453,14 +542,25 @@ async function sideSource(suffix: string, { other = false } = {}): Promise<SideS
 const roleUrlEnv = (role: string) =>
   `CUTOVER_ROLE_URL_${role.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
 
+/** A password file as an earlier run left it: one JSON line per entry, written `ageHours` ago. */
+function writePasswordEntries(
+  file: string,
+  entries: Array<{ ageHours: number; role: string; password: string }>
+): void {
+  const lines = entries.map(({ ageHours, role, password }) =>
+    JSON.stringify({ at: new Date(Date.now() - ageHours * 3_600_000).toISOString(), role, password })
+  );
+  writeFileSync(file, `${lines.join("\n")}\n`, { mode: 0o600 });
+}
+
 /**
- * A fake Neon for side sources. `unmanaged` roles answer 404; a
- * `failFirstApply` role's first reset returns a password that never takes
- * effect, with an operation that fails; a `loseFirstResponse` role's first
- * reset takes effect but its response never arrives.
+ * A fake Neon for side sources. `failFirstApply` roles' first reset returns
+ * a password that never takes effect, with an operation that fails; a
+ * `loseFirstResponse` role's first reset takes effect but its response never
+ * arrives.
  */
 function sideNeon(
-  behaviour: { unmanaged?: string[]; failFirstApply?: string[]; loseFirstResponse?: string[] } = {}
+  behaviour: { failFirstApply?: string[]; loseFirstResponse?: string[] } = {}
 ): { transport: NeonTransport; resets: () => number } {
   let resets = 0;
   const seen = new Set<string>();
@@ -474,8 +574,6 @@ function sideNeon(
     );
     if (!reset || init?.method !== "POST") return json(404, { code: "NOT_FOUND" });
     const role = decodeURIComponent(reset[1]!);
-    if (behaviour.unmanaged?.includes(role))
-      return json(404, { code: "NOT_FOUND", message: "role not found" });
     resets += 1;
     const first = !seen.has(role);
     seen.add(role);
@@ -486,11 +584,7 @@ function sideNeon(
         operations: [{ id: `op-fail-${resets}`, status: "running" }],
       });
     }
-    await onFrozenSource((client) =>
-      client.query(
-        `ALTER ROLE ${client.escapeIdentifier(role)} PASSWORD ${client.escapeLiteral(scramSha256Verifier(password))}`
-      )
-    );
+    await applyPassword(role, password);
     if (first && behaviour.loseFirstResponse?.includes(role)) throw new TypeError("fetch failed");
     return json(200, {
       role: { branch_id: "br-side", name: role, password },
@@ -520,24 +614,12 @@ async function sideCutover(
   return { code, output: lines.join("\n") };
 }
 
-async function roleState(roles: string[], db: string) {
-  return once(url(srcPort, "postgres", PW.srcSuper, db), async (client) => {
-    const { rows } = await client.query<{ rolname: string; rolcanlogin: boolean }>(
-      "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname = ANY($1::text[]) ORDER BY 1",
-      [roles]
-    );
-    const readOnly = await client.query<{ value: string }>(
-      "SELECT current_setting('default_transaction_read_only') AS value"
-    );
-    return { login: rows.map((row) => [row.rolname, row.rolcanlogin]), readOnly: readOnly.rows[0]!.value };
-  });
-}
-
 const insertAs = (client: Client, note: string) =>
   client.query("INSERT INTO events (note) VALUES ($1)", [note]);
 
 describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600_000 }, () => {
   let heldWebSession: Client | undefined;
+  let aclBeforeFreeze: string[] = [];
 
   before(async () => {
     workDir = mkdtempSync(join(tmpdir(), "neon-cutover-rehearsal-"));
@@ -624,25 +706,36 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     });
   });
 
-  it("create-dump-role creates the dump role from CUTOVER_SOURCE_DUMP_URL, with a SCRAM verifier and pg_read_all_data", async () => {
-    const { code, output } = await cutover(["create-dump-role"]);
+  it("create-dump-role creates the dump role through Neon's API, records its password, and grants it pg_read_all_data; a rerun grants again", async () => {
+    const { code, output } = await cutover(["create-dump-role", FILE()]);
     assert.equal(code, 0, output);
-    assert.doesNotMatch(output, new RegExp(PW.dump));
+    assert.equal(neonCreates, 1);
+    assert.equal(statSync(passwordFile()).mode & 0o777, 0o600);
+    const password = dumpPassword();
+    assert.ok(password, "the generated password is recorded");
+    assert.ok(!output.includes(password), "and never printed");
+    assert.match(output, new RegExp(`${DUMP_ROLE}: created through the Neon API`));
     await once(srcSuperUrl(), async (client) => {
-      const { rows } = await client.query<{ scram: boolean; reads: boolean; login: boolean }>(
-        `SELECT a.rolpassword LIKE 'SCRAM-SHA-256$%' AS scram, a.rolcanlogin AS login,
-                pg_has_role(a.oid, 'pg_read_all_data', 'USAGE') AS reads
-         FROM pg_authid a WHERE a.rolname = 'cutover_dump'`
+      const { rows } = await client.query<{ reads: boolean; login: boolean }>(
+        `SELECT rolcanlogin AS login, pg_has_role(oid, 'pg_read_all_data', 'USAGE') AS reads
+         FROM pg_roles WHERE rolname = $1`,
+        [DUMP_ROLE]
       );
-      assert.deepEqual(rows[0], { scram: true, reads: true, login: true });
+      assert.deepEqual(rows[0], { reads: true, login: true });
     });
     await once(dumpUrl(), (client) => client.query("SELECT 1"));
-    const again = await cutover(["create-dump-role"]);
-    assert.equal(again.code, 1, again.output);
+
+    // The role exists now: a rerun grants it again and does not refuse.
+    const again = await cutover(["create-dump-role", FILE()]);
+    assert.equal(again.code, 0, again.output);
     assert.match(again.output, /already exists/);
+    assert.match(again.output, /granted pg_read_all_data/);
+    assert.equal(neonCreates, 1);
+    assert.equal(neonResets, 0);
+    assert.equal(dumpPassword(), password);
   });
 
-  it("inventory needs a viewer that sees every session, then lists them and proves each role's credential", async () => {
+  it("inventory needs a viewer that sees every session, then lists them and proves each consumer's credential", async () => {
     heldWebSession = await connected(webUrl());
     await heldWebSession.query("SELECT 1");
     // Without pg_monitor (or pg_read_all_stats) another role's session hides its
@@ -657,17 +750,26 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     assert.match(output, /^\s+substrate_web neondb "" \S+ idle 1$/m, "the held session is listed");
     for (const role of ["substrate_web", "exomem_hosted_gateway", "cutover_admin"])
       assert.match(output, new RegExp(`OK\\s+${role}: its CUTOVER_ROLE_URL logs in`));
+    assert.match(output, /cutover_admin.*\[owner\]/);
     assert.match(output, /citext\s+1\.6/);
     assert.match(output, /pgcrypto\s+1\.3/);
     assert.doesNotMatch(output, new RegExp(PW.web));
 
-    // Step 1's go/no-go: a stale credential is a no-go, not a later "proof" of the freeze.
+    // Step 1's go/no-go: a stale credential is a no-go.
     const stale = await cutover(["inventory", ...ROLES()], {
       ...cutoverEnv(),
       CUTOVER_ROLE_URL_EXOMEM_HOSTED_GATEWAY: url(srcPort, "exomem_hosted_gateway", secret(), "neondb"),
     });
     assert.equal(stale.code, 2, stale.output);
     assert.match(stale.output, /FAIL\s+exomem_hosted_gateway: its CUTOVER_ROLE_URL does not log in \(28P01\)/);
+
+    // So is a consumer that connects as a superuser, which no CONNECT lockout can stop.
+    const superuser = await cutover(["inventory", `${APP_ROLES},postgres`, FILE()], {
+      ...cutoverEnv(),
+      CUTOVER_ROLE_URL_POSTGRES: srcSuperUrl(),
+    });
+    assert.equal(superuser.code, 2, superuser.output);
+    assert.match(superuser.output, /postgres is a superuser/);
 
     const frozen = await cutover(["inventory", ...ROLES(), "--expect-frozen"]);
     assert.equal(frozen.code, 2, "an unfrozen source must fail --expect-frozen");
@@ -679,47 +781,60 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       "dump",
       `--archive=${archive}`,
       `--pg-bin-dir=${binDir}`,
+      FILE(),
     ]);
     assert.equal(code, 1, output);
     assert.match(output, /not frozen/);
     assert.equal(existsSync(archive), false);
   });
 
-  it("freeze locks every application role out, so a late write fails even when it overrides the read-only default", async () => {
+  it("freeze takes CONNECT from every role but the owner and the dump role, rotates only the owner's password, and ends every other session", async () => {
     await writeAs(webUrl()); // sanity: writes work before the freeze
+    aclBeforeFreeze = await aclEntries("neondb");
+    assert.ok(connectGrantees(aclBeforeFreeze).includes("PUBLIC"));
     const heldAdminSession = await connected(adminUrl());
     await heldAdminSession.query("SELECT 1");
-    // A role outside --app-roles that cannot write still loses its session:
-    // the freeze ends every other client session of the database.
     const heldDumpSession = await connected(dumpUrl());
     await heldDumpSession.query("SELECT 1");
-    const { code, output } = await cutover(["freeze", ...ROLES()]);
-    assert.equal(code, 0, output);
-    assert.doesNotMatch(output, new RegExp(`${PW.web}|${PW.gateway}|${PW.admin}|${NEON_API_KEY}`));
-    await assert.rejects(heldDumpSession.query("SELECT 1"));
-    assert.match(output, /terminated \d+ other client session\(s\) of neondb/);
+    const reconnecting = reconnectingWriter(webUrl());
+    await new Promise((done) => setTimeout(done, 300));
 
-    // The lockout: the consumer's own credential no longer logs in at all.
-    // PostgreSQL checks the (rotated) password before NOLOGIN, so the refusal
-    // is 28P01; with the old password somehow restored it would be 28000.
-    const refusedAtLogin = (error: { code?: string }) =>
-      error.code === "28P01" || error.code === "28000";
-    await assert.rejects(writeAs(webUrl()), refusedAtLogin);
-    await assert.rejects(writeAs(legacyGatewayUrl()), refusedAtLogin);
-    // Existing sessions were terminated rather than left writing.
+    const { code, output } = await cutover(["freeze", ...ROLES()]);
+    const frozenAt = Date.now();
+    await new Promise((done) => setTimeout(done, 500));
+    const attempts = await reconnecting.stop();
+    assert.equal(code, 0, output);
+    assert.match(output, /FROZEN/);
+    assert.doesNotMatch(output, new RegExp(`${PW.web}|${PW.gateway}|${PW.admin}|${NEON_API_KEY}`));
+    assert.ok(!output.includes(dumpPassword()), "the dump role's password is never printed");
+
+    // The consumer that kept reconnecting did not fail the freeze, and
+    // wrote nothing after it: every later attempt was refused at login.
+    assert.ok(attempts.tries >= 5, `the writer kept trying (${attempts.tries})`);
+    assert.ok(attempts.refusals.has("42501"), `refusals: ${[...attempts.refusals].join(", ")}`);
+    assert.deepEqual(attempts.writes.filter((at) => at >= frozenAt), []);
+
+    // Every held session was ended, the dump role's included.
+    assert.match(output, /terminated \d+ other client session\(s\) of neondb/);
     await assert.rejects(heldWebSession!.query("SELECT 1"));
     await assert.rejects(heldAdminSession.query("SELECT 1"));
+    await assert.rejects(heldDumpSession.query("SELECT 1"));
 
-    // The API path, for the owner-like role: one reset through Neon, its
-    // pre-freeze password refused, and the new one only in the 0600 file.
+    // CONNECT is the lockout: the consumers' passwords are right (42501
+    // comes after authentication) and nothing about their roles changed.
+    await assert.rejects(writeAs(webUrl()), refusedWith("42501"));
+    await assert.rejects(writeAs(legacyGatewayUrl()), refusedWith("42501"));
+
+    // The owner keeps CONNECT, so a consumer that logs in as it is locked out
+    // by one password reset through Neon, recorded only in the 0600 file.
     assert.equal(neonResets, 1);
-    assert.equal(statSync(rotatedFile()).mode & 0o777, 0o600);
     const rotated = rotatedAdminPassword();
     assert.notEqual(rotated, PW.admin);
     assert.ok(!output.includes(rotated), "the rotated password is never printed");
     await assert.rejects(writeAs(adminUrl()), refusedWith("28P01"));
     await once(rotatedAdminUrl(), (client) => client.query("SELECT 1"));
-    assert.match(output, /OK\s+cutover_admin: logs in with its rotated password only/);
+    // The dump role still connects.
+    await once(dumpUrl(), (client) => client.query("SELECT 1"));
 
     await once(srcSuperUrl(), async (client) => {
       const { rows } = await client.query<{ rolname: string; rolcanlogin: boolean }>(
@@ -729,12 +844,14 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
         rows.map((row) => [row.rolname, row.rolcanlogin]),
         [
           ["cutover_admin", true],
-          ["exomem_hosted_gateway", false],
-          ["substrate_web", false],
-        ]
+          ["exomem_hosted_gateway", true],
+          ["substrate_web", true],
+        ],
+        "no role's login flag changes"
       );
       const sessions = await client.query(
-        "SELECT 1 FROM pg_stat_activity WHERE usename IN ('cutover_admin', 'substrate_web', 'exomem_hosted_gateway')"
+        "SELECT 1 FROM pg_stat_activity WHERE usename IN ('cutover_admin', 'substrate_web', 'exomem_hosted_gateway', $1)",
+        [DUMP_ROLE]
       );
       assert.equal(sessions.rowCount, 0);
       // The second layer: every new session defaults to read-only.
@@ -743,40 +860,25 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       );
       assert.equal(readOnly.rows[0]!.value, "on");
     });
+    assert.deepEqual(connectGrantees(await aclEntries("neondb")).sort(), ["cutover_admin", DUMP_ROLE]);
+    assert.equal(aclRecords().length, 1, "the ACL before the freeze is recorded in the file");
 
     const frozen = await cutover(["inventory", ...ROLES(), "--expect-frozen"]);
     assert.equal(frozen.code, 0, frozen.output);
-    assert.match(frozen.output, /cutover_admin: its pre-freeze credential is refused \(28P01\)/);
+    assert.match(frozen.output, /OK\s+substrate_web: refused at login \(42501\)/);
+    assert.match(frozen.output, /OK\s+cutover_admin: its pre-freeze password is refused \(28P01\)/);
+    assert.match(frozen.output, new RegExp(`OK\\s+${DUMP_ROLE} connects`));
   });
 
-  it("a freeze rerun must prove the SQL-path credentials again, so it goes through rollback, and never resets twice", async () => {
+  it("a freeze rerun proves FROZEN again, keeps the recorded ACL, and never resets the owner twice", async () => {
     const recorded = rotatedAdminPassword();
-    // The SQL-path roles' pre-freeze credentials no longer log in, so they
-    // cannot be proven for a later rollback: the rerun refuses, changing nothing.
-    const rerun = await cutover(["freeze", ...ROLES()]);
-    assert.equal(rerun.code, 1, rerun.output);
-    assert.match(rerun.output, /substrate_web \(28P01\)/);
-    assert.match(rerun.output, /run rollback, then freeze again/);
-    assert.equal(neonResets, 1);
-
-    const rolledBack = await cutover(["rollback", ...ROLES()]);
-    assert.equal(rolledBack.code, 0, rolledBack.output);
     const { code, output } = await cutover(["freeze", ...ROLES()]);
     assert.equal(code, 0, output);
     assert.match(output, /already rotated: cutover_admin/);
+    assert.match(output, /already locked/);
     assert.equal(neonResets, 1, "the recorded, live password is never reset again");
     assert.equal(rotatedAdminPassword(), recorded);
-  });
-
-  it("freeze refuses to lock out the role it runs as on the SQL path", async () => {
-    const { code, output } = await cutover([
-      "freeze",
-      "--app-roles=cutover_admin",
-      `--rotated-password-file=${rotatedFile()}`,
-    ]);
-    assert.equal(code, 1, output);
-    assert.match(output, /runs as cutover_admin/);
-    assert.equal(neonResets, 1);
+    assert.equal(aclRecords().length, 1, "a locked ACL is never recorded as the one to restore");
   });
 
   it("dump writes a custom-format archive and its checksum as the dump role", async () => {
@@ -784,13 +886,15 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       "dump",
       `--archive=${archive}`,
       `--pg-bin-dir=${binDir}`,
+      FILE(),
     ]);
     assert.equal(code, 0, output);
+    assert.match(output, new RegExp(`as ${DUMP_ROLE}`));
     const recorded = readFileSync(`${archive}.sha256`, "utf8").trim();
     const actual = createHash("sha256").update(readFileSync(archive)).digest("hex");
     assert.equal(recorded, `${actual}  ${basename(archive)}`);
     assert.equal(readFileSync(archive).subarray(0, 5).toString("latin1"), "PGDMP");
-    const again = await cutover(["dump", `--archive=${archive}`, `--pg-bin-dir=${binDir}`]);
+    const again = await cutover(["dump", `--archive=${archive}`, `--pg-bin-dir=${binDir}`, FILE()]);
     assert.equal(again.code, 1, "an existing archive is never overwritten");
   });
 
@@ -963,7 +1067,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
   });
 
   it("verify passes when every table, sequence and extension matches", async () => {
-    const { code, output } = await cutover(["verify"]);
+    const { code, output } = await cutover(["verify", FILE()]);
     assert.equal(code, 0, output);
     for (const table of SEEDED_TABLES)
       assert.match(output, new RegExp(`OK\\s+public\\.${table}\\s`));
@@ -978,7 +1082,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       client.query("ALTER TABLE paddle_webhook_events DROP CONSTRAINT paddle_webhook_events_pkey")
     );
     try {
-      const { code, output } = await cutover(["verify"]);
+      const { code, output } = await cutover(["verify", FILE()]);
       assert.equal(code, 2, output);
       assert.match(output, /FAIL\s+public\.paddle_webhook_events\s.*constraints/);
       assert.match(output, /OK\s+public\.users\s/);
@@ -987,7 +1091,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
         client.query("ALTER TABLE paddle_webhook_events ADD PRIMARY KEY (event_id)")
       );
     }
-    assert.equal((await cutover(["verify"])).code, 0);
+    assert.equal((await cutover(["verify", FILE()])).code, 0);
   });
 
   it("verify fails on a schema, table or sequence that exists only on the target", async () => {
@@ -997,7 +1101,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       await client.query("CREATE SEQUENCE public.cutover_extra_seq");
     });
     try {
-      const { code, output } = await cutover(["verify"]);
+      const { code, output } = await cutover(["verify", FILE()]);
       assert.equal(code, 2, output);
       assert.match(output, /FAIL\s+schema cutover_extra\s+exists only on the target/);
       assert.match(output, /FAIL\s+cutover_extra\.t\s+exists only on the target/);
@@ -1008,7 +1112,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
         await client.query("DROP SEQUENCE public.cutover_extra_seq");
       });
     }
-    assert.equal((await cutover(["verify"])).code, 0);
+    assert.equal((await cutover(["verify", FILE()])).code, 0);
   });
 
   it("verify fails on a corrupted row and names only the table", async () => {
@@ -1024,7 +1128,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       return rows[0]!.sha256;
     });
     try {
-      const { code, output } = await cutover(["verify"]);
+      const { code, output } = await cutover(["verify", FILE()]);
       assert.equal(code, 2, output);
       assert.match(output, /FAIL\s+public\.backup_chunks\s.*checksum/);
       assert.match(output, /OK\s+public\.users\s/);
@@ -1036,7 +1140,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
         )
       );
     }
-    assert.equal((await cutover(["verify"])).code, 0);
+    assert.equal((await cutover(["verify", FILE()])).code, 0);
   });
 
   it("verify fails when a table's row count differs", async () => {
@@ -1044,7 +1148,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       client.query("INSERT INTO rate_limit_events (scope, key) VALUES ('cutover-extra', 'row')")
     );
     try {
-      const { code, output } = await cutover(["verify"]);
+      const { code, output } = await cutover(["verify", FILE()]);
       assert.equal(code, 2, output);
       assert.match(output, /FAIL\s+public\.rate_limit_events\s.*rows \d+ != \d+/);
     } finally {
@@ -1063,7 +1167,7 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       return rows[0]!;
     });
     try {
-      const { code, output } = await cutover(["verify"]);
+      const { code, output } = await cutover(["verify", FILE()]);
       assert.equal(code, 2, output);
       assert.match(output, /FAIL\s+public\.cutover_rehearsal_types_id_seq\s.*behind/);
     } finally {
@@ -1080,18 +1184,18 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     await onFrozenSource((client) => client.query("CREATE EXTENSION pg_trgm VERSION '1.5'"));
     await once(dstSuperUrl(), (client) => client.query("CREATE EXTENSION pg_trgm VERSION '1.6'"));
     try {
-      const differs = await cutover(["verify"]);
+      const differs = await cutover(["verify", FILE()]);
       assert.equal(differs.code, 2, differs.output);
       assert.match(differs.output, /FAIL\s+extension pg_trgm\s.*1\.5 != 1\.6/);
       await once(dstSuperUrl(), (client) => client.query("DROP EXTENSION pg_trgm"));
-      const missing = await cutover(["verify"]);
+      const missing = await cutover(["verify", FILE()]);
       assert.equal(missing.code, 2, missing.output);
       assert.match(missing.output, /FAIL\s+extension pg_trgm\s.*missing on target/);
     } finally {
       await once(dstSuperUrl(), (client) => client.query("DROP EXTENSION IF EXISTS pg_trgm"));
       await onFrozenSource((client) => client.query("DROP EXTENSION IF EXISTS pg_trgm"));
     }
-    assert.equal((await cutover(["verify"])).code, 0);
+    assert.equal((await cutover(["verify", FILE()])).code, 0);
   });
 
   it("post-checks at the database level: a Paddle replay dedupes, an Endstate backup reads, and an admission dry run commits nothing, all as substrate_app", async () => {
@@ -1175,13 +1279,31 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     for (const password of Object.values(PW)) assert.doesNotMatch(output, new RegExp(password));
   });
 
-  it("rollback re-enables the application roles on the source and clears its read-only default", async () => {
+
+  it("rollback restores the recorded ACL exactly and clears the read-only default, and a stale consumer URL changes nothing", async () => {
+    // Rollback sets no password, so a stale URL in the environment only fails
+    // that consumer's proof; the consumer's real password keeps working.
+    const stale = await cutover(["rollback", ...ROLES()], {
+      ...cutoverEnv(),
+      CUTOVER_ROLE_URL_SUBSTRATE_WEB: url(srcPort, "substrate_web", secret(), "neondb"),
+    });
+    assert.equal(stale.code, 2, stale.output);
+    assert.match(stale.output, /FAIL\s+substrate_web/);
+    assert.match(stale.output, /OK\s+exomem_hosted_gateway connects and can write/);
+    await writeAs(webUrl());
+    assert.deepEqual(await aclEntries("neondb"), aclBeforeFreeze);
+
     const { code, output } = await cutover(["rollback", ...ROLES()]);
     assert.equal(code, 0, output);
-    assert.match(output, /OK\s+cutover_admin logs in with its rotated password and can write/);
-    assert.match(output, /OK\s+substrate_web logs in with its pre-freeze credential and can write/);
+    assert.match(output, /OK\s+cutover_admin connects with its rotated password and can write/);
+    assert.match(output, /OK\s+substrate_web connects and can write/);
+    assert.match(output, /ACL restored exactly/);
     assert.equal(neonResets, 1, "rollback never calls the Neon API");
-    // The API path cannot bring the pre-freeze password back: its consumers switch to the rotated one.
+    // The ACL is the recorded one, entry for entry: the dump role's CONNECT,
+    // which the recorded ACL did not hold, is gone again.
+    assert.deepEqual(await aclEntries("neondb"), aclBeforeFreeze);
+    assert.ok(!connectGrantees(await aclEntries("neondb")).includes(DUMP_ROLE));
+    // The owner's password stays rotated: its consumers switch to the new one.
     await assert.rejects(writeAs(adminUrl()), refusedWith("28P01"));
     await once(rotatedAdminUrl(), async (client) => {
       const { rows } = await client.query<{ value: string }>(
@@ -1189,7 +1311,6 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       );
       assert.equal(rows[0]!.value, "off");
     });
-    await writeAs(webUrl());
     await once(legacyGatewayUrl(), async (client) => {
       const { rows } = await client.query<{ value: string }>(
         "SELECT current_setting('transaction_read_only') AS value"
@@ -1207,12 +1328,8 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     assert.equal(frozen.code, 2, "after rollback the source is no longer frozen");
   });
 
-  it("switch-back-url pipes the owner-like role's Neon URL with its rotated password, and that URL writes", async () => {
-    const { code, output, stdout } = await cutover([
-      "switch-back-url",
-      "--role=cutover_admin",
-      `--rotated-password-file=${rotatedFile()}`,
-    ]);
+  it("switch-back-url pipes the owner's Neon URL with its rotated password, and that URL writes", async () => {
+    const { code, output, stdout } = await cutover(["switch-back-url", "--role=cutover_admin", FILE()]);
     assert.equal(code, 0, output);
     assert.ok(!output.includes(rotatedAdminPassword()), "the password goes to stdout only");
     assert.ok(!stdout.endsWith("\n"));
@@ -1243,116 +1360,171 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     assert.equal(granted.code, 0, granted.output);
   });
 
-  it("freeze refuses while an unlisted role can write, then ends every other session, so nothing writes after FROZEN", async () => {
+  it("after FROZEN no reader, column writer, NOINHERIT member, view writer or SECURITY DEFINER caller can connect or write", async () => {
     const side = await sideSource("s1");
-    const { roles } = side;
-    await once(side.url("admin"), async (client) => {
-      // A forgotten login role that can write, like any Neon console role.
-      await client.query(`CREATE ROLE ${roles.rw} LOGIN PASSWORD '${side.password.rw}'`);
-      await client.query(`GRANT INSERT ON events TO ${roles.rw}`);
-      await client.query(`GRANT USAGE ON SEQUENCE events_id_seq TO ${roles.rw}`);
-    });
-    const hold = async (connectionString: string) => {
-      const client = await connected(connectionString);
-      await client.query("SELECT 1");
-      return client;
+    const { roles, db } = side;
+    const attackers = {
+      reader: "side_reader_s1",
+      column: "side_column_s1",
+      member: "side_member_s1",
+      view: "side_view_s1",
+      definer: "side_definer_s1",
     };
-    const heldAdmin = await hold(side.url("admin")); // a forgotten psql session of the owner
-    const heldRw = await hold(side.url("rw"));
-    const heldDump = await hold(url(srcPort, "cutover_dump", PW.dump, side.db)); // unlisted, read-only
-    const env = side.env({ [roleUrlEnv(roles.web)]: side.url("web") });
-
-    // The admin is not an application role here: every role is on the SQL path.
-    const unlisted = await sideCutover(["freeze", `--app-roles=${roles.web}`, "--api-roles="], env);
-    assert.equal(unlisted.code, 1, unlisted.output);
-    assert.match(unlisted.output, new RegExp(`${roles.rw}.*can write`));
-    assert.deepEqual(await roleState([roles.web, roles.rw], side.db), {
-      login: [
-        [roles.rw, true],
-        [roles.web, true],
-      ],
-      readOnly: "off",
+    const attackerPassword = secret();
+    await once(url(srcPort, "postgres", PW.srcSuper, db), async (client) => {
+      for (const role of Object.values(attackers))
+        await client.query(`CREATE ROLE ${role} LOGIN PASSWORD '${attackerPassword}'`);
+      await client.query(`ALTER ROLE ${attackers.member} NOINHERIT`);
+      await client.query(`GRANT ${roles.web} TO ${attackers.member}`);
+      await client.query(`GRANT SELECT ON events TO ${attackers.reader}`);
+      await client.query(`GRANT INSERT (note) ON events TO ${attackers.column}`);
+      await client.query(
+        `GRANT USAGE ON SEQUENCE events_id_seq TO ${attackers.column}, ${attackers.view}`
+      );
     });
+    await once(side.url("admin"), async (client) => {
+      await client.query("CREATE VIEW events_view AS SELECT id, note FROM events");
+      await client.query(`GRANT INSERT ON events_view TO ${attackers.view}`);
+      await client.query(
+        `CREATE FUNCTION add_event(note text) RETURNS void LANGUAGE sql SECURITY DEFINER
+         SET search_path = public AS $$ INSERT INTO events (note) VALUES (note) $$`
+      );
+      await client.query("REVOKE ALL ON FUNCTION add_event(text) FROM PUBLIC");
+      await client.query(`GRANT EXECUTE ON FUNCTION add_event(text) TO ${attackers.definer}`);
+    });
+    const attackerUrl = (role: string) => readWrite(url(srcPort, role, attackerPassword, db));
+    const attacks: Array<[label: string, role: string, attack: (client: Client) => Promise<unknown>]> = [
+      ["reader", attackers.reader, (client) => client.query("SELECT count(*) FROM events")],
+      ["column writer", attackers.column, (client) => insertAs(client, "column")],
+      [
+        "NOINHERIT member",
+        attackers.member,
+        async (client) => {
+          await client.query(`SET ROLE ${roles.web}`);
+          await insertAs(client, "member");
+        },
+      ],
+      [
+        "view writer",
+        attackers.view,
+        (client) => client.query("INSERT INTO events_view (note) VALUES ('view')"),
+      ],
+      ["SECURITY DEFINER caller", attackers.definer, (client) => client.query("SELECT add_event('definer')")],
+    ];
+    // Before the freeze every path works.
+    for (const [label, role, attack] of attacks)
+      await once(attackerUrl(role), attack).catch((error: Error) => {
+        throw new Error(`${label} should work before the freeze: ${error.message}`);
+      });
+    await once(url(srcPort, "postgres", PW.srcSuper, db), (client) => client.query("DELETE FROM events"));
+    const heldReader = await connected(url(srcPort, attackers.reader, attackerPassword, db));
+    await heldReader.query("SELECT 1");
 
-    const listed = await sideCutover(
-      ["freeze", `--app-roles=${roles.web},${roles.rw}`, "--api-roles="],
-      { ...env, [roleUrlEnv(roles.rw)]: side.url("rw") }
+    const neon = sideNeon();
+    const env = side.env({ [roleUrlEnv(roles.web)]: side.url("web") });
+    // The dump role exists already, and this window's file holds no password
+    // for it: create-dump-role resets it through the API. This admin may not
+    // grant pg_read_all_data, so it grants the role each object as its owner.
+    const created = await sideCutover(["create-dump-role", `--password-file=${side.file}`], env, neon.transport);
+    assert.equal(created.code, 0, created.output);
+    assert.match(created.output, /already exists/);
+    assert.match(created.output, /42501/);
+    assert.equal(neon.resets(), 1);
+    const eventsAcl = await once(url(srcPort, "postgres", PW.srcSuper, db), (client) =>
+      client.query<{ acl: string }>("SELECT relacl::text AS acl FROM pg_class WHERE relname = 'events'")
     );
-    assert.equal(listed.code, 0, listed.output);
-    await assert.rejects(insertAs(heldAdmin, "held admin"));
-    await assert.rejects(insertAs(heldRw, "held rw"));
-    await assert.rejects(heldDump.query("SELECT 1"), "an unlisted role's session is ended too");
-    await assert.rejects(
-      once(side.url("rw"), async (client) => {
-        await client.query("BEGIN READ WRITE");
-        await insertAs(client, "new rw");
-      })
+    assert.match(eventsAcl.rows[0]!.acl, new RegExp(`${DUMP_ROLE}=r/`));
+
+    const frozen = await sideCutover(
+      ["freeze", `--app-roles=${roles.web}`, `--password-file=${side.file}`],
+      env,
+      neon.transport
     );
-    await assert.rejects(
-      once(url(srcPort, "cutover_dump", PW.dump, side.db), async (client) => {
-        await client.query("BEGIN READ WRITE");
-        await insertAs(client, "new dump");
-      }),
-      refusedWith("42501")
-    );
-    const written = await once(url(srcPort, "postgres", PW.srcSuper, side.db), (client) =>
+    assert.equal(frozen.code, 0, frozen.output);
+    await assert.rejects(heldReader.query("SELECT 1"), "a held reader's session is ended");
+    for (const [label, role, attack] of attacks)
+      await assert.rejects(once(attackerUrl(role), attack), refusedWith("42501"), label);
+    const written = await once(url(srcPort, "postgres", PW.srcSuper, db), (client) =>
       client.query("SELECT note FROM events")
     );
     assert.equal(written.rowCount, 0, "nothing was written after FROZEN");
 
-    // The daily check sees another client session too.
-    const expectArgs = ["inventory", `--app-roles=${roles.web},${roles.rw}`, "--expect-frozen"];
-    const late = await hold(url(srcPort, "cutover_dump", PW.dump, side.db));
-    const seen = await sideCutover(expectArgs, { ...env, [roleUrlEnv(roles.rw)]: side.url("rw") });
+    // The daily check sees another client session, even the dump role's.
+    const expectArgs = [
+      "inventory",
+      `--app-roles=${roles.web}`,
+      `--password-file=${side.file}`,
+      "--expect-frozen",
+    ];
+    const late = await connected(dumpUrl(db, side.file));
+    await late.query("SELECT 1");
+    const seen = await sideCutover(expectArgs, env);
     assert.equal(seen.code, 2, seen.output);
     assert.match(seen.output, /other client session/);
     await late.end();
-    const clean = await sideCutover(expectArgs, { ...env, [roleUrlEnv(roles.rw)]: side.url("rw") });
+    const clean = await sideCutover(expectArgs, env);
     assert.equal(clean.code, 0, clean.output);
   });
 
-  it("freeze refuses a stale role credential before changing anything, and inventory calls it a no-go", async () => {
+  it("freeze refuses a stale consumer credential or a superuser consumer before changing anything", async () => {
     const side = await sideSource("s2");
     const { roles } = side;
-    const env = side.env({ [roleUrlEnv(roles.web)]: side.url("web", secret()) });
-    const inventory = await sideCutover(["inventory", `--app-roles=${roles.web}`], env);
+    writePasswordEntries(side.file, [{ ageHours: 0, role: DUMP_ROLE, password: secret() }]);
+    const before = await lockState(side.db);
+    const neon = sideNeon();
+    const stale = side.env({ [roleUrlEnv(roles.web)]: side.url("web", secret()) });
+    const inventory = await sideCutover(["inventory", `--app-roles=${roles.web}`], stale);
     assert.equal(inventory.code, 2, inventory.output);
-    const frozen = await sideCutover(["freeze", `--app-roles=${roles.web}`, "--api-roles="], env);
+    const frozen = await sideCutover(
+      ["freeze", `--app-roles=${roles.web}`, `--password-file=${side.file}`],
+      stale,
+      neon.transport
+    );
     assert.equal(frozen.code, 1, frozen.output);
     assert.match(frozen.output, new RegExp(`${roles.web} \\(28P01\\)`));
-    assert.deepEqual(await roleState([roles.web], side.db), {
-      login: [[roles.web, true]],
-      readOnly: "off",
-    });
-    // The consumer's real credential still works: nothing was rotated.
+    assert.deepEqual(await lockState(side.db), before);
+    // The consumer's real credential still works: nothing changed.
     await once(side.url("web"), (client) => client.query("SELECT 1"));
+
+    const superuser = await sideCutover(
+      ["freeze", `--app-roles=${roles.web},postgres`, `--password-file=${side.file}`],
+      side.env({
+        [roleUrlEnv(roles.web)]: side.url("web"),
+        CUTOVER_ROLE_URL_POSTGRES: url(srcPort, "postgres", PW.srcSuper, side.db),
+      }),
+      neon.transport
+    );
+    assert.equal(superuser.code, 1, superuser.output);
+    assert.match(superuser.output, /postgres is a superuser/);
+    assert.deepEqual(await lockState(side.db), before);
+    assert.equal(neon.resets(), 0);
   });
 
   it("a reset whose Neon operation failed is reset again on the next freeze", async () => {
     const side = await sideSource("s3");
     const { roles } = side;
     const neon = sideNeon({ failFirstApply: [roles.admin] });
-    const file = join(workDir, "side-s3-rotated.jsonl");
-    const args = [
-      "freeze",
-      `--app-roles=${roles.web},${roles.admin}`,
-      `--api-roles=${roles.admin}`,
-      `--rotated-password-file=${file}`,
-    ];
     const env = side.env({
       [roleUrlEnv(roles.web)]: side.url("web"),
       [roleUrlEnv(roles.admin)]: side.url("admin"),
     });
+    const created = await sideCutover(["create-dump-role", `--password-file=${side.file}`], env, neon.transport);
+    assert.equal(created.code, 0, created.output);
+    const args = [
+      "freeze",
+      `--app-roles=${roles.web},${roles.admin}`,
+      `--password-file=${side.file}`,
+    ];
     const first = await sideCutover(args, env, neon.transport);
     assert.equal(first.code, 1, first.output);
-    assert.match(first.output, /op-fail-1.*failed/);
-    assert.equal(readRotatedPasswords(file).has(roles.admin), true, "the issued password is kept");
+    assert.match(first.output, /op-fail-\d+.*failed/);
+    assert.equal(readPasswords(side.file).has(roles.admin), true, "the issued password is kept");
     await once(side.url("admin"), (client) => client.query("SELECT 1"));
 
     const second = await sideCutover(args, env, neon.transport);
     assert.equal(second.code, 0, second.output);
-    assert.equal(neon.resets(), 2);
-    const live = readRotatedPasswords(file).get(roles.admin)!;
+    assert.equal(neon.resets(), 3, "the dump role's reset, the failed one, and the retry");
+    const live = readPasswords(side.file).get(roles.admin)!;
     await once(side.url("admin", live), (client) => client.query("SELECT 1"));
     await assert.rejects(once(side.url("admin"), (client) => client.query("SELECT 1")));
   });
@@ -1361,32 +1533,28 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     const side = await sideSource("s4");
     const { roles } = side;
     const neon = sideNeon({ loseFirstResponse: [roles.admin] });
-    const file = join(workDir, "side-s4-rotated.jsonl");
-    const args = [
-      "freeze",
-      `--app-roles=${roles.web},${roles.admin}`,
-      `--api-roles=${roles.admin}`,
-      `--rotated-password-file=${file}`,
-    ];
     const env = side.env({
       [roleUrlEnv(roles.web)]: side.url("web"),
       [roleUrlEnv(roles.admin)]: side.url("admin"),
     });
+    const created = await sideCutover(["create-dump-role", `--password-file=${side.file}`], env, neon.transport);
+    assert.equal(created.code, 0, created.output);
+    const args = [
+      "freeze",
+      `--app-roles=${roles.web},${roles.admin}`,
+      `--password-file=${side.file}`,
+    ];
     const lost = await sideCutover(args, env, neon.transport);
     assert.equal(lost.code, 1, lost.output);
     assert.match(lost.output, /could not reach the Neon API/);
     const stranded = await sideCutover(args, env, neon.transport);
     assert.equal(stranded.code, 1, stranded.output);
     assert.match(stranded.output, /Neon console/);
-    assert.equal(neon.resets(), 1, "nothing resets a role whose live password nobody holds");
+    assert.equal(neon.resets(), 2, "nothing resets a role whose live password nobody holds");
 
     // The operator resets the role in the Neon console, which shows the new password.
     const consolePassword = `npg_${randomBytes(12).toString("base64url")}`;
-    await onFrozenSource((client) =>
-      client.query(
-        `ALTER ROLE ${client.escapeIdentifier(roles.admin)} PASSWORD ${client.escapeLiteral(scramSha256Verifier(consolePassword))}`
-      )
-    );
+    await applyPassword(roles.admin, consolePassword);
     const consoleUrl = side.url("admin", consolePassword);
     const recovered = await sideCutover(
       args,
@@ -1394,50 +1562,81 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       neon.transport
     );
     assert.equal(recovered.code, 0, recovered.output);
-    assert.equal(neon.resets(), 2);
+    assert.equal(neon.resets(), 3);
   });
 
-  it("rollback restores each role on its own and names every role it could not restore", async () => {
+  it("rollback restores the recorded ACL entry by entry, and names every consumer it could not prove", async () => {
     const side = await sideSource("s5", { other: true });
-    const { roles } = side;
-    // The second API role turns out to be SQL-created: Neon answers 404 for it.
-    const neon = sideNeon({ unmanaged: [roles.other] });
-    const file = join(workDir, "side-s5-rotated.jsonl");
+    const { roles, db } = side;
+    // An ACL with explicit entries of its own: a grant option, a CREATE, and
+    // no TEMPORARY for PUBLIC.
+    await once(url(srcPort, "postgres", PW.srcSuper, db), async (client) => {
+      await client.query(`GRANT CONNECT ON DATABASE ${db} TO ${roles.other} WITH GRANT OPTION`);
+      await client.query(`GRANT CREATE ON DATABASE ${db} TO ${roles.web}`);
+      await client.query(`REVOKE TEMPORARY ON DATABASE ${db} FROM PUBLIC`);
+    });
+    const before = await lockState(side.db);
+    const neon = sideNeon();
     const env = side.env({
       [roleUrlEnv(roles.web)]: side.url("web"),
-      [roleUrlEnv(roles.admin)]: side.url("admin"),
       [roleUrlEnv(roles.other)]: side.url("other"),
-      CUTOVER_ROLE_URL_SIDE_GHOST_S5: url(srcPort, "side_ghost_s5", secret(), side.db),
+      CUTOVER_ROLE_URL_SIDE_GHOST_S5: url(srcPort, "side_ghost_s5", secret(), db),
     });
-    const apiRoles = `--api-roles=${roles.admin},${roles.other}`;
+    const created = await sideCutover(["create-dump-role", `--password-file=${side.file}`], env, neon.transport);
+    assert.equal(created.code, 0, created.output);
     const frozen = await sideCutover(
-      [
-        "freeze",
-        `--app-roles=${roles.web},${roles.admin},${roles.other}`,
-        apiRoles,
-        `--rotated-password-file=${file}`,
-      ],
+      ["freeze", `--app-roles=${roles.web},${roles.other}`, `--password-file=${side.file}`],
       env,
       neon.transport
     );
-    assert.equal(frozen.code, 1, frozen.output);
-    assert.match(frozen.output, /404 NOT_FOUND/);
+    assert.equal(frozen.code, 0, frozen.output);
+    assert.deepEqual(connectGrantees((await lockState(db)).acl).sort(), [DUMP_ROLE, roles.admin].sort());
+    // During the window someone grants another privilege: rollback takes it away again.
+    await once(url(srcPort, "postgres", PW.srcSuper, db), async (client) => {
+      await client.query("SET default_transaction_read_only = off");
+      await client.query(`GRANT CREATE ON DATABASE ${db} TO ${roles.other}`);
+    });
 
     const rolledBack = await sideCutover(
       [
         "rollback",
-        `--app-roles=${roles.web},${roles.admin},${roles.other},side_ghost_s5`,
-        apiRoles,
-        `--rotated-password-file=${file}`,
+        `--app-roles=${roles.web},${roles.other},side_ghost_s5`,
+        `--password-file=${side.file}`,
       ],
       env
     );
     assert.equal(rolledBack.code, 2, rolledBack.output);
-    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.web} logs in`));
-    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.admin} logs in with its rotated password`));
-    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.other} logs in with its pre-freeze credential`));
+    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.web} connects and can write`));
+    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.other} connects and can write`));
     assert.match(rolledBack.output, /FAIL\s+side_ghost_s5/);
-    assert.match(rolledBack.output, /not restored: side_ghost_s5$/m);
+    assert.match(rolledBack.output, /not proven: side_ghost_s5$/m);
+    assert.deepEqual(await lockState(db), before, "the exact ACL, and the read-only default cleared");
     await once(side.url("other"), (client) => insertAs(client, "after rollback"));
+  });
+
+  it("freeze refuses a reused password file older than 24 h before it changes anything", async () => {
+    const side = await sideSource("s6");
+    const { roles } = side;
+    // An earlier window's file: its first entry is 25 hours old.
+    writePasswordEntries(side.file, [
+      { ageHours: 25, role: roles.admin, password: side.password.admin },
+      { ageHours: 1, role: DUMP_ROLE, password: secret() },
+    ]);
+    const before = await lockState(side.db);
+    const neon = sideNeon();
+    const env = side.env({
+      [roleUrlEnv(roles.web)]: side.url("web"),
+      [roleUrlEnv(roles.admin)]: side.url("admin"),
+    });
+    const refused = await sideCutover(
+      ["freeze", `--app-roles=${roles.web},${roles.admin}`, `--password-file=${side.file}`],
+      env,
+      neon.transport
+    );
+    assert.equal(refused.code, 1, refused.output);
+    assert.match(refused.output, /more than 24 h old/);
+    assert.deepEqual(await lockState(side.db), before);
+    assert.equal(neon.resets(), 0);
+    await once(side.url("admin"), (client) => client.query("SELECT 1"));
   });
 });
