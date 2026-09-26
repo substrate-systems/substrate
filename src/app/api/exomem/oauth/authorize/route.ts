@@ -13,6 +13,7 @@ import {
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { exomemCloudEnabled, loadExomemCloudConfig } from "@/lib/exomem-hosted/cloud-config";
 import { resolveCloudAuthorizationScope } from "@/lib/exomem-hosted/cloud-oauth";
+import { unnormalizedRequestUrl } from "@/lib/exomem-hosted/oauth-http";
 import { registerAdmittedCimdClient } from "@/lib/exomem-hosted/oauth-store";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import {
@@ -151,7 +152,9 @@ export async function GET(request: Request): Promise<NextResponse> {
   let callback: { redirectUri: string; state: string | null } | null = null;
   let stage: AuthorizeStage = "ip_rate_limit";
   try {
-    const url = new URL(request.url);
+    // Every parameter comes from the URL the client sent, never the
+    // NextRequest copy that rewrites a loopback redirect_uri to localhost.
+    const url = unnormalizedRequestUrl(request);
     const ipAllowed = await takeExomemRateLimit(
       EXOMEM_RATE_LIMITS.oauthAuthorizeIp,
       clientAddressKey(request) ?? "unavailable"

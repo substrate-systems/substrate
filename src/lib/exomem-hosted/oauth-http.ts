@@ -4,6 +4,35 @@ const MAX_OAUTH_FORM_BYTES = 16 * 1024;
 
 const MAX_OAUTH_FORM_FIELDS = 64;
 
+const PLATFORM_REQUEST_URL = Object.getOwnPropertyDescriptor(Request.prototype, "url")?.get;
+
+/**
+ * The request URL exactly as the client sent it.
+ *
+ * Next.js's NextRequest overrides `url` (and `nextUrl`) with a copy that
+ * rewrites the first loopback literal anywhere in the URL to "localhost" --
+ * `REGEX_LOCALHOST_HOSTNAME` in next/dist/server/web/next-url.js is not
+ * anchored to the host, so it reaches into the query and rewrites an encoded
+ * `redirect_uri=http%3A%2F%2F127.0.0.1...`. RFC 8252 section 7.3 loopback
+ * redirects are compared exactly, so they could never match. The platform
+ * Request NextRequest extends still holds the URL it was constructed with.
+ *
+ * The platform getter needs the real Request, not a Proxy of it (Next.js
+ * proxies the request for routes that are not force-dynamic). Should that ever
+ * apply, fall back to the normalised URL: loopback clients break as they did
+ * before, and nothing else does.
+ */
+export function unnormalizedRequestUrl(request: Request): URL {
+  try {
+    if (PLATFORM_REQUEST_URL) return new URL(PLATFORM_REQUEST_URL.call(request) as string);
+  } catch {
+    // Not a platform Request; see above. Loud, because the only other symptom
+    // is loopback clients failing redirect_validation.
+    console.warn({ event: "exomem_oauth_raw_request_url_unavailable" });
+  }
+  return new URL(request.url);
+}
+
 /**
  * `ignoreUnrecognized` drops unknown fields instead of rejecting the request,
  * as RFC 6749 section 3.2 requires of the token endpoint.

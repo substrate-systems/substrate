@@ -12,7 +12,11 @@ const MCP_PATH = "/api/exomem/mcp/v1";
 const OAUTH_PATH = "/api/exomem/oauth";
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
-const PKCE_VALUE = /^[A-Za-z0-9_-]{43,128}$/;
+// RFC 7636 section 4.1: code-verifier = 43*128unreserved, and unreserved is
+// ALPHA / DIGIT / "-" / "." / "_" / "~". The S256 challenge is a different
+// grammar: base64url(SHA-256) without padding, always exactly 43 characters.
+const PKCE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+const PKCE_S256_CHALLENGE = /^[A-Za-z0-9_-]{43}$/;
 // One list, three places. The authorization-server document, the
 // protected-resource document and the bearer challenge each tell a client what
 // it may ask for, and they drifted: the resource document listed only the two
@@ -177,7 +181,7 @@ export function pkceS256(verifier: string): string {
 }
 
 export function isPkceVerifier(value: string): boolean {
-  return PKCE_VALUE.test(value);
+  return PKCE_VERIFIER.test(value);
 }
 
 function invalidRequest(): never {
@@ -193,7 +197,7 @@ export function validateAuthorizationRequest(
     !input.state ||
     input.state.length > 2048 ||
     input.codeChallengeMethod !== "S256" ||
-    !PKCE_VALUE.test(input.codeChallenge)
+    !PKCE_S256_CHALLENGE.test(input.codeChallenge)
   ) {
     return invalidRequest();
   }
@@ -337,7 +341,7 @@ export async function exchangeAuthorizationCode(
   OpaqueTokenMaterial & Pick<AuthorizationCodeRecord, "clientId" | "resource" | "scopes">
 > {
   const codeDigest = tokenDigest(input.code);
-  if (!codeDigest || !PKCE_VALUE.test(input.codeVerifier)) {
+  if (!codeDigest || !isPkceVerifier(input.codeVerifier)) {
     throw new OAuthProtocolError("OAUTH_INVALID_GRANT");
   }
   const record = await dependencies.consumeAuthorizationCode({

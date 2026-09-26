@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { NextRequest } from "next/server";
 import { pkceS256 } from "@/lib/exomem-hosted/oauth";
 import { readOAuthForm } from "@/lib/exomem-hosted/oauth-http";
 import { digestSecret } from "@/lib/exomem-hosted/security";
@@ -106,13 +107,13 @@ function tokenKey(value: string): string {
 
 function seedCode(
   code: string,
-  overrides: { clientId?: string; redirectUri?: string; resource?: string } = {}
+  overrides: { clientId?: string; redirectUri?: string; resource?: string; verifier?: string } = {}
 ): void {
   codes.set(tokenKey(code), {
     clientId: overrides.clientId ?? CLIENT_ID,
     redirectUri: overrides.redirectUri ?? REDIRECT_URI,
     resource: overrides.resource ?? RESOURCE,
-    pkceChallenge: pkceS256(VERIFIER),
+    pkceChallenge: pkceS256(overrides.verifier ?? VERIFIER),
     consumed: false,
   });
 }
@@ -739,6 +740,100 @@ describe("Exomem OAuth routes", () => {
     assert.notEqual(nonce, transaction);
   });
 
+  // RFC 8252 section 7.3: a native client registers a loopback IP literal
+  // redirect. Next.js hands the route a NextRequest whose `url` rewrites the
+  // first loopback literal anywhere in the URL -- including inside the encoded
+  // redirect_uri -- to "localhost", so an exact match against the registered
+  // 127.0.0.1 redirect could never succeed.
+  describe("loopback redirect_uri through the NextRequest Next.js hands the route", () => {
+    const LOOPBACK_REDIRECT = "http://127.0.0.1:33418/callback";
+
+    function nextAuthorizeRequest(redirectUri: string, state = "loopback-state"): NextRequest {
+      return new NextRequest(new URL(authorizeRequest(state, { redirect_uri: redirectUri }).url), {
+        headers: { "x-forwarded-for": "203.0.113.10" },
+      });
+    }
+
+    it("is rewritten to localhost by NextRequest.url (the defect this guards)", () => {
+      const request = nextAuthorizeRequest(LOOPBACK_REDIRECT);
+      assert.equal(
+        new URL(request.url).searchParams.get("redirect_uri"),
+        "http://localhost:33418/callback"
+      );
+    });
+
+    // Next.js wraps the request in a Proxy for routes that are not
+    // force-dynamic, and the raw URL cannot be read through that Proxy.
+    it("keeps the authorize route force-dynamic so it receives the unproxied request", async () => {
+      assert.equal((await import("../authorize/route")).dynamic, "force-dynamic");
+    });
+
+    it("authorizes a client registered with a 127.0.0.1 redirect and binds that exact redirect", async () => {
+      const { GET } = await import("../authorize/route");
+      approvedRedirectUris = [LOOPBACK_REDIRECT];
+      const response = await GET(nextAuthorizeRequest(LOOPBACK_REDIRECT));
+      assert.equal(response.status, 303);
+      assert.equal(new URL(response.headers.get("location")!).pathname, "/exomem/authorize");
+      const stored = continuations.get(
+        digestKey(digestSecret(cookie(response, "exomem_oauth_tx")))
+      );
+      assert.equal(stored?.redirectUri, LOOPBACK_REDIRECT);
+    });
+
+    it("still refuses a loopback redirect that differs in host, port, path or scheme", async () => {
+      const { GET } = await import("../authorize/route");
+      approvedRedirectUris = [LOOPBACK_REDIRECT];
+      for (const requested of [
+        "http://localhost:33418/callback",
+        "http://127.0.0.1:33419/callback",
+        "http://127.0.0.1:33418/callback/",
+        "http://127.0.0.1:33418/other",
+        "https://127.0.0.1:33418/callback",
+        "http://127.0.0.2:33418/callback",
+        "http://[::1]:33418/callback",
+      ]) {
+        const response = await GET(nextAuthorizeRequest(requested));
+        assert.equal(response.status, 400, requested);
+        assert.equal(response.headers.get("location"), null, requested);
+      }
+      assert.equal(continuations.size, 0);
+    });
+
+    it("does not treat 127.0.0.1 as a registered localhost redirect", async () => {
+      const { GET } = await import("../authorize/route");
+      approvedRedirectUris = ["http://localhost:33418/callback"];
+      const response = await GET(nextAuthorizeRequest(LOOPBACK_REDIRECT));
+      assert.equal(response.status, 400);
+      assert.equal(response.headers.get("location"), null);
+      assert.equal(continuations.size, 0);
+    });
+
+    it("sends a post-validation error to the raw registered loopback redirect", async () => {
+      const { GET } = await import("../authorize/route");
+      approvedRedirectUris = [LOOPBACK_REDIRECT];
+      // The state carries a loopback literal too: the whole query must reach
+      // the client exactly as it sent it.
+      const raw = `${BASE_URL}/api/exomem/oauth/authorize?${new URLSearchParams({
+        response_type: "code",
+        client_id: CLIENT_ID,
+        redirect_uri: LOOPBACK_REDIRECT,
+        resource: RESOURCE,
+        scope: "exomem.read",
+        state: "loop.127.0.0.1",
+        code_challenge: pkceS256(VERIFIER),
+        code_challenge_method: "plain",
+      })}`;
+      const response = await GET(
+        new NextRequest(raw, { headers: { "x-forwarded-for": "203.0.113.10" } })
+      );
+      assert.equal(response.status, 303);
+      const callback = new URL(response.headers.get("location")!);
+      assert.equal(`${callback.origin}${callback.pathname}`, "http://127.0.0.1:33418/callback");
+      assert.equal(callback.searchParams.get("error"), "invalid_request");
+      assert.equal(callback.searchParams.get("state"), "loop.127.0.0.1");
+    });
+  });
+
   // Item 4 / task 3.5: under EXOMEM_CLOUD_ENABLED, /authorize must resolve the
   // client and bind the resource through cloud-oauth.ts's
   // resolveApprovedCloudOAuthClient, not the hosted resolver -- mirroring how
@@ -1254,6 +1349,43 @@ describe("Exomem OAuth routes", () => {
     assert.equal(JSON.stringify(body).includes("tenant"), false);
   });
 
+  // The MCP Python SDK draws its verifier from the full RFC 7636 unreserved set,
+  // "." and "~" included. A base64url-only grammar refused ~98% of its exchanges
+  // at code_shape before the code was ever looked up.
+  it("exchanges a code whose verifier uses RFC 7636's '.' and '~'", async () => {
+    const { POST } = await import("../token/route");
+    const verifier = `${"Ab9-_".repeat(9)}.~.~`;
+    const code = Buffer.alloc(32, 0x6e).toString("base64url");
+    seedCode(code, { redirectUri: "http://127.0.0.1:33418/callback", verifier });
+    const exchange = (codeVerifier: string) =>
+      POST(
+        new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            client_id: CLIENT_ID,
+            redirect_uri: "http://127.0.0.1:33418/callback",
+            code_verifier: codeVerifier,
+            resource: RESOURCE,
+          }),
+        })
+      );
+    for (const malformed of [
+      verifier.slice(0, 42),
+      `${verifier}${"~".repeat(129 - verifier.length)}`,
+      `${verifier.slice(0, 48)}+`,
+    ]) {
+      const refused = await exchange(malformed);
+      assert.equal(refused.status, 400, malformed);
+      assert.equal(codes.get(tokenKey(code))?.consumed, false);
+    }
+    const response = await exchange(verifier);
+    assert.equal(response.status, 200);
+    assert.equal(codes.get(tokenKey(code))?.consumed, true);
+  });
+
   it("exchanges one authorization code with exact PKCE and resource binding", async () => {
     const { POST } = await import("../token/route");
     const code = Buffer.alloc(32, 0x61).toString("base64url");
@@ -1316,7 +1448,11 @@ describe("Exomem OAuth routes", () => {
     const { POST } = await import("../token/route");
     const cloudCode = Buffer.alloc(32, 0x71).toString("base64url");
     const hostedCode = Buffer.alloc(32, 0x72).toString("base64url");
-    seedCode(cloudCode, { clientId: CLOUD_CLIENT_ID, redirectUri: CLOUD_REDIRECT_URI, resource: CLOUD_RESOURCE });
+    seedCode(cloudCode, {
+      clientId: CLOUD_CLIENT_ID,
+      redirectUri: CLOUD_REDIRECT_URI,
+      resource: CLOUD_RESOURCE,
+    });
     seedCode(hostedCode);
 
     const cloudAgainstHosted = await POST(
@@ -1391,7 +1527,11 @@ describe("Exomem OAuth routes", () => {
   it("flag off: a Cloud-resource token request is refused even though a matching code exists", async () => {
     const { POST } = await import("../token/route");
     const cloudCode = Buffer.alloc(32, 0x73).toString("base64url");
-    seedCode(cloudCode, { clientId: CLOUD_CLIENT_ID, redirectUri: CLOUD_REDIRECT_URI, resource: CLOUD_RESOURCE });
+    seedCode(cloudCode, {
+      clientId: CLOUD_CLIENT_ID,
+      redirectUri: CLOUD_REDIRECT_URI,
+      resource: CLOUD_RESOURCE,
+    });
     const response = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
         method: "POST",
@@ -1419,7 +1559,11 @@ describe("Exomem OAuth routes", () => {
     cloudGrantOwnsCell = false;
     const { POST } = await import("../token/route");
     const cloudCode = Buffer.alloc(32, 0x75).toString("base64url");
-    seedCode(cloudCode, { clientId: CLOUD_CLIENT_ID, redirectUri: CLOUD_REDIRECT_URI, resource: CLOUD_RESOURCE });
+    seedCode(cloudCode, {
+      clientId: CLOUD_CLIENT_ID,
+      redirectUri: CLOUD_REDIRECT_URI,
+      resource: CLOUD_RESOURCE,
+    });
     const codeResponse = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
         method: "POST",
