@@ -26,7 +26,9 @@ export function unnormalizedRequestUrl(request: Request): URL {
   try {
     if (PLATFORM_REQUEST_URL) return new URL(PLATFORM_REQUEST_URL.call(request) as string);
   } catch {
-    // Not a platform Request; see above.
+    // Not a platform Request; see above. Loud, because the only other symptom
+    // is loopback clients failing redirect_validation.
+    console.warn({ event: "exomem_oauth_raw_request_url_unavailable" });
   }
   return new URL(request.url);
 }

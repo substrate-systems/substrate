@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { NextRequest } from "next/server";
 import { unnormalizedRequestUrl } from "../oauth-http";
 
@@ -23,6 +23,16 @@ describe("unnormalizedRequestUrl", () => {
     const proxied = new Proxy(new NextRequest(new URL(RAW)), {
       get: (target, property) => Reflect.get(target, property, target),
     });
-    assert.match(unnormalizedRequestUrl(proxied).href, /localhost%3A33418/);
+    const warn = mock.method(console, "warn", () => undefined);
+    try {
+      assert.match(unnormalizedRequestUrl(proxied).href, /localhost%3A33418/);
+      // Loopback clients break silently on this path, so it must say so.
+      assert.deepEqual(
+        warn.mock.calls.map((call) => call.arguments),
+        [[{ event: "exomem_oauth_raw_request_url_unavailable" }]]
+      );
+    } finally {
+      warn.mock.restore();
+    }
   });
 });
