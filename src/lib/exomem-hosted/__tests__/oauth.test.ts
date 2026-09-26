@@ -6,6 +6,7 @@ import {
   buildAuthorizationServerMetadata,
   buildProtectedResourceMetadata,
   exchangeAuthorizationCode,
+  isPkceVerifier,
   mintAuthorizationCode,
   parseAuthorizeParameters,
   parseBearerAuthorization,
@@ -136,6 +137,86 @@ describe("Exomem Hosted OAuth protocol", () => {
         }),
       /OAUTH_INVALID_REQUEST/
     );
+  });
+
+  // RFC 7636 section 4.1: code-verifier = 43*128unreserved, where unreserved is
+  // ALPHA / DIGIT / "-" / "." / "_" / "~". The MCP Python SDK draws from the
+  // whole set, so a base64url-only grammar refused most of its exchanges.
+  it("accepts every RFC 7636 verifier and nothing outside the unreserved set", () => {
+    const rfcVerifier = "abc.DEF~123-_".repeat(4).slice(0, 43);
+    assert.equal(rfcVerifier.length, 43);
+    assert.equal(isPkceVerifier(rfcVerifier), true);
+    assert.equal(isPkceVerifier(`${"~".repeat(64)}${".".repeat(64)}`), true);
+    assert.equal(isPkceVerifier("a".repeat(42)), false);
+    assert.equal(isPkceVerifier("a".repeat(129)), false);
+    assert.equal(isPkceVerifier(".".repeat(42)), false);
+    assert.equal(isPkceVerifier("~".repeat(129)), false);
+    for (const outsider of [
+      "+",
+      "/",
+      "=",
+      "%",
+      " ",
+      "!",
+      "*",
+      "'",
+      "(",
+      ")",
+      "\n",
+      "é",
+      "\u0000",
+    ]) {
+      assert.equal(isPkceVerifier(`${"a".repeat(42)}${outsider}`), false, JSON.stringify(outsider));
+    }
+  });
+
+  it("exchanges a code whose verifier uses the full RFC 7636 alphabet", async () => {
+    const verifier = `${"A-z_0".repeat(10)}.~.~`;
+    const issued = mintAuthorizationCode({
+      clientId: client.clientId,
+      redirectUri: client.redirectUris[0],
+      resource,
+      scopes: ["exomem.read"],
+      codeChallenge: pkceS256(verifier),
+      now: new Date("2026-07-26T12:00:00.000Z"),
+      randomBytes: (size) => Buffer.alloc(size, 9),
+    });
+    const exchanged = await exchangeAuthorizationCode(
+      {
+        code: issued.code,
+        clientId: client.clientId,
+        redirectUri: client.redirectUris[0],
+        resource,
+        codeVerifier: verifier,
+      },
+      {
+        consumeAuthorizationCode: async () => issued.record,
+        now: () => new Date("2026-07-26T12:01:00.000Z"),
+      }
+    );
+    assert.equal(exchanged.clientId, client.clientId);
+  });
+
+  // The S256 challenge is base64url(SHA-256), always exactly 43 characters.
+  // Widening the verifier grammar must not widen what a challenge may be.
+  it("keeps the S256 challenge to exactly 43 base64url characters", () => {
+    const attempt = (codeChallenge: string) => () =>
+      validateAuthorizationRequest({
+        client,
+        resource,
+        requestedResource: resource,
+        redirectUri: client.redirectUris[0],
+        scope: "exomem.read",
+        state: "opaque-client-state",
+        codeChallenge,
+        codeChallengeMethod: "S256",
+      });
+    assert.doesNotThrow(attempt(pkceS256("a".repeat(43))));
+    assert.throws(attempt(`${pkceS256("a".repeat(43))}A`), /OAUTH_INVALID_REQUEST/);
+    assert.throws(attempt("A".repeat(42)), /OAUTH_INVALID_REQUEST/);
+    assert.throws(attempt("A".repeat(128)), /OAUTH_INVALID_REQUEST/);
+    assert.throws(attempt(`${"A".repeat(42)}.`), /OAUTH_INVALID_REQUEST/);
+    assert.throws(attempt(`${"A".repeat(42)}~`), /OAUTH_INVALID_REQUEST/);
   });
 
   it("rejects duplicate OAuth security parameters and preserves offline continuity", () => {
