@@ -56,7 +56,7 @@
 
 ## 4. Cutover and acceptance (P4)
 
-- [ ] 4.1 Write the cutover runbook and script (D8): consumer inventory, Neon lockout (`NOLOGIN` and password rotation for every application role, session termination, then the read-only default), `pg_dump --no-owner --no-acl` as a separate dump role, restore as `substrate_owner`, grants script, per-table counts and checksums, `DATABASE_URL` and `DATABASE_MIGRATION_URL` switch with a production redeploy, and post-checks. Rehearse it against a disposable copy
+- [x] 4.1 Write the cutover runbook and script (D8): consumer inventory, Neon lockout (the database's ACL recorded, `CONNECT` taken from every role but the owner and the dump role, the owner's password reset through Neon's API when a consumer connects as it, the read-only default, then session termination), `pg_dump --no-owner --no-acl` as a separate dump role, restore as `substrate_owner`, grants script, per-table counts and checksums, `DATABASE_URL` and `DATABASE_MIGRATION_URL` switch with a production redeploy, and post-checks. Rehearse it against a disposable copy
 - [ ] 4.2 After the Exomem control server is up, run the cutover in a maintenance window, and keep Neon read-only as the rollback
 - [ ] 4.3 Enable `EXOMEM_CLOUD_ENABLED`, and run owner acceptance with the Exomem change's task 6.3
 
