@@ -875,10 +875,19 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     const { code, output } = await cutover(["freeze", ...ROLES()]);
     assert.equal(code, 0, output);
     assert.match(output, /already rotated: cutover_admin/);
-    assert.match(output, /already locked/);
+    assert.match(output, /keep the ACL recorded at/);
     assert.equal(neonResets, 1, "the recorded, live password is never reset again");
     assert.equal(rotatedAdminPassword(), recorded);
     assert.equal(aclRecords().length, 1, "a locked ACL is never recorded as the one to restore");
+
+    // CONNECT granted again during the window (by hand, or by Neon after a
+    // restart): a rerun takes it away and still keeps the first record.
+    await onFrozenSource((client) => client.query("GRANT CONNECT ON DATABASE neondb TO substrate_web"));
+    const regranted = await cutover(["freeze", ...ROLES()]);
+    assert.equal(regranted.code, 0, regranted.output);
+    assert.match(regranted.output, /REVOKE CONNECT ON DATABASE neondb FROM substrate_web/);
+    assert.equal(aclRecords().length, 1, "the rerun keeps the record of the ACL before the first freeze");
+    assert.ok(!connectGrantees(await aclEntries("neondb")).includes("substrate_web"));
   });
 
   it("dump writes a custom-format archive and its checksum as the dump role", async () => {
@@ -1289,14 +1298,14 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     });
     assert.equal(stale.code, 2, stale.output);
     assert.match(stale.output, /FAIL\s+substrate_web/);
-    assert.match(stale.output, /OK\s+exomem_hosted_gateway connects and can write/);
+    assert.match(stale.output, /OK\s+exomem_hosted_gateway connects to a read-write session/);
     await writeAs(webUrl());
     assert.deepEqual(await aclEntries("neondb"), aclBeforeFreeze);
 
     const { code, output } = await cutover(["rollback", ...ROLES()]);
     assert.equal(code, 0, output);
-    assert.match(output, /OK\s+cutover_admin connects with its rotated password and can write/);
-    assert.match(output, /OK\s+substrate_web connects and can write/);
+    assert.match(output, /OK\s+cutover_admin connects with its rotated password to a read-write session/);
+    assert.match(output, /OK\s+substrate_web connects to a read-write session/);
     assert.match(output, /ACL restored exactly/);
     assert.equal(neonResets, 1, "rollback never calls the Neon API");
     // The ACL is the recorded one, entry for entry: the dump role's CONNECT,
@@ -1497,6 +1506,21 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
     assert.equal(superuser.code, 1, superuser.output);
     assert.match(superuser.output, /postgres is a superuser/);
     assert.deepEqual(await lockState(side.db), before);
+
+    // A login role that inherits the owner's privileges keeps CONNECT through
+    // it, so the freeze refuses before it changes anything.
+    await once(url(srcPort, "postgres", PW.srcSuper, side.db), async (client) => {
+      await client.query(`CREATE ROLE side_heir_s2 LOGIN INHERIT PASSWORD '${secret()}'`);
+      await client.query(`GRANT ${roles.admin} TO side_heir_s2`);
+    });
+    const heir = await sideCutover(
+      ["freeze", `--app-roles=${roles.web}`, `--password-file=${side.file}`],
+      side.env({ [roleUrlEnv(roles.web)]: side.url("web") }),
+      neon.transport
+    );
+    assert.equal(heir.code, 1, heir.output);
+    assert.match(heir.output, /side_heir_s2 inherits/);
+    assert.deepEqual(await lockState(side.db), before);
     assert.equal(neon.resets(), 0);
   });
 
@@ -1606,8 +1630,8 @@ describe("Neon cutover rehearsal (D8, task 4.1)", { skip: !enabled, timeout: 600
       env
     );
     assert.equal(rolledBack.code, 2, rolledBack.output);
-    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.web} connects and can write`));
-    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.other} connects and can write`));
+    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.web} connects to a read-write session`));
+    assert.match(rolledBack.output, new RegExp(`OK\\s+${roles.other} connects to a read-write session`));
     assert.match(rolledBack.output, /FAIL\s+side_ghost_s5/);
     assert.match(rolledBack.output, /not proven: side_ghost_s5$/m);
     assert.deepEqual(await lockState(db), before, "the exact ACL, and the read-only default cleared");

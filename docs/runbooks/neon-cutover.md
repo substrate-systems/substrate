@@ -309,12 +309,14 @@ with any other mode or owner. So a password Neon generates can always be
 recorded. The script never prints the file, and only ever appends to it. Every
 entry carries the time it was written. A role's newest entry is its password,
 and the older ones stay as its history. A line that is not a valid entry is
-skipped, and the phase names its line number. `freeze` and `rollback` hold an
-exclusive lock on the file while they run, so two of them never overlap.
+skipped, and the phase names its line number. `create-dump-role`, `freeze` and
+`rollback` hold an exclusive lock on the file while they run, so two of them
+never overlap.
 
 Each window starts a fresh password file. The freeze refuses a file whose
-first entry is more than 24 hours old, before it changes anything: its
-passwords belong to another branch, or to an earlier window. Keep the file in
+first entry is more than 24 hours old, or whose first line is not a valid
+entry and so cannot be dated, before it changes anything: its passwords
+belong to another branch, or to an earlier window. Keep the file in
 `$CUTOVER_DIR` until retirement, and never edit it. Rollback, the switch-back
 and the daily check all read it.
 
@@ -409,7 +411,9 @@ Before it changes anything, the freeze checks, and refuses on any failure:
   dump role's password;
 - the admin URL's endpoint serves `NEON_BRANCH_ID` (P4);
 - the admin owns the database, can end sessions, and can see them all; the
-  dump role exists; and no consumer is a superuser;
+  dump role exists; no consumer is a superuser; and no login role inherits
+  the owner's or the dump role's privileges, since it would keep their
+  `CONNECT`;
 - each consumer's `CUTOVER_ROLE_URL_<ROLE>` logs in now, or is refused with
   `42501`, which Postgres returns only after accepting the password, so an
   earlier freeze of this window took its `CONNECT`. When the owner is a
@@ -418,9 +422,10 @@ Before it changes anything, the freeze checks, and refuses on any failure:
 
 It then locks Neon:
 
-- It records the database's ACL in `$PASSWORDS`. A rerun on a database that
-  is locked already keeps the first record, since that is the ACL rollback
-  must restore.
+- It records the database's ACL in `$PASSWORDS`. Once that record exists, a
+  rerun never records again, even if it finds `CONNECT` granted again and
+  revokes it: the first record is the ACL rollback must restore. Only a
+  completed rollback lets a later freeze in the same file record afresh.
 - When a consumer logs in as the owner, it resets the owner's password
   through the Neon API, and appends the new password to `$PASSWORDS` as soon
   as Neon returns it. It waits until Neon reports every resulting operation
@@ -675,7 +680,12 @@ from the record the freeze made, entry by entry. It grants back each entry
 the freeze revoked, and revokes each entry the record lacks, such as the dump
 role's `CONNECT`. It prints `OK` or `FAIL` for each. It then resets the
 database's read-only default, and checks that the ACL now equals the record
-exactly.
+entry for entry. A database whose recorded ACL was the default (`NULL`)
+comes back with the same entries written out, which Postgres treats
+identically. When the ACL matches, rollback notes that in `$PASSWORDS`, so a
+later freeze with the same file records the ACL afresh. If a role named in
+the record has been dropped since, rollback refuses before changing
+anything, and you restore that entry by hand.
 
 Rollback sets no password. The owner's password stays rotated, because
 Neon's API resets a password to a new random one and cannot set the old one
@@ -685,7 +695,8 @@ consumer's proof.
 
 The phase then proves each consumer on its own. The owner must log in with
 its rotated password, and every other consumer with its
-`CUTOVER_ROLE_URL_<ROLE>`, each to a read-write session. It prints
+`CUTOVER_ROLE_URL_<ROLE>`, each to a read-write session. No consumer's table
+privileges changed, so a read-write session is the proof that it can write. It prints
 `ROLLED BACK` and exits `0` when the ACL and every consumer passed. Otherwise
 it exits `2` and names everything it could not prove. Fix each named item,
 then rerun the same command; a rerun is safe. It never calls the Neon API.

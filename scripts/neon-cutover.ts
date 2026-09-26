@@ -551,13 +551,15 @@ async function requireEndpointOnBranch(ctx: Context, api: NeonApi, adminUrl: str
 // The password file
 //
 // One JSON object per line, each with the time it was written ("at"): a
-// role's password ({"role", "password"}) or a database's ACL before the
-// freeze ({"database", "datacl"}). Only ever appended to; the newest entry
-// is the one that counts, and the older ones stay as the history.
+// role's password ({"role", "password"}), a database's ACL before the
+// freeze ({"database", "datacl"}), or a completed rollback of it
+// ({"database", "rolledBack": true}). Only ever appended to; a role's newest
+// password is the one that counts, and the older entries stay as the history.
 
 type EntryBody = { at: string } & (
   | { role: string; password: string }
   | { database: string; datacl: string | null }
+  | { database: string; rolledBack: true }
 );
 /** One valid line of the password file. */
 export type PasswordFileEntry = { line: number } & EntryBody;
@@ -604,9 +606,10 @@ function parseEntry(line: string): EntryBody | undefined {
     return undefined;
   }
   if (!value || typeof value !== "object") return undefined;
-  const { at, role, password, database, datacl } = value as Record<string, unknown>;
+  const { at, role, password, database, datacl, rolledBack } = value as Record<string, unknown>;
   if (typeof at !== "string" || Number.isNaN(Date.parse(at))) return undefined;
   if (typeof role === "string" && typeof password === "string") return { at, role, password };
+  if (typeof database === "string" && rolledBack === true) return { at, database, rolledBack };
   if (typeof database === "string" && (typeof datacl === "string" || datacl === null))
     return { at, database, datacl };
   return undefined;
@@ -649,15 +652,27 @@ export function readPasswords(path: string): Map<string, string> {
   return passwordsOf(readPasswordFile(path).entries);
 }
 
+/**
+ * The ACL to restore: the first record made since the last completed
+ * rollback, so no rerun of a freeze can replace it with a locked ACL. With
+ * `orEarlier`, a rollback rerun after a completed one finds the record of
+ * the lock it undid.
+ */
 function aclRecordOf(
   entries: PasswordFileEntry[],
-  database: string
+  database: string,
+  { orEarlier = false } = {}
 ): { at: string; datacl: string | null } | undefined {
-  let record: { at: string; datacl: string | null } | undefined;
-  for (const entry of entries)
-    if ("database" in entry && entry.database === database)
-      record = { at: entry.at, datacl: entry.datacl };
-  return record;
+  let current: { at: string; datacl: string | null } | undefined;
+  let earlier: { at: string; datacl: string | null } | undefined;
+  for (const entry of entries) {
+    if (!("database" in entry) || entry.database !== database) continue;
+    if ("rolledBack" in entry) {
+      earlier = current ?? earlier;
+      current = undefined;
+    } else current ??= { at: entry.at, datacl: entry.datacl };
+  }
+  return current ?? (orEarlier ? earlier : undefined);
 }
 
 /** Opens the password file for appending, creating it 0600. */
@@ -668,7 +683,10 @@ export function openPasswordFile(path: string): number {
 /** Appends one timestamped entry through `fd`, on a line of its own, and syncs it to disk. */
 function appendEntry(
   fd: number,
-  entry: { role: string; password: string } | { database: string; datacl: string | null }
+  entry:
+    | { role: string; password: string }
+    | { database: string; datacl: string | null }
+    | { database: string; rolledBack: true }
 ): void {
   const size = fstatSync(fd).size;
   const last = Buffer.alloc(1);
@@ -692,11 +710,14 @@ function passwordFilePath(ctx: Context): string {
 }
 
 /** Reads the password file, naming every line it skipped. */
-function readWindowFile(ctx: Context, path: string): PasswordFileEntry[] {
-  const { entries, skipped } = readPasswordFile(path);
-  if (skipped.length > 0)
-    say(ctx, `note: ${path} line(s) ${skipped.join(", ")} hold no valid entry and were skipped`);
-  return entries;
+function readWindowFile(
+  ctx: Context,
+  path: string
+): { entries: PasswordFileEntry[]; skipped: number[] } {
+  const file = readPasswordFile(path);
+  if (file.skipped.length > 0)
+    say(ctx, `note: ${path} line(s) ${file.skipped.join(", ")} hold no valid entry and were skipped`);
+  return file;
 }
 
 /**
@@ -720,8 +741,14 @@ async function lockPasswordFile(fd: number, path: string): Promise<void> {
   if (status !== 0) throw new CutoverError(`flock could not lock ${path} (exit ${status})`);
 }
 
-/** The file's first entry dates the window it belongs to. */
-function requireFreshFile(path: string, entries: PasswordFileEntry[]): void {
+/** The file's first line dates the window it belongs to. */
+function requireFreshFile(path: string, { entries, skipped }: ReturnType<typeof readPasswordFile>): void {
+  if (skipped.length > 0 && (entries.length === 0 || skipped[0]! < entries[0]!.line)) {
+    throw new CutoverError(
+      `${path} line ${skipped[0]} is not a valid entry, so the file cannot be dated. ` +
+        "Name a new file, and run create-dump-role with it first; nothing was changed"
+    );
+  }
   const first = entries[0];
   if (first && Date.now() - Date.parse(first.at) > PASSWORD_FILE_MAX_AGE_MS) {
     throw new CutoverError(
@@ -911,6 +938,26 @@ async function superuserConsumers(client: Client, roles: string[]): Promise<stri
   return rows.map(
     (row) =>
       `${row.rolname} is a superuser, which no CONNECT lockout stops: stop, and give that consumer a role of its own`
+  );
+}
+
+/**
+ * The lock leaves CONNECT with the owner and the dump role, so a login role
+ * that inherits either one's privileges keeps it and could still write.
+ */
+async function inheritedConnect(client: Client, dumpRole: string): Promise<string[]> {
+  const { rows } = await client.query<{ rolname: string; heir_of: string }>(
+    `SELECT r.rolname, h.rolname AS heir_of
+     FROM pg_roles r, pg_database d, pg_roles h
+     WHERE d.datname = current_database() AND (h.oid = d.datdba OR h.rolname = $1)
+       AND r.rolcanlogin AND NOT r.rolsuper AND r.oid <> h.oid AND r.rolname <> current_user
+       AND r.oid <> d.datdba AND pg_has_role(r.oid, h.oid, 'USAGE')
+     ORDER BY 1, 2`,
+    [dumpRole]
+  );
+  return rows.map(
+    (row) =>
+      `${row.rolname} inherits ${row.heir_of}'s privileges, so it would keep CONNECT: revoke that membership, or make the role NOINHERIT, first`
   );
 }
 
@@ -1189,7 +1236,7 @@ async function inventory(ctx: Context): Promise<number> {
     return 0;
   }
 
-  const passwords = passwordsOf(readWindowFile(ctx, path!));
+  const passwords = passwordsOf(readWindowFile(ctx, path!).entries);
   failures.push(...(await frozenFailures(ctx, targets, facts.owner, dumpRoleUrl(ctx, path!, passwords), passwords)));
   if (failures.length > 0) {
     for (const failure of failures) say(ctx, `FAIL ${failure}`);
@@ -1214,8 +1261,9 @@ async function freeze(ctx: Context): Promise<number> {
   let client: Client | undefined;
   try {
     await lockPasswordFile(fd, path);
-    const entries = readWindowFile(ctx, path);
-    requireFreshFile(path, entries);
+    const file = readWindowFile(ctx, path);
+    requireFreshFile(path, file);
+    const entries = file.entries;
     const recorded = passwordsOf(entries);
     const dumpUrl = dumpRoleUrl(ctx, path, recorded);
     await requireEndpointOnBranch(ctx, api, baseAdminUrl);
@@ -1238,6 +1286,7 @@ async function freeze(ctx: Context): Promise<number> {
     const dumpExists = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [dumpRole]);
     if (!dumpExists.rowCount) problems.push(`the dump role ${dumpRole} does not exist: run create-dump-role first`);
     problems.push(...(await superuserConsumers(client, targets.map((target) => target.role))));
+    problems.push(...(await inheritedConnect(client, dumpRole)));
     if (problems.length > 0)
       throw new CutoverError(`freeze preflight failed: ${problems.join("; ")}`);
 
@@ -1265,8 +1314,8 @@ async function freeze(ctx: Context): Promise<number> {
     }
     const rotateOwner = targets.some((target) => target.role === owner) && !ownerRotatedEarlier;
 
-    // The ACL to restore is the one before the first freeze. A database
-    // that is locked already keeps the record that freeze made.
+    // The ACL to restore is the one before this window's first freeze: once
+    // it is recorded, a rerun never records again, whatever it finds.
     const current = await aclEntries(client, facts.datacl);
     const revoke = connectGrantees(current, owner).filter((name) => name !== dumpRole);
     const locked = revoke.length === 0;
@@ -1278,8 +1327,8 @@ async function freeze(ctx: Context): Promise<number> {
       );
     }
     plan(ctx, [
-      locked
-        ? `${database} is already locked; keep the ACL recorded at ${record!.at} as the one rollback restores`
+      record
+        ? `keep the ACL recorded at ${record.at} as the one rollback restores`
         : `record ${database}'s ACL (${current.map(aclText).join(" ")}) in ${path}`,
       ...(rotateOwner
         ? [`reset the password of the owner ${owner}, which a consumer connects as, through the Neon API, and record it only in ${path} (0600, never printed)`]
@@ -1293,7 +1342,7 @@ async function freeze(ctx: Context): Promise<number> {
       "prove it: every consumer is refused at login, the dump role connects, no other client session remains, and a new session cannot write",
     ]);
 
-    if (!locked) {
+    if (!record) {
       appendEntry(fd, { database, datacl: facts.datacl });
       say(ctx, `${database}: ACL recorded in ${path}`);
     }
@@ -1508,7 +1557,8 @@ async function createDumpRole(ctx: Context): Promise<number> {
   let client: Client | undefined;
   let unreadable: string[] = [];
   try {
-    const recorded = passwordsOf(readWindowFile(ctx, path)).get(role);
+    await lockPasswordFile(fd, path);
+    const recorded = passwordsOf(readWindowFile(ctx, path).entries).get(role);
     await requireEndpointOnBranch(ctx, api, adminUrl);
     client = await connectSourceAdmin(ctx, "neon-cutover-create-dump-role");
     await client.query("SET default_transaction_read_only = off");
@@ -2311,7 +2361,7 @@ async function rollback(ctx: Context): Promise<number> {
   const path = passwordFilePath(ctx);
   let fd: number;
   try {
-    fd = openPrivateFile(path, fsConstants.O_RDWR);
+    fd = openPrivateFile(path, fsConstants.O_RDWR | fsConstants.O_APPEND);
   } catch (error) {
     if (errorCode(error) === "ENOENT") throw new CutoverError(`${path} does not exist; name the freeze's password file`);
     throw error;
@@ -2321,7 +2371,7 @@ async function rollback(ctx: Context): Promise<number> {
   const failures: string[] = [];
   try {
     await lockPasswordFile(fd, path);
-    const entries = readWindowFile(ctx, path);
+    const entries = readWindowFile(ctx, path).entries;
     const passwords = passwordsOf(entries);
     const client = await connectSourceAdmin(ctx, "neon-cutover-rollback");
     let facts: SourceFacts;
@@ -2332,18 +2382,27 @@ async function rollback(ctx: Context): Promise<number> {
       facts = await sourceFacts(client);
       const problems = adminProblems(facts);
       if (problems.length > 0) throw new CutoverError(`rollback preflight failed: ${problems.join("; ")}`);
-      const record = aclRecordOf(entries, facts.database);
+      const record = aclRecordOf(entries, facts.database, { orEarlier: true });
       if (!record) {
         throw new CutoverError(
           `${path} holds no record of ${facts.database}'s ACL, so rollback cannot restore it; nothing was changed`
         );
       }
-      const recorded = await aclEntries(client, record.datacl);
+      let recorded: AclEntry[];
+      try {
+        recorded = await aclEntries(client, record.datacl);
+      } catch (error) {
+        // A role named in the record has been dropped since, so its aclitem no longer parses.
+        throw new CutoverError(
+          `the ACL recorded at ${record.at} no longer parses (${errorCode(error) ?? "error"} ${error instanceof Error ? error.message : String(error)}); ` +
+            "restore it by hand from that entry of the password file; nothing was changed"
+        );
+      }
       plan(ctx, [
         `restore ${facts.database}'s ACL as recorded at ${record.at}, entry by entry: ${recorded.map(aclText).join(" ")}`,
         `ALTER DATABASE ${facts.database} RESET default_transaction_read_only`,
         "no password changes: the owner's rotated one stays, and its consumers switch to it (switch-back-url)",
-        "prove it: the ACL equals the record, and every consumer connects and gets a read-write session",
+        "prove it: the ACL equals the record (a default ACL comes back as its explicit equivalent), and every consumer connects to a read-write session",
       ]);
       failures.push(...(await restoreAcl(ctx, client, facts, recorded)));
       try {
@@ -2360,7 +2419,11 @@ async function rollback(ctx: Context): Promise<number> {
       const expected = recorded.map(aclText);
       const missing = expected.filter((entry) => !after.includes(entry));
       const extra = after.filter((entry) => !expected.includes(entry));
-      if (missing.length === 0 && extra.length === 0) say(ctx, `OK   ${facts.database}: ACL restored exactly`);
+      if (missing.length === 0 && extra.length === 0) {
+        say(ctx, `OK   ${facts.database}: ACL restored exactly`);
+        // A later freeze in this file records the ACL afresh.
+        appendEntry(fd, { database: facts.database, rolledBack: true });
+      }
       else {
         say(ctx, `FAIL ${facts.database}: ACL differs from the record: missing ${missing.join(" ") || "nothing"}; extra ${extra.join(" ") || "nothing"}`);
         if (!failures.includes(`${facts.database}'s ACL`)) failures.push(`${facts.database}'s ACL`);
@@ -2384,7 +2447,7 @@ async function rollback(ctx: Context): Promise<number> {
         } finally {
           await probe.end().catch(() => undefined);
         }
-        say(ctx, `OK   ${role} connects${credential} and can write`);
+        say(ctx, `OK   ${role} connects${credential} to a read-write session`);
       } catch (error) {
         say(ctx, `FAIL ${role}: ${errorCode(error) ?? "error"} ${error instanceof Error ? error.message : String(error)}`);
         failures.push(role);
@@ -2396,7 +2459,7 @@ async function rollback(ctx: Context): Promise<number> {
     }
     say(
       ctx,
-      `ROLLED BACK: ${facts.database}'s ACL is the recorded one, its read-only default is reset, and every consumer connects and can write`
+      `ROLLED BACK: ${facts.database}'s ACL is the recorded one, its read-only default is reset, and every consumer connects to a read-write session`
     );
     return 0;
   } finally {

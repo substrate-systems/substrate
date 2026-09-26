@@ -488,6 +488,20 @@ describe("freeze's checks before any change", () => {
     assert.deepEqual(calls, []);
   });
 
+  it("refuses a file whose first line cannot be dated, before any Neon call", async () => {
+    const file = join(workDir, "undated.jsonl");
+    writeFileSync(
+      file,
+      `{"at": "torn\n${JSON.stringify({ at: new Date().toISOString(), role: "neon_cutover_dump", password: "DumpPassword0123456789" })}\n`,
+      { mode: 0o600 }
+    );
+    const { transport, calls } = recordingTransport(() => json(500, {}));
+    const { code, output } = await freezeWith(file, apiEnv, transport);
+    assert.equal(code, 1, output);
+    assert.match(output, /line 1 is not a valid entry/);
+    assert.deepEqual(calls, []);
+  });
+
   it("takes a file whose first entry is less than 24 h old, and goes on to the branch check", async () => {
     const file = join(workDir, "recent.jsonl");
     writeEntries(file, [
@@ -600,6 +614,26 @@ describe("create-dump-role's checks before any change", () => {
     NEON_BRANCH_ID: "br-main-0001",
     NEON_ENDPOINT_ID: "ep-quiet-sky-123456",
   };
+
+  it("refuses while another process holds the password file's lock, before any Neon call", async () => {
+    const file = join(workDir, "dump-locked.jsonl");
+    writeFileSync(file, "", { mode: 0o600 });
+    const holder = await holdLock(file);
+    try {
+      const { transport, calls } = recordingTransport(() => json(500, {}));
+      const { code, output } = await run(
+        ["create-dump-role", `--password-file=${file}`],
+        env,
+        undefined,
+        transport
+      );
+      assert.equal(code, 1, output);
+      assert.match(output, /locked by another/);
+      assert.deepEqual(calls, []);
+    } finally {
+      holder.kill();
+    }
+  });
 
   it("needs the Neon API variables and a password file before connecting", async () => {
     const { code, output } = await run(["create-dump-role"], {
