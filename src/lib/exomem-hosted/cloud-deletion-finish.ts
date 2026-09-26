@@ -92,7 +92,7 @@ async function readEligibility(
  * makes this a no-op, and the next sweep retries with a fresh proof.
  */
 async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> {
-  return withExomemTransaction(async (tx) => {
+  const scrubbed = await withExomemTransaction(async (tx) => {
     const locked = await tx`
       /* exomem-cloud:deletion-finish-lock */
       SELECT tenant.id
@@ -185,18 +185,56 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
     // an admission email to someone who has deleted their account. The
     // tenant's own invite and waitlist entry are already gone above, so this
     // only ever removes rows outside the receipt.
+    //
+    // An invite a reviewer bootstrap authority holds (ON DELETE RESTRICT) is
+    // left in place, so it can never block the scrub; it is counted and
+    // logged content-free after commit. A waitlist entry admitted through a
+    // purged invite goes first, in the same transaction: deleting the invite
+    // under it would SET NULL its admitted_invite_id, which its admitted-pair
+    // CHECK refuses.
     const owner = await tx`
       /* exomem-cloud:deletion-finish-owner-email */
       SELECT email FROM users WHERE id = ${proof.userId}
     `;
     const ownerEmail = owner.rows[0]?.email as string | undefined;
+    let heldInvites = 0;
     if (ownerEmail) {
+      const held = await tx`
+        SELECT count(*)::int AS held
+        FROM exomem_invites AS invite
+        WHERE invite.email_normalized = ${ownerEmail}
+          AND invite.consumed_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+            WHERE authority.invite_id = invite.id
+          )
+      `;
+      heldInvites = Number(held.rows[0]?.held ?? 0);
       await tx`
-        DELETE FROM exomem_invites WHERE email_normalized = ${ownerEmail} AND consumed_at IS NULL
+        DELETE FROM exomem_waitlist_entries AS entry
+        WHERE entry.email_normalized = ${ownerEmail}
+          AND (
+            entry.admitted_at IS NULL
+            OR EXISTS (
+              SELECT 1 FROM exomem_invites AS invite
+              WHERE invite.id = entry.admitted_invite_id
+                AND invite.email_normalized = ${ownerEmail}
+                AND invite.consumed_at IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+                  WHERE authority.invite_id = invite.id
+                )
+            )
+          )
       `;
       await tx`
-        DELETE FROM exomem_waitlist_entries
-        WHERE email_normalized = ${ownerEmail} AND admitted_at IS NULL
+        DELETE FROM exomem_invites AS invite
+        WHERE invite.email_normalized = ${ownerEmail}
+          AND invite.consumed_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+            WHERE authority.invite_id = invite.id
+          )
       `;
     }
     await tx`DELETE FROM exomem_sessions WHERE tenant_id = ${tenantId}::uuid`;
@@ -205,8 +243,15 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
     // The webhook ledger keeps each event's dedupe row, unlinked from the
     // tenant, exactly as its ON DELETE SET NULL would leave it.
     await tx`UPDATE exomem_paddle_events SET tenant_id = NULL WHERE tenant_id = ${tenantId}::uuid`;
-    return true;
+    return { heldInvites };
   });
+  if (!scrubbed) return false;
+  if (scrubbed.heldInvites > 0) {
+    console.warn(
+      `exomem-cloud: account deletion finish left ${scrubbed.heldInvites} invite(s) held by a restricting reference`
+    );
+  }
+  return true;
 }
 
 /**

@@ -744,6 +744,110 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
   });
 
+  async function insertUnconsumedInvite(email: string): Promise<string> {
+    const { rows } = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+         entitlement_limits, created_by_principal_digest, expires_at
+       ) VALUES ($1, $2, 'complimentary', '["capture"]'::jsonb, '{}'::jsonb, $3, now() + interval '7 days')
+       RETURNING id`,
+      [randomBytes(32), email, randomBytes(32)]
+    );
+    return rows[0]!.id;
+  }
+
+  it("L2: finishes when the owner's admitted waitlist entry points at an unconsumed invite", async () => {
+    await resetFleet();
+    const tenant = await admitCloudTenant({ source: "complimentary" });
+    // Admitted off the waitlist through an invite that was never redeemed
+    // (the owner joined through another invite). Deleting that invite would
+    // SET NULL the entry's admitted_invite_id and trip its admitted-pair CHECK.
+    const inviteId = await insertUnconsumedInvite(tenant.email);
+    await pool!.query(
+      `INSERT INTO exomem_waitlist_entries (email_normalized, admitted_at, admitted_invite_id)
+       VALUES ($1, now(), $2)`,
+      [tenant.email, inviteId]
+    );
+
+    await confirmCloudDeletion(tenant, () => Promise.resolve());
+    assert.equal(
+      await finishCloudAccountDeletion(tenant.tenantId, withPaddle(fakePaddle())),
+      "finished"
+    );
+    assert.equal(await tenantStatus(tenant.tenantId), "deleted");
+    const after = await pool!.query<{ invites: number; waitlist: number }>(
+      `SELECT
+         (SELECT count(*)::int FROM exomem_invites WHERE email_normalized = $1) AS invites,
+         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist`,
+      [tenant.email]
+    );
+    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0 });
+    await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
+  });
+
+  it("L2: leaves an unconsumed owner invite held by an ON DELETE RESTRICT reference in place, and still scrubs", async () => {
+    await resetFleet();
+    const tenant = await admitCloudTenant({ source: "complimentary" });
+    const inviteId = await insertUnconsumedInvite(tenant.email);
+    // The authority's invite_id is ON DELETE RESTRICT. Its other references
+    // are irrelevant here, so seed the row with FK and trigger checks off for
+    // this one insert; the finish's delete still meets the real RESTRICT.
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL session_replication_role = replica");
+      await client.query(
+        `INSERT INTO exomem_marketplace_reviewer_oauth_bootstrap_authorities (
+           state, invite_id, candidate_id, candidate_profile_id, candidate_contract_digest,
+           candidate_source_release, candidate_protocol_version, candidate_gateway_contract_digest,
+           candidate_command_fingerprint, candidate_schema_digest, candidate_compatibility_digest,
+           staged_client_release_id, stage_platform, stage_config_sha256, oauth_client_id,
+           oauth_client_authority_version, oauth_client_config_sha256, redirect_uri_digest,
+           operator_principal_digest, expires_at
+         ) VALUES (
+           'active', $1, gen_random_uuid(), 'p', repeat('a', 64), 'r', 'v', repeat('a', 64),
+           repeat('a', 64), repeat('a', 64), repeat('a', 64), gen_random_uuid(), 'claude',
+           repeat('a', 64), gen_random_uuid(), gen_random_uuid(), repeat('a', 64), $2, $2,
+           now() + interval '10 minutes'
+         )`,
+        [inviteId, randomBytes(32)]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    const logged: string[] = [];
+    const warnLog = mock.method(console, "warn", (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    });
+    try {
+      await confirmCloudDeletion(tenant, () => Promise.resolve());
+      assert.equal(
+        await finishCloudAccountDeletion(tenant.tenantId, withPaddle(fakePaddle())),
+        "finished"
+      );
+      assert.equal(await tenantStatus(tenant.tenantId), "deleted");
+      await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
+      const invite = await pool!.query("SELECT id FROM exomem_invites WHERE id = $1", [inviteId]);
+      assert.equal(invite.rows.length, 1, "the RESTRICT-held invite is left in place");
+      assert.equal(logged.length, 1, "the held invite is logged once");
+      assert.match(logged[0]!, /left 1 invite\(s\) held by a restricting reference/);
+      for (const secret of [tenant.email, tenant.tenantId, tenant.userId, inviteId]) {
+        assert.equal(logged[0]!.includes(secret), false, "the log carries a count only");
+      }
+    } finally {
+      warnLog.mock.restore();
+      await pool!.query(
+        "DELETE FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities WHERE invite_id = $1",
+        [inviteId]
+      );
+    }
+  });
+
   it("finishes a tenant whose unpaid invite expired before the owner confirmed deletion", async () => {
     await resetFleet();
     const tenant = await admitCloudTenant({ source: "paddle" });
