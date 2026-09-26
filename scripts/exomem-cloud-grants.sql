@@ -215,6 +215,13 @@ BEGIN
     IF to_regclass('exomem_oauth_account_blocks') IS NOT NULL THEN
       GRANT SELECT (tenant_id, owner_user_id) ON exomem_oauth_account_blocks TO exomem_gateway;
     END IF;
+    -- C310 round 2, L3: findCloudOAuthAccessToken also requires the tenant's
+    -- own status to be outside deletion_pending/deleted, so it now joins
+    -- exomem_tenants -- not a C1-C1d table, and outside the OAuth grant
+    -- above only because it predates this fix.
+    IF to_regclass('exomem_tenants') IS NOT NULL THEN
+      GRANT SELECT (id, status) ON exomem_tenants TO exomem_gateway;
+    END IF;
   END IF;
 END
 $$;

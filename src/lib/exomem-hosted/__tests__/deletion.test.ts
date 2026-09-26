@@ -89,13 +89,25 @@ describe("Exomem product-scoped deletion confirmation", () => {
       reconciledCloud.push(tenantId);
     };
 
+    const finishCloud = async () => undefined;
+
     delete process.env.EXOMEM_CLOUD_ENABLED;
-    await confirmDeletion("c".repeat(43), SESSION, { consume, reconcile, reconcileCloud });
+    await confirmDeletion("c".repeat(43), SESSION, {
+      consume,
+      reconcile,
+      reconcileCloud,
+      finishCloud,
+    });
     assert.deepEqual(reconciledCloud, []);
 
     process.env.EXOMEM_CLOUD_ENABLED = "1";
     try {
-      await confirmDeletion("d".repeat(43), SESSION, { consume, reconcile, reconcileCloud });
+      await confirmDeletion("d".repeat(43), SESSION, {
+        consume,
+        reconcile,
+        reconcileCloud,
+        finishCloud,
+      });
       // A failing Cloud reconcile never fails the confirmation itself.
       const result = await confirmDeletion("e".repeat(43), SESSION, {
         consume,
@@ -103,12 +115,85 @@ describe("Exomem product-scoped deletion confirmation", () => {
         reconcileCloud: async () => {
           throw new Error("transient");
         },
+        finishCloud,
       });
       assert.equal(result.state, "deletion_pending");
     } finally {
       delete process.env.EXOMEM_CLOUD_ENABLED;
     }
     assert.deepEqual(reconciledCloud, [SESSION.tenantId]);
+  });
+
+  // Cloud design D4 "Cloud deletion finish": billing cancellation and the
+  // scrub follow the Cloud reconcile at once; the periodic sweep retries.
+  it("runs the Cloud deletion finish after the Cloud reconcile, only while Cloud is enabled", async () => {
+    const consume = async () => ({ operationId: null, requestId: null });
+    const reconcile = async () => ({ attempted: false, code: "RECONCILE_IDLE" }) as const;
+    const calls: string[] = [];
+    const reconcileCloud = async (tenantId: string) => {
+      calls.push(`reconcile ${tenantId}`);
+    };
+    const finishCloud = async (tenantId: string) => {
+      calls.push(`finish ${tenantId}`);
+    };
+
+    delete process.env.EXOMEM_CLOUD_ENABLED;
+    await confirmDeletion("f".repeat(43), SESSION, {
+      consume,
+      reconcile,
+      reconcileCloud,
+      finishCloud,
+    });
+    assert.deepEqual(calls, []);
+
+    process.env.EXOMEM_CLOUD_ENABLED = "1";
+    try {
+      const result = await confirmDeletion("g".repeat(43), SESSION, {
+        consume,
+        reconcile,
+        reconcileCloud,
+        finishCloud,
+      });
+      assert.deepEqual(result, { state: "deletion_pending" });
+      // A failing finish never fails the confirmation itself.
+      const failed = await confirmDeletion("h".repeat(43), SESSION, {
+        consume,
+        reconcile,
+        reconcileCloud,
+        finishCloud: async () => {
+          throw new Error("transient");
+        },
+      });
+      assert.deepEqual(failed, { state: "deletion_pending" });
+    } finally {
+      delete process.env.EXOMEM_CLOUD_ENABLED;
+    }
+    assert.deepEqual(calls, [
+      `reconcile ${SESSION.tenantId}`,
+      `finish ${SESSION.tenantId}`,
+      `reconcile ${SESSION.tenantId}`,
+    ]);
+  });
+
+  it("reports a v1 operation id only when the confirmation queued one", async () => {
+    const reconcile = async () => ({ attempted: false, code: "RECONCILE_IDLE" }) as const;
+    const v1 = await confirmDeletion("i".repeat(43), SESSION, {
+      consume: async () => ({
+        operationId: "018f2d91-7c42-7000-8000-000000000093",
+        requestId: "018f2d91-7c42-7000-8000-000000000094",
+      }),
+      reconcile,
+    });
+    assert.deepEqual(v1, {
+      operationId: "018f2d91-7c42-7000-8000-000000000093",
+      requestId: "018f2d91-7c42-7000-8000-000000000094",
+      state: "deletion_pending",
+    });
+    const cloud = await confirmDeletion("j".repeat(43), SESSION, {
+      consume: async () => ({ operationId: null, requestId: null }),
+      reconcile,
+    });
+    assert.deepEqual(cloud, { state: "deletion_pending" });
   });
 
   it("maps replay and wrong-owner confirmation to one safe failure", async () => {

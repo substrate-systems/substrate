@@ -114,7 +114,18 @@ export function createSqlExomemPaddleEventStore(
                  authoritative_target.entitlement_id IS NOT NULL AS is_authoritative,
                  COALESCE(
                    authoritative_target.source_state IN ('awaiting_checkout', 'checkout_pending')
-                     AND ${application.sourceState} IN ('active', 'trialing'),
+                     AND ${application.sourceState} IN ('active', 'trialing')
+                     -- Cloud tenants provision through cellctl, never through
+                     -- the v1 capacity path (matches the consume's
+                     -- cloud_owned rule, db.ts): one owning any
+                     -- exomem_cloud_cells row, a deleted one included, has no
+                     -- v1 capacity allocation to release, so requiring one
+                     -- here would divide by zero below instead of merely
+                     -- finding nothing to release.
+                     AND NOT EXISTS (
+                       SELECT 1 FROM exomem_cloud_cells AS cloud_cell
+                       WHERE cloud_cell.tenant_id = authoritative_target.tenant_id
+                     ),
                    false
                  ) AS requires_provision_release,
                  CASE

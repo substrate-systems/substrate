@@ -392,6 +392,101 @@ describe("Exomem billing termination", () => {
     assert.equal(providerCalls, 0);
   });
 
+  it("M1: heals a documented already-canceled 400 by reading the subscription back as canceled", async () => {
+    const subscriptionRef = `sub_${"m".repeat(26)}`;
+    const calls: Array<{ path: string; method: string }> = [];
+    const result = await terminateExomemBillingForDeletion(TENANT, {
+      config: CONFIG,
+      loadTarget: async () => ({
+        tenantId: TENANT,
+        userId: USER,
+        source: "paddle",
+        sourceState: "active",
+        sourceRevision: null,
+        providerEnvironment: "sandbox",
+        customerRef: null,
+        subscriptionRef,
+        transactionRef: null,
+      }),
+      transport: async (path, init) => {
+        calls.push({ path, method: init?.method ?? "GET" });
+        if (path === `/subscriptions/${subscriptionRef}/cancel`) {
+          return Response.json(
+            {
+              error: {
+                type: "request_error",
+                code: "subscription_is_canceled_action_invalid",
+                detail: "action can't be performed on canceled subscription",
+              },
+            },
+            { status: 400 }
+          );
+        }
+        return Response.json({ data: { id: subscriptionRef, status: "canceled" } });
+      },
+    });
+
+    assert.equal(result?.subscriptionRef, subscriptionRef);
+    assert.deepEqual(calls, [
+      { path: `/subscriptions/${subscriptionRef}/cancel`, method: "POST" },
+      { path: `/subscriptions/${subscriptionRef}`, method: "GET" },
+    ]);
+  });
+
+  it("M1: does not treat another subscription's canceled GET as this one's termination proof", async () => {
+    const subscriptionRef = `sub_${"n".repeat(26)}`;
+    const otherRef = `sub_${"o".repeat(26)}`;
+    const result = await terminateExomemBillingForDeletion(TENANT, {
+      config: CONFIG,
+      loadTarget: async () => ({
+        tenantId: TENANT,
+        userId: USER,
+        source: "paddle",
+        sourceState: "active",
+        sourceRevision: null,
+        providerEnvironment: "sandbox",
+        customerRef: null,
+        subscriptionRef,
+        transactionRef: null,
+      }),
+      transport: async (path) => {
+        if (path === `/subscriptions/${subscriptionRef}/cancel`) {
+          return new Response("already canceled", { status: 400 });
+        }
+        // A mismatched id must never be accepted as this subscription's proof.
+        return Response.json({ data: { id: otherRef, status: "canceled" } });
+      },
+    });
+
+    assert.equal(result, null);
+  });
+
+  it("M1: does not treat a still-active GET after a 400 cancel as termination proof", async () => {
+    const subscriptionRef = `sub_${"p".repeat(26)}`;
+    const result = await terminateExomemBillingForDeletion(TENANT, {
+      config: CONFIG,
+      loadTarget: async () => ({
+        tenantId: TENANT,
+        userId: USER,
+        source: "paddle",
+        sourceState: "active",
+        sourceRevision: null,
+        providerEnvironment: "sandbox",
+        customerRef: null,
+        subscriptionRef,
+        transactionRef: null,
+      }),
+      transport: async (path) => {
+        if (path === `/subscriptions/${subscriptionRef}/cancel`) {
+          return new Response("some other 400", { status: 400 });
+        }
+        return Response.json({ data: { id: subscriptionRef, status: "active" } });
+      },
+    });
+
+    assert.equal(result, null);
+  });
+
   it("returns the exact provider fingerprint that the store must compare atomically", async () => {
     const subscriptionRef = `sub_${"h".repeat(26)}`;
     const result = await terminateExomemBillingForDeletion(TENANT, {

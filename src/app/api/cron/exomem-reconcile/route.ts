@@ -6,12 +6,14 @@ import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { expireCloudAwaitingCheckoutTenants } from "@/lib/exomem-hosted/cloud-admission";
 import { runBoundedCloudReconcile } from "@/lib/exomem-hosted/cloud-lifecycle";
 import { retryPendingCloudCancellationNotices } from "@/lib/exomem-hosted/cloud-cancellation-notice";
+import { runBoundedCloudDeletionFinish } from "@/lib/exomem-hosted/cloud-deletion-finish";
 
 // Task 3.4/3.7's time-driven Cloud sweep, added to the same authenticated
 // schedule the hosted lanes already run on (design D1/D4) rather than a new
 // scheduled job: the 7-day awaiting-checkout expiry, and the day-30
-// cancelled -> deleted transition that no webhook ever fires, and the retry
-// of a cancellation notice whose send failed (D4). A true no-op
+// cancelled -> deleted transition that no webhook ever fires, the retry
+// of a cancellation notice whose send failed (D4), and the Cloud deletion
+// finish of every confirmed account deletion (D4). A true no-op
 // with the flag off -- it never runs a query in that case, matching every
 // other flag-off Cloud code path in this codebase.
 async function runCloudLane(): Promise<{
@@ -21,6 +23,9 @@ async function runCloudLane(): Promise<{
   deleted: number;
   noticesRetried: number;
   noticesSent: number;
+  deletionsFinished: number;
+  deletionsPending: number;
+  deletionsFailed: number;
 } | null> {
   if (!exomemCloudEnabled()) return null;
   // Security review finding 8: expiry and the reconcile sweep run
@@ -40,6 +45,15 @@ async function runCloudLane(): Promise<{
   if (noticeResult.status === "rejected") {
     console.error("exomem-cloud: cancellation notice retry lane failed");
   }
+  // D4 "Cloud deletion finish": after the sweep has deleted the cell rows of
+  // confirmed deletions, cancel their billing and scrub them. Each tenant is
+  // isolated inside the finish; a failure of the lane itself counts nothing.
+  let deletions = { finished: 0, pending: 0, failed: 0 };
+  try {
+    deletions = await runBoundedCloudDeletionFinish({ maxTenants: 25, timeBudgetMs: 8_000 });
+  } catch {
+    console.error("exomem-cloud: account deletion finish lane failed");
+  }
   const expiryOutcomes = expiryResult.status === "fulfilled" ? expiryResult.value : [];
   const sweep = sweepResult.status === "fulfilled" ? sweepResult.value : { reconciled: 0, deleted: 0 };
   const notices =
@@ -51,6 +65,9 @@ async function runCloudLane(): Promise<{
     deleted: sweep.deleted,
     noticesRetried: notices.attempted,
     noticesSent: notices.sent,
+    deletionsFinished: deletions.finished,
+    deletionsPending: deletions.pending,
+    deletionsFailed: deletions.failed,
   };
 }
 

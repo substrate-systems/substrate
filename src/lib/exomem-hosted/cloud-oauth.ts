@@ -121,6 +121,12 @@ export type ActiveCloudOAuthAccessToken = {
  * gates on desired state as a distinct routing decision the gateway makes
  * after authentication succeeds (`running`/`read_only` proxy, anything else
  * is `CELL_NOT_READY`), not as part of "is this token valid".
+ *
+ * L3: also requires the tenant's own `status` to be outside
+ * `deletion_pending`/`deleted`. A confirmed deletion revokes the tenant's
+ * OAuth grants only once the Cloud reconcile has deleted its cell row (D4);
+ * until then -- or if that reconcile ever fails -- the cell row can still be
+ * non-deleted while the account is gone, and this token must not work.
  */
 export async function findCloudOAuthAccessToken(
   accessDigest: Buffer,
@@ -160,6 +166,9 @@ export async function findCloudOAuthAccessToken(
     JOIN exomem_cloud_cells AS cell
       ON cell.tenant_id = oauth_grant.tenant_id
      AND cell.desired_state <> 'deleted'
+    JOIN exomem_tenants AS tenant
+      ON tenant.id = oauth_grant.tenant_id
+     AND tenant.status NOT IN ('deletion_pending', 'deleted')
     WHERE token.access_digest = ${accessDigest}
       AND token.revoked_at IS NULL
       AND token.expires_at > now()

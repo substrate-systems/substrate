@@ -219,6 +219,48 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     assert.equal(found!.resource, CLOUD_RESOURCE);
   });
 
+  it("L3: refuses a Cloud token once the tenant is deletion_pending or deleted, even with a live cell", async () => {
+    const clientId = `https://deletion-status-${randomUUID()}.example.test/client.json`;
+    const host = new URL(clientId).hostname;
+    await admitCimdHost("claude", host);
+    await createCimdClient({ clientId, host });
+    const clientRow = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_oauth_clients WHERE client_id = $1",
+      [clientId]
+    );
+    const clientDbId = clientRow.rows[0]!.id;
+    const tenantId = await newTenantWithCell("running");
+    const tenant = await pool!.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+      [tenantId]
+    );
+    const accessDigest = await mintAccessToken({
+      clientDbId,
+      tenantId,
+      userId: tenant.rows[0]!.owner_user_id,
+      resource: CLOUD_RESOURCE,
+    });
+    assert.ok(
+      await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE),
+      "sanity: the token is live before the tenant's status changes"
+    );
+
+    await pool!.query("UPDATE exomem_tenants SET status = 'deletion_pending' WHERE id = $1", [
+      tenantId,
+    ]);
+    assert.equal(
+      await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE),
+      null,
+      "deletion_pending refuses the token even though the cell row is still 'running'"
+    );
+
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deleted', deleted_at = now() WHERE id = $1",
+      [tenantId]
+    );
+    assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+  });
+
   it("finds a Cloud token's cell and desired_state without gating on it", async () => {
     const clientId = `https://routing-${randomUUID()}.example.test/client.json`;
     const host = new URL(clientId).hostname;

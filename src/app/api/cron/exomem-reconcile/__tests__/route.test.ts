@@ -9,6 +9,9 @@ let paddleRunCalls = 0;
 let cloudExpireCalls = 0;
 let cloudReconcileCalls = 0;
 let cloudNoticeRetryCalls = 0;
+let cloudDeletionFinishCalls = 0;
+let cloudDeletionFinishShouldFail = false;
+let cloudOrder: string[] = [];
 let lifecycleGate: Promise<void> | null = null;
 let paddleGate: Promise<void> | null = null;
 let lifecycleShouldFail = false;
@@ -37,7 +40,19 @@ before(() => {
     namedExports: {
       runBoundedCloudReconcile: async () => {
         cloudReconcileCalls += 1;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        cloudOrder.push("reconcile");
         return { reconciled: 4, deleted: 1 };
+      },
+    },
+  });
+  mock.module("@/lib/exomem-hosted/cloud-deletion-finish", {
+    namedExports: {
+      runBoundedCloudDeletionFinish: async () => {
+        cloudDeletionFinishCalls += 1;
+        cloudOrder.push("finish");
+        if (cloudDeletionFinishShouldFail) throw new Error("private finish failure");
+        return { finished: 2, pending: 3, failed: 1 };
       },
     },
   });
@@ -89,6 +104,9 @@ afterEach(() => {
   cloudExpireCalls = 0;
   cloudReconcileCalls = 0;
   cloudNoticeRetryCalls = 0;
+  cloudDeletionFinishCalls = 0;
+  cloudDeletionFinishShouldFail = false;
+  cloudOrder = [];
   lifecycleGate = null;
   paddleGate = null;
   lifecycleShouldFail = false;
@@ -209,6 +227,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(cloudExpireCalls, 0);
     assert.equal(cloudReconcileCalls, 0);
     assert.equal(cloudNoticeRetryCalls, 0);
+    assert.equal(cloudDeletionFinishCalls, 0);
     const body = (await response.json()) as { result: Record<string, unknown> };
     assert.equal("cloud" in body.result, false);
   });
@@ -222,6 +241,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.equal(cloudExpireCalls, 1);
     assert.equal(cloudReconcileCalls, 1);
     assert.equal(cloudNoticeRetryCalls, 1);
+    assert.equal(cloudDeletionFinishCalls, 1);
     const body = (await response.json()) as { result: { cloud: Record<string, number> } };
     assert.deepEqual(body.result.cloud, {
       expired: 1,
@@ -230,7 +250,46 @@ describe("GET /api/cron/exomem-reconcile", () => {
       deleted: 1,
       noticesRetried: 2,
       noticesSent: 1,
+      deletionsFinished: 2,
+      deletionsPending: 3,
+      deletionsFailed: 1,
     });
+  });
+
+  // Cloud design D4 "Cloud deletion finish": the finish runs after the
+  // reconcile sweep has deleted the cell rows of confirmed deletions.
+  it("runs the Cloud deletion finish after the reconcile sweep", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    const { GET } = await import("../route");
+    assert.equal((await GET(request("cron-secret"))).status, 200);
+    assert.deepEqual(cloudOrder, ["reconcile", "finish"]);
+  });
+
+  it("reports zero deletion counts, content-free, when the finish lane itself fails", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    cloudDeletionFinishShouldFail = true;
+    const logged: string[] = [];
+    const errorLog = mock.method(console, "error", (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    });
+    let response: Response;
+    try {
+      const { GET } = await import("../route");
+      response = await GET(request("cron-secret"));
+    } finally {
+      errorLog.mock.restore();
+    }
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.equal(text.includes("private finish failure"), false);
+    const body = JSON.parse(text) as { result: { cloud: Record<string, number> } };
+    assert.equal(body.result.cloud.deletionsFinished, 0);
+    assert.equal(body.result.cloud.deletionsPending, 0);
+    assert.equal(body.result.cloud.deletionsFailed, 0);
+    assert.equal(body.result.cloud.reconciled, 4, "the other Cloud lanes still report");
+    assert.deepEqual(logged, ["exomem-cloud: account deletion finish lane failed"]);
   });
 });
 

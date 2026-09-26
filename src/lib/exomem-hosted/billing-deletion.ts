@@ -71,6 +71,39 @@ function defaults(): BillingDeletionDependencies {
   };
 }
 
+/**
+ * Paddle's cancel is not idempotent: a second cancel of an already-cancelled
+ * subscription answers `400 subscription_is_canceled_action_invalid`, not a
+ * repeat of the terminal payload. Read back the subscription instead of
+ * treating that 400 as failure, so a cancel that already landed (this call
+ * succeeded, or a webhook applied it, or a concurrent cancel raced it) is
+ * still recognised as terminated billing. A network failure, a non-OK GET or
+ * a mismatched id/status all answer false, same as `cancelSubscription`.
+ */
+async function subscriptionIsCanceled(
+  subscriptionId: string,
+  transport: PaddleTransport
+): Promise<boolean> {
+  let response: Response;
+  try {
+    response = await transport(`/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+      method: "GET",
+    });
+  } catch {
+    return false;
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return false;
+  }
+  try {
+    const payload = (await response.json()) as { data?: { id?: unknown; status?: unknown } };
+    return payload.data?.id === subscriptionId && payload.data.status === "canceled";
+  } catch {
+    return false;
+  }
+}
+
 async function cancelSubscription(
   subscriptionId: string,
   transport: PaddleTransport
@@ -93,7 +126,7 @@ async function cancelSubscription(
   }
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
-    return false;
+    return subscriptionIsCanceled(subscriptionId, transport);
   }
   try {
     const payload = (await response.json()) as { data?: { id?: unknown; status?: unknown } };

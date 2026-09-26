@@ -1425,11 +1425,20 @@ export async function createDeletionConfirmationToken(input: {
   return row ? { tokenId: String(row.id), emailNormalized: String(row.email).toLowerCase() } : null;
 }
 
+/**
+ * A v1 tenant's confirmation queues its v1 delete operation. A Cloud tenant,
+ * one owning any `exomem_cloud_cells` row (a `deleted` one included), gets no
+ * v1 operation: the Cloud deletion finish completes it (Cloud design D4).
+ */
+export type ConsumedDeletionConfirmation =
+  | { operationId: string; requestId: string }
+  | { operationId: null; requestId: null };
+
 export async function consumeDeletionConfirmationAtomic(input: {
   userId: string;
   tenantId: string;
   tokenDigest: Buffer;
-}): Promise<{ operationId: string; requestId: string } | null> {
+}): Promise<ConsumedDeletionConfirmation | null> {
   const provisionerWireProtocol = provisionerWireProtocolFromEnv();
   const { rows } = await sql`
     /* exomem:consume-deletion-confirmation */
@@ -1741,6 +1750,12 @@ export async function consumeDeletionConfirmationAtomic(input: {
         AND NOT EXISTS (SELECT 1 FROM strict_v1_reviewer_target)
         AND NOT EXISTS (SELECT 1 FROM latest_origin_target)
     ),
+    cloud_owned AS MATERIALIZED (
+      SELECT 1
+      FROM exomem_cloud_cells AS cloud_cell
+      JOIN consumed ON consumed.tenant_id = cloud_cell.tenant_id
+      LIMIT 1
+    ),
     operation AS (
       INSERT INTO exomem_lifecycle_operations (
         tenant_id, cell_id, operation_type, idempotency_key,
@@ -1762,16 +1777,21 @@ export async function consumeDeletionConfirmationAtomic(input: {
       FROM tenant_gated
       JOIN consumed ON consumed.tenant_id = tenant_gated.id
       LEFT JOIN target ON TRUE
+      WHERE NOT EXISTS (SELECT 1 FROM cloud_owned)
       ON CONFLICT (tenant_id, operation_type, idempotency_key) DO UPDATE
       SET updated_at = exomem_lifecycle_operations.updated_at
       RETURNING id, request_id
     )
-    SELECT operation.id, operation.request_id
-    FROM operation
+    SELECT operation.id, operation.request_id,
+           EXISTS (SELECT 1 FROM cloud_owned) AS cloud_owned
+    FROM consumed
+    LEFT JOIN operation ON TRUE
     LIMIT 1
   `;
   const row = rows[0];
-  return row ? { operationId: String(row.id), requestId: String(row.request_id) } : null;
+  if (!row) return null;
+  if (row.cloud_owned === true) return { operationId: null, requestId: null };
+  return row.id ? { operationId: String(row.id), requestId: String(row.request_id) } : null;
 }
 
 export async function rotateExomemSessionAtomic(input: {
