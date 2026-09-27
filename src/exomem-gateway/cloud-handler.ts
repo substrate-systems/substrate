@@ -145,6 +145,25 @@ function errorResponse(status: number, code: string): Response {
 }
 
 /**
+ * RFC 9728 section 5.1: a 401 names the resource's own metadata document
+ * (`<origin>/.well-known/oauth-protected-resource<path>`, the path this
+ * gateway serves it at) and the scopes to request, so a client reaches the
+ * authorization server without probing well-known paths.
+ */
+function cloudBearerChallenge(mcpUrl: string): string {
+  const resource = new URL(mcpUrl);
+  const metadata = `${resource.origin}/.well-known/oauth-protected-resource${resource.pathname}`;
+  return `Bearer resource_metadata="${metadata}", scope="${ADVERTISED_SCOPES.join(" ")}"`;
+}
+
+function unauthorized(mcpUrl: string): Response {
+  return Response.json(
+    { error: "ACCESS_TOKEN_INVALID" },
+    { status: 401, headers: { ...CACHE_HEADERS, "www-authenticate": cloudBearerChallenge(mcpUrl) } }
+  );
+}
+
+/**
  * D3 step 3: "keyed on X-Real-Ip. Our own Traefik overwrites that header,
  * and a NetworkPolicy admits only Traefik to the gateway... If the request
  * carries no client address, the IP bucket is skipped. It is never
@@ -227,9 +246,9 @@ export async function handleCloudMcpRequest(
   // 4. Bearer parse, token lookup (exact Cloud-resource match), required
   // scopes (D2), identity rate limit and concurrency guard.
   const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  if (!bearer) return errorResponse(401, "ACCESS_TOKEN_INVALID");
+  if (!bearer) return unauthorized(config.mcpUrl);
   const access = await findAccessToken(digestSecret(bearer), config.mcpUrl);
-  if (!access) return errorResponse(401, "ACCESS_TOKEN_INVALID");
+  if (!access) return unauthorized(config.mcpUrl);
 
   // Security review finding 2: a cell exposes one fixed non-owner principal
   // and cannot itself enforce a read-only grant, so a token missing either
