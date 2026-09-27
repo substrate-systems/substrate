@@ -146,20 +146,19 @@ function errorResponse(status: number, code: string): Response {
 
 /**
  * RFC 9728 section 5.1: a 401 names the resource's own metadata document
- * (`<origin>/.well-known/oauth-protected-resource<path>`, the path this
- * gateway serves it at) and the scopes to request, so a client reaches the
+ * (`<origin>/.well-known/oauth-protected-resource<mcpPath>`, where server.ts
+ * serves it) and the scopes to request, so a client reaches the
  * authorization server without probing well-known paths.
  */
-function cloudBearerChallenge(mcpUrl: string): string {
-  const resource = new URL(mcpUrl);
-  const metadata = `${resource.origin}/.well-known/oauth-protected-resource${resource.pathname}`;
+function cloudBearerChallenge(config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath">): string {
+  const metadata = `${new URL(config.mcpUrl).origin}/.well-known/oauth-protected-resource${config.mcpPath}`;
   return `Bearer resource_metadata="${metadata}", scope="${ADVERTISED_SCOPES.join(" ")}"`;
 }
 
-function unauthorized(mcpUrl: string): Response {
+function unauthorized(config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath">): Response {
   return Response.json(
     { error: "ACCESS_TOKEN_INVALID" },
-    { status: 401, headers: { ...CACHE_HEADERS, "www-authenticate": cloudBearerChallenge(mcpUrl) } }
+    { status: 401, headers: { ...CACHE_HEADERS, "www-authenticate": cloudBearerChallenge(config) } }
   );
 }
 
@@ -246,9 +245,9 @@ export async function handleCloudMcpRequest(
   // 4. Bearer parse, token lookup (exact Cloud-resource match), required
   // scopes (D2), identity rate limit and concurrency guard.
   const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  if (!bearer) return unauthorized(config.mcpUrl);
+  if (!bearer) return unauthorized(config);
   const access = await findAccessToken(digestSecret(bearer), config.mcpUrl);
-  if (!access) return unauthorized(config.mcpUrl);
+  if (!access) return unauthorized(config);
 
   // Security review finding 2: a cell exposes one fixed non-owner principal
   // and cannot itself enforce a read-only grant, so a token missing either

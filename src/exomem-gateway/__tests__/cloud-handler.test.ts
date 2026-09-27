@@ -177,7 +177,7 @@ describe("Exomem Cloud gateway handler", () => {
   // without probing well-known paths.
   it("challenges a 401 with the Cloud resource metadata and scopes", async () => {
     const expected =
-      'Bearer resource_metadata="https://cloud.example.test/.well-known/oauth-protected-resource/mcp/v1", ' +
+      'Bearer resource_metadata="https://cloud.example.test/.well-known/oauth-protected-resource/api/exomem/cloud/mcp/v1", ' +
       'scope="exomem.read exomem.write offline_access"';
     const noBearer = await handleCloudMcpRequest(postRequest({}), baseDeps());
     assert.equal(noBearer.headers.get("www-authenticate"), expected);
