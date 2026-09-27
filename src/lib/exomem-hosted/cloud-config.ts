@@ -27,11 +27,12 @@ export class ExomemCloudConfigurationError extends Error {
   }
 }
 
-export type ExomemCloudConfig = Readonly<{
+export type ExomemCloudResource = Readonly<{
   mcpUrl: string;
   mcpPath: string;
-  cellTokenKey: Buffer;
 }>;
+
+export type ExomemCloudConfig = ExomemCloudResource & Readonly<{ cellTokenKey: Buffer }>;
 
 function requiredValue(env: EnvironmentSource, name: string, missing: string[]): string {
   const value = env[name]?.trim();
@@ -47,10 +48,24 @@ function requiredValue(env: EnvironmentSource, name: string, missing: string[]):
 const CELL_TOKEN_KEY_HEX = /^[0-9a-f]{64}$/i;
 
 /**
- * Loads the Cloud resource URL, the gateway's mount path and the cell-bearer
- * derivation key (C4). Throws only when a caller actually needs this -- an
- * unconfigured Cloud deployment must not fail anything on the hosted path,
- * so nothing here runs at import time.
+ * Loads the Cloud resource URL and the gateway's mount path, without the
+ * cell-bearer key. The OAuth and status routes run on Vercel and need only
+ * the resource; C4 gives `cell_token_key` to the gateway and cellctl alone,
+ * so the web app never has to hold it. Throws only when a caller actually
+ * needs this -- an unconfigured Cloud deployment must not fail anything on
+ * the hosted path, so nothing here runs at import time.
+ */
+export function loadExomemCloudResource(env: EnvironmentSource = process.env): ExomemCloudResource {
+  const missing: string[] = [];
+  const mcpUrl = requiredValue(env, "EXOMEM_CLOUD_MCP_URL", missing);
+  const mcpPath = requiredValue(env, "EXOMEM_CLOUD_MCP_PATH", missing);
+  if (missing.length) throw new ExomemCloudConfigurationError(missing);
+  return { mcpUrl, mcpPath };
+}
+
+/**
+ * Loads the Cloud resource plus the cell-bearer derivation key (C4), for the
+ * gateway, which derives each cell's bearer.
  *
  * The cancelled-tenant retention window is `DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS`,
  * a fixed constant (security review finding 9d) -- no `EXOMEM_CLOUD_CANCELLED_RETENTION_DAYS`

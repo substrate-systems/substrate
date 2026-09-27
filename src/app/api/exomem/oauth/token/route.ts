@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exomemCloudEnabled, loadExomemCloudConfig } from "@/lib/exomem-hosted/cloud-config";
+import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import {
   isPkceVerifier,
@@ -113,7 +113,7 @@ function resolveRequestedResource(
   if (requested === hostedResource) return hostedResource;
   if (requested && exomemCloudEnabled()) {
     try {
-      const cloudResource = loadExomemCloudConfig().mcpUrl;
+      const cloudResource = loadExomemCloudResource().mcpUrl;
       if (requested === cloudResource) return cloudResource;
     } catch {
       // Cloud flagged on but unconfigured: fall through to the null return.

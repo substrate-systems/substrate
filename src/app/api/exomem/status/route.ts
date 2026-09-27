@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exomemCloudEnabled, loadExomemCloudConfig } from "@/lib/exomem-hosted/cloud-config";
+import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
 import { getOwnerLifecycleStatus } from "@/lib/exomem-hosted/reconcile-runtime";
@@ -43,7 +43,7 @@ function safeStatus(status: LifecycleStatus): LifecycleStatus {
 // connector URL to show.
 function cloudConnectorUrl(): string | undefined {
   try {
-    return loadExomemCloudConfig().mcpUrl;
+    return loadExomemCloudResource().mcpUrl;
   } catch {
     return undefined;
   }
