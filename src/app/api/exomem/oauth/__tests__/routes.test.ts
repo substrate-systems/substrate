@@ -867,6 +867,31 @@ describe("Exomem OAuth routes", () => {
     assert.equal(cloudClientResolutions, 1);
   });
 
+  // Design C4: only the gateway and cellctl hold cell_token_key. The OAuth
+  // routes run on Vercel and need only the Cloud resource URL, so a
+  // deployment without the key must still authorize against it.
+  it("flag on: authorizes against the Cloud resource without a cell token key configured", async () => {
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    delete process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY;
+    try {
+      const { GET } = await import("../authorize/route");
+      const response = await GET(
+        authorizeRequest("cloud-keyless-state", {
+          client_id: CLOUD_CLIENT_ID,
+          redirect_uri: CLOUD_REDIRECT_URI,
+          resource: CLOUD_RESOURCE,
+          scope: "exomem.read exomem.write",
+        })
+      );
+      assert.equal(response.status, 303);
+      const transaction = cookie(response, "exomem_oauth_tx");
+      const stored = continuations.get(digestKey(digestSecret(transaction)));
+      assert.equal(stored?.resource, CLOUD_RESOURCE);
+    } finally {
+      process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY = CLOUD_CELL_TOKEN_KEY;
+    }
+  });
+
   // Security review finding 2: a cell exposes one fixed non-owner principal
   // and cannot itself enforce a read-only grant, so a Cloud-resource request
   // naming only a subset of exomem.read/exomem.write is refused outright,
@@ -1522,6 +1547,38 @@ describe("Exomem OAuth routes", () => {
     );
     assert.equal(hostedCorrect.status, 200);
     assert.equal(codes.get(tokenKey(hostedCode))?.consumed, true);
+  });
+
+  it("flag on: exchanges a Cloud-resource code without a cell token key configured", async () => {
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    delete process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY;
+    try {
+      const { POST } = await import("../token/route");
+      const cloudCode = Buffer.alloc(32, 0x73).toString("base64url");
+      seedCode(cloudCode, {
+        clientId: CLOUD_CLIENT_ID,
+        redirectUri: CLOUD_REDIRECT_URI,
+        resource: CLOUD_RESOURCE,
+      });
+      const response = await POST(
+        new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code: cloudCode,
+            client_id: CLOUD_CLIENT_ID,
+            redirect_uri: CLOUD_REDIRECT_URI,
+            code_verifier: VERIFIER,
+            resource: CLOUD_RESOURCE,
+          }),
+        })
+      );
+      assert.equal(response.status, 200);
+      assert.equal(codes.get(tokenKey(cloudCode))?.consumed, true);
+    } finally {
+      process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY = CLOUD_CELL_TOKEN_KEY;
+    }
   });
 
   it("flag off: a Cloud-resource token request is refused even though a matching code exists", async () => {

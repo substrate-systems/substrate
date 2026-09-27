@@ -61,10 +61,9 @@ before(() => {
   mock.module("@/lib/exomem-hosted/cloud-config", {
     namedExports: {
       exomemCloudEnabled: () => process.env.EXOMEM_CLOUD_ENABLED === "true",
-      loadExomemCloudConfig: () => ({
+      loadExomemCloudResource: () => ({
         mcpUrl: CLOUD_MCP_URL,
         mcpPath: "/api/exomem/cloud/mcp/v1",
-        cellTokenKey: Buffer.alloc(32, 9),
       }),
     },
   });

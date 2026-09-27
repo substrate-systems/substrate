@@ -11,7 +11,7 @@ import {
   resolveActiveOAuthClient,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import { exomemCloudEnabled, loadExomemCloudConfig } from "@/lib/exomem-hosted/cloud-config";
+import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { resolveCloudAuthorizationScope } from "@/lib/exomem-hosted/cloud-oauth";
 import { unnormalizedRequestUrl } from "@/lib/exomem-hosted/oauth-http";
 import { registerAdmittedCimdClient } from "@/lib/exomem-hosted/oauth-store";
@@ -234,7 +234,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     // silent fall-through to the hosted resource.
     const cloudEnabled = exomemCloudEnabled();
     const resource = cloudEnabled
-      ? loadExomemCloudConfig().mcpUrl
+      ? loadExomemCloudResource().mcpUrl
       : `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
     // D2: a Cloud-resource grant always carries both exomem.read and
     // exomem.write. An omitted scope receives both; a request naming only a

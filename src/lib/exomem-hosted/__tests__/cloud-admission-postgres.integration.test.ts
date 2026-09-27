@@ -176,13 +176,14 @@ function redemptionInput(tokenDigest: Buffer) {
 
 // admitFirstCloudOAuthInviteAtomic loads the Cloud resource URL (security
 // review finding 15: it asserts the pending authorization transaction is
-// bound to exactly this resource) via loadExomemCloudConfig(), which reads
-// real process.env -- these tests need the three required vars present for
-// the whole suite, restored afterwards so they don't leak into other files.
+// bound to exactly this resource) from real process.env -- these tests set
+// the resource vars for the whole suite, restored afterwards so they don't
+// leak into other files. The cell token key is deliberately unset: admission
+// runs on Vercel, and design C4 gives that key to the gateway and cellctl only.
 const CLOUD_CONFIG_ENV = {
   EXOMEM_CLOUD_MCP_URL: "https://cloud.example.test/mcp/v1",
   EXOMEM_CLOUD_MCP_PATH: "/api/exomem/cloud/mcp/v1",
-  EXOMEM_CLOUD_CELL_TOKEN_KEY: "a".repeat(64),
+  EXOMEM_CLOUD_CELL_TOKEN_KEY: undefined,
 } as const;
 const priorCloudConfigEnv: Partial<Record<keyof typeof CLOUD_CONFIG_ENV, string | undefined>> = {};
 
@@ -190,7 +191,9 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
   before(async () => {
     for (const key of Object.keys(CLOUD_CONFIG_ENV) as Array<keyof typeof CLOUD_CONFIG_ENV>) {
       priorCloudConfigEnv[key] = process.env[key];
-      process.env[key] = CLOUD_CONFIG_ENV[key];
+      const value = CLOUD_CONFIG_ENV[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
     schema = `cloud_admit_it_${randomUUID().replaceAll("-", "")}`;
     await ensureExomemPostgresTestExtensions(databaseUrl!);

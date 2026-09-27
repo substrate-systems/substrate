@@ -11,7 +11,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { loadExomemCloudConfig } from "./cloud-config";
+import { loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors } from "./errors";
@@ -371,7 +371,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
     // whatever resource that transaction actually named. Loaded once,
     // outside the transaction, so a misconfigured Cloud deployment fails
     // this call the same way every other Cloud entry point does.
-    const cloudResource = loadExomemCloudConfig().mcpUrl;
+    const cloudResource = loadExomemCloudResource().mcpUrl;
     return await withExomemTransaction(async (tx: ExomemSql) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-cloud-capacity'))`;
 
