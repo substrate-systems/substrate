@@ -172,6 +172,22 @@ describe("Exomem Cloud gateway handler", () => {
     assert.equal(unknownToken.status, 401);
   });
 
+  // RFC 9728 section 5.1 / MCP authorization: the 401 names the Cloud
+  // resource's own metadata, so a client finds the authorization server
+  // without probing well-known paths.
+  it("challenges a 401 with the Cloud resource metadata and scopes", async () => {
+    const expected =
+      'Bearer resource_metadata="https://cloud.example.test/.well-known/oauth-protected-resource/api/exomem/cloud/mcp/v1", ' +
+      'scope="exomem.read exomem.write offline_access"';
+    const noBearer = await handleCloudMcpRequest(postRequest({}), baseDeps());
+    assert.equal(noBearer.headers.get("www-authenticate"), expected);
+    const unknownToken = await handleCloudMcpRequest(
+      postRequest({ bearer: CLIENT_BEARER }),
+      baseDeps({ findAccessToken: async () => null })
+    );
+    assert.equal(unknownToken.headers.get("www-authenticate"), expected);
+  });
+
   // Item 4 / task 3.5 (design D2): explicit evidence that the handler asks
   // findCloudOAuthAccessToken (D2's exact-resource lookup) for the
   // configured Cloud resource specifically, never the hosted one. This is
