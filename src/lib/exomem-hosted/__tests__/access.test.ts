@@ -98,6 +98,10 @@ describe("Exomem hosted access", () => {
     const rendered = `${mailInput?.htmlContent}\n${mailInput?.textContent}`;
     assert.match(rendered, /\/exomem\/invite#[A-Za-z0-9_-]+/);
     assert.doesNotMatch(rendered, /[?&]token=/);
+    assert.equal(mailInput?.senderName, "Exomem");
+    assert.equal(mailInput?.senderEmail, "exomem@substratesystems.io");
+    assert.match(rendered, /Exomem Cloud/);
+    assert.doesNotMatch(rendered, /Exomem Hosted/);
   });
 
   it("passes reviewer purpose only when the authenticated operator explicitly requests it", async () => {

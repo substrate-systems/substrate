@@ -9,7 +9,13 @@ const TOKEN_DIGEST = createHash("sha256").update(TOKEN, "utf8").digest("hex");
 const TRANSITION_ID = "a".repeat(64);
 const OTHER_ID = "b".repeat(64);
 
-type Sent = { to: string; senderName?: string; subject: string; textContent: string };
+type Sent = {
+  to: string;
+  senderName?: string;
+  senderEmail?: string;
+  subject: string;
+  textContent: string;
+};
 let sent: Sent[] = [];
 /** "throw" models a transport/config failure, "reject" models Brevo answering
  * with success:false — two different branches in notifyAlertTransition. */
@@ -481,6 +487,7 @@ describe("deliverClaimedAlert", () => {
     assert.equal(sent.length, 1);
     assert.equal(sent[0].to, "founder@substratesystems.io");
     assert.equal(sent[0].senderName, "Exomem");
+    assert.equal(sent[0].senderEmail, "exomem@substratesystems.io");
     assert.match(sent[0].subject, /FIRING: scheduler_missed_run \(exomem-reconcile\)/);
     assert.equal(table.get(TRANSITION_ID)?.notification_state, "delivered");
   });

@@ -91,6 +91,8 @@ async function resetFleet(): Promise<void> {
   await pool!.query("DELETE FROM exomem_sessions");
   await pool!.query("DELETE FROM exomem_entitlements");
   await pool!.query("DELETE FROM exomem_cloud_cells");
+  // Account blocks reference tenants with ON DELETE RESTRICT.
+  await pool!.query("DELETE FROM exomem_oauth_account_blocks");
   await pool!.query("DELETE FROM exomem_tenants");
   await pool!.query("DELETE FROM users");
 }
@@ -343,6 +345,75 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       "SELECT count(*)::int AS n FROM exomem_cloud_cells WHERE desired_state <> 'deleted'"
     );
     assert.equal(activeCells.rows[0]!.n, 1, "capacity still reflects exactly one live cell, not two");
+  });
+
+  // An alpha lifecycle deletion always left an exomem_oauth_account_blocks
+  // row (blocked_reason lifecycle_deleted) keyed on the deleted tenant.
+  // Re-admission reuses that tenant row, so the block must go with the
+  // admission; otherwise the owner is refused as an invalid invite, and the
+  // Cloud OAuth checks refuse the tenant right after it (2026-09-27).
+  async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [admitted.cellId]);
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
+      [admitted.tenantId]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'lifecycle_deleted')",
+      [admitted.tenantId, admitted.userId]
+    );
+  }
+
+  it("re-admits a tenant the alpha lifecycle deleted and clears its lifecycle block", async () => {
+    await resetFleet();
+    await configureCapacity(1);
+    const email = `cloud-readmit-lifecycle-${randomUUID()}@example.test`;
+
+    const first = await createInvite("complimentary", email);
+    const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
+    assert.ok(admitted);
+    await deleteAsAlphaLifecycleDid(admitted!);
+
+    const second = await createInvite("complimentary", email);
+    const readmitted = await redeemCloudInviteAtomic(redemptionInput(second.tokenDigest));
+    assert.ok(readmitted);
+    assert.equal(readmitted!.tenantId, admitted!.tenantId);
+    const blocks = await pool!.query(
+      "SELECT count(*)::int AS n FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+      [admitted!.tenantId]
+    );
+    assert.equal(blocks.rows[0]!.n, 0, "the reused tenant carries no block into Cloud");
+  });
+
+  it("still refuses an owner an operator revoked, leaving the invite unconsumed", async () => {
+    await resetFleet();
+    await configureCapacity(1);
+    const email = `cloud-readmit-revoked-${randomUUID()}@example.test`;
+
+    const first = await createInvite("complimentary", email);
+    const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
+    assert.ok(admitted);
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [admitted!.cellId]);
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
+      [admitted!.tenantId]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'operator_revoked')",
+      [admitted!.tenantId, admitted!.userId]
+    );
+
+    const second = await createInvite("complimentary", email);
+    await assert.rejects(redeemCloudInviteAtomic(redemptionInput(second.tokenDigest)));
+    const invite = await pool!.query("SELECT consumed_at FROM exomem_invites WHERE token_digest = $1", [
+      second.tokenDigest,
+    ]);
+    assert.equal(invite.rows[0]!.consumed_at, null);
+    const blocks = await pool!.query(
+      "SELECT blocked_reason FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+      [admitted!.tenantId]
+    );
+    assert.equal(blocks.rows[0]!.blocked_reason, "operator_revoked", "an operator ban is never cleared by an invite");
   });
 
   it("still refuses re-admission while the owner's prior cell is still live", async () => {
@@ -707,6 +778,36 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.ok(readmitted);
     assert.equal(readmitted!.tenantId, admitted!.tenantId);
     assert.notEqual(readmitted!.cellId, admitted!.cellId);
+  });
+
+  it("re-admits a tenant the alpha lifecycle deleted through a fresh OAuth invite and clears its block", async () => {
+    await resetFleet();
+    await configureCapacity(1);
+    const email = `cloud-oauth-readmit-lifecycle-${randomUUID()}@example.test`;
+    const admit = async (fixture: Awaited<ReturnType<typeof createCloudOAuthFixture>>) =>
+      admitFirstCloudOAuthInviteAtomic({
+        inviteDigest: fixture.inviteDigest,
+        transactionDigest: fixture.transactionDigest,
+        sessionDigest: randomBytes(32),
+        csrfDigest: randomBytes(32),
+        sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        codeDigest: randomBytes(32),
+        codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+
+    const admitted = await admit(await createCloudOAuthFixture(email));
+    assert.ok(admitted);
+    const owner = await pool!.query("SELECT owner_user_id FROM exomem_tenants WHERE id = $1", [admitted!.tenantId]);
+    await deleteAsAlphaLifecycleDid({ ...admitted!, userId: owner.rows[0]!.owner_user_id });
+
+    const readmitted = await admit(await createCloudOAuthFixture(email));
+    assert.ok(readmitted);
+    assert.equal(readmitted!.tenantId, admitted!.tenantId);
+    const blocks = await pool!.query(
+      "SELECT count(*)::int AS n FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+      [admitted!.tenantId]
+    );
+    assert.equal(blocks.rows[0]!.n, 0);
   });
 
   it("refuses Cloud OAuth admission when capacity is exhausted, leaving the invite and transaction unconsumed", async () => {

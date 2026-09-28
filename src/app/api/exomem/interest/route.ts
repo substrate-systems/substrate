@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendTransactionalEmail } from "@/lib/brevo";
+import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import {
   clientAddressKey,
   EXOMEM_RATE_LIMITS,
@@ -113,8 +114,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const result = await sendTransactionalEmail({
       to: notifyTo,
-      // Keep the verified from-address; brand the display name for Exomem.
-      senderName: "Exomem",
+      ...EXOMEM_SENDER,
       subject: `Exomem friends-cohort invite request — ${cleanEmail}`,
       htmlContent:
         `<p>New Exomem friends-cohort invite request.</p>` +

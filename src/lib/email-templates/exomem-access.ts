@@ -94,7 +94,7 @@ export function renderExomemInviteEmail(input: {
   return renderAccessEmail({
     subject: "Your Exomem invitation",
     introduction:
-      "You have been invited to Exomem Hosted. Accept the invitation to create your private memory space.",
+      "You have been invited to Exomem Cloud. Accept the invitation to create your private memory space.",
     actionLabel: "Accept invitation",
     accessUrl: input.accessUrl,
     expiryLabel: expiryLabel("This invitation", input.expiresAt, input.now ?? new Date()),
@@ -113,7 +113,7 @@ export function renderExomemWelcomeEmail(input: {
   return renderAccessEmail({
     subject: "Set up your Exomem",
     introduction:
-      "Your place on Exomem Hosted is ready. Set it up to create your private memory space, then connect it to Claude or ChatGPT.",
+      "Your place on Exomem Cloud is ready. Set it up to create your private memory space, then connect it to Claude or ChatGPT.",
     actionLabel: "Set up Exomem",
     accessUrl: input.accessUrl,
     expiryLabel: expiryLabel("This setup link", input.expiresAt, input.now ?? new Date()),
@@ -128,8 +128,8 @@ export function renderExomemWelcomeEmail(input: {
 export function renderExomemWaitlistEmail(input: { position: number }): RenderedExomemAccessEmail {
   const introduction =
     input.position === 1
-      ? "Thanks for asking about Exomem Hosted. Every place is currently taken, so you are first in line — we will email you as soon as one frees up. You have not been charged."
-      : `Thanks for asking about Exomem Hosted. Every place is currently taken, so you are number ${input.position} in line — we will email you as soon as one frees up. You have not been charged.`;
+      ? "Thanks for asking about Exomem Cloud. Every place is currently taken, so you are first in line — we will email you as soon as one frees up. You have not been charged."
+      : `Thanks for asking about Exomem Cloud. Every place is currently taken, so you are number ${input.position} in line — we will email you as soon as one frees up. You have not been charged.`;
   const htmlContent = `<!doctype html>
 <html>
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
