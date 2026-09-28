@@ -15,6 +15,7 @@
  */
 
 import { sendTransactionalEmail, type SendTransactionalEmailResult } from "@/lib/brevo";
+import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { renderExomemCloudCancellationEmail } from "@/lib/email-templates/exomem-access";
 import { DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS } from "./cloud-config";
 import { executeExomemSql } from "./db";
@@ -23,6 +24,7 @@ export type CloudCancellationNoticeDependencies = {
   sendEmail?: (input: {
     to: string;
     senderName: string;
+    senderEmail: string;
     subject: string;
     htmlContent: string;
     textContent: string;
@@ -115,7 +117,7 @@ export async function sendCloudCancellationNoticeOnce(
   try {
     const result = await sendEmail({
       to: claimed.email,
-      senderName: "Exomem",
+      ...EXOMEM_SENDER,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,

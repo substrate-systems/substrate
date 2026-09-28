@@ -1,5 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
+import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { renderExomemMagicLinkEmail } from "@/lib/email-templates/exomem-access";
 import {
   claimMagicLinkDelivery,
@@ -139,7 +140,7 @@ export async function drainMagicLinkDeliveries(
       delivered = (
         await deps.sendEmail({
           to: record.emailNormalized,
-          senderName: "Exomem",
+          ...EXOMEM_SENDER,
           subject: rendered.subject,
           htmlContent: rendered.htmlContent,
           textContent: rendered.textContent,

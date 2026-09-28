@@ -1,5 +1,6 @@
 import { createHash, randomBytes as nodeRandomBytes } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
+import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import {
   renderExomemInviteEmail,
   renderExomemWaitlistEmail,
@@ -173,7 +174,7 @@ export async function issueOperatorInvite(
   try {
     delivery = await deps.sendEmail({
       to: emailNormalized,
-      senderName: "Exomem",
+      ...EXOMEM_SENDER,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,
@@ -244,7 +245,7 @@ export async function requestSelfServeAccess(
     try {
       await deps.sendEmail({
         to: emailNormalized,
-        senderName: "Exomem",
+        ...EXOMEM_SENDER,
         subject: rendered.subject,
         htmlContent: rendered.htmlContent,
         textContent: rendered.textContent,
@@ -261,7 +262,7 @@ export async function requestSelfServeAccess(
   try {
     delivery = await deps.sendEmail({
       to: emailNormalized,
-      senderName: "Exomem",
+      ...EXOMEM_SENDER,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,

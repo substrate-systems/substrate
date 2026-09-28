@@ -55,8 +55,8 @@ export default function DeleteClient() {
       {state === "pending" ? (
         <>
           <p className={styles.lede}>
-            Deletion is in progress. Access is closed while the vault, hosted exports, storage, and
-            encryption keys are verified as removed.
+            Deletion is in progress. Access is closed while the vault, its backups and exports,
+            storage, and encryption keys are verified as removed.
           </p>
           <p className={styles.status} role="status">
             Your shared Substrate identity and any other product remain untouched.

@@ -1,5 +1,6 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
+import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { renderExomemDeletionEmail } from "@/lib/email-templates/exomem-access";
 import { exomemCloudEnabled } from "./cloud-config";
 import { finishCloudAccountDeletion } from "./cloud-deletion-finish";
@@ -90,7 +91,7 @@ export async function requestDeletionConfirmation(
   try {
     delivery = await deps.sendEmail({
       to: created.emailNormalized,
-      senderName: "Exomem",
+      ...EXOMEM_SENDER,
       subject: rendered.subject,
       htmlContent: rendered.htmlContent,
       textContent: rendered.textContent,
