@@ -16,8 +16,9 @@
  * `users` row and its email stay.
  *
  * No OAuth account block is written, unlike the v1 local gate: Cloud
- * admission refuses a blocked owner, so a block would silently prevent the
- * re-admission D1 allows for a `deleted` tenant. Revoked consent and the
+ * admission refuses an owner with any block other than the alpha's
+ * `lifecycle_deleted`, so a block would silently prevent the re-admission D1
+ * allows for a `deleted` tenant. Revoked consent and the
  * `deleted` tenant status already stop every token and session from being
  * reused.
  */

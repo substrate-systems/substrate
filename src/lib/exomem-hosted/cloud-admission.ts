@@ -139,7 +139,7 @@ export async function redeemCloudInviteAtomic(
     const owner = ownerResult.rows[0] as { id: string } | undefined;
     if (!owner) throw exomemErrors.accessTokenInvalid();
 
-    if (await ownerIsOperatorRevoked(tx, owner.id)) throw exomemErrors.accessTokenInvalid();
+    if (await ownerHasAdmissionBlock(tx, owner.id)) throw exomemErrors.accessTokenInvalid();
 
     // Security review finding 4: a cell-less tenant within the re-admission
     // scope is reused under this same capacity check, with its admission
@@ -249,16 +249,16 @@ export async function redeemCloudInviteAtomic(
 const REFUSED = Symbol("cloud-readmission-refused");
 
 /**
- * Only a deliberate operator revocation bars an owner from Cloud admission.
- * The hosted alpha's lifecycle deletion also wrote a block
- * (`lifecycle_deleted`), which guards the deleted tenant's old credentials,
- * not the person: Cloud re-admits deleted tenants (design D1), and those
- * credentials are already revoked.
+ * Every account block bars Cloud admission except the one the hosted alpha's
+ * lifecycle deletion wrote (`lifecycle_deleted`). That block guards the
+ * deleted tenant's old credentials, not the person: Cloud re-admits deleted
+ * tenants (design D1), and those credentials are already revoked. Any other
+ * reason, including one added later, refuses.
  */
-async function ownerIsOperatorRevoked(tx: ExomemSql, ownerUserId: string): Promise<boolean> {
+async function ownerHasAdmissionBlock(tx: ExomemSql, ownerUserId: string): Promise<boolean> {
   const { rows } = await tx`
     SELECT 1 FROM exomem_oauth_account_blocks
-    WHERE owner_user_id = ${ownerUserId}::uuid AND blocked_reason = 'operator_revoked'
+    WHERE owner_user_id = ${ownerUserId}::uuid AND blocked_reason <> 'lifecycle_deleted'
   `;
   return rows.length > 0;
 }
@@ -266,7 +266,7 @@ async function ownerIsOperatorRevoked(tx: ExomemSql, ownerUserId: string): Promi
 /**
  * A re-admitted tenant reuses its row, and the Cloud OAuth checks refuse any
  * tenant that still carries a block, so the lifecycle block goes with the
- * admission. An operator revocation never reaches here.
+ * admission. Any other block has already refused admission.
  */
 async function clearLifecycleDeletionBlock(tx: ExomemSql, tenantId: string): Promise<void> {
   await tx`
@@ -469,7 +469,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       const owner = ownerResult.rows[0] as { id: string } | undefined;
       if (!owner) throw new CloudOAuthAdmissionRejected();
 
-      if (await ownerIsOperatorRevoked(tx, owner.id)) throw new CloudOAuthAdmissionRejected();
+      if (await ownerHasAdmissionBlock(tx, owner.id)) throw new CloudOAuthAdmissionRejected();
 
       // See redeemCloudInviteAtomic's matching block.
       const existing = await lockExistingCloudTenant(tx, owner.id);

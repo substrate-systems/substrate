@@ -416,6 +416,36 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(blocks.rows[0]!.blocked_reason, "operator_revoked", "an operator ban is never cleared by an invite");
   });
 
+  it("keeps an operator revocation recorded after an alpha lifecycle deletion, and refuses re-admission", async () => {
+    const { revokeOperatorOAuthAccount } = await import("../operator-controls");
+    await resetFleet();
+    await configureCapacity(1);
+    const email = `cloud-readmit-lifecycle-then-revoked-${randomUUID()}@example.test`;
+
+    const first = await createInvite("complimentary", email);
+    const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
+    assert.ok(admitted);
+    await deleteAsAlphaLifecycleDid(admitted!);
+    await revokeOperatorOAuthAccount({ ownerUserId: admitted!.userId, tenantId: admitted!.tenantId });
+    const recorded = await pool!.query(
+      "SELECT blocked_reason FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+      [admitted!.tenantId]
+    );
+    assert.equal(recorded.rows[0]!.blocked_reason, "operator_revoked", "the ban outranks the lifecycle block");
+
+    const second = await createInvite("complimentary", email);
+    await assert.rejects(redeemCloudInviteAtomic(redemptionInput(second.tokenDigest)));
+    const invite = await pool!.query("SELECT consumed_at FROM exomem_invites WHERE token_digest = $1", [
+      second.tokenDigest,
+    ]);
+    assert.equal(invite.rows[0]!.consumed_at, null);
+    const blocks = await pool!.query(
+      "SELECT blocked_reason FROM exomem_oauth_account_blocks WHERE tenant_id = $1",
+      [admitted!.tenantId]
+    );
+    assert.equal(blocks.rows[0]!.blocked_reason, "operator_revoked");
+  });
+
   it("still refuses re-admission while the owner's prior cell is still live", async () => {
     await resetFleet();
     await configureCapacity(2);
@@ -808,6 +838,50 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       [admitted!.tenantId]
     );
     assert.equal(blocks.rows[0]!.n, 0);
+  });
+
+  it("refuses Cloud OAuth admission for an operator-revoked owner, leaving the invite and transaction unconsumed", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const email = `cloud-oauth-revoked-${randomUUID()}@example.test`;
+    const first = await createInvite("complimentary", email);
+    const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
+    assert.ok(admitted);
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [admitted!.cellId]);
+    await pool!.query(
+      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
+      [admitted!.tenantId]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason) VALUES ($1, $2, 'operator_revoked')",
+      [admitted!.tenantId, admitted!.userId]
+    );
+
+    const fixture = await createCloudOAuthFixture(email);
+    const result = await admitFirstCloudOAuthInviteAtomic({
+      inviteDigest: fixture.inviteDigest,
+      transactionDigest: fixture.transactionDigest,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      codeDigest: randomBytes(32),
+      codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    assert.equal(result, null);
+    const invite = await pool!.query("SELECT consumed_at FROM exomem_invites WHERE token_digest = $1", [
+      fixture.inviteDigest,
+    ]);
+    assert.equal(invite.rows[0]!.consumed_at, null);
+    const transaction = await pool!.query(
+      "SELECT consumed_at FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1",
+      [fixture.transactionDigest]
+    );
+    assert.equal(transaction.rows[0]!.consumed_at, null);
+    const cells = await pool!.query(
+      "SELECT count(*)::int AS n FROM exomem_cloud_cells WHERE tenant_id = $1 AND desired_state <> 'deleted'",
+      [admitted!.tenantId]
+    );
+    assert.equal(cells.rows[0]!.n, 0, "a refused owner holds no capacity slot");
   });
 
   it("refuses Cloud OAuth admission when capacity is exhausted, leaving the invite and transaction unconsumed", async () => {

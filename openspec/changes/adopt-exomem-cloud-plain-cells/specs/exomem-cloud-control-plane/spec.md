@@ -43,6 +43,17 @@ Redeeming a valid Cloud invite SHALL create the tenant, its entitlement and one 
 - **WHEN** expiry finds that the provider has already completed the tenant's transaction
 - **THEN** the row is not deleted, and the activation webhook sets it `running`
 
+#### Scenario: Owner deleted by the hosted alpha is re-admitted
+
+- **WHEN** an invite is redeemed by an owner whose `deleted` tenant carries only a `lifecycle_deleted` account block
+- **THEN** the tenant is re-admitted and its lifecycle block is deleted in the same transaction
+
+#### Scenario: Operator-revoked owner is refused
+
+- **WHEN** an invite is redeemed, by invite link or through Cloud OAuth, by an owner whose tenant carries an `operator_revoked` account block
+- **THEN** admission is refused, the invite and any OAuth transaction remain unconsumed, and the block remains
+- **AND** this holds when the revocation was recorded after a `lifecycle_deleted` block on the same tenant
+
 ### Requirement: Cloud OAuth clients are admitted by approved host, not by cohort
 
 For the Cloud MCP resource, an OAuth client SHALL be admitted when it is enabled, its redirect URI matches its registered digest, and its CIMD metadata host is approved and fresh. Admission MUST NOT require a live cohort or a reviewer credential.

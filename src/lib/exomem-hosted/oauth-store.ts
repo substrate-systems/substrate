@@ -1836,7 +1836,14 @@ export async function revokeOAuthAccountForOwnerTenantAtomic(input: {
         INSERT INTO exomem_oauth_account_blocks (tenant_id, owner_user_id, blocked_reason)
         SELECT id, owner_user_id, ${reason} FROM owner
         ON CONFLICT (tenant_id) DO UPDATE
-        SET owner_user_id = EXCLUDED.owner_user_id
+        SET owner_user_id = EXCLUDED.owner_user_id,
+            -- An operator revocation outranks a lifecycle block and is never
+            -- downgraded: Cloud admission clears lifecycle blocks, so a ban
+            -- left recorded as lifecycle_deleted would be re-admitted.
+            blocked_reason = CASE
+              WHEN EXCLUDED.blocked_reason = 'operator_revoked' THEN 'operator_revoked'
+              ELSE exomem_oauth_account_blocks.blocked_reason
+            END
         RETURNING tenant_id
       ), grants AS (
         UPDATE exomem_oauth_grants AS oauth_grant
