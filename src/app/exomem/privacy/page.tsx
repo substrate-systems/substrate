@@ -3,17 +3,17 @@ import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildMetadata({
-  title: "Exomem Hosted Privacy Policy",
+  title: "Exomem Cloud Privacy Policy",
   description:
-    "How Substrate Systems OÜ collects, processes, and protects data in Exomem Hosted, covering your knowledge store, account records, OAuth session metadata, and your rights as a data subject.",
+    "How Substrate Systems OÜ collects, processes, and protects data in Exomem Cloud, covering your knowledge store, account records, OAuth session metadata, and your rights as a data subject.",
   path: "/exomem/privacy",
 });
 
 export default function ExomemPrivacyPage() {
   return (
-    <ExomemPublicPage title="Exomem Hosted privacy" eyebrow="Revised 28 July 2026">
+    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 28 September 2026">
       <p>
-        This policy covers the Exomem Hosted service and its public product, account, OAuth, and
+        This policy covers the Exomem Cloud service and its public product, account, OAuth, and
         support pages. The data controller is Substrate Systems OÜ (Estonian registry code
         17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia. Privacy questions and rights
         requests can be sent to{" "}
@@ -25,7 +25,7 @@ export default function ExomemPrivacyPage() {
         <li>
           <strong>Account and authorization data:</strong> email address, invitation and consent
           state, client registration metadata, session and OAuth token digests, and account status.
-          Raw passwords are not used for the Hosted OAuth flow.
+          Raw passwords are not used for the Cloud OAuth flow.
         </li>
         <li>
           <strong>Your knowledge store:</strong> Markdown, media, links, metadata, searches, and
@@ -61,11 +61,28 @@ export default function ExomemPrivacyPage() {
 
       <h2>The security boundary</h2>
       <p>
-        Hosted Exomem is encrypted in transit and at rest, with tenant-isolated cells. It is not
-        zero-knowledge or end-to-end encrypted: the isolated cell processes plaintext to search and
-        serve your knowledge store. A tightly controlled operator could access a running cell only
-        where necessary to operate, support, or secure the service. Access is restricted, and the
-        operational design minimizes content-bearing logs and shared infrastructure.
+        Each Exomem Cloud account runs in its own isolated cell. Other accounts cannot reach your
+        data. Your knowledge store and its backups are encrypted at rest, and connections to the
+        service are encrypted in transit. The internet-facing edge that receives connections cannot
+        read the keys that protect your stored data.
+      </p>
+      <p>
+        Exomem Cloud is not zero-knowledge or end-to-end encrypted. To search and serve your
+        knowledge, your cell processes it in plaintext, and our edge and gateway see requests and
+        responses as they pass through. We hold the encryption keys for your cell&apos;s storage and
+        backups on the server that runs it, so we could deliberately read your content. We do not
+        claim otherwise.
+      </p>
+      <p>
+        What we have built is that nobody sees your content by accident. The access our operators
+        use day to day cannot read your data or its keys, and it cannot open a session inside your
+        cell. Reaching your content means deliberately stepping outside that access, with an
+        emergency credential that expires within an hour or with administrator access to the server
+        itself. Actions taken through the cluster, including issuing and using that credential, are
+        recorded in an audit log on the server. That log sits on a server we control, so it is a
+        record of what happened, not tamper-proof evidence. We use such access only where necessary
+        to operate, support, or secure the service, or where the law requires it. Our services are
+        designed to keep your content out of their logs, and we test that they do.
       </p>
 
       <h2>AI clients and service providers</h2>
@@ -76,26 +93,29 @@ export default function ExomemPrivacyPage() {
         revokes its future Exomem access but does not delete data already handled by that provider.
       </p>
       <p>
-        We use service providers only as needed to operate Exomem: Vercel for the public web and
-        control plane, Neon for PostgreSQL, Cloudflare for protected networking and transfer
-        ingress, contracted compute and object-storage providers for tenant cells and encrypted
-        exports, Brevo for transactional email, and Paddle as merchant of record when billing is
-        enabled. The public site may use privacy-filtered Vercel/PostHog analytics; Exomem account
-        identifiers, email, knowledge content, tokens, and private routes are filtered from those
-        events. Providers may process data outside the EEA under the safeguards required by
-        applicable data-protection law.
+        We use service providers only as needed to operate Exomem: Vercel for the public web,
+        sign-in and account service; Hetzner for the servers in Germany that run your cell, hold its
+        encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
+        region; Cloudflare for DNS; Brevo for transactional email; and Paddle as merchant of record
+        when billing is enabled. Until early October 2026, Neon also holds a frozen copy of the
+        account database from before it moved to our own servers; that copy is then deleted. The
+        public site may use privacy-filtered Vercel/PostHog analytics; Exomem account identifiers,
+        email, knowledge content, tokens, and private routes are filtered from those events.
+        Providers may process data outside the EEA under the safeguards required by applicable
+        data-protection law.
       </p>
 
       <h2>Retention, export, and deletion</h2>
       <p>
-        Your canonical knowledge content remains yours and is kept while your Hosted account is
-        active. You can create a portable export and start verified account deletion from the
-        product. Exports and access credentials expire on their stated schedule. On deletion we
-        revoke sessions and client access, close routing, and destroy the tenant&apos;s compute,
-        storage, and keys through the verified deletion workflow rather than merely hiding the
-        account. Minimal billing, security, deletion-proof, and legal records may be retained for
-        the period required to resolve disputes, prevent abuse, demonstrate deletion, or meet
-        accounting and legal duties; they do not contain the deleted knowledge store.
+        Your canonical knowledge content remains yours and is kept while your Cloud account is
+        active. You can ask us for a portable export, which we encrypt to a key only you hold, and
+        you can start verified account deletion from the product. Exports and access credentials
+        expire on their stated schedule. On deletion we revoke sessions and client access, close
+        routing, and destroy the tenant&apos;s compute, storage, and keys through the verified
+        deletion workflow rather than merely hiding the account. Minimal billing, security,
+        deletion-proof, and legal records may be retained for the period required to resolve
+        disputes, prevent abuse, demonstrate deletion, or meet accounting and legal duties; they do
+        not contain the deleted knowledge store.
       </p>
 
       <h2>Your choices and rights</h2>

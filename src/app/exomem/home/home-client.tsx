@@ -71,13 +71,13 @@ function lifecycleCopy(state: LifecycleState): { eyebrow: string; title: string;
       return {
         eyebrow: "Deletion in progress",
         title: "Closing your Exomem.",
-        body: "Access is now closed while the private vault and its hosted copies are removed.",
+        body: "Access is now closed while the private vault and its backups are removed.",
       };
     case "deleted":
       return {
         eyebrow: "Deleted",
         title: "This Exomem has been removed.",
-        body: "The hosted memory product is gone. Any other Substrate account or product is unaffected.",
+        body: "Your Exomem Cloud account is gone. Any other Substrate account or product is unaffected.",
       };
     default:
       return {
@@ -516,7 +516,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
           <p className={styles.lede}>{copy.body}</p>
           <div className={styles.secondaryRow}>
             <div>
-              <strong>Exomem Hosted private alpha</strong>
+              <strong>Exomem Cloud private alpha</strong>
               <p className={styles.secondaryCopy}>€5 per month. Cancel through Paddle.</p>
             </div>
             <button

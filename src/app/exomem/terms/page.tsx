@@ -3,25 +3,25 @@ import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildMetadata({
-  title: "Exomem Hosted Terms of Service",
+  title: "Exomem Cloud Terms of Service",
   description:
-    "The agreement between you and Substrate Systems OÜ for the invitation-only Exomem Hosted alpha. The open-source Exomem software remains governed by the licence in its own repository.",
+    "The agreement between you and Substrate Systems OÜ for the invitation-only Exomem Cloud alpha. The open-source Exomem software remains governed by the licence in its own repository.",
   path: "/exomem/terms",
 });
 
 export default function ExomemTermsPage() {
   return (
-    <ExomemPublicPage title="Exomem Hosted terms" eyebrow="Revised 8 August 2026">
+    <ExomemPublicPage title="Exomem Cloud terms" eyebrow="Revised 28 September 2026">
       <p>
         These terms are an agreement between you and Substrate Systems OÜ (Estonian registry code
-        17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Exomem Hosted. They apply when
-        you receive an invitation or use the Hosted service. The open-source Exomem software remains
+        17394552), Siidisaba tn 13/2-14, 11311 Tallinn, Estonia, for Exomem Cloud. They apply when
+        you receive an invitation or use the Cloud service. The open-source Exomem software remains
         governed by the license in its repository.
       </p>
 
       <h2>Eligibility and availability</h2>
       <p>
-        Hosted Exomem is a friends-only private alpha. Access is by invitation; registering interest
+        Exomem Cloud is a friends-only private alpha. Access is by invitation; registering interest
         does not create an account or promise access. You must be legally able to enter this
         agreement, provide accurate account information, keep access to your email and connected
         clients secure, and promptly tell us about suspected unauthorized use. An account is
@@ -30,7 +30,7 @@ export default function ExomemTermsPage() {
 
       <h2>The service</h2>
       <p>
-        Hosted Exomem provides an isolated managed knowledge store through approved MCP clients.
+        Exomem Cloud provides an isolated managed knowledge store through approved MCP clients.
         Client availability and model behavior are partly controlled by third-party providers such
         as Anthropic and OpenAI and remain subject to their terms. We may change features, limits,
         compatible clients, or infrastructure as the service develops. We do not promise a
@@ -43,19 +43,19 @@ export default function ExomemTermsPage() {
         You retain ownership of the knowledge content you provide. You grant Substrate Systems OÜ a
         limited, non-exclusive permission to host, copy, process, index, transmit to your authorized
         clients, secure, export, and delete that content only as needed to provide and protect
-        Hosted Exomem. You are responsible for having the right to store and process the content you
+        Exomem Cloud. You are responsible for having the right to store and process the content you
         submit. The privacy policy explains the plaintext-in-cell boundary and how service providers
         handle data.
       </p>
 
       <h2>Acceptable use and availability</h2>
       <p>
-        Do not use Hosted Exomem to break the law; infringe privacy, confidentiality, or
-        intellectual property rights; distribute malware; harm or deceive others; probe another
-        tenant; bypass quotas, access, or security controls; interfere with the service; or use
-        automated traffic that creates unreasonable load. We may apply reasonable storage, request,
-        and rate limits. We may suspend access immediately where needed to protect users, data,
-        infrastructure, or third parties, and will give notice where lawful and practicable.
+        Do not use Exomem Cloud to break the law; infringe privacy, confidentiality, or intellectual
+        property rights; distribute malware; harm or deceive others; probe another tenant; bypass
+        quotas, access, or security controls; interfere with the service; or use automated traffic
+        that creates unreasonable load. We may apply reasonable storage, request, and rate limits.
+        We may suspend access immediately where needed to protect users, data, infrastructure, or
+        third parties, and will give notice where lawful and practicable.
       </p>
 
       <h2>Alpha access, export, and deletion</h2>
@@ -79,7 +79,7 @@ export default function ExomemTermsPage() {
       <h2>Intellectual property and feedback</h2>
       <p>
         These terms do not transfer ownership of your content or the open-source rights granted by
-        Exomem&apos;s repository license. Substrate Systems OÜ retains rights in the Hosted service,
+        Exomem&apos;s repository license. Substrate Systems OÜ retains rights in the Cloud service,
         site, branding, and non-open-source materials. If you send feedback, you allow us to use it
         without obligation, but it does not give us rights to your knowledge content.
       </p>
@@ -88,7 +88,7 @@ export default function ExomemTermsPage() {
       <p>
         The service is provided on an as-available basis. To the extent permitted by law, we
         disclaim implied warranties and are not liable for indirect, incidental, special, or
-        consequential loss. Our aggregate liability for the Hosted service is limited to the amount
+        consequential loss. Our aggregate liability for the Cloud service is limited to the amount
         you paid for it in the twelve months before the event giving rise to the claim. Nothing in
         these terms excludes liability or consumer rights that applicable law does not allow us to
         exclude or limit.
