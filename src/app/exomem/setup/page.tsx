@@ -2,17 +2,17 @@ import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildMetadata({
-  title: "Set Up Exomem Hosted",
+  title: "Set Up Exomem Cloud",
   description:
-    "Install Exomem Hosted for Claude, ChatGPT, or Codex, sign in once through OAuth, and start retrieving and preserving context from a governed Markdown vault you own.",
+    "Install Exomem Cloud for Claude, ChatGPT, or Codex, sign in once through OAuth, and start retrieving and preserving context from a governed Markdown vault you own.",
   path: "/exomem/setup",
 });
 
 export default function ExomemSetupPage() {
   return (
-    <ExomemPublicPage title="Set up Exomem Hosted" eyebrow="Exomem Hosted setup">
+    <ExomemPublicPage title="Set up Exomem Cloud" eyebrow="Exomem Cloud setup">
       <p>
-        Hosted Exomem is designed to disappear into normal work: install or connect an approved
+        Exomem Cloud is designed to disappear into normal work: install or connect an approved
         Claude, ChatGPT, or Codex entry, sign in once through OAuth, then use your usual
         conversation. The client uses Exomem&apos;s governed tools and bundled skills to retrieve
         and preserve useful context. Once your cell is ready, the exact live install actions appear
@@ -26,8 +26,7 @@ export default function ExomemSetupPage() {
         <li>Work normally; Exomem can retrieve and capture governed knowledge when relevant.</li>
       </ol>
       <p>
-        There is no local vault path, manual MCP JSON editing, or API-token copy in the Hosted
-        setup.
+        There is no local vault path, manual MCP JSON editing, or API-token copy in the Cloud setup.
       </p>
       <h2>Chat fallback</h2>
       <p>
@@ -42,10 +41,10 @@ export default function ExomemSetupPage() {
         behavioral context and Exomem as the durable store.
       </blockquote>
       <p>
-        Custom instructions are a fallback for client behavior, not part of the Hosted security or
+        Custom instructions are a fallback for client behavior, not part of the Cloud security or
         storage boundary. Claude&apos;s connector reaches the remote tools across Claude surfaces;
         the bundled Claude plugin skills apply where the plugin surface supports them, such as Code
-        and Cowork. OpenAI&apos;s universal plugin serves ChatGPT and Codex from the same Hosted
+        and Cowork. OpenAI&apos;s universal plugin serves ChatGPT and Codex from the same Cloud
         endpoint.
       </p>
 

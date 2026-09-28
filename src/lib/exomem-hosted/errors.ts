@@ -249,7 +249,7 @@ export const exomemErrors = {
       message: "hosted admission is temporarily closed",
       retryable: true,
       remediation:
-        "Your invitation is still valid and has not been used. Exomem Hosted is not admitting " +
+        "Your invitation is still valid and has not been used. Exomem Cloud is not admitting " +
         "new accounts until its service catalogue is updated. Open the link again later, or " +
         "tell whoever invited you.",
       operatorDetail: {

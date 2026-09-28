@@ -1010,7 +1010,7 @@ export default function ExomemPage() {
           </div>
         </section>
 
-        {/* ============ 06 — HOSTED ============ */}
+        {/* ============ 06 — CLOUD ============ */}
         <section style={sectionBorder}>
           <div style={shell}>
             <div
@@ -1024,7 +1024,7 @@ export default function ExomemPage() {
                 background: "#0e0c0a",
               }}
             >
-              <p style={label}>06 — Exomem Hosted</p>
+              <p style={label}>06 — Exomem Cloud</p>
               <h2
                 style={{
                   ...h2,
@@ -1034,7 +1034,7 @@ export default function ExomemPage() {
                   letterSpacing: "-0.02em",
                 }}
               >
-                Hosted Exomem is a friends-only private alpha.
+                Exomem Cloud is a friends-only private alpha.
               </h2>
               <p
                 style={{
@@ -1045,7 +1045,7 @@ export default function ExomemPage() {
                   color: "var(--fg-secondary)",
                 }}
               >
-                Self-hosted Exomem stays the full open-source product you run yourself. Hosted runs
+                Self-hosted Exomem stays the full open-source product you run yourself. Cloud runs
                 it for a small friends cohort while we finish the v1 alpha. Tenant cells process
                 plaintext for search; storage and transport are encrypted. Express interest below;
                 invitations are personally issued and there is no public checkout.

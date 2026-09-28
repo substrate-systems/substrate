@@ -2,15 +2,15 @@ import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
 export const metadata = buildMetadata({
-  title: "Exomem Hosted Support",
+  title: "Exomem Cloud Support",
   description:
-    "Setup, account, privacy, and incident support for Exomem Hosted — how to reach Substrate Systems OÜ, and what to include so an access or service issue can be resolved quickly.",
+    "Setup, account, privacy, and incident support for Exomem Cloud — how to reach Substrate Systems OÜ, and what to include so an access or service issue can be resolved quickly.",
   path: "/exomem/support",
 });
 
 export default function ExomemSupportPage() {
   return (
-    <ExomemPublicPage title="Exomem Hosted support" eyebrow="Subscriber support">
+    <ExomemPublicPage title="Exomem Cloud support" eyebrow="Subscriber support">
       <p>
         For access, setup, privacy, or service issues, email{" "}
         <a href="mailto:founder@substratesystems.io">founder@substratesystems.io</a> with a short

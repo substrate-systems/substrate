@@ -7,7 +7,7 @@ import sitemap from "../../sitemap";
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Exomem marketplace public surface", () => {
-  it("presents Hosted as a friends-only alpha rather than a public offer", () => {
+  it("presents Cloud as a friends-only alpha rather than a public offer", () => {
     const page = source("src/app/exomem/page.tsx");
 
     assert.match(page, /self-hosted/i);
@@ -17,7 +17,7 @@ describe("Exomem marketplace public surface", () => {
     assert.doesNotMatch(page, /€12 a month/);
   });
 
-  it("sends public Hosted interest only to the interest endpoint", () => {
+  it("sends public Cloud interest only to the interest endpoint", () => {
     const form = source("src/app/exomem/hosted-access-form.tsx");
 
     assert.match(form, /const response = await fetch\("\/api\/exomem\/interest"/);
@@ -54,14 +54,41 @@ describe("Exomem marketplace public surface", () => {
     }
   });
 
-  it("describes the actual Hosted privacy boundary and support route", () => {
+  it("describes the actual Cloud privacy boundary and support route", () => {
     const privacy = source("src/app/exomem/privacy/page.tsx");
     const terms = source("src/app/exomem/terms/page.tsx");
     const support = source("src/app/exomem/support/page.tsx");
     const setup = source("src/app/exomem/setup/page.tsx");
 
-    assert.match(privacy, /plaintext.*search/i);
-    assert.match(privacy, /encrypted in transit and at rest/i);
+    // The privacy requirement of the Exomem change
+    // harden-exomem-cloud-operator-access: claim only isolation, a key-blind
+    // edge, no accidental operator access with deliberate access audited, and
+    // encryption at rest and in backups; disclose that the edge and gateway
+    // see traffic and that the operator holds the keys; never claim the
+    // operator cannot access tenant data.
+    const boundary = privacy.replace(/\s+/g, " ");
+    assert.match(boundary, /own isolated cell\. Other accounts cannot reach your data/i);
+    assert.match(boundary, /knowledge store and its backups are encrypted at rest/i);
+    assert.match(boundary, /encrypted in transit/i);
+    assert.match(boundary, /edge that receives connections cannot read the keys/i);
+    assert.match(boundary, /processes it in plaintext/i);
+    assert.match(boundary, /edge and gateway see requests and responses/i);
+    assert.match(
+      boundary,
+      /hold the encryption keys .* so we could deliberately read your content/i
+    );
+    assert.match(boundary, /nobody sees your content by accident/i);
+    assert.match(boundary, /audit log/i);
+    assert.doesNotMatch(
+      boundary,
+      /\b(we|operators?|staff) (cannot|can't|are unable to|have no way to) (access|read|see)\b/i
+    );
+    assert.doesNotMatch(
+      boundary,
+      /zero-knowledge (service|product|encryption)|end-to-end encrypted service/i
+    );
+    assert.doesNotMatch(boundary, /Neon for PostgreSQL|Cloudflare for protected networking/i);
+    assert.doesNotMatch(privacy, /Hosted/);
     assert.match(privacy, /founder@substratesystems\.io/);
     assert.match(privacy, /registry code\s*17394552/i);
     assert.match(privacy, /legitimate interests/i);

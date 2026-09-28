@@ -65,7 +65,7 @@ export default function DeleteClient() {
       ) : (
         <>
           <p className={styles.lede}>
-            This permanently removes your hosted memory vault, its files, exports, and encryption
+            This permanently removes your Cloud memory vault, its files, exports, and encryption
             keys. It does not delete your shared Substrate identity or unrelated products.
           </p>
           <div className={styles.form}>
