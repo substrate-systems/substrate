@@ -76,6 +76,7 @@ jobs:
           src/lib/exomem-hosted/__tests__/cloud-grants-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-admission-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-oauth-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/cloud-reviewer-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-lifecycle-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-deletion-finish-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-release-postgres.integration.test.ts

@@ -21,6 +21,25 @@ before(() => {
         usernameDigest: Buffer.alloc(32, 0x61),
       }),
       hashMarketplaceReviewerPassword: async () => "$argon2id$operator-test",
+      marketplaceReviewerAccessEnabled: () => true,
+    },
+  });
+  mock.module("@/lib/exomem-hosted/cloud-reviewer-access-store", {
+    namedExports: {
+      createOrRotateCloudReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
+        created = { ...input, cloud: true };
+        return { credentialId: "cloud-credential", ownerUserId: "owner-1", tenantId: "tenant-1" };
+      },
+      getCloudReviewerCredentialStatus: async () => ({
+        provider: "openai",
+        fixtureVersion: "sample-v1",
+        expiresAt: "2026-08-01T00:00:00.000Z",
+        revokedAt: null,
+      }),
+      revokeCloudReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
+        revoked = { ...input, cloud: true };
+        return 1;
+      },
     },
   });
   mock.module("@/lib/exomem-hosted/reviewer-access-store", {
@@ -157,6 +176,32 @@ describe("Exomem operator reviewer access", () => {
       );
       assert.equal(revokeResponse.status, 200);
       assert.notEqual(revoked, null);
+    } finally {
+      delete process.env.EXOMEM_CLOUD_ENABLED;
+    }
+  });
+
+  it("issues only the explicit Cloud credential kind under Cloud", async () => {
+    process.env.EXOMEM_CLOUD_ENABLED = "1";
+    try {
+      const { POST } = await import("../route");
+      const response = await POST(
+        request("POST", {
+          authorization: `Bearer ${ADMIN_TOKEN}`,
+          body: {
+            credentialKind: "cloud_provider_review",
+            provider: "openai",
+            ownerUserId: OWNER_ID,
+            tenantId: TENANT_ID,
+            fixtureVersion: "sample-v1",
+            fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
+            expiresAt: "2026-08-01T00:00:00.000Z",
+          },
+        })
+      );
+      assert.equal(response.status, 201);
+      assert.equal(created?.cloud, true);
+      assert.equal((await response.json()).credentialKind, "cloud_provider_review");
     } finally {
       delete process.env.EXOMEM_CLOUD_ENABLED;
     }

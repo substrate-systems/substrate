@@ -11,6 +11,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const session = await resolveExomemSession(request);
     validateMutationRequest(request, session);
+    if (session.reviewerCredentialKind === "cloud_provider_review")
+      throw exomemErrors.entitlementDenied();
     let body: unknown;
     try {
       body = await request.json();

@@ -137,15 +137,15 @@ async function aclSnapshot(): Promise<{ relacl: unknown[]; attacl: unknown[] }> 
   return { relacl: relacl.rows, attacl: attacl.rows };
 }
 
-async function newTenant(): Promise<string> {
+async function newTenant(reviewerPurpose = false): Promise<string> {
   const email = `cloud-grants-${randomUUID()}@example.test`;
   const user = await ownerPool!.query<{ id: string }>(
     "INSERT INTO users (email) VALUES ($1) RETURNING id",
     [email]
   );
   const tenant = await ownerPool!.query<{ id: string }>(
-    "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
-    [user.rows[0]!.id]
+    "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, $2) RETURNING id",
+    [user.rows[0]!.id, reviewerPurpose]
   );
   return tenant.rows[0]!.id;
 }
@@ -429,20 +429,26 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     );
     // L3: exomem_gateway also reads the tenant's own status, column-scoped
     // exactly like every other table it runs findCloudOAuthAccessToken
-    // against below -- id and status only, nothing else and no write.
+    // against below, plus the narrow reviewer eligibility columns, never a write.
     const tenantRead = await gatewayPool!.query("SELECT id, status FROM exomem_tenants WHERE id = $1", [
       tenantId,
     ]);
     assert.equal(tenantRead.rows[0]!.id, tenantId);
     await assert.rejects(
-      gatewayPool!.query("SELECT owner_user_id FROM exomem_tenants WHERE id = $1", [tenantId]),
+      gatewayPool!.query("SELECT created_at FROM exomem_tenants WHERE id = $1", [tenantId]),
       /permission denied/
     );
     await assert.rejects(
       gatewayPool!.query("UPDATE exomem_tenants SET status = 'active' WHERE id = $1", [tenantId]),
       /permission denied/
     );
-    await assert.rejects(gatewayPool!.query("SELECT 1 FROM users LIMIT 1"), /permission denied/);
+    await assert.rejects(gatewayPool!.query("SELECT email FROM users LIMIT 1"), /permission denied/);
+    for (const column of ["password_hash", "username_digest"]) {
+      await assert.rejects(
+        gatewayPool!.query(`SELECT ${column} FROM exomem_marketplace_reviewer_credentials LIMIT 1`),
+        /permission denied/
+      );
+    }
   });
 
   // Security review finding 3: the gateway connects to Postgres directly
@@ -450,14 +456,16 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
   // this proves the column-scoped OAuth grants the script gives
   // exomem_gateway are exactly enough to run that real query, and nothing
   // more.
-  it("lets exomem_gateway run findCloudOAuthAccessToken for real, and denies it every table beyond that", async () => {
-    const clientDbId = randomUUID();
-    const host = `gateway-oauth-${randomUUID()}.example.test`;
-    await ownerPool!.query("INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('claude', $1)", [
-      host,
-    ]);
-    await ownerPool!.query(
-      `INSERT INTO exomem_oauth_clients (
+  for (const reviewerPurpose of [false, true]) {
+    it(`lets exomem_gateway run findCloudOAuthAccessToken for a real ${reviewerPurpose ? "reviewer" : "ordinary"} lineage`, async () => {
+      const clientDbId = randomUUID();
+      const host = `gateway-oauth-${randomUUID()}.example.test`;
+      await ownerPool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('claude', $1)",
+        [host],
+      );
+      await ownerPool!.query(
+        `INSERT INTO exomem_oauth_clients (
          id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
          metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
          cimd_host, client_platform, oauth_client_config_sha256
@@ -465,52 +473,98 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
          $1, $2, 'cimd', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'),
          $4, now(), 3600, now() + interval '1 hour', $5, 'claude', $6
        )`,
-      [
-        clientDbId,
-        `https://${host}/client.json`,
-        JSON.stringify([`https://${host}/callback`]),
-        randomBytes(32),
-        host,
-        randomBytes(32).toString("hex"),
-      ]
-    );
-    const tenantId = await newTenant();
-    const owner = await ownerPool!.query<{ owner_user_id: string }>(
-      "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
-      [tenantId]
-    );
-    await ownerPool!.query(
-      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
-      [cellId("g"), tenantId]
-    );
-    const grant = await ownerPool!.query<{ id: string }>(
-      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
-       VALUES ($1, $2, $3, $4, '{exomem.read,exomem.write}') RETURNING id`,
-      [owner.rows[0]!.owner_user_id, tenantId, clientDbId, CLOUD_RESOURCE]
-    );
-    const family = await ownerPool!.query<{ id: string }>(
-      `INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
-       VALUES ($1, $2, now() + interval '1 day') RETURNING id`,
-      [grant.rows[0]!.id, clientDbId]
-    );
-    const accessDigest = randomBytes(32);
-    await ownerPool!.query(
-      `INSERT INTO exomem_oauth_access_tokens (
-         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
-       ) VALUES ($1, $2, $3, $4, $5, '{exomem.read,exomem.write}', now() + interval '1 hour')`,
-      [accessDigest, grant.rows[0]!.id, family.rows[0]!.id, clientDbId, CLOUD_RESOURCE]
-    );
+        [
+          clientDbId,
+          `https://${host}/client.json`,
+          JSON.stringify([`https://${host}/callback`]),
+          randomBytes(32),
+          host,
+          randomBytes(32).toString("hex"),
+        ],
+      );
+      const tenantId = await newTenant(reviewerPurpose);
+      const owner = await ownerPool!.query<{ owner_user_id: string }>(
+        "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+        [tenantId],
+      );
+      await ownerPool!.query(
+        "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+        [cellId(reviewerPurpose ? "r" : "g"), tenantId],
+      );
+      let reviewerCredentialId: string | null = null;
+      if (reviewerPurpose) {
+        await ownerPool!.query(
+          "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'complimentary_active', 'active')",
+          [tenantId],
+        );
+        const credential = await ownerPool!.query<{ id: string }>(
+          `INSERT INTO exomem_marketplace_reviewer_credentials (
+           provider, username_digest, password_hash, owner_user_id, tenant_id, fixture_version,
+           fixture_payload_digest, created_by_principal_digest, expires_at, credential_kind
+         ) VALUES ('anthropic', $1, '$argon2id$test', $2, $3, 'sample-v1', $4, $5,
+                   now() + interval '1 day', 'cloud_provider_review') RETURNING id`,
+          [
+            randomBytes(32),
+            owner.rows[0]!.owner_user_id,
+            tenantId,
+            "a".repeat(64),
+            randomBytes(32),
+          ],
+        );
+        reviewerCredentialId = credential.rows[0]!.id;
+      }
+      const grant = await ownerPool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id)
+       VALUES ($1, $2, $3, $4, '{exomem.read,exomem.write}', $5) RETURNING id`,
+        [owner.rows[0]!.owner_user_id, tenantId, clientDbId, CLOUD_RESOURCE, reviewerCredentialId],
+      );
+      const family = await ownerPool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at, reviewer_credential_id)
+       VALUES ($1, $2, now() + interval '1 day', $3) RETURNING id`,
+        [grant.rows[0]!.id, clientDbId, reviewerCredentialId],
+      );
+      const accessDigest = randomBytes(32);
+      await ownerPool!.query(
+        `INSERT INTO exomem_oauth_access_tokens (
+         access_digest, grant_id, family_id, client_id, resource, scopes, expires_at, reviewer_credential_id
+       ) VALUES ($1, $2, $3, $4, $5, '{exomem.read,exomem.write}', now() + interval '1 hour', $6)`,
+        [
+          accessDigest,
+          grant.rows[0]!.id,
+          family.rows[0]!.id,
+          clientDbId,
+          CLOUD_RESOURCE,
+          reviewerCredentialId,
+        ],
+      );
 
-    __setExomemSqlForTests(taggedSql(gatewayPool!));
-    try {
-      const found = await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE);
-      assert.ok(found, "exomem_gateway should be able to run the real lookup query");
-      assert.equal(found!.tenantId, tenantId);
-      assert.equal(found!.cellDesiredState, "running");
-    } finally {
-      __setExomemSqlForTests(null);
-    }
-  });
+      const previousCloud = process.env.EXOMEM_CLOUD_ENABLED;
+      const previousReviewer = process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED;
+      process.env.EXOMEM_CLOUD_ENABLED = "true";
+      process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
+      __setExomemSqlForTests(taggedSql(gatewayPool!));
+      try {
+        const found = await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE);
+        assert.ok(found, "exomem_gateway should be able to run the real lookup query");
+        assert.equal(found!.tenantId, tenantId);
+        assert.equal(found!.cellDesiredState, "running");
+        if (reviewerPurpose) {
+          await ownerPool!.query(
+            "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = 'ctm_test', provider_environment = 'sandbox' WHERE tenant_id = $1",
+            [tenantId],
+          );
+          assert.equal(await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE), null);
+        }
+      } finally {
+        __setExomemSqlForTests(null);
+        if (previousCloud === undefined) delete process.env.EXOMEM_CLOUD_ENABLED;
+        else process.env.EXOMEM_CLOUD_ENABLED = previousCloud;
+        if (previousReviewer === undefined)
+          delete process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED;
+        else process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = previousReviewer;
+      }
+    });
+  }
 
   // D7 round item 1's last bullet, restated for evidence: no function or
   // procedure here needs an explicit EXECUTE grant. Every trigger/CHECK

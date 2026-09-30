@@ -61,6 +61,7 @@ export default function AuthorizeClient({
       const result = await postPublicJson("/api/exomem/access/reviewer", {
         username: reviewerUsername,
         password: reviewerPassword,
+        nonce,
       });
       setReviewerPassword("");
       if (typeof result.destination !== "string" || !result.destination) {

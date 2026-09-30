@@ -5,6 +5,7 @@ const USER_ID = "018f2d91-7c42-7000-8000-0000000000a1";
 const TENANT_ID = "018f2d91-7c42-7000-8000-0000000000a2";
 const TRANSACTION_ID = `txn_${"a".repeat(26)}`;
 let startCalls = 0;
+let reviewerCredentialKind: string | null = null;
 let returnedTransaction: string | null = null;
 let returnedResult: { state: "open"; checkoutUrl: string } | { state: "settled" };
 
@@ -17,6 +18,7 @@ before(() => {
         tenantId: TENANT_ID,
         csrfDigest: Buffer.alloc(32),
         expiresAt: "2026-07-13T00:00:00.000Z",
+        reviewerCredentialKind,
       }),
       validateMutationRequest: () => undefined,
     },
@@ -45,6 +47,7 @@ after(() => mock.reset());
 
 beforeEach(() => {
   startCalls = 0;
+  reviewerCredentialKind = null;
   returnedTransaction = null;
   returnedResult = {
     state: "open",
@@ -53,6 +56,23 @@ beforeEach(() => {
 });
 
 describe("POST /api/exomem/billing/checkout", () => {
+  it("denies Cloud reviewer initiation and resume before billing work", async () => {
+    reviewerCredentialKind = "cloud_provider_review";
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    for (const body of [{}, { transactionId: TRANSACTION_ID }]) {
+      const response = await POST(
+        new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      );
+      assert.equal(response.status, 403);
+      assert.equal(startCalls, 0);
+      assert.equal(returnedTransaction, null);
+    }
+  });
   it("starts the existing checkout for an authenticated awaiting-payment owner", async () => {
     const { NextRequest } = await import("next/server");
     const { POST } = await import("../route");

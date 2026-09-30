@@ -16,6 +16,8 @@ import {
 import { PROVISIONER_PROTOCOL_V2, type ProvisionerWireProtocol } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
+import { exomemCloudEnabled, loadExomemCloudResource } from "./cloud-config";
+import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
 
 export type OAuthTokenContext = {
   grantId: string;
@@ -517,6 +519,8 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
   codeDigest: Buffer;
   codeExpiresAt: Date;
 }): Promise<{ grantId: string; tenantId: string } | null> {
+  const cloudResource = exomemCloudEnabled() ? loadExomemCloudResource().mcpUrl : null;
+  const cloudReviewersEnabled = cloudReviewerAccessEnabled();
   return withCohortLock(async (tx) => {
     const locked = await tx`
     SELECT tenant.id
@@ -524,7 +528,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
     JOIN exomem_tenants AS tenant ON tenant.id = session.tenant_id AND tenant.owner_user_id = session.user_id
     WHERE session.id = ${input.sessionId}::uuid
       AND session.revoked_at IS NULL AND session.expires_at > now()
-    FOR UPDATE OF session, tenant
+    FOR UPDATE OF tenant
   `;
     if (!locked.rows[0]) return null;
     const { rows } = await tx`
@@ -545,6 +549,9 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       WHERE session.id = ${input.sessionId}::uuid
         AND session.revoked_at IS NULL AND session.expires_at > now()
         AND (session.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)
+        AND (credential.credential_kind IS DISTINCT FROM 'cloud_provider_review' OR (
+          ${cloudReviewersEnabled} AND exomem_cloud_reviewer_authorized(credential.id, session.tenant_id, session.user_id, NULL)
+        ))
         AND (
           (
             tenant.marketplace_reviewer_purpose = false
@@ -592,6 +599,12 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       WHERE transaction.transaction_digest = ${input.transactionDigest}
         AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
         AND (transaction.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)
+        AND (transaction.reviewer_credential_id IS NULL OR (
+          (transaction.resource = ${cloudResource}::text AND ${cloudReviewersEnabled}
+            AND exomem_cloud_reviewer_authorized(credential.id, session.tenant_id, session.user_id, client.client_platform))
+          OR (transaction.resource IS DISTINCT FROM ${cloudResource}::text
+            AND credential.credential_kind <> 'cloud_provider_review')
+        ))
         AND (
           transaction.reviewer_credential_id IS NULL
           OR (credential.provider = 'anthropic' AND client.client_platform = 'claude')
@@ -1956,6 +1969,8 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
   accessDigest: Buffer;
   accessExpiresAt: Date;
 }): Promise<OAuthTokenContext | null> {
+  const cloudResource = exomemCloudEnabled() ? loadExomemCloudResource().mcpUrl : null;
+  const cloudReviewersEnabled = cloudReviewerAccessEnabled();
   return withCohortLock(async (tx) => {
     const tenantLock = await tx`
     SELECT tenant.id
@@ -2002,6 +2017,12 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
         AND code.assignment_generation IS NOT DISTINCT FROM oauth_grant.assignment_generation
         AND code.staged_client_release_id IS NOT DISTINCT FROM oauth_grant.staged_client_release_id
         AND code.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
+        AND (oauth_grant.reviewer_credential_id IS NULL OR (
+          (code.resource = ${cloudResource}::text AND ${cloudReviewersEnabled}
+            AND exomem_cloud_reviewer_authorized(reviewer_credential.id, oauth_grant.tenant_id, oauth_grant.user_id, client.client_platform))
+          OR (code.resource IS DISTINCT FROM ${cloudResource}::text
+            AND reviewer_credential.credential_kind <> 'cloud_provider_review')
+        ))
         AND code.redirect_uri = ${input.redirectUri}
         AND code.resource = ${input.resource}
         AND code.pkce_challenge = ${input.pkceChallenge}
@@ -2156,6 +2177,8 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
   clientId: string;
   resource: string;
 }): Promise<OAuthTokenContext | null> {
+  const cloudResource = exomemCloudEnabled() ? loadExomemCloudResource().mcpUrl : null;
+  const cloudReviewersEnabled = cloudReviewerAccessEnabled();
   return withCohortLock(async (tx) => {
     const tenantLock = await tx`
     SELECT tenant.id
@@ -2202,15 +2225,16 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       FROM credential
       JOIN exomem_oauth_token_families AS family ON family.id = credential.family_id
       JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = credential.grant_id
-      WHERE credential.candidate_id IS NULL
-        OR (
+      WHERE credential.reviewer_credential_id IS NOT DISTINCT FROM family.reviewer_credential_id
+        AND credential.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
+        AND (credential.candidate_id IS NULL OR (
           credential.candidate_id = family.candidate_id AND credential.candidate_id = oauth_grant.candidate_id
           AND credential.assignment_id = family.assignment_id AND credential.assignment_id = oauth_grant.assignment_id
           AND credential.assignment_generation = family.assignment_generation AND credential.assignment_generation = oauth_grant.assignment_generation
           AND credential.staged_client_release_id = family.staged_client_release_id AND credential.staged_client_release_id = oauth_grant.staged_client_release_id
           AND credential.reviewer_credential_id = family.reviewer_credential_id AND credential.reviewer_credential_id = oauth_grant.reviewer_credential_id
           AND credential.oauth_client_id = family.client_id
-        )
+        ))
     ),
     current_policy AS (
       SELECT credential.id
@@ -2264,6 +2288,12 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
           )
         )
       )
+        AND (oauth_grant.reviewer_credential_id IS NULL OR (
+          (oauth_grant.resource = ${cloudResource}::text AND ${cloudReviewersEnabled}
+            AND exomem_cloud_reviewer_authorized(reviewer_credential.id, oauth_grant.tenant_id, oauth_grant.user_id, client.client_platform))
+          OR (oauth_grant.resource IS DISTINCT FROM ${cloudResource}::text
+            AND reviewer_credential.credential_kind <> 'cloud_provider_review')
+        ))
         AND NOT EXISTS (
           SELECT 1 FROM exomem_oauth_account_blocks AS block
           WHERE block.tenant_id = tenant.id AND block.owner_user_id = oauth_grant.user_id

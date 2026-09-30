@@ -12,6 +12,21 @@ import {
 import { digestSecret } from "../security";
 
 describe("Exomem product sessions", () => {
+  it("caps rotated reviewer material at the resolved session expiry", async () => {
+    const material = await rotateResolvedSession(
+      {
+        id: "reviewer",
+        userId: "user",
+        tenantId: "tenant",
+        csrfDigest: Buffer.alloc(32),
+        expiresAt: "2026-10-01T00:00:00.000Z",
+        reviewerCredentialId: "credential",
+        reviewerCredentialKind: "cloud_provider_review",
+      },
+      { now: new Date("2026-09-30T00:00:00Z"), rotate: async () => ({ sessionId: "replacement" }) }
+    );
+    assert.equal(material.expiresAt.toISOString(), "2026-10-01T00:00:00.000Z");
+  });
   it("requires same-origin JSON before any access token can set cookies", () => {
     assert.doesNotThrow(() =>
       validatePublicAccessRequest(

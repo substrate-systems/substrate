@@ -99,21 +99,23 @@ async function resetFleet(): Promise<void> {
 
 async function createInvite(
   source: "complimentary" | "paddle",
-  email = `cloud-admit-${randomUUID()}@example.test`
+  email = `cloud-admit-${randomUUID()}@example.test`,
+  purpose = false
 ): Promise<{ tokenDigest: Buffer; email: string }> {
   const tokenDigest = randomBytes(32);
   await pool!.query(
     `INSERT INTO exomem_invites (
        token_digest, email_normalized, entitlement_source, entitlement_capabilities,
-       entitlement_limits, created_by_principal_digest, expires_at
-     ) VALUES ($1, $2, $3, '["capture","recall"]'::jsonb, '{}'::jsonb, $4, now() + interval '1 day')`,
-    [tokenDigest, email, source, randomBytes(32)]
+       entitlement_limits, created_by_principal_digest, expires_at, marketplace_reviewer_purpose
+     ) VALUES ($1, $2, $3, '["capture","recall"]'::jsonb, '{}'::jsonb, $4, now() + interval '1 day', $5)`,
+    [tokenDigest, email, source, randomBytes(32), purpose]
   );
   return { tokenDigest, email };
 }
 
 async function createCloudOAuthFixture(
-  email = `cloud-oauth-admit-${randomUUID()}@example.test`
+  email = `cloud-oauth-admit-${randomUUID()}@example.test`,
+  purpose = false
 ): Promise<{
   inviteDigest: Buffer;
   transactionDigest: Buffer;
@@ -142,9 +144,9 @@ async function createCloudOAuthFixture(
   await pool!.query(
     `INSERT INTO exomem_invites (
        token_digest, email_normalized, entitlement_source, entitlement_capabilities,
-       entitlement_limits, created_by_principal_digest, expires_at
-     ) VALUES ($1, $2, 'complimentary', '["capture","recall"]'::jsonb, '{}'::jsonb, $3, now() + interval '1 day')`,
-    [inviteDigest, email, randomBytes(32)]
+       entitlement_limits, created_by_principal_digest, expires_at, marketplace_reviewer_purpose
+     ) VALUES ($1, $2, 'complimentary', '["capture","recall"]'::jsonb, '{}'::jsonb, $3, now() + interval '1 day', $4)`,
+    [inviteDigest, email, randomBytes(32), purpose]
   );
 
   const transactionDigest = randomBytes(32);
@@ -224,6 +226,70 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       else process.env[key] = priorCloudConfigEnv[key];
     }
   });
+
+  for (const oauth of [false, true]) {
+    for (const purpose of [false, true]) {
+      it(`preserves sample purpose ${purpose} through ${oauth ? "OAuth" : "browser"} admission`, async () => {
+        await resetFleet();
+        await configureCapacity(5);
+        const fixture = oauth
+          ? await createCloudOAuthFixture(undefined, purpose)
+          : await createInvite("complimentary", undefined, purpose);
+        const digest = "inviteDigest" in fixture ? fixture.inviteDigest : fixture.tokenDigest;
+        const result = oauth
+          ? await admitFirstCloudOAuthInviteAtomic({
+              inviteDigest: digest,
+              transactionDigest: (fixture as { transactionDigest: Buffer }).transactionDigest,
+              ...redemptionInput(digest),
+              codeDigest: randomBytes(32),
+              codeExpiresAt: new Date(Date.now() + 60_000),
+            })
+          : await redeemCloudInviteAtomic(redemptionInput(digest));
+        assert.ok(result);
+        const tenant = await pool!.query(
+          "SELECT marketplace_reviewer_purpose FROM exomem_tenants WHERE id = $1",
+          [result.tenantId]
+        );
+        assert.equal(tenant.rows[0].marketplace_reviewer_purpose, purpose);
+      });
+
+      it(`refuses sample purpose mismatch ${purpose} through ${oauth ? "OAuth" : "browser"} re-admission`, async () => {
+        await resetFleet();
+        await configureCapacity(5);
+        const email = `purpose-${randomUUID()}@example.test`;
+        const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+          email,
+        ]);
+        await pool!.query(
+          "INSERT INTO exomem_tenants (owner_user_id, status, desired_state, deleted_at, marketplace_reviewer_purpose) VALUES ($1, 'deleted', 'deleted', now(), $2)",
+          [user.rows[0].id, !purpose]
+        );
+        const fixture = oauth
+          ? await createCloudOAuthFixture(email, purpose)
+          : await createInvite("complimentary", email, purpose);
+        const digest = "inviteDigest" in fixture ? fixture.inviteDigest : fixture.tokenDigest;
+        if (oauth) {
+          assert.equal(
+            await admitFirstCloudOAuthInviteAtomic({
+              inviteDigest: digest,
+              transactionDigest: (fixture as { transactionDigest: Buffer }).transactionDigest,
+              ...redemptionInput(digest),
+              codeDigest: randomBytes(32),
+              codeExpiresAt: new Date(Date.now() + 60_000),
+            }),
+            null
+          );
+        } else {
+          await assert.rejects(redeemCloudInviteAtomic(redemptionInput(digest)));
+        }
+        const invites = await pool!.query(
+          "SELECT consumed_at FROM exomem_invites WHERE token_digest = $1",
+          [digest]
+        );
+        assert.equal(invites.rows[0].consumed_at, null);
+      });
+    }
+  }
 
   it("admits the first complimentary invite on an empty fleet with desired_state running", async () => {
     await resetFleet();
