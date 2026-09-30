@@ -53,6 +53,7 @@
   - the finish selecting `deletion_pending` tenants that own any Cloud cell row, so a cell deleted before confirmation (expired unpaid invite) is still finished;
   - billing cancelled through billing deletion, then the tenant scrubbed in one transaction, retried by the sweep;
   - tested against real Postgres from confirmation to a `deleted` tenant, for both a live cell and one already deleted, leaving exactly the D4 receipt.
+- [ ] 3.11 Before enabling the shared scheduler for Cloud, gate the legacy lifecycle queue while `EXOMEM_CLOUD_ENABLED` is on. Keep Paddle and all Cloud lanes running, preserve legacy behaviour with the flag off, and verify the deployed cron route before waking the platform schedule.
 
 ## 4. Cutover and acceptance (P4)
 
