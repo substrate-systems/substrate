@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   normalizeOperatorOAuthClientRegistration,
+  cimdRedirectsAdmissible,
   isCimdNetworkAddressAllowed,
   isSameHostHttpsRedirect,
+  redirectUriApproved,
   oauthClientConfigSha256,
   operatorOAuthClientFingerprint,
   parseCimdDocument,
@@ -224,5 +226,65 @@ describe("operator OAuth client admission", () => {
     ] as const) {
       assert.equal(isSameHostHttpsRedirect(uri, host), false, `${uri} must be refused`);
     }
+  });
+
+  it("admits a CIMD document's loopback redirects, as a native client's (RFC 8252)", () => {
+    // Claude Code's real document: two portless loopback callbacks.
+    assert.equal(
+      cimdRedirectsAdmissible(
+        ["http://localhost/callback", "http://127.0.0.1/callback"],
+        "claude.ai"
+      ),
+      true
+    );
+    // A web connector's document is unchanged: https on its own host.
+    assert.equal(
+      cimdRedirectsAdmissible(["https://claude.ai/api/mcp/auth_callback"], "claude.ai"),
+      true
+    );
+    for (const uris of [
+      // Cleartext to anything but loopback delivers the code across the network.
+      ["http://claude.ai/callback"],
+      ["http://evil.example/callback"],
+      ["http://localhost/callback", "http://evil.example/callback"],
+      // https off the document's own host stays refused.
+      ["https://evil.example/callback"],
+      ["http://user:pw@localhost/callback"],
+      ["http://localhost/callback#fragment"],
+      [],
+    ]) {
+      assert.equal(cimdRedirectsAdmissible(uris, "claude.ai"), false, `${uris} must be refused`);
+    }
+  });
+
+  it("matches a portless loopback registration on any port, and nothing else looser", () => {
+    const claudeCode = ["http://localhost/callback", "http://127.0.0.1/callback"];
+    assert.equal(redirectUriApproved(claudeCode, "http://localhost:53712/callback"), true);
+    assert.equal(redirectUriApproved(claudeCode, "http://127.0.0.1:1/callback"), true);
+    assert.equal(redirectUriApproved(claudeCode, "http://localhost/callback"), true);
+    for (const requested of [
+      // Host, scheme, path and query are still matched exactly.
+      "http://localhost:53712/other",
+      "http://localhost:53712/callback?x=1",
+      "https://localhost:53712/callback",
+      "http://[::1]:53712/callback",
+      "http://evil.example:53712/callback",
+      "http://localhost:53712/callback#f",
+    ]) {
+      assert.equal(
+        redirectUriApproved(claudeCode, requested),
+        false,
+        `${requested} must be refused`
+      );
+    }
+    // A loopback redirect registered with a port keeps exact matching (#183).
+    const pinned = ["http://127.0.0.1:47831/callback"];
+    assert.equal(redirectUriApproved(pinned, "http://127.0.0.1:47831/callback"), true);
+    assert.equal(redirectUriApproved(pinned, "http://127.0.0.1:47832/callback"), false);
+    assert.equal(redirectUriApproved(pinned, "http://localhost:47831/callback"), false);
+    // https redirects are matched exactly, port and all.
+    const web = ["https://claude.ai/api/mcp/auth_callback"];
+    assert.equal(redirectUriApproved(web, "https://claude.ai/api/mcp/auth_callback"), true);
+    assert.equal(redirectUriApproved(web, "https://claude.ai:8443/api/mcp/auth_callback"), false);
   });
 });

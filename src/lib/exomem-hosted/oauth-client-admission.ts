@@ -85,8 +85,9 @@ function safeRedirectUri(value: string, customHosts: readonly string[]): boolean
  * on an admitted host name an arbitrary delivery address for authorization
  * codes, which is precisely the trust the allowlist was not asked to extend.
  *
- * Both connectors this path exists for already satisfy it — ChatGPT redirects to
- * `chatgpt.com` and Claude to `claude.ai` — so the rule costs nothing real.
+ * Both web connectors this path exists for already satisfy it — ChatGPT
+ * redirects to `chatgpt.com` and Claude to `claude.ai`. A native client's
+ * loopback redirects are admitted separately (`cimdRedirectsAdmissible`).
  */
 export function isSameHostHttpsRedirect(value: string, host: string): boolean {
   if (value.length === 0 || value.length > MAX_OAUTH_REDIRECT_URI_LENGTH) return false;
@@ -98,6 +99,50 @@ export function isSameHostHttpsRedirect(value: string, host: string): boolean {
   }
   if (url.username || url.password || url.hash) return false;
   return url.protocol === "https:" && url.hostname.toLowerCase() === host.toLowerCase();
+}
+
+/**
+ * The redirects a self-registering CIMD client may list: https on the host that
+ * served its document (`isSameHostHttpsRedirect`), or a loopback address.
+ *
+ * Loopback is how a native client such as Claude Code receives its code (RFC
+ * 8252 §7.3): the code only ever reaches the user's own machine, and PKCE S256,
+ * which every authorization request must carry, binds it to the client that
+ * started the flow. A cleartext redirect to anything but loopback still delivers
+ * the code across a network, so it stays refused.
+ */
+export function cimdRedirectsAdmissible(redirectUris: readonly string[], host: string): boolean {
+  return (
+    redirectUris.length > 0 &&
+    redirectUris.every(
+      (uri) => isSameHostHttpsRedirect(uri, host) || isSafeLoopbackOAuthRedirect(uri)
+    )
+  );
+}
+
+/**
+ * Whether `requested` is one of a client's approved redirects.
+ *
+ * Exact, except for one case RFC 8252 §7.3 requires: a loopback redirect
+ * registered without a port matches the same scheme, host, path and query on
+ * any port, because a native client binds whatever port is free at the time.
+ * A loopback redirect registered with a port still has to match it exactly, and
+ * `localhost`, `127.0.0.1` and `[::1]` stay distinct hosts.
+ */
+export function redirectUriApproved(approved: readonly string[], requested: string): boolean {
+  if (approved.includes(requested)) return true;
+  if (!isSafeLoopbackOAuthRedirect(requested)) return false;
+  const wanted = new URL(requested);
+  return approved.some((registered) => {
+    if (!isSafeLoopbackOAuthRedirect(registered)) return false;
+    const url = new URL(registered);
+    return (
+      url.port === "" &&
+      url.hostname === wanted.hostname &&
+      url.pathname === wanted.pathname &&
+      url.search === wanted.search
+    );
+  });
 }
 
 /** Bootstrap is intentionally narrower than ordinary client admission. */
