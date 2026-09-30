@@ -44,22 +44,41 @@ const VALID_ACCESS: ActiveCloudOAuthAccessToken = {
 
 type StandInCellBehavior =
   | { kind: "ok"; chunks: string[]; chunkDelayMs?: number }
-  | { kind: "unauthorized" };
+  | { kind: "unauthorized" }
+  | { kind: "header-mismatch" };
 
 type StandInCell = {
   server: Server;
   port: number;
-  requests: Array<{ method: string | undefined; url: string | undefined; headers: IncomingMessage["headers"] }>;
+  requests: Array<{
+    method: string | undefined;
+    url: string | undefined;
+    headers: IncomingMessage["headers"];
+    body: string;
+  }>;
   close: () => Promise<void>;
 };
 
 async function startStandInCell(behavior: StandInCellBehavior): Promise<StandInCell> {
   const requests: StandInCell["requests"] = [];
-  const server = createServer((req, res) => {
-    requests.push({ method: req.method, url: req.url, headers: { ...req.headers } });
+  const server = createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk.toString();
+    requests.push({ method: req.method, url: req.url, headers: { ...req.headers }, body });
     if (behavior.kind === "unauthorized") {
       res.writeHead(401, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
+    if (behavior.kind === "header-mismatch") {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 7,
+          error: { code: -32020, message: "Header mismatch" },
+        })
+      );
       return;
     }
     res.writeHead(200, { "content-type": "application/json" });
@@ -261,9 +280,11 @@ describe("Exomem Cloud gateway handler", () => {
       assert.equal(rateLimitCalls, 2);
       assert.equal(fetchCalls, 0);
     } finally {
-      if (previousHeader === undefined) delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      if (previousHeader === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
       else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = previousHeader;
-      if (previousValue === undefined) delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+      if (previousValue === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
       else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
     }
   });
@@ -405,6 +426,120 @@ describe("Exomem Cloud gateway handler", () => {
   });
 
   describe("against a real stand-in cell process", () => {
+    for (const method of ["server/discover", "tools/call"] as const) {
+      it(`preserves modern ${method} metadata and the body without forwarding client credentials`, async () => {
+        const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
+        const metadata = {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientCapabilities": {},
+          "io.modelcontextprotocol/clientInfo": { name: "qa-client", version: "1" },
+        };
+        const params =
+          method === "tools/call"
+            ? { name: "bootstrap", arguments: { marker: "hello", region: "qa" }, _meta: metadata }
+            : { _meta: metadata };
+        const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
+        const headers: Record<string, string> = {
+          "content-type": "application/json",
+          accept: "application/json",
+          "MCP-Protocol-Version": "2026-07-28",
+          "Mcp-Method": method,
+          cookie: "session=do-not-forward",
+          "x-forwarded-for": "203.0.113.9",
+          "x-arbitrary": "do-not-forward",
+          "mcp-param-": "empty-suffix-is-not-metadata",
+        };
+        if (method === "tools/call") {
+          headers["Mcp-Name"] = "bootstrap";
+          headers["Mcp-Param-Marker"] = "=?base64?aGVsbG8=?=";
+          headers["mcp-param-region"] = "qa";
+        }
+        try {
+          const response = await handleCloudMcpRequest(
+            postRequest({ bearer: CLIENT_BEARER, headers, body }),
+            baseDeps({ fetchCell: fetchCellAt(cell.port) })
+          );
+          assert.equal(response.status, 200);
+          await response.text();
+          const received = cell.requests[0]!;
+          assert.equal(received.headers["mcp-method"], method);
+          assert.equal(
+            received.headers["mcp-name"],
+            method === "tools/call" ? "bootstrap" : undefined
+          );
+          assert.equal(received.headers["mcp-param-marker"], headers["Mcp-Param-Marker"]);
+          assert.equal(received.headers["mcp-param-region"], headers["mcp-param-region"]);
+          assert.equal(received.body, body);
+          assert.equal(received.headers.authorization, `Bearer ${EXPECTED_CELL_BEARER}`);
+          for (const name of ["cookie", "x-forwarded-for", "x-arbitrary", "mcp-param-"]) {
+            assert.equal(received.headers[name], undefined, name);
+          }
+        } finally {
+          await cell.close();
+        }
+      });
+    }
+
+    it("preserves encoded names and mismatched metadata for validation by the cell", async () => {
+      const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
+      const body = JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "different" },
+      });
+      try {
+        const response = await handleCloudMcpRequest(
+          postRequest({
+            bearer: CLIENT_BEARER,
+            headers: {
+              "mcp-protocol-version": "2026-07-28",
+              "mcp-method": "server/discover",
+              "mcp-name": "=?base64?SGVsbG8sIOS4lueVjA==?=",
+              "mcp-param-marker": "=?base64?IHBhZGRlZCA=?=",
+            },
+            body,
+          }),
+          baseDeps({ fetchCell: fetchCellAt(cell.port) })
+        );
+        await response.text();
+        const received = cell.requests[0]!;
+        assert.equal(received.headers["mcp-method"], "server/discover");
+        assert.equal(received.headers["mcp-name"], "=?base64?SGVsbG8sIOS4lueVjA==?=");
+        assert.equal(received.headers["mcp-param-marker"], "=?base64?IHBhZGRlZCA=?=");
+        assert.equal(received.body, body);
+      } finally {
+        await cell.close();
+      }
+    });
+
+    it("relays a cell's metadata refusal without synthesizing the missing method header", async () => {
+      const cell = await startStandInCell({ kind: "header-mismatch" });
+      const body = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "server/discover", params: {} });
+      try {
+        const response = await handleCloudMcpRequest(
+          postRequest({
+            bearer: CLIENT_BEARER,
+            headers: { "mcp-protocol-version": "2026-07-28" },
+            body,
+          }),
+          baseDeps({ fetchCell: fetchCellAt(cell.port) })
+        );
+        assert.equal(response.status, 400);
+        assert.equal(response.headers.get("cache-control"), "private, no-store");
+        assert.deepEqual(await response.json(), {
+          jsonrpc: "2.0",
+          id: 7,
+          error: { code: -32020, message: "Header mismatch" },
+        });
+        assert.equal(cell.requests[0]!.headers["mcp-method"], undefined);
+        assert.equal(cell.requests[0]!.headers["mcp-name"], undefined);
+        assert.equal(cell.requests[0]!.body, body);
+      } finally {
+        await cell.close();
+      }
+    });
+
     it("forwards only the allowlisted headers, the derived C4 bearer, and x-request-id — never the client's own", async () => {
       const cell = await startStandInCell({ kind: "ok", chunks: ['{"ok":true}'] });
       try {
@@ -433,8 +568,13 @@ describe("Exomem Cloud gateway handler", () => {
         assert.equal(received["accept"], "application/json");
         assert.equal(received["mcp-session-id"], "session-42");
         assert.equal(received["mcp-protocol-version"], "2025-06-18");
+        for (const name of ["mcp-method", "mcp-name", "mcp-param-marker"]) {
+          assert.equal(received[name], undefined);
+        }
         assert.equal(received["authorization"], `Bearer ${EXPECTED_CELL_BEARER}`);
-        assert.ok(typeof received["x-request-id"] === "string" && received["x-request-id"]!.length > 0);
+        assert.ok(
+          typeof received["x-request-id"] === "string" && received["x-request-id"]!.length > 0
+        );
         // The client's own bearer and cookie must never reach the cell.
         assert.notEqual(received["authorization"], `Bearer ${CLIENT_BEARER}`);
         assert.equal(received["cookie"], undefined);
@@ -535,7 +675,10 @@ describe("Exomem Cloud gateway handler", () => {
         });
       const deps = baseDeps({
         fetchCell: (async () =>
-          new Response(makeGatedStream(), { status: 200, headers: { "content-type": "text/plain" } })) as typeof fetch,
+          new Response(makeGatedStream(), {
+            status: 200,
+            headers: { "content-type": "text/plain" },
+          })) as typeof fetch,
       });
 
       // Saturate this identity's four per-tenant concurrency slots. Each call
@@ -613,11 +756,17 @@ describe("Exomem Cloud protected-resource metadata", () => {
     try {
       const metadata = buildCloudProtectedResourceMetadata(TEST_CONFIG);
       assert.equal(metadata.resource, TEST_CLOUD_RESOURCE);
-      assert.deepEqual(metadata.authorization_servers, ["https://substratesystems.io/api/exomem/oauth"]);
+      assert.deepEqual(metadata.authorization_servers, [
+        "https://substratesystems.io/api/exomem/oauth",
+      ]);
       // Security review finding 2: a client that discovers the resource
       // before the authorization server must still learn it needs both
       // scopes from this document.
-      assert.deepEqual(metadata.scopes_supported, ["exomem.read", "exomem.write", "offline_access"]);
+      assert.deepEqual(metadata.scopes_supported, [
+        "exomem.read",
+        "exomem.write",
+        "offline_access",
+      ]);
     } finally {
       if (previous === undefined) delete process.env.EXOMEM_PUBLIC_BASE_URL;
       else process.env.EXOMEM_PUBLIC_BASE_URL = previous;

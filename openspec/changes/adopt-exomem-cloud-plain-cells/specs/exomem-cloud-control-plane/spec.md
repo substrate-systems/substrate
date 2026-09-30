@@ -86,7 +86,7 @@ The Cloud gateway SHALL:
 - derive the tenant and cell only from the authenticated principal;
 - forward the MCP request and stream the response to that cell's internal service without buffering.
 
-It SHALL forward only `content-type`, `accept`, `mcp-session-id` and `mcp-protocol-version`, adding `x-request-id`. It SHALL authenticate to the cell with a per-cell bearer derived from a key it holds. It MUST NOT forward the client's `Authorization` header, cookies or forwarding headers, and MUST NOT fetch or compare a contract.
+It SHALL forward only `content-type`, `accept`, `mcp-session-id`, `mcp-protocol-version`, `mcp-method`, `mcp-name` and `mcp-param-*` headers with a non-empty field-name suffix, adding `x-request-id`. It SHALL preserve protocol metadata values and the request body unchanged, leaving header/body validation to the cell; it MUST NOT synthesize missing headers or repair mismatches. Metadata MUST NOT influence tenant or cell selection. It SHALL authenticate to the cell with a per-cell bearer derived from a key it holds. It MUST NOT forward the client's `Authorization` header, cookies or forwarding headers, and MUST NOT fetch or compare a contract.
 
 It SHALL answer `GET` with 405. It SHALL proxy only while the cell row's `desired_state` is `running` or `read_only`.
 
@@ -107,6 +107,22 @@ It SHALL answer with a typed 502 `CELL_AUTH_MISMATCH` when the cell rejects the 
 
 - **WHEN** a request carries a path, query or header naming a different tenant or cell
 - **THEN** the gateway rejects the selector, or ignores it and routes only by the principal
+
+#### Scenario: Modern discovery and tool calls preserve request metadata
+
+- **WHEN** an authenticated MCP 2026-07-28 client sends `server/discover` or `tools/call` with standard request headers and any annotated parameter headers
+- **THEN** the owner's cell receives the original method, name and non-empty `mcp-param-*` metadata values and unchanged request body
+- **AND** client credentials and routing headers remain stripped, and encoded values remain encoded
+
+#### Scenario: Invalid modern metadata remains invalid
+
+- **WHEN** a modern request omits a required metadata header or carries a value that disagrees with its body
+- **THEN** the gateway does not repair the request and relays the cell's header-validation refusal
+
+#### Scenario: Legacy clients still connect
+
+- **WHEN** an authenticated legacy client sends `initialize` or `tools/list` without modern method/name metadata
+- **THEN** the gateway forwards the request unchanged without adding modern metadata requirements
 
 #### Scenario: Cell is stopped
 
