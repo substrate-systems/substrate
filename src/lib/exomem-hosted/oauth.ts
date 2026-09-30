@@ -7,6 +7,7 @@ import {
   SensitiveSecret,
   tokenDigest,
 } from "./security";
+import { redirectUriApproved } from "./oauth-client-admission";
 
 const MCP_PATH = "/api/exomem/mcp/v1";
 const OAUTH_PATH = "/api/exomem/oauth";
@@ -193,7 +194,7 @@ export function validateAuthorizationRequest(
 ): ValidAuthorizationRequest {
   if (
     input.requestedResource !== input.resource ||
-    !input.client.redirectUris.includes(input.redirectUri) ||
+    !redirectUriApproved(input.client.redirectUris, input.redirectUri) ||
     !input.state ||
     input.state.length > 2048 ||
     input.codeChallengeMethod !== "S256" ||

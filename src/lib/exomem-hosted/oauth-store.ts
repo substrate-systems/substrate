@@ -9,7 +9,7 @@ import {
   MAX_OAUTH_CLIENT_REDIRECTS,
   documentDigest,
   fetchCimdMetadata,
-  isSameHostHttpsRedirect,
+  cimdRedirectsAdmissible,
   oauthClientConfigSha256,
   type CimdFetchedMetadata,
 } from "./oauth-client-admission";
@@ -189,7 +189,7 @@ export async function registerAdmittedCimdClient(
   // would. Without this the only thing deciding where an authorization code is
   // delivered is the document itself, which is the one input an admitted host
   // controls entirely.
-  if (redirectUris.some((uri) => !isSameHostHttpsRedirect(uri, host))) return null;
+  if (!cimdRedirectsAdmissible(redirectUris, host)) return null;
 
   const configSha256 = oauthClientConfigSha256({
     platform,

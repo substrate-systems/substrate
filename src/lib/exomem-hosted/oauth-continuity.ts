@@ -18,6 +18,7 @@ import {
   generateExternalToken,
   tokenDigest,
 } from "./security";
+import { redirectUriApproved } from "./oauth-client-admission";
 
 export const EXOMEM_OAUTH_CONTINUITY_COOKIE = "exomem_oauth_tx";
 export const EXOMEM_OAUTH_FORM_NONCE_COOKIE = "exomem_oauth_form_nonce";
@@ -259,7 +260,7 @@ export async function resolveOAuthContinuationToken(
       return null;
     }
     const client = await resolveActiveOAuthClient(pending.clientId);
-    if (!client || !client.redirectUris.includes(pending.redirectUri)) return null;
+    if (!client || !redirectUriApproved(client.redirectUris, pending.redirectUri)) return null;
     return { ...pending, state: value.state };
   } catch {
     return null;

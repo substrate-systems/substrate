@@ -21,6 +21,7 @@ import {
   EXOMEM_RATE_LIMITS,
   takeExomemRateLimit,
 } from "@/lib/exomem-hosted/rate-limit";
+import { redirectUriApproved } from "@/lib/exomem-hosted/oauth-client-admission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -199,7 +200,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
     stage = "redirect_validation";
     const redirectUri = parameter(url.searchParams, "redirect_uri");
-    if (!redirectUri || !client.redirectUris.includes(redirectUri)) {
+    if (!redirectUri || !redirectUriApproved(client.redirectUris, redirectUri)) {
       logAuthorizeRejection("redirect_validation", {
         requestedRedirectUri: redirectUri,
         approvedRedirectUris: client.redirectUris,

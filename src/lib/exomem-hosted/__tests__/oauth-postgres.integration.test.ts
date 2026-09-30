@@ -3898,7 +3898,70 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     }
   });
 
-  it("refuses to register a CIMD client whose host is not allowlisted, without fetching it", async () => {
+  it("registers a native client's loopback document and continues on any port", async () => {
+      // Claude Code's real document lists two portless loopback redirects and calls
+      // back on whatever port is free (RFC 8252 §7.3, substrate#188).
+      const host = "connector-native.example.test";
+      const nativeId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const mixedId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const loopback = ["http://localhost/callback", "http://127.0.0.1/callback"];
+      const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+      process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 9).toString("base64url");
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["claude", host]
+      );
+      try {
+        const registered = await registerAdmittedCimdClient(nativeId, {
+          fetchCimd: async () => cimdMetadata(nativeId, loopback, "native"),
+        });
+        assert.ok(registered, "a loopback-only document from an admitted host registers");
+        assert.deepEqual(registered!.redirectUris, loopback);
+
+        const continuation = await createOAuthContinuation({
+          clientId: nativeId,
+          redirectUri: "http://localhost:53712/callback",
+          resource,
+          scopes: ["exomem.read"],
+          state: "native-loopback-state",
+          codeChallenge: "native-loopback-challenge",
+          offlineAccess: true,
+        });
+        assert.ok(continuation);
+        assert.ok(
+          await resolveOAuthContinuationToken(continuation!.transaction),
+          "a continuation on a free port re-validates against the portless registration"
+        );
+
+        const mixed = await registerAdmittedCimdClient(mixedId, {
+          fetchCimd: async () =>
+            cimdMetadata(
+              mixedId,
+              ["http://localhost/callback", "http://evil.example/callback"],
+              "mixed"
+            ),
+        });
+        assert.equal(mixed, null, "a cleartext non-loopback redirect refuses the whole document");
+        const stored = await pool!.query(
+          "SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1",
+          [mixedId]
+        );
+        assert.equal(stored.rowCount, 0);
+      } finally {
+        if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+        else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+        await pool!.query(
+          "DELETE FROM exomem_oauth_authorization_transactions WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)",
+          [nativeId]
+        );
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
+          [nativeId, mixedId],
+        ]);
+      }
+    });
+
+    it("refuses to register a CIMD client whose host is not allowlisted, without fetching it", async () => {
     const host = "connector-unlisted.example.test";
     const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
     let fetched = false;
@@ -4134,7 +4197,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         "https://attacker.example.test/callback",
         `https://${host}.attacker.example.test/callback`,
         `http://${host}/callback`,
-        "http://127.0.0.1:8976/callback",
+        // A loopback redirect is a native client's and is admitted; see
+        // "registers a native client's loopback document" (substrate#188).
       ]) {
         const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
         const registered = await registerAdmittedCimdClient(clientId, {
