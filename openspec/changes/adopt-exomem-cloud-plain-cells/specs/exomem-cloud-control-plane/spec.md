@@ -140,6 +140,24 @@ Every lifecycle transition of a Cloud tenant SHALL be expressed only as an updat
 
 The control plane MUST NOT call a provisioner, claim a lifecycle lease or hold a fence for Cloud cells.
 
+While Cloud is enabled, the shared authenticated reconciliation schedule SHALL
+leave the legacy lifecycle queue dormant and SHALL continue Paddle reconciliation
+and the Cloud expiry, desired-state sweep, cancellation-notice retry and account
+deletion finish. With Cloud disabled, legacy reconciliation SHALL be unchanged.
+
+#### Scenario: Cloud schedule wakes with unfinished legacy operations
+
+- **WHEN** Cloud is enabled and the reconciliation schedule runs while the legacy queue contains due operations
+- **THEN** no legacy operation is claimed and no legacy provisioner is called
+- **AND** Paddle reconciliation and every Cloud reconciliation lane still run
+- **AND** the route returns the existing legacy count fields as zero
+
+#### Scenario: Legacy schedule runs with Cloud disabled
+
+- **WHEN** Cloud is disabled and the authenticated reconciliation schedule runs
+- **THEN** legacy lifecycle and Paddle reconciliation run as before
+- **AND** no Cloud lifecycle work runs
+
 #### Scenario: Payment enters grace
 
 - **WHEN** a Cloud tenant's entitlement becomes `past_due`

@@ -55,7 +55,8 @@ async function runCloudLane(): Promise<{
     console.error("exomem-cloud: account deletion finish lane failed");
   }
   const expiryOutcomes = expiryResult.status === "fulfilled" ? expiryResult.value : [];
-  const sweep = sweepResult.status === "fulfilled" ? sweepResult.value : { reconciled: 0, deleted: 0 };
+  const sweep =
+    sweepResult.status === "fulfilled" ? sweepResult.value : { reconciled: 0, deleted: 0 };
   const notices =
     noticeResult.status === "fulfilled" ? noticeResult.value : { attempted: 0, sent: 0 };
   return {
@@ -87,23 +88,37 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
   try {
     const [lifecycleResult, paddleResult, cloudResult] = await Promise.allSettled([
-      runBoundedLifecycleReconcile({
-        maxOperations: 60,
-        // Sized to land inside the scheduler contract, not inside the platform
-        // ceiling: the caller is a K3s CronJob whose contract pins a 20 s total
-        // timeout and a 30 s activeDeadline. A pass that outlived those would
-        // still finish its work -- the client disconnecting does not stop the
-        // function -- but every draining tick would be recorded as a failed
-        // run, and two in a row raise an alert. So the budget stays under the
-        // client's timeout, and the gain comes from the waits inside it.
-        // 12s, not 15s: the deadline is checked between steps, so a step that
-        // starts just inside the budget still runs its provisioner call, which
-        // is 5s by default. 12 + 5 leaves margin under the 20s client timeout.
-        timeBudgetMs: 12_000,
-        // Keep working while the operations this tick started are still
-        // producing steps; an empty queue still costs one claim and returns.
-        idleWaitMs: 1_500,
-      }),
+      // Cloud owns lifecycle through desired state. The old queue can still
+      // contain due alpha operations, so do not claim or dispatch it while
+      // its provisioner is paused. Keep the count-only response shape stable.
+      exomemCloudEnabled()
+        ? Promise.resolve({
+            attempted: 0,
+            advanced: 0,
+            succeeded: 0,
+            retryScheduled: 0,
+            terminal: 0,
+            renewalsEnqueued: 0,
+            renewalsBlocked: 0,
+            renewalsFailed: 0,
+          })
+        : runBoundedLifecycleReconcile({
+            maxOperations: 60,
+            // Sized to land inside the scheduler contract, not inside the platform
+            // ceiling: the caller is a K3s CronJob whose contract pins a 20 s total
+            // timeout and a 30 s activeDeadline. A pass that outlived those would
+            // still finish its work -- the client disconnecting does not stop the
+            // function -- but every draining tick would be recorded as a failed
+            // run, and two in a row raise an alert. So the budget stays under the
+            // client's timeout, and the gain comes from the waits inside it.
+            // 12s, not 15s: the deadline is checked between steps, so a step that
+            // starts just inside the budget still runs its provisioner call, which
+            // is 5s by default. 12 + 5 leaves margin under the 20s client timeout.
+            timeBudgetMs: 12_000,
+            // Keep working while the operations this tick started are still
+            // producing steps; an empty queue still costs one claim and returns.
+            idleWaitMs: 1_500,
+          }),
       runBoundedPaddleReconcile({
         maxSubscriptions: 5,
         timeBudgetMs: 8_000,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, afterEach, before, describe, it, mock } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
 
 const ORIGINAL_SCHEDULER_SECRET = process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
 const ORIGINAL_CLOUD_ENABLED = process.env.EXOMEM_CLOUD_ENABLED;
@@ -97,6 +97,10 @@ before(() => {
 });
 
 after(() => mock.reset());
+
+beforeEach(() => {
+  delete process.env.EXOMEM_CLOUD_ENABLED;
+});
 
 afterEach(() => {
   runCalls = 0;
@@ -256,6 +260,45 @@ describe("GET /api/cron/exomem-reconcile", () => {
     });
   });
 
+  it("keeps the legacy provisioner lane dormant while Cloud and billing continue", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    // A paused legacy provisioner must neither be called nor turn an otherwise
+    // healthy Cloud sweep into a failed scheduler tick.
+    lifecycleShouldFail = true;
+    const { GET } = await import("../route");
+    const response = await GET(request("cron-secret"));
+    assert.equal(response.status, 200);
+    assert.equal(runCalls, 0);
+    assert.equal(paddleRunCalls, 1);
+    assert.equal(cloudExpireCalls, 1);
+    assert.equal(cloudReconcileCalls, 1);
+    assert.equal(cloudNoticeRetryCalls, 1);
+    assert.equal(cloudDeletionFinishCalls, 1);
+    const body = (await response.json()) as { result: Record<string, unknown> };
+    for (const key of [
+      "attempted",
+      "advanced",
+      "succeeded",
+      "retryScheduled",
+      "terminal",
+      "renewalsEnqueued",
+      "renewalsBlocked",
+      "renewalsFailed",
+    ]) {
+      assert.equal(body.result[key], 0, key);
+    }
+    assert.deepEqual(body.result.paddle, {
+      configured: true,
+      attempted: 3,
+      applied: 1,
+      duplicate: 1,
+      stale: 0,
+      ignored: 0,
+      failed: 1,
+    });
+  });
+
   // Cloud design D4 "Cloud deletion finish": the finish runs after the
   // reconcile sweep has deleted the cell rows of confirmed deletions.
   it("runs the Cloud deletion finish after the reconcile sweep", async () => {
@@ -292,4 +335,3 @@ describe("GET /api/cron/exomem-reconcile", () => {
     assert.deepEqual(logged, ["exomem-cloud: account deletion finish lane failed"]);
   });
 });
-
