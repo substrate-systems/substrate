@@ -571,801 +571,179 @@ function authorizationTransactionInput(input: {
   };
 }
 
-describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurrency: false }, () => {
-  before(async () => {
-    schema = `oauth_it_${randomUUID().replaceAll("-", "")}`;
-    await ensureExomemPostgresTestExtensions(databaseUrl!);
-    const admin = new Pool({ connectionString: databaseUrl });
-    await admin.query(`CREATE SCHEMA "${schema}"`);
-    const scoped = new URL(databaseUrl!);
-    scoped.searchParams.set("options", `-c search_path=${schema},public`);
-    await applyMigrations({ databaseUrl: scoped.toString() });
-    await admin.query(
-      `ALTER TABLE "${schema}".exomem_lifecycle_operations
-       DROP CONSTRAINT exomem_lifecycle_operations_provisioner_wire_protocol_check`
-    );
-    await admin.query(
-      `DROP TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable
-       ON "${schema}".exomem_lifecycle_operations`
-    );
-    await admin.end();
-    pool = new Pool({ connectionString: scoped.toString() });
-    __setExomemSqlForTests(taggedSql(pool));
-    __setExomemTransactionForTests(interactiveTransaction);
-    await seedLiveCohort();
-  });
-
-  after(async () => {
-    __setExomemSqlForTests(null);
-    __setExomemTransactionForTests(null);
-    if (pool) await pool.end();
-    if (schema) {
+describe(
+  "OAuth admission PostgreSQL integration",
+  { skip: !databaseUrl, concurrency: false },
+  () => {
+    before(async () => {
+      schema = `oauth_it_${randomUUID().replaceAll("-", "")}`;
+      await ensureExomemPostgresTestExtensions(databaseUrl!);
       const admin = new Pool({ connectionString: databaseUrl });
-      await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+      await admin.query(`CREATE SCHEMA "${schema}"`);
+      const scoped = new URL(databaseUrl!);
+      scoped.searchParams.set("options", `-c search_path=${schema},public`);
+      await applyMigrations({ databaseUrl: scoped.toString() });
+      await admin.query(
+        `ALTER TABLE "${schema}".exomem_lifecycle_operations
+       DROP CONSTRAINT exomem_lifecycle_operations_provisioner_wire_protocol_check`
+      );
+      await admin.query(
+        `DROP TRIGGER exomem_lifecycle_provisioner_wire_protocol_immutable
+       ON "${schema}".exomem_lifecycle_operations`
+      );
       await admin.end();
-    }
-  });
-
-  it("leaves counters and rows unchanged for invalid invite or transaction", async () => {
-    const internal = await seedClient();
-    await seedPool();
-    await seedInviteAndTransaction(internal, "1");
-    const beforeCounters = await pool!.query(
-      "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
-    );
-    const result = await admitFirstOAuthInviteAtomic({
-      inviteDigest: digest(2),
-      transactionDigest: digest(21),
-      sessionDigest: digest(3),
-      csrfDigest: digest(4),
-      sessionExpiresAt: new Date(Date.now() + 60_000),
-      codeDigest: digest(5),
-      codeExpiresAt: new Date(Date.now() + 60_000),
+      pool = new Pool({ connectionString: scoped.toString() });
+      __setExomemSqlForTests(taggedSql(pool));
+      __setExomemTransactionForTests(interactiveTransaction);
+      await seedLiveCohort();
     });
-    assert.equal(result, null);
-    const afterCounters = await pool!.query(
-      "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
-    );
-    assert.deepEqual(afterCounters.rows, beforeCounters.rows);
-    assert.equal(await scalar("SELECT count(*) FROM exomem_tenants"), 0);
-    assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
-  });
 
-  it("attaches an existing owner without capacity or lifecycle mutation", async () => {
-    const internal = await seedClient();
-    const user = await pool!.query(
-      "INSERT INTO users (email) VALUES ('owner@example.test') RETURNING id"
-    );
-    const tenant = await pool!.query(
-      "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
-      [user.rows[0].id]
-    );
-    await pool!.query(
-      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
-      [tenant.rows[0].id]
-    );
-    const session = await pool!.query(
-      "INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id",
-      [user.rows[0].id, tenant.rows[0].id, digest(30), digest(31)]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_transactions (
+    after(async () => {
+      __setExomemSqlForTests(null);
+      __setExomemTransactionForTests(null);
+      if (pool) await pool.end();
+      if (schema) {
+        const admin = new Pool({ connectionString: databaseUrl });
+        await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+        await admin.end();
+      }
+    });
+
+    it("leaves counters and rows unchanged for invalid invite or transaction", async () => {
+      const internal = await seedClient();
+      await seedPool();
+      await seedInviteAndTransaction(internal, "1");
+      const beforeCounters = await pool!.query(
+        "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
+      );
+      const result = await admitFirstOAuthInviteAtomic({
+        inviteDigest: digest(2),
+        transactionDigest: digest(21),
+        sessionDigest: digest(3),
+        csrfDigest: digest(4),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+        codeDigest: digest(5),
+        codeExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.equal(result, null);
+      const afterCounters = await pool!.query(
+        "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
+      );
+      assert.deepEqual(afterCounters.rows, beforeCounters.rows);
+      assert.equal(await scalar("SELECT count(*) FROM exomem_tenants"), 0);
+      assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
+    });
+
+    it("attaches an existing owner without capacity or lifecycle mutation", async () => {
+      const internal = await seedClient();
+      const user = await pool!.query(
+        "INSERT INTO users (email) VALUES ('owner@example.test') RETURNING id"
+      );
+      const tenant = await pool!.query(
+        "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
+        [user.rows[0].id]
+      );
+      await pool!.query(
+        "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+        [tenant.rows[0].id]
+      );
+      const session = await pool!.query(
+        "INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id",
+        [user.rows[0].id, tenant.rows[0].id, digest(30), digest(31)]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_transactions (
          transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
          state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
        ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
          '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
-      [digest(32), internal, resource, digest(33), digest(35), digest(36)]
-    );
-    const attached = await attachExistingOwnerAuthorizationAtomic({
-      sessionId: session.rows[0].id,
-      transactionDigest: digest(32),
-      codeDigest: digest(34),
-      codeExpiresAt: new Date(Date.now() + 60_000),
+        [digest(32), internal, resource, digest(33), digest(35), digest(36)]
+      );
+      const attached = await attachExistingOwnerAuthorizationAtomic({
+        sessionId: session.rows[0].id,
+        transactionDigest: digest(32),
+        codeDigest: digest(34),
+        codeExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.equal(attached?.tenantId, tenant.rows[0].id);
+      assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
+      assert.equal(await scalar("SELECT count(*) FROM exomem_lifecycle_operations"), 0);
     });
-    assert.equal(attached?.tenantId, tenant.rows[0].id);
-    assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 0);
-    assert.equal(await scalar("SELECT count(*) FROM exomem_lifecycle_operations"), 0);
-  });
 
-  it("rolls back v2 legacy invitation redemption without a catalog target", async () => {
-    await createInviteRecord({
-      tokenDigest: digest(400),
-      emailNormalized: "legacy-v2-missing-target@example.test",
-      entitlementSource: "complimentary",
-      capabilities: [],
-      resourceLimits: {},
-      marketplaceReviewerPurpose: false,
-      operatorPrincipalDigest: digest(401),
-      expiresAt: new Date(Date.now() + 3_600_000),
-    });
-    const counts = () =>
-      Promise.all([
-        scalar("SELECT count(*) FROM users"),
-        scalar("SELECT count(*) FROM exomem_tenants"),
-        scalar("SELECT count(*) FROM exomem_entitlements"),
-        scalar("SELECT count(*) FROM exomem_sessions"),
-        scalar("SELECT count(*) FROM exomem_lifecycle_operations"),
-      ]);
-    const before = await counts();
-    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
-    try {
-      await assert.rejects(
-        redeemInviteAtomic({
+    it("rolls back v2 legacy invitation redemption without a catalog target", async () => {
+      await createInviteRecord({
+        tokenDigest: digest(400),
+        emailNormalized: "legacy-v2-missing-target@example.test",
+        entitlementSource: "complimentary",
+        capabilities: [],
+        resourceLimits: {},
+        marketplaceReviewerPurpose: false,
+        operatorPrincipalDigest: digest(401),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      });
+      const counts = () =>
+        Promise.all([
+          scalar("SELECT count(*) FROM users"),
+          scalar("SELECT count(*) FROM exomem_tenants"),
+          scalar("SELECT count(*) FROM exomem_entitlements"),
+          scalar("SELECT count(*) FROM exomem_sessions"),
+          scalar("SELECT count(*) FROM exomem_lifecycle_operations"),
+        ]);
+      const before = await counts();
+      const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+      try {
+        await assert.rejects(
+          redeemInviteAtomic({
+            tokenDigest: digest(400),
+            sessionDigest: digest(402),
+            csrfDigest: digest(403),
+            sessionExpiresAt: new Date(Date.now() + 60_000),
+          })
+        );
+      } finally {
+        if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+        else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+      }
+      assert.deepEqual(await counts(), before);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
+          [digest(400)]
+        ),
+        1
+      );
+      assert.ok(
+        await redeemInviteAtomic({
           tokenDigest: digest(400),
-          sessionDigest: digest(402),
-          csrfDigest: digest(403),
+          sessionDigest: digest(404),
+          csrfDigest: digest(405),
           sessionExpiresAt: new Date(Date.now() + 60_000),
         })
       );
-    } finally {
-      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
-    }
-    assert.deepEqual(await counts(), before);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
-        [digest(400)]
-      ),
-      1
-    );
-    assert.ok(
-      await redeemInviteAtomic({
-        tokenDigest: digest(400),
-        sessionDigest: digest(404),
-        csrfDigest: digest(405),
-        sessionExpiresAt: new Date(Date.now() + 60_000),
-      })
-    );
-  });
-
-  it("keeps invitation and tenant purpose immutable while legacy redemption supports ordinary and reviewer tenants", async () => {
-    const ordinaryInvite = await createInviteRecord({
-      tokenDigest: digest(50),
-      emailNormalized: "ordinary-legacy@example.test",
-      entitlementSource: "complimentary",
-      capabilities: [],
-      resourceLimits: {},
-      marketplaceReviewerPurpose: false,
-      operatorPrincipalDigest: digest(51),
-      expiresAt: new Date(Date.now() + 3_600_000),
-    });
-    const reviewerInvite = await createInviteRecord({
-      tokenDigest: digest(52),
-      emailNormalized: "reviewer-legacy@example.test",
-      entitlementSource: "complimentary",
-      capabilities: [],
-      resourceLimits: {},
-      marketplaceReviewerPurpose: true,
-      operatorPrincipalDigest: digest(53),
-      expiresAt: new Date(Date.now() + 3_600_000),
-    });
-    const candidate = await pool!.query<{
-      source_release: string;
-      protocol_version: string;
-      command_fingerprint: string;
-      schema_digest: string;
-      compatibility_digest: string;
-    }>(
-      `SELECT source_release, protocol_version, command_fingerprint, schema_digest,
-              compatibility_digest
-         FROM exomem_agent_contract_candidates
-        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'`
-    );
-    const catalogUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email) VALUES ('legacy-catalog@example.test') RETURNING id"
-    );
-    const catalogTenant = await pool!.query<{ id: string }>(
-      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
-      [catalogUser.rows[0]!.id]
-    );
-    const catalogCell = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_cells (
-         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
-         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
-         observed_compatibility_digest
-       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
-       RETURNING id`,
-      [
-        catalogTenant.rows[0]!.id,
-        candidate.rows[0]!.protocol_version,
-        candidate.rows[0]!.source_release,
-        "e".repeat(64),
-        candidate.rows[0]!.command_fingerprint,
-        candidate.rows[0]!.schema_digest,
-        candidate.rows[0]!.compatibility_digest,
-      ]
-    );
-    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
-      catalogCell.rows[0]!.id,
-      catalogTenant.rows[0]!.id,
-    ]);
-
-    const ordinary = await redeemInviteAtomic({
-      tokenDigest: digest(50),
-      sessionDigest: digest(54),
-      csrfDigest: digest(55),
-      sessionExpiresAt: new Date(Date.now() + 60_000),
-    });
-    const reviewer = await redeemInviteAtomic({
-      tokenDigest: digest(52),
-      sessionDigest: digest(56),
-      csrfDigest: digest(57),
-      sessionExpiresAt: new Date(Date.now() + 60_000),
     });
 
-    assert.ok(ordinary);
-    assert.ok(reviewer);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = false",
-        [ordinary!.tenantId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = true",
-        [reviewer!.tenantId]
-      ),
-      1
-    );
-    await assert.rejects(
-      pool!.query("UPDATE exomem_invites SET marketplace_reviewer_purpose = true WHERE id = $1", [
-        ordinaryInvite.inviteId,
-      ]),
-      /marketplace reviewer purpose is immutable/
-    );
-    await assert.rejects(
-      pool!.query("UPDATE exomem_tenants SET marketplace_reviewer_purpose = false WHERE id = $1", [
-        reviewer!.tenantId,
-      ]),
-      /marketplace reviewer purpose is immutable/
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_invites WHERE id = $1 AND marketplace_reviewer_purpose = false",
-        [ordinaryInvite.inviteId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = true",
-        [reviewer!.tenantId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_invites WHERE id = $1 AND consumed_at IS NOT NULL",
-        [reviewerInvite.inviteId]
-      ),
-      1
-    );
-  });
-
-  it("snapshots the catalog-backed v2 target for legacy invitation provisioning", async () => {
-    const candidate = await pool!.query<{
-      id: string;
-      source_release: string;
-      protocol_version: string;
-      command_fingerprint: string;
-      schema_digest: string;
-      compatibility_digest: string;
-    }>(
-      `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
-              compatibility_digest
-         FROM exomem_agent_contract_candidates
-        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
-        LIMIT 1`
-    );
-    const catalogUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email) VALUES ('legacy-v2-catalog@example.test') RETURNING id"
-    );
-    const catalogTenant = await pool!.query<{ id: string }>(
-      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
-      [catalogUser.rows[0]!.id]
-    );
-    const catalogCell = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_cells (
-         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
-         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
-         observed_compatibility_digest
-       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
-       RETURNING id`,
-      [
-        catalogTenant.rows[0]!.id,
-        candidate.rows[0]!.protocol_version,
-        candidate.rows[0]!.source_release,
-        "e".repeat(64),
-        candidate.rows[0]!.command_fingerprint,
-        candidate.rows[0]!.schema_digest,
-        candidate.rows[0]!.compatibility_digest,
-      ]
-    );
-    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
-      catalogCell.rows[0]!.id,
-      catalogTenant.rows[0]!.id,
-    ]);
-    await createInviteRecord({
-      tokenDigest: digest(357),
-      emailNormalized: "legacy-v2@example.test",
-      entitlementSource: "complimentary",
-      capabilities: [],
-      resourceLimits: {},
-      marketplaceReviewerPurpose: false,
-      operatorPrincipalDigest: digest(358),
-      expiresAt: new Date(Date.now() + 3_600_000),
-    });
-
-    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
-    try {
-      const admitted = await redeemInviteAtomic({
-        tokenDigest: digest(357),
-        sessionDigest: digest(359),
-        csrfDigest: digest(360),
-        sessionExpiresAt: new Date(Date.now() + 60_000),
+    it("keeps invitation and tenant purpose immutable while legacy redemption supports ordinary and reviewer tenants", async () => {
+      const ordinaryInvite = await createInviteRecord({
+        tokenDigest: digest(50),
+        emailNormalized: "ordinary-legacy@example.test",
+        entitlementSource: "complimentary",
+        capabilities: [],
+        resourceLimits: {},
+        marketplaceReviewerPurpose: false,
+        operatorPrincipalDigest: digest(51),
+        expiresAt: new Date(Date.now() + 3_600_000),
       });
-      assert.ok(admitted);
-      const operation = await pool!.query<{
-        provisioner_wire_protocol: string;
-        target_candidate_id: string;
-        target_gateway_contract_digest: string;
-      }>(
-        `SELECT provisioner_wire_protocol, target_candidate_id, target_gateway_contract_digest
-           FROM exomem_lifecycle_operations
-          WHERE id = $1`,
-        [admitted.operationId]
-      );
-      assert.deepEqual(operation.rows, [
-        {
-          provisioner_wire_protocol: "exomem-cell-provisioner.v2",
-          target_candidate_id: candidate.rows[0]!.id,
-          target_gateway_contract_digest: "e".repeat(64),
-        },
-      ]);
-    } finally {
-      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
-    }
-  });
-
-  it("snapshots the catalog-backed v2 target for OAuth invitation provisioning", async () => {
-    const candidate = await pool!.query<{
-      id: string;
-      source_release: string;
-      protocol_version: string;
-      command_fingerprint: string;
-      schema_digest: string;
-      compatibility_digest: string;
-    }>(
-      `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
-              compatibility_digest
-         FROM exomem_agent_contract_candidates
-        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
-        LIMIT 1`
-    );
-    const catalogUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email) VALUES ('oauth-v2-catalog@example.test') RETURNING id"
-    );
-    const catalogTenant = await pool!.query<{ id: string }>(
-      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
-      [catalogUser.rows[0]!.id]
-    );
-    const catalogCell = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_cells (
-         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
-         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
-         observed_compatibility_digest
-       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
-       RETURNING id`,
-      [
-        catalogTenant.rows[0]!.id,
-        candidate.rows[0]!.protocol_version,
-        candidate.rows[0]!.source_release,
-        "e".repeat(64),
-        candidate.rows[0]!.command_fingerprint,
-        candidate.rows[0]!.schema_digest,
-        candidate.rows[0]!.compatibility_digest,
-      ]
-    );
-    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
-      catalogCell.rows[0]!.id,
-      catalogTenant.rows[0]!.id,
-    ]);
-    const internal = await seedClient();
-    await seedPool();
-    await seedInviteAndTransaction(internal, "370");
-
-    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-    process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
-    try {
-      const admitted = await admitFirstOAuthInviteAtomic({
-        inviteDigest: digest(370),
-        transactionDigest: digest(390),
-        sessionDigest: digest(371),
-        csrfDigest: digest(372),
-        sessionExpiresAt: new Date(Date.now() + 60_000),
-        codeDigest: digest(373),
-        codeExpiresAt: new Date(Date.now() + 60_000),
+      const reviewerInvite = await createInviteRecord({
+        tokenDigest: digest(52),
+        emailNormalized: "reviewer-legacy@example.test",
+        entitlementSource: "complimentary",
+        capabilities: [],
+        resourceLimits: {},
+        marketplaceReviewerPurpose: true,
+        operatorPrincipalDigest: digest(53),
+        expiresAt: new Date(Date.now() + 3_600_000),
       });
-      assert.ok(admitted);
-      const operation = await pool!.query<{
-        provisioner_wire_protocol: string;
-        target_candidate_id: string;
-        target_gateway_contract_digest: string;
-      }>(
-        `SELECT provisioner_wire_protocol, target_candidate_id, target_gateway_contract_digest
-           FROM exomem_lifecycle_operations
-          WHERE id = $1`,
-        [admitted.operationId]
-      );
-      assert.deepEqual(operation.rows, [
-        {
-          provisioner_wire_protocol: "exomem-cell-provisioner.v2",
-          target_candidate_id: candidate.rows[0]!.id,
-          target_gateway_contract_digest: "e".repeat(64),
-        },
-      ]);
-      await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
-        admitted.tenantId,
-      ]);
-    } finally {
-      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
-    }
-  });
-
-  it("propagates reviewer purpose through OAuth invite admission", async () => {
-    const internal = await seedClient();
-    await seedPool();
-    await seedInviteAndTransaction(internal, "58", true);
-
-    const admitted = await admitFirstOAuthInviteAtomic({
-      inviteDigest: digest(58),
-      transactionDigest: digest(78),
-      sessionDigest: digest(59),
-      csrfDigest: digest(60),
-      sessionExpiresAt: new Date(Date.now() + 60_000),
-      codeDigest: digest(61),
-      codeExpiresAt: new Date(Date.now() + 60_000),
-    });
-
-    assert.ok(admitted);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = true",
-        [admitted!.tenantId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NOT NULL",
-        [digest(58)]
-      ),
-      1
-    );
-    await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
-      admitted!.tenantId,
-    ]);
-  });
-
-  it("refuses ordinary reauthorization that would detach an existing reviewer grant", async () => {
-    const internal = await seedClient();
-    const user = await pool!.query(
-      "INSERT INTO users (email) VALUES ('reviewer-reauthorization@example.test') RETURNING id"
-    );
-    const tenant = await pool!.query(
-      "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
-      [user.rows[0].id]
-    );
-    await pool!.query(
-      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
-      [tenant.rows[0].id]
-    );
-    const reviewer = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_marketplace_reviewer_credentials (
-         provider, username_digest, password_hash, owner_user_id, tenant_id,
-         fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
-       ) VALUES ('openai', $1, '$argon2id$integration', $2, $3,
-                 'review-fixture-v1', $4, $5, now() + interval '1 hour')
-       RETURNING id`,
-      [digest(39), user.rows[0].id, tenant.rows[0].id, "b".repeat(64), digest(40)]
-    );
-    const grant = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_oauth_grants (
-         user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id
-       ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5)
-       RETURNING id`,
-      [user.rows[0].id, tenant.rows[0].id, internal, resource, reviewer.rows[0]!.id]
-    );
-    const session = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
-       VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id`,
-      [user.rows[0].id, tenant.rows[0].id, digest(41), digest(42)]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_transactions (
-         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
-         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
-       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
-                 '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
-      [digest(43), internal, resource, digest(44), digest(45), digest(46)]
-    );
-
-    assert.equal(
-      await attachExistingOwnerAuthorizationAtomic({
-        sessionId: session.rows[0]!.id,
-        transactionDigest: digest(43),
-        codeDigest: digest(47),
-        codeExpiresAt: new Date(Date.now() + 60_000),
-      }),
-      null
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND reviewer_credential_id = $2",
-        [grant.rows[0]!.id, reviewer.rows[0]!.id]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NULL",
-        [digest(43)]
-      ),
-      1
-    );
-    await pool!.query(
-      "UPDATE exomem_marketplace_reviewer_credentials SET revoked_at = now() WHERE id = $1",
-      [reviewer.rows[0]!.id]
-    );
-  });
-
-  it("seals temporary reviewer setup access before issuing a credential", async () => {
-    const internal = await seedClient();
-    await seedPool();
-    await seedInviteAndTransaction(internal, "310", true);
-
-    const admitted = await admitFirstOAuthInviteAtomic({
-      inviteDigest: digest(310),
-      transactionDigest: digest(330),
-      sessionDigest: digest(311),
-      csrfDigest: digest(312),
-      sessionExpiresAt: new Date(Date.now() + 60_000),
-      codeDigest: digest(313),
-      codeExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(admitted);
-
-    const setupTokens = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: digest(313),
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(314),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(315),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(setupTokens);
-    assert.ok(await findActiveOAuthAccessToken(digest(315)));
-
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_transactions (
-         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
-         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge,
-         redeemed_session_id, expires_at
-       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
-                 '{}'::jsonb, $5, $6, 'challenge', $7, now() + interval '1 hour')`,
-      [digest(316), internal, resource, digest(317), digest(318), digest(319), admitted!.sessionId]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_codes (
-         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, expires_at
-       ) VALUES ($1, $2, $3, 'https://client.example.test/callback', $4, 'challenge',
-                 now() + interval '1 hour')`,
-      [digest(320), admitted!.grantId, internal, resource]
-    );
-    const cell = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_cells (
-         tenant_id, lifecycle_state, routing_state, protocol_version, release_version
-       ) VALUES ($1, 'active', 'bound', '2025-11-25', 'setup-sealed') RETURNING id`,
-      [admitted!.tenantId]
-    );
-    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
-      cell.rows[0]!.id,
-      admitted!.tenantId,
-    ]);
-    const beforeSeal = await hostedProvisioningSnapshot();
-
-    const credential = await createOrRotateMarketplaceReviewerCredentialAtomic({
-      provider: "anthropic",
-      usernameDigest: digest(321),
-      passwordHash: await hashMarketplaceReviewerPassword("setup-reviewer-password"),
-      ownerUserId: (
-        await pool!.query<{ owner_user_id: string }>(
-          "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
-          [admitted!.tenantId]
-        )
-      ).rows[0]!.owner_user_id,
-      tenantId: admitted!.tenantId,
-      fixtureVersion: "review-fixture-v1",
-      fixturePayloadDigest: "a".repeat(64),
-      expiresAt: new Date(Date.now() + 5 * 60_000),
-      operatorPrincipalDigest: digest(322),
-    });
-    assert.ok(credential);
-    assert.deepEqual(await hostedProvisioningSnapshot(), beforeSeal);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_sessions WHERE id = $1 AND revoked_at IS NOT NULL",
-        [admitted!.sessionId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NOT NULL",
-        [digest(316)]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND revoked_at IS NOT NULL",
-        [admitted!.grantId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NOT NULL",
-        [digest(320)]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
-        [setupTokens!.familyId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE refresh_digest = $1 AND consumed_at IS NOT NULL",
-        [digest(314)]
-      ),
-      1
-    );
-    assert.equal(await findActiveOAuthAccessToken(digest(315)), null);
-    assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_account_blocks"), 0);
-    assert.equal(
-      await scalar("SELECT count(*) FROM exomem_tenants WHERE id = $1 AND status <> 'deleted'", [
-        admitted!.tenantId,
-      ]),
-      1
-    );
-
-    const ordinarySession = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
-       SELECT owner_user_id, id, $1, $2, now() + interval '1 hour'
-       FROM exomem_tenants WHERE id = $3 RETURNING id`,
-      [digest(323), digest(324), admitted!.tenantId]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_transactions (
-         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
-         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
-       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
-                 '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
-      [digest(325), internal, resource, digest(326), digest(327), digest(328)]
-    );
-    assert.equal(
-      await attachExistingOwnerAuthorizationAtomic({
-        sessionId: ordinarySession.rows[0]!.id,
-        transactionDigest: digest(325),
-        codeDigest: digest(329),
-        codeExpiresAt: new Date(Date.now() + 60_000),
-      }),
-      null
-    );
-
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_transactions (
-         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
-         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
-       ) VALUES ($1, $2, 'https://client.example.test/callback', $3,
-                 ARRAY['exomem.read', 'offline_access'], $4, '{}'::jsonb, $5, $6,
-                 'challenge', now() + interval '1 hour')`,
-      [digest(340), internal, resource, digest(341), digest(342), digest(343)]
-    );
-    const reviewerSession = await createMarketplaceReviewerOAuthSessionAtomic({
-      credentialId: credential!.credentialId,
-      transactionDigest: digest(340),
-      sessionDigest: digest(344),
-      csrfDigest: digest(345),
-      expiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(reviewerSession);
-    const reviewerGrant = await attachExistingOwnerAuthorizationAtomic({
-      sessionId: reviewerSession!.sessionId,
-      transactionDigest: digest(340),
-      codeDigest: digest(346),
-      codeExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(reviewerGrant);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND reviewer_credential_id = $2",
-        [reviewerGrant!.grantId, credential!.credentialId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND grant_id = $2 AND consumed_at IS NULL",
-        [digest(346), reviewerGrant!.grantId]
-      ),
-      1
-    );
-    assert.equal(
-      await revokeMarketplaceReviewerCredentialAtomic({
-        provider: "anthropic",
-        operatorPrincipalDigest: digest(347),
-      }),
-      1
-    );
-    await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
-      admitted!.tenantId,
-    ]);
-  });
-
-  it("serializes same-email admissions while reserving one final slot and leaves a losing invite reusable", async () => {
-    const internal = await seedClient();
-    await seedPool(EXOMEM_ALPHA_CAPACITY.storageBytes);
-    await seedAdmission(internal, 200, "same-email@example.test");
-    await seedAdmission(internal, 210, "same-email@example.test");
-    const sameEmail = await Promise.all([
-      admitFirstOAuthInviteAtomic(admissionInput(200)),
-      admitFirstOAuthInviteAtomic(admissionInput(210)),
-    ]);
-    assert.equal(sameEmail.filter(Boolean).length, 2);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_tenants WHERE owner_user_id = (SELECT id FROM users WHERE email = 'same-email@example.test')"
-      ),
-      1
-    );
-    assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 1);
-
-    await seedAdmission(internal, 220, "losing-invite@example.test");
-    await assert.rejects(
-      admitFirstOAuthInviteAtomic(admissionInput(220)),
-      (error: unknown) =>
-        error instanceof ExomemHostedError && error.code === "CAPACITY_UNAVAILABLE"
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
-        [digest(220)]
-      ),
-      1
-    );
-  });
-
-  it("persists the default v1 wire protocol for an initial provision operation", async () => {
-    const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-    delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-    try {
-      const internal = await seedClient();
-      await seedPool();
       const candidate = await pool!.query<{
         source_release: string;
         protocol_version: string;
@@ -1374,13 +752,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         compatibility_digest: string;
       }>(
         `SELECT source_release, protocol_version, command_fingerprint, schema_digest,
-                compatibility_digest
-           FROM exomem_agent_contract_candidates
-          WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
-          LIMIT 1`
+              compatibility_digest
+         FROM exomem_agent_contract_candidates
+        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'`
       );
       const catalogUser = await pool!.query<{ id: string }>(
-        "INSERT INTO users (email) VALUES ('default-v1-catalog@example.test') RETURNING id"
+        "INSERT INTO users (email) VALUES ('legacy-catalog@example.test') RETURNING id"
       );
       const catalogTenant = await pool!.query<{ id: string }>(
         "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
@@ -1388,11 +765,11 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       );
       const catalogCell = await pool!.query<{ id: string }>(
         `INSERT INTO exomem_cells (
-           tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
-           observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
-           observed_compatibility_digest
-         ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
-         RETURNING id`,
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
         [
           catalogTenant.rows[0]!.id,
           candidate.rows[0]!.protocol_version,
@@ -1407,125 +784,760 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         catalogCell.rows[0]!.id,
         catalogTenant.rows[0]!.id,
       ]);
-      await seedInviteAndTransaction(internal, "590");
-      const admitted = await admitFirstOAuthInviteAtomic({
-        inviteDigest: digest(590),
-        transactionDigest: digest(610),
-        sessionDigest: digest(591),
-        csrfDigest: digest(592),
+
+      const ordinary = await redeemInviteAtomic({
+        tokenDigest: digest(50),
+        sessionDigest: digest(54),
+        csrfDigest: digest(55),
         sessionExpiresAt: new Date(Date.now() + 60_000),
-        codeDigest: digest(593),
+      });
+      const reviewer = await redeemInviteAtomic({
+        tokenDigest: digest(52),
+        sessionDigest: digest(56),
+        csrfDigest: digest(57),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+      });
+
+      assert.ok(ordinary);
+      assert.ok(reviewer);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = false",
+          [ordinary!.tenantId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = true",
+          [reviewer!.tenantId]
+        ),
+        1
+      );
+      await assert.rejects(
+        pool!.query("UPDATE exomem_invites SET marketplace_reviewer_purpose = true WHERE id = $1", [
+          ordinaryInvite.inviteId,
+        ]),
+        /marketplace reviewer purpose is immutable/
+      );
+      await assert.rejects(
+        pool!.query(
+          "UPDATE exomem_tenants SET marketplace_reviewer_purpose = false WHERE id = $1",
+          [reviewer!.tenantId]
+        ),
+        /marketplace reviewer purpose is immutable/
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_invites WHERE id = $1 AND marketplace_reviewer_purpose = false",
+          [ordinaryInvite.inviteId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = true",
+          [reviewer!.tenantId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_invites WHERE id = $1 AND consumed_at IS NOT NULL",
+          [reviewerInvite.inviteId]
+        ),
+        1
+      );
+    });
+
+    it("snapshots the catalog-backed v2 target for legacy invitation provisioning", async () => {
+      const candidate = await pool!.query<{
+        id: string;
+        source_release: string;
+        protocol_version: string;
+        command_fingerprint: string;
+        schema_digest: string;
+        compatibility_digest: string;
+      }>(
+        `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
+              compatibility_digest
+         FROM exomem_agent_contract_candidates
+        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
+        LIMIT 1`
+      );
+      const catalogUser = await pool!.query<{ id: string }>(
+        "INSERT INTO users (email) VALUES ('legacy-v2-catalog@example.test') RETURNING id"
+      );
+      const catalogTenant = await pool!.query<{ id: string }>(
+        "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+        [catalogUser.rows[0]!.id]
+      );
+      const catalogCell = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+        [
+          catalogTenant.rows[0]!.id,
+          candidate.rows[0]!.protocol_version,
+          candidate.rows[0]!.source_release,
+          "e".repeat(64),
+          candidate.rows[0]!.command_fingerprint,
+          candidate.rows[0]!.schema_digest,
+          candidate.rows[0]!.compatibility_digest,
+        ]
+      );
+      await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        catalogCell.rows[0]!.id,
+        catalogTenant.rows[0]!.id,
+      ]);
+      await createInviteRecord({
+        tokenDigest: digest(357),
+        emailNormalized: "legacy-v2@example.test",
+        entitlementSource: "complimentary",
+        capabilities: [],
+        resourceLimits: {},
+        marketplaceReviewerPurpose: false,
+        operatorPrincipalDigest: digest(358),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      });
+
+      const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+      try {
+        const admitted = await redeemInviteAtomic({
+          tokenDigest: digest(357),
+          sessionDigest: digest(359),
+          csrfDigest: digest(360),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+        });
+        assert.ok(admitted);
+        const operation = await pool!.query<{
+          provisioner_wire_protocol: string;
+          target_candidate_id: string;
+          target_gateway_contract_digest: string;
+        }>(
+          `SELECT provisioner_wire_protocol, target_candidate_id, target_gateway_contract_digest
+           FROM exomem_lifecycle_operations
+          WHERE id = $1`,
+          [admitted.operationId]
+        );
+        assert.deepEqual(operation.rows, [
+          {
+            provisioner_wire_protocol: "exomem-cell-provisioner.v2",
+            target_candidate_id: candidate.rows[0]!.id,
+            target_gateway_contract_digest: "e".repeat(64),
+          },
+        ]);
+      } finally {
+        if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+        else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+      }
+    });
+
+    it("snapshots the catalog-backed v2 target for OAuth invitation provisioning", async () => {
+      const candidate = await pool!.query<{
+        id: string;
+        source_release: string;
+        protocol_version: string;
+        command_fingerprint: string;
+        schema_digest: string;
+        compatibility_digest: string;
+      }>(
+        `SELECT id, source_release, protocol_version, command_fingerprint, schema_digest,
+              compatibility_digest
+         FROM exomem_agent_contract_candidates
+        WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
+        LIMIT 1`
+      );
+      const catalogUser = await pool!.query<{ id: string }>(
+        "INSERT INTO users (email) VALUES ('oauth-v2-catalog@example.test') RETURNING id"
+      );
+      const catalogTenant = await pool!.query<{ id: string }>(
+        "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+        [catalogUser.rows[0]!.id]
+      );
+      const catalogCell = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+         observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+         observed_compatibility_digest
+       ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+        [
+          catalogTenant.rows[0]!.id,
+          candidate.rows[0]!.protocol_version,
+          candidate.rows[0]!.source_release,
+          "e".repeat(64),
+          candidate.rows[0]!.command_fingerprint,
+          candidate.rows[0]!.schema_digest,
+          candidate.rows[0]!.compatibility_digest,
+        ]
+      );
+      await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        catalogCell.rows[0]!.id,
+        catalogTenant.rows[0]!.id,
+      ]);
+      const internal = await seedClient();
+      await seedPool();
+      await seedInviteAndTransaction(internal, "370");
+
+      const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = "true";
+      try {
+        const admitted = await admitFirstOAuthInviteAtomic({
+          inviteDigest: digest(370),
+          transactionDigest: digest(390),
+          sessionDigest: digest(371),
+          csrfDigest: digest(372),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+          codeDigest: digest(373),
+          codeExpiresAt: new Date(Date.now() + 60_000),
+        });
+        assert.ok(admitted);
+        const operation = await pool!.query<{
+          provisioner_wire_protocol: string;
+          target_candidate_id: string;
+          target_gateway_contract_digest: string;
+        }>(
+          `SELECT provisioner_wire_protocol, target_candidate_id, target_gateway_contract_digest
+           FROM exomem_lifecycle_operations
+          WHERE id = $1`,
+          [admitted.operationId]
+        );
+        assert.deepEqual(operation.rows, [
+          {
+            provisioner_wire_protocol: "exomem-cell-provisioner.v2",
+            target_candidate_id: candidate.rows[0]!.id,
+            target_gateway_contract_digest: "e".repeat(64),
+          },
+        ]);
+        await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
+          admitted.tenantId,
+        ]);
+      } finally {
+        if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+        else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+      }
+    });
+
+    it("propagates reviewer purpose through OAuth invite admission", async () => {
+      const internal = await seedClient();
+      await seedPool();
+      await seedInviteAndTransaction(internal, "58", true);
+
+      const admitted = await admitFirstOAuthInviteAtomic({
+        inviteDigest: digest(58),
+        transactionDigest: digest(78),
+        sessionDigest: digest(59),
+        csrfDigest: digest(60),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+        codeDigest: digest(61),
         codeExpiresAt: new Date(Date.now() + 60_000),
       });
 
       assert.ok(admitted);
-      const operation = await pool!.query<{
-        provisioner_wire_protocol: string;
-        target_candidate_id: string | null;
-        target_assignment_id: string | null;
-        target_assignment_generation: string | null;
-        target_source_release: string | null;
-        target_protocol_version: string | null;
-        target_gateway_contract_digest: string | null;
-        target_command_fingerprint: string | null;
-        target_schema_digest: string | null;
-        target_compatibility_digest: string | null;
-      }>(
-        `SELECT provisioner_wire_protocol, target_candidate_id, target_assignment_id,
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_tenants WHERE id = $1 AND marketplace_reviewer_purpose = true",
+          [admitted!.tenantId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NOT NULL",
+          [digest(58)]
+        ),
+        1
+      );
+      await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
+        admitted!.tenantId,
+      ]);
+    });
+
+    it("refuses ordinary reauthorization that would detach an existing reviewer grant", async () => {
+      const internal = await seedClient();
+      const user = await pool!.query(
+        "INSERT INTO users (email) VALUES ('reviewer-reauthorization@example.test') RETURNING id"
+      );
+      const tenant = await pool!.query(
+        "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
+        [user.rows[0].id]
+      );
+      await pool!.query(
+        "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+        [tenant.rows[0].id]
+      );
+      const reviewer = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_marketplace_reviewer_credentials (
+         provider, username_digest, password_hash, owner_user_id, tenant_id,
+         fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
+       ) VALUES ('openai', $1, '$argon2id$integration', $2, $3,
+                 'review-fixture-v1', $4, $5, now() + interval '1 hour')
+       RETURNING id`,
+        [digest(39), user.rows[0].id, tenant.rows[0].id, "b".repeat(64), digest(40)]
+      );
+      const grant = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_grants (
+         user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id
+       ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5)
+       RETURNING id`,
+        [user.rows[0].id, tenant.rows[0].id, internal, resource, reviewer.rows[0]!.id]
+      );
+      const session = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id`,
+        [user.rows[0].id, tenant.rows[0].id, digest(41), digest(42)]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
+                 '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
+        [digest(43), internal, resource, digest(44), digest(45), digest(46)]
+      );
+
+      assert.equal(
+        await attachExistingOwnerAuthorizationAtomic({
+          sessionId: session.rows[0]!.id,
+          transactionDigest: digest(43),
+          codeDigest: digest(47),
+          codeExpiresAt: new Date(Date.now() + 60_000),
+        }),
+        null
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND reviewer_credential_id = $2",
+          [grant.rows[0]!.id, reviewer.rows[0]!.id]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NULL",
+          [digest(43)]
+        ),
+        1
+      );
+      await pool!.query(
+        "UPDATE exomem_marketplace_reviewer_credentials SET revoked_at = now() WHERE id = $1",
+        [reviewer.rows[0]!.id]
+      );
+    });
+
+    it("seals temporary reviewer setup access before issuing a credential", async () => {
+      const internal = await seedClient();
+      await seedPool();
+      await seedInviteAndTransaction(internal, "310", true);
+
+      const admitted = await admitFirstOAuthInviteAtomic({
+        inviteDigest: digest(310),
+        transactionDigest: digest(330),
+        sessionDigest: digest(311),
+        csrfDigest: digest(312),
+        sessionExpiresAt: new Date(Date.now() + 60_000),
+        codeDigest: digest(313),
+        codeExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(admitted);
+
+      const setupTokens = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: digest(313),
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(314),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(315),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(setupTokens);
+      assert.ok(await findActiveOAuthAccessToken(digest(315)));
+
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge,
+         redeemed_session_id, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
+                 '{}'::jsonb, $5, $6, 'challenge', $7, now() + interval '1 hour')`,
+        [
+          digest(316),
+          internal,
+          resource,
+          digest(317),
+          digest(318),
+          digest(319),
+          admitted!.sessionId,
+        ]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_codes (
+         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, expires_at
+       ) VALUES ($1, $2, $3, 'https://client.example.test/callback', $4, 'challenge',
+                 now() + interval '1 hour')`,
+        [digest(320), admitted!.grantId, internal, resource]
+      );
+      const cell = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
+         tenant_id, lifecycle_state, routing_state, protocol_version, release_version
+       ) VALUES ($1, 'active', 'bound', '2025-11-25', 'setup-sealed') RETURNING id`,
+        [admitted!.tenantId]
+      );
+      await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        cell.rows[0]!.id,
+        admitted!.tenantId,
+      ]);
+      const beforeSeal = await hostedProvisioningSnapshot();
+
+      const credential = await createOrRotateMarketplaceReviewerCredentialAtomic({
+        provider: "anthropic",
+        usernameDigest: digest(321),
+        passwordHash: await hashMarketplaceReviewerPassword("setup-reviewer-password"),
+        ownerUserId: (
+          await pool!.query<{ owner_user_id: string }>(
+            "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+            [admitted!.tenantId]
+          )
+        ).rows[0]!.owner_user_id,
+        tenantId: admitted!.tenantId,
+        fixtureVersion: "review-fixture-v1",
+        fixturePayloadDigest: "a".repeat(64),
+        expiresAt: new Date(Date.now() + 5 * 60_000),
+        operatorPrincipalDigest: digest(322),
+      });
+      assert.ok(credential);
+      assert.deepEqual(await hostedProvisioningSnapshot(), beforeSeal);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_sessions WHERE id = $1 AND revoked_at IS NOT NULL",
+          [admitted!.sessionId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NOT NULL",
+          [digest(316)]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND revoked_at IS NOT NULL",
+          [admitted!.grantId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NOT NULL",
+          [digest(320)]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
+          [setupTokens!.familyId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE refresh_digest = $1 AND consumed_at IS NOT NULL",
+          [digest(314)]
+        ),
+        1
+      );
+      assert.equal(await findActiveOAuthAccessToken(digest(315)), null);
+      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_account_blocks"), 0);
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_tenants WHERE id = $1 AND status <> 'deleted'", [
+          admitted!.tenantId,
+        ]),
+        1
+      );
+
+      const ordinarySession = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+       SELECT owner_user_id, id, $1, $2, now() + interval '1 hour'
+       FROM exomem_tenants WHERE id = $3 RETURNING id`,
+        [digest(323), digest(324), admitted!.tenantId]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3, ARRAY['exomem.read'], $4,
+                 '{}'::jsonb, $5, $6, 'challenge', now() + interval '1 hour')`,
+        [digest(325), internal, resource, digest(326), digest(327), digest(328)]
+      );
+      assert.equal(
+        await attachExistingOwnerAuthorizationAtomic({
+          sessionId: ordinarySession.rows[0]!.id,
+          transactionDigest: digest(325),
+          codeDigest: digest(329),
+          codeExpiresAt: new Date(Date.now() + 60_000),
+        }),
+        null
+      );
+
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_transactions (
+         transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
+         state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
+       ) VALUES ($1, $2, 'https://client.example.test/callback', $3,
+                 ARRAY['exomem.read', 'offline_access'], $4, '{}'::jsonb, $5, $6,
+                 'challenge', now() + interval '1 hour')`,
+        [digest(340), internal, resource, digest(341), digest(342), digest(343)]
+      );
+      const reviewerSession = await createMarketplaceReviewerOAuthSessionAtomic({
+        credentialId: credential!.credentialId,
+        transactionDigest: digest(340),
+        sessionDigest: digest(344),
+        csrfDigest: digest(345),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(reviewerSession);
+      const reviewerGrant = await attachExistingOwnerAuthorizationAtomic({
+        sessionId: reviewerSession!.sessionId,
+        transactionDigest: digest(340),
+        codeDigest: digest(346),
+        codeExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(reviewerGrant);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND reviewer_credential_id = $2",
+          [reviewerGrant!.grantId, credential!.credentialId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND grant_id = $2 AND consumed_at IS NULL",
+          [digest(346), reviewerGrant!.grantId]
+        ),
+        1
+      );
+      assert.equal(
+        await revokeMarketplaceReviewerCredentialAtomic({
+          provider: "anthropic",
+          operatorPrincipalDigest: digest(347),
+        }),
+        1
+      );
+      await pool!.query("DELETE FROM exomem_capacity_allocations WHERE tenant_id = $1", [
+        admitted!.tenantId,
+      ]);
+    });
+
+    it("serializes same-email admissions while reserving one final slot and leaves a losing invite reusable", async () => {
+      const internal = await seedClient();
+      await seedPool(EXOMEM_ALPHA_CAPACITY.storageBytes);
+      await seedAdmission(internal, 200, "same-email@example.test");
+      await seedAdmission(internal, 210, "same-email@example.test");
+      const sameEmail = await Promise.all([
+        admitFirstOAuthInviteAtomic(admissionInput(200)),
+        admitFirstOAuthInviteAtomic(admissionInput(210)),
+      ]);
+      assert.equal(sameEmail.filter(Boolean).length, 2);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_tenants WHERE owner_user_id = (SELECT id FROM users WHERE email = 'same-email@example.test')"
+        ),
+        1
+      );
+      assert.equal(await scalar("SELECT count(*) FROM exomem_capacity_allocations"), 1);
+
+      await seedAdmission(internal, 220, "losing-invite@example.test");
+      await assert.rejects(
+        admitFirstOAuthInviteAtomic(admissionInput(220)),
+        (error: unknown) =>
+          error instanceof ExomemHostedError && error.code === "CAPACITY_UNAVAILABLE"
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
+          [digest(220)]
+        ),
+        1
+      );
+    });
+
+    it("persists the default v1 wire protocol for an initial provision operation", async () => {
+      const previous = process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+      try {
+        const internal = await seedClient();
+        await seedPool();
+        const candidate = await pool!.query<{
+          source_release: string;
+          protocol_version: string;
+          command_fingerprint: string;
+          schema_digest: string;
+          compatibility_digest: string;
+        }>(
+          `SELECT source_release, protocol_version, command_fingerprint, schema_digest,
+                compatibility_digest
+           FROM exomem_agent_contract_candidates
+          WHERE profile_id = 'hosted-alpha-agent-v4' AND state = 'live'
+          LIMIT 1`
+        );
+        const catalogUser = await pool!.query<{ id: string }>(
+          "INSERT INTO users (email) VALUES ('default-v1-catalog@example.test') RETURNING id"
+        );
+        const catalogTenant = await pool!.query<{ id: string }>(
+          "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
+          [catalogUser.rows[0]!.id]
+        );
+        const catalogCell = await pool!.query<{ id: string }>(
+          `INSERT INTO exomem_cells (
+           tenant_id, lifecycle_state, routing_state, desired_state, protocol_version, release_version,
+           observed_gateway_contract_digest, observed_command_fingerprint, observed_schema_digest,
+           observed_compatibility_digest
+         ) VALUES ($1, 'active', 'bound', 'running', $2, $3, $4, $5, $6, $7)
+         RETURNING id`,
+          [
+            catalogTenant.rows[0]!.id,
+            candidate.rows[0]!.protocol_version,
+            candidate.rows[0]!.source_release,
+            "e".repeat(64),
+            candidate.rows[0]!.command_fingerprint,
+            candidate.rows[0]!.schema_digest,
+            candidate.rows[0]!.compatibility_digest,
+          ]
+        );
+        await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+          catalogCell.rows[0]!.id,
+          catalogTenant.rows[0]!.id,
+        ]);
+        await seedInviteAndTransaction(internal, "590");
+        const admitted = await admitFirstOAuthInviteAtomic({
+          inviteDigest: digest(590),
+          transactionDigest: digest(610),
+          sessionDigest: digest(591),
+          csrfDigest: digest(592),
+          sessionExpiresAt: new Date(Date.now() + 60_000),
+          codeDigest: digest(593),
+          codeExpiresAt: new Date(Date.now() + 60_000),
+        });
+
+        assert.ok(admitted);
+        const operation = await pool!.query<{
+          provisioner_wire_protocol: string;
+          target_candidate_id: string | null;
+          target_assignment_id: string | null;
+          target_assignment_generation: string | null;
+          target_source_release: string | null;
+          target_protocol_version: string | null;
+          target_gateway_contract_digest: string | null;
+          target_command_fingerprint: string | null;
+          target_schema_digest: string | null;
+          target_compatibility_digest: string | null;
+        }>(
+          `SELECT provisioner_wire_protocol, target_candidate_id, target_assignment_id,
                 target_assignment_generation, target_source_release, target_protocol_version,
                 target_gateway_contract_digest, target_command_fingerprint, target_schema_digest,
                 target_compatibility_digest
            FROM exomem_lifecycle_operations
           WHERE tenant_id = $1`,
-        [admitted!.tenantId]
+          [admitted!.tenantId]
+        );
+        assert.deepEqual(operation.rows, [
+          {
+            provisioner_wire_protocol: "exomem-cell-provisioner.v1",
+            target_candidate_id: null,
+            target_assignment_id: null,
+            target_assignment_generation: null,
+            target_source_release: null,
+            target_protocol_version: null,
+            target_gateway_contract_digest: null,
+            target_command_fingerprint: null,
+            target_schema_digest: null,
+            target_compatibility_digest: null,
+          },
+        ]);
+      } finally {
+        if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
+        else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
+      }
+    });
+
+    it("rejects a soft-deleted identity without changing capacity or consuming its invite", async () => {
+      const internal = await seedClient();
+      await seedPool();
+      await pool!.query(
+        "INSERT INTO users (email, deleted_at) VALUES ('deleted-owner@example.test', now())"
       );
-      assert.deepEqual(operation.rows, [
-        {
-          provisioner_wire_protocol: "exomem-cell-provisioner.v1",
-          target_candidate_id: null,
-          target_assignment_id: null,
-          target_assignment_generation: null,
-          target_source_release: null,
-          target_protocol_version: null,
-          target_gateway_contract_digest: null,
-          target_command_fingerprint: null,
-          target_schema_digest: null,
-          target_compatibility_digest: null,
-        },
-      ]);
-    } finally {
-      if (previous === undefined) delete process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED;
-      else process.env.EXOMEM_PROVISIONER_V2_ISSUANCE_ENABLED = previous;
-    }
-  });
-
-  it("rejects a soft-deleted identity without changing capacity or consuming its invite", async () => {
-    const internal = await seedClient();
-    await seedPool();
-    await pool!.query(
-      "INSERT INTO users (email, deleted_at) VALUES ('deleted-owner@example.test', now())"
-    );
-    await seedAdmission(internal, 230, "deleted-owner@example.test");
-    const allocationCountBeforeAdmission = await scalar(
-      "SELECT count(*) FROM exomem_capacity_allocations"
-    );
-    assert.equal(await admitFirstOAuthInviteAtomic(admissionInput(230)), null);
-    assert.equal(
-      await scalar("SELECT count(*) FROM exomem_capacity_allocations"),
-      allocationCountBeforeAdmission
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
-        [digest(230)]
-      ),
-      1
-    );
-  });
-
-  it("does not consume a code when its resource binding is wrong", async () => {
-    const internal = await seedClient();
-    const fixture = await seedAuthorizationCode(internal, 110, true);
-    const result = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: fixture.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource: `${resource}/wrong`,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(111),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(112),
-      accessExpiresAt: new Date(Date.now() + 60_000),
+      await seedAdmission(internal, 230, "deleted-owner@example.test");
+      const allocationCountBeforeAdmission = await scalar(
+        "SELECT count(*) FROM exomem_capacity_allocations"
+      );
+      assert.equal(await admitFirstOAuthInviteAtomic(admissionInput(230)), null);
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_capacity_allocations"),
+        allocationCountBeforeAdmission
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NULL",
+          [digest(230)]
+        ),
+        1
+      );
     });
-    assert.equal(result, null);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NULL",
-        [fixture.codeDigest]
-      ),
-      1
-    );
-  });
 
-  it("executes the MCP lookup against real coherent authority chains", async () => {
-    const internal = await seedClient();
-    const valid = await seedAuthorizationCode(internal, 160, false);
-    const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: valid.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(161),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(162),
-      accessExpiresAt: new Date(Date.now() + 60_000),
+    it("does not consume a code when its resource binding is wrong", async () => {
+      const internal = await seedClient();
+      const fixture = await seedAuthorizationCode(internal, 110, true);
+      const result = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: fixture.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource: `${resource}/wrong`,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(111),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(112),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.equal(result, null);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NULL",
+          [fixture.codeDigest]
+        ),
+        1
+      );
     });
-    assert.ok(issued);
-    assert.equal((await findMcpOAuthAccessToken(digest(162)))?.grantId, valid.grantId);
 
-    const otherClient = await pool!.query(
-      `INSERT INTO exomem_oauth_clients (
+    it("executes the MCP lookup against real coherent authority chains", async () => {
+      const internal = await seedClient();
+      const valid = await seedAuthorizationCode(internal, 160, false);
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: valid.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(161),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(162),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(issued);
+      assert.equal((await findMcpOAuthAccessToken(digest(162)))?.grantId, valid.grantId);
+
+      const otherClient = await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
          client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
          client_platform, oauth_client_config_sha256
        ) VALUES ('https://other-client.example.test/metadata.json', 'pinned', true,
@@ -1533,500 +1545,500 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
                  digest(convert_to('["https://other-client.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
                  'claude', $1)
        RETURNING id`,
-      ["e".repeat(64)]
-    );
-    const mixedGrant = await pool!.query(
-      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+        ["e".repeat(64)]
+      );
+      const mixedGrant = await pool!.query(
+        `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
        VALUES ($1, $2, $3, $4, ARRAY['exomem.read']) RETURNING id`,
-      [valid.userId, valid.tenantId, otherClient.rows[0].id, resource]
-    );
-    await pool!.query(
-      `UPDATE exomem_oauth_token_families SET grant_id = $1, client_id = $2 WHERE id = $3`,
-      [mixedGrant.rows[0].id, otherClient.rows[0].id, issued.familyId]
-    );
-    assert.equal(await findMcpOAuthAccessToken(digest(162)), null);
+        [valid.userId, valid.tenantId, otherClient.rows[0].id, resource]
+      );
+      await pool!.query(
+        `UPDATE exomem_oauth_token_families SET grant_id = $1, client_id = $2 WHERE id = $3`,
+        [mixedGrant.rows[0].id, otherClient.rows[0].id, issued.familyId]
+      );
+      assert.equal(await findMcpOAuthAccessToken(digest(162)), null);
 
-    const resourceMismatch = await seedAuthorizationCode(internal, 170, false);
-    await issueOAuthTokensFromCodeAtomic({
-      codeDigest: resourceMismatch.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(171),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(172),
-      accessExpiresAt: new Date(Date.now() + 60_000),
+      const resourceMismatch = await seedAuthorizationCode(internal, 170, false);
+      await issueOAuthTokensFromCodeAtomic({
+        codeDigest: resourceMismatch.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(171),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(172),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      await pool!.query(
+        `UPDATE exomem_oauth_access_tokens SET resource = $1 WHERE access_digest = $2`,
+        [`${resource}/wrong`, digest(172)]
+      );
+      assert.equal(await findMcpOAuthAccessToken(digest(172)), null);
+
+      const elevatedScope = await seedAuthorizationCode(internal, 180, false);
+      await issueOAuthTokensFromCodeAtomic({
+        codeDigest: elevatedScope.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(181),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(182),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      await pool!.query(
+        `UPDATE exomem_oauth_access_tokens SET scopes = ARRAY['exomem.write'] WHERE access_digest = $1`,
+        [digest(182)]
+      );
+      assert.equal(await findMcpOAuthAccessToken(digest(182)), null);
     });
-    await pool!.query(
-      `UPDATE exomem_oauth_access_tokens SET resource = $1 WHERE access_digest = $2`,
-      [`${resource}/wrong`, digest(172)]
-    );
-    assert.equal(await findMcpOAuthAccessToken(digest(172)), null);
 
-    const elevatedScope = await seedAuthorizationCode(internal, 180, false);
-    await issueOAuthTokensFromCodeAtomic({
-      codeDigest: elevatedScope.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(181),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(182),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    await pool!.query(
-      `UPDATE exomem_oauth_access_tokens SET scopes = ARRAY['exomem.write'] WHERE access_digest = $1`,
-      [digest(182)]
-    );
-    assert.equal(await findMcpOAuthAccessToken(digest(182)), null);
-  });
-
-  it("expires and revokes the complete attributed reviewer session and OAuth graph", async () => {
-    const internal = await seedClient();
-    const user = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email) VALUES ('reviewer-lifecycle@example.test') RETURNING id"
-    );
-    const tenant = await pool!.query<{ id: string }>(
-      "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
-      [user.rows[0]!.id]
-    );
-    await pool!.query(
-      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
-      [tenant.rows[0]!.id]
-    );
-    const cell = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_cells (
+    it("expires and revokes the complete attributed reviewer session and OAuth graph", async () => {
+      const internal = await seedClient();
+      const user = await pool!.query<{ id: string }>(
+        "INSERT INTO users (email) VALUES ('reviewer-lifecycle@example.test') RETURNING id"
+      );
+      const tenant = await pool!.query<{ id: string }>(
+        "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
+        [user.rows[0]!.id]
+      );
+      await pool!.query(
+        "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+        [tenant.rows[0]!.id]
+      );
+      const cell = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_cells (
          tenant_id, lifecycle_state, routing_state, protocol_version, release_version
        ) VALUES ($1, 'active', 'bound', '2025-11-25', 'integration') RETURNING id`,
-      [tenant.rows[0]!.id]
-    );
-    await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
-      cell.rows[0]!.id,
-      tenant.rows[0]!.id,
-    ]);
+        [tenant.rows[0]!.id]
+      );
+      await pool!.query("UPDATE exomem_tenants SET bound_cell_id = $1 WHERE id = $2", [
+        cell.rows[0]!.id,
+        tenant.rows[0]!.id,
+      ]);
 
-    const credentialExpiresAt = new Date(Date.now() + 5 * 60_000);
-    const created = await createOrRotateMarketplaceReviewerCredentialAtomic({
-      provider: "anthropic",
-      usernameDigest: digest(260),
-      passwordHash: await hashMarketplaceReviewerPassword("reviewer-password"),
-      ownerUserId: user.rows[0]!.id,
-      tenantId: tenant.rows[0]!.id,
-      fixtureVersion: "review-fixture-v1",
-      fixturePayloadDigest: "a".repeat(64),
-      expiresAt: credentialExpiresAt,
-      operatorPrincipalDigest: digest(261),
-    });
-    assert.ok(created);
-    const reviewerId = created!.credentialId;
-    const lookup = await findMarketplaceReviewerCredentialForAuthentication(digest(260));
-    assert.equal(lookup?.credentialId, reviewerId);
-    assert.equal(lookup?.expiresAt, credentialExpiresAt.toISOString());
-    const status = await getMarketplaceReviewerCredentialStatus("anthropic");
-    assert.equal(status?.expiresAt, credentialExpiresAt.toISOString());
+      const credentialExpiresAt = new Date(Date.now() + 5 * 60_000);
+      const created = await createOrRotateMarketplaceReviewerCredentialAtomic({
+        provider: "anthropic",
+        usernameDigest: digest(260),
+        passwordHash: await hashMarketplaceReviewerPassword("reviewer-password"),
+        ownerUserId: user.rows[0]!.id,
+        tenantId: tenant.rows[0]!.id,
+        fixtureVersion: "review-fixture-v1",
+        fixturePayloadDigest: "a".repeat(64),
+        expiresAt: credentialExpiresAt,
+        operatorPrincipalDigest: digest(261),
+      });
+      assert.ok(created);
+      const reviewerId = created!.credentialId;
+      const lookup = await findMarketplaceReviewerCredentialForAuthentication(digest(260));
+      assert.equal(lookup?.credentialId, reviewerId);
+      assert.equal(lookup?.expiresAt, credentialExpiresAt.toISOString());
+      const status = await getMarketplaceReviewerCredentialStatus("anthropic");
+      assert.equal(status?.expiresAt, credentialExpiresAt.toISOString());
 
-    async function reviewerSessionFor(sequence: number) {
-      await pool!.query(
-        `INSERT INTO exomem_oauth_authorization_transactions (
+      async function reviewerSessionFor(sequence: number) {
+        await pool!.query(
+          `INSERT INTO exomem_oauth_authorization_transactions (
            transaction_digest, client_id, redirect_uri, resource, requested_scopes, state_digest,
            state_envelope, form_nonce_digest, continuation_binding, pkce_challenge, expires_at
          ) VALUES ($1, $2, 'https://client.example.test/callback', $3,
                    ARRAY['exomem.read', 'offline_access'], $4, '{}'::jsonb, $5, $6,
                    'challenge', now() + interval '1 hour')`,
-        [
-          digest(sequence),
-          internal,
-          resource,
-          digest(sequence + 1),
-          digest(sequence + 2),
-          digest(sequence + 3),
-        ]
-      );
-      return createMarketplaceReviewerOAuthSessionAtomic({
-        credentialId: reviewerId,
-        transactionDigest: digest(sequence),
-        sessionDigest: digest(sequence + 4),
-        csrfDigest: digest(sequence + 5),
-        expiresAt: new Date(Date.now() + 3_600_000),
+          [
+            digest(sequence),
+            internal,
+            resource,
+            digest(sequence + 1),
+            digest(sequence + 2),
+            digest(sequence + 3),
+          ]
+        );
+        return createMarketplaceReviewerOAuthSessionAtomic({
+          credentialId: reviewerId,
+          transactionDigest: digest(sequence),
+          sessionDigest: digest(sequence + 4),
+          csrfDigest: digest(sequence + 5),
+          expiresAt: new Date(Date.now() + 3_600_000),
+        });
+      }
+
+      const reviewerSession = await reviewerSessionFor(262);
+      assert.ok(reviewerSession);
+      assert.equal((await findExomemSessionByDigest(digest(266)))?.tenantId, tenant.rows[0]!.id);
+      const attached = await attachExistingOwnerAuthorizationAtomic({
+        sessionId: reviewerSession!.sessionId,
+        transactionDigest: digest(262),
+        codeDigest: digest(267),
+        codeExpiresAt: new Date(Date.now() + 60_000),
       });
-    }
+      assert.equal(attached?.tenantId, tenant.rows[0]!.id);
 
-    const reviewerSession = await reviewerSessionFor(262);
-    assert.ok(reviewerSession);
-    assert.equal((await findExomemSessionByDigest(digest(266)))?.tenantId, tenant.rows[0]!.id);
-    const attached = await attachExistingOwnerAuthorizationAtomic({
-      sessionId: reviewerSession!.sessionId,
-      transactionDigest: digest(262),
-      codeDigest: digest(267),
-      codeExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.equal(attached?.tenantId, tenant.rows[0]!.id);
-
-    const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: digest(267),
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(268),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(269),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(issued);
-    assert.ok(await findActiveOAuthAccessToken(digest(269)));
-    assert.ok(await findMcpOAuthAccessToken(digest(269)));
-    assert.equal(
-      await scalar(
-        `SELECT count(*)
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: digest(267),
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(268),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(269),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(issued);
+      assert.ok(await findActiveOAuthAccessToken(digest(269)));
+      assert.ok(await findMcpOAuthAccessToken(digest(269)));
+      assert.equal(
+        await scalar(
+          `SELECT count(*)
          FROM exomem_oauth_token_families AS family
          JOIN exomem_marketplace_reviewer_credentials AS credential ON credential.id = $2
          WHERE family.id = $1 AND family.expires_at <= credential.expires_at`,
-        [issued!.familyId, reviewerId]
-      ),
-      1
-    );
-    assert.ok(
-      await rotateOAuthRefreshTokenAtomic({
-        refreshDigest: digest(268),
-        replacementRefreshDigest: digest(270),
-        accessDigest: digest(271),
-        accessExpiresAt: new Date(Date.now() + 60_000),
-        clientId,
-        resource,
-      })
-    );
+          [issued!.familyId, reviewerId]
+        ),
+        1
+      );
+      assert.ok(
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(268),
+          replacementRefreshDigest: digest(270),
+          accessDigest: digest(271),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId,
+          resource,
+        })
+      );
 
-    const pendingSession = await reviewerSessionFor(272);
-    assert.ok(pendingSession);
-    const unusedCodeSession = await reviewerSessionFor(278);
-    assert.ok(unusedCodeSession);
-    assert.ok(
-      await attachExistingOwnerAuthorizationAtomic({
-        sessionId: unusedCodeSession!.sessionId,
-        transactionDigest: digest(278),
-        codeDigest: digest(283),
-        codeExpiresAt: new Date(Date.now() + 60_000),
-      })
-    );
+      const pendingSession = await reviewerSessionFor(272);
+      assert.ok(pendingSession);
+      const unusedCodeSession = await reviewerSessionFor(278);
+      assert.ok(unusedCodeSession);
+      assert.ok(
+        await attachExistingOwnerAuthorizationAtomic({
+          sessionId: unusedCodeSession!.sessionId,
+          transactionDigest: digest(278),
+          codeDigest: digest(283),
+          codeExpiresAt: new Date(Date.now() + 60_000),
+        })
+      );
 
-    await pool!.query(
-      `UPDATE exomem_marketplace_reviewer_credentials
+      await pool!.query(
+        `UPDATE exomem_marketplace_reviewer_credentials
        SET created_at = now() - interval '2 seconds', expires_at = now() - interval '1 second'
        WHERE id = $1`,
-      [reviewerId]
-    );
-    assert.equal(await findExomemSessionByDigest(digest(266)), null);
-    assert.equal(await findActiveOAuthAccessToken(digest(269)), null);
-    assert.equal(await findMcpOAuthAccessToken(digest(269)), null);
-    assert.equal(
-      await rotateOAuthRefreshTokenAtomic({
-        refreshDigest: digest(270),
-        replacementRefreshDigest: digest(284),
-        accessDigest: digest(285),
-        accessExpiresAt: new Date(Date.now() + 60_000),
-        clientId,
-        resource,
-      }),
-      null
-    );
-
-    assert.equal(
-      await revokeMarketplaceReviewerCredentialAtomic({
-        provider: "anthropic",
-        operatorPrincipalDigest: digest(273),
-      }),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_sessions WHERE reviewer_credential_id = $1 AND revoked_at IS NULL",
         [reviewerId]
-      ),
-      0
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_grants WHERE reviewer_credential_id = $1 AND revoked_at IS NULL",
-        [reviewerId]
-      ),
-      0
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NULL",
-        [issued!.familyId]
-      ),
-      0
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NULL",
-        [digest(272)]
-      ),
-      0
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NULL",
-        [digest(283)]
-      ),
-      0
-    );
-    assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_account_blocks"), 0);
-    assert.equal(
-      await scalar("SELECT count(*) FROM exomem_tenants WHERE id = $1 AND status <> 'deleted'", [
-        tenant.rows[0]!.id,
-      ]),
-      1
-    );
-    assert.equal(await findActiveOAuthAccessToken(digest(269)), null);
-    assert.equal(await findMcpOAuthAccessToken(digest(269)), null);
-  });
+      );
+      assert.equal(await findExomemSessionByDigest(digest(266)), null);
+      assert.equal(await findActiveOAuthAccessToken(digest(269)), null);
+      assert.equal(await findMcpOAuthAccessToken(digest(269)), null);
+      assert.equal(
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(270),
+          replacementRefreshDigest: digest(284),
+          accessDigest: digest(285),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId,
+          resource,
+        }),
+        null
+      );
 
-  it("keeps service-client admission independent of artifact certification", async () => {
-    await seedClient();
-    assert.ok(await resolveApprovedOAuthClient(clientId));
-    // Another platform's artifact is not this client's business. A Claude client is
-    // admitted on the strength of the Claude artifact, so retiring the OpenAI one
-    // must leave it admitted -- that coupling is what blocked Claude admission on
-    // an OpenAI app registration.
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'openai'"
-    );
-    assert.ok(await resolveApprovedOAuthClient(clientId));
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
-    );
-    // Certification is a distribution decision, not an OAuth admission predicate.
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'claude'"
-    );
-    assert.ok(await resolveApprovedOAuthClient(clientId));
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'claude'"
-    );
-  });
-
-  it("admits a registered client without binding its service policy to an artifact", async () => {
-    const admittedClientId = `https://bound-client.example.test/${randomUUID()}`;
-    const redirectUri = "https://bound-client.example.test/callback";
-    const configDigest = oauthClientConfigSha256({
-      platform: "claude",
-      admissionMode: "pinned",
-      clientId: admittedClientId,
-      redirectUris: [redirectUri],
-    });
-    const artifact = await pool!.query<{ id: string }>(
-      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
-    );
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-      [configDigest, artifact.rows[0]!.id]
-    );
-    const registered = await registerOperatorOAuthClient({
-      admissionMode: "pinned",
-      platform: "claude",
-      artifactId: artifact.rows[0]!.id,
-      clientId: admittedClientId,
-      redirectUris: [redirectUri],
-    });
-    assert.equal(registered.enabled, false);
-    assert.equal(
-      await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
-      true
-    );
-    assert.ok(await resolveApprovedOAuthClient(admittedClientId));
-    await pool!.query(
-      "UPDATE exomem_oauth_clients SET oauth_client_config_sha256 = $1 WHERE id = $2",
-      ["0".repeat(64), registered.id]
-    );
-    assert.ok(await resolveApprovedOAuthClient(admittedClientId));
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-      ["f".repeat(64), artifact.rows[0]!.id]
-    );
-  });
-
-  it("admits a shared staged client while keeping reviewer authorization lineage exact", async () => {
-    const candidateId = await storeExomemAgentContractCandidate();
-    const candidateClientId = `https://shared-canary.example.test/${randomUUID()}`;
-    const redirectUri = "https://shared-canary.example.test/callback";
-    const configDigest = oauthClientConfigSha256({
-      platform: "claude",
-      admissionMode: "pinned",
-      clientId: candidateClientId,
-      redirectUris: [redirectUri],
-    });
-    const stage = await createStagedClientRelease({
-      candidateId,
-      platform: "claude",
-      packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
-      archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
-      compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
-      contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
-      pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
-      oauthClientConfigSha256: configDigest,
-      registeredAppIdSha256: null,
-      operatorPrincipalDigest: "9".repeat(64),
-      expiresAt: new Date(Date.now() + 60 * 60_000),
-    });
-    const registered = await registerOperatorOAuthClient({
-      admissionMode: "pinned",
-      platform: "claude",
-      stagedClientReleaseId: stage.id,
-      clientId: candidateClientId,
-      redirectUris: [redirectUri],
-    });
-    assert.equal(registered.enabled, false);
-
-    const reviewerA = await seedBoundReviewerTenant("shared-canary-a");
-    const reviewerB = await seedBoundReviewerTenant("shared-canary-b");
-    const assignmentExpiresAt = new Date(Date.now() + 60 * 60_000);
-    const assignmentA = await createCanaryAssignment({
-      tenantId: reviewerA.tenantId,
-      candidateId,
-      expiresAt: assignmentExpiresAt,
-      operatorPrincipalDigest: "a".repeat(64),
-    });
-    const discardedAssignmentB = await createCanaryAssignment({
-      tenantId: reviewerB.tenantId,
-      candidateId,
-      expiresAt: assignmentExpiresAt,
-      operatorPrincipalDigest: "b".repeat(64),
-    });
-    assert.equal(
-      await failCanaryAssignment({
-        assignmentId: discardedAssignmentB.id,
-        expectedVersion: discardedAssignmentB.version,
-      }),
-      true
-    );
-    const assignmentB = await createCanaryAssignment({
-      tenantId: reviewerB.tenantId,
-      candidateId,
-      expiresAt: assignmentExpiresAt,
-      operatorPrincipalDigest: "c".repeat(64),
-    });
-    assert.notEqual(assignmentA.id, assignmentB.id);
-    assert.notEqual(assignmentA.generation, assignmentB.generation);
-    await activateCanaryAssignment({
-      tenantId: reviewerA.tenantId,
-      priorCellId: reviewerA.cellId,
-      assignmentId: assignmentA.id,
-      assignmentGeneration: assignmentA.generation,
-    });
-    await activateCanaryAssignment({
-      tenantId: reviewerB.tenantId,
-      priorCellId: reviewerB.cellId,
-      assignmentId: assignmentB.id,
-      assignmentGeneration: assignmentB.generation,
+      assert.equal(
+        await revokeMarketplaceReviewerCredentialAtomic({
+          provider: "anthropic",
+          operatorPrincipalDigest: digest(273),
+        }),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_sessions WHERE reviewer_credential_id = $1 AND revoked_at IS NULL",
+          [reviewerId]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_grants WHERE reviewer_credential_id = $1 AND revoked_at IS NULL",
+          [reviewerId]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NULL",
+          [issued!.familyId]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NULL",
+          [digest(272)]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1 AND consumed_at IS NULL",
+          [digest(283)]
+        ),
+        0
+      );
+      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_account_blocks"), 0);
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_tenants WHERE id = $1 AND status <> 'deleted'", [
+          tenant.rows[0]!.id,
+        ]),
+        1
+      );
+      assert.equal(await findActiveOAuthAccessToken(digest(269)), null);
+      assert.equal(await findMcpOAuthAccessToken(digest(269)), null);
     });
 
-    const credentialA = await createInternalCanaryReviewerCredentialAtomic({
-      platform: "claude",
-      usernameDigest: digest(400),
-      passwordHash: "$argon2id$shared-canary-a",
-      tenantId: reviewerA.tenantId,
-      candidateId,
-      assignmentId: assignmentA.id,
-      assignmentGeneration: assignmentA.generation,
-      stagedClientReleaseId: stage.id,
-      oauthClientId: registered.id,
-      fixtureVersion: "shared-canary-a",
-      fixturePayloadDigest: "d".repeat(64),
-      operatorPrincipalDigest: digest(401),
-      expiresAt: new Date(Date.now() + 50 * 60_000),
+    it("keeps service-client admission independent of artifact certification", async () => {
+      await seedClient();
+      assert.ok(await resolveApprovedOAuthClient(clientId));
+      // Another platform's artifact is not this client's business. A Claude client is
+      // admitted on the strength of the Claude artifact, so retiring the OpenAI one
+      // must leave it admitted -- that coupling is what blocked Claude admission on
+      // an OpenAI app registration.
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'openai'"
+      );
+      assert.ok(await resolveApprovedOAuthClient(clientId));
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'openai'"
+      );
+      // Certification is a distribution decision, not an OAuth admission predicate.
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'claude'"
+      );
+      assert.ok(await resolveApprovedOAuthClient(clientId));
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'claude'"
+      );
     });
-    const credentialB = await createInternalCanaryReviewerCredentialAtomic({
-      platform: "claude",
-      usernameDigest: digest(410),
-      passwordHash: "$argon2id$shared-canary-b",
-      tenantId: reviewerB.tenantId,
-      candidateId,
-      assignmentId: assignmentB.id,
-      assignmentGeneration: assignmentB.generation,
-      stagedClientReleaseId: stage.id,
-      oauthClientId: registered.id,
-      fixtureVersion: "shared-canary-b",
-      fixturePayloadDigest: "e".repeat(64),
-      operatorPrincipalDigest: digest(411),
-      expiresAt: new Date(Date.now() + 50 * 60_000),
-    });
-    assert.ok(credentialA);
-    assert.ok(credentialB);
 
-    assert.equal(
-      (await resolveApprovedOAuthClient(candidateClientId))?.clientId,
-      candidateClientId
-    );
-    const transactionAInput = authorizationTransactionInput({
-      sequence: 420,
-      clientId: candidateClientId,
-      redirectUri,
+    it("admits a registered client without binding its service policy to an artifact", async () => {
+      const admittedClientId = `https://bound-client.example.test/${randomUUID()}`;
+      const redirectUri = "https://bound-client.example.test/callback";
+      const configDigest = oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "pinned",
+        clientId: admittedClientId,
+        redirectUris: [redirectUri],
+      });
+      const artifact = await pool!.query<{ id: string }>(
+        "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+      );
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        [configDigest, artifact.rows[0]!.id]
+      );
+      const registered = await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform: "claude",
+        artifactId: artifact.rows[0]!.id,
+        clientId: admittedClientId,
+        redirectUris: [redirectUri],
+      });
+      assert.equal(registered.enabled, false);
+      assert.equal(
+        await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
+        true
+      );
+      assert.ok(await resolveApprovedOAuthClient(admittedClientId));
+      await pool!.query(
+        "UPDATE exomem_oauth_clients SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        ["0".repeat(64), registered.id]
+      );
+      assert.ok(await resolveApprovedOAuthClient(admittedClientId));
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        ["f".repeat(64), artifact.rows[0]!.id]
+      );
     });
-    const transactionBInput = authorizationTransactionInput({
-      sequence: 430,
-      clientId: candidateClientId,
-      redirectUri,
-    });
-    assert.ok(await createAuthorizationTransaction(transactionAInput));
-    assert.ok(await createAuthorizationTransaction(transactionBInput));
 
-    const sessionA = await createMarketplaceReviewerOAuthSessionAtomic({
-      credentialId: credentialA!.credentialId,
-      transactionDigest: transactionAInput.transactionDigest,
-      sessionDigest: digest(440),
-      csrfDigest: digest(441),
-      expiresAt: new Date(Date.now() + 30 * 60_000),
-    });
-    const sessionB = await createMarketplaceReviewerOAuthSessionAtomic({
-      credentialId: credentialB!.credentialId,
-      transactionDigest: transactionBInput.transactionDigest,
-      sessionDigest: digest(450),
-      csrfDigest: digest(451),
-      expiresAt: new Date(Date.now() + 30 * 60_000),
-    });
-    assert.ok(sessionA);
-    assert.ok(sessionB);
+    it("admits a shared staged client while keeping reviewer authorization lineage exact", async () => {
+      const candidateId = await storeExomemAgentContractCandidate();
+      const candidateClientId = `https://shared-canary.example.test/${randomUUID()}`;
+      const redirectUri = "https://shared-canary.example.test/callback";
+      const configDigest = oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "pinned",
+        clientId: candidateClientId,
+        redirectUris: [redirectUri],
+      });
+      const stage = await createStagedClientRelease({
+        candidateId,
+        platform: "claude",
+        packageSha256: exomemHostedContractFixture.packageLock.artifact_sha256,
+        archiveSha256: exomemHostedContractFixture.archiveLock.archive_sha256,
+        compatibilitySha256: exomemHostedContractFixture.compatibility.compatibility_sha256,
+        contractSha256: exomemHostedContractFixture.compatibility.schema_contract_sha256,
+        pluginVersion: exomemHostedContractFixture.packageLock.plugin_version,
+        oauthClientConfigSha256: configDigest,
+        registeredAppIdSha256: null,
+        operatorPrincipalDigest: "9".repeat(64),
+        expiresAt: new Date(Date.now() + 60 * 60_000),
+      });
+      const registered = await registerOperatorOAuthClient({
+        admissionMode: "pinned",
+        platform: "claude",
+        stagedClientReleaseId: stage.id,
+        clientId: candidateClientId,
+        redirectUris: [redirectUri],
+      });
+      assert.equal(registered.enabled, false);
 
-    // Re-authenticating as YOURSELF on a transaction you already bound must work.
-    // This returned null before 2026-08-16: the first success binds the transaction,
-    // and the canary branch demanded an unbound one, so the retry was structurally
-    // impossible and surfaced as "check the credentials". It cost a promotion window.
-    const sessionARepeat = await createMarketplaceReviewerOAuthSessionAtomic({
-      credentialId: credentialA!.credentialId,
-      transactionDigest: transactionAInput.transactionDigest,
-      sessionDigest: digest(460),
-      csrfDigest: digest(461),
-      expiresAt: new Date(Date.now() + 30 * 60_000),
-    });
-    assert.ok(sessionARepeat, "re-authenticating the same credential must be idempotent");
-    assert.notEqual(
-      sessionARepeat!.sessionId,
-      sessionA!.sessionId,
-      "a repeat sign-in mints fresh session material rather than resurrecting the old one"
-    );
+      const reviewerA = await seedBoundReviewerTenant("shared-canary-a");
+      const reviewerB = await seedBoundReviewerTenant("shared-canary-b");
+      const assignmentExpiresAt = new Date(Date.now() + 60 * 60_000);
+      const assignmentA = await createCanaryAssignment({
+        tenantId: reviewerA.tenantId,
+        candidateId,
+        expiresAt: assignmentExpiresAt,
+        operatorPrincipalDigest: "a".repeat(64),
+      });
+      const discardedAssignmentB = await createCanaryAssignment({
+        tenantId: reviewerB.tenantId,
+        candidateId,
+        expiresAt: assignmentExpiresAt,
+        operatorPrincipalDigest: "b".repeat(64),
+      });
+      assert.equal(
+        await failCanaryAssignment({
+          assignmentId: discardedAssignmentB.id,
+          expectedVersion: discardedAssignmentB.version,
+        }),
+        true
+      );
+      const assignmentB = await createCanaryAssignment({
+        tenantId: reviewerB.tenantId,
+        candidateId,
+        expiresAt: assignmentExpiresAt,
+        operatorPrincipalDigest: "c".repeat(64),
+      });
+      assert.notEqual(assignmentA.id, assignmentB.id);
+      assert.notEqual(assignmentA.generation, assignmentB.generation);
+      await activateCanaryAssignment({
+        tenantId: reviewerA.tenantId,
+        priorCellId: reviewerA.cellId,
+        assignmentId: assignmentA.id,
+        assignmentGeneration: assignmentA.generation,
+      });
+      await activateCanaryAssignment({
+        tenantId: reviewerB.tenantId,
+        priorCellId: reviewerB.cellId,
+        assignmentId: assignmentB.id,
+        assignmentGeneration: assignmentB.generation,
+      });
 
-    // The other half of the condition. Without this the assertion above would pass
-    // even if the binding check had been removed outright rather than narrowed.
-    const hijack = await createMarketplaceReviewerOAuthSessionAtomic({
-      credentialId: credentialB!.credentialId,
-      transactionDigest: transactionAInput.transactionDigest,
-      sessionDigest: digest(470),
-      csrfDigest: digest(471),
-      expiresAt: new Date(Date.now() + 30 * 60_000),
-    });
-    assert.equal(
-      hijack,
-      null,
-      "a different credential must never bind a transaction already bound to another"
-    );
+      const credentialA = await createInternalCanaryReviewerCredentialAtomic({
+        platform: "claude",
+        usernameDigest: digest(400),
+        passwordHash: "$argon2id$shared-canary-a",
+        tenantId: reviewerA.tenantId,
+        candidateId,
+        assignmentId: assignmentA.id,
+        assignmentGeneration: assignmentA.generation,
+        stagedClientReleaseId: stage.id,
+        oauthClientId: registered.id,
+        fixtureVersion: "shared-canary-a",
+        fixturePayloadDigest: "d".repeat(64),
+        operatorPrincipalDigest: digest(401),
+        expiresAt: new Date(Date.now() + 50 * 60_000),
+      });
+      const credentialB = await createInternalCanaryReviewerCredentialAtomic({
+        platform: "claude",
+        usernameDigest: digest(410),
+        passwordHash: "$argon2id$shared-canary-b",
+        tenantId: reviewerB.tenantId,
+        candidateId,
+        assignmentId: assignmentB.id,
+        assignmentGeneration: assignmentB.generation,
+        stagedClientReleaseId: stage.id,
+        oauthClientId: registered.id,
+        fixtureVersion: "shared-canary-b",
+        fixturePayloadDigest: "e".repeat(64),
+        operatorPrincipalDigest: digest(411),
+        expiresAt: new Date(Date.now() + 50 * 60_000),
+      });
+      assert.ok(credentialA);
+      assert.ok(credentialB);
 
-    const bound = await pool!.query(
-      `SELECT session.id AS session_id, session.tenant_id, session.reviewer_credential_id,
+      assert.equal(
+        (await resolveApprovedOAuthClient(candidateClientId))?.clientId,
+        candidateClientId
+      );
+      const transactionAInput = authorizationTransactionInput({
+        sequence: 420,
+        clientId: candidateClientId,
+        redirectUri,
+      });
+      const transactionBInput = authorizationTransactionInput({
+        sequence: 430,
+        clientId: candidateClientId,
+        redirectUri,
+      });
+      assert.ok(await createAuthorizationTransaction(transactionAInput));
+      assert.ok(await createAuthorizationTransaction(transactionBInput));
+
+      const sessionA = await createMarketplaceReviewerOAuthSessionAtomic({
+        credentialId: credentialA!.credentialId,
+        transactionDigest: transactionAInput.transactionDigest,
+        sessionDigest: digest(440),
+        csrfDigest: digest(441),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      });
+      const sessionB = await createMarketplaceReviewerOAuthSessionAtomic({
+        credentialId: credentialB!.credentialId,
+        transactionDigest: transactionBInput.transactionDigest,
+        sessionDigest: digest(450),
+        csrfDigest: digest(451),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      });
+      assert.ok(sessionA);
+      assert.ok(sessionB);
+
+      // Re-authenticating as YOURSELF on a transaction you already bound must work.
+      // This returned null before 2026-08-16: the first success binds the transaction,
+      // and the canary branch demanded an unbound one, so the retry was structurally
+      // impossible and surfaced as "check the credentials". It cost a promotion window.
+      const sessionARepeat = await createMarketplaceReviewerOAuthSessionAtomic({
+        credentialId: credentialA!.credentialId,
+        transactionDigest: transactionAInput.transactionDigest,
+        sessionDigest: digest(460),
+        csrfDigest: digest(461),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      });
+      assert.ok(sessionARepeat, "re-authenticating the same credential must be idempotent");
+      assert.notEqual(
+        sessionARepeat!.sessionId,
+        sessionA!.sessionId,
+        "a repeat sign-in mints fresh session material rather than resurrecting the old one"
+      );
+
+      // The other half of the condition. Without this the assertion above would pass
+      // even if the binding check had been removed outright rather than narrowed.
+      const hijack = await createMarketplaceReviewerOAuthSessionAtomic({
+        credentialId: credentialB!.credentialId,
+        transactionDigest: transactionAInput.transactionDigest,
+        sessionDigest: digest(470),
+        csrfDigest: digest(471),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      });
+      assert.equal(
+        hijack,
+        null,
+        "a different credential must never bind a transaction already bound to another"
+      );
+
+      const bound = await pool!.query(
+        `SELECT session.id AS session_id, session.tenant_id, session.reviewer_credential_id,
               session.candidate_id, session.assignment_id, session.assignment_generation::text,
               session.staged_client_release_id, session.oauth_client_id,
               transaction.reviewer_credential_id AS transaction_credential_id,
@@ -2039,98 +2051,98 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
          ON transaction.reviewer_credential_id = session.reviewer_credential_id
        WHERE session.id IN ($1, $2) AND transaction.transaction_digest IN ($3, $4)
        ORDER BY session.id`,
-      [
-        sessionA!.sessionId,
-        sessionB!.sessionId,
-        transactionAInput.transactionDigest,
-        transactionBInput.transactionDigest,
+        [
+          sessionA!.sessionId,
+          sessionB!.sessionId,
+          transactionAInput.transactionDigest,
+          transactionBInput.transactionDigest,
+        ]
+      );
+      const expectedBound = [
+        {
+          sessionId: sessionA!.sessionId,
+          reviewer: reviewerA,
+          credential: credentialA!,
+          assignment: assignmentA,
+        },
+        {
+          sessionId: sessionB!.sessionId,
+          reviewer: reviewerB,
+          credential: credentialB!,
+          assignment: assignmentB,
+        },
       ]
-    );
-    const expectedBound = [
-      {
-        sessionId: sessionA!.sessionId,
-        reviewer: reviewerA,
-        credential: credentialA!,
-        assignment: assignmentA,
-      },
-      {
-        sessionId: sessionB!.sessionId,
-        reviewer: reviewerB,
-        credential: credentialB!,
-        assignment: assignmentB,
-      },
-    ]
-      .map(({ sessionId, reviewer, credential, assignment }) => ({
-        session_id: sessionId,
-        tenant_id: reviewer.tenantId,
-        reviewer_credential_id: credential.credentialId,
-        candidate_id: candidateId,
-        assignment_id: assignment.id,
-        assignment_generation: String(assignment.generation),
-        staged_client_release_id: stage.id,
-        oauth_client_id: registered.id,
-        transaction_credential_id: credential.credentialId,
-        transaction_candidate_id: candidateId,
-        transaction_assignment_id: assignment.id,
-        transaction_assignment_generation: String(assignment.generation),
-        transaction_stage_id: stage.id,
-      }))
-      .sort((left, right) => left.session_id.localeCompare(right.session_id));
-    assert.deepEqual(bound.rows, expectedBound);
+        .map(({ sessionId, reviewer, credential, assignment }) => ({
+          session_id: sessionId,
+          tenant_id: reviewer.tenantId,
+          reviewer_credential_id: credential.credentialId,
+          candidate_id: candidateId,
+          assignment_id: assignment.id,
+          assignment_generation: String(assignment.generation),
+          staged_client_release_id: stage.id,
+          oauth_client_id: registered.id,
+          transaction_credential_id: credential.credentialId,
+          transaction_candidate_id: candidateId,
+          transaction_assignment_id: assignment.id,
+          transaction_assignment_generation: String(assignment.generation),
+          transaction_stage_id: stage.id,
+        }))
+        .sort((left, right) => left.session_id.localeCompare(right.session_id));
+      assert.deepEqual(bound.rows, expectedBound);
 
-    assert.equal(
-      await attachExistingOwnerAuthorizationAtomic({
-        sessionId: sessionA!.sessionId,
-        transactionDigest: transactionBInput.transactionDigest,
-        codeDigest: digest(460),
-        codeExpiresAt: new Date(Date.now() + 10 * 60_000),
-      }),
-      null
-    );
-    assert.equal(
-      await attachExistingOwnerAuthorizationAtomic({
-        sessionId: sessionB!.sessionId,
-        transactionDigest: transactionAInput.transactionDigest,
-        codeDigest: digest(461),
-        codeExpiresAt: new Date(Date.now() + 10 * 60_000),
-      }),
-      null
-    );
-    assert.equal(
-      await scalar(
-        `SELECT count(*) FROM exomem_oauth_grants AS grant_row
+      assert.equal(
+        await attachExistingOwnerAuthorizationAtomic({
+          sessionId: sessionA!.sessionId,
+          transactionDigest: transactionBInput.transactionDigest,
+          codeDigest: digest(460),
+          codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+        }),
+        null
+      );
+      assert.equal(
+        await attachExistingOwnerAuthorizationAtomic({
+          sessionId: sessionB!.sessionId,
+          transactionDigest: transactionAInput.transactionDigest,
+          codeDigest: digest(461),
+          codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+        }),
+        null
+      );
+      assert.equal(
+        await scalar(
+          `SELECT count(*) FROM exomem_oauth_grants AS grant_row
          JOIN exomem_oauth_authorization_transactions AS transaction
            ON transaction.id = grant_row.authorization_transaction_id
          WHERE transaction.transaction_digest IN ($1, $2)`,
-        [transactionAInput.transactionDigest, transactionBInput.transactionDigest]
-      ),
-      0
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest IN ($1, $2)",
-        [digest(460), digest(461)]
-      ),
-      0
-    );
+          [transactionAInput.transactionDigest, transactionBInput.transactionDigest]
+        ),
+        0
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest IN ($1, $2)",
+          [digest(460), digest(461)]
+        ),
+        0
+      );
 
-    const completedA = await attachExistingOwnerAuthorizationAtomic({
-      sessionId: sessionA!.sessionId,
-      transactionDigest: transactionAInput.transactionDigest,
-      codeDigest: digest(462),
-      codeExpiresAt: new Date(Date.now() + 10 * 60_000),
-    });
-    const completedB = await attachExistingOwnerAuthorizationAtomic({
-      sessionId: sessionB!.sessionId,
-      transactionDigest: transactionBInput.transactionDigest,
-      codeDigest: digest(463),
-      codeExpiresAt: new Date(Date.now() + 10 * 60_000),
-    });
-    assert.equal(completedA?.tenantId, reviewerA.tenantId);
-    assert.equal(completedB?.tenantId, reviewerB.tenantId);
+      const completedA = await attachExistingOwnerAuthorizationAtomic({
+        sessionId: sessionA!.sessionId,
+        transactionDigest: transactionAInput.transactionDigest,
+        codeDigest: digest(462),
+        codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+      });
+      const completedB = await attachExistingOwnerAuthorizationAtomic({
+        sessionId: sessionB!.sessionId,
+        transactionDigest: transactionBInput.transactionDigest,
+        codeDigest: digest(463),
+        codeExpiresAt: new Date(Date.now() + 10 * 60_000),
+      });
+      assert.equal(completedA?.tenantId, reviewerA.tenantId);
+      assert.equal(completedB?.tenantId, reviewerB.tenantId);
 
-    const completed = await pool!.query(
-      `SELECT grant_row.id AS grant_id, grant_row.tenant_id, grant_row.reviewer_credential_id,
+      const completed = await pool!.query(
+        `SELECT grant_row.id AS grant_id, grant_row.tenant_id, grant_row.reviewer_credential_id,
               grant_row.candidate_id, grant_row.assignment_id,
               grant_row.assignment_generation::text, grant_row.staged_client_release_id,
               code.reviewer_credential_id AS code_credential_id,
@@ -2141,43 +2153,43 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
        JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant_row.id
        WHERE grant_row.id IN ($1, $2) AND code.code_digest IN ($3, $4)
        ORDER BY grant_row.id`,
-      [completedA!.grantId, completedB!.grantId, digest(462), digest(463)]
-    );
-    const expectedCompleted = [
-      {
-        grantId: completedA!.grantId,
-        reviewer: reviewerA,
-        credential: credentialA!,
-        assignment: assignmentA,
-      },
-      {
-        grantId: completedB!.grantId,
-        reviewer: reviewerB,
-        credential: credentialB!,
-        assignment: assignmentB,
-      },
-    ]
-      .map(({ grantId, reviewer, credential, assignment }) => ({
-        grant_id: grantId,
-        tenant_id: reviewer.tenantId,
-        reviewer_credential_id: credential.credentialId,
-        candidate_id: candidateId,
-        assignment_id: assignment.id,
-        assignment_generation: String(assignment.generation),
-        staged_client_release_id: stage.id,
-        code_credential_id: credential.credentialId,
-        code_candidate_id: candidateId,
-        code_assignment_id: assignment.id,
-        code_assignment_generation: String(assignment.generation),
-        code_stage_id: stage.id,
-      }))
-      .sort((left, right) => left.grant_id.localeCompare(right.grant_id));
-    assert.deepEqual(completed.rows, expectedCompleted);
+        [completedA!.grantId, completedB!.grantId, digest(462), digest(463)]
+      );
+      const expectedCompleted = [
+        {
+          grantId: completedA!.grantId,
+          reviewer: reviewerA,
+          credential: credentialA!,
+          assignment: assignmentA,
+        },
+        {
+          grantId: completedB!.grantId,
+          reviewer: reviewerB,
+          credential: credentialB!,
+          assignment: assignmentB,
+        },
+      ]
+        .map(({ grantId, reviewer, credential, assignment }) => ({
+          grant_id: grantId,
+          tenant_id: reviewer.tenantId,
+          reviewer_credential_id: credential.credentialId,
+          candidate_id: candidateId,
+          assignment_id: assignment.id,
+          assignment_generation: String(assignment.generation),
+          staged_client_release_id: stage.id,
+          code_credential_id: credential.credentialId,
+          code_candidate_id: candidateId,
+          code_assignment_id: assignment.id,
+          code_assignment_generation: String(assignment.generation),
+          code_stage_id: stage.id,
+        }))
+        .sort((left, right) => left.grant_id.localeCompare(right.grant_id));
+      assert.deepEqual(completed.rows, expectedCompleted);
 
-    const descendantStates = async () =>
-      (
-        await pool!.query(
-          `SELECT session.tenant_id, session.reviewer_credential_id, session.candidate_id,
+      const descendantStates = async () =>
+        (
+          await pool!.query(
+            `SELECT session.tenant_id, session.reviewer_credential_id, session.candidate_id,
                   session.assignment_id, session.assignment_generation::text,
                   session.staged_client_release_id, session.oauth_client_id,
                   session.revoked_at IS NOT NULL AS session_revoked,
@@ -2213,195 +2225,195 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
            JOIN exomem_oauth_authorization_codes AS code ON code.grant_id = grant_row.id
            WHERE session.id IN ($1, $2) AND grant_row.id IN ($3, $4)
            ORDER BY session.tenant_id`,
-          [sessionA!.sessionId, sessionB!.sessionId, completedA!.grantId, completedB!.grantId]
-        )
-      ).rows;
-    const expectedDescendantState = (
-      reviewer: typeof reviewerA,
-      credential: NonNullable<typeof credentialA>,
-      assignment: typeof assignmentA,
-      revoked: boolean
-    ) => ({
-      tenant_id: reviewer.tenantId,
-      reviewer_credential_id: credential.credentialId,
-      candidate_id: candidateId,
-      assignment_id: assignment.id,
-      assignment_generation: String(assignment.generation),
-      staged_client_release_id: stage.id,
-      oauth_client_id: registered.id,
-      session_revoked: revoked,
-      transaction_consumed: true,
-      grant_revoked: revoked,
-      code_consumed: revoked,
-      transaction_bound: true,
-      grant_bound: true,
-      code_bound: true,
-    });
+            [sessionA!.sessionId, sessionB!.sessionId, completedA!.grantId, completedB!.grantId]
+          )
+        ).rows;
+      const expectedDescendantState = (
+        reviewer: typeof reviewerA,
+        credential: NonNullable<typeof credentialA>,
+        assignment: typeof assignmentA,
+        revoked: boolean
+      ) => ({
+        tenant_id: reviewer.tenantId,
+        reviewer_credential_id: credential.credentialId,
+        candidate_id: candidateId,
+        assignment_id: assignment.id,
+        assignment_generation: String(assignment.generation),
+        staged_client_release_id: stage.id,
+        oauth_client_id: registered.id,
+        session_revoked: revoked,
+        transaction_consumed: true,
+        grant_revoked: revoked,
+        code_consumed: revoked,
+        transaction_bound: true,
+        grant_bound: true,
+        code_bound: true,
+      });
 
-    await pool!.query(
-      "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = activated_at + interval '1 microsecond' WHERE id = $1",
-      [assignmentA.id]
-    );
-    const firstExpiry = await expireCanaryAuthority();
-    assert.equal(firstExpiry.expiredAssignments, 1);
-    assert.deepEqual(
-      await descendantStates(),
-      [
-        expectedDescendantState(reviewerA, credentialA!, assignmentA, true),
-        expectedDescendantState(reviewerB, credentialB!, assignmentB, false),
-      ].sort((left, right) => left.tenant_id.localeCompare(right.tenant_id))
-    );
-    assert.equal(
-      (await resolveApprovedOAuthClient(candidateClientId))?.clientId,
-      candidateClientId
-    );
-    assert.ok(
-      await createAuthorizationTransaction(
-        authorizationTransactionInput({
-          sequence: 470,
-          clientId: candidateClientId,
-          redirectUri,
-        })
-      )
-    );
-    assert.deepEqual(
-      (
-        await pool!.query(
-          `SELECT id, revoked_at IS NOT NULL AS revoked
+      await pool!.query(
+        "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = activated_at + interval '1 microsecond' WHERE id = $1",
+        [assignmentA.id]
+      );
+      const firstExpiry = await expireCanaryAuthority();
+      assert.equal(firstExpiry.expiredAssignments, 1);
+      assert.deepEqual(
+        await descendantStates(),
+        [
+          expectedDescendantState(reviewerA, credentialA!, assignmentA, true),
+          expectedDescendantState(reviewerB, credentialB!, assignmentB, false),
+        ].sort((left, right) => left.tenant_id.localeCompare(right.tenant_id))
+      );
+      assert.equal(
+        (await resolveApprovedOAuthClient(candidateClientId))?.clientId,
+        candidateClientId
+      );
+      assert.ok(
+        await createAuthorizationTransaction(
+          authorizationTransactionInput({
+            sequence: 470,
+            clientId: candidateClientId,
+            redirectUri,
+          })
+        )
+      );
+      assert.deepEqual(
+        (
+          await pool!.query(
+            `SELECT id, revoked_at IS NOT NULL AS revoked
            FROM exomem_marketplace_reviewer_credentials
            WHERE id IN ($1, $2) ORDER BY id`,
-          [credentialA!.credentialId, credentialB!.credentialId]
-        )
-      ).rows.map((row) => ({ id: row.id, revoked: row.revoked })),
-      [
-        { id: credentialA!.credentialId, revoked: true },
-        { id: credentialB!.credentialId, revoked: false },
-      ].sort((left, right) => left.id.localeCompare(right.id))
-    );
+            [credentialA!.credentialId, credentialB!.credentialId]
+          )
+        ).rows.map((row) => ({ id: row.id, revoked: row.revoked })),
+        [
+          { id: credentialA!.credentialId, revoked: true },
+          { id: credentialB!.credentialId, revoked: false },
+        ].sort((left, right) => left.id.localeCompare(right.id))
+      );
 
-    await pool!.query(
-      "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = activated_at + interval '1 microsecond' WHERE id = $1",
-      [assignmentB.id]
-    );
-    const secondExpiry = await expireCanaryAuthority();
-    assert.equal(secondExpiry.expiredAssignments, 1);
-    assert.deepEqual(
-      await descendantStates(),
-      [
-        expectedDescendantState(reviewerA, credentialA!, assignmentA, true),
-        expectedDescendantState(reviewerB, credentialB!, assignmentB, true),
-      ].sort((left, right) => left.tenant_id.localeCompare(right.tenant_id))
-    );
-    assert.equal(await resolveApprovedOAuthClient(candidateClientId), null);
-    assert.equal(
-      await createAuthorizationTransaction(
-        authorizationTransactionInput({
-          sequence: 480,
-          clientId: candidateClientId,
-          redirectUri,
-        })
-      ),
-      null
-    );
-  });
-
-  // Deliberately never restates the bound. It used to assert 32 in three places,
-  // which meant raising it in the database would have been reported as a broken
-  // test rather than as the intended change. The canonical source is
-  // exomem_oauth_client_partition_available itself, so this fills until that
-  // predicate says the operator partition is full and works at any bound.
-  it("keeps the operator admission bound under concurrent registration and permits an existing client at capacity", async () => {
-    const artifact = await pool!.query<{ id: string }>(
-      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
-    );
-    const existingClientId = `https://oauth-capacity-existing.example.test/${randomUUID()}`;
-    const existingRedirectUri = "https://oauth-capacity-existing.example.test/callback";
-    const existingConfig = oauthClientConfigSha256({
-      platform: "claude",
-      admissionMode: "pinned",
-      clientId: existingClientId,
-      redirectUris: [existingRedirectUri],
+      await pool!.query(
+        "UPDATE exomem_agent_contract_rollout_assignments SET expires_at = activated_at + interval '1 microsecond' WHERE id = $1",
+        [assignmentB.id]
+      );
+      const secondExpiry = await expireCanaryAuthority();
+      assert.equal(secondExpiry.expiredAssignments, 1);
+      assert.deepEqual(
+        await descendantStates(),
+        [
+          expectedDescendantState(reviewerA, credentialA!, assignmentA, true),
+          expectedDescendantState(reviewerB, credentialB!, assignmentB, true),
+        ].sort((left, right) => left.tenant_id.localeCompare(right.tenant_id))
+      );
+      assert.equal(await resolveApprovedOAuthClient(candidateClientId), null);
+      assert.equal(
+        await createAuthorizationTransaction(
+          authorizationTransactionInput({
+            sequence: 480,
+            clientId: candidateClientId,
+            redirectUri,
+          })
+        ),
+        null
+      );
     });
-    const newClients = ["one", "two"].map((suffix) => {
-      const clientId = `https://oauth-capacity-new-${suffix}.example.test/${randomUUID()}`;
-      const redirectUri = `https://oauth-capacity-new-${suffix}.example.test/callback`;
-      return {
-        clientId,
-        redirectUri,
-        config: oauthClientConfigSha256({
-          platform: "claude",
-          admissionMode: "pinned",
-          clientId,
-          redirectUris: [redirectUri],
-        }),
-      };
-    });
-    const pendingArtifactIds: string[] = [];
 
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-      [existingConfig, artifact.rows[0]!.id]
-    );
-    try {
-      const registered = await registerOperatorOAuthClient({
-        admissionMode: "pinned",
+    // Deliberately never restates the bound. It used to assert 32 in three places,
+    // which meant raising it in the database would have been reported as a broken
+    // test rather than as the intended change. The canonical source is
+    // exomem_oauth_client_partition_available itself, so this fills until that
+    // predicate says the operator partition is full and works at any bound.
+    it("keeps the operator admission bound under concurrent registration and permits an existing client at capacity", async () => {
+      const artifact = await pool!.query<{ id: string }>(
+        "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+      );
+      const existingClientId = `https://oauth-capacity-existing.example.test/${randomUUID()}`;
+      const existingRedirectUri = "https://oauth-capacity-existing.example.test/callback";
+      const existingConfig = oauthClientConfigSha256({
         platform: "claude",
-        artifactId: artifact.rows[0]!.id,
+        admissionMode: "pinned",
         clientId: existingClientId,
         redirectUris: [existingRedirectUri],
       });
-      assert.equal(
-        await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
-        true
-      );
+      const newClients = ["one", "two"].map((suffix) => {
+        const clientId = `https://oauth-capacity-new-${suffix}.example.test/${randomUUID()}`;
+        const redirectUri = `https://oauth-capacity-new-${suffix}.example.test/callback`;
+        return {
+          clientId,
+          redirectUri,
+          config: oauthClientConfigSha256({
+            platform: "claude",
+            admissionMode: "pinned",
+            clientId,
+            redirectUris: [redirectUri],
+          }),
+        };
+      });
+      const pendingArtifactIds: string[] = [];
 
-      // Fill until the canonical predicate says the operator partition is full,
-      // rather than counting up to a number restated here. `probe` is an id that
-      // does not exist, so the predicate's EXISTS shortcut cannot mask the count.
-      const probe = `https://oauth-capacity-probe.example.test/${randomUUID()}`;
-      const operatorSlotFree = async (): Promise<boolean> =>
-        (
-          await pool!.query<{ allowed: boolean }>(
-            "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
-            [probe]
-          )
-        ).rows[0]!.allowed;
-      const fillerIds: string[] = [];
-      while (await operatorSlotFree()) {
-        const fillerClientId = `https://oauth-capacity-filler.example.test/${randomUUID()}`;
-        const fillerRedirectUri = "https://oauth-capacity-filler.example.test/callback";
-        await pool!.query(
-          `INSERT INTO exomem_oauth_clients (
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        [existingConfig, artifact.rows[0]!.id]
+      );
+      try {
+        const registered = await registerOperatorOAuthClient({
+          admissionMode: "pinned",
+          platform: "claude",
+          artifactId: artifact.rows[0]!.id,
+          clientId: existingClientId,
+          redirectUris: [existingRedirectUri],
+        });
+        assert.equal(
+          await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
+          true
+        );
+
+        // Fill until the canonical predicate says the operator partition is full,
+        // rather than counting up to a number restated here. `probe` is an id that
+        // does not exist, so the predicate's EXISTS shortcut cannot mask the count.
+        const probe = `https://oauth-capacity-probe.example.test/${randomUUID()}`;
+        const operatorSlotFree = async (): Promise<boolean> =>
+          (
+            await pool!.query<{ allowed: boolean }>(
+              "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
+              [probe]
+            )
+          ).rows[0]!.allowed;
+        const fillerIds: string[] = [];
+        while (await operatorSlotFree()) {
+          const fillerClientId = `https://oauth-capacity-filler.example.test/${randomUUID()}`;
+          const fillerRedirectUri = "https://oauth-capacity-filler.example.test/callback";
+          await pool!.query(
+            `INSERT INTO exomem_oauth_clients (
              client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
              client_platform, oauth_client_config_sha256
            ) VALUES ($1, 'pinned', false, $2::jsonb,
                      digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
                      'claude', $3)`,
-          [
-            fillerClientId,
-            JSON.stringify([fillerRedirectUri]),
-            oauthClientConfigSha256({
-              platform: "claude",
-              admissionMode: "pinned",
-              clientId: fillerClientId,
-              redirectUris: [fillerRedirectUri],
-            }),
-          ]
-        );
-        fillerIds.push(fillerClientId);
-      }
-      const boundedCount = await scalar("SELECT count(*) FROM exomem_oauth_clients");
-      // Give back exactly one slot, so the two concurrent registrations below are
-      // racing for a single opening whatever the bound happens to be.
-      assert.ok(fillerIds.length > 0, "the partition was already full before filling");
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
-        fillerIds[fillerIds.length - 1],
-      ]);
-      assert.equal(await operatorSlotFree(), true);
+            [
+              fillerClientId,
+              JSON.stringify([fillerRedirectUri]),
+              oauthClientConfigSha256({
+                platform: "claude",
+                admissionMode: "pinned",
+                clientId: fillerClientId,
+                redirectUris: [fillerRedirectUri],
+              }),
+            ]
+          );
+          fillerIds.push(fillerClientId);
+        }
+        const boundedCount = await scalar("SELECT count(*) FROM exomem_oauth_clients");
+        // Give back exactly one slot, so the two concurrent registrations below are
+        // racing for a single opening whatever the bound happens to be.
+        assert.ok(fillerIds.length > 0, "the partition was already full before filling");
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
+          fillerIds[fillerIds.length - 1],
+        ]);
+        assert.equal(await operatorSlotFree(), true);
 
-      for (const client of newClients) {
-        const pending = await pool!.query<{ id: string }>(
-          `INSERT INTO exomem_client_artifacts (
+        for (const client of newClients) {
+          const pending = await pool!.query<{ id: string }>(
+            `INSERT INTO exomem_client_artifacts (
              platform, state, package_sha256, archive_sha256, compatibility_sha256, contract_sha256,
              plugin_version, client_identity_sha256, paired_run_hmac_sha256,
              exomem_identity_hmac_sha256, tenant_hmac_sha256, install_url, evidence_sha256,
@@ -2412,489 +2424,491 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
                     result_sha256, $1, now()
              FROM exomem_client_artifacts WHERE id = $2
              RETURNING id`,
-          [client.config, artifact.rows[0]!.id]
+            [client.config, artifact.rows[0]!.id]
+          );
+          pendingArtifactIds.push(pending.rows[0]!.id);
+        }
+        const attempts = await Promise.allSettled(
+          newClients.map((client, index) =>
+            registerOperatorOAuthClient({
+              admissionMode: "pinned",
+              platform: "claude",
+              artifactId: pendingArtifactIds[index],
+              clientId: client.clientId,
+              redirectUris: [client.redirectUri],
+            })
+          )
         );
-        pendingArtifactIds.push(pending.rows[0]!.id);
+        assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+        assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
+        const rejected = attempts.find((attempt) => attempt.status === "rejected");
+        assert.ok(
+          rejected &&
+            rejected.reason instanceof ExomemHostedError &&
+            rejected.reason.code === "INVALID_REQUEST"
+        );
+        assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_clients"), boundedCount);
+
+        const idempotent = await registerOperatorOAuthClient({
+          admissionMode: "pinned",
+          platform: "claude",
+          artifactId: artifact.rows[0]!.id,
+          clientId: existingClientId,
+          redirectUris: [existingRedirectUri],
+        });
+        assert.deepEqual(idempotent, { id: registered.id, enabled: true });
+      } finally {
+        await pool!.query(
+          "DELETE FROM exomem_oauth_clients WHERE client_id LIKE 'https://oauth-capacity-%'"
+        );
+        if (pendingArtifactIds.length > 0) {
+          await pool!.query("DELETE FROM exomem_client_artifacts WHERE id = ANY($1::uuid[])", [
+            pendingArtifactIds,
+          ]);
+        }
+        await pool!.query(
+          "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+          ["f".repeat(64), artifact.rows[0]!.id]
+        );
       }
-      const attempts = await Promise.allSettled(
-        newClients.map((client, index) =>
-          registerOperatorOAuthClient({
-            admissionMode: "pinned",
+    });
+
+    it("does not let a slow CIMD refresh overwrite a newer disabled cache authority", async () => {
+      const artifact = await pool!.query<{ id: string }>(
+        "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+      );
+      const cimdClientId = `https://cimd-client.example.test/${randomUUID()}`;
+      const redirectUris = ["https://cimd-client.example.test/callback"];
+      const config = oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "cimd",
+        clientId: cimdClientId,
+        redirectUris,
+      });
+      const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+      process.env.EXOMEM_CIMD_ALLOWED_HOSTS = "cimd-client.example.test";
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        [config, artifact.rows[0]!.id]
+      );
+      try {
+        const registered = await registerOperatorOAuthClient(
+          {
+            admissionMode: "cimd",
             platform: "claude",
-            artifactId: pendingArtifactIds[index],
-            clientId: client.clientId,
-            redirectUris: [client.redirectUri],
-          })
-        )
-      );
-      assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
-      assert.equal(attempts.filter((attempt) => attempt.status === "rejected").length, 1);
-      const rejected = attempts.find((attempt) => attempt.status === "rejected");
-      assert.ok(
-        rejected &&
-          rejected.reason instanceof ExomemHostedError &&
-          rejected.reason.code === "INVALID_REQUEST"
-      );
-      assert.equal(await scalar("SELECT count(*) FROM exomem_oauth_clients"), boundedCount);
+            artifactId: artifact.rows[0]!.id,
+            clientId: cimdClientId,
+            redirectUris,
+          },
+          { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "initial") }
+        );
+        assert.equal(
+          await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
+          true
+        );
 
-      const idempotent = await registerOperatorOAuthClient({
-        admissionMode: "pinned",
-        platform: "claude",
-        artifactId: artifact.rows[0]!.id,
-        clientId: existingClientId,
-        redirectUris: [existingRedirectUri],
-      });
-      assert.deepEqual(idempotent, { id: registered.id, enabled: true });
-    } finally {
-      await pool!.query(
-        "DELETE FROM exomem_oauth_clients WHERE client_id LIKE 'https://oauth-capacity-%'"
-      );
-      if (pendingArtifactIds.length > 0) {
-        await pool!.query("DELETE FROM exomem_client_artifacts WHERE id = ANY($1::uuid[])", [
-          pendingArtifactIds,
-        ]);
+        let releaseSlowFetch: (() => void) | undefined;
+        let signalSlowFetch: (() => void) | undefined;
+        const slowFetchStarted = new Promise<void>((resolve) => {
+          signalSlowFetch = resolve;
+        });
+        const slowRefresh = refreshOperatorCimdOAuthClient(registered.id, {
+          fetchCimd: async () => {
+            signalSlowFetch!();
+            await new Promise<void>((resolve) => {
+              releaseSlowFetch = resolve;
+            });
+            return cimdMetadata(cimdClientId, redirectUris, "stale");
+          },
+        });
+        await slowFetchStarted;
+
+        assert.equal(
+          await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: false }),
+          true
+        );
+        await registerOperatorOAuthClient(
+          {
+            admissionMode: "cimd",
+            platform: "claude",
+            artifactId: artifact.rows[0]!.id,
+            clientId: cimdClientId,
+            redirectUris,
+          },
+          { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "newer") }
+        );
+        const newer = await pool!.query(
+          `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
+                redirect_uris::text, metadata_provenance::text
+         FROM exomem_oauth_clients WHERE id = $1`,
+          [registered.id]
+        );
+        releaseSlowFetch!();
+        await assert.rejects(
+          slowRefresh,
+          (error: unknown) => error instanceof ExomemHostedError && error.code === "INVALID_REQUEST"
+        );
+        const afterConflict = await pool!.query(
+          `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
+                redirect_uris::text, metadata_provenance::text
+         FROM exomem_oauth_clients WHERE id = $1`,
+          [registered.id]
+        );
+        assert.equal(newer.rows[0].enabled, false);
+        assert.deepEqual(afterConflict.rows, newer.rows);
+      } finally {
+        if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+        else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [cimdClientId]);
+        await pool!.query(
+          "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+          ["f".repeat(64), artifact.rows[0]!.id]
+        );
       }
-      await pool!.query(
-        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-        ["f".repeat(64), artifact.rows[0]!.id]
-      );
-    }
-  });
-
-  it("does not let a slow CIMD refresh overwrite a newer disabled cache authority", async () => {
-    const artifact = await pool!.query<{ id: string }>(
-      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
-    );
-    const cimdClientId = `https://cimd-client.example.test/${randomUUID()}`;
-    const redirectUris = ["https://cimd-client.example.test/callback"];
-    const config = oauthClientConfigSha256({
-      platform: "claude",
-      admissionMode: "cimd",
-      clientId: cimdClientId,
-      redirectUris,
     });
-    const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
-    process.env.EXOMEM_CIMD_ALLOWED_HOSTS = "cimd-client.example.test";
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-      [config, artifact.rows[0]!.id]
-    );
-    try {
-      const registered = await registerOperatorOAuthClient(
-        {
-          admissionMode: "cimd",
-          platform: "claude",
-          artifactId: artifact.rows[0]!.id,
-          clientId: cimdClientId,
-          redirectUris,
-        },
-        { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "initial") }
-      );
-      assert.equal(
-        await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: true }),
-        true
-      );
 
-      let releaseSlowFetch: (() => void) | undefined;
-      let signalSlowFetch: (() => void) | undefined;
-      const slowFetchStarted = new Promise<void>((resolve) => {
-        signalSlowFetch = resolve;
-      });
-      const slowRefresh = refreshOperatorCimdOAuthClient(registered.id, {
-        fetchCimd: async () => {
-          signalSlowFetch!();
-          await new Promise<void>((resolve) => {
-            releaseSlowFetch = resolve;
-          });
-          return cimdMetadata(cimdClientId, redirectUris, "stale");
-        },
-      });
-      await slowFetchStarted;
-
-      assert.equal(
-        await setOperatorOAuthClientEnabled({ clientRecordId: registered.id, enabled: false }),
-        true
+    it("keeps registration and CIMD refresh out of hosted provisioning and provider state", async () => {
+      const artifact = await pool!.query<{ id: string }>(
+        "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
       );
-      await registerOperatorOAuthClient(
-        {
-          admissionMode: "cimd",
-          platform: "claude",
-          artifactId: artifact.rows[0]!.id,
-          clientId: cimdClientId,
-          redirectUris,
-        },
-        { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "newer") }
-      );
-      const newer = await pool!.query(
-        `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
-                redirect_uris::text, metadata_provenance::text
-         FROM exomem_oauth_clients WHERE id = $1`,
-        [registered.id]
-      );
-      releaseSlowFetch!();
-      await assert.rejects(
-        slowRefresh,
-        (error: unknown) => error instanceof ExomemHostedError && error.code === "INVALID_REQUEST"
-      );
-      const afterConflict = await pool!.query(
-        `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
-                redirect_uris::text, metadata_provenance::text
-         FROM exomem_oauth_clients WHERE id = $1`,
-        [registered.id]
-      );
-      assert.equal(newer.rows[0].enabled, false);
-      assert.deepEqual(afterConflict.rows, newer.rows);
-    } finally {
-      if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
-      else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [cimdClientId]);
-      await pool!.query(
-        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-        ["f".repeat(64), artifact.rows[0]!.id]
-      );
-    }
-  });
-
-  it("keeps registration and CIMD refresh out of hosted provisioning and provider state", async () => {
-    const artifact = await pool!.query<{ id: string }>(
-      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
-    );
-    const pinnedClientId = `https://oauth-state-pinned.example.test/${randomUUID()}`;
-    const pinnedRedirectUri = "https://oauth-state-pinned.example.test/callback";
-    const pinnedConfig = oauthClientConfigSha256({
-      platform: "claude",
-      admissionMode: "pinned",
-      clientId: pinnedClientId,
-      redirectUris: [pinnedRedirectUri],
-    });
-    const cimdClientId = `https://oauth-state-cimd.example.test/${randomUUID()}`;
-    const cimdRedirectUris = ["https://oauth-state-cimd.example.test/callback"];
-    const cimdConfig = oauthClientConfigSha256({
-      platform: "claude",
-      admissionMode: "cimd",
-      clientId: cimdClientId,
-      redirectUris: cimdRedirectUris,
-    });
-    const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
-    process.env.EXOMEM_CIMD_ALLOWED_HOSTS = "oauth-state-cimd.example.test";
-    try {
-      await pool!.query(
-        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-        [pinnedConfig, artifact.rows[0]!.id]
-      );
-      const beforePinned = await hostedProvisioningSnapshot();
-      await registerOperatorOAuthClient({
-        admissionMode: "pinned",
+      const pinnedClientId = `https://oauth-state-pinned.example.test/${randomUUID()}`;
+      const pinnedRedirectUri = "https://oauth-state-pinned.example.test/callback";
+      const pinnedConfig = oauthClientConfigSha256({
         platform: "claude",
-        artifactId: artifact.rows[0]!.id,
+        admissionMode: "pinned",
         clientId: pinnedClientId,
         redirectUris: [pinnedRedirectUri],
       });
-      assert.deepEqual(await hostedProvisioningSnapshot(), beforePinned);
-
-      await pool!.query(
-        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-        [cimdConfig, artifact.rows[0]!.id]
-      );
-      const beforeCimdRegistration = await hostedProvisioningSnapshot();
-      const cimd = await registerOperatorOAuthClient(
-        {
-          admissionMode: "cimd",
+      const cimdClientId = `https://oauth-state-cimd.example.test/${randomUUID()}`;
+      const cimdRedirectUris = ["https://oauth-state-cimd.example.test/callback"];
+      const cimdConfig = oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "cimd",
+        clientId: cimdClientId,
+        redirectUris: cimdRedirectUris,
+      });
+      const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+      process.env.EXOMEM_CIMD_ALLOWED_HOSTS = "oauth-state-cimd.example.test";
+      try {
+        await pool!.query(
+          "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+          [pinnedConfig, artifact.rows[0]!.id]
+        );
+        const beforePinned = await hostedProvisioningSnapshot();
+        await registerOperatorOAuthClient({
+          admissionMode: "pinned",
           platform: "claude",
           artifactId: artifact.rows[0]!.id,
-          clientId: cimdClientId,
-          redirectUris: cimdRedirectUris,
-        },
-        { fetchCimd: async () => cimdMetadata(cimdClientId, cimdRedirectUris, "registered") }
-      );
-      assert.deepEqual(await hostedProvisioningSnapshot(), beforeCimdRegistration);
+          clientId: pinnedClientId,
+          redirectUris: [pinnedRedirectUri],
+        });
+        assert.deepEqual(await hostedProvisioningSnapshot(), beforePinned);
 
-      const beforeRefresh = await hostedProvisioningSnapshot();
-      await refreshOperatorCimdOAuthClient(cimd.id, {
-        fetchCimd: async () => cimdMetadata(cimdClientId, cimdRedirectUris, "refreshed"),
+        await pool!.query(
+          "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+          [cimdConfig, artifact.rows[0]!.id]
+        );
+        const beforeCimdRegistration = await hostedProvisioningSnapshot();
+        const cimd = await registerOperatorOAuthClient(
+          {
+            admissionMode: "cimd",
+            platform: "claude",
+            artifactId: artifact.rows[0]!.id,
+            clientId: cimdClientId,
+            redirectUris: cimdRedirectUris,
+          },
+          { fetchCimd: async () => cimdMetadata(cimdClientId, cimdRedirectUris, "registered") }
+        );
+        assert.deepEqual(await hostedProvisioningSnapshot(), beforeCimdRegistration);
+
+        const beforeRefresh = await hostedProvisioningSnapshot();
+        await refreshOperatorCimdOAuthClient(cimd.id, {
+          fetchCimd: async () => cimdMetadata(cimdClientId, cimdRedirectUris, "refreshed"),
+        });
+        assert.deepEqual(await hostedProvisioningSnapshot(), beforeRefresh);
+      } finally {
+        if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+        else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id IN ($1, $2)", [
+          pinnedClientId,
+          cimdClientId,
+        ]);
+        await pool!.query(
+          "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+          ["f".repeat(64), artifact.rows[0]!.id]
+        );
+      }
+    });
+
+    it("serializes admission with artifact changes without making artifacts authoritative", async () => {
+      await seedClient();
+      const lock = await pool!.connect();
+      const applicationName = `exomem-oauth-cohort-${randomUUID()}`;
+      try {
+        await lock.query("BEGIN");
+        await lock.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
+        await lock.query(
+          "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'claude'"
+        );
+        transactionApplicationName = applicationName;
+        let settled = false;
+        const resolution = resolveApprovedOAuthClient(clientId).then((result) => {
+          settled = true;
+          return result;
+        });
+        await waitForAdvisoryLockWait(applicationName);
+        assert.equal(settled, false);
+        await lock.query("COMMIT");
+        assert.ok(await resolution);
+      } finally {
+        transactionApplicationName = undefined;
+        await lock.query("ROLLBACK").catch(() => undefined);
+        lock.release();
+        await pool!.query(
+          "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'claude'"
+        );
+      }
+    });
+
+    it("blocks an authoritative account and revokes every usable OAuth credential atomically", async () => {
+      const internal = await seedClient();
+      const fixture = await seedAuthorizationCode(internal, 140, true);
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: fixture.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(141),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(142),
+        accessExpiresAt: new Date(Date.now() + 60_000),
       });
-      assert.deepEqual(await hostedProvisioningSnapshot(), beforeRefresh);
-    } finally {
-      if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
-      else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id IN ($1, $2)", [
-        pinnedClientId,
-        cimdClientId,
+      assert.ok(issued);
+      assert.equal(
+        await revokeOAuthAccountForOwnerTenantAtomic({
+          ownerUserId: fixture.userId,
+          tenantId: fixture.tenantId,
+        }),
+        1
+      );
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_oauth_account_blocks WHERE tenant_id = $1", [
+          fixture.tenantId,
+        ]),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND revoked_at IS NOT NULL",
+          [fixture.grantId]
+        ),
+        1
+      );
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_access_tokens WHERE family_id = $1 AND revoked_at IS NOT NULL",
+          [issued!.familyId]
+        ),
+        1
+      );
+      assert.equal(await findActiveOAuthAccessToken(digest(142)), null);
+    });
+
+    it("honors RFC 7009 revocation for the owning disabled client", async () => {
+      const internal = await seedClient();
+      const fixture = await seedAuthorizationCode(internal, 150, true);
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: fixture.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(151),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(152),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(issued);
+      await pool!.query("UPDATE exomem_oauth_clients SET enabled = false WHERE id = $1", [
+        internal,
       ]);
-      await pool!.query(
-        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-        ["f".repeat(64), artifact.rows[0]!.id]
+      await revokeOAuthTokenForClient({ tokenDigest: digest(151), clientId });
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
+          [issued!.familyId]
+        ),
+        1
       );
-    }
-  });
+    });
 
-  it("serializes admission with artifact changes without making artifacts authoritative", async () => {
-    await seedClient();
-    const lock = await pool!.connect();
-    const applicationName = `exomem-oauth-cohort-${randomUUID()}`;
-    try {
-      await lock.query("BEGIN");
-      await lock.query("SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))");
-      await lock.query(
-        "UPDATE exomem_client_artifacts SET state = 'retired', retired_at = now() WHERE platform = 'claude'"
-      );
-      transactionApplicationName = applicationName;
-      let settled = false;
-      const resolution = resolveApprovedOAuthClient(clientId).then((result) => {
-        settled = true;
-        return result;
+    it("persists refresh material only for offline access and retains rotation lineage during GC", async () => {
+      const internal = await seedClient();
+      const online = await seedAuthorizationCode(internal, 120, false);
+      const offline = await seedAuthorizationCode(internal, 130, true);
+      const onlineResult = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: online.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(121),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(122),
+        accessExpiresAt: new Date(Date.now() + 60_000),
       });
-      await waitForAdvisoryLockWait(applicationName);
-      assert.equal(settled, false);
-      await lock.query("COMMIT");
-      assert.ok(await resolution);
-    } finally {
-      transactionApplicationName = undefined;
-      await lock.query("ROLLBACK").catch(() => undefined);
-      lock.release();
-      await pool!.query(
-        "UPDATE exomem_client_artifacts SET state = 'live', retired_at = NULL WHERE platform = 'claude'"
+      const offlineResult = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: offline.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(131),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(132),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.equal(onlineResult?.refreshAllowed, false);
+      assert.equal(onlineResult?.refreshInserted, false);
+      assert.equal(offlineResult?.refreshAllowed, true);
+      assert.equal(offlineResult?.refreshInserted, true);
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
+          onlineResult!.familyId,
+        ]),
+        0
       );
-    }
-  });
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
+          offlineResult!.familyId,
+        ]),
+        1
+      );
 
-  it("blocks an authoritative account and revokes every usable OAuth credential atomically", async () => {
-    const internal = await seedClient();
-    const fixture = await seedAuthorizationCode(internal, 140, true);
-    const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: fixture.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(141),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(142),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(issued);
-    assert.equal(
-      await revokeOAuthAccountForOwnerTenantAtomic({
-        ownerUserId: fixture.userId,
-        tenantId: fixture.tenantId,
-      }),
-      1
-    );
-    assert.equal(
-      await scalar("SELECT count(*) FROM exomem_oauth_account_blocks WHERE tenant_id = $1", [
-        fixture.tenantId,
-      ]),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_grants WHERE id = $1 AND revoked_at IS NOT NULL",
-        [fixture.grantId]
-      ),
-      1
-    );
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_access_tokens WHERE family_id = $1 AND revoked_at IS NOT NULL",
-        [issued!.familyId]
-      ),
-      1
-    );
-    assert.equal(await findActiveOAuthAccessToken(digest(142)), null);
-  });
+      const wrongBinding = await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(131),
+        replacementRefreshDigest: digest(133),
+        accessDigest: digest(134),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId,
+        resource: `${resource}/wrong`,
+      });
+      assert.equal(wrongBinding, null);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE refresh_digest = $1 AND consumed_at IS NULL",
+          [digest(131)]
+        ),
+        1
+      );
 
-  it("honors RFC 7009 revocation for the owning disabled client", async () => {
-    const internal = await seedClient();
-    const fixture = await seedAuthorizationCode(internal, 150, true);
-    const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: fixture.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(151),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(152),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(issued);
-    await pool!.query("UPDATE exomem_oauth_clients SET enabled = false WHERE id = $1", [internal]);
-    await revokeOAuthTokenForClient({ tokenDigest: digest(151), clientId });
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
-        [issued!.familyId]
-      ),
-      1
-    );
-  });
+      const rotated = await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(131),
+        replacementRefreshDigest: digest(133),
+        accessDigest: digest(134),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId,
+        resource,
+      });
+      assert.equal(rotated?.familyId, offlineResult!.familyId);
+      await pruneExpiredOAuthState();
+      assert.equal(
+        await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
+          offlineResult!.familyId,
+        ]),
+        2
+      );
 
-  it("persists refresh material only for offline access and retains rotation lineage during GC", async () => {
-    const internal = await seedClient();
-    const online = await seedAuthorizationCode(internal, 120, false);
-    const offline = await seedAuthorizationCode(internal, 130, true);
-    const onlineResult = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: online.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(121),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(122),
-      accessExpiresAt: new Date(Date.now() + 60_000),
+      const replay = await rotateOAuthRefreshTokenAtomic({
+        refreshDigest: digest(131),
+        replacementRefreshDigest: digest(135),
+        accessDigest: digest(136),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+        clientId,
+        resource,
+      });
+      assert.equal(replay, null);
+      assert.equal(
+        await scalar(
+          "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
+          [offlineResult!.familyId]
+        ),
+        1
+      );
     });
-    const offlineResult = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: offline.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(131),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(132),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.equal(onlineResult?.refreshAllowed, false);
-    assert.equal(onlineResult?.refreshInserted, false);
-    assert.equal(offlineResult?.refreshAllowed, true);
-    assert.equal(offlineResult?.refreshInserted, true);
-    assert.equal(
-      await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
-        onlineResult!.familyId,
-      ]),
-      0
-    );
-    assert.equal(
-      await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
-        offlineResult!.familyId,
-      ]),
-      1
-    );
 
-    const wrongBinding = await rotateOAuthRefreshTokenAtomic({
-      refreshDigest: digest(131),
-      replacementRefreshDigest: digest(133),
-      accessDigest: digest(134),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-      clientId,
-      resource: `${resource}/wrong`,
-    });
-    assert.equal(wrongBinding, null);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE refresh_digest = $1 AND consumed_at IS NULL",
-        [digest(131)]
-      ),
-      1
-    );
-
-    const rotated = await rotateOAuthRefreshTokenAtomic({
-      refreshDigest: digest(131),
-      replacementRefreshDigest: digest(133),
-      accessDigest: digest(134),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-      clientId,
-      resource,
-    });
-    assert.equal(rotated?.familyId, offlineResult!.familyId);
-    await pruneExpiredOAuthState();
-    assert.equal(
-      await scalar("SELECT count(*) FROM exomem_oauth_refresh_tokens WHERE family_id = $1", [
-        offlineResult!.familyId,
-      ]),
-      2
-    );
-
-    const replay = await rotateOAuthRefreshTokenAtomic({
-      refreshDigest: digest(131),
-      replacementRefreshDigest: digest(135),
-      accessDigest: digest(136),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-      clientId,
-      resource,
-    });
-    assert.equal(replay, null);
-    assert.equal(
-      await scalar(
-        "SELECT count(*) FROM exomem_oauth_token_families WHERE id = $1 AND revoked_at IS NOT NULL",
-        [offlineResult!.familyId]
-      ),
-      1
-    );
-  });
-
-  it("fails closed for an expired CIMD client without relying on the prune job", async () => {
-    const internal = await seedClient();
-    const fixture = await seedAuthorizationCode(internal, 250, true);
-    const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: fixture.codeDigest,
-      clientId,
-      redirectUri: "https://client.example.test/callback",
-      resource,
-      pkceChallenge: "challenge",
-      refreshDigest: digest(251),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(252),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(issued);
-    await pool!.query(
-      `UPDATE exomem_oauth_clients
+    it("fails closed for an expired CIMD client without relying on the prune job", async () => {
+      const internal = await seedClient();
+      const fixture = await seedAuthorizationCode(internal, 250, true);
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: fixture.codeDigest,
+        clientId,
+        redirectUri: "https://client.example.test/callback",
+        resource,
+        pkceChallenge: "challenge",
+        refreshDigest: digest(251),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(252),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(issued);
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
        SET admission_mode = 'cimd', metadata_document_digest = $1, metadata_fetched_at = now(),
            metadata_ttl_seconds = 300, metadata_expires_at = now() - interval '1 second',
            cimd_host = 'client.example.test'
        WHERE id = $2`,
-      [Buffer.alloc(32, 7), internal]
-    );
-    assert.equal(await findActiveOAuthAccessToken(digest(252)), null);
-    assert.equal(await findMcpOAuthAccessToken(digest(252)), null);
-    assert.equal(
-      await rotateOAuthRefreshTokenAtomic({
-        refreshDigest: digest(251),
-        replacementRefreshDigest: digest(253),
-        accessDigest: digest(254),
-        accessExpiresAt: new Date(Date.now() + 60_000),
-        clientId,
-        resource,
-      }),
-      null
-    );
-    await pool!.query(
-      `UPDATE exomem_oauth_clients
+        [Buffer.alloc(32, 7), internal]
+      );
+      assert.equal(await findActiveOAuthAccessToken(digest(252)), null);
+      assert.equal(await findMcpOAuthAccessToken(digest(252)), null);
+      assert.equal(
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(251),
+          replacementRefreshDigest: digest(253),
+          accessDigest: digest(254),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId,
+          resource,
+        }),
+        null
+      );
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
        SET admission_mode = 'pinned', metadata_document_digest = NULL, metadata_fetched_at = NULL,
            metadata_ttl_seconds = NULL, metadata_expires_at = NULL, cimd_host = NULL
        WHERE id = $1`,
-      [internal]
-    );
-  });
+        [internal]
+      );
+    });
 
-  it("revokes a retired candidate family before any replacement is promoted", async () => {
-    const candidateClientId = `candidate-${randomUUID()}`;
-    const configDigest = "7".repeat(64);
-    const client = await pool!.query(
-      `INSERT INTO exomem_oauth_clients (
+    it("revokes a retired candidate family before any replacement is promoted", async () => {
+      const candidateClientId = `candidate-${randomUUID()}`;
+      const configDigest = "7".repeat(64);
+      const client = await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
          client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
          client_platform, oauth_client_config_sha256
        ) VALUES ($1, 'pinned', false, '["https://candidate.example.test/callback"]'::jsonb,
                  digest(convert_to('["https://candidate.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
                  'claude', $2)
        RETURNING id`,
-      [candidateClientId, configDigest]
-    );
-    const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
-      `candidate-lineage-${randomUUID()}@example.test`,
-    ]);
-    const tenant = await pool!.query(
-      "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
-      [user.rows[0].id]
-    );
-    await pool!.query(
-      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
-      [tenant.rows[0].id]
-    );
-    const candidate = await pool!.query(
-      `INSERT INTO exomem_agent_contract_candidates (
+        [candidateClientId, configDigest]
+      );
+      const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+        `candidate-lineage-${randomUUID()}@example.test`,
+      ]);
+      const tenant = await pool!.query(
+        "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
+        [user.rows[0].id]
+      );
+      await pool!.query(
+        "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+        [tenant.rows[0].id]
+      );
+      const candidate = await pool!.query(
+        `INSERT INTO exomem_agent_contract_candidates (
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, mcp_protocol_versions, contract,
          claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
@@ -2902,183 +2916,183 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
          'pending', 'hosted-alpha-agent-v4', $1, 'candidate-test', $2, $3, $4, '1',
          '["2025-11-25"]'::jsonb, '{}'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
        ) RETURNING id`,
-      [
-        resource,
-        "a".repeat(64),
-        "b".repeat(64),
-        "c".repeat(64),
-        JSON.stringify({
-          platform: "claude",
-          artifact_sha256: "d".repeat(64),
-          archive_sha256: "e".repeat(64),
-          compatibility_sha256: "f".repeat(64),
-          schema_contract_sha256: "1".repeat(64),
-          plugin_version: "1.0.0",
-        }),
-        JSON.stringify({
-          platform: "claude",
-          artifact_sha256: "d".repeat(64),
-          archive_sha256: "e".repeat(64),
-          compatibility_sha256: "f".repeat(64),
-          schema_contract_sha256: "1".repeat(64),
-          plugin_version: "1.0.0",
-        }),
-        JSON.stringify({
-          platform: "openai",
-          artifact_sha256: "2".repeat(64),
-          archive_sha256: "3".repeat(64),
-          compatibility_sha256: "4".repeat(64),
-          schema_contract_sha256: "5".repeat(64),
-          plugin_version: "1.0.0",
-          registered_app_id_sha256: "6".repeat(64),
-        }),
-        JSON.stringify({
-          platform: "openai",
-          artifact_sha256: "2".repeat(64),
-          archive_sha256: "3".repeat(64),
-          compatibility_sha256: "4".repeat(64),
-          schema_contract_sha256: "5".repeat(64),
-          plugin_version: "1.0.0",
-          registered_app_id_sha256: "6".repeat(64),
-        }),
-      ]
-    );
-    const assignment = await pool!.query(
-      `INSERT INTO exomem_agent_contract_rollout_assignments (
+        [
+          resource,
+          "a".repeat(64),
+          "b".repeat(64),
+          "c".repeat(64),
+          JSON.stringify({
+            platform: "claude",
+            artifact_sha256: "d".repeat(64),
+            archive_sha256: "e".repeat(64),
+            compatibility_sha256: "f".repeat(64),
+            schema_contract_sha256: "1".repeat(64),
+            plugin_version: "1.0.0",
+          }),
+          JSON.stringify({
+            platform: "claude",
+            artifact_sha256: "d".repeat(64),
+            archive_sha256: "e".repeat(64),
+            compatibility_sha256: "f".repeat(64),
+            schema_contract_sha256: "1".repeat(64),
+            plugin_version: "1.0.0",
+          }),
+          JSON.stringify({
+            platform: "openai",
+            artifact_sha256: "2".repeat(64),
+            archive_sha256: "3".repeat(64),
+            compatibility_sha256: "4".repeat(64),
+            schema_contract_sha256: "5".repeat(64),
+            plugin_version: "1.0.0",
+            registered_app_id_sha256: "6".repeat(64),
+          }),
+          JSON.stringify({
+            platform: "openai",
+            artifact_sha256: "2".repeat(64),
+            archive_sha256: "3".repeat(64),
+            compatibility_sha256: "4".repeat(64),
+            schema_contract_sha256: "5".repeat(64),
+            plugin_version: "1.0.0",
+            registered_app_id_sha256: "6".repeat(64),
+          }),
+        ]
+      );
+      const assignment = await pool!.query(
+        `INSERT INTO exomem_agent_contract_rollout_assignments (
          tenant_id, candidate_id, generation, state, source_release, protocol_version,
          command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
          marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
        ) VALUES ($1, $2, 1, 'active', 'candidate-test', '1', $3, $4, $5, $6, true, $7,
                  now() + interval '1 hour', now()) RETURNING id`,
-      [
-        tenant.rows[0].id,
-        candidate.rows[0].id,
-        "a".repeat(64),
-        "b".repeat(64),
-        "c".repeat(64),
-        "d".repeat(64),
-        "e".repeat(64),
-      ]
-    );
-    const stage = await pool!.query(
-      `INSERT INTO exomem_staged_client_releases (
+        [
+          tenant.rows[0].id,
+          candidate.rows[0].id,
+          "a".repeat(64),
+          "b".repeat(64),
+          "c".repeat(64),
+          "d".repeat(64),
+          "e".repeat(64),
+        ]
+      );
+      const stage = await pool!.query(
+        `INSERT INTO exomem_staged_client_releases (
          candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
          contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest,
          expires_at, evidenced_at
        ) VALUES ($1, 'claude', 'evidenced', $2, $3, $4, $5, '1.0.0', $6, $7,
                  now() + interval '1 hour', now()) RETURNING id`,
-      [
-        candidate.rows[0].id,
-        "d".repeat(64),
-        "e".repeat(64),
-        "f".repeat(64),
-        "1".repeat(64),
-        configDigest,
-        "e".repeat(64),
-      ]
-    );
-    const candidatePassword = await hashMarketplaceReviewerPassword("candidate-lineage-password");
-    const credential = await pool!.query(
-      `INSERT INTO exomem_marketplace_reviewer_credentials (
+        [
+          candidate.rows[0].id,
+          "d".repeat(64),
+          "e".repeat(64),
+          "f".repeat(64),
+          "1".repeat(64),
+          configDigest,
+          "e".repeat(64),
+        ]
+      );
+      const candidatePassword = await hashMarketplaceReviewerPassword("candidate-lineage-password");
+      const credential = await pool!.query(
+        `INSERT INTO exomem_marketplace_reviewer_credentials (
          provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id,
          fixture_version, fixture_payload_digest, created_by_principal_digest, created_at, expires_at
        ) VALUES ('anthropic', 'internal_canary', $1, $2, $3, $4, $5, $6, 1, $7, $8,
                  'candidate-test', $9, $10, now() - interval '1 hour', now() + interval '1 hour') RETURNING id`,
-      [
-        digest(331),
-        candidatePassword,
-        user.rows[0].id,
-        tenant.rows[0].id,
-        candidate.rows[0].id,
-        assignment.rows[0].id,
-        stage.rows[0].id,
-        client.rows[0].id,
-        "8".repeat(64),
-        digest(332),
-      ]
-    );
-    const grant = await pool!.query(
-      `INSERT INTO exomem_oauth_grants (
+        [
+          digest(331),
+          candidatePassword,
+          user.rows[0].id,
+          tenant.rows[0].id,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+          client.rows[0].id,
+          "8".repeat(64),
+          digest(332),
+        ]
+      );
+      const grant = await pool!.query(
+        `INSERT INTO exomem_oauth_grants (
          user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true, $5, $6, $7, 1, $8) RETURNING id`,
-      [
-        user.rows[0].id,
-        tenant.rows[0].id,
-        client.rows[0].id,
-        resource,
-        credential.rows[0].id,
-        candidate.rows[0].id,
-        assignment.rows[0].id,
-        stage.rows[0].id,
-      ]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_codes (
+        [
+          user.rows[0].id,
+          tenant.rows[0].id,
+          client.rows[0].id,
+          resource,
+          credential.rows[0].id,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+        ]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_codes (
          code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at,
          reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, 'https://candidate.example.test/callback', $4, 'candidate-challenge', true,
                  now() + interval '1 hour', $5, $6, $7, 1, $8)`,
-      [
-        digest(333),
-        grant.rows[0].id,
-        client.rows[0].id,
-        resource,
-        credential.rows[0].id,
-        candidate.rows[0].id,
-        assignment.rows[0].id,
-        stage.rows[0].id,
-      ]
-    );
+        [
+          digest(333),
+          grant.rows[0].id,
+          client.rows[0].id,
+          resource,
+          credential.rows[0].id,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+        ]
+      );
 
-    const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: digest(333),
-      clientId: candidateClientId,
-      redirectUri: "https://candidate.example.test/callback",
-      resource,
-      pkceChallenge: "candidate-challenge",
-      refreshDigest: digest(334),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(335),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(issued);
-    const lineage = await pool!.query(
-      `SELECT token.candidate_id, token.assignment_id, token.assignment_generation,
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: digest(333),
+        clientId: candidateClientId,
+        redirectUri: "https://candidate.example.test/callback",
+        resource,
+        pkceChallenge: "candidate-challenge",
+        refreshDigest: digest(334),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(335),
+        accessExpiresAt: new Date(Date.now() + 60_000),
+      });
+      assert.ok(issued);
+      const lineage = await pool!.query(
+        `SELECT token.candidate_id, token.assignment_id, token.assignment_generation,
               token.staged_client_release_id, token.reviewer_credential_id, refresh.oauth_client_id
        FROM exomem_oauth_access_tokens AS token
        JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = token.family_id
        WHERE token.access_digest = $1`,
-      [digest(335)]
-    );
-    assert.deepEqual(lineage.rows[0], {
-      candidate_id: candidate.rows[0].id,
-      assignment_id: assignment.rows[0].id,
-      assignment_generation: "1",
-      staged_client_release_id: stage.rows[0].id,
-      reviewer_credential_id: credential.rows[0].id,
-      oauth_client_id: client.rows[0].id,
-    });
-    await assert.rejects(
-      pool!.query(
-        "UPDATE exomem_oauth_access_tokens SET assignment_generation = 2 WHERE access_digest = $1",
         [digest(335)]
-      ),
-      /candidate OAuth lineage is immutable/i
-    );
-    assert.equal((await findMcpOAuthAccessToken(digest(335)))?.candidateId, candidate.rows[0].id);
+      );
+      assert.deepEqual(lineage.rows[0], {
+        candidate_id: candidate.rows[0].id,
+        assignment_id: assignment.rows[0].id,
+        assignment_generation: "1",
+        staged_client_release_id: stage.rows[0].id,
+        reviewer_credential_id: credential.rows[0].id,
+        oauth_client_id: client.rows[0].id,
+      });
+      await assert.rejects(
+        pool!.query(
+          "UPDATE exomem_oauth_access_tokens SET assignment_generation = 2 WHERE access_digest = $1",
+          [digest(335)]
+        ),
+        /candidate OAuth lineage is immutable/i
+      );
+      assert.equal((await findMcpOAuthAccessToken(digest(335)))?.candidateId, candidate.rows[0].id);
 
-    const legacyClient = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_oauth_clients (
+      const legacyClient = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_clients (
          client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
          oauth_client_config_sha256
        ) VALUES ($1, 'pinned', false, '["https://legacy.example.test/callback"]'::jsonb,
                  digest(convert_to('["https://legacy.example.test/callback"]', 'utf8'), 'sha256'), 'claude', $2) RETURNING id`,
-      [`legacy-${randomUUID()}`, "f".repeat(64)]
-    );
-    const legacy = await pool!.query<{ grant_id: string; family_id: string }>(
-      `WITH grant_row AS (
+        [`legacy-${randomUUID()}`, "f".repeat(64)]
+      );
+      const legacy = await pool!.query<{ grant_id: string; family_id: string }>(
+        `WITH grant_row AS (
          INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
          VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true) RETURNING id
        ), family AS (
@@ -3091,68 +3105,68 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
          INSERT INTO exomem_oauth_access_tokens (access_digest, grant_id, family_id, client_id, resource, scopes, expires_at)
          SELECT $6, grant_id, id, $3, $4, ARRAY['exomem.read'], now() + interval '1 hour' FROM family
        ) SELECT grant_id, id AS family_id FROM family`,
-      [
-        user.rows[0].id,
-        tenant.rows[0].id,
-        legacyClient.rows[0].id,
-        resource,
-        digest(338),
-        digest(339),
-      ]
-    );
-    const unrelatedUser = await pool!.query<{ id: string }>(
-      "INSERT INTO users (email) VALUES ($1) RETURNING id",
-      [`unrelated-${randomUUID()}@example.test`]
-    );
-    const unrelatedTenant = await pool!.query<{ id: string }>(
-      "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
-      [unrelatedUser.rows[0].id]
-    );
-    const unrelated = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+        [
+          user.rows[0].id,
+          tenant.rows[0].id,
+          legacyClient.rows[0].id,
+          resource,
+          digest(338),
+          digest(339),
+        ]
+      );
+      const unrelatedUser = await pool!.query<{ id: string }>(
+        "INSERT INTO users (email) VALUES ($1) RETURNING id",
+        [`unrelated-${randomUUID()}@example.test`]
+      );
+      const unrelatedTenant = await pool!.query<{ id: string }>(
+        "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
+        [unrelatedUser.rows[0].id]
+      );
+      const unrelated = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
        VALUES ($1, $2, $3, $4, ARRAY['exomem.read']) RETURNING id`,
-      [unrelatedUser.rows[0].id, unrelatedTenant.rows[0].id, legacyClient.rows[0].id, resource]
-    );
-    const mismatchedClientGrant = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_oauth_grants (
+        [unrelatedUser.rows[0].id, unrelatedTenant.rows[0].id, legacyClient.rows[0].id, resource]
+      );
+      const mismatchedClientGrant = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_oauth_grants (
          user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5, $6, $7, 1, $8) RETURNING id`,
-      [
-        user.rows[0].id,
-        tenant.rows[0].id,
-        (
-          await pool!.query<{ id: string }>(
-            `INSERT INTO exomem_oauth_clients (
+        [
+          user.rows[0].id,
+          tenant.rows[0].id,
+          (
+            await pool!.query<{ id: string }>(
+              `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_platform,
            oauth_client_config_sha256
          ) VALUES ($1, 'pinned', false, '["https://mismatch.example.test/callback"]'::jsonb,
                    digest(convert_to('["https://mismatch.example.test/callback"]', 'utf8'), 'sha256'),
                    'claude', $2) RETURNING id`,
-            [`mismatch-${randomUUID()}`, "e".repeat(64)]
-          )
-        ).rows[0].id,
-        resource,
-        credential.rows[0].id,
-        candidate.rows[0].id,
-        assignment.rows[0].id,
-        stage.rows[0].id,
-      ]
-    );
-    await interactiveTransaction((tx) =>
-      revokeConflictingCanaryOAuthLineageInTransaction(tx, {
-        tenantId: tenant.rows[0].id,
-        candidateId: candidate.rows[0].id,
-        assignmentId: assignment.rows[0].id,
-        assignmentGeneration: 1,
-        stagedClientReleaseId: stage.rows[0].id,
-        oauthClientId: client.rows[0].id,
-      })
-    );
-    assert.deepEqual(
-      (
-        await pool!.query(
-          `SELECT grant_row.revoked_at IS NOT NULL AS grant_revoked,
+              [`mismatch-${randomUUID()}`, "e".repeat(64)]
+            )
+          ).rows[0].id,
+          resource,
+          credential.rows[0].id,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+        ]
+      );
+      await interactiveTransaction((tx) =>
+        revokeConflictingCanaryOAuthLineageInTransaction(tx, {
+          tenantId: tenant.rows[0].id,
+          candidateId: candidate.rows[0].id,
+          assignmentId: assignment.rows[0].id,
+          assignmentGeneration: 1,
+          stagedClientReleaseId: stage.rows[0].id,
+          oauthClientId: client.rows[0].id,
+        })
+      );
+      assert.deepEqual(
+        (
+          await pool!.query(
+            `SELECT grant_row.revoked_at IS NOT NULL AS grant_revoked,
                   family.revoked_at IS NOT NULL AS family_revoked,
                   refresh.consumed_at IS NOT NULL AS refresh_consumed,
                   access.revoked_at IS NOT NULL AS access_revoked
@@ -3161,130 +3175,130 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
            JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = family.id
            JOIN exomem_oauth_access_tokens AS access ON access.family_id = family.id
            WHERE grant_row.id = $1`,
-          [legacy.rows[0].grant_id]
-        )
-      ).rows[0],
-      { grant_revoked: true, family_revoked: true, refresh_consumed: true, access_revoked: true }
-    );
-    assert.equal(
-      (
-        await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
-          unrelated.rows[0].id,
-        ])
-      ).rows[0]?.revoked_at,
-      null
-    );
-    assert.equal(
-      (
-        await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
-          grant.rows[0].id,
-        ])
-      ).rows[0]?.revoked_at,
-      null
-    );
-    assert.ok(
-      (
-        await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
-          mismatchedClientGrant.rows[0].id,
-        ])
-      ).rows[0]?.revoked_at
-    );
+            [legacy.rows[0].grant_id]
+          )
+        ).rows[0],
+        { grant_revoked: true, family_revoked: true, refresh_consumed: true, access_revoked: true }
+      );
+      assert.equal(
+        (
+          await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
+            unrelated.rows[0].id,
+          ])
+        ).rows[0]?.revoked_at,
+        null
+      );
+      assert.equal(
+        (
+          await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
+            grant.rows[0].id,
+          ])
+        ).rows[0]?.revoked_at,
+        null
+      );
+      assert.ok(
+        (
+          await pool!.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
+            mismatchedClientGrant.rows[0].id,
+          ])
+        ).rows[0]?.revoked_at
+      );
 
-    const providerReview = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_marketplace_reviewer_credentials (
+      const providerReview = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_marketplace_reviewer_credentials (
          provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
          fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
        ) VALUES ('anthropic', 'provider_review', $1, '$argon2id$integration', $2, $3,
                  'provider-review', $4, $5, now() + interval '1 hour') RETURNING id`,
-      [digest(340), user.rows[0].id, tenant.rows[0].id, "9".repeat(64), digest(341)]
-    );
-    assert.equal(
-      await revokeMarketplaceReviewerCredentialAtomic({
-        provider: "anthropic",
-        operatorPrincipalDigest: digest(342),
-      }),
-      1
-    );
-    assert.equal(
-      (
-        await pool!.query(
-          "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
-          [providerReview.rows[0].id]
-        )
-      ).rows[0]?.revoked_at instanceof Date,
-      true
-    );
-    assert.equal(
-      (
-        await pool!.query(
-          "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
-          [credential.rows[0].id]
-        )
-      ).rows[0]?.revoked_at,
-      null
-    );
+        [digest(340), user.rows[0].id, tenant.rows[0].id, "9".repeat(64), digest(341)]
+      );
+      assert.equal(
+        await revokeMarketplaceReviewerCredentialAtomic({
+          provider: "anthropic",
+          operatorPrincipalDigest: digest(342),
+        }),
+        1
+      );
+      assert.equal(
+        (
+          await pool!.query(
+            "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+            [providerReview.rows[0].id]
+          )
+        ).rows[0]?.revoked_at instanceof Date,
+        true
+      );
+      assert.equal(
+        (
+          await pool!.query(
+            "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+            [credential.rows[0].id]
+          )
+        ).rows[0]?.revoked_at,
+        null
+      );
 
-    await pool!.query(
-      "UPDATE exomem_agent_contract_rollout_assignments SET state = 'retired', activated_at = NULL, ended_at = now() WHERE id = $1",
-      [assignment.rows[0].id]
-    );
-    assert.equal(
-      await rotateOAuthRefreshTokenAtomic({
-        refreshDigest: digest(334),
-        replacementRefreshDigest: digest(336),
-        accessDigest: digest(337),
-        accessExpiresAt: new Date(Date.now() + 60_000),
-        clientId: candidateClientId,
-        resource,
-      }),
-      null
-    );
-    assert.deepEqual(
-      (
-        await pool!.query(
-          `SELECT family.revoked_reason, refresh.consumed_at IS NOT NULL AS refresh_consumed,
+      await pool!.query(
+        "UPDATE exomem_agent_contract_rollout_assignments SET state = 'retired', activated_at = NULL, ended_at = now() WHERE id = $1",
+        [assignment.rows[0].id]
+      );
+      assert.equal(
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(334),
+          replacementRefreshDigest: digest(336),
+          accessDigest: digest(337),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId: candidateClientId,
+          resource,
+        }),
+        null
+      );
+      assert.deepEqual(
+        (
+          await pool!.query(
+            `SELECT family.revoked_reason, refresh.consumed_at IS NOT NULL AS refresh_consumed,
                   access.revoked_at IS NOT NULL AS access_revoked
            FROM exomem_oauth_token_families AS family
            JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = family.id
            JOIN exomem_oauth_access_tokens AS access ON access.family_id = family.id
            WHERE family.id = $1`,
-          [issued!.familyId]
-        )
-      ).rows[0],
-      {
-        revoked_reason: "candidate_authority_invalid",
-        refresh_consumed: true,
-        access_revoked: true,
-      }
-    );
+            [issued!.familyId]
+          )
+        ).rows[0],
+        {
+          revoked_reason: "candidate_authority_invalid",
+          refresh_consumed: true,
+          access_revoked: true,
+        }
+      );
 
-    await pool!.query(
-      "UPDATE exomem_agent_contract_rollout_assignments SET state = 'active', activated_at = now(), ended_at = NULL WHERE id = $1",
-      [assignment.rows[0].id]
-    );
-    await pool!.query("UPDATE exomem_oauth_grants SET revoked_at = now() WHERE id = $1", [
-      grant.rows[0].id,
-    ]);
-    const seedCredentialGraph = async (reviewerCredentialId: string, offset: number) => {
-      const session = await pool!.query<{ id: string }>(
-        `INSERT INTO exomem_sessions (
+      await pool!.query(
+        "UPDATE exomem_agent_contract_rollout_assignments SET state = 'active', activated_at = now(), ended_at = NULL WHERE id = $1",
+        [assignment.rows[0].id]
+      );
+      await pool!.query("UPDATE exomem_oauth_grants SET revoked_at = now() WHERE id = $1", [
+        grant.rows[0].id,
+      ]);
+      const seedCredentialGraph = async (reviewerCredentialId: string, offset: number) => {
+        const session = await pool!.query<{ id: string }>(
+          `INSERT INTO exomem_sessions (
            user_id, tenant_id, session_digest, csrf_digest, expires_at, reviewer_credential_id,
            candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id
          ) VALUES ($1, $2, $3, $4, now() + interval '1 hour', $5, $6, $7, 1, $8, $9) RETURNING id`,
-        [
-          user.rows[0].id,
-          tenant.rows[0].id,
-          digest(offset),
-          digest(offset + 1),
-          reviewerCredentialId,
-          candidate.rows[0].id,
-          assignment.rows[0].id,
-          stage.rows[0].id,
-          client.rows[0].id,
-        ]
-      );
-      const graph = await pool!.query<{ grant_id: string; family_id: string; code_id: string }>(
-        `WITH grant_row AS (
+          [
+            user.rows[0].id,
+            tenant.rows[0].id,
+            digest(offset),
+            digest(offset + 1),
+            reviewerCredentialId,
+            candidate.rows[0].id,
+            assignment.rows[0].id,
+            stage.rows[0].id,
+            client.rows[0].id,
+          ]
+        );
+        const graph = await pool!.query<{ grant_id: string; family_id: string; code_id: string }>(
+          `WITH grant_row AS (
            INSERT INTO exomem_oauth_grants (
              user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
              candidate_id, assignment_id, assignment_generation, staged_client_release_id
@@ -3312,43 +3326,43 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
            ) SELECT $11, grant_id, id, $3, $4, ARRAY['exomem.read'], now() + interval '1 hour',
                     $6, $7, 1, $8, $5 FROM family
          ) SELECT family.grant_id, family.id AS family_id, code.id AS code_id FROM family CROSS JOIN code`,
-        [
-          user.rows[0].id,
-          tenant.rows[0].id,
-          client.rows[0].id,
-          resource,
-          reviewerCredentialId,
-          candidate.rows[0].id,
-          assignment.rows[0].id,
-          stage.rows[0].id,
-          digest(offset + 2),
-          digest(offset + 3),
-          digest(offset + 4),
-        ]
-      );
-      return { sessionId: session.rows[0].id, ...graph.rows[0] };
-    };
-    const oldGraph = await seedCredentialGraph(credential.rows[0].id, 350);
-    const replacementCredential = await createInternalCanaryReviewerCredentialAtomic({
-      platform: "claude",
-      usernameDigest: digest(360),
-      passwordHash: "$argon2id$integration",
-      tenantId: tenant.rows[0].id,
-      candidateId: candidate.rows[0].id,
-      assignmentId: assignment.rows[0].id,
-      assignmentGeneration: 1,
-      stagedClientReleaseId: stage.rows[0].id,
-      oauthClientId: client.rows[0].id,
-      fixtureVersion: "candidate-test",
-      fixturePayloadDigest: "8".repeat(64),
-      operatorPrincipalDigest: digest(361),
-      expiresAt: new Date(Date.now() + 30 * 60_000),
-    });
-    assert.ok(replacementCredential);
-    assert.deepEqual(
-      (
-        await pool!.query(
-          `SELECT credential.revoked_at IS NOT NULL AS credential_revoked, session.revoked_at IS NOT NULL AS session_revoked,
+          [
+            user.rows[0].id,
+            tenant.rows[0].id,
+            client.rows[0].id,
+            resource,
+            reviewerCredentialId,
+            candidate.rows[0].id,
+            assignment.rows[0].id,
+            stage.rows[0].id,
+            digest(offset + 2),
+            digest(offset + 3),
+            digest(offset + 4),
+          ]
+        );
+        return { sessionId: session.rows[0].id, ...graph.rows[0] };
+      };
+      const oldGraph = await seedCredentialGraph(credential.rows[0].id, 350);
+      const replacementCredential = await createInternalCanaryReviewerCredentialAtomic({
+        platform: "claude",
+        usernameDigest: digest(360),
+        passwordHash: "$argon2id$integration",
+        tenantId: tenant.rows[0].id,
+        candidateId: candidate.rows[0].id,
+        assignmentId: assignment.rows[0].id,
+        assignmentGeneration: 1,
+        stagedClientReleaseId: stage.rows[0].id,
+        oauthClientId: client.rows[0].id,
+        fixtureVersion: "candidate-test",
+        fixturePayloadDigest: "8".repeat(64),
+        operatorPrincipalDigest: digest(361),
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      });
+      assert.ok(replacementCredential);
+      assert.deepEqual(
+        (
+          await pool!.query(
+            `SELECT credential.revoked_at IS NOT NULL AS credential_revoked, session.revoked_at IS NOT NULL AS session_revoked,
                 grant_row.revoked_at IS NOT NULL AS grant_revoked, code.consumed_at IS NOT NULL AS code_consumed,
                 family.revoked_at IS NOT NULL AS family_revoked, access.revoked_at IS NOT NULL AS access_revoked,
                 refresh.consumed_at IS NOT NULL AS refresh_consumed
@@ -3360,123 +3374,123 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
          JOIN exomem_oauth_access_tokens AS access ON access.family_id = family.id
          JOIN exomem_oauth_refresh_tokens AS refresh ON refresh.family_id = family.id
          WHERE credential.id = $1`,
-          [
-            credential.rows[0].id,
-            oldGraph.sessionId,
-            oldGraph.grant_id,
-            oldGraph.code_id,
-            oldGraph.family_id,
-          ]
-        )
-      ).rows[0],
-      {
-        credential_revoked: true,
-        session_revoked: true,
-        grant_revoked: true,
-        code_consumed: true,
-        family_revoked: true,
-        access_revoked: true,
-        refresh_consumed: true,
-      }
-    );
-    const newGraph = await seedCredentialGraph(replacementCredential!.credentialId, 370);
-    const survivingProvider = await pool!.query<{ id: string }>(
-      `INSERT INTO exomem_marketplace_reviewer_credentials (
+            [
+              credential.rows[0].id,
+              oldGraph.sessionId,
+              oldGraph.grant_id,
+              oldGraph.code_id,
+              oldGraph.family_id,
+            ]
+          )
+        ).rows[0],
+        {
+          credential_revoked: true,
+          session_revoked: true,
+          grant_revoked: true,
+          code_consumed: true,
+          family_revoked: true,
+          access_revoked: true,
+          refresh_consumed: true,
+        }
+      );
+      const newGraph = await seedCredentialGraph(replacementCredential!.credentialId, 370);
+      const survivingProvider = await pool!.query<{ id: string }>(
+        `INSERT INTO exomem_marketplace_reviewer_credentials (
          provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
          fixture_version, fixture_payload_digest, created_by_principal_digest, expires_at
        ) VALUES ('openai', 'provider_review', $1, '$argon2id$integration', $2, $3,
                  'provider-review', $4, $5, now() + interval '1 hour') RETURNING id`,
-      [digest(380), user.rows[0].id, tenant.rows[0].id, "7".repeat(64), digest(381)]
-    );
-    assert.equal(
-      await revokeInternalCanaryReviewerCredentialAtomic({
-        tenantId: tenant.rows[0].id,
-        candidateId: candidate.rows[0].id,
-        assignmentId: assignment.rows[0].id,
-        assignmentGeneration: 1,
-        stagedClientReleaseId: stage.rows[0].id,
-        oauthClientId: client.rows[0].id,
-        platform: "claude",
-        operatorPrincipalDigest: digest(382),
-      }),
-      1
-    );
-    assert.equal(
-      (
-        await pool!.query(
-          "SELECT revoked_at IS NOT NULL AS revoked FROM exomem_sessions WHERE id = $1",
-          [newGraph.sessionId]
-        )
-      ).rows[0]?.revoked,
-      true
-    );
-    assert.equal(
-      (
-        await pool!.query(
-          "SELECT revoked_at IS NOT NULL AS revoked FROM exomem_oauth_grants WHERE id = $1",
-          [newGraph.grant_id]
-        )
-      ).rows[0]?.revoked,
-      true
-    );
-    assert.equal(
-      (
-        await pool!.query(
-          "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
-          [survivingProvider.rows[0].id]
-        )
-      ).rows[0]?.revoked_at,
-      null
-    );
-    assert.equal(
-      (
-        await pool!.query("SELECT deleted_at FROM exomem_tenants WHERE id = $1", [
-          tenant.rows[0].id,
-        ])
-      ).rows[0]?.deleted_at,
-      null
-    );
-  });
+        [digest(380), user.rows[0].id, tenant.rows[0].id, "7".repeat(64), digest(381)]
+      );
+      assert.equal(
+        await revokeInternalCanaryReviewerCredentialAtomic({
+          tenantId: tenant.rows[0].id,
+          candidateId: candidate.rows[0].id,
+          assignmentId: assignment.rows[0].id,
+          assignmentGeneration: 1,
+          stagedClientReleaseId: stage.rows[0].id,
+          oauthClientId: client.rows[0].id,
+          platform: "claude",
+          operatorPrincipalDigest: digest(382),
+        }),
+        1
+      );
+      assert.equal(
+        (
+          await pool!.query(
+            "SELECT revoked_at IS NOT NULL AS revoked FROM exomem_sessions WHERE id = $1",
+            [newGraph.sessionId]
+          )
+        ).rows[0]?.revoked,
+        true
+      );
+      assert.equal(
+        (
+          await pool!.query(
+            "SELECT revoked_at IS NOT NULL AS revoked FROM exomem_oauth_grants WHERE id = $1",
+            [newGraph.grant_id]
+          )
+        ).rows[0]?.revoked,
+        true
+      );
+      assert.equal(
+        (
+          await pool!.query(
+            "SELECT revoked_at FROM exomem_marketplace_reviewer_credentials WHERE id = $1",
+            [survivingProvider.rows[0].id]
+          )
+        ).rows[0]?.revoked_at,
+        null
+      );
+      assert.equal(
+        (
+          await pool!.query("SELECT deleted_at FROM exomem_tenants WHERE id = $1", [
+            tenant.rows[0].id,
+          ])
+        ).rows[0]?.deleted_at,
+        null
+      );
+    });
 
-  // Every other canary test in this file seeds its staged release as 'evidenced',
-  // which is the state a release reaches only AFTER `import` -- the third step of
-  // observe -> sign -> import -> promote. During the window that produces that
-  // evidence the release is 'staged', and nothing exercised that, so the token
-  // path could require 'evidenced' while the consent path accepted 'staged' and
-  // no test disagreed. A real Claude connector found it on 2026-08-22: consent
-  // succeeded, a code was minted, and the exchange answered `invalid_grant`.
-  //
-  // The circularity is the point. `observe` signs only operations it witnessed,
-  // and five of its seven (authorization, tool_discovery, content_recall,
-  // citation, durable_capture, fresh_chat_recall) need a working access token --
-  // so requiring 'evidenced' to issue that token made the first promotion
-  // impossible to perform, not merely awkward.
-  it("issues and honours a canary token while its release is still staged", async () => {
-    const candidateClientId = `staged-canary-${randomUUID()}`;
-    const configDigest = "9".repeat(64);
-    const redirectUri = "https://staged-canary.example.test/callback";
-    const client = await pool!.query(
-      `INSERT INTO exomem_oauth_clients (
+    // Every other canary test in this file seeds its staged release as 'evidenced',
+    // which is the state a release reaches only AFTER `import` -- the third step of
+    // observe -> sign -> import -> promote. During the window that produces that
+    // evidence the release is 'staged', and nothing exercised that, so the token
+    // path could require 'evidenced' while the consent path accepted 'staged' and
+    // no test disagreed. A real Claude connector found it on 2026-08-22: consent
+    // succeeded, a code was minted, and the exchange answered `invalid_grant`.
+    //
+    // The circularity is the point. `observe` signs only operations it witnessed,
+    // and five of its seven (authorization, tool_discovery, content_recall,
+    // citation, durable_capture, fresh_chat_recall) need a working access token --
+    // so requiring 'evidenced' to issue that token made the first promotion
+    // impossible to perform, not merely awkward.
+    it("issues and honours a canary token while its release is still staged", async () => {
+      const candidateClientId = `staged-canary-${randomUUID()}`;
+      const configDigest = "9".repeat(64);
+      const redirectUri = "https://staged-canary.example.test/callback";
+      const client = await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
          client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
          client_platform, oauth_client_config_sha256
        ) VALUES ($1, 'pinned', false, $2::jsonb,
                  digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'claude', $3)
        RETURNING id`,
-      [candidateClientId, JSON.stringify([redirectUri]), configDigest]
-    );
-    const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
-      `staged-canary-${randomUUID()}@example.test`,
-    ]);
-    const tenant = await pool!.query(
-      "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
-      [user.rows[0].id]
-    );
-    await pool!.query(
-      "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
-      [tenant.rows[0].id]
-    );
-    const candidate = await pool!.query(
-      `INSERT INTO exomem_agent_contract_candidates (
+        [candidateClientId, JSON.stringify([redirectUri]), configDigest]
+      );
+      const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+        `staged-canary-${randomUUID()}@example.test`,
+      ]);
+      const tenant = await pool!.query(
+        "INSERT INTO exomem_tenants (owner_user_id, marketplace_reviewer_purpose) VALUES ($1, true) RETURNING id",
+        [user.rows[0].id]
+      );
+      await pool!.query(
+        "INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state) VALUES ($1, 'complimentary', 'active', 'active')",
+        [tenant.rows[0].id]
+      );
+      const candidate = await pool!.query(
+        `INSERT INTO exomem_agent_contract_candidates (
          state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
          compatibility_digest, protocol_version, mcp_protocol_versions, contract,
          claude_package_lock, claude_archive_lock, openai_package_lock, openai_archive_lock
@@ -3484,792 +3498,869 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
          'pending', 'hosted-alpha-agent-v4', $1, 'candidate-test', $2, $3, $4, '1',
          '["2025-11-25"]'::jsonb, '{}'::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb
        ) RETURNING id`,
-      [
-        resource,
-        "a".repeat(64),
-        "b".repeat(64),
-        "c".repeat(64),
-        JSON.stringify({
-          platform: "claude",
-          artifact_sha256: "d".repeat(64),
-          archive_sha256: "e".repeat(64),
-          compatibility_sha256: "f".repeat(64),
-          schema_contract_sha256: "1".repeat(64),
-          plugin_version: "1.0.0",
-        }),
-        JSON.stringify({
-          platform: "claude",
-          artifact_sha256: "d".repeat(64),
-          archive_sha256: "e".repeat(64),
-          compatibility_sha256: "f".repeat(64),
-          schema_contract_sha256: "1".repeat(64),
-          plugin_version: "1.0.0",
-        }),
-        JSON.stringify({
-          platform: "openai",
-          artifact_sha256: "2".repeat(64),
-          archive_sha256: "3".repeat(64),
-          compatibility_sha256: "4".repeat(64),
-          schema_contract_sha256: "5".repeat(64),
-          plugin_version: "1.0.0",
-          registered_app_id_sha256: "6".repeat(64),
-        }),
-        JSON.stringify({
-          platform: "openai",
-          artifact_sha256: "2".repeat(64),
-          archive_sha256: "3".repeat(64),
-          compatibility_sha256: "4".repeat(64),
-          schema_contract_sha256: "5".repeat(64),
-          plugin_version: "1.0.0",
-          registered_app_id_sha256: "6".repeat(64),
-        }),
-      ]
-    );
-    const assignment = await pool!.query(
-      `INSERT INTO exomem_agent_contract_rollout_assignments (
+        [
+          resource,
+          "a".repeat(64),
+          "b".repeat(64),
+          "c".repeat(64),
+          JSON.stringify({
+            platform: "claude",
+            artifact_sha256: "d".repeat(64),
+            archive_sha256: "e".repeat(64),
+            compatibility_sha256: "f".repeat(64),
+            schema_contract_sha256: "1".repeat(64),
+            plugin_version: "1.0.0",
+          }),
+          JSON.stringify({
+            platform: "claude",
+            artifact_sha256: "d".repeat(64),
+            archive_sha256: "e".repeat(64),
+            compatibility_sha256: "f".repeat(64),
+            schema_contract_sha256: "1".repeat(64),
+            plugin_version: "1.0.0",
+          }),
+          JSON.stringify({
+            platform: "openai",
+            artifact_sha256: "2".repeat(64),
+            archive_sha256: "3".repeat(64),
+            compatibility_sha256: "4".repeat(64),
+            schema_contract_sha256: "5".repeat(64),
+            plugin_version: "1.0.0",
+            registered_app_id_sha256: "6".repeat(64),
+          }),
+          JSON.stringify({
+            platform: "openai",
+            artifact_sha256: "2".repeat(64),
+            archive_sha256: "3".repeat(64),
+            compatibility_sha256: "4".repeat(64),
+            schema_contract_sha256: "5".repeat(64),
+            plugin_version: "1.0.0",
+            registered_app_id_sha256: "6".repeat(64),
+          }),
+        ]
+      );
+      const assignment = await pool!.query(
+        `INSERT INTO exomem_agent_contract_rollout_assignments (
          tenant_id, candidate_id, generation, state, source_release, protocol_version,
          command_fingerprint, schema_digest, compatibility_digest, gateway_contract_digest,
          marketplace_reviewer_purpose, created_by_principal_digest, expires_at, activated_at
        ) VALUES ($1, $2, 1, 'active', 'candidate-test', '1', $3, $4, $5, $6, true, $7,
                  now() + interval '30 minutes', now()) RETURNING id`,
-      [
-        tenant.rows[0].id,
-        candidate.rows[0].id,
-        "a".repeat(64),
-        "b".repeat(64),
-        "c".repeat(64),
-        "d".repeat(64),
-        "e".repeat(64),
-      ]
-    );
-    // 'staged', and no evidenced_at: exactly what `prepare` leaves behind and what
-    // the connector meets when the operator opens the window.
-    // `created_at` is backdated so the negative control at the end of this test is
-    // reachable at all: the row's trigger forbids changing `created_at` and forbids
-    // moving `expires_at` later, and the table checks `expires_at > created_at`, so
-    // a release created `now()` can never be pulled into the past.
-    const stage = await pool!.query(
-      `INSERT INTO exomem_staged_client_releases (
+        [
+          tenant.rows[0].id,
+          candidate.rows[0].id,
+          "a".repeat(64),
+          "b".repeat(64),
+          "c".repeat(64),
+          "d".repeat(64),
+          "e".repeat(64),
+        ]
+      );
+      // 'staged', and no evidenced_at: exactly what `prepare` leaves behind and what
+      // the connector meets when the operator opens the window.
+      // `created_at` is backdated so the negative control at the end of this test is
+      // reachable at all: the row's trigger forbids changing `created_at` and forbids
+      // moving `expires_at` later, and the table checks `expires_at > created_at`, so
+      // a release created `now()` can never be pulled into the past.
+      const stage = await pool!.query(
+        `INSERT INTO exomem_staged_client_releases (
          candidate_id, platform, state, package_sha256, archive_sha256, compatibility_sha256,
          contract_sha256, plugin_version, oauth_client_config_sha256, created_by_principal_digest,
          created_at, expires_at
        ) VALUES ($1, 'claude', 'staged', $2, $3, $4, $5, '1.0.0', $6, $7,
                  now() - interval '2 hours', now() + interval '1 hour') RETURNING id`,
-      [
-        candidate.rows[0].id,
-        "d".repeat(64),
-        "e".repeat(64),
-        "f".repeat(64),
-        "1".repeat(64),
-        configDigest,
-        "e".repeat(64),
-      ]
-    );
-    const password = await hashMarketplaceReviewerPassword("staged-canary-password");
-    const credential = await pool!.query(
-      `INSERT INTO exomem_marketplace_reviewer_credentials (
+        [
+          candidate.rows[0].id,
+          "d".repeat(64),
+          "e".repeat(64),
+          "f".repeat(64),
+          "1".repeat(64),
+          configDigest,
+          "e".repeat(64),
+        ]
+      );
+      const password = await hashMarketplaceReviewerPassword("staged-canary-password");
+      const credential = await pool!.query(
+        `INSERT INTO exomem_marketplace_reviewer_credentials (
          provider, credential_kind, username_digest, password_hash, owner_user_id, tenant_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id, oauth_client_id,
          fixture_version, fixture_payload_digest, created_by_principal_digest, created_at, expires_at
        ) VALUES ('anthropic', 'internal_canary', $1, $2, $3, $4, $5, $6, 1, $7, $8,
                  'candidate-test', $9, $10, now(), now() + interval '30 minutes') RETURNING id`,
-      [
-        digest(361),
-        password,
-        user.rows[0].id,
-        tenant.rows[0].id,
-        candidate.rows[0].id,
-        assignment.rows[0].id,
-        stage.rows[0].id,
-        client.rows[0].id,
-        "8".repeat(64),
-        digest(362),
-      ]
-    );
-    const grant = await pool!.query(
-      `INSERT INTO exomem_oauth_grants (
+        [
+          digest(361),
+          password,
+          user.rows[0].id,
+          tenant.rows[0].id,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+          client.rows[0].id,
+          "8".repeat(64),
+          digest(362),
+        ]
+      );
+      const grant = await pool!.query(
+        `INSERT INTO exomem_oauth_grants (
          user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id,
          candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], true, $5, $6, $7, 1, $8) RETURNING id`,
-      [
-        user.rows[0].id,
-        tenant.rows[0].id,
-        client.rows[0].id,
-        resource,
-        credential.rows[0].id,
-        candidate.rows[0].id,
-        assignment.rows[0].id,
-        stage.rows[0].id,
-      ]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_codes (
+        [
+          user.rows[0].id,
+          tenant.rows[0].id,
+          client.rows[0].id,
+          resource,
+          credential.rows[0].id,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+        ]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_codes (
          code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at,
          reviewer_credential_id, candidate_id, assignment_id, assignment_generation, staged_client_release_id
        ) VALUES ($1, $2, $3, $4, $5, 'staged-canary-challenge', true,
                  now() + interval '1 hour', $6, $7, $8, 1, $9)`,
-      [
-        digest(363),
-        grant.rows[0].id,
-        client.rows[0].id,
+        [
+          digest(363),
+          grant.rows[0].id,
+          client.rows[0].id,
+          redirectUri,
+          resource,
+          credential.rows[0].id,
+          candidate.rows[0].id,
+          assignment.rows[0].id,
+          stage.rows[0].id,
+        ]
+      );
+
+      const issued = await issueOAuthTokensFromCodeAtomic({
+        codeDigest: digest(363),
+        clientId: candidateClientId,
         redirectUri,
         resource,
-        credential.rows[0].id,
-        candidate.rows[0].id,
-        assignment.rows[0].id,
-        stage.rows[0].id,
-      ]
-    );
-
-    const issued = await issueOAuthTokensFromCodeAtomic({
-      codeDigest: digest(363),
-      clientId: candidateClientId,
-      redirectUri,
-      resource,
-      pkceChallenge: "staged-canary-challenge",
-      refreshDigest: digest(364),
-      refreshExpiresAt: new Date(Date.now() + 3_600_000),
-      accessDigest: digest(365),
-      accessExpiresAt: new Date(Date.now() + 60_000),
-    });
-    assert.ok(issued, "a staged canary release must be able to exchange its code");
-
-    // Issuing is not enough. If the read paths still demanded 'evidenced' the
-    // window would fail one request later, on the first MCP call -- so the
-    // operations `observe` has to witness would still be unobservable.
-    assert.equal(
-      (await findActiveOAuthAccessToken(digest(365)))?.candidateId,
-      candidate.rows[0].id
-    );
-    assert.equal((await findMcpOAuthAccessToken(digest(365)))?.candidateId, candidate.rows[0].id);
-
-    // A reviewer session outlives a fifteen-minute access token, so rotation has
-    // to work at 'staged' too or the window ends mid-evidence.
-    assert.ok(
-      await rotateOAuthRefreshTokenAtomic({
+        pkceChallenge: "staged-canary-challenge",
         refreshDigest: digest(364),
-        replacementRefreshDigest: digest(366),
-        accessDigest: digest(367),
+        refreshExpiresAt: new Date(Date.now() + 3_600_000),
+        accessDigest: digest(365),
         accessExpiresAt: new Date(Date.now() + 60_000),
-        clientId: candidateClientId,
-        resource,
-      }),
-      "a staged canary release must be able to rotate its refresh token"
-    );
-
-    // The negative control, so this is a narrowed gate and not a removed one:
-    // `staged` is admissible only while the release is unexpired. Expiring it
-    // must close every one of the four paths again.
-    await pool!.query(
-      "UPDATE exomem_staged_client_releases SET expires_at = now() - interval '1 minute' WHERE id = $1",
-      [stage.rows[0].id]
-    );
-    assert.equal(await findActiveOAuthAccessToken(digest(367)), null);
-    assert.equal(await findMcpOAuthAccessToken(digest(367)), null);
-    assert.equal(
-      await rotateOAuthRefreshTokenAtomic({
-        refreshDigest: digest(366),
-        replacementRefreshDigest: digest(368),
-        accessDigest: digest(369),
-        accessExpiresAt: new Date(Date.now() + 60_000),
-        clientId: candidateClientId,
-        resource,
-      }),
-      null
-    );
-  });
-
-  it("admits an allowlisted-host CIMD client whose digest matches no promoted artifact", async () => {
-    // The whole point of the change: this client's configuration digest is bound to
-    // nothing that was ever promoted, which is the situation every ChatGPT connector
-    // but one is permanently in.
-    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
-    if (existingCohort.rowCount === 0) await seedLiveCohort();
-    const host = "connector-admitted.example.test";
-    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-    const redirectUris = [`https://${host}/callback`];
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["claude", host]
-    );
-    try {
-      const registered = await registerAdmittedCimdClient(clientId, {
-        fetchCimd: async () => cimdMetadata(clientId, redirectUris, "auto"),
       });
-      assert.ok(registered, "an allowlisted host should register on first authorization");
+      assert.ok(issued, "a staged canary release must be able to exchange its code");
 
-      const digest = await pool!.query(
-        "SELECT oauth_client_config_sha256 AS d, auto_registered FROM exomem_oauth_clients WHERE client_id = $1",
-        [clientId]
-      );
-      assert.equal(digest.rows[0]?.auto_registered, true);
-      const pinned = await pool!.query(
-        "SELECT claude_oauth_client_config_sha256 AS d FROM exomem_hosted_alpha_cohort LIMIT 1"
-      );
-      assert.notEqual(
-        digest.rows[0]?.d,
-        pinned.rows[0]?.d,
-        "the test is vacuous unless this client is genuinely unpinned"
-      );
-
-      assert.ok(
-        await resolveApprovedOAuthClient(clientId),
-        "an unpinned client on an admitted host must be admitted"
-      );
-
-      // Vary only the condition under test. Same client, same row, same digest --
-      // withdraw the host and admission must stop. Without this half the assertion
-      // above would still pass if the predicate ignored the allowlist entirely.
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      // Issuing is not enough. If the read paths still demanded 'evidenced' the
+      // window would fail one request later, on the first MCP call -- so the
+      // operations `observe` has to witness would still be unobservable.
       assert.equal(
-        await resolveApprovedOAuthClient(clientId),
-        null,
-        "withdrawing the host must withdraw admission"
+        (await findActiveOAuthAccessToken(digest(365)))?.candidateId,
+        candidate.rows[0].id
       );
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
-    }
-  });
+      assert.equal((await findMcpOAuthAccessToken(digest(365)))?.candidateId, candidate.rows[0].id);
 
-  it("rolls back first invite admission when a resolved CIMD host is withdrawn", async () => {
-    const host = "continuation-withdrawn.example.test";
-    const dynamicClientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-    const redirectUri = `https://${host}/callback`;
-    const inviteDigest = digest(870);
-    const inviteEmail = `withdrawn-host-${randomUUID()}@example.test`;
-    const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
-    process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 8).toString("base64url");
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2)",
-      ["claude", host]
-    );
-    try {
+      // A reviewer session outlives a fifteen-minute access token, so rotation has
+      // to work at 'staged' too or the window ends mid-evidence.
       assert.ok(
-        await registerAdmittedCimdClient(dynamicClientId, {
-          fetchCimd: async () => cimdMetadata(dynamicClientId, [redirectUri], "withdrawn"),
-        })
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(364),
+          replacementRefreshDigest: digest(366),
+          accessDigest: digest(367),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId: candidateClientId,
+          resource,
+        }),
+        "a staged canary release must be able to rotate its refresh token"
       );
-      const continuation = await createOAuthContinuation({
-        clientId: dynamicClientId,
-        redirectUri,
-        resource,
-        scopes: ["exomem.read"],
-        state: "withdrawn-host-state",
-        codeChallenge: "withdrawn-host-challenge",
-        offlineAccess: true,
-      });
-      assert.ok(continuation);
-      assert.ok(
-        await resolveOAuthContinuationToken(continuation!.transaction),
-        "the host is admitted when the continuation renders"
-      );
-      const transaction = await pool!.query<{ transaction_digest: Buffer }>(
-        `SELECT transaction_digest
-         FROM exomem_oauth_authorization_transactions
-         WHERE transaction_digest = digest(convert_to($1, 'utf8'), 'sha256')`,
-        [continuation!.transaction]
-      );
-      assert.equal(transaction.rowCount, 1);
-      await seedPool();
+
+      // The negative control, so this is a narrowed gate and not a removed one:
+      // `staged` is admissible only while the release is unexpired. Expiring it
+      // must close every one of the four paths again.
       await pool!.query(
-        `INSERT INTO exomem_invites (
-           token_digest, email_normalized, entitlement_source, entitlement_capabilities,
-           entitlement_limits, created_by_principal_digest, expires_at
-         ) VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, $3, now() + interval '1 hour')`,
-        [inviteDigest, inviteEmail, digest(871)]
+        "UPDATE exomem_staged_client_releases SET expires_at = now() - interval '1 minute' WHERE id = $1",
+        [stage.rows[0].id]
       );
-      const capacityBefore = await pool!.query(
-        "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
-      );
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-
+      assert.equal(await findActiveOAuthAccessToken(digest(367)), null);
+      assert.equal(await findMcpOAuthAccessToken(digest(367)), null);
       assert.equal(
-        await admitFirstOAuthInviteAtomic({
-          inviteDigest,
-          transactionDigest: transaction.rows[0]!.transaction_digest,
-          sessionDigest: digest(872),
-          csrfDigest: digest(873),
-          sessionExpiresAt: new Date(Date.now() + 60_000),
-          codeDigest: digest(874),
-          codeExpiresAt: new Date(Date.now() + 60_000),
+        await rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(366),
+          replacementRefreshDigest: digest(368),
+          accessDigest: digest(369),
+          accessExpiresAt: new Date(Date.now() + 60_000),
+          clientId: candidateClientId,
+          resource,
         }),
         null
       );
-      assert.deepEqual(
-        (
-          await pool!.query(
-            "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
-          )
-        ).rows,
-        capacityBefore.rows
+    });
+
+    it("admits an allowlisted-host CIMD client whose digest matches no promoted artifact", async () => {
+      // The whole point of the change: this client's configuration digest is bound to
+      // nothing that was ever promoted, which is the situation every ChatGPT connector
+      // but one is permanently in.
+      const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+      if (existingCohort.rowCount === 0) await seedLiveCohort();
+      const host = "connector-admitted.example.test";
+      const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const redirectUris = [`https://${host}/callback`];
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["claude", host]
       );
-      assert.equal(
-        await scalar(
-          "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NOT NULL",
-          [inviteDigest]
-        ),
-        0
+      try {
+        const registered = await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "auto"),
+        });
+        assert.ok(registered, "an allowlisted host should register on first authorization");
+
+        const digest = await pool!.query(
+          "SELECT oauth_client_config_sha256 AS d, auto_registered FROM exomem_oauth_clients WHERE client_id = $1",
+          [clientId]
+        );
+        assert.equal(digest.rows[0]?.auto_registered, true);
+        const pinned = await pool!.query(
+          "SELECT claude_oauth_client_config_sha256 AS d FROM exomem_hosted_alpha_cohort LIMIT 1"
+        );
+        assert.notEqual(
+          digest.rows[0]?.d,
+          pinned.rows[0]?.d,
+          "the test is vacuous unless this client is genuinely unpinned"
+        );
+
+        assert.ok(
+          await resolveApprovedOAuthClient(clientId),
+          "an unpinned client on an admitted host must be admitted"
+        );
+
+        // Vary only the condition under test. Same client, same row, same digest --
+        // withdraw the host and admission must stop. Without this half the assertion
+        // above would still pass if the predicate ignored the allowlist entirely.
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        assert.equal(
+          await resolveApprovedOAuthClient(clientId),
+          null,
+          "withdrawing the host must withdraw admission"
+        );
+      } finally {
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+      }
+    });
+
+    it("rolls back first invite admission when a resolved CIMD host is withdrawn", async () => {
+      const host = "continuation-withdrawn.example.test";
+      const dynamicClientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const redirectUri = `https://${host}/callback`;
+      const inviteDigest = digest(870);
+      const inviteEmail = `withdrawn-host-${randomUUID()}@example.test`;
+      const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+      process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 8).toString("base64url");
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2)",
+        ["claude", host]
       );
-      assert.equal(
-        await scalar(
-          "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NOT NULL",
-          [transaction.rows[0]!.transaction_digest]
-        ),
-        0
-      );
-      assert.equal(
-        await scalar("SELECT count(*) FROM exomem_sessions WHERE session_digest = $1", [
-          digest(872),
-        ]),
-        0
-      );
-      assert.equal(
-        await scalar(
-          "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1",
-          [digest(874)]
-        ),
-        0
-      );
-      assert.equal(
-        await scalar("SELECT count(*) FROM users WHERE email = $1", [inviteEmail]),
-        0,
-        "withdrawn authority cannot create an owner or tenant"
-      );
-      assert.equal(
-        await scalar(
-          "SELECT count(*) FROM exomem_oauth_grants WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)",
-          [dynamicClientId]
-        ),
-        0,
-        "withdrawn authority cannot create an OAuth grant"
-      );
-      assert.equal(
-        await scalar(
-          `SELECT count(*)
+      try {
+        assert.ok(
+          await registerAdmittedCimdClient(dynamicClientId, {
+            fetchCimd: async () => cimdMetadata(dynamicClientId, [redirectUri], "withdrawn"),
+          })
+        );
+        const continuation = await createOAuthContinuation({
+          clientId: dynamicClientId,
+          redirectUri,
+          resource,
+          scopes: ["exomem.read"],
+          state: "withdrawn-host-state",
+          codeChallenge: "withdrawn-host-challenge",
+          offlineAccess: true,
+        });
+        assert.ok(continuation);
+        assert.ok(
+          await resolveOAuthContinuationToken(continuation!.transaction),
+          "the host is admitted when the continuation renders"
+        );
+        const transaction = await pool!.query<{ transaction_digest: Buffer }>(
+          `SELECT transaction_digest
+         FROM exomem_oauth_authorization_transactions
+         WHERE transaction_digest = digest(convert_to($1, 'utf8'), 'sha256')`,
+          [continuation!.transaction]
+        );
+        assert.equal(transaction.rowCount, 1);
+        await seedPool();
+        await pool!.query(
+          `INSERT INTO exomem_invites (
+           token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+           entitlement_limits, created_by_principal_digest, expires_at
+         ) VALUES ($1, $2, 'complimentary', '[]'::jsonb, '{}'::jsonb, $3, now() + interval '1 hour')`,
+          [inviteDigest, inviteEmail, digest(871)]
+        );
+        const capacityBefore = await pool!.query(
+          "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
+        );
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+
+        assert.equal(
+          await admitFirstOAuthInviteAtomic({
+            inviteDigest,
+            transactionDigest: transaction.rows[0]!.transaction_digest,
+            sessionDigest: digest(872),
+            csrfDigest: digest(873),
+            sessionExpiresAt: new Date(Date.now() + 60_000),
+            codeDigest: digest(874),
+            codeExpiresAt: new Date(Date.now() + 60_000),
+          }),
+          null
+        );
+        assert.deepEqual(
+          (
+            await pool!.query(
+              "SELECT reserved_storage_bytes, reserved_runtime_slots, reserved_provision_slots FROM exomem_capacity_pools"
+            )
+          ).rows,
+          capacityBefore.rows
+        );
+        assert.equal(
+          await scalar(
+            "SELECT count(*) FROM exomem_invites WHERE token_digest = $1 AND consumed_at IS NOT NULL",
+            [inviteDigest]
+          ),
+          0
+        );
+        assert.equal(
+          await scalar(
+            "SELECT count(*) FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1 AND consumed_at IS NOT NULL",
+            [transaction.rows[0]!.transaction_digest]
+          ),
+          0
+        );
+        assert.equal(
+          await scalar("SELECT count(*) FROM exomem_sessions WHERE session_digest = $1", [
+            digest(872),
+          ]),
+          0
+        );
+        assert.equal(
+          await scalar(
+            "SELECT count(*) FROM exomem_oauth_authorization_codes WHERE code_digest = $1",
+            [digest(874)]
+          ),
+          0
+        );
+        assert.equal(
+          await scalar("SELECT count(*) FROM users WHERE email = $1", [inviteEmail]),
+          0,
+          "withdrawn authority cannot create an owner or tenant"
+        );
+        assert.equal(
+          await scalar(
+            "SELECT count(*) FROM exomem_oauth_grants WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)",
+            [dynamicClientId]
+          ),
+          0,
+          "withdrawn authority cannot create an OAuth grant"
+        );
+        assert.equal(
+          await scalar(
+            `SELECT count(*)
            FROM exomem_capacity_allocations AS allocation
            JOIN exomem_tenants AS tenant ON tenant.id = allocation.tenant_id
            JOIN users AS owner ON owner.id = tenant.owner_user_id
            WHERE owner.email = $1`,
-          [inviteEmail]
-        ),
-        0,
-        "withdrawn authority cannot reserve capacity"
-      );
-    } finally {
-      if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
-      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-      await pool!.query(
-        `DELETE FROM exomem_oauth_authorization_transactions
+            [inviteEmail]
+          ),
+          0,
+          "withdrawn authority cannot reserve capacity"
+        );
+      } finally {
+        if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+        else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query(
+          `DELETE FROM exomem_oauth_authorization_transactions
          WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
-        [dynamicClientId]
-      );
-      await pool!.query(
-        `DELETE FROM exomem_oauth_grants
+          [dynamicClientId]
+        );
+        await pool!.query(
+          `DELETE FROM exomem_oauth_grants
          WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
-        [dynamicClientId]
-      );
-      await pool!.query(
-        `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
+          [dynamicClientId]
+        );
+        await pool!.query(
+          `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
            SELECT id FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM owner)
          ) DELETE FROM exomem_capacity_allocations WHERE tenant_id IN (SELECT id FROM tenant)`,
-        [inviteEmail]
-      );
-      await pool!.query(
-        `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
+          [inviteEmail]
+        );
+        await pool!.query(
+          `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
            SELECT id FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM owner)
          ) DELETE FROM exomem_lifecycle_operations WHERE tenant_id IN (SELECT id FROM tenant)`,
-        [inviteEmail]
-      );
-      await pool!.query("DELETE FROM exomem_invites WHERE token_digest = $1", [inviteDigest]);
-      await pool!.query(
-        `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
+          [inviteEmail]
+        );
+        await pool!.query("DELETE FROM exomem_invites WHERE token_digest = $1", [inviteDigest]);
+        await pool!.query(
+          `WITH owner AS (SELECT id FROM users WHERE email = $1), tenant AS (
            SELECT id FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM owner)
          ) DELETE FROM exomem_sessions WHERE tenant_id IN (SELECT id FROM tenant)`,
-        [inviteEmail]
-      );
-      await pool!.query(
-        "DELETE FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM users WHERE email = $1)",
-        [inviteEmail]
-      );
-      await pool!.query("DELETE FROM users WHERE email = $1", [inviteEmail]);
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [dynamicClientId]);
-    }
-  });
-
-  it("refuses to register a CIMD client whose host is not allowlisted, without fetching it", async () => {
-    const host = "connector-unlisted.example.test";
-    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-    let fetched = false;
-    const registered = await registerAdmittedCimdClient(clientId, {
-      fetchCimd: async () => {
-        fetched = true;
-        return cimdMetadata(clientId, [`https://${host}/callback`], "auto");
-      },
-    });
-    assert.equal(registered, null);
-    assert.equal(fetched, false, "an unlisted host must never drive an outbound fetch");
-    const stored = await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [
-      clientId,
-    ]);
-    assert.equal(stored.rowCount, 0);
-  });
-
-  it("never lets auto-registration rewrite an operator-managed client", async () => {
-    const host = "connector-operator.example.test";
-    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-    const redirectUris = [`https://${host}/callback`];
-    const artifact = await pool!.query(
-      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' ORDER BY created_at DESC LIMIT 1"
-    );
-    const operatorConfig = oauthClientConfigSha256({
-      platform: "claude",
-      admissionMode: "cimd",
-      clientId,
-      redirectUris,
-    });
-    const priorArtifactConfig = await pool!.query(
-      "SELECT oauth_client_config_sha256 AS d FROM exomem_client_artifacts WHERE id = $1",
-      [artifact.rows[0]!.id]
-    );
-    await pool!.query(
-      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-      [operatorConfig, artifact.rows[0]!.id]
-    );
-    const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
-    process.env.EXOMEM_CIMD_ALLOWED_HOSTS = host;
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["claude", host]
-    );
-    try {
-      await registerOperatorOAuthClient(
-        {
-          admissionMode: "cimd",
-          platform: "claude",
-          artifactId: artifact.rows[0]!.id,
-          clientId,
-          redirectUris,
-        },
-        { fetchCimd: async () => cimdMetadata(clientId, redirectUris, "operator") }
-      );
-      const before = await pool!.query(
-        "SELECT authority_version, auto_registered, metadata_document_digest FROM exomem_oauth_clients WHERE client_id = $1",
-        [clientId]
-      );
-      assert.equal(before.rows[0]?.auto_registered, false);
-
-      const hijack = await registerAdmittedCimdClient(clientId, {
-        fetchCimd: async () => cimdMetadata(clientId, redirectUris, "hijacked"),
-      });
-      assert.equal(hijack, null, "an anonymous caller must not adopt an operator client");
-
-      const after = await pool!.query(
-        "SELECT authority_version, auto_registered, metadata_document_digest FROM exomem_oauth_clients WHERE client_id = $1",
-        [clientId]
-      );
-      assert.equal(after.rows[0]?.authority_version, before.rows[0]?.authority_version);
-      assert.equal(after.rows[0]?.auto_registered, false);
-      assert.deepEqual(
-        after.rows[0]?.metadata_document_digest,
-        before.rows[0]?.metadata_document_digest
-      );
-    } finally {
-      if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
-      else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
-      await pool!.query(
-        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
-        [priorArtifactConfig.rows[0]?.d ?? null, artifact.rows[0]!.id]
-      );
-    }
-  });
-
-  it("counts the client population bound separately for each provenance", async () => {
-    // A full auto-registration partition must not deny an operator a slot, which is
-    // the difference between a storage bound and a control-plane outage.
-    const probe = `https://partition-probe.example.test/${randomUUID()}/client.json`;
-    const operatorAvailable = await pool!.query(
-      "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
-      [probe]
-    );
-    const autoAvailable = await pool!.query(
-      "SELECT exomem_oauth_client_partition_available($1, true) AS allowed",
-      [probe]
-    );
-    assert.equal(operatorAvailable.rows[0]?.allowed, true);
-    assert.equal(autoAvailable.rows[0]?.allowed, true);
-
-    const counted = await pool!.query(
-      `SELECT
-         count(*) FILTER (WHERE auto_registered) AS auto_count,
-         count(*) FILTER (WHERE NOT auto_registered) AS operator_count
-       FROM exomem_oauth_clients`
-    );
-    assert.ok(
-      Number(counted.rows[0]?.auto_count) >= 0 && Number(counted.rows[0]?.operator_count) >= 0,
-      "provenance must be recorded per row for the partition to mean anything"
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // Host-allowlisted CIMD admission: the claims the change is actually for.
-  // ---------------------------------------------------------------------------
-
-  /** Seed a code for an arbitrary client and redirect, unlike the module-level helper. */
-  async function seedCodeForClient(input: {
-    clientInternalId: string;
-    redirectUri: string;
-    sequence: number;
-    offlineAccess: boolean;
-  }) {
-    const codeDigest = digest(input.sequence);
-    const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
-      `cimd-${input.sequence}-${randomUUID()}@example.test`,
-    ]);
-    const tenant = await pool!.query(
-      "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
-      [user.rows[0].id]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
-       VALUES ($1, 'complimentary', 'active', 'active')`,
-      [tenant.rows[0].id]
-    );
-    const grant = await pool!.query(
-      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
-       VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5) RETURNING id`,
-      [user.rows[0].id, tenant.rows[0].id, input.clientInternalId, resource, input.offlineAccess]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_codes (
-         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
-       ) VALUES ($1, $2, $3, $4, $5, 'challenge', $6, now() + interval '1 hour')`,
-      [
-        codeDigest,
-        grant.rows[0].id,
-        input.clientInternalId,
-        input.redirectUri,
-        resource,
-        input.offlineAccess,
-      ]
-    );
-    return {
-      codeDigest,
-      grantId: grant.rows[0].id as string,
-      tenantId: tenant.rows[0].id as string,
-    };
-  }
-
-  it("admits two distinct connectors on the same allowlisted host", async () => {
-    // The user-facing claim. Every ChatGPT connector publishes its own client.json
-    // under its own connector id, so each carries a different configuration digest.
-    // Pinned admission can therefore admit at most one connector on earth; this is
-    // the assertion that more than one works, which is what "invite four people"
-    // requires.
-    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
-    if (existingCohort.rowCount === 0) await seedLiveCohort();
-    const host = "connector-siblings.example.test";
-    const first = `https://${host}/oauth/${randomUUID()}/client.json`;
-    const second = `https://${host}/oauth/${randomUUID()}/client.json`;
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["openai", host]
-    );
-    try {
-      for (const clientId of [first, second]) {
-        const registered = await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, [`https://${host}/callback`], clientId),
-        });
-        assert.ok(registered, `connector ${clientId} should register on an admitted host`);
-      }
-
-      const digests = await pool!.query<{ client_id: string; d: string; platform: string }>(
-        `SELECT client_id, oauth_client_config_sha256 AS d, client_platform AS platform
-         FROM exomem_oauth_clients WHERE client_id = ANY($1::text[]) ORDER BY client_id`,
-        [[first, second]]
-      );
-      assert.equal(digests.rowCount, 2);
-      assert.notEqual(
-        digests.rows[0]!.d,
-        digests.rows[1]!.d,
-        "the test is vacuous unless the two connectors really do carry different digests"
-      );
-      for (const row of digests.rows) {
-        assert.equal(row.platform, "openai", "platform must come from the allowlist row");
-      }
-
-      assert.ok(await resolveApprovedOAuthClient(first), "first connector must be admitted");
-      assert.ok(await resolveApprovedOAuthClient(second), "second connector must be admitted");
-
-      // Neither is the pinned one, so pinned admission alone could not have done this.
-      const pinned = await pool!.query<{ d: string | null }>(
-        "SELECT openai_oauth_client_config_sha256 AS d FROM exomem_hosted_alpha_cohort LIMIT 1"
-      );
-      for (const row of digests.rows) {
-        assert.notEqual(row.d, pinned.rows[0]?.d);
-      }
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1::text[])", [
-        [first, second],
-      ]);
-    }
-  });
-
-  it("refuses a fetched document whose redirect leaves the host that served it", async () => {
-    // The one input an admitted host controls entirely is its own document. If the
-    // redirect list is not held to the host, placing a document on an admitted host
-    // is enough to name any delivery address for an authorization code -- which is
-    // a trust the allowlist was never asked to extend.
-    const host = "connector-offhost.example.test";
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["openai", host]
-    );
-    try {
-      for (const redirect of [
-        "https://attacker.example.test/callback",
-        `https://${host}.attacker.example.test/callback`,
-        `http://${host}/callback`,
-        "http://127.0.0.1:8976/callback",
-      ]) {
-        const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-        const registered = await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, [redirect], "offhost"),
-        });
-        assert.equal(registered, null, `${redirect} must not register`);
-        assert.equal(
-          (await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [clientId]))
-            .rowCount,
-          0,
-          `${redirect} must leave no row behind`
+          [inviteEmail]
         );
+        await pool!.query(
+          "DELETE FROM exomem_tenants WHERE owner_user_id IN (SELECT id FROM users WHERE email = $1)",
+          [inviteEmail]
+        );
+        await pool!.query("DELETE FROM users WHERE email = $1", [inviteEmail]);
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
+          dynamicClientId,
+        ]);
       }
+    });
 
-      // One redirect off-host is enough to refuse the whole document.
-      const mixed = `https://${host}/oauth/${randomUUID()}/client.json`;
-      assert.equal(
-        await registerAdmittedCimdClient(mixed, {
+    it("registers a native client's loopback document and continues on any port", async () => {
+      // Claude Code's real document lists two portless loopback redirects and calls
+      // back on whatever port is free (RFC 8252 §7.3, substrate#188).
+      const host = "connector-native.example.test";
+      const nativeId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const mixedId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const loopback = ["http://localhost/callback", "http://127.0.0.1/callback"];
+      const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+      process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 9).toString("base64url");
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["claude", host]
+      );
+      try {
+        const registered = await registerAdmittedCimdClient(nativeId, {
+          fetchCimd: async () => cimdMetadata(nativeId, loopback, "native"),
+        });
+        assert.ok(registered, "a loopback-only document from an admitted host registers");
+        assert.deepEqual(registered!.redirectUris, loopback);
+
+        const continuation = await createOAuthContinuation({
+          clientId: nativeId,
+          redirectUri: "http://localhost:53712/callback",
+          resource,
+          scopes: ["exomem.read"],
+          state: "native-loopback-state",
+          codeChallenge: "native-loopback-challenge",
+          offlineAccess: true,
+        });
+        assert.ok(continuation);
+        assert.ok(
+          await resolveOAuthContinuationToken(continuation!.transaction),
+          "a continuation on a free port re-validates against the portless registration"
+        );
+
+        const mixed = await registerAdmittedCimdClient(mixedId, {
           fetchCimd: async () =>
             cimdMetadata(
-              mixed,
-              [`https://${host}/callback`, "https://attacker.example.test/cb"],
+              mixedId,
+              ["http://localhost/callback", "http://evil.example/callback"],
               "mixed"
             ),
-        }),
-        null
-      );
+        });
+        assert.equal(mixed, null, "a cleartext non-loopback redirect refuses the whole document");
+        const stored = await pool!.query(
+          "SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1",
+          [mixedId]
+        );
+        assert.equal(stored.rowCount, 0);
+      } finally {
+        if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+        else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+        await pool!.query(
+          "DELETE FROM exomem_oauth_authorization_transactions WHERE client_id IN (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)",
+          [nativeId]
+        );
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
+          [nativeId, mixedId],
+        ]);
+      }
+    });
 
-      // And the honest shape still registers, so the rule is not merely refusing everything.
-      const good = `https://${host}/oauth/${randomUUID()}/client.json`;
-      assert.ok(
-        await registerAdmittedCimdClient(good, {
-          fetchCimd: async () => cimdMetadata(good, [`https://${host}/callback`], "onhost"),
-        })
-      );
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [good]);
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-    }
-  });
-
-  it("refuses a client_id that is not an https URL, without fetching it", async () => {
-    // This is an unauthenticated write path, so the shape check has to come before
-    // anything that touches the network. Each of these would otherwise reach the
-    // host lookup with a host this code never meant to parse.
-    for (const clientId of [
-      "http://connector-plain.example.test/oauth/x/client.json",
-      "ftp://connector-scheme.example.test/client.json",
-      "connector-relative.example.test/client.json",
-      "not a url at all",
-      "",
-    ]) {
+    it("refuses to register a CIMD client whose host is not allowlisted, without fetching it", async () => {
+      const host = "connector-unlisted.example.test";
+      const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
       let fetched = false;
       const registered = await registerAdmittedCimdClient(clientId, {
         fetchCimd: async () => {
           fetched = true;
-          return cimdMetadata(clientId, ["https://connector-plain.example.test/callback"], "shape");
+          return cimdMetadata(clientId, [`https://${host}/callback`], "auto");
         },
       });
-      assert.equal(registered, null, `${clientId} must not register`);
-      assert.equal(fetched, false, `${clientId} must never drive an outbound fetch`);
-    }
-  });
+      assert.equal(registered, null);
+      assert.equal(fetched, false, "an unlisted host must never drive an outbound fetch");
+      const stored = await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [
+        clientId,
+      ]);
+      assert.equal(stored.rowCount, 0);
+    });
 
-  it("re-admits a connector whose cached metadata went stale and disabled", async () => {
-    // Design decision 2: registration must fire for an expired-disabled row as well
-    // as an absent one. A connector that goes quiet past its TTL is disabled by the
-    // cache, and without this path it could never come back without an operator.
-    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
-    if (existingCohort.rowCount === 0) await seedLiveCohort();
-    const host = "connector-stale.example.test";
-    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-    const redirectUris = [`https://${host}/callback`];
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["openai", host]
-    );
-    try {
-      assert.ok(
-        await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "fresh"),
-        })
+    it("never lets auto-registration rewrite an operator-managed client", async () => {
+      const host = "connector-operator.example.test";
+      const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const redirectUris = [`https://${host}/callback`];
+      const artifact = await pool!.query(
+        "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' ORDER BY created_at DESC LIMIT 1"
       );
-      assert.ok(await resolveApprovedOAuthClient(clientId));
-
-      // Age it out exactly the way the cache does.
+      const operatorConfig = oauthClientConfigSha256({
+        platform: "claude",
+        admissionMode: "cimd",
+        clientId,
+        redirectUris,
+      });
+      const priorArtifactConfig = await pool!.query(
+        "SELECT oauth_client_config_sha256 AS d FROM exomem_client_artifacts WHERE id = $1",
+        [artifact.rows[0]!.id]
+      );
       await pool!.query(
-        `UPDATE exomem_oauth_clients
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        [operatorConfig, artifact.rows[0]!.id]
+      );
+      const originalAllowedHosts = process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+      process.env.EXOMEM_CIMD_ALLOWED_HOSTS = host;
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["claude", host]
+      );
+      try {
+        await registerOperatorOAuthClient(
+          {
+            admissionMode: "cimd",
+            platform: "claude",
+            artifactId: artifact.rows[0]!.id,
+            clientId,
+            redirectUris,
+          },
+          { fetchCimd: async () => cimdMetadata(clientId, redirectUris, "operator") }
+        );
+        const before = await pool!.query(
+          "SELECT authority_version, auto_registered, metadata_document_digest FROM exomem_oauth_clients WHERE client_id = $1",
+          [clientId]
+        );
+        assert.equal(before.rows[0]?.auto_registered, false);
+
+        const hijack = await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "hijacked"),
+        });
+        assert.equal(hijack, null, "an anonymous caller must not adopt an operator client");
+
+        const after = await pool!.query(
+          "SELECT authority_version, auto_registered, metadata_document_digest FROM exomem_oauth_clients WHERE client_id = $1",
+          [clientId]
+        );
+        assert.equal(after.rows[0]?.authority_version, before.rows[0]?.authority_version);
+        assert.equal(after.rows[0]?.auto_registered, false);
+        assert.deepEqual(
+          after.rows[0]?.metadata_document_digest,
+          before.rows[0]?.metadata_document_digest
+        );
+      } finally {
+        if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
+        else process.env.EXOMEM_CIMD_ALLOWED_HOSTS = originalAllowedHosts;
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+        await pool!.query(
+          "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+          [priorArtifactConfig.rows[0]?.d ?? null, artifact.rows[0]!.id]
+        );
+      }
+    });
+
+    it("counts the client population bound separately for each provenance", async () => {
+      // A full auto-registration partition must not deny an operator a slot, which is
+      // the difference between a storage bound and a control-plane outage.
+      const probe = `https://partition-probe.example.test/${randomUUID()}/client.json`;
+      const operatorAvailable = await pool!.query(
+        "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
+        [probe]
+      );
+      const autoAvailable = await pool!.query(
+        "SELECT exomem_oauth_client_partition_available($1, true) AS allowed",
+        [probe]
+      );
+      assert.equal(operatorAvailable.rows[0]?.allowed, true);
+      assert.equal(autoAvailable.rows[0]?.allowed, true);
+
+      const counted = await pool!.query(
+        `SELECT
+         count(*) FILTER (WHERE auto_registered) AS auto_count,
+         count(*) FILTER (WHERE NOT auto_registered) AS operator_count
+       FROM exomem_oauth_clients`
+      );
+      assert.ok(
+        Number(counted.rows[0]?.auto_count) >= 0 && Number(counted.rows[0]?.operator_count) >= 0,
+        "provenance must be recorded per row for the partition to mean anything"
+      );
+    });
+
+    // ---------------------------------------------------------------------------
+    // Host-allowlisted CIMD admission: the claims the change is actually for.
+    // ---------------------------------------------------------------------------
+
+    /** Seed a code for an arbitrary client and redirect, unlike the module-level helper. */
+    async function seedCodeForClient(input: {
+      clientInternalId: string;
+      redirectUri: string;
+      sequence: number;
+      offlineAccess: boolean;
+    }) {
+      const codeDigest = digest(input.sequence);
+      const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
+        `cimd-${input.sequence}-${randomUUID()}@example.test`,
+      ]);
+      const tenant = await pool!.query(
+        "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
+        [user.rows[0].id]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+       VALUES ($1, 'complimentary', 'active', 'active')`,
+        [tenant.rows[0].id]
+      );
+      const grant = await pool!.query(
+        `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
+       VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5) RETURNING id`,
+        [user.rows[0].id, tenant.rows[0].id, input.clientInternalId, resource, input.offlineAccess]
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_authorization_codes (
+         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
+       ) VALUES ($1, $2, $3, $4, $5, 'challenge', $6, now() + interval '1 hour')`,
+        [
+          codeDigest,
+          grant.rows[0].id,
+          input.clientInternalId,
+          input.redirectUri,
+          resource,
+          input.offlineAccess,
+        ]
+      );
+      return {
+        codeDigest,
+        grantId: grant.rows[0].id as string,
+        tenantId: tenant.rows[0].id as string,
+      };
+    }
+
+    it("admits two distinct connectors on the same allowlisted host", async () => {
+      // The user-facing claim. Every ChatGPT connector publishes its own client.json
+      // under its own connector id, so each carries a different configuration digest.
+      // Pinned admission can therefore admit at most one connector on earth; this is
+      // the assertion that more than one works, which is what "invite four people"
+      // requires.
+      const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+      if (existingCohort.rowCount === 0) await seedLiveCohort();
+      const host = "connector-siblings.example.test";
+      const first = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const second = `https://${host}/oauth/${randomUUID()}/client.json`;
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["openai", host]
+      );
+      try {
+        for (const clientId of [first, second]) {
+          const registered = await registerAdmittedCimdClient(clientId, {
+            fetchCimd: async () => cimdMetadata(clientId, [`https://${host}/callback`], clientId),
+          });
+          assert.ok(registered, `connector ${clientId} should register on an admitted host`);
+        }
+
+        const digests = await pool!.query<{ client_id: string; d: string; platform: string }>(
+          `SELECT client_id, oauth_client_config_sha256 AS d, client_platform AS platform
+         FROM exomem_oauth_clients WHERE client_id = ANY($1::text[]) ORDER BY client_id`,
+          [[first, second]]
+        );
+        assert.equal(digests.rowCount, 2);
+        assert.notEqual(
+          digests.rows[0]!.d,
+          digests.rows[1]!.d,
+          "the test is vacuous unless the two connectors really do carry different digests"
+        );
+        for (const row of digests.rows) {
+          assert.equal(row.platform, "openai", "platform must come from the allowlist row");
+        }
+
+        assert.ok(await resolveApprovedOAuthClient(first), "first connector must be admitted");
+        assert.ok(await resolveApprovedOAuthClient(second), "second connector must be admitted");
+
+        // Neither is the pinned one, so pinned admission alone could not have done this.
+        const pinned = await pool!.query<{ d: string | null }>(
+          "SELECT openai_oauth_client_config_sha256 AS d FROM exomem_hosted_alpha_cohort LIMIT 1"
+        );
+        for (const row of digests.rows) {
+          assert.notEqual(row.d, pinned.rows[0]?.d);
+        }
+      } finally {
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1::text[])", [
+          [first, second],
+        ]);
+      }
+    });
+
+    it("refuses a fetched document whose redirect leaves the host that served it", async () => {
+      // The one input an admitted host controls entirely is its own document. If the
+      // redirect list is not held to the host, placing a document on an admitted host
+      // is enough to name any delivery address for an authorization code -- which is
+      // a trust the allowlist was never asked to extend.
+      const host = "connector-offhost.example.test";
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["openai", host]
+      );
+      try {
+        for (const redirect of [
+          "https://attacker.example.test/callback",
+          `https://${host}.attacker.example.test/callback`,
+          `http://${host}/callback`,
+          // A loopback redirect is a native client's and is admitted; see
+          // "registers a native client's loopback document" (substrate#188).
+        ]) {
+          const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+          const registered = await registerAdmittedCimdClient(clientId, {
+            fetchCimd: async () => cimdMetadata(clientId, [redirect], "offhost"),
+          });
+          assert.equal(registered, null, `${redirect} must not register`);
+          assert.equal(
+            (
+              await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [
+                clientId,
+              ])
+            ).rowCount,
+            0,
+            `${redirect} must leave no row behind`
+          );
+        }
+
+        // One redirect off-host is enough to refuse the whole document.
+        const mixed = `https://${host}/oauth/${randomUUID()}/client.json`;
+        assert.equal(
+          await registerAdmittedCimdClient(mixed, {
+            fetchCimd: async () =>
+              cimdMetadata(
+                mixed,
+                [`https://${host}/callback`, "https://attacker.example.test/cb"],
+                "mixed"
+              ),
+          }),
+          null
+        );
+
+        // And the honest shape still registers, so the rule is not merely refusing everything.
+        const good = `https://${host}/oauth/${randomUUID()}/client.json`;
+        assert.ok(
+          await registerAdmittedCimdClient(good, {
+            fetchCimd: async () => cimdMetadata(good, [`https://${host}/callback`], "onhost"),
+          })
+        );
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [good]);
+      } finally {
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      }
+    });
+
+    it("refuses a client_id that is not an https URL, without fetching it", async () => {
+      // This is an unauthenticated write path, so the shape check has to come before
+      // anything that touches the network. Each of these would otherwise reach the
+      // host lookup with a host this code never meant to parse.
+      for (const clientId of [
+        "http://connector-plain.example.test/oauth/x/client.json",
+        "ftp://connector-scheme.example.test/client.json",
+        "connector-relative.example.test/client.json",
+        "not a url at all",
+        "",
+      ]) {
+        let fetched = false;
+        const registered = await registerAdmittedCimdClient(clientId, {
+          fetchCimd: async () => {
+            fetched = true;
+            return cimdMetadata(
+              clientId,
+              ["https://connector-plain.example.test/callback"],
+              "shape"
+            );
+          },
+        });
+        assert.equal(registered, null, `${clientId} must not register`);
+        assert.equal(fetched, false, `${clientId} must never drive an outbound fetch`);
+      }
+    });
+
+    it("re-admits a connector whose cached metadata went stale and disabled", async () => {
+      // Design decision 2: registration must fire for an expired-disabled row as well
+      // as an absent one. A connector that goes quiet past its TTL is disabled by the
+      // cache, and without this path it could never come back without an operator.
+      const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+      if (existingCohort.rowCount === 0) await seedLiveCohort();
+      const host = "connector-stale.example.test";
+      const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const redirectUris = [`https://${host}/callback`];
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["openai", host]
+      );
+      try {
+        assert.ok(
+          await registerAdmittedCimdClient(clientId, {
+            fetchCimd: async () => cimdMetadata(clientId, redirectUris, "fresh"),
+          })
+        );
+        assert.ok(await resolveApprovedOAuthClient(clientId));
+
+        // Age it out exactly the way the cache does.
+        await pool!.query(
+          `UPDATE exomem_oauth_clients
          SET metadata_expires_at = now() - interval '1 hour', enabled = false
          WHERE client_id = $1`,
-        [clientId]
+          [clientId]
+        );
+        assert.equal(
+          await resolveApprovedOAuthClient(clientId),
+          null,
+          "a stale disabled row must not admit on its own"
+        );
+
+        assert.ok(
+          await registerAdmittedCimdClient(clientId, {
+            fetchCimd: async () => cimdMetadata(clientId, redirectUris, "refetched"),
+          }),
+          "an admitted host must be able to revive its own stale row"
+        );
+        assert.ok(await resolveApprovedOAuthClient(clientId), "the revived row must admit again");
+        const revived = await pool!.query<{ auto_registered: boolean; enabled: boolean }>(
+          "SELECT auto_registered, enabled FROM exomem_oauth_clients WHERE client_id = $1",
+          [clientId]
+        );
+        assert.equal(revived.rows[0]?.auto_registered, true);
+        assert.equal(revived.rows[0]?.enabled, true);
+      } finally {
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+      }
+    });
+
+    it("admits claude.ai and lets its stale operator-registered row revive itself", async () => {
+      // Production, 2026-09-11: once artifact admission was removed, claude.ai had no
+      // way in. 0048 never allowlisted it because the cohort digest admitted it, and
+      // its one client row is operator-registered, so expiry maintenance disabled it
+      // and the self-registration upsert -- the only path that refreshes lapsed
+      // metadata -- is not allowed to touch it.
+      const admitted = await pool!.query(
+        "SELECT platform FROM exomem_oauth_admitted_cimd_hosts WHERE host = 'claude.ai'"
       );
-      assert.equal(
-        await resolveApprovedOAuthClient(clientId),
-        null,
-        "a stale disabled row must not admit on its own"
+      assert.deepEqual(
+        admitted.rows,
+        [{ platform: "claude" }],
+        "a migrated schema admits claude.ai"
       );
 
-      assert.ok(
-        await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "refetched"),
-        }),
-        "an admitted host must be able to revive its own stale row"
-      );
-      assert.ok(await resolveApprovedOAuthClient(clientId), "the revived row must admit again");
-      const revived = await pool!.query<{ auto_registered: boolean; enabled: boolean }>(
-        "SELECT auto_registered, enabled FROM exomem_oauth_clients WHERE client_id = $1",
-        [clientId]
-      );
-      assert.equal(revived.rows[0]?.auto_registered, true);
-      assert.equal(revived.rows[0]?.enabled, true);
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
-    }
-  });
-
-  it("admits claude.ai and lets its stale operator-registered row revive itself", async () => {
-    // Production, 2026-09-11: once artifact admission was removed, claude.ai had no
-    // way in. 0048 never allowlisted it because the cohort digest admitted it, and
-    // its one client row is operator-registered, so expiry maintenance disabled it
-    // and the self-registration upsert -- the only path that refreshes lapsed
-    // metadata -- is not allowed to touch it.
-    const admitted = await pool!.query(
-      "SELECT platform FROM exomem_oauth_admitted_cimd_hosts WHERE host = 'claude.ai'"
-    );
-    assert.deepEqual(admitted.rows, [{ platform: "claude" }], "a migrated schema admits claude.ai");
-
-    const clientId = "https://claude.ai/oauth/mcp-oauth-client-metadata";
-    const redirectUris = ["https://claude.ai/api/mcp/auth_callback"];
-    const bootstrapHeld = `https://claude.ai/oauth/${randomUUID()}/client.json`;
-    const unadmitted = `https://unadmitted.example.test/oauth/${randomUUID()}/client.json`;
-    const insertStaleOperatorClient = (id: string, host: string, bootstrap: boolean) =>
-      pool!.query(
-        `INSERT INTO exomem_oauth_clients (
+      const clientId = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+      const redirectUris = ["https://claude.ai/api/mcp/auth_callback"];
+      const bootstrapHeld = `https://claude.ai/oauth/${randomUUID()}/client.json`;
+      const unadmitted = `https://unadmitted.example.test/oauth/${randomUUID()}/client.json`;
+      const insertStaleOperatorClient = (id: string, host: string, bootstrap: boolean) =>
+        pool!.query(
+          `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, auto_registered, reviewer_bootstrap_ever_authorized,
            redirect_uris, redirect_uris_digest, client_platform, oauth_client_config_sha256,
            cimd_host, metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds,
@@ -4281,70 +4372,70 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
            digest(convert_to($1, 'utf8'), 'sha256'), now() - interval '2 days', 86400,
            now() - interval '1 day', '{}'::jsonb
          )`,
-        [id, host, bootstrap, JSON.stringify([`https://${host}/callback`])]
-      );
-    await insertStaleOperatorClient(clientId, "claude.ai", false);
-    // Neighbours the hand-over must leave alone.
-    await insertStaleOperatorClient(bootstrapHeld, "claude.ai", true);
-    await insertStaleOperatorClient(unadmitted, "unadmitted.example.test", false);
-    try {
-      assert.equal(
-        await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "before"),
-        }),
-        null,
-        "an operator-registered row blocks self-registration"
-      );
+          [id, host, bootstrap, JSON.stringify([`https://${host}/callback`])]
+        );
+      await insertStaleOperatorClient(clientId, "claude.ai", false);
+      // Neighbours the hand-over must leave alone.
+      await insertStaleOperatorClient(bootstrapHeld, "claude.ai", true);
+      await insertStaleOperatorClient(unadmitted, "unadmitted.example.test", false);
+      try {
+        assert.equal(
+          await registerAdmittedCimdClient(clientId, {
+            fetchCimd: async () => cimdMetadata(clientId, redirectUris, "before"),
+          }),
+          null,
+          "an operator-registered row blocks self-registration"
+        );
 
-      const migration = readFileSync(
-        resolve(process.cwd(), "migrations/0055_exomem_admit_claude_ai_cimd_host.sql"),
-        "utf8"
-      );
-      await pool!.query(migration);
-      await pool!.query(migration);
+        const migration = readFileSync(
+          resolve(process.cwd(), "migrations/0055_exomem_admit_claude_ai_cimd_host.sql"),
+          "utf8"
+        );
+        await pool!.query(migration);
+        await pool!.query(migration);
 
-      const provenance = await pool!.query<{ client_id: string; auto_registered: boolean }>(
-        "SELECT client_id, auto_registered FROM exomem_oauth_clients WHERE client_id = ANY($1)",
-        [[clientId, bootstrapHeld, unadmitted]]
-      );
-      assert.deepEqual(
-        Object.fromEntries(provenance.rows.map((row) => [row.client_id, row.auto_registered])),
-        { [clientId]: true, [bootstrapHeld]: false, [unadmitted]: false }
-      );
+        const provenance = await pool!.query<{ client_id: string; auto_registered: boolean }>(
+          "SELECT client_id, auto_registered FROM exomem_oauth_clients WHERE client_id = ANY($1)",
+          [[clientId, bootstrapHeld, unadmitted]]
+        );
+        assert.deepEqual(
+          Object.fromEntries(provenance.rows.map((row) => [row.client_id, row.auto_registered])),
+          { [clientId]: true, [bootstrapHeld]: false, [unadmitted]: false }
+        );
 
-      assert.ok(
-        await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, redirectUris, "after"),
-        }),
-        "claude.ai must be able to revive its own row"
-      );
-      const client = await resolveApprovedOAuthClient(clientId);
-      assert.deepEqual(client?.redirectUris, redirectUris);
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
-        [clientId, bootstrapHeld, unadmitted],
-      ]);
-    }
-  });
+        assert.ok(
+          await registerAdmittedCimdClient(clientId, {
+            fetchCimd: async () => cimdMetadata(clientId, redirectUris, "after"),
+          }),
+          "claude.ai must be able to revive its own row"
+        );
+        const client = await resolveApprovedOAuthClient(clientId);
+        assert.deepEqual(client?.redirectUris, redirectUris);
+      } finally {
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [
+          [clientId, bootstrapHeld, unadmitted],
+        ]);
+      }
+    });
 
-  it("refuses a further auto-registration at its bound while leaving operator slots free", async () => {
-    // The reason the bound was partitioned at all: anonymous registration is an
-    // unauthenticated write path, and a full one must degrade into "no more
-    // connectors" rather than "no more operator control".
-    const host = "connector-bound.example.test";
-    const filler = `cimd-bound-${randomUUID()}`;
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["openai", host]
-    );
-    try {
-      const existing = await pool!.query<{ n: string }>(
-        "SELECT count(*) AS n FROM exomem_oauth_clients WHERE auto_registered"
-      );
-      const shortfall = 128 - Number(existing.rows[0]!.n);
-      assert.ok(shortfall > 0, "fixture assumes the auto partition starts below its bound");
+    it("refuses a further auto-registration at its bound while leaving operator slots free", async () => {
+      // The reason the bound was partitioned at all: anonymous registration is an
+      // unauthenticated write path, and a full one must degrade into "no more
+      // connectors" rather than "no more operator control".
+      const host = "connector-bound.example.test";
+      const filler = `cimd-bound-${randomUUID()}`;
       await pool!.query(
-        `INSERT INTO exomem_oauth_clients (
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["openai", host]
+      );
+      try {
+        const existing = await pool!.query<{ n: string }>(
+          "SELECT count(*) AS n FROM exomem_oauth_clients WHERE auto_registered"
+        );
+        const shortfall = 128 - Number(existing.rows[0]!.n);
+        assert.ok(shortfall > 0, "fixture assumes the auto partition starts below its bound");
+        await pool!.query(
+          `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, auto_registered, redirect_uris, redirect_uris_digest,
            client_platform, oauth_client_config_sha256, cimd_host, metadata_document_digest,
            metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance
@@ -4360,261 +4451,262 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
            digest(convert_to(format('doc-%s-%s', $2::text, step), 'utf8'), 'sha256'),
            now(), 3600, now() + interval '1 hour', '{}'::jsonb
          FROM generate_series(1, $3::int) AS step`,
-        [host, filler, shortfall]
-      );
+          [host, filler, shortfall]
+        );
 
-      const overflow = `https://${host}/oauth/${randomUUID()}/client.json`;
-      assert.equal(
-        await registerAdmittedCimdClient(overflow, {
-          fetchCimd: async () => cimdMetadata(overflow, [`https://${host}/callback`], "overflow"),
-        }),
-        null,
-        "a full auto partition must refuse a new connector"
-      );
-      assert.equal(
-        (await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [overflow]))
-          .rowCount,
-        0
-      );
+        const overflow = `https://${host}/oauth/${randomUUID()}/client.json`;
+        assert.equal(
+          await registerAdmittedCimdClient(overflow, {
+            fetchCimd: async () => cimdMetadata(overflow, [`https://${host}/callback`], "overflow"),
+          }),
+          null,
+          "a full auto partition must refuse a new connector"
+        );
+        assert.equal(
+          (await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [overflow]))
+            .rowCount,
+          0
+        );
 
-      // The whole point: operators are unaffected.
-      const operatorProbe = `https://operator-unaffected.example.test/${randomUUID()}/client.json`;
-      const operatorAvailable = await pool!.query<{ allowed: boolean }>(
-        "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
-        [operatorProbe]
-      );
-      assert.equal(
-        operatorAvailable.rows[0]?.allowed,
-        true,
-        "a full auto partition must not consume operator slots"
-      );
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id LIKE $1", [
-        `%${filler}%`,
-      ]);
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-    }
-  });
+        // The whole point: operators are unaffected.
+        const operatorProbe = `https://operator-unaffected.example.test/${randomUUID()}/client.json`;
+        const operatorAvailable = await pool!.query<{ allowed: boolean }>(
+          "SELECT exomem_oauth_client_partition_available($1, false) AS allowed",
+          [operatorProbe]
+        );
+        assert.equal(
+          operatorAvailable.rows[0]?.allowed,
+          true,
+          "a full auto partition must not consume operator slots"
+        );
+      } finally {
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id LIKE $1", [
+          `%${filler}%`,
+        ]);
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+      }
+    });
 
-  it("admits a host-allowlisted connector at every stage, and withdraws it at every stage", async () => {
-    // The clause lives in nine separate predicates. A missed one does not fail at
-    // authorize -- it fails later, as a connector that signs in and then cannot call
-    // a tool, which reads as an intermittent client bug. Drive one client through
-    // the stages a real connector traverses, then withdraw the host and require
-    // every stage to stop. The negative half is the actual drift guard: if a
-    // predicate ignored the allowlist it would keep admitting after withdrawal.
-    const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
-    if (existingCohort.rowCount === 0) await seedLiveCohort();
-    const host = "connector-crossstage.example.test";
-    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-    const redirectUri = `https://${host}/callback`;
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["openai", host]
-    );
-    try {
-      assert.ok(
-        await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, [redirectUri], "cross-stage"),
-        })
+    it("admits a host-allowlisted connector at every stage, and withdraws it at every stage", async () => {
+      // The clause lives in nine separate predicates. A missed one does not fail at
+      // authorize -- it fails later, as a connector that signs in and then cannot call
+      // a tool, which reads as an intermittent client bug. Drive one client through
+      // the stages a real connector traverses, then withdraw the host and require
+      // every stage to stop. The negative half is the actual drift guard: if a
+      // predicate ignored the allowlist it would keep admitting after withdrawal.
+      const existingCohort = await pool!.query("SELECT 1 FROM exomem_hosted_alpha_cohort LIMIT 1");
+      if (existingCohort.rowCount === 0) await seedLiveCohort();
+      const host = "connector-crossstage.example.test";
+      const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+      const redirectUri = `https://${host}/callback`;
+      await pool!.query(
+        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        ["openai", host]
       );
-      const internal = await pool!.query<{ id: string }>(
-        "SELECT id FROM exomem_oauth_clients WHERE client_id = $1",
-        [clientId]
-      );
-      const clientInternalId = internal.rows[0]!.id;
+      try {
+        assert.ok(
+          await registerAdmittedCimdClient(clientId, {
+            fetchCimd: async () => cimdMetadata(clientId, [redirectUri], "cross-stage"),
+          })
+        );
+        const internal = await pool!.query<{ id: string }>(
+          "SELECT id FROM exomem_oauth_clients WHERE client_id = $1",
+          [clientId]
+        );
+        const clientInternalId = internal.rows[0]!.id;
 
-      // 1. /authorize
-      assert.ok(await resolveApprovedOAuthClient(clientId), "authorize must admit");
+        // 1. /authorize
+        assert.ok(await resolveApprovedOAuthClient(clientId), "authorize must admit");
 
-      // 2. token exchange
-      const first = await seedCodeForClient({
-        clientInternalId,
-        redirectUri,
-        sequence: 900,
-        offlineAccess: true,
-      });
-      const issued = await issueOAuthTokensFromCodeAtomic({
-        codeDigest: first.codeDigest,
-        clientId,
-        redirectUri,
-        resource,
-        pkceChallenge: "challenge",
-        refreshDigest: digest(901),
-        refreshExpiresAt: new Date(Date.now() + 3_600_000),
-        accessDigest: digest(902),
-        accessExpiresAt: new Date(Date.now() + 60_000),
-      });
-      assert.ok(issued, "token exchange must admit");
-
-      // 3. bearer use, and 4. the MCP call itself
-      assert.ok(await findActiveOAuthAccessToken(digest(902)), "access-token use must admit");
-      assert.equal(
-        (await findMcpOAuthAccessToken(digest(902)))?.grantId,
-        first.grantId,
-        "the MCP lookup must admit"
-      );
-
-      // 5. refresh
-      assert.ok(
-        await rotateOAuthRefreshTokenAtomic({
-          refreshDigest: digest(901),
-          replacementRefreshDigest: digest(903),
-          accessDigest: digest(904),
-          accessExpiresAt: new Date(Date.now() + 60_000),
-          clientId,
-          resource,
-        }),
-        "refresh must admit"
-      );
-      assert.ok(await findMcpOAuthAccessToken(digest(904)), "the rotated token must admit");
-
-      // Vary only the condition under test.
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-
-      assert.equal(
-        await resolveApprovedOAuthClient(clientId),
-        null,
-        "authorize must stop admitting once the host is withdrawn"
-      );
-      assert.equal(
-        await findActiveOAuthAccessToken(digest(904)),
-        null,
-        "access-token use must stop admitting once the host is withdrawn"
-      );
-      assert.equal(
-        await findMcpOAuthAccessToken(digest(904)),
-        null,
-        "the MCP lookup must stop admitting once the host is withdrawn"
-      );
-      assert.equal(
-        await rotateOAuthRefreshTokenAtomic({
-          refreshDigest: digest(903),
-          replacementRefreshDigest: digest(905),
-          accessDigest: digest(906),
-          accessExpiresAt: new Date(Date.now() + 60_000),
-          clientId,
-          resource,
-        }),
-        null,
-        "refresh must stop admitting once the host is withdrawn"
-      );
-      const second = await seedCodeForClient({
-        clientInternalId,
-        redirectUri,
-        sequence: 910,
-        offlineAccess: true,
-      });
-      assert.equal(
-        await issueOAuthTokensFromCodeAtomic({
-          codeDigest: second.codeDigest,
+        // 2. token exchange
+        const first = await seedCodeForClient({
+          clientInternalId,
+          redirectUri,
+          sequence: 900,
+          offlineAccess: true,
+        });
+        const issued = await issueOAuthTokensFromCodeAtomic({
+          codeDigest: first.codeDigest,
           clientId,
           redirectUri,
           resource,
           pkceChallenge: "challenge",
-          refreshDigest: digest(911),
+          refreshDigest: digest(901),
           refreshExpiresAt: new Date(Date.now() + 3_600_000),
-          accessDigest: digest(912),
+          accessDigest: digest(902),
           accessExpiresAt: new Date(Date.now() + 60_000),
-        }),
-        null,
-        "token exchange must stop admitting once the host is withdrawn"
-      );
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-      // The client now owns a grant graph, and the foreign keys say so. Unwind it in
-      // dependency order rather than leaving the row behind, so the population-bound
-      // test that follows still counts a clean partition.
-      await pool!.query(
-        `DELETE FROM exomem_oauth_grants WHERE client_id IN (
+        });
+        assert.ok(issued, "token exchange must admit");
+
+        // 3. bearer use, and 4. the MCP call itself
+        assert.ok(await findActiveOAuthAccessToken(digest(902)), "access-token use must admit");
+        assert.equal(
+          (await findMcpOAuthAccessToken(digest(902)))?.grantId,
+          first.grantId,
+          "the MCP lookup must admit"
+        );
+
+        // 5. refresh
+        assert.ok(
+          await rotateOAuthRefreshTokenAtomic({
+            refreshDigest: digest(901),
+            replacementRefreshDigest: digest(903),
+            accessDigest: digest(904),
+            accessExpiresAt: new Date(Date.now() + 60_000),
+            clientId,
+            resource,
+          }),
+          "refresh must admit"
+        );
+        assert.ok(await findMcpOAuthAccessToken(digest(904)), "the rotated token must admit");
+
+        // Vary only the condition under test.
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+
+        assert.equal(
+          await resolveApprovedOAuthClient(clientId),
+          null,
+          "authorize must stop admitting once the host is withdrawn"
+        );
+        assert.equal(
+          await findActiveOAuthAccessToken(digest(904)),
+          null,
+          "access-token use must stop admitting once the host is withdrawn"
+        );
+        assert.equal(
+          await findMcpOAuthAccessToken(digest(904)),
+          null,
+          "the MCP lookup must stop admitting once the host is withdrawn"
+        );
+        assert.equal(
+          await rotateOAuthRefreshTokenAtomic({
+            refreshDigest: digest(903),
+            replacementRefreshDigest: digest(905),
+            accessDigest: digest(906),
+            accessExpiresAt: new Date(Date.now() + 60_000),
+            clientId,
+            resource,
+          }),
+          null,
+          "refresh must stop admitting once the host is withdrawn"
+        );
+        const second = await seedCodeForClient({
+          clientInternalId,
+          redirectUri,
+          sequence: 910,
+          offlineAccess: true,
+        });
+        assert.equal(
+          await issueOAuthTokensFromCodeAtomic({
+            codeDigest: second.codeDigest,
+            clientId,
+            redirectUri,
+            resource,
+            pkceChallenge: "challenge",
+            refreshDigest: digest(911),
+            refreshExpiresAt: new Date(Date.now() + 3_600_000),
+            accessDigest: digest(912),
+            accessExpiresAt: new Date(Date.now() + 60_000),
+          }),
+          null,
+          "token exchange must stop admitting once the host is withdrawn"
+        );
+      } finally {
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        // The client now owns a grant graph, and the foreign keys say so. Unwind it in
+        // dependency order rather than leaving the row behind, so the population-bound
+        // test that follows still counts a clean partition.
+        await pool!.query(
+          `DELETE FROM exomem_oauth_grants WHERE client_id IN (
            SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
-        [clientId]
+          [clientId]
+        );
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+      }
+    });
+
+    // The consent form's `Connect` button is the last gate in the OAuth flow, and
+    // until now nothing exercised it against data this code actually minted:
+    // every test of the complete route mocks `validateOAuthContinuationNonce`
+    // wholesale, and `createOAuthContinuation` was never called by any test at
+    // all. That left the mint -> resolve -> validate chain -- the one the button
+    // depends on -- proven only by inspection, which is how a bare 400 reached a
+    // live promotion window.
+    it("validates the form nonce it minted, through a real transaction round-trip", async () => {
+      // Sealing the continuation envelope needs a control-plane key, and this is
+      // the only test in this file that encrypts anything, so the suite has never
+      // required one. Supply it here rather than from the environment: a test that
+      // depends on ambient configuration passes on the machine that happens to
+      // export it and fails in CI, which is exactly what it did.
+      const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+      process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 7).toString("base64url");
+      try {
+        await runContinuationRoundTrip();
+      } finally {
+        if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+        else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+      }
+    });
+
+    async function runContinuationRoundTrip(): Promise<void> {
+      await seedClient();
+      const redirectUri = "https://client.example.test/callback";
+      const created = await createOAuthContinuation({
+        clientId,
+        redirectUri,
+        resource,
+        scopes: ["exomem.read"],
+        state: "continuity-integration-state",
+        codeChallenge: "continuity-integration-challenge",
+        offlineAccess: true,
+      });
+      assert.ok(created, "the continuation must mint");
+
+      // Resolving is what the consent page does to decide it can render Connect.
+      const continuation = await resolveOAuthContinuationToken(created!.transaction);
+      assert.ok(continuation, "a freshly minted continuation must resolve from its own token");
+
+      // `scopes` is the only input to the continuation binding that the resolver
+      // does not cross-check against the encrypted envelope, so it is the only one
+      // that can silently diverge across the database round-trip. Assert it
+      // directly: a mismatch here fails the binding below for a reason the bare
+      // `invalid_request` would never name.
+      assert.deepEqual(
+        [...continuation!.scopes].sort(),
+        ["exomem.read", "offline_access"],
+        "requested_scopes must round-trip as the extended scope set used for the binding"
       );
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+
+      assert.equal(
+        validateOAuthContinuationNonce({
+          continuation: continuation!,
+          transaction: created!.transaction,
+          formNonce: created!.formNonce,
+        }),
+        true,
+        "the form nonce minted with a continuation must validate against it"
+      );
+
+      // The nonce is this form's CSRF defence; a foreign nonce must still fail.
+      const other = await createOAuthContinuation({
+        clientId,
+        redirectUri,
+        resource,
+        scopes: ["exomem.read"],
+        state: "continuity-integration-state-other",
+        codeChallenge: "continuity-integration-challenge",
+        offlineAccess: true,
+      });
+      assert.ok(other, "the second continuation must mint");
+      assert.equal(
+        validateOAuthContinuationNonce({
+          continuation: continuation!,
+          transaction: created!.transaction,
+          formNonce: other!.formNonce,
+        }),
+        false,
+        "a nonce from a different transaction must not validate"
+      );
     }
-  });
-
-  // The consent form's `Connect` button is the last gate in the OAuth flow, and
-  // until now nothing exercised it against data this code actually minted:
-  // every test of the complete route mocks `validateOAuthContinuationNonce`
-  // wholesale, and `createOAuthContinuation` was never called by any test at
-  // all. That left the mint -> resolve -> validate chain -- the one the button
-  // depends on -- proven only by inspection, which is how a bare 400 reached a
-  // live promotion window.
-  it("validates the form nonce it minted, through a real transaction round-trip", async () => {
-    // Sealing the continuation envelope needs a control-plane key, and this is
-    // the only test in this file that encrypts anything, so the suite has never
-    // required one. Supply it here rather than from the environment: a test that
-    // depends on ambient configuration passes on the machine that happens to
-    // export it and fails in CI, which is exactly what it did.
-    const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
-    process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 7).toString("base64url");
-    try {
-      await runContinuationRoundTrip();
-    } finally {
-      if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
-      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
-    }
-  });
-
-  async function runContinuationRoundTrip(): Promise<void> {
-    await seedClient();
-    const redirectUri = "https://client.example.test/callback";
-    const created = await createOAuthContinuation({
-      clientId,
-      redirectUri,
-      resource,
-      scopes: ["exomem.read"],
-      state: "continuity-integration-state",
-      codeChallenge: "continuity-integration-challenge",
-      offlineAccess: true,
-    });
-    assert.ok(created, "the continuation must mint");
-
-    // Resolving is what the consent page does to decide it can render Connect.
-    const continuation = await resolveOAuthContinuationToken(created!.transaction);
-    assert.ok(continuation, "a freshly minted continuation must resolve from its own token");
-
-    // `scopes` is the only input to the continuation binding that the resolver
-    // does not cross-check against the encrypted envelope, so it is the only one
-    // that can silently diverge across the database round-trip. Assert it
-    // directly: a mismatch here fails the binding below for a reason the bare
-    // `invalid_request` would never name.
-    assert.deepEqual(
-      [...continuation!.scopes].sort(),
-      ["exomem.read", "offline_access"],
-      "requested_scopes must round-trip as the extended scope set used for the binding"
-    );
-
-    assert.equal(
-      validateOAuthContinuationNonce({
-        continuation: continuation!,
-        transaction: created!.transaction,
-        formNonce: created!.formNonce,
-      }),
-      true,
-      "the form nonce minted with a continuation must validate against it"
-    );
-
-    // The nonce is this form's CSRF defence; a foreign nonce must still fail.
-    const other = await createOAuthContinuation({
-      clientId,
-      redirectUri,
-      resource,
-      scopes: ["exomem.read"],
-      state: "continuity-integration-state-other",
-      codeChallenge: "continuity-integration-challenge",
-      offlineAccess: true,
-    });
-    assert.ok(other, "the second continuation must mint");
-    assert.equal(
-      validateOAuthContinuationNonce({
-        continuation: continuation!,
-        transaction: created!.transaction,
-        formNonce: other!.formNonce,
-      }),
-      false,
-      "a nonce from a different transaction must not validate"
-    );
   }
-});
+);

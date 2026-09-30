@@ -57,6 +57,6 @@
 
 - [x] 6.1 Red test: a CIMD document listing only loopback redirects (Claude Code's real document) is refused, and a loopback redirect on any port fails to match a portless registration; then admit loopback in `cimdRedirectsAdmissible` and match portless loopback registrations on any port in `redirectUriApproved`
 - [x] 6.2 Route every approved-redirect check through `redirectUriApproved`: `/authorize`, `validateAuthorizationRequest` and continuation re-validation
-- [x] 6.3 Refusal tests: a cleartext non-loopback redirect (alone or beside loopback), credentials or a fragment, another loopback host, path, query or scheme, and another port for a loopback redirect registered with one
+- [x] 6.3 Refusal tests: a cleartext non-loopback redirect (alone or beside loopback), credentials or a fragment, another loopback host, path, query or scheme, and another port for a loopback redirect registered with one (including an explicit `:80`); a PostgreSQL case registers Claude Code's real document and re-validates a continuation on a free port
 - [ ] 6.4 After deploy, Claude Code completes `/mcp` authentication to `https://exomem.substratesystems.io/mcp` with no pinned client; then disable the reviewer-bootstrap clients
 

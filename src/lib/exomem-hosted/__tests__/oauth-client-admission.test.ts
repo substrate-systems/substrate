@@ -282,6 +282,11 @@ describe("operator OAuth client admission", () => {
     assert.equal(redirectUriApproved(pinned, "http://127.0.0.1:47831/callback"), true);
     assert.equal(redirectUriApproved(pinned, "http://127.0.0.1:47832/callback"), false);
     assert.equal(redirectUriApproved(pinned, "http://localhost:47831/callback"), false);
+    // `:80` is a port too, even though `new URL` drops it as the default.
+    assert.equal(
+      redirectUriApproved(["http://localhost:80/callback"], "http://localhost:53712/callback"),
+      false
+    );
     // https redirects are matched exactly, port and all.
     const web = ["https://claude.ai/api/mcp/auth_callback"];
     assert.equal(redirectUriApproved(web, "https://claude.ai/api/mcp/auth_callback"), true);

@@ -136,8 +136,10 @@ export function redirectUriApproved(approved: readonly string[], requested: stri
   return approved.some((registered) => {
     if (!isSafeLoopbackOAuthRedirect(registered)) return false;
     const url = new URL(registered);
+    // `new URL` drops a default port, so `:80` must be read off the string.
     return (
       url.port === "" &&
+      !/^http:\/\/[^/?#]*:\d+/i.test(registered.trim()) &&
       url.hostname === wanted.hostname &&
       url.pathname === wanted.pathname &&
       url.search === wanted.search
