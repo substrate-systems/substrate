@@ -71,7 +71,9 @@ describe("Exomem OAuth metadata routes", () => {
 
   it("challenges unauthenticated MCP requests without a cell call", async () => {
     const { POST } = await import("../../mcp/v1/route");
-    const response = await POST();
+    const response = await POST(
+      new Request("https://hosted.example.test/api/exomem/mcp/v1", { method: "POST" })
+    );
     assert.equal(response.status, 401);
     assert.match(response.headers.get("www-authenticate") ?? "", /resource_metadata=/);
     const body = (await response.json()) as { _meta: Record<string, string[]> };

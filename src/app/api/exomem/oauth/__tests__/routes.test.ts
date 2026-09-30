@@ -1859,6 +1859,11 @@ describe("Exomem OAuth routes", () => {
     assert.equal(families.get("policy-family")?.revoked, false);
   });
 
+  it("exports only supported Next.js fields from the revocation route", async () => {
+    const route = await import("../revoke/route");
+    assert.deepEqual(Object.keys(route).sort(), ["POST", "dynamic", "runtime"]);
+  });
+
   it("returns RFC 7009 success for unknown revocation while invoking real-family revocation", async () => {
     const { POST } = await import("../revoke/route");
     const knownToken = Buffer.alloc(32, 0x81).toString("base64url");

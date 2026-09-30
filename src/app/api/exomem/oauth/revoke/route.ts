@@ -12,13 +12,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REVOCATION_FIELDS = ["token", "token_type_hint", "client_id"] as const;
-let revokeForClient = revokeOAuthTokenForClient;
-
-export function __setRevokeOAuthTokenForClientForTests(
-  value: typeof revokeOAuthTokenForClient | null
-): void {
-  revokeForClient = value ?? revokeOAuthTokenForClient;
-}
+const revokeForClient = revokeOAuthTokenForClient;
 
 function invalidRequest(): NextResponse {
   return NextResponse.json(
