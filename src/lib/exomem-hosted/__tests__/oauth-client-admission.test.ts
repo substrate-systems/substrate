@@ -282,6 +282,11 @@ describe("operator OAuth client admission", () => {
     assert.equal(redirectUriApproved(pinned, "http://127.0.0.1:47831/callback"), true);
     assert.equal(redirectUriApproved(pinned, "http://127.0.0.1:47832/callback"), false);
     assert.equal(redirectUriApproved(pinned, "http://localhost:47831/callback"), false);
+    // An IPv6 loopback registered portless matches any port too.
+    assert.equal(
+      redirectUriApproved(["http://[::1]/callback"], "http://[::1]:53712/callback"),
+      true
+    );
     // `:80` is a port too, even though `new URL` drops it as the default.
     assert.equal(
       redirectUriApproved(["http://localhost:80/callback"], "http://localhost:53712/callback"),
