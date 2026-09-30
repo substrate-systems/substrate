@@ -138,7 +138,7 @@ function scheduleNotificationPass(requestId: string, transitionId: string): void
  * a non-empty backlog is itself an event. `failed` means the attempt ceiling
  * was reached and nothing will retry those without a human.
  */
-export async function emitBacklogSignal(requestId: string): Promise<void> {
+async function emitBacklogSignal(requestId: string): Promise<void> {
   try {
     const backlog = await countAlertBacklog();
     if (backlog.pending === 0 && backlog.failed === 0) return;
