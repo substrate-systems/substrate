@@ -79,12 +79,14 @@ Per-token read-only access is deferred. It would need a C3 request flag that the
 5. Resolves the principal's tenant and cell row. It proxies only while `desired_state` is `running` or `read_only`, and answers 503 `CELL_NOT_READY` otherwise. It gates on desired state, not on the eventually consistent `ready` column.
 6. Derives the cell bearer from `EXOMEM_CLOUD_CELL_TOKEN_KEY` (contract C4).
 7. Streams to the cell per contract C3:
-   - it forwards only `content-type`, `accept`, `mcp-session-id` and `mcp-protocol-version`, and adds `x-request-id`;
+   - it forwards only `content-type`, `accept`, `mcp-session-id`, `mcp-protocol-version`, `mcp-method`, `mcp-name` and `mcp-param-*` headers with a non-empty field-name suffix, and adds `x-request-id`; values are passed unchanged, including encoded names/parameter values, so the cell validates them against the untouched request body;
    - an upstream connect failure maps to 503 `CELL_NOT_READY`;
    - a cell 401 maps to 502 `CELL_AUTH_MISMATCH`;
    - it sends `accept-encoding: identity` upstream, and relays only the response headers `content-type`, `mcp-session-id` and `mcp-protocol-version`, setting its own `cache-control`. The cell's `cell_id` is validated against the C1 format before it is used in a URL or HMAC.
 
 Responses are `private, no-store`. Telemetry stays content-free. The gateway image keeps the existing main-only publish workflow, and the Exomem platform chart consumes it by digest.
+
+The metadata headers are required by [MCP 2026-07-28 Streamable HTTP](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http#request-metadata). Dropping `mcp-method` prevents modern `server/discover` from reaching a valid server; dropping `mcp-name` or annotated parameters breaks subsequent tool calls. The gateway does not synthesize missing headers or repair mismatches. These fields never select a tenant, change authorization or replace the derived bearer. Legacy requests remain valid without modern metadata. This compatibility repair rolls out before portable-plugin native acceptance because that acceptance depends on live tool discovery.
 
 ### D4. Lifecycle is desired state
 

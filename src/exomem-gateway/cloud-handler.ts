@@ -22,7 +22,15 @@ import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/ra
 import { digestSecret } from "../lib/exomem-hosted/security";
 
 const CACHE_HEADERS = { "cache-control": "private, no-store" };
-const FORWARDED_REQUEST_HEADERS = ["content-type", "accept", "mcp-session-id", "mcp-protocol-version"];
+const FORWARDED_REQUEST_HEADERS = [
+  "content-type",
+  "accept",
+  "mcp-session-id",
+  "mcp-protocol-version",
+  "mcp-method",
+  "mcp-name",
+];
+const MCP_PARAMETER_HEADER_PREFIX = "mcp-param-";
 // Security review finding 12: only these three response headers are ever
 // relayed back to the caller -- everything else the cell sends (including
 // its own cache-control, or anything else it chose to add) is dropped. The
@@ -303,9 +311,10 @@ async function proxyToCell(
   // 6. Derive the per-cell bearer (C4).
   const cellBearer = deriveCloudCellBearer(config.cellTokenKey, access.cellId);
 
-  // 7. Stream to the cell per C3: only the four listed headers forwarded,
-  // plus x-request-id; never the client's Authorization, cookies or
-  // forwarding headers. Security review finding 12: accept-encoding is
+  // 7. Stream to the cell per C3: protocol request metadata is preserved
+  // for the cell's header/body validation, never used to select its route.
+  // Never forward client Authorization, cookies or forwarding headers.
+  // Security review finding 12: accept-encoding is
   // always sent as identity upstream, regardless of what the caller sent —
   // the gateway relays the cell's body byte-for-byte and never decodes a
   // compressed one.
@@ -313,6 +322,16 @@ async function proxyToCell(
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const value = request.headers.get(name);
     if (value !== null) forwardHeaders.set(name, value);
+  }
+  // MCP 2026-07-28 requires intermediaries to preserve annotated parameter
+  // headers. Headers validates field names; exclude the empty suffix.
+  for (const [name, value] of request.headers) {
+    if (
+      name.startsWith(MCP_PARAMETER_HEADER_PREFIX) &&
+      name.length > MCP_PARAMETER_HEADER_PREFIX.length
+    ) {
+      forwardHeaders.set(name, value);
+    }
   }
   forwardHeaders.set("accept-encoding", "identity");
   forwardHeaders.set("authorization", `Bearer ${cellBearer}`);

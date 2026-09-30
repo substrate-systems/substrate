@@ -54,6 +54,7 @@
   - billing cancelled through billing deletion, then the tenant scrubbed in one transaction, retried by the sweep;
   - tested against real Postgres from confirmation to a `deleted` tenant, for both a live cell and one already deleted, leaving exactly the D4 receipt.
 - [ ] 3.11 Before enabling the shared scheduler for Cloud, gate the legacy lifecycle queue while `EXOMEM_CLOUD_ENABLED` is on. Keep Paddle and all Cloud lanes running, preserve legacy behaviour with the flag off, and verify the deployed cron route before waking the platform schedule.
+- [ ] 3.12 Before portable-plugin native acceptance, preserve modern MCP request metadata through the Cloud gateway: write red-first wire tests for discovery, tool/name and encoded parameter headers, unchanged bodies and missing/mismatched metadata; retain legacy compatibility, credential stripping and principal-only routing; obtain independent security review, publish the gateway image, pin its digest through the platform release process, and verify ChatGPT's live QA tool refresh.
 
 ## 4. Cutover and acceptance (P4)
 
