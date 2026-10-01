@@ -3,6 +3,18 @@ import test, { mock } from "node:test";
 
 test("passes reviewer access only for an active authorization continuation", async (context) => {
   const AuthorizeClient = () => null;
+  let cloud = false;
+  let enabled = true;
+  let resource = "https://cloud.example.test/mcp/v1";
+  mock.module("@/lib/exomem-hosted/cloud-config", {
+    namedExports: {
+      exomemCloudEnabled: () => cloud,
+      loadExomemCloudResource: () => ({
+        mcpUrl: "https://cloud.example.test/mcp/v1",
+        mcpPath: "/api/exomem/cloud/mcp/v1",
+      }),
+    },
+  });
   mock.module("next/headers", {
     namedExports: {
       cookies: async () => ({
@@ -19,11 +31,12 @@ test("passes reviewer access only for an active authorization continuation", asy
       resolveOAuthContinuationToken: async () => ({
         clientId: "reviewer-client",
         scopes: ["exomem.read"],
+        resource,
       }),
     },
   });
   mock.module("@/lib/exomem-hosted/reviewer-access", {
-    namedExports: { marketplaceReviewerAccessEnabled: () => true },
+    namedExports: { marketplaceReviewerAccessEnabled: () => enabled },
   });
   mock.module("../../private-shell", {
     namedExports: { PrivateShell: ({ children }: { children: unknown }) => children },
@@ -56,4 +69,28 @@ test("passes reviewer access only for an active authorization continuation", asy
   }
 
   assert.equal(clientProps?.reviewerEnabled, true);
+  const reviewerEnabled = async () => {
+    const result = await page.default({
+      searchParams: Promise.resolve({ confirmation: "opaque-confirmation" }),
+    });
+    const pending = [result as unknown];
+    while (pending.length) {
+      const node = pending.pop() as {
+        type?: unknown;
+        props?: { children?: unknown; reviewerEnabled?: boolean };
+      } | null;
+      if (!node || typeof node !== "object") continue;
+      if (node.type === AuthorizeClient) return node.props?.reviewerEnabled;
+      const children = node.props?.children;
+      if (Array.isArray(children)) pending.push(...children);
+      else pending.push(children);
+    }
+  };
+  cloud = true;
+  assert.equal(await reviewerEnabled(), true);
+  resource = "https://hosted.example.test/mcp";
+  assert.equal(await reviewerEnabled(), false);
+  resource = "https://cloud.example.test/mcp/v1";
+  enabled = false;
+  assert.equal(await reviewerEnabled(), false);
 });

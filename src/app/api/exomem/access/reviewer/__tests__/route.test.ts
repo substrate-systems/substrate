@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
+import { createHash } from "node:crypto";
 
 const SESSION_TOKEN = Buffer.alloc(32, 0x31).toString("base64url");
 const CSRF_TOKEN = Buffer.alloc(32, 0x32).toString("base64url");
 const USERNAME = "reviewer-route-username-sentinel";
 const PASSWORD = "reviewer-route-password-sentinel";
-let continuation: { clientId: string } | null = { clientId: "client-openai" };
+const NONCE = Buffer.alloc(32, 0x61).toString("base64url");
+const continuationValue = {
+  clientId: "client-openai",
+  resource: "https://cloud.example.test/mcp/v1",
+  formNonceDigest: createHash("sha256").update(NONCE).digest(),
+};
+let continuation: typeof continuationValue | null = continuationValue;
 let authenticated = true;
 let bindCalls: Array<Record<string, unknown>> = [];
 let cookieExpiresAt: Date | undefined;
@@ -43,6 +50,16 @@ before(() => {
       oauthContinuationDigest: () => Buffer.alloc(32, 0x41),
       oauthContinuationToken: () => "opaque-continuation",
       oauthConfirmationHandle: () => "opaque-confirmation",
+      oauthFormNonceFromRequest: () => NONCE,
+    },
+  });
+  mock.module("@/lib/exomem-hosted/cloud-reviewer-access-store", {
+    namedExports: {
+      findCloudReviewerCredentialForAuthentication: async () => null,
+      createCloudReviewerOAuthSessionAtomic: async (input: Record<string, unknown>) => {
+        bindCalls.push({ ...input, cloud: true });
+        return { sessionId: "cloud-session-1" };
+      },
     },
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {
@@ -73,13 +90,17 @@ after(() => mock.reset());
 
 beforeEach(() => {
   process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
-  continuation = { clientId: "client-openai" };
+  continuation = continuationValue;
+  process.env.EXOMEM_CLOUD_MCP_URL = continuationValue.resource;
+  process.env.EXOMEM_CLOUD_MCP_PATH = "/api/exomem/cloud/mcp/v1";
   authenticated = true;
   bindCalls = [];
   cookieExpiresAt = undefined;
 });
 
-function request(body: unknown = { username: USERNAME, password: PASSWORD }): Request {
+function request(
+  body: unknown = { username: USERNAME, password: PASSWORD, nonce: NONCE }
+): Request {
   return new Request("https://hosted.example.test/api/exomem/access/reviewer", {
     method: "POST",
     headers: {
@@ -118,14 +139,14 @@ describe("POST /api/exomem/access/reviewer", () => {
   // Cloud design D2: the reviewer-credential branch does not apply under
   // Cloud, so a credential issued before the flag was turned on no longer
   // redeems either.
-  it("refuses reviewer redemption while Exomem Cloud is enabled", async () => {
+  it("uses independent reviewer redemption while Exomem Cloud is enabled", async () => {
     const { POST } = await import("../route");
     process.env.EXOMEM_CLOUD_ENABLED = "1";
     try {
       const response = await POST(request());
-      assert.equal(response.status, 401);
-      assert.deepEqual(await response.json(), { success: false, error: "authentication_failed" });
-      assert.equal(bindCalls.length, 0);
+      assert.equal(response.status, 200);
+      assert.equal(bindCalls.length, 1);
+      assert.equal(bindCalls[0].cloud, true);
     } finally {
       delete process.env.EXOMEM_CLOUD_ENABLED;
     }
@@ -139,7 +160,7 @@ describe("POST /api/exomem/access/reviewer", () => {
     process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
     continuation = null;
     failures.push(await POST(request()));
-    continuation = { clientId: "client-openai" };
+    continuation = continuationValue;
     authenticated = false;
     failures.push(await POST(request()));
     failures.push(await POST(request({ username: USERNAME })));
@@ -151,5 +172,27 @@ describe("POST /api/exomem/access/reviewer", () => {
       assert.deepEqual(await response.json(), { success: false, error: "authentication_failed" });
     }
     assert.equal(bindCalls.length, 0);
+  });
+
+  it("refuses missing/mismatched nonce, foreign origin and non-Cloud continuation before binding", async () => {
+    process.env.EXOMEM_CLOUD_ENABLED = "true";
+    try {
+      const { POST } = await import("../route");
+      const attempts = [
+        request({ username: USERNAME, password: PASSWORD }),
+        request({ username: USERNAME, password: PASSWORD, nonce: "wrong" }),
+      ];
+      const foreign = request();
+      foreign.headers.set("origin", "https://foreign.example.test");
+      attempts.push(foreign);
+      for (const attempt of attempts) assert.equal((await POST(attempt)).status, 401);
+      continuation = { ...continuationValue, resource: "https://hosted.example.test/mcp" };
+      assert.equal((await POST(request())).status, 401);
+      continuation = { ...continuationValue, formNonceDigest: Buffer.alloc(32) };
+      assert.equal((await POST(request())).status, 401);
+      assert.equal(bindCalls.length, 0);
+    } finally {
+      delete process.env.EXOMEM_CLOUD_ENABLED;
+    }
   });
 });

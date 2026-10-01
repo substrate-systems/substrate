@@ -23,6 +23,7 @@
  */
 
 import { executeExomemSql } from "./db";
+import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
 
 /**
  * D2's scope rule: "A cell sees one fixed non-owner principal and cannot
@@ -110,9 +111,10 @@ export type ActiveCloudOAuthAccessToken = {
 
 /**
  * Looks up a Cloud-resource access token for the gateway (D3 step 4). Joins
- * only to the client-admission predicate above and to the principal's
- * non-deleted cell row — no candidate, assignment or reviewer-credential
- * joins, unlike `findMcpOAuthAccessToken`. `expectedResource` is compared
+ * to the client-admission predicate above and to the principal's non-deleted
+ * cell row. Reviewer lineages additionally require matching Cloud credential
+ * authority; ordinary NULL lineages retain their existing routing semantics.
+ * There is no candidate or assignment authority. `expectedResource` is compared
  * with plain equality against the token's stored resource: a hosted-resource
  * token never matches here, symmetrically to how a Cloud-resource token
  * never matches `EXOMEM_HOSTED_RESOURCE` in the hosted path.
@@ -140,10 +142,12 @@ export async function findCloudOAuthAccessToken(
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
+     AND family.grant_id = token.grant_id AND family.client_id = token.client_id
      AND family.revoked_at IS NULL
      AND family.expires_at > now()
     JOIN exomem_oauth_grants AS oauth_grant
       ON oauth_grant.id = token.grant_id
+     AND oauth_grant.client_id = token.client_id AND oauth_grant.resource = token.resource
      AND oauth_grant.revoked_at IS NULL
     JOIN exomem_oauth_clients AS client
       ON client.id = token.client_id
@@ -173,6 +177,13 @@ export async function findCloudOAuthAccessToken(
       AND token.revoked_at IS NULL
       AND token.expires_at > now()
       AND token.resource = ${expectedResource}
+      AND token.reviewer_credential_id IS NOT DISTINCT FROM family.reviewer_credential_id
+      AND token.reviewer_credential_id IS NOT DISTINCT FROM oauth_grant.reviewer_credential_id
+      AND token.candidate_id IS NULL AND family.candidate_id IS NULL AND oauth_grant.candidate_id IS NULL
+      AND (token.reviewer_credential_id IS NULL OR (
+        ${cloudReviewerAccessEnabled()}
+        AND exomem_cloud_reviewer_authorized(token.reviewer_credential_id, oauth_grant.tenant_id, oauth_grant.user_id, client.client_platform)
+      ))
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
         WHERE block.tenant_id = oauth_grant.tenant_id AND block.owner_user_id = oauth_grant.user_id

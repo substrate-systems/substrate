@@ -9,6 +9,7 @@ import {
   resolveOAuthContinuationToken,
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
+import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
@@ -92,7 +93,10 @@ export default async function ExomemAuthorizePage({
             confirmation={query.confirmation!}
             nonce={nonce}
             signedIn={signedIn}
-            reviewerEnabled={marketplaceReviewerAccessEnabled()}
+            reviewerEnabled={
+              marketplaceReviewerAccessEnabled() &&
+              (!exomemCloudEnabled() || continuation.resource === loadExomemCloudResource().mcpUrl)
+            }
           />
         ) : null}
       </main>

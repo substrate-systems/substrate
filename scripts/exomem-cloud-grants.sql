@@ -45,6 +45,7 @@ DO $$
 DECLARE
   target_schema text := current_schema();
   cloud_role text;
+  oauth_table text;
 BEGIN
   -- 1. Schema-wide substrate_app DML, plus default privileges for whatever a
   -- later migration creates. Guarded on substrate_app existing so a database
@@ -193,11 +194,26 @@ BEGIN
         ON exomem_oauth_access_tokens TO exomem_gateway;
     END IF;
     IF to_regclass('exomem_oauth_token_families') IS NOT NULL THEN
-      GRANT SELECT (id, revoked_at, expires_at) ON exomem_oauth_token_families TO exomem_gateway;
+      GRANT SELECT (id, grant_id, client_id, revoked_at, expires_at)
+        ON exomem_oauth_token_families TO exomem_gateway;
     END IF;
     IF to_regclass('exomem_oauth_grants') IS NOT NULL THEN
-      GRANT SELECT (id, user_id, tenant_id, revoked_at) ON exomem_oauth_grants TO exomem_gateway;
+      GRANT SELECT (id, user_id, tenant_id, client_id, resource, revoked_at)
+        ON exomem_oauth_grants TO exomem_gateway;
     END IF;
+    -- Migration 0036 adds candidate/reviewer lineage to these tables. Keep
+    -- partial historical upgrades safe while granting the lookup's exact reads.
+    FOREACH oauth_table IN ARRAY ARRAY[
+      'exomem_oauth_access_tokens', 'exomem_oauth_token_families', 'exomem_oauth_grants'
+    ] LOOP
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = target_schema AND table_name = oauth_table AND column_name = 'candidate_id'
+      ) THEN
+        EXECUTE format('GRANT SELECT (candidate_id, reviewer_credential_id) ON %I.%I TO exomem_gateway',
+          target_schema, oauth_table);
+      END IF;
+    END LOOP;
     IF EXISTS (
       SELECT 1 FROM information_schema.columns
       WHERE table_schema = target_schema AND table_name = 'exomem_oauth_clients'
@@ -221,6 +237,18 @@ BEGIN
     -- above only because it predates this fix.
     IF to_regclass('exomem_tenants') IS NOT NULL THEN
       GRANT SELECT (id, status) ON exomem_tenants TO exomem_gateway;
+    END IF;
+    -- Migration 0058's predicates are SECURITY INVOKER. The gateway needs
+    -- only their eligibility reads, never credential secrets or billing writes.
+    IF to_regprocedure('exomem_cloud_reviewer_authorized(uuid,uuid,uuid,text)') IS NOT NULL THEN
+      GRANT SELECT (owner_user_id, marketplace_reviewer_purpose, desired_state, deleted_at)
+        ON exomem_tenants TO exomem_gateway;
+      GRANT SELECT (id, deleted_at) ON users TO exomem_gateway;
+      GRANT SELECT (tenant_id, source, source_state, effective_state,
+        provider_customer_ref, provider_subscription_ref, provider_transaction_ref)
+        ON exomem_entitlements TO exomem_gateway;
+      GRANT SELECT (id, tenant_id, owner_user_id, credential_kind, revoked_at, expires_at, provider)
+        ON exomem_marketplace_reviewer_credentials TO exomem_gateway;
     END IF;
   END IF;
 END

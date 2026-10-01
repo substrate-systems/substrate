@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
+import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import {
+  createCloudReviewerOAuthSessionAtomic,
+  findCloudReviewerCredentialForAuthentication,
+} from "@/lib/exomem-hosted/cloud-reviewer-access-store";
+import { constantTimeSecretEqual, digestSecret } from "@/lib/exomem-hosted/security";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
 import {
   marketplaceReviewerAccessEnabled,
@@ -14,6 +19,7 @@ import {
   oauthContinuationDigest,
   oauthContinuationToken,
   resolveOAuthContinuation,
+  oauthFormNonceFromRequest,
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { clientAddressKey } from "@/lib/exomem-hosted/rate-limit";
 import {
@@ -35,10 +41,8 @@ function authenticationFailed(): NextResponse {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // Cloud design D2: the reviewer-credential branch does not apply under
-  // Cloud, so a credential issued before the flag was turned on no longer
-  // redeems.
-  if (!marketplaceReviewerAccessEnabled() || exomemCloudEnabled()) return authenticationFailed();
+  if (!marketplaceReviewerAccessEnabled()) return authenticationFailed();
+  const cloud = exomemCloudEnabled();
   try {
     validatePublicAccessRequest(request);
     const continuation = await resolveOAuthContinuation(request);
@@ -50,11 +54,28 @@ export async function POST(request: Request): Promise<NextResponse> {
       !body ||
       typeof body !== "object" ||
       Array.isArray(body) ||
-      Object.keys(body).length !== 2 ||
+      ![2, 3].includes(Object.keys(body).length) ||
+      Object.keys(body).some((key) => !["username", "password", "nonce"].includes(key)) ||
       typeof (body as { username?: unknown }).username !== "string" ||
       typeof (body as { password?: unknown }).password !== "string"
     ) {
       return authenticationFailed();
+    }
+    if (cloud) {
+      const nonce = oauthFormNonceFromRequest(request);
+      const submittedNonce = (body as { nonce?: unknown }).nonce;
+      if (
+        request.headers.get("origin") !== new URL(request.url).origin ||
+        continuation.resource !== loadExomemCloudResource().mcpUrl ||
+        !nonce ||
+        typeof submittedNonce !== "string" ||
+        !constantTimeSecretEqual(nonce, submittedNonce) ||
+        !constantTimeSecretEqual(
+          digestSecret(nonce).toString("base64url"),
+          continuation.formNonceDigest.toString("base64url")
+        )
+      )
+        return authenticationFailed();
     }
     const credential = await authenticateMarketplaceReviewerCredential(
       {
@@ -64,12 +85,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
       {
         enabled: true,
-        lookup: findMarketplaceReviewerCredentialForAuthentication,
+        lookup: cloud
+          ? findCloudReviewerCredentialForAuthentication
+          : findMarketplaceReviewerCredentialForAuthentication,
       }
     );
     if (!credential) return authenticationFailed();
     const session = mintSessionMaterial();
-    const created = await createMarketplaceReviewerOAuthSessionAtomic({
+    const created = await (
+      cloud ? createCloudReviewerOAuthSessionAtomic : createMarketplaceReviewerOAuthSessionAtomic
+    )({
       credentialId: credential.credentialId,
       transactionDigest,
       sessionDigest: session.sessionDigest,

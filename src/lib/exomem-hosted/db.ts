@@ -9,6 +9,8 @@ import type { ExomemPaddleEnvironment } from "./paddle-config";
 import { PROVISIONER_PROTOCOL_V2 } from "./provisioner";
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
+import { exomemCloudEnabled } from "./cloud-config";
+import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
 
 export type ExomemSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -1300,6 +1302,8 @@ export type ExomemSessionRow = {
   tenantId: string;
   csrfDigest: Buffer;
   expiresAt: string;
+  reviewerCredentialId?: string | null;
+  reviewerCredentialKind?: "provider_review" | "internal_canary" | "cloud_provider_review" | null;
 };
 
 export async function findExomemSessionByDigest(
@@ -1311,7 +1315,7 @@ export async function findExomemSessionByDigest(
            session.user_id,
            session.tenant_id,
            session.csrf_digest,
-           session.expires_at
+           session.expires_at, session.reviewer_credential_id, reviewer_credential.credential_kind
     FROM exomem_sessions AS session
     JOIN users ON users.id = session.user_id AND users.deleted_at IS NULL
     JOIN exomem_tenants AS tenant
@@ -1328,6 +1332,10 @@ export async function findExomemSessionByDigest(
       AND session.revoked_at IS NULL
       AND session.expires_at > now()
       AND (session.reviewer_credential_id IS NULL OR reviewer_credential.id IS NOT NULL)
+      AND (reviewer_credential.credential_kind IS DISTINCT FROM 'cloud_provider_review' OR (
+        ${exomemCloudEnabled() && marketplaceReviewerAccessEnabled()}
+        AND exomem_cloud_reviewer_authorized(reviewer_credential.id, session.tenant_id, session.user_id, NULL)
+      ))
       AND NOT EXISTS (
         SELECT 1 FROM exomem_oauth_account_blocks AS block
         WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
@@ -1341,6 +1349,8 @@ export async function findExomemSessionByDigest(
         tenant_id: string;
         csrf_digest: Uint8Array;
         expires_at: string;
+        reviewer_credential_id: string | null;
+        credential_kind: ExomemSessionRow["reviewerCredentialKind"];
       }
     | undefined;
   return row
@@ -1350,6 +1360,8 @@ export async function findExomemSessionByDigest(
         tenantId: row.tenant_id,
         csrfDigest: Buffer.from(row.csrf_digest),
         expiresAt: row.expires_at,
+        reviewerCredentialId: row.reviewer_credential_id ?? null,
+        reviewerCredentialKind: row.credential_kind ?? null,
       }
     : null;
 }
@@ -1800,7 +1812,13 @@ export async function rotateExomemSessionAtomic(input: {
   csrfDigest: Buffer;
   expiresAt: Date;
 }): Promise<{ sessionId: string } | null> {
-  const { rows } = await sql`
+  return withExomemTransaction(async (tx) => {
+    const locked = await tx`
+      SELECT tenant.id FROM exomem_tenants AS tenant JOIN exomem_sessions AS session ON session.tenant_id = tenant.id
+      WHERE session.id = ${input.sessionId}::uuid FOR UPDATE OF tenant
+    `;
+    if (!locked.rows[0]) return null;
+    const { rows } = await tx`
     /* exomem:rotate-session */
     WITH previous AS (
       UPDATE exomem_sessions
@@ -1808,26 +1826,40 @@ export async function rotateExomemSessionAtomic(input: {
       WHERE id = ${input.sessionId}
         AND revoked_at IS NULL
         AND expires_at > now()
-      RETURNING id, user_id, tenant_id
+        AND (reviewer_credential_id IS NULL OR EXISTS (
+          SELECT 1 FROM exomem_marketplace_reviewer_credentials AS credential
+          WHERE credential.id = exomem_sessions.reviewer_credential_id
+            AND credential.revoked_at IS NULL AND credential.expires_at > now()
+            AND (credential.credential_kind <> 'cloud_provider_review' OR (
+              ${exomemCloudEnabled() && marketplaceReviewerAccessEnabled()}
+              AND exomem_cloud_reviewer_authorized(credential.id, exomem_sessions.tenant_id, exomem_sessions.user_id, NULL)
+            ))
+        ))
+      RETURNING id, user_id, tenant_id, reviewer_credential_id, candidate_id, assignment_id,
+        assignment_generation, staged_client_release_id, oauth_client_id
     ),
     replacement AS (
       INSERT INTO exomem_sessions (
         user_id, tenant_id, session_digest, csrf_digest,
-        expires_at, rotated_from_session_id
+        expires_at, rotated_from_session_id, reviewer_credential_id, candidate_id, assignment_id,
+        assignment_generation, staged_client_release_id, oauth_client_id
       )
-      SELECT user_id,
-             tenant_id,
+      SELECT previous.user_id,
+             previous.tenant_id,
              ${input.sessionDigest},
              ${input.csrfDigest},
-             ${input.expiresAt.toISOString()},
-             id
+             LEAST(${input.expiresAt.toISOString()}, credential.expires_at),
+             previous.id, previous.reviewer_credential_id, previous.candidate_id, previous.assignment_id,
+             previous.assignment_generation, previous.staged_client_release_id, previous.oauth_client_id
       FROM previous
+      LEFT JOIN exomem_marketplace_reviewer_credentials AS credential ON credential.id = previous.reviewer_credential_id
       RETURNING id
     )
     SELECT id FROM replacement
   `;
-  const row = rows[0] as { id: string } | undefined;
-  return row ? { sessionId: row.id } : null;
+    const row = rows[0] as { id: string } | undefined;
+    return row ? { sessionId: row.id } : null;
+  });
 }
 
 export type OwnerTenant = {

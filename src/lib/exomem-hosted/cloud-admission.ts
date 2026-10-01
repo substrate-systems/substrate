@@ -15,10 +15,7 @@ import { loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { ExomemHostedError, exomemErrors } from "./errors";
-import {
-  cancelExomemCheckoutTransaction,
-  type PaddleTransport,
-} from "./paddle-billing";
+import { cancelExomemCheckoutTransaction, type PaddleTransport } from "./paddle-billing";
 import {
   loadExomemPaddleTransactionConfig,
   type ExomemPaddleConfig,
@@ -81,6 +78,7 @@ type LockedCloudInvite = {
   entitlement_source: "complimentary" | "paddle";
   entitlement_capabilities: string[];
   entitlement_limits: Record<string, number>;
+  marketplace_reviewer_purpose: boolean;
 };
 
 /**
@@ -104,7 +102,7 @@ export async function redeemCloudInviteAtomic(
 
     const inviteResult = await tx`
       /* exomem-cloud:lock-invite */
-      SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits
+      SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose
       FROM exomem_invites
       WHERE token_digest = ${input.tokenDigest}
         AND consumed_at IS NULL
@@ -145,7 +143,11 @@ export async function redeemCloudInviteAtomic(
     // scope is reused under this same capacity check, with its admission
     // columns reset (a fully-deleted prior cell leaves status/desired_state/
     // deleted_at at 'deleted', which a fresh admission must not inherit).
-    const existing = await lockExistingCloudTenant(tx, owner.id);
+    const existing = await lockExistingCloudTenant(
+      tx,
+      owner.id,
+      invite.marketplace_reviewer_purpose
+    );
     if (existing === REFUSED) throw exomemErrors.accessTokenInvalid();
 
     let tenantId: string;
@@ -159,8 +161,8 @@ export async function redeemCloudInviteAtomic(
       tenantId = existing.id;
     } else {
       const tenantResult = await tx`
-        INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
-        VALUES (${owner.id}::uuid, 'provisioning', 'running')
+        INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
+        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose})
         RETURNING id
       `;
       const tenant = tenantResult.rows[0] as { id: string } | undefined;
@@ -292,10 +294,11 @@ async function clearLifecycleDeletionBlock(tx: ExomemSql, tenantId: string): Pro
  */
 async function lockExistingCloudTenant(
   tx: ExomemSql,
-  ownerUserId: string
+  ownerUserId: string,
+  reviewerPurpose: boolean
 ): Promise<{ id: string } | undefined | typeof REFUSED> {
   const { rows } = await tx`
-    SELECT tenant.id, tenant.status,
+    SELECT tenant.id, tenant.status, tenant.marketplace_reviewer_purpose,
            entitlement.source_state, entitlement.provider_subscription_ref,
            EXISTS (
              SELECT 1 FROM exomem_cloud_cells AS cell
@@ -310,12 +313,14 @@ async function lockExistingCloudTenant(
     | {
         id: string;
         status: string;
+        marketplace_reviewer_purpose: boolean;
         source_state: string | null;
         provider_subscription_ref: string | null;
         has_live_cell: boolean;
       }
     | undefined;
   if (!row) return undefined;
+  if (row.marketplace_reviewer_purpose !== reviewerPurpose) return REFUSED;
   if (row.has_live_cell || row.status === "deletion_pending") return REFUSED;
   const liveSubscription =
     row.provider_subscription_ref !== null &&
@@ -401,7 +406,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-cloud-capacity'))`;
 
       const inviteResult = await tx`
-        SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits
+        SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose
         FROM exomem_invites
         WHERE token_digest = ${input.inviteDigest}
           AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
@@ -472,7 +477,11 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       if (await ownerHasAdmissionBlock(tx, owner.id)) throw new CloudOAuthAdmissionRejected();
 
       // See redeemCloudInviteAtomic's matching block.
-      const existing = await lockExistingCloudTenant(tx, owner.id);
+      const existing = await lockExistingCloudTenant(
+        tx,
+        owner.id,
+        invite.marketplace_reviewer_purpose
+      );
       if (existing === REFUSED) throw new CloudOAuthAdmissionRejected();
 
       let tenantId: string;
@@ -486,8 +495,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         tenantId = existing.id;
       } else {
         const tenantResult = await tx`
-          INSERT INTO exomem_tenants (owner_user_id, status, desired_state)
-          VALUES (${owner.id}::uuid, 'provisioning', 'running')
+          INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
+          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose})
           RETURNING id
         `;
         const tenant = tenantResult.rows[0] as { id: string } | undefined;

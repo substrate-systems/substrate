@@ -90,6 +90,21 @@ function params(token = TOKEN) {
 }
 
 describe("POST /api/exomem/alerts/[token]", () => {
+  it("exports only supported Next.js route handlers and configuration", async () => {
+    const route = await import("../route");
+    assert.deepEqual(Object.keys(route).sort(), [
+      "DELETE",
+      "GET",
+      "OPTIONS",
+      "PATCH",
+      "POST",
+      "PUT",
+      "dynamic",
+      "maxDuration",
+      "runtime",
+    ]);
+  });
+
   it("acknowledges the pinned sender request once the transition is durable", async () => {
     const { POST } = await import("../route");
     const response = await POST(senderRequest({}), params());

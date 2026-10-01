@@ -56,7 +56,7 @@ The OAuth invite path follows the same order.
 - its redirect digest matches;
 - its CIMD metadata host is in `exomem_oauth_admitted_cimd_hosts`, with fresh metadata.
 
-The whole-cohort `EXISTS` and the reviewer-credential branch do not apply to the Cloud resource. While `EXOMEM_CLOUD_ENABLED` is on, the reviewer route's provider-review branch is refused.
+The whole-cohort `EXISTS` and Hosted reviewer credential authority do not apply to the Cloud resource. While `EXOMEM_CLOUD_ENABLED` is on, the reviewer route refuses Hosted `provider_review` and `internal_canary` credentials. The separate `cloud_provider_review` kind authenticates an isolated, explicitly sample-purpose complimentary Cloud tenant under `add-cloud-reviewer-access`; it supplies no client-admission, cohort, candidate or artifact authority.
 
 **Deletion revokes consent.** The transaction that sets a cell row to `deleted`, whether through expiry, reconcile or account deletion, also revokes the tenant's OAuth grants, refresh-token families and access tokens. It revokes every grant the tenant holds, which under Cloud is only the Cloud resource, so a deletion never depends on Cloud configuration being present. A re-admitted tenant's new cell is then reachable only after fresh consent.
 

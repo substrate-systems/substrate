@@ -60,6 +60,7 @@ For the Cloud MCP resource, an OAuth client SHALL be admitted when it is enabled
 
 - An access token SHALL be bound to exactly one resource, and a token SHALL be accepted only where its resource is exactly equal to the resource being served.
 - A token for the Cloud resource SHALL be issued only to a principal that owns a non-deleted cell row.
+- Hosted `provider_review` and `internal_canary` credentials MUST NOT authorize the Cloud resource. Cloud-only reviewer authentication SHALL retain ordinary Cloud client admission and the isolated, expiring sample authority specified in `exomem-cloud-reviewer-access`.
 
 #### Scenario: claude.ai connects on an empty cohort
 

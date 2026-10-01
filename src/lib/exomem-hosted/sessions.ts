@@ -239,6 +239,11 @@ export async function rotateResolvedSession(
   } = {}
 ): Promise<SessionMaterial> {
   const material = mintSessionMaterial(options);
+  if (session.reviewerCredentialId) {
+    material.expiresAt = new Date(
+      Math.min(material.expiresAt.getTime(), new Date(session.expiresAt).getTime())
+    );
+  }
   const row = await (options.rotate ?? rotateExomemSessionAtomic)({
     sessionId: session.id,
     sessionDigest: material.sessionDigest,
