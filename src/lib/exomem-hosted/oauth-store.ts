@@ -391,6 +391,7 @@ export async function createAuthorizationTransaction(input: {
 
 export type PendingOAuthAuthorization = {
   clientId: string;
+  reviewerCredentialId: string | null;
   redirectUri: string;
   resource: string;
   scopes: string[];
@@ -407,7 +408,7 @@ export async function findPendingOAuthAuthorization(
   return withCohortLock(async (tx) => {
     const { rows } = await tx`
     /* exomem:find-pending-oauth-authorization */
-    SELECT client.client_id, transaction.redirect_uri, transaction.resource,
+    SELECT client.client_id, transaction.reviewer_credential_id, transaction.redirect_uri, transaction.resource,
            transaction.requested_scopes, transaction.state_envelope, transaction.state_digest,
            transaction.form_nonce_digest, transaction.continuation_binding, transaction.pkce_challenge
     FROM exomem_oauth_authorization_transactions AS transaction
@@ -486,6 +487,7 @@ export async function findPendingOAuthAuthorization(
     const row = rows[0] as
       | {
           client_id: string;
+          reviewer_credential_id: string | null;
           redirect_uri: string;
           resource: string;
           requested_scopes: string[];
@@ -499,6 +501,7 @@ export async function findPendingOAuthAuthorization(
     return row
       ? {
           clientId: row.client_id,
+          reviewerCredentialId: row.reviewer_credential_id ?? null,
           redirectUri: row.redirect_uri,
           resource: row.resource,
           scopes: row.requested_scopes,

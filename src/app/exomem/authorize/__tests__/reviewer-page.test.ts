@@ -6,6 +6,20 @@ test("passes reviewer access only for an active authorization continuation", asy
   let cloud = false;
   let enabled = true;
   let resource = "https://cloud.example.test/mcp/v1";
+  let boundCredential: string | null = null;
+  let session: { reviewerCredentialId: string | null } | null = null;
+  let storageFails = false;
+  mock.module("@/lib/exomem-hosted/db", {
+    namedExports: {
+      findExomemSessionByDigest: async () => {
+        if (storageFails) throw new Error("storage unavailable");
+        return session;
+      },
+    },
+  });
+  mock.module("@/lib/exomem-hosted/security", {
+    namedExports: { tokenDigest: () => Buffer.alloc(32) },
+  });
   mock.module("@/lib/exomem-hosted/cloud-config", {
     namedExports: {
       exomemCloudEnabled: () => cloud,
@@ -32,6 +46,7 @@ test("passes reviewer access only for an active authorization continuation", asy
         clientId: "reviewer-client",
         scopes: ["exomem.read"],
         resource,
+        reviewerCredentialId: boundCredential,
       }),
     },
   });
@@ -69,7 +84,7 @@ test("passes reviewer access only for an active authorization continuation", asy
   }
 
   assert.equal(clientProps?.reviewerEnabled, true);
-  const reviewerEnabled = async () => {
+  const clientState = async () => {
     const result = await page.default({
       searchParams: Promise.resolve({ confirmation: "opaque-confirmation" }),
     });
@@ -77,20 +92,36 @@ test("passes reviewer access only for an active authorization continuation", asy
     while (pending.length) {
       const node = pending.pop() as {
         type?: unknown;
-        props?: { children?: unknown; reviewerEnabled?: boolean };
+        props?: { children?: unknown; reviewerEnabled?: boolean; signedIn?: boolean };
       } | null;
       if (!node || typeof node !== "object") continue;
-      if (node.type === AuthorizeClient) return node.props?.reviewerEnabled;
+      if (node.type === AuthorizeClient) return node.props;
       const children = node.props?.children;
       if (Array.isArray(children)) pending.push(...children);
       else pending.push(children);
     }
   };
   cloud = true;
-  assert.equal(await reviewerEnabled(), true);
+  assert.equal((await clientState())?.reviewerEnabled, true);
   resource = "https://hosted.example.test/mcp";
-  assert.equal(await reviewerEnabled(), false);
+  assert.equal((await clientState())?.reviewerEnabled, false);
   resource = "https://cloud.example.test/mcp/v1";
   enabled = false;
-  assert.equal(await reviewerEnabled(), false);
+  assert.equal((await clientState())?.reviewerEnabled, false);
+
+  // A second connection starts unbound. The previous reviewer session must
+  // offer fresh sign-in, not a Connect button the server will reject.
+  enabled = true;
+  session = { reviewerCredentialId: null };
+  assert.equal((await clientState())?.signedIn, true, "ordinary signed-in owner");
+  session = { reviewerCredentialId: "reviewer-one" };
+  assert.equal((await clientState())?.signedIn, false, "new unbound connection");
+  boundCredential = "reviewer-two";
+  assert.equal((await clientState())?.signedIn, false, "different reviewer credential");
+  boundCredential = "reviewer-one";
+  assert.equal((await clientState())?.signedIn, true, "fresh matching reviewer sign-in");
+  session = null;
+  assert.equal((await clientState())?.signedIn, false, "signed-out visitor");
+  storageFails = true;
+  assert.equal((await clientState())?.signedIn, false, "unavailable session read");
 });
