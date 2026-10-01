@@ -20,12 +20,18 @@ import AuthorizeClient from "./authorize-client";
 // Without it, "Continue" was rendered to everyone -- including someone arriving
 // from a connector before they have ever redeemed their invitation, for whom it
 // can only ever end in access_denied.
-async function visitorIsSignedIn(sessionToken: string | undefined): Promise<boolean> {
+async function visitorIsSignedIn(
+  sessionToken: string | undefined,
+  reviewerCredentialId: string | null
+): Promise<boolean> {
   if (!sessionToken) return false;
   const digest = tokenDigest(sessionToken);
   if (!digest) return false;
   try {
-    return !!(await findExomemSessionByDigest(digest));
+    const session = await findExomemSessionByDigest(digest);
+    // A reviewer cookie from another connection is not consent authority for
+    // this one. Offer fresh reviewer sign-in until its credential is bound.
+    return !!session && (session.reviewerCredentialId ?? null) === reviewerCredentialId;
   } catch {
     // Never let a storage failure decide the layout. Presenting the sign-in
     // paths to someone who is in fact signed in costs them one extra click;
@@ -58,7 +64,10 @@ export default async function ExomemAuthorizePage({
     : null;
   const canContinue = !!continuation && !!nonce && !!query.confirmation;
   const signedIn = canContinue
-    ? await visitorIsSignedIn(cookieStore.get(EXOMEM_SESSION_COOKIE)?.value)
+    ? await visitorIsSignedIn(
+        cookieStore.get(EXOMEM_SESSION_COOKIE)?.value,
+        continuation.reviewerCredentialId ?? null
+      )
     : false;
   return (
     <PrivateShell>

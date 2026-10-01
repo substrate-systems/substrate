@@ -15,6 +15,7 @@ import {
 } from "../cloud-reviewer-access-store";
 import {
   attachExistingOwnerAuthorizationAtomic,
+  findPendingOAuthAuthorization,
   issueOAuthTokensFromCodeAtomic,
   rotateOAuthRefreshTokenAtomic,
 } from "../oauth-store";
@@ -292,6 +293,10 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
 
   it("preserves reviewer identity and expiry when a browser session is rotated", async () => {
     const fixture = await reviewerFixture();
+    // The consent page must receive the actual transaction binding, not lose
+    // it between PostgreSQL and the pending-authorization result.
+    const pending = await findPendingOAuthAuthorization(fixture.transactionDigest);
+    assert.equal(pending?.reviewerCredentialId, fixture.credentialId);
     const digest = randomBytes(32);
     assert.ok(
       await rotateExomemSessionAtomic({
