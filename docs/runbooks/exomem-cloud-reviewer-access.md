@@ -7,6 +7,20 @@ email links; Hosted reviewer credentials never authorize the Cloud resource.
 
 ## Deploy and prepare the sample
 
+Operator API access uses the exact `operator-token` binding in
+`contracts/bws-exomem-production-v1.json`. Validate it with
+`bwsx-secret check --bindings contracts/bws-exomem-production-v1.json operator-token`,
+then use `bwsx-secret run` with that binding to inject `EXOMEM_ADMIN_TOKEN` into
+an operator client. The client must not log bearer headers or credential
+response bodies. This binding does not rotate the token or change its delivery
+to the web app.
+
+For a missing invitation, the `transactional-mail` binding selects Substrate's
+Brevo key as `BREVO_API_KEY`. Read Brevo's transactional event report filtered
+to that exact recipient and send date; do not fetch email bodies or log API
+headers. An invitation marked `sent` records provider acceptance, not inbox
+delivery. Inspect the provider event before resending.
+
 Apply migration `0058_exomem_cloud_reviewer_access.sql` and the updated
 `scripts/exomem-cloud-grants.sql` before deploying the web app and the new,
 verified, pinned gateway image from the same delivery. The migration runner
