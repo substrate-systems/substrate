@@ -92,9 +92,9 @@
 
 ## 10. Release-A historical bridge
 
-- [x] 9.1 Keep only pre-cutoff legacy rows bridge-visible while the singleton
+- [x] 10.1 Keep only pre-cutoff legacy rows bridge-visible while the singleton
       policy is non-strict; post-cutoff old-client rows remain pending
-- [x] 9.2 Add manual newest-first dry-run/apply reconciliation with persisted
+- [x] 10.2 Add manual newest-first dry-run/apply reconciliation with persisted
       failures, and a separately confirmed strict-cutover command
-- [x] 9.3 Document Release A → backfill → strict cutover → later application
+- [x] 10.3 Document Release A → backfill → strict cutover → later application
       release, including the no-pre-bridge-rollback boundary

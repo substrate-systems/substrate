@@ -1,7 +1,7 @@
 # site-navigation Specification
 
 ## Purpose
-TBD - created by archiving change substrate-site-navigation. Update Purpose after archive.
+Give every page of the site a consistent way around it: the global footer navigation, the blog index and the navigable graph.
 ## Requirements
 ### Requirement: Global footer navigation
 

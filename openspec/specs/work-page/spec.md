@@ -1,7 +1,7 @@
 # work-page Specification
 
 ## Purpose
-TBD - created by archiving change substrate-work-page. Update Purpose after archive.
+Present the public work page: featured proof surfaces, always-present contact links, availability-gated CV and LinkedIn links, redaction of private detail, and styling from design tokens only.
 ## Requirements
 ### Requirement: Work page route
 
