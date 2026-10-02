@@ -2,17 +2,21 @@
 
 **Status:** Locked
 **Schema Version:** 2.1
-**Last Updated:** 2026-08-08
+**Last Updated:** 2026-10-03
 
 > **This file is a mirror. Do not edit it directly.**
 > The canonical copy is `docs/contracts/hosted-backup-contract.md` in the
 > [`endstate`](https://github.com/Artexis10/endstate) engine repository. Change
 > that file first, then copy it here verbatim in the same change. This copy has
-> drifted twice — it sat at Schema 1.0 while this repository's code declared 2.0,
-> and a later parallel edit produced two self-consistent 2.1 documents that
-> disagreed on wire shapes. Editing here instead of there is how that happens.
+> drifted three times — it sat at Schema 1.0 while this repository's code declared 2.0,
+> a parallel edit produced two self-consistent 2.1 documents that disagreed on wire
+> shapes, and server-side changes landed here without reaching the canonical copy.
+> Editing here instead of there is how that happens.
+>
+> Check for drift (prints nothing when in sync):
+> `diff <(sed 7,18d hosted-backup-contract.md) <(gh api repos/Artexis10/endstate/contents/docs/contracts/hosted-backup-contract.md -H 'Accept: application/vnd.github.raw')`
 
-This document specifies Endstate Hosted Backup — the optional paid tier, publicly named Endstate Cloud, that allows users to upload encrypted profile backups to Endstate-operated infrastructure and restore them on any machine.
+This document is the canonical specification for Endstate Hosted Backup — the optional paid tier, publicly named Endstate Cloud, that allows users to upload encrypted profile backups to Endstate-operated infrastructure and restore Endstate-managed applications and supported non-secret settings on another supported Windows PC.
 
 This contract is referenced by three repositories:
 
@@ -338,7 +342,7 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 
 ### Account endpoints
 
-- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt, plan, currentPeriodEnd, gracePeriodEndsAt, retentionEndsAt, paddleSubscriptionId, paddleCustomerId }` — bearer-authenticated. `retentionEndsAt` is the authoritative final managed-data deletion deadline during grace or cancellation; clients MUST display it rather than inferring a date from the billing period.
+- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt, plan, currentPeriodEnd, scheduledCancelAt, gracePeriodEndsAt, retentionEndsAt, paddleSubscriptionId, paddleCustomerId, lastBackupAt, quotaUsedBytes, quotaTotalBytes, versionCount }` — bearer-authenticated. Date fields are ISO-8601 strings or `null`. `retentionEndsAt` is the authoritative final managed-data deletion deadline during grace or cancellation; clients MUST display it rather than inferring a date from the billing period. `lastBackupAt` is the newest visible version's `createdAt`; `quotaUsedBytes` and `versionCount` cover visible (published) versions only (plus the temporary Release-A bridge history, §8), and `quotaTotalBytes` is the limit the server enforces (§8).
 - `DELETE /api/account` → bearer-authenticated; triggers GDPR deletion (Section 12).
 - `POST /api/account/web-delete` → **cookie-authenticated** sibling of `DELETE /api/account` for the `/account` web page. Same cascade as the bearer-auth variant; invalidates the account session cookie on completion. The dual surface (bearer + cookie) is deliberate: the engine's bearer flow stays unchanged, and the cookie-auth path serves the in-browser surface without dual-auth on the canonical route.
 - `POST /api/account/session/logout` → cookie-authenticated. Invalidates the account session row, clears the cookie, 204.
@@ -376,43 +380,59 @@ server MUST return them so a replay is distinguishable from a first commit.
 write, not a management operation, so it is gated exactly like version creation
 and is NOT covered by the delete/rename read-access exemption in §10.
 
-Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and it is the only signal the server has to that effect. New engines MUST carry a stable operation identity in `X-Endstate-Operation-ID`; the additive body `operationId` is accepted for older callers, but the two values must match when both are present. When discovery advertises `version-create-operation-replay-v1`, a replay with the same principal, backup, operation ID, and identical payload returns the original pending version with fresh checksum- and metadata-bound staging URLs. Before minting them, the server atomically places a replay fence for their full validity window; GC cannot claim the generation while that fence is active. A replay after commit returns HTTP 200 with that `versionId`, `alreadyCommitted: true`, and an empty `uploadUrls` list. A changed payload returns 409 and leaves the stored version untouched. The operation's immutable payload binding and terminal state survive retention soft- and hard-deletion, so delayed replays cannot create a new generation or bypass mismatch validation. While GC owns the pending version through `gc_reclaim_token`, lookup, publication, and URL minting return a retryable failure and produce no URLs.
+Creating a version and uploading its blobs are not the same event. `POST .../versions` mints the row and the presigned URLs; the client then PUTs the encrypted manifest and every chunk directly to object storage, which the server does not observe. The commit call is the client telling the server "every blob for this version is durably stored" — and for a client that can commit it is the only signal the server has to that effect (older callers are verified by server-side reconciliation instead). New engines MUST carry a stable operation identity in `X-Endstate-Operation-ID`; the additive body field `operationId` is accepted for older callers, but the two values must match when both are present (otherwise 400). When discovery advertises `version-create-operation-replay-v1` (§9), a replay with the same principal, backup, operation ID and identical payload returns the original pending version with fresh staging URLs. Before minting them, the server atomically places a replay fence covering their full validity window; GC cannot claim the generation while that fence is active. A replay after commit returns HTTP 200 with that `versionId`, `alreadyCommitted: true`, and an empty `uploadUrls` list. A changed payload returns 409 `OPERATION_PAYLOAD_MISMATCH` and leaves the stored version untouched. The operation's immutable payload binding and terminal state survive retention soft- and hard-deletion, so delayed replays cannot create a new generation or bypass mismatch validation. While GC owns the pending version, or a concurrent replay holds the fence, lookup, publication and URL minting return a retryable 503 (`VERSION_RECLAIM_IN_PROGRESS` / `VERSION_REPLAY_IN_PROGRESS`) and produce no URLs.
 
 The server sets `committed_at` and only then applies retention (§8). The endpoint is **idempotent**: committing an already-committed version returns 200 and changes nothing, so a client that retries after an ambiguous network result is safe.
 
-For a create response with `requiresCommit: true`, upload URLs are single-use
-publication staging URLs. The engine sends `If-None-Match: *`, the base64
-SHA-256 ciphertext checksum, and immutable `x-amz-meta-endstate-sha256` metadata
-for every PUT; the server signs all three. Commit compares the exact length and
-signed metadata hash with the manifest/chunk metadata. If R2 also returns a
-checksum from `HeadObject`, a mismatch is fatal, but its absence is not relied
-upon for compatibility. That makes a 412 after a lost 2xx safe to treat as the
-already-uploaded object, while preventing a retry from overwriting a key. A replay
-after the version is committed returns the terminal replay response and never mints further PUT URLs.
-Older compatibility uploads retain unsigned, checksum-free staging URLs because
-their shipped engines do not send those headers; their bounded reconciliation
-remains size-based.
+For a create issued by a 2.1+ client, upload URLs are single-use publication staging URLs. The engine sends `If-None-Match: *`, the base64 SHA-256 ciphertext checksum, and immutable `x-amz-meta-endstate-sha256` metadata for every PUT; the server signs all three. Commit compares the exact length and signed metadata hash with the manifest/chunk metadata. If R2 also returns a checksum from `HeadObject`, a mismatch is fatal, but its absence is not relied upon for compatibility. That makes a 412 after a lost 2xx safe to treat as the already-uploaded object, while preventing a retry from overwriting a key. A replay after the version is committed returns the terminal replay response and never mints further PUT URLs. URLs issued to older callers (header absent, malformed or `2.0`) are unsigned and checksum-free because their shipped engines do not send those headers; their bounded reconciliation remains size-based.
 
-**Client-version negotiation.** Every new version starts pending, regardless of
-the `X-Endstate-API-Version` value on the request that created it. The header
-only decides who completes publication:
+**Client-version negotiation.** Every new version starts pending, regardless of the `X-Endstate-API-Version` value on the request that created it. The header only decides who completes publication:
 
 | Client minor                | Behaviour                                                                                                                                                                    |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `2.0`, absent, or malformed | The server's bounded reconciliation path HEAD-checks every expected encrypted object and length before publication.                                                          |
 | `2.1` or newer              | The client calls the explicit commit endpoint; the server HEAD-checks every expected encrypted object, exact length, and signed ciphertext-hash metadata before publication. |
 
-New clients MUST send `X-Endstate-API-Version` and call commit. Older callers
-remain compatible but cannot make an unverified generation visible.
+New clients MUST send `X-Endstate-API-Version` on every request; the header is no longer response-only. On create-version, a syntactically valid major other than `2` is rejected with 400 before any row is created. Older callers remain compatible but cannot make an unverified generation visible.
 
-**Backwards compatibility.** `requiresCommit` is the create response's
-durability contract. When it is `true`, the client MUST call commit and treat
-**every** non-2xx result, including 404, as non-durable. A 2.0 server omits
-the field (or returns `false`); the client then skips commit entirely and uses
-the older create-is-durable behaviour. A 2.1 client MUST NOT probe a 2.0
-commit endpoint and reinterpret its 404 as success.
+During the compatibility window, a backend MAY continue returning response
+schema version `2.0` while accepting a `2.1` request and advertising the
+additive `requiresCommit` field. The response version is not a durability
+signal: `requiresCommit: true` still requires a successful commit, including
+when the response header says `2.0`; only an absent or `false` field selects
+the legacy create-is-durable path. Older clients must not be rejected after a
+successful mutation solely because of that response version.
 
-**Uncommitted versions.** A version created by a 2.1 client that is never committed is reclaimed by the same scheduled cleanup job that handles retention (§8). Until then it is invisible to every user-facing surface.
+**Backwards compatibility.** A 2.0 server omits `requiresCommit` (or returns
+`false`) from create-version; the client then retains create-is-durable
+behaviour and does not call this route. When create-version returned
+`requiresCommit: true`, every non-2xx commit result — including 404,
+authorization rejection, timeout, or cancellation — means the generation is
+NOT durable and the client MUST NOT report it as protected.
+
+**Operation IDs and retries.** Every retry-safe mutating request carries one
+`X-Endstate-Operation-ID` value for all attempts. Servers MUST deduplicate a
+replay by that value. Clients MUST NOT retry a mutating POST unless the endpoint
+is idempotent or the caller explicitly marks it safe to replay; commit is
+idempotent, while create-version is replay-safe only when the server honors the
+operation ID.
+
+`endstate_extensions.backup_api_capabilities` MAY advertise
+`"version-create-operation-replay-v1"`. Only that exact token authorizes a
+client to retry `POST /api/backups/:backupId/versions` with a stable
+`X-Endstate-Operation-ID`; absent, malformed, or unknown capability data keeps
+create-version one-shot. A replay with the same operation ID and identical
+request returns the original version; a replay after that version is committed
+returns `{ versionId, alreadyCommitted: true, uploadUrls: [] }`. This is
+additive and independent of the response schema version: a negotiated `2.0`
+response remains valid for legacy clients and does not require a flag day.
+
+Scheduled clients MUST persist an already resolved `backupId` before using this
+replay protocol. `POST /api/backups` is not covered by the capability; when no
+existing backup ID is available, a scheduler MUST NOT automatically repeat an
+ambiguous backup-row creation.
+
+**Uncommitted versions.** A version that is never published (never committed by a 2.1+ client, or never verified by reconciliation for an older one) is reclaimed by the same scheduled cleanup job that handles retention (§8). Until then it is invisible to every user-facing surface.
 
 ### Blob storage endpoints
 
@@ -468,30 +488,53 @@ Uploads/downloads chunks directly to R2 via presigned URLs. Verifies SHA-256 of 
 
 The manifest check exists for the same reason as the chunk check: without it the manifest's only integrity protection is its AEAD tag, which is evaluated after the bytes are already in the decrypt path. When the server does not advertise a `manifestSha256` for a version, the check is skipped — the gate hardens the transport where the value exists and never blocks restore against a backend that omits it.
 
-After the last blob is stored, the client commits the version (§7). That call is what makes the generation durable.
+Before replacing an existing local restore target, the client extracts the fully
+verified generation into a sibling staging directory. Replacement is serialized
+per target and recorded in a sibling journal before the old tree is renamed
+aside. On restart, the journal restores the old tree when the target is absent,
+or retains the new target and removes the old tree when both exist. Journal
+paths are restricted to validated siblings of the target; links, special tar
+entries, and traversal paths are rejected before any local write.
+
+After the last blob is stored, a client whose create response has
+`requiresCommit: true` commits the version (§7). That call is what makes that
+generation durable. An absent or `false` field selects the documented legacy
+create-is-durable bridge; the client must not infer either behaviour from the
+response schema header alone.
+
+For an explicit-commit (`requiresCommit: true`) create response, every
+presigned manifest and chunk PUT carries `If-None-Match: *`, the base64
+SHA-256 ciphertext value in `x-amz-checksum-sha256`, and the same lowercase
+hex digest in signed `x-amz-meta-endstate-sha256`. The presigned URL MUST
+bind and verify both checksum headers. A 412 on a later fully-bound create-only
+retry therefore means the exact ciphertext was already stored by the client's
+ambiguous earlier attempt and may be treated as stored; a 412 without that
+binding is a failure. Legacy create-is-durable responses send neither header
+and retain their established 412 failure behaviour for self-host and older
+server compatibility.
 
 ### Versioning model (v1)
 
 **Whole-snapshot versioning.** Each `POST /api/backups/:backupId/versions` creates a complete new copy of the backup. No chunk-level deduplication across versions. Storage cost grows linearly with version count. This is a deliberate v1 simplification; content-addressed deduplication is a possible v2 optimisation if real usage demands it.
 
-**A version is durable only once committed (schema 2.1).** Creating a version is not the durability point — it mints a row and a set of presigned URLs, nothing more. The blobs travel client→R2 over paths the server never sees, so the server cannot know a version is complete until the client says so via `POST .../versions/:versionId/commit` (§7).
+**A version is durable only once committed (schema 2.1).** Creating a version is not the durability point — it mints a row and a set of presigned URLs, nothing more. The blobs travel client→R2 over paths the server never sees, so the server cannot know a version is complete until the client says so via `POST .../versions/:versionId/commit` (§7) or, for older callers that cannot commit, until the server's own reconciliation has verified every object in R2.
 
-For a version created by a 2.1 client, the server therefore treats `committed_at IS NULL` as "does not exist yet":
+For every version on a current backend, the server treats pending state as "does not exist yet":
 
-| Surface                                                                | Uncommitted version                             |
-| ---------------------------------------------------------------------- | ----------------------------------------------- |
-| `GET /api/backups/:backupId/versions`                                  | Not listed                                      |
-| `latestVersionId` / `versionCount` / `totalSize` on `GET /api/backups` | Not counted                                     |
-| Storage quota                                                          | Not counted                                     |
-| Restore target selection                                               | Never selected                                  |
-| Retention pruning                                                      | Does not trigger it, and is not protected by it |
+| Surface                                                                | Uncommitted version                                                 |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `GET /api/backups/:backupId/versions`                                  | Not listed                                                          |
+| `latestVersionId` / `versionCount` / `totalSize` on `GET /api/backups` | Not counted                                                         |
+| Storage quota                                                          | Reserved by the create-time quota check; not shown in visible usage |
+| Restore target selection                                               | Never selected                                                      |
+| Retention pruning                                                      | Does not trigger it, and is not protected by it                     |
 
 This closes a real failure mode. Before 2.1, a push that died between "create version" and "last chunk uploaded" left a row the server considered real: it was listed, it consumed quota, it pruned the oldest good generation out of retention, and a subsequent restore could select it as "latest" and fail — or worse, restore a truncated profile. The commit call moves the durability boundary to the only point at which the data is actually complete.
 
-Versions created by every client begin pending. The server distinguishes an
-explicit 2.1+ commit from bounded legacy reconciliation by the client's
-advertised `X-Endstate-API-Version` minor (§7); neither path publishes before
-the expected encrypted objects and lengths have been verified.
+Only a genuinely old 2.0 server retains create-is-durable behaviour. A current
+backend reconciles legacy/no-header clients after complete object verification;
+the server distinguishes explicit 2.1 commit from that reconciliation by the
+client's advertised `X-Endstate-API-Version` minor (§7).
 
 **Release-A migration bridge.** Migration 0040 records one database policy
 row with a `legacy_cutoff` timestamp and `strict_generation_visibility=false`.
@@ -511,7 +554,7 @@ cutover, a pre-bridge application release must not be restored.
 ### Versioning policy
 
 - **Last 5 versions per backup retained.** Configurable per backup via metadata (future).
-- **Retention prunes at commit, not at create.** The retention sweep for a backup runs as part of committing a new version, so the count of retained generations only ever changes when a complete, durable generation exists to replace an older one. A failed upload can no longer evict a good generation. (Under schema 2.0 semantics, where create is the durability point, pruning happens at create as before.)
+- **Retention prunes only after durable publication.** The retention sweep runs after explicit commit or legacy reconciliation, so the count of retained generations changes only when a complete, durable generation exists to replace an older one. A failed upload cannot evict a good generation.
 - Older versions are garbage-collected by a scheduled substrate cron job.
 - Garbage collection is "soft" for 7 days — version row marked `deleted_at`, blobs purged from R2 after the 7-day window — to allow for accidental-deletion recovery.
 - Uncommitted versions are reclaimed by the same cron job. They were never visible, so there is no soft-delete window for them.
@@ -519,16 +562,9 @@ cutover, a pre-bridge application release must not be restored.
 
 ### Storage quota (v1)
 
-**1 GiB per active subscriber.** Enforced server-side at version creation.
-Reservation counts every non-deleted generation, including pending uploads, so
-repeated abandoned creates cannot bypass quota. The account UI reports only
-visible, published usage (plus the temporary Release-A bridge history). Quota
-exceeded → version creation fails with `STORAGE_QUOTA_EXCEEDED`. Calibrated
-against realistic profile sizes (apps + configs typically <200 MB); intended
-as a backstop against pathological cases, not a feature limit. May be raised
-post-launch based on real usage data.
+**1 GiB per active subscriber.** Enforced server-side at version creation. Reservation counts every non-deleted generation, including pending uploads (quarantined historical rows excepted), so repeated abandoned creates cannot bypass quota. The account UI and `GET /api/account/me` report only visible, published usage (plus the temporary Release-A bridge history). Quota exceeded → version creation fails with `STORAGE_QUOTA_EXCEEDED`. Calibrated against realistic profile sizes (apps + configs typically <200 MB); intended as a backstop against pathological cases, not a feature limit. May be raised post-launch based on real usage data.
 
-Because the quota check runs at create time and uncommitted versions do not count, a pathological client that creates versions it never commits is bounded by the cleanup job's cadence, not by the quota. Rate limiting at the substrate edge is the control for that case.
+Because the quota check runs at create time and pending versions count toward it, a pathological client that creates versions it never commits is bounded by the quota: abandoned creates keep holding quota until the cleanup job reclaims them (stale uncommitted versions are reclaimed after 6 hours). Rate limiting at the substrate edge covers create churn within that bound.
 
 ### Why client uses presigned URLs (not direct R2 credentials)
 
@@ -549,6 +585,16 @@ The substrate backend exposes standard OIDC discovery endpoints. Self-hosters ru
 
 The engine fetches `${ENDSTATE_OIDC_ISSUER_URL}/.well-known/openid-configuration` on startup, caches it for 1 hour, and uses the discovered endpoints for auth and JWKS validation.
 
+### Redirect safety
+
+The engine MAY follow an HTTP redirect only when the redirect target has the
+same scheme, hostname, and effective port as the original request. It SHALL
+reject cross-origin redirects, including HTTPS-to-HTTP downgrades, before it
+replays a request body or credentials. This restriction applies to the default
+backup API and OIDC discovery/JWKS HTTP clients. It does not constrain a
+self-hoster from advertising a different direct endpoint URL such as
+`backup_api_base`; that URL is an explicit contract value, not a redirect.
+
 ### Required OIDC discovery fields
 
 ```json
@@ -566,21 +612,39 @@ The engine fetches `${ENDSTATE_OIDC_ISSUER_URL}/.well-known/openid-configuration
     "account_portal_url": "https://substratesystems.io/account/start",
     "supported_kdf_algorithms": ["argon2id"],
     "supported_envelope_versions": [1],
-    "min_kdf_params": { "memory": 65536, "iterations": 3, "parallelism": 4 },
-    "backup_api_capabilities": ["version-create-operation-replay-v1"]
+    "min_kdf_params": { "memory": 65536, "iterations": 3, "parallelism": 4 }
   }
 }
 ```
 
 `account_portal_url` is optional. When absent, the engine and substrate both fall back to `${issuer}/account/start`. Self-hosters who relocate the portal (e.g. behind a separate hostname) populate this field; like `/api/account/*` and `/api/billing/*`, the portal lives off the issuer host, not under `backup_api_base`.
 
-`backup_api_capabilities` is optional and omitted by default. The managed rollout advertises `version-create-operation-replay-v1` only when `ENDSTATE_VERSION_CREATE_OPERATION_REPLAY_V1=true`; engines must use the terminal create-replay response only after observing that capability. Servers may support the same additive capability under their own explicit rollout control.
+### Create-version replay capability
+
+`endstate_extensions.backup_api_capabilities` is optional. Only its exact
+`version-create-operation-replay-v1` token authorizes an engine to send a
+caller-owned `X-Endstate-Operation-ID` and retry the same create-version body.
+Missing, malformed, or unknown values remain legacy one-shot creates. A replay
+may return `{ "versionId": "...", "alreadyCommitted": true, "uploadUrls": [] }`;
+that is terminal and the engine sends no object PUTs. The managed service advertises
+the capability only when `ENDSTATE_VERSION_CREATE_OPERATION_REPLAY_V1=true`; a
+self-hosted server may support the same additive capability under its own explicit
+rollout control.
+
+Automatic scheduled delivery persists an existing `backupId`, operation ID and
+the encrypted create payload before the first create POST. If that capability
+is absent it records legacy create-started before the POST and never repeats an
+ambiguous request; definite pre-mutation failures such as subscription denial
+clear that marker. A first scheduled backup never calls `POST /api/backups`:
+the user must save the first version manually, yielding `BACKUP_SETUP_REQUIRED`.
+An ambiguous legacy create yields `BACKUP_UPLOAD_UNCERTAIN` / scheduled outcome
+`upload_uncertain`; the queue remains truthful and automatic retry is suppressed.
 
 The `endstate_extensions` block is non-standard but namespaced. Anyone implementing a self-host backend implements these extension fields. The engine refuses to talk to a backend that does not advertise them or advertises incompatible KDF / envelope minimums.
 
 ### `backup_api_base` is the source of truth for backup endpoint paths
 
-The engine consumes `endstate_extensions.backup_api_base` as the prefix for all `/api/backups/*` calls. Self-hosters who relocate the backup API (e.g., `https://files.example.com/v1/backups`) must populate this field accordingly; the engine honors it verbatim. The field is REQUIRED — `validateDocument` rejects an empty value as `BACKEND_INCOMPATIBLE`, surfacing the misconfiguration loudly rather than silently working off the issuer-based fallback. The fallback path (`${issuer}/api/backups`) only activates when discovery itself fails (transport error, JSON parse error, full outage), preserving the engine's ability to make best-effort calls when the discovery doc is unreachable.
+The engine consumes `endstate_extensions.backup_api_base` as the prefix for all `/api/backups/*` calls. Self-hosters who relocate the backup API (e.g., `https://files.example.com/v1/backups`) must populate this field accordingly; the engine honors it verbatim. The field is REQUIRED — `validateDocument` rejects an empty value as `BACKEND_INCOMPATIBLE`, surfacing the misconfiguration loudly rather than silently working off the issuer-based fallback. Issuer mismatch and every required-field or security-floor validation failure also return `BACKEND_INCOMPATIBLE` before any storage request. The fallback path (`${issuer}/api/backups`) is permitted only after this process has successfully cached a validated discovery document for the configured issuer and a later discovery transport failure occurs; cold-start discovery failures return `BACKEND_UNREACHABLE` without a storage request.
 
 `/api/account/*` and `/api/.well-known/*` are NOT under `backup_api_base` — they live off the issuer host. Self-hosters who fork these need to also place them there.
 
@@ -693,17 +757,17 @@ Three independent version axes, with explicit compatibility checks at every boun
 
 ### Compatibility check at each boundary
 
-1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. This compatibility release emits `X-Endstate-API-Version: 2.0` on every response, because released 2.0 engines reject a newer response schema after mutation. The backend still reads an incoming `2.1` header to select explicit commit; absent, malformed, and 2.0 callers use bounded reconciliation. The response-header bump is deferred until 2.0 clients are retired. Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
+1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. The engine includes `X-Endstate-API-Version` on every request, while this bridge release returns `X-Endstate-API-Version: 2.0` on every response. Request version and the advertised replay capability control behavior: the backend reads an incoming `2.1` header to select explicit commit, while absent, malformed, and `2.0` callers use bounded reconciliation; no response-header bump occurs until old-engine retirement (§7, §8). Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
 
    **Minor-version behaviour is asymmetric and deliberate:**
 
-   | Engine | Backend | Reads                   | Writes                                                                                       |
-   | ------ | ------- | ----------------------- | -------------------------------------------------------------------------------------------- |
-   | 2.1    | 2.1     | Allowed                 | Allowed; commit required for durability                                                      |
-   | 2.1    | 2.0     | Allowed                 | Allowed; create omits or returns `requiresCommit: false`, so the engine does not call commit |
-   | 2.0    | 2.1     | Allowed, warned in logs | **Blocked** with `SCHEMA_INCOMPATIBLE`                                                       |
+   | Engine | Backend | Reads                   | Writes                                                                                                                                  |
+   | ------ | ------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+   | 2.1    | 2.1     | Allowed                 | Allowed; commit required for durability                                                                                                 |
+   | 2.1    | 2.0     | Allowed                 | Allowed only for a genuinely old server that omits `requiresCommit`; the engine retains its legacy create-is-durable compatibility path |
+   | 2.0    | 2.1     | Allowed, warned in logs | **Blocked** with `SCHEMA_INCOMPATIBLE`                                                                                                  |
 
-   The 2.0-engine/2.1-backend write block is the pre-existing "higher backend minor blocks writes, warns on reads" rule, and it is exactly right here: a 2.0 engine cannot commit, so its writes would be silently non-durable under 2.1 rules. The backend's per-client negotiation makes that case impossible in practice for backends that honour the advertised client minor, but the engine-side block is retained as defence in depth.
+   The 2.0-engine/2.1-backend write block is the pre-existing "higher backend minor blocks writes, warns on reads" rule. Current backends reconcile legacy writes only after complete object verification; the engine-side block remains defence in depth for engines that cannot participate in explicit commit.
 
 2. **GUI ↔ Engine.** Existing pattern — `endstate capabilities --json` includes `cliVersion` and `schemaVersion`. GUI checks compatibility on startup. Hosted-backup commands gated behind `engineVersion >= 2.0.0` (the version that introduces the `backup` subcommand).
 
@@ -782,7 +846,6 @@ A schema bump triggers the breaking-change protocol from Section 11.
 ### Endstate documents
 
 - `PRINCIPLES.md` — the seven public commitments
-- `docs/ai/PROJECT_SHADOW.md` — architectural truth
 - `docs/contracts/cli-json-contract.md` — error envelope conventions
 - `docs/contracts/event-contract.md` — event ordering and JSONL format
 - `docs/contracts/profile-contract.md` — profile manifest validity rules
@@ -809,12 +872,13 @@ A schema bump triggers the breaking-change protocol from Section 11.
 
 ## Changelog
 
+- **2026-10-03 — documentation reconciliation** (no wire change; Schema Version stays `2.1`). The canonical file and the substrate mirror had drifted; both were checked against the server and engine code and merged. Added or corrected: full `GET /api/account/me` response shape including `retentionEndsAt`; create-version `operationId` / `alreadyCommitted` and the replay, fence and error semantics (§7); server-side staging-URL signing and the 2.0/absent/malformed vs 2.1+ negotiation table (§7); every-version-starts-pending in §8, the Release-A migration bridge, and quota reservation counting pending generations; the replay-capability rollout flag (§9).
 - **2026-08-08 — v2.1** (additive; minor bump).
   - **§7 API surface.** New endpoint `POST /api/backups/:backupId/versions/:versionId/commit`. Idempotent; sets `committed_at` only after R2 verifies the manifest and all expected chunks. Every new generation begins pending; `X-Endstate-API-Version` selects explicit client commit (2.1+) or bounded server reconciliation (older callers). `X-Endstate-Operation-ID` is the stable create-retry identity. `X-Endstate-API-Version` is now a request header as well as a response header.
-  - **§8 versioning model.** A version created by a 2.1 client is durable only once committed: until then it is not listed, not counted against quota or `versionCount`/`totalSize`, and never selected as a restore target. Retention prunes at commit rather than at create, so a failed upload can no longer evict a good generation. Uncommitted versions are reclaimed by the existing cleanup job.
+  - **§8 versioning model.** A generation is durable only once published (explicit commit, or verified reconciliation for older callers): until then it is not listed, not shown in visible usage or `versionCount`/`totalSize`, and never selected as a restore target (it still reserves quota, §8). Retention prunes only after durable publication, so a failed upload can no longer evict a good generation. Uncommitted versions are reclaimed by the existing cleanup job.
   - **§8 client responsibilities.** The encrypted manifest blob is verified against the API-supplied `manifestSha256` before decryption, mirroring the existing per-chunk gate. A missing `manifestSha256` skips the check rather than failing the restore.
   - **§10 grace and retention.** Both the payment-failure grace window and the post-cancellation retention window are stated normatively as **30 days**, with the purge timeline spelled out step by step. The document already specified 30 days; substrate's implementation used 14 for grace and is being corrected to match this contract. The contract is the source of truth for the value.
-  - **§11 compatibility.** Contract additions are 2.1-capable, but this release keeps `X-Endstate-API-Version: 2.0` on every response until released 2.0 engines are retired. Incoming 2.1 still selects explicit commit. The engine/backend minor matrix is stated explicitly, including the required graceful degradation of a 2.1 engine against a 2.0 backend.
+  - **§11 compatibility.** Contract version `2.1`; commit-aware engines send the request header `X-Endstate-API-Version: 2.1`, while this compatibility bridge deliberately keeps response headers at `2.0` until released 2.0 engines (which reject a newer response schema after mutation) are retired. Incoming `2.1` selects explicit commit. The engine/backend matrix and the server reconciliation path are stated explicitly, including graceful degradation of a 2.1 engine against a genuinely old 2.0 backend.
   - Additive per §13 (new endpoint, negotiated per client) — no major bump, no 90-day overlap window required.
 - **2026-05-27 — additive.**
   - **§4 JWT format.** New audience `endstate-account` for the GUI→web `/account` portal handoff. 60-second TTL, single-use via `jti` burn at redeem. Reuses the existing EdDSA signing infrastructure.
