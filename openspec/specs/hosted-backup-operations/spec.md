@@ -1,7 +1,7 @@
 # hosted-backup-operations Specification
 
 ## Purpose
-TBD - created by archiving change harden-hosted-backup-operations. Update Purpose after archive.
+Keep Hosted Backup storage and credentials healthy in operation: scheduled jobs, atomic purge queueing for hard deletes, garbage collection of soft-deleted versions and abandoned uploads, and rate limits on credential endpoints.
 ## Requirements
 ### Requirement: Scheduled cron execution
 

@@ -1,7 +1,7 @@
 # blog-route Specification
 
 ## Purpose
-TBD - created by archiving change substrate-blog-route. Update Purpose after archive.
+Serve first-party blog posts at stable slug routes, statically generated from frontmatter-driven Markdown with code blocks and heading anchors, returning 404 for unknown slugs.
 ## Requirements
 ### Requirement: Blog post route path
 

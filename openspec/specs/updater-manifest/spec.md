@@ -1,7 +1,7 @@
 # updater-manifest Specification
 
 ## Purpose
-TBD - created by archiving change add-updater-manifest-endpoint. Update Purpose after archive.
+Serve the Tauri updater manifest at `/updates/latest.json` by proxying the upstream manifest unchanged, with edge caching and defined handling and logging for upstream failures.
 ## Requirements
 ### Requirement: Manifest endpoint path and method
 The system SHALL expose the Tauri updater manifest at the URL path `/updates/latest.json` via an HTTP GET request.

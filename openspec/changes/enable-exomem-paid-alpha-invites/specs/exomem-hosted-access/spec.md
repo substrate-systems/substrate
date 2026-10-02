@@ -1,5 +1,4 @@
 ## MODIFIED Requirements
-
 ### Requirement: Exomem access is invite only during alpha
 
 The system SHALL allow only an authenticated operator to create an Exomem alpha
@@ -34,7 +33,9 @@ public self-serve admission endpoint MUST remain unavailable.
 - **WHEN** a caller without operator authority invokes the invite creation boundary
 - **THEN** the system rejects the request without revealing invite, capacity, or account state
 
-### Requirement: Invite redemption is email bound, atomic, and idempotent
+## ADDED Requirements
+
+### Requirement: Complimentary and paid invite redemption is email bound, atomic, and idempotent
 
 Redeeming a valid invite SHALL atomically consume that invite, resolve or create the
 shared identity for its bound email, resolve or create exactly one Exomem tenant
@@ -75,3 +76,11 @@ tenant, plan, catalog item, or provider environment during redemption.
 - **WHEN** a redemption request includes an email different from the invite's bound email
 - **THEN** the supplied email is ignored or rejected
 - **AND** no identity or tenant is created for the supplied address
+
+## REMOVED Requirements
+
+### Requirement: Invite redemption is email bound, atomic, and idempotent
+
+**Reason**: Split by billing path: the single new-invitee scenario becomes separate complimentary and paid redemption scenarios, and paid redemption now defers provisioning until payment.
+
+**Migration**: Replaced by "Complimentary and paid invite redemption is email bound, atomic, and idempotent" in this change.

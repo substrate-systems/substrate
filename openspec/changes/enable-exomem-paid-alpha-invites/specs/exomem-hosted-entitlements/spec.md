@@ -1,6 +1,6 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: The server selects Paddle catalog items
+### Requirement: The server selects Paddle catalog items for private-alpha checkout
 
 Creating an Exomem checkout SHALL reuse the server-configured active Exomem product
 and price identifiers for an authenticated paid operator invitee. The authenticated
@@ -64,7 +64,7 @@ and URL match.
 - **AND** provisioning is released only by the same authoritative activation projection used for a verified webhook or reconciliation observation
 - **AND** the terminal return remains recoverable after the active checkout catalog, browser token, or public return origin rotates away
 
-### Requirement: Paddle webhooks project Exomem state idempotently
+### Requirement: Paddle webhooks project paid Exomem subscriptions idempotently
 
 The shared Paddle webhook SHALL verify the signature before dispatch, identify
 Exomem events through trusted catalog and custom metadata, store event identity
@@ -112,3 +112,17 @@ checkout is disabled. Existing Endstate event behavior MUST be preserved.
 
 - **WHEN** a verified webhook belongs to the existing Endstate catalog
 - **THEN** it follows the existing Endstate handler and does not create or mutate an Exomem entitlement, allocation, or lifecycle operation
+
+## REMOVED Requirements
+
+### Requirement: The server selects Paddle catalog items
+
+**Reason**: Checkout is now started by an awaiting-payment private-alpha owner and can be disabled; the generic owner-starts-checkout scenario is replaced.
+
+**Migration**: Replaced by "The server selects Paddle catalog items for private-alpha checkout" in this change.
+
+### Requirement: Paddle webhooks project Exomem state idempotently
+
+**Reason**: The first-event scenario is replaced by explicit created/activated ordering and by refusing an activation that lacks its reservation or live target.
+
+**Migration**: Replaced by "Paddle webhooks project paid Exomem subscriptions idempotently" in this change.
