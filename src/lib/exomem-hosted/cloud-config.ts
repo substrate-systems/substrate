@@ -7,6 +7,8 @@
  * no side effects and touches no existing hosted table or function.
  */
 
+import { createPrivateKey, type KeyObject } from "node:crypto";
+
 export type EnvironmentSource = Record<string, string | undefined>;
 
 /** Design D4's cancelled-tenant export window, `EXOMEM_CLOUD_CANCELLED_RETENTION_DAYS`. */
@@ -32,7 +34,12 @@ export type ExomemCloudResource = Readonly<{
   mcpPath: string;
 }>;
 
-export type ExomemCloudConfig = ExomemCloudResource & Readonly<{ cellTokenKey: Buffer }>;
+export type ExomemCloudConfig = ExomemCloudResource &
+  Readonly<{
+    cellTokenKey: Buffer;
+    artifactSigningKey?: KeyObject;
+    artifactCells?: ReadonlySet<string>;
+  }>;
 
 function requiredValue(env: EnvironmentSource, name: string, missing: string[]): string {
   const value = env[name]?.trim();
@@ -83,7 +90,35 @@ export function loadExomemCloudConfig(env: EnvironmentSource = process.env): Exo
   }
   const cellTokenKey = Buffer.from(rawKey, "hex");
 
-  return { mcpUrl, mcpPath, cellTokenKey };
+  const transport = env.EXOMEM_CLOUD_ARTIFACT_TRANSPORT_ENABLED?.trim().toLowerCase();
+  if (transport !== "1" && transport !== "true") return { mcpUrl, mcpPath, cellTokenKey };
+  let cells: unknown;
+  try {
+    cells = JSON.parse(env.EXOMEM_CLOUD_ARTIFACT_CELL_IDS ?? "");
+  } catch {
+    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_CELL_IDS"]);
+  }
+  if (
+    !Array.isArray(cells) ||
+    cells.length > 1024 ||
+    cells.some((cell) => typeof cell !== "string" || !/^[a-z2-7]{16}$/.test(cell))
+  ) {
+    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_CELL_IDS"]);
+  }
+  try {
+    const artifactSigningKey = createPrivateKey(env.EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY ?? "");
+    if (artifactSigningKey.asymmetricKeyType !== "ed25519") throw new Error();
+    return {
+      mcpUrl,
+      mcpPath,
+      cellTokenKey,
+      artifactSigningKey,
+      artifactCells: new Set(cells as string[]),
+    };
+  } catch {
+    // Key parser errors may echo supplied material; keep startup failures value-free.
+    throw new ExomemCloudConfigurationError(["EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY"]);
+  }
 }
 
 /**

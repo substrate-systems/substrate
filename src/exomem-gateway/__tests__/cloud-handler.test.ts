@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, verify } from "node:crypto";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { beforeEach, describe, it, mock } from "node:test";
 import { deriveCloudCellBearer } from "../../lib/exomem-hosted/cloud-cell-bearer";
-import type { ExomemCloudConfig } from "../../lib/exomem-hosted/cloud-config";
+import {
+  loadExomemCloudConfig,
+  type ExomemCloudConfig,
+} from "../../lib/exomem-hosted/cloud-config";
 import type { ActiveCloudOAuthAccessToken } from "../../lib/exomem-hosted/cloud-oauth";
 import {
   buildCloudProtectedResourceMetadata,
@@ -746,6 +750,281 @@ describe("Exomem Cloud gateway handler", () => {
         await cell.close();
       }
     });
+  });
+});
+
+describe("Cloud artifact fetch authority", () => {
+  beforeEach(() => resetCloudGatewayConcurrencyForTests());
+  it("binds a signed grant to the authenticated cell and exact files, preserving the MCP body", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const file = {
+      file_id: " \u0085synthetic-file\u001c ",
+      download_url: "https://files.example.test/proof?handle=synthetic",
+      file_name: "proof.bin",
+      client_only_metadata: "ignored by the public file schema",
+    };
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "preserve_artifacts",
+        arguments: { scope: "sample", category: "review", files: [file] },
+      },
+    });
+    let forwarded: RequestInit | undefined;
+    const response = await handleCloudMcpRequest(
+      postRequest({ bearer: CLIENT_BEARER, body, headers: { "content-type": "application/json" } }),
+      baseDeps({
+        config: {
+          ...TEST_CONFIG,
+          artifactSigningKey: privateKey,
+          artifactCells: new Set([TEST_CELL_ID]),
+        },
+        fetchCell: async (_url, init) => {
+          forwarded = init;
+          return new Response("ok");
+        },
+      })
+    );
+    assert.equal(await response.text(), "ok");
+    const grant = new Headers(forwarded!.headers).get("x-exomem-artifact-grant");
+    assert.ok(grant, "authenticated file calls need internal fetch authority");
+    const [header, payload, signature] = grant.split(".");
+    assert.equal(
+      verify(
+        null,
+        Buffer.from(`${header}.${payload}`),
+        publicKey,
+        Buffer.from(signature!, "base64url")
+      ),
+      true
+    );
+    const claims = JSON.parse(Buffer.from(payload!, "base64url").toString());
+    assert.equal(claims.sub, TEST_CELL_ID);
+    assert.equal(claims.op, "preserve_artifacts");
+    assert.deepEqual(claims.handles, [
+      createHash("sha256")
+        .update(JSON.stringify(["synthetic-file", file.download_url, null, file.file_name]))
+        .digest("hex"),
+    ]);
+    assert.equal(claims.max_bytes, 100 * 1024 * 1024);
+    assert.equal(claims.max_files, 8);
+    assert.ok(claims.exp * 1000 - claims.issued_ms <= 60000);
+    assert.equal(JSON.stringify(claims).includes(file.download_url), false);
+    assert.equal(await new Response(forwarded!.body).text(), body);
+  });
+
+  it("does not trust a forged private header or MCP operation header", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const config = {
+      ...TEST_CONFIG,
+      artifactSigningKey: privateKey,
+      artifactCells: new Set([TEST_CELL_ID]),
+    };
+    let calls = 0;
+    let grant: string | null = null;
+    const deps = baseDeps({
+      config,
+      fetchCell: async (_url, init) => {
+        calls += 1;
+        grant = new Headers(init!.headers).get("x-exomem-artifact-grant");
+        return new Response("ok");
+      },
+    });
+    const forged = await handleCloudMcpRequest(
+      postRequest({
+        bearer: CLIENT_BEARER,
+        body: "{}",
+        headers: { "x-exomem-artifact-grant": "forged" },
+      }),
+      deps
+    );
+    assert.equal(forged.status, 400);
+    assert.equal(calls, 0);
+    const ordinary = await handleCloudMcpRequest(
+      postRequest({
+        bearer: CLIENT_BEARER,
+        body: JSON.stringify({
+          method: "tools/call",
+          params: {
+            name: "ask_memory",
+            arguments: {
+              files: [{ file_id: "file", download_url: "https://files.example.test/file" }],
+            },
+          },
+        }),
+        headers: { "mcp-name": "preserve_artifacts" },
+      }),
+      deps
+    );
+    assert.equal(await ordinary.text(), "ok");
+    assert.equal(grant, null);
+  });
+
+  it("leaves unselected accounts on their existing streaming path", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const body = "ordinary account's unchanged request";
+    let received = "";
+    let grant: string | null = null;
+    const response = await handleCloudMcpRequest(
+      postRequest({ bearer: CLIENT_BEARER, body }),
+      baseDeps({
+        config: { ...TEST_CONFIG, artifactSigningKey: privateKey, artifactCells: new Set() },
+        fetchCell: async (_url, init) => {
+          grant = new Headers(init!.headers).get("x-exomem-artifact-grant");
+          received = await new Response(init!.body).text();
+          return new Response("ok");
+        },
+      })
+    );
+    assert.equal(await response.text(), "ok");
+    assert.equal(received, body);
+    assert.equal(grant, null);
+  });
+
+  it("releases admission after an interrupted selected request read", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    let calls = 0;
+    const deps = baseDeps({
+      config: {
+        ...TEST_CONFIG,
+        artifactSigningKey: privateKey,
+        artifactCells: new Set([TEST_CELL_ID]),
+      },
+      fetchCell: async () => {
+        calls += 1;
+        return new Response("ok");
+      },
+    });
+    const abort = new AbortController();
+    const slow = new Request("http://gateway.invalid/mcp", {
+      method: "POST",
+      headers: { authorization: `Bearer ${CLIENT_BEARER}` },
+      body: new ReadableStream({ start() {} }),
+      signal: abort.signal,
+      duplex: "half",
+    } as RequestInit);
+    const pending = handleCloudMcpRequest(slow, deps);
+    abort.abort();
+    assert.equal((await pending).status, 408);
+    assert.equal(calls, 0);
+    const after = await handleCloudMcpRequest(
+      postRequest({ bearer: CLIENT_BEARER, body: "{}" }),
+      deps
+    );
+    assert.equal(await after.text(), "ok");
+  });
+
+  it("preserves large ordinary saves without granting incomplete inspected calls", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const body = JSON.stringify({
+      method: "tools/call",
+      params: { name: "capture_source", arguments: { content: "x".repeat(1024 * 1024 + 1) } },
+    });
+    const variants: Record<string, string>[] = [
+      {},
+      { "content-length": String(Buffer.byteLength(body)) },
+    ];
+    for (const headers of variants) {
+      let received = "";
+      let grant: string | null = null;
+      const response = await handleCloudMcpRequest(
+        postRequest({ bearer: CLIENT_BEARER, body, headers }),
+        baseDeps({
+          config: {
+            ...TEST_CONFIG,
+            artifactSigningKey: privateKey,
+            artifactCells: new Set([TEST_CELL_ID]),
+          },
+          fetchCell: async (_url, init) => {
+            grant = new Headers(init!.headers).get("x-exomem-artifact-grant");
+            received = await new Response(init!.body).text();
+            return new Response("ok");
+          },
+        })
+      );
+      assert.equal(await response.text(), "ok");
+      assert.equal(received, body);
+      assert.equal(grant, null);
+    }
+  });
+
+  it("loads a separate signer only for enabled, explicitly selected cells", () => {
+    const env = {
+      EXOMEM_CLOUD_MCP_URL: TEST_CONFIG.mcpUrl,
+      EXOMEM_CLOUD_MCP_PATH: TEST_CONFIG.mcpPath,
+      EXOMEM_CLOUD_CELL_TOKEN_KEY: TEST_TOKEN_KEY.toString("hex"),
+    };
+    assert.equal(loadExomemCloudConfig(env).artifactSigningKey, undefined);
+    const enabled = {
+      ...env,
+      EXOMEM_CLOUD_ARTIFACT_TRANSPORT_ENABLED: "true",
+      EXOMEM_CLOUD_ARTIFACT_CELL_IDS: JSON.stringify([TEST_CELL_ID]),
+    };
+    assert.throws(() => loadExomemCloudConfig(enabled), /EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY/);
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const configured = {
+      ...enabled,
+      EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: privateKey
+        .export({ type: "pkcs8", format: "pem" })
+        .toString(),
+    };
+    assert.equal(loadExomemCloudConfig(configured).artifactCells?.has(TEST_CELL_ID), true);
+    assert.throws(
+      () =>
+        loadExomemCloudConfig({ ...configured, EXOMEM_CLOUD_ARTIFACT_CELL_IDS: '["not-a-cell"]' }),
+      /EXOMEM_CLOUD_ARTIFACT_CELL_IDS/
+    );
+    const invalidKey = "invalid-private-material";
+    try {
+      loadExomemCloudConfig({ ...configured, EXOMEM_CLOUD_ARTIFACT_SIGNING_KEY: invalidKey });
+      assert.fail("invalid key accepted");
+    } catch (error) {
+      assert.equal(String(error).includes(invalidKey), false);
+    }
+  });
+
+  it("passes a slow request through once without losing its outstanding read", async (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout"] });
+    const { privateKey } = generateKeyPairSync("ed25519");
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        source = controller;
+      },
+    });
+    source.enqueue(new TextEncoder().encode("prefix-"));
+    const request = new Request("http://gateway.invalid/mcp", {
+      method: "POST",
+      headers: { authorization: `Bearer ${CLIENT_BEARER}` },
+      body: stream,
+      duplex: "half",
+    } as RequestInit);
+    let received = "";
+    let grant: string | null = null;
+    const pending = handleCloudMcpRequest(
+      request,
+      baseDeps({
+        config: {
+          ...TEST_CONFIG,
+          artifactSigningKey: privateKey,
+          artifactCells: new Set([TEST_CELL_ID]),
+        },
+        fetchCell: async (_url, init) => {
+          grant = new Headers(init!.headers).get("x-exomem-artifact-grant");
+          received = await new Response(init!.body).text();
+          return new Response("ok");
+        },
+      })
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    context.mock.timers.tick(5001);
+    source.enqueue(new TextEncoder().encode("tail"));
+    source.close();
+    assert.equal(await (await pending).text(), "ok");
+    assert.equal(received, "prefix-tail");
+    assert.equal(grant, null);
   });
 });
 
