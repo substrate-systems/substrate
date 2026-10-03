@@ -9,6 +9,11 @@
  */
 
 import { randomUUID } from "node:crypto";
+import {
+  CloudArtifactBodyError,
+  cloudArtifactGrant,
+  readCloudArtifactBody,
+} from "./cloud-artifacts";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import {
@@ -337,13 +342,34 @@ async function proxyToCell(
   forwardHeaders.set("authorization", `Bearer ${cellBearer}`);
   forwardHeaders.set("x-request-id", randomUUID());
 
+  let body: BodyInit | null | undefined = request.method === "DELETE" ? undefined : request.body;
+  if (
+    config.artifactSigningKey &&
+    config.artifactCells?.has(access.cellId) &&
+    request.method === "POST"
+  ) {
+    try {
+      const prepared = await readCloudArtifactBody(request);
+      body = prepared.body;
+      const grant = prepared.inspected
+        ? cloudArtifactGrant(prepared.inspected, access.cellId, config.artifactSigningKey)
+        : null;
+      if (grant) forwardHeaders.set("x-exomem-artifact-grant", grant);
+    } catch (error) {
+      if (error instanceof CloudArtifactBodyError) {
+        return errorResponse(error.status, "REQUEST_BODY_UNAVAILABLE");
+      }
+      throw error;
+    }
+  }
+
   const upstreamUrl = `http://cell.exo-cell-${access.cellId}.svc.cluster.local:${CELL_PORT}/mcp`;
   let upstream: Response;
   try {
     upstream = await fetchCell(upstreamUrl, {
       method: request.method,
       headers: forwardHeaders,
-      body: request.method === "DELETE" ? undefined : request.body,
+      body,
       duplex: "half",
       signal: request.signal,
     } as RequestInit);
