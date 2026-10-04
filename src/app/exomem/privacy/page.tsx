@@ -11,7 +11,7 @@ export const metadata = buildMetadata({
 
 export default function ExomemPrivacyPage() {
   return (
-    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 28 September 2026">
+    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 4 October 2026">
       <p>
         This policy covers the Exomem Cloud service and its public product, account, OAuth, and
         support pages. The data controller is Substrate Systems OÜ (Estonian registry code
@@ -25,7 +25,9 @@ export default function ExomemPrivacyPage() {
         <li>
           <strong>Account and authorization data:</strong> email address, invitation and consent
           state, client registration metadata, session and OAuth token digests, and account status.
-          Raw passwords are not used for the Cloud OAuth flow.
+          Ordinary Cloud sign-in is passwordless. Directory reviewers use dedicated credentials for
+          a separate sample account; the authentication database stores a password hash, not the raw
+          password.
         </li>
         <li>
           <strong>Your knowledge store:</strong> Markdown, media, links, metadata, searches, and
