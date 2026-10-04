@@ -1,5 +1,29 @@
 # Exomem directory reviewer demo
 
+## Current recording: 0.104.0
+
+`/exomem/directory-review-0.104.0.mp4` records native ChatGPT interactions with
+the dedicated synthetic reviewer workspace on Exomem 0.104.0. It shows an
+original attachment read with its byte count and hash, an explicit sample-note
+save, recovery of that conclusion in a fresh chat, and the explanation that
+Exomem cannot capture a laptop's playing audio without an uploaded file.
+
+The silent recording is edited to remove waiting. It retains the one-time
+ChatGPT write approval and the relation-validation recovery before the save.
+It is not an uncut sign-in walkthrough or evidence that marketplace warnings
+have cleared. Browser tabs, credentials, and the account sidebar are excluded.
+An independent sample MCP read confirmed the new conclusion after the save;
+the fresh native chat then read the saved note. No personal vault, payment,
+publisher submission, or preference change is included.
+
+Publish the static asset through the normal Vercel deployment, then verify
+anonymous playback and HTTP range access before replacing directory references.
+The recording does not establish clickable citations, native Claude acceptance,
+or adversarial tenant-isolation coverage. Both Submit and Publish remain held
+for Hugo's review.
+
+## Previous recording: 0.102.5
+
 `/exomem/directory-review-0.102.5.mp4` is a short, silent recording of native
 ChatGPT results from the dedicated synthetic directory-review sample on Exomem
 Cloud 0.102.5. It shows an explicit synthetic save result and independent
