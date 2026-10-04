@@ -20,7 +20,7 @@
  * single line saying support is moving, because a link to an unapproved profile
  * is a dead end. Flipping this to true is the whole of the go-live change.
  */
-export const SPONSORS_LIVE = false;
+export const SPONSORS_LIVE = true;
 
 const SPONSORS_ORG = "https://github.com/sponsors/substrate-systems";
 
