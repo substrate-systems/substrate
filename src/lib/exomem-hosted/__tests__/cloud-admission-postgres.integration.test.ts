@@ -66,7 +66,7 @@ async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>
 async function configureCapacity(slots: number): Promise<void> {
   await pool!.query("DELETE FROM exomem_cloud_capacity");
   await pool!.query(
-    "INSERT INTO exomem_cloud_capacity (node, cell_slots) VALUES ($1, $2)",
+    "INSERT INTO exomem_cloud_capacity (node, cell_slots, observed_at) VALUES ($1, $2, now())",
     [`node-${randomUUID()}`, slots]
   );
 }
@@ -228,6 +228,56 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
   });
 
   for (const oauth of [false, true]) {
+    for (const observation of [
+      { name: "stale", value: "now() - interval '6 minutes'" },
+      { name: "future-dated", value: "now() + interval '1 hour'" },
+      { name: "missing", value: "NULL" },
+    ]) {
+      it(`preserves the invite while capacity is ${observation.name} and admits after refresh through ${oauth ? "OAuth" : "browser"}`, async () => {
+        await resetFleet();
+        await configureCapacity(1);
+        await pool!.query(
+          `UPDATE exomem_cloud_capacity SET observed_at = ${observation.value}`
+        );
+        const fixture = oauth ? await createCloudOAuthFixture() : await createInvite("complimentary");
+        const digest = "inviteDigest" in fixture ? fixture.inviteDigest : fixture.tokenDigest;
+        const input = redemptionInput(digest);
+        const admit = () =>
+          oauth
+            ? admitFirstCloudOAuthInviteAtomic({
+                inviteDigest: digest,
+                transactionDigest: (fixture as { transactionDigest: Buffer }).transactionDigest,
+                ...input,
+                codeDigest: randomBytes(32),
+                codeExpiresAt: new Date(Date.now() + 60_000),
+              })
+            : redeemCloudInviteAtomic(input);
+
+        await assert.rejects(admit(), (error: unknown) => {
+          assert.ok(error && typeof error === "object" && "code" in error);
+          assert.equal((error as { code: string }).code, "HOSTED_ADMISSION_CLOSED");
+          return true;
+        });
+        const invite = await pool!.query(
+          "SELECT consumed_at FROM exomem_invites WHERE token_digest = $1",
+          [digest]
+        );
+        assert.equal(invite.rows[0]!.consumed_at, null);
+        const cells = await pool!.query("SELECT COUNT(*)::int AS count FROM exomem_cloud_cells");
+        assert.equal(cells.rows[0]!.count, 0);
+        if (oauth) {
+          const transaction = await pool!.query(
+            "SELECT consumed_at FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1",
+            [(fixture as { transactionDigest: Buffer }).transactionDigest]
+          );
+          assert.equal(transaction.rows[0]!.consumed_at, null);
+        }
+
+        await pool!.query("UPDATE exomem_cloud_capacity SET observed_at = now()");
+        assert.ok(await admit());
+      });
+    }
+
     for (const purpose of [false, true]) {
       it(`preserves sample purpose ${purpose} through ${oauth ? "OAuth" : "browser"} admission`, async () => {
         await resetFleet();

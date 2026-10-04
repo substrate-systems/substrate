@@ -72,7 +72,7 @@ async function resetFleet(): Promise<void> {
 
 async function configureCapacity(slots: number): Promise<void> {
   await pool!.query(
-    "INSERT INTO exomem_cloud_capacity (node, cell_slots) VALUES ($1, $2)",
+    "INSERT INTO exomem_cloud_capacity (node, cell_slots, observed_at) VALUES ($1, $2, now())",
     [`node-${randomUUID()}`, slots]
   );
 }
