@@ -96,7 +96,7 @@ disagrees with this change's delta, this change's delta wins.
 - [ ] 8.1 Confirm the three one-time amounts exist on the `substrate-systems`
       Sponsors profile and that the thank-you message carries the recognition
       opt-in ask
-- [ ] 8.2 Flip `SPONSORS_LIVE` to `true` — a one-line commit
+- [x] 8.2 Flip `SPONSORS_LIVE` to `true` — a one-line commit
 - [ ] 8.3 Delete the retired support prices in the Paddle dashboard and unset the
       three `NEXT_PUBLIC_PADDLE_PRICE_ID_*` support variables in the hosting
       environment
