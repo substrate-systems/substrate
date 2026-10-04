@@ -113,7 +113,7 @@ async function resetFleet(): Promise<void> {
   ]) {
     await pool!.query(`DELETE FROM ${table}`);
   }
-  await pool!.query("INSERT INTO exomem_cloud_capacity (node, cell_slots) VALUES ($1, 20)", [
+  await pool!.query("INSERT INTO exomem_cloud_capacity (node, cell_slots, observed_at) VALUES ($1, 20, now())", [
     `node-${randomUUID()}`,
   ]);
 }

@@ -58,6 +58,22 @@ function cloudAdmissionClosed(): ExomemHostedError {
   });
 }
 
+async function requireCloudAdmissionCapacity(tx: ExomemSql): Promise<void> {
+  // The controller refreshes these observations on its ordinary passes.
+  // A lost cluster connection must not leave old slots admitting new cells.
+  const result = await tx`
+    SELECT
+      (SELECT COALESCE(SUM(cell_slots), 0) FROM exomem_cloud_capacity
+       WHERE observed_at > statement_timestamp() - interval '5 minutes'
+         AND observed_at <= statement_timestamp()) AS total_slots,
+      (SELECT COUNT(*) FROM exomem_cloud_cells WHERE desired_state <> 'deleted') AS used_slots
+  `;
+  const capacity = result.rows[0] as { total_slots: string; used_slots: string };
+  if (Number(capacity.used_slots) >= Number(capacity.total_slots)) {
+    throw cloudAdmissionClosed();
+  }
+}
+
 export type RedeemCloudInviteInput = {
   tokenDigest: Buffer;
   sessionDigest: Buffer;
@@ -114,16 +130,7 @@ export async function redeemCloudInviteAtomic(
     if (!invite) return null;
 
     // Capacity check: no write-bearing statement has run yet.
-    const capacityResult = await tx`
-      /* exomem-cloud:capacity-check */
-      SELECT
-        (SELECT COALESCE(SUM(cell_slots), 0) FROM exomem_cloud_capacity) AS total_slots,
-        (SELECT COUNT(*) FROM exomem_cloud_cells WHERE desired_state <> 'deleted') AS used_slots
-    `;
-    const capacity = capacityResult.rows[0] as { total_slots: string; used_slots: string };
-    if (Number(capacity.used_slots) >= Number(capacity.total_slots)) {
-      throw cloudAdmissionClosed();
-    }
+    await requireCloudAdmissionCapacity(tx);
 
     const ownerResult = await tx`
       INSERT INTO users (email, email_verified_at)
@@ -452,15 +459,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         | undefined;
       if (!authorization) throw new CloudOAuthAdmissionRejected();
 
-      const capacityResult = await tx`
-        SELECT
-          (SELECT COALESCE(SUM(cell_slots), 0) FROM exomem_cloud_capacity) AS total_slots,
-          (SELECT COUNT(*) FROM exomem_cloud_cells WHERE desired_state <> 'deleted') AS used_slots
-      `;
-      const capacity = capacityResult.rows[0] as { total_slots: string; used_slots: string };
-      if (Number(capacity.used_slots) >= Number(capacity.total_slots)) {
-        throw cloudAdmissionClosed();
-      }
+      await requireCloudAdmissionCapacity(tx);
 
       const ownerResult = await tx`
         INSERT INTO users (email, email_verified_at)

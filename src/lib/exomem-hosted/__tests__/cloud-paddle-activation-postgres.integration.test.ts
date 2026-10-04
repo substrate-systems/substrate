@@ -75,7 +75,7 @@ type CloudPaidTenant = { tenantId: string; userId: string; cellId: string };
 
 /** A paid Cloud admission (D1): `awaiting_checkout`, `stopped` cell, holding its capacity slot. */
 async function admitPaidCloudTenant(): Promise<CloudPaidTenant> {
-  await pool!.query("INSERT INTO exomem_cloud_capacity (node, cell_slots) VALUES ($1, 20)", [
+  await pool!.query("INSERT INTO exomem_cloud_capacity (node, cell_slots, observed_at) VALUES ($1, 20, now())", [
     `node-${randomUUID()}`,
   ]);
   const email = `cloud-activation-${randomUUID()}@example.test`;

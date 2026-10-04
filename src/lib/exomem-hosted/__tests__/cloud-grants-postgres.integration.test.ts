@@ -612,7 +612,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     // so capacity here only needs to comfortably clear whatever they left,
     // not describe a real fleet size.
     await ownerPool!.query("DELETE FROM exomem_cloud_capacity");
-    await ownerPool!.query("INSERT INTO exomem_cloud_capacity (node, cell_slots) VALUES ($1, 1000)", [
+    await ownerPool!.query("INSERT INTO exomem_cloud_capacity (node, cell_slots, observed_at) VALUES ($1, 1000, now())", [
       `node-${randomUUID()}`,
     ]);
     const tokenDigest = randomBytes(32);
