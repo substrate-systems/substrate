@@ -381,6 +381,25 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(invite.rows[0]!.consumed_at, null);
   });
 
+  it("retains a deleting cell until cleanup is observed at its current generation", async () => {
+    await resetFleet();
+    await configureCapacity(1);
+    const first = await createInvite("complimentary");
+    const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
+    assert.ok(admitted);
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [admitted.cellId]);
+    const second = await createInvite("complimentary");
+    const retry = () => redeemCloudInviteAtomic(redemptionInput(second.tokenDigest));
+    const closed = (error: unknown) => (error as { code?: string }).code === "HOSTED_ADMISSION_CLOSED";
+    await assert.rejects(retry(), closed);
+    await pool!.query("UPDATE exomem_cloud_cells SET observed_state = 'deleted', observed_generation = generation - 1 WHERE cell_id = $1", [admitted.cellId]);
+    await assert.rejects(retry(), closed);
+    const invite = await pool!.query("SELECT consumed_at FROM exomem_invites WHERE token_digest = $1", [second.tokenDigest]);
+    assert.equal(invite.rows[0]!.consumed_at, null);
+    await pool!.query("UPDATE exomem_cloud_cells SET observed_generation = generation WHERE cell_id = $1", [admitted.cellId]);
+    assert.ok(await retry());
+  });
+
   it("admits exactly one of two concurrent redemptions at the last free slot", async () => {
     await resetFleet();
     await configureCapacity(1);
@@ -421,11 +440,10 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.ok(admitted);
 
     // Simulate the day-30 export-window sweep (or a manual release) fully
-    // deleting the cell: exactly the state reconcileCloudCellDesiredState
-    // leaves behind, and exactly what has_live_cell in the dedupe check
-    // tests for.
+    // deleting the cell, followed by controller-confirmed physical cleanup
+    // at the desired generation.
     await pool!.query(
-      "UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1",
+      "UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1",
       [admitted!.cellId]
     );
     await pool!.query(
@@ -469,7 +487,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
   // admission; otherwise the owner is refused as an invalid invite, and the
   // Cloud OAuth checks refuse the tenant right after it (2026-09-27).
   async function deleteAsAlphaLifecycleDid(admitted: { tenantId: string; cellId: string; userId: string }) {
-    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [admitted.cellId]);
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted.cellId]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
       [admitted.tenantId]
@@ -509,7 +527,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     const first = await createInvite("complimentary", email);
     const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
     assert.ok(admitted);
-    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [admitted!.cellId]);
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted!.cellId]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
       [admitted!.tenantId]
@@ -587,7 +605,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     const first = await createInvite("complimentary", email);
     const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
     assert.ok(admitted);
-    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [
       admitted!.cellId,
     ]);
     return { tenantId: admitted!.tenantId, cellId: admitted!.cellId };
@@ -903,7 +921,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     });
     assert.ok(admitted);
 
-    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [
       admitted!.cellId,
     ]);
     await pool!.query(
@@ -963,7 +981,7 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     const first = await createInvite("complimentary", email);
     const admitted = await redeemCloudInviteAtomic(redemptionInput(first.tokenDigest));
     assert.ok(admitted);
-    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1", [admitted!.cellId]);
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'deleted', observed_state = 'deleted', observed_generation = generation + 1 WHERE cell_id = $1", [admitted!.cellId]);
     await pool!.query(
       "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
       [admitted!.tenantId]
