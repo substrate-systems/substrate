@@ -1169,8 +1169,3 @@ export async function handleHostedMcpRequest(
     throw error;
   }
 }
-
-export const mcpLimits = {
-  requestBytes: MAX_MCP_REQUEST_BYTES,
-  concurrency: MAX_MCP_CONCURRENCY,
-} as const;

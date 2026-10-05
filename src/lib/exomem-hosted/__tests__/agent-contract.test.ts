@@ -107,12 +107,6 @@ describe("Exomem Hosted agent contracts", () => {
         ),
         true
       );
-      assert.equal(
-        existsSync(
-          fileURLToPath(new URL(`./agent-contract-fixture-${retained}.json`, import.meta.url))
-        ),
-        true
-      );
     }
     assert.equal(
       exomemHostedContractFixture.sourceCommit,

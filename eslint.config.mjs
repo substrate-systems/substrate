@@ -14,9 +14,6 @@ export default defineConfig([
       "src/app/exomem/memory-graph.tsx",
       "src/app/exomem/sign-in/sign-in-client.tsx",
       "src/components/Hero.tsx",
-      "src/components/Hook.tsx",
-      "src/components/Philosophy.tsx",
-      "src/components/Products.tsx",
     ],
     rules: {
       // These existing observer/hydration effects predate the flat-config

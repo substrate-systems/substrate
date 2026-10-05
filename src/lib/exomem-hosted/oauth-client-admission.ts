@@ -261,12 +261,6 @@ export function normalizeOperatorOAuthClientRegistration(
   };
 }
 
-export function clientRedirectDigest(redirectUris: readonly string[]): string {
-  return createHash("sha256")
-    .update(JSON.stringify([...redirectUris]), "utf8")
-    .digest("hex");
-}
-
 export function operatorOAuthClientFingerprint(
   clientId: string,
   key: Buffer = controlPlaneKeyFromEnv()

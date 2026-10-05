@@ -86,12 +86,6 @@ async function getActiveKeyPair(): Promise<{
   return { ...cachedKeyPair, kid };
 }
 
-/** Public for the keypair generator script. */
-export async function derivePublicKey(privateKeyHex: string): Promise<Uint8Array> {
-  const { publicKey } = await ed.keygenAsync(hexToBytes(privateKeyHex));
-  return publicKey;
-}
-
 type JwtHeader = { alg: "EdDSA"; typ: "JWT"; kid: string };
 
 async function signCompactJwt(payload: Record<string, unknown>): Promise<string> {
