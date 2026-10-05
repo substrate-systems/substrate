@@ -1,6 +1,27 @@
 # Exomem directory reviewer demo
 
-## Current recording: 0.104.0
+## Current recording: 0.106.0
+
+`/exomem/directory-review-0.106.0.mp4` shows actual native Claude results from
+the dedicated synthetic reviewer workspace on Exomem 0.106.0. It recovers a
+saved project decision and episode, shows the Bootstrap → Activate Context →
+Ask Memory → Read Memory trace, and explains that an unshared laptop audio
+file cannot be accessed. Claude's own Memory is off for this chat.
+
+The silent recording walks through the completed interactions, not an uncut
+sign-in or save. The version caption identifies the verified reviewer runtime;
+it is not a simulated application response. The connector's existing display
+name includes “Personal”, but its verified principal is the isolated reviewer
+account. Browser chrome, credentials, and unrelated chat titles are excluded.
+No vault writes or saved preference changes are included.
+
+Publish through the normal Vercel deployment and verify anonymous playback,
+the complete video decode, and HTTP range access before using the URL in a
+directory draft. This recording does not replace the retained save/readback
+receipts or establish provider approval. Both Submit and Publish remain held
+for Hugo's review.
+
+## Previous recording: 0.104.0
 
 `/exomem/directory-review-0.104.0.mp4` records native ChatGPT interactions with
 the dedicated synthetic reviewer workspace on Exomem 0.104.0. It shows an
