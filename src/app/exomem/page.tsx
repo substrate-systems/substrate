@@ -117,7 +117,7 @@ const benchmarks = [
   },
 ];
 
-// Grounded in faq-data.tsx / the exomem README; approved copy for the redesign.
+// Grounded in the exomem README; approved copy for the redesign.
 const displayFaqs: ExoFaq[] = [
   {
     q: "Which agents and clients work with Exomem?",
