@@ -66,7 +66,10 @@ async function requireCloudAdmissionCapacity(tx: ExomemSql): Promise<void> {
       (SELECT COALESCE(SUM(cell_slots), 0) FROM exomem_cloud_capacity
        WHERE observed_at > statement_timestamp() - interval '5 minutes'
          AND observed_at <= statement_timestamp()) AS total_slots,
-      (SELECT COUNT(*) FROM exomem_cloud_cells WHERE desired_state <> 'deleted') AS used_slots
+      (SELECT COUNT(*) FROM exomem_cloud_cells
+       WHERE desired_state <> 'deleted'
+          OR observed_state IS DISTINCT FROM 'deleted'
+          OR observed_generation IS DISTINCT FROM generation) AS used_slots
   `;
   const capacity = result.rows[0] as { total_slots: string; used_slots: string };
   if (Number(capacity.used_slots) >= Number(capacity.total_slots)) {
