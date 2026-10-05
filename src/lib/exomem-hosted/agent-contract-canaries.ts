@@ -17,8 +17,6 @@ import { exomemContractFixture0740 } from "./gateway-contract-0-74-0";
 import { exomemContractFixture0770 } from "./gateway-contract-0-77-0";
 import { EXOMEM_HOSTED_PROFILE } from "./hosted-profile";
 
-type AssignmentState = "preparing" | "active" | "failed" | "expired" | "retired";
-type StageState = "staged" | "evidenced" | "failed" | "expired" | "retired";
 type Platform = "claude" | "openai";
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -258,14 +256,6 @@ export async function revokeCanaryOAuthLineageInTransaction(
     SELECT count(*)::integer AS revoked_credentials FROM revoked_credentials
   `;
   return Number(rows[0]?.revoked_credentials ?? 0);
-}
-
-/** Caller holds the cohort lock; termination revokes one exact internal lineage. */
-export async function terminateCanaryOAuthLineageInTransaction(
-  tx: ExomemSql,
-  input: CanaryOAuthLineage
-): Promise<number> {
-  return revokeCanaryOAuthLineageInTransaction(tx, input);
 }
 
 /** Caller holds the cohort lock; promotion retains only the candidate's exact live artifact lineages. */
@@ -939,24 +929,4 @@ export async function failStagedClientRelease(input: {
     }
     return true;
   });
-}
-
-export function isCanaryAssignmentState(value: unknown): value is AssignmentState {
-  return (
-    value === "preparing" ||
-    value === "active" ||
-    value === "failed" ||
-    value === "expired" ||
-    value === "retired"
-  );
-}
-
-export function isStagedClientReleaseState(value: unknown): value is StageState {
-  return (
-    value === "staged" ||
-    value === "evidenced" ||
-    value === "failed" ||
-    value === "expired" ||
-    value === "retired"
-  );
 }

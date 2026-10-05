@@ -1777,16 +1777,6 @@ export async function findMcpOAuthAccessToken(
   });
 }
 
-export async function revokeOAuthTokenFamily(familyId: string): Promise<void> {
-  await executeExomemSql`
-    /* exomem:revoke-oauth-token-family */
-    UPDATE exomem_oauth_token_families
-    SET revoked_at = COALESCE(revoked_at, now()),
-        revoked_reason = COALESCE(revoked_reason, 'client_revoked')
-    WHERE id = ${familyId}::uuid
-  `;
-}
-
 /** Operator revocation is always fenced to the authoritative owner and tenant. */
 export async function revokeOAuthTokenFamilyForOwner(input: {
   ownerUserId: string;
@@ -1808,28 +1798,6 @@ export async function revokeOAuthTokenFamilyForOwner(input: {
     RETURNING family.id
   `;
   return rows.length === 1;
-}
-
-/** Revokes every family for one authoritative owner/tenant pair, including deleted tenants. */
-export async function revokeOAuthTokenFamiliesForOwnerTenant(input: {
-  ownerUserId: string;
-  tenantId: string;
-  reason?: "operator_revoked" | "lifecycle_deleted";
-}): Promise<number> {
-  const { rows } = await executeExomemSql`
-    /* exomem:revoke-oauth-token-families-for-owner-tenant */
-    UPDATE exomem_oauth_token_families AS family
-    SET revoked_at = COALESCE(family.revoked_at, now()),
-        revoked_reason = COALESCE(family.revoked_reason, ${input.reason ?? "operator_revoked"})
-    FROM exomem_oauth_grants AS oauth_grant
-    JOIN exomem_tenants AS tenant ON tenant.id = oauth_grant.tenant_id
-    WHERE oauth_grant.id = family.grant_id
-      AND oauth_grant.user_id = ${input.ownerUserId}::uuid
-      AND oauth_grant.tenant_id = ${input.tenantId}::uuid
-      AND tenant.owner_user_id = oauth_grant.user_id
-    RETURNING family.id
-  `;
-  return rows.length;
 }
 
 /** Lock the authoritative tenant, persist the denial, and revoke all OAuth credentials together. */

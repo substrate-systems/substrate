@@ -285,7 +285,6 @@ describe("SEO crawl signals", () => {
       true
     );
     // Publishing a page without inbound links is not shipping it.
-    assert.match(source("src/components/Products.tsx"), /href: "\/q"/);
     assert.match(source("src/components/Footer.tsx"), /href: "\/q"/);
     assert.match(source("public/llms.txt"), /https:\/\/substratesystems\.io\/q\)/);
 

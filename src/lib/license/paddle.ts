@@ -60,22 +60,6 @@ export type PaddleTransactionCompleted = {
   };
 };
 
-export function extractTransactionFields(event: unknown): {
-  transactionId: string;
-  email: string | null;
-  customerId: string | null;
-} {
-  const e = event as PaddleTransactionCompleted;
-  const transactionId = e?.data?.id;
-  const email =
-    e?.data?.customer?.email ?? e?.data?.details?.customer?.email ?? null;
-  const customerId = e?.data?.customer_id ?? null;
-  if (!transactionId) {
-    throw new Error('event missing data.id');
-  }
-  return { transactionId, email, customerId };
-}
-
 export async function fetchPaddleCustomerEmail(
   customerId: string,
 ): Promise<string | null> {

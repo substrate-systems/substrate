@@ -475,8 +475,9 @@ The explicit `-0-34-0`, `-0-35-0`, `-0-39-2`, `-0-49-0`, `-0-50-0`, `-0-54-1`,
 original profiles; do not overwrite or regenerate them while refreshing the
 current release. `-0-74-0` is the newest and the one most at risk: the previous
 release's generator invocation is one `git log -p` away and still looks valid.
-A retained fixture is produced by copying the outgoing bare fixture, never by
-re-running the generator.
+A retained fixture is produced by copying the outgoing bare `.ts` fixture, never by
+re-running the generator. Retain only the `.ts`: the agent `.json` projection is read
+only for the current release (the runtime-trust report), so do not keep a retained copy.
 
 Import the current `0.77.0` catalog unit through the current control only:
 

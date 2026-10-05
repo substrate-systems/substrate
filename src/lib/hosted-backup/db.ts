@@ -183,24 +183,6 @@ export async function getAuthCredentials(userId: string): Promise<AuthCredential
   return (rows[0] as AuthCredentialsRow | undefined) ?? null;
 }
 
-export async function updateAuthCredentialsForRecovery(params: {
-  userId: string;
-  serverPasswordHash: string;
-  clientSalt: Uint8Array;
-  kdfParams: KdfParams;
-  wrappedDek: Uint8Array;
-}): Promise<void> {
-  await sql`
-    UPDATE auth_credentials
-    SET server_password_hash = ${params.serverPasswordHash},
-        client_salt = ${Buffer.from(params.clientSalt)},
-        kdf_params = ${JSON.stringify(params.kdfParams)}::jsonb,
-        wrapped_dek = ${Buffer.from(params.wrappedDek)},
-        updated_at = now()
-    WHERE user_id = ${params.userId}
-  `;
-}
-
 // Atomically apply the three writes that finalize a recovery: burn the
 // recovery token (jti → recovery_tokens_used), update credentials, and
 // revoke all live refresh chains. All three roll back together if any
@@ -319,14 +301,6 @@ export async function revokeRefreshChain(chainId: string): Promise<void> {
   `;
 }
 
-export async function revokeAllRefreshChainsForUser(userId: string): Promise<void> {
-  await sql`
-    UPDATE refresh_tokens
-    SET revoked_at = now()
-    WHERE user_id = ${userId} AND revoked_at IS NULL
-  `;
-}
-
 // --- Signing keys ---
 
 export async function getActiveAndRecentlyRetiredSigningKeys(): Promise<SigningKeyRow[]> {
@@ -343,29 +317,6 @@ export async function getActiveAndRecentlyRetiredSigningKeys(): Promise<SigningK
 export async function getJwksKeys(): Promise<SigningKeyRow[]> {
   // Same set as verifier accepts. Engine and any external verifier read this.
   return getActiveAndRecentlyRetiredSigningKeys();
-}
-
-export async function insertSigningKey(params: {
-  kid: string;
-  publicKey: Uint8Array;
-  algorithm?: string;
-}): Promise<void> {
-  await sql`
-    INSERT INTO signing_keys (kid, public_key, algorithm)
-    VALUES (
-      ${params.kid},
-      ${Buffer.from(params.publicKey)},
-      ${params.algorithm ?? "EdDSA"}
-    )
-  `;
-}
-
-export async function retireSigningKey(kid: string): Promise<void> {
-  await sql`
-    UPDATE signing_keys
-    SET retired_at = now()
-    WHERE kid = ${kid} AND retired_at IS NULL
-  `;
 }
 
 // --- Subscriptions ---
@@ -526,18 +477,6 @@ export async function getSubscriptionByUserId(userId: string): Promise<Subscript
            grace_started_at, cancel_started_at, current_period_end,
            scheduled_cancel_at, updated_at
     FROM subscriptions WHERE user_id = ${userId} LIMIT 1
-  `;
-  return (rows[0] as SubscriptionRow | undefined) ?? null;
-}
-
-export async function getSubscriptionByPaddleId(
-  paddleSubscriptionId: string
-): Promise<SubscriptionRow | null> {
-  const { rows } = await sql`
-    SELECT user_id, paddle_subscription_id, paddle_customer_id, status, plan,
-           grace_started_at, cancel_started_at, current_period_end,
-           scheduled_cancel_at, updated_at
-    FROM subscriptions WHERE paddle_subscription_id = ${paddleSubscriptionId} LIMIT 1
   `;
   return (rows[0] as SubscriptionRow | undefined) ?? null;
 }
