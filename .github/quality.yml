@@ -1,0 +1,46 @@
+# Configuration for the engineering practices quality job (.github/workflows/test.yml).
+# Schema and behaviour: https://github.com/Artexis10/engineering-practices
+
+# Proof weight. A file takes the first class whose pattern matches; `*` also
+# matches `/`. package-lock.json is left unclassified on purpose: lockfile churn
+# is neither product nor proof.
+classes:
+  fixtures: ["*/__tests__/fixtures/*", "*/__tests__/*fixture*"]
+  tests: ["*/__tests__/*", "*.test.ts", "*.test.tsx", "e2e/*", "playwright.config.ts"]
+  scripts: ["scripts/*"]
+  tooling: [".github/*", ".claude/*", ".git*", "lefthook.yml", "eslint.config.mjs", ".prettier*"]
+  specs: ["openspec/*"]
+  product:
+    - "src/*"
+    - "migrations/*"
+    - "content/*"
+    - "public/*"
+    - "contracts/*"
+    - "ops/*"
+    - "instrumentation.ts"
+    - "next.config.ts"
+    - "tailwind.config.ts"
+    - "postcss.config.mjs"
+    - "tsconfig.json"
+    - "vercel.json"
+    - "Dockerfile.exomem-gateway"
+    - "package.json"
+  docs: ["*.md", "docs/*"]
+
+# The dead-code gate. knip's Next.js, esbuild, Node test runner, Playwright and
+# GitHub Actions plugins already find the app and pages routes, src/proxy.ts,
+# instrumentation.ts, the esbuild-bundled gateway, the *.test.ts files and the
+# e2e specs. Two kinds of entry they miss:
+javascript:
+  knip:
+    entry:
+      # `npm test` runs src/**/*.test.tsx too; the Node plugin only knows *.test.ts.
+      - "src/**/*.test.tsx"
+      # Operator scripts, run by hand from the README and runbooks (`tsx scripts/<name>.ts`).
+      - "scripts/*.{ts,mjs}"
+
+# Exact token clones, on code only: OpenSpec deltas repeat requirement text by design.
+duplicates:
+  paths: ["src", "scripts", "e2e"]
+
+test_jobs: ["test", "onboarding end-to-end"]
