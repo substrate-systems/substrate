@@ -2,13 +2,40 @@
 # Schema and behaviour: https://github.com/Artexis10/engineering-practices
 
 # Proof weight. A file is product if it runs in a build, a deploy, an image, a
-# scheduled job or a runtime import, or ships in a bundle; it is proof (scripts,
-# tooling and the rest) only if it never does. A file takes the first class whose
-# pattern matches; `*` also matches `/`. package-lock.json is left unclassified on
-# purpose: lockfile churn is neither product nor proof.
+# scheduled job or a runtime import, or ships in a bundle; it is proof (fixtures,
+# tests, scripts, tooling, specs) only if it never does. Proof is named by file or
+# by a narrow glob, so a new script or contract counts as product. A file takes
+# the first class whose pattern matches; `*` also matches `/`. Lockfiles: the
+# action classes them as generated.
 classes:
   fixtures: ["*/__tests__/fixtures/*", "*/__tests__/*fixture*"]
-  tests: ["*/__tests__/*", "*.test.ts", "*.test.tsx", "e2e/*", "playwright.config.ts"]
+  tests: ["*/__tests__/*", "*.test.ts", "*.test.tsx", "e2e/*.spec.ts", "playwright.config.ts"]
+  # Dev and validation tooling, the contract generator, and read-only checks.
+  scripts:
+    - "scripts/dev.ps1"
+    - "scripts/openspec_validate.ps1"
+    - "scripts/generate-exomem-hosted-contract.mjs"
+    - "scripts/exomem-d1-expand-preflight.ts"
+    - "scripts/exomem-marketplace-preflight.ts"
+    - "scripts/verify-exomem-gateway-publication.mjs"
+    - "scripts/verify-exomem-hosted-runtime-trust.ts"
+  tooling:
+    - ".github/quality.yml"
+    - ".github/workflows/test.yml"
+    - ".claude/settings.json"
+    # The invoicing agent skill.
+    - ".claude/skills/substrate-invoice/SKILL.md"
+    - ".claude/skills/substrate-invoice/INVOICING.md"
+    - ".claude/skills/substrate-invoice/invoice.html"
+    - ".claude/skills/substrate-invoice/Invoice.dc.html"
+    - ".claude/skills/substrate-invoice/assets/substrate-logo-black.png"
+    - ".gitignore"
+    - ".gitattributes"
+    - "lefthook.yml"
+    - "eslint.config.mjs"
+    - ".prettierrc.json"
+    - "contracts/bws-exomem-production-v1.json" # the operator's secret-binding check, run by hand
+  specs: ["openspec/*.md", "openspec/*.yaml"]
   product:
     - "src/*"
     - "migrations/*"
@@ -36,17 +63,6 @@ classes:
     - "vercel.json"
     - "Dockerfile.exomem-gateway"
     - "package.json"
-  # Dev and validation tooling, the contract generator, and read-only checks.
-  scripts: ["scripts/*"]
-  tooling:
-    - ".github/*"
-    - ".claude/*"
-    - ".git*"
-    - "lefthook.yml"
-    - "eslint.config.mjs"
-    - ".prettier*"
-    - "contracts/*" # the operator's secret-binding check, run by hand
-  specs: ["openspec/*"]
   docs: ["*.md", "docs/*"]
 
 # The dead-code gate. knip's Next.js, esbuild, Node test runner, Playwright and
