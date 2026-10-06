@@ -1,22 +1,32 @@
 # Configuration for the engineering practices quality job (.github/workflows/test.yml).
 # Schema and behaviour: https://github.com/Artexis10/engineering-practices
 
-# Proof weight. A file takes the first class whose pattern matches; `*` also
-# matches `/`. package-lock.json is left unclassified on purpose: lockfile churn
-# is neither product nor proof.
+# Proof weight. A file is product if it runs in a build, a deploy, an image, a
+# scheduled job or a runtime import, or ships in a bundle; it is proof (scripts,
+# tooling and the rest) only if it never does. A file takes the first class whose
+# pattern matches; `*` also matches `/`. package-lock.json is left unclassified on
+# purpose: lockfile churn is neither product nor proof.
 classes:
   fixtures: ["*/__tests__/fixtures/*", "*/__tests__/*fixture*"]
   tests: ["*/__tests__/*", "*.test.ts", "*.test.tsx", "e2e/*", "playwright.config.ts"]
-  scripts: ["scripts/*"]
-  tooling: [".github/*", ".claude/*", ".git*", "lefthook.yml", "eslint.config.mjs", ".prettier*"]
-  specs: ["openspec/*"]
   product:
     - "src/*"
     - "migrations/*"
     - "content/*"
     - "public/*"
-    - "contracts/*"
-    - "ops/*"
+    - "contracts/hosted-agent-command-binding-v1.json" # imported by the gateway
+    - "ops/*" # the hosted scheduler's cron jobs
+    # Run by every production deploy (vercel-build) or by the gateway image build.
+    - "scripts/vercel-maybe-migrate.ts"
+    - "scripts/migrate.ts"
+    - "scripts/*.sql" # the database grants migrate.ts applies
+    - "scripts/verify-exomem-gateway-bundle.mjs"
+    # Change production data when an operator runs them.
+    - "scripts/neon-cutover.ts"
+    - "scripts/import-legacy-patron.ts"
+    - "scripts/reconcile-legacy-generations.ts"
+    - "scripts/strict-generation-visibility-cutover.ts"
+    - ".github/workflows/publish-exomem-gateway.yml" # builds and publishes the gateway image
     - "instrumentation.ts"
     - "next.config.ts"
     - "tailwind.config.ts"
@@ -25,19 +35,31 @@ classes:
     - "vercel.json"
     - "Dockerfile.exomem-gateway"
     - "package.json"
+  # Dev and validation tooling, key and contract generators, and read-only checks.
+  scripts: ["scripts/*"]
+  tooling:
+    - ".github/*"
+    - ".claude/*"
+    - ".git*"
+    - "lefthook.yml"
+    - "eslint.config.mjs"
+    - ".prettier*"
+    - "contracts/*" # the operator's secret-binding check, run by hand
+  specs: ["openspec/*"]
   docs: ["*.md", "docs/*"]
 
 # The dead-code gate. knip's Next.js, esbuild, Node test runner, Playwright and
 # GitHub Actions plugins already find the app and pages routes, src/proxy.ts,
 # instrumentation.ts, the esbuild-bundled gateway, the *.test.ts files and the
-# e2e specs. Two kinds of entry they miss:
+# e2e specs; package.json or a test reaches most scripts. The entries they miss:
 javascript:
   knip:
     entry:
       # `npm test` runs src/**/*.test.tsx too; the Node plugin only knows *.test.ts.
       - "src/**/*.test.tsx"
-      # Operator scripts, run by hand from the README and runbooks (`tsx scripts/<name>.ts`).
-      - "scripts/*.{ts,mjs}"
+      # Run by hand from the README and the hosted runbook; nothing else references them.
+      - "scripts/generate-jwt-keypair.ts"
+      - "scripts/generate-exomem-hosted-contract.mjs"
 
 # Exact token clones, on code only: OpenSpec deltas repeat requirement text by design.
 duplicates:
