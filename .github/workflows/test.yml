@@ -32,7 +32,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - id: install
+        run: npm ci
       - run: npm test
       - name: Hosted Exomem reviewer bootstrap PostgreSQL race matrix
         env:
@@ -82,6 +83,15 @@ jobs:
           src/lib/exomem-hosted/__tests__/cloud-release-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-cancellation-notice-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-paddle-activation-postgres.integration.test.ts
+      # Both run even when a test step failed, so one push reports every kind of failure.
+      # tsc covers the whole repository, the gateway included (`npm run gateway:typecheck`
+      # runs the same command). ESLint fails on errors only; warnings do not fail.
+      - name: Type-check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npx tsc --noEmit
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint
 
   e2e:
     name: onboarding end-to-end
