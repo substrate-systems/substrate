@@ -26,6 +26,7 @@ classes:
     - "scripts/import-legacy-patron.ts"
     - "scripts/reconcile-legacy-generations.ts"
     - "scripts/strict-generation-visibility-cutover.ts"
+    - "scripts/generate-jwt-keypair.ts" # `--commit` inserts the public key into signing_keys
     - ".github/workflows/publish-exomem-gateway.yml" # builds and publishes the gateway image
     - "instrumentation.ts"
     - "next.config.ts"
@@ -35,7 +36,7 @@ classes:
     - "vercel.json"
     - "Dockerfile.exomem-gateway"
     - "package.json"
-  # Dev and validation tooling, key and contract generators, and read-only checks.
+  # Dev and validation tooling, the contract generator, and read-only checks.
   scripts: ["scripts/*"]
   tooling:
     - ".github/*"
