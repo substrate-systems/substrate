@@ -371,6 +371,33 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await assert.rejects(cellctlPool!.query("SELECT 1 FROM exomem_tenants LIMIT 1"), /permission denied/);
   });
 
+  // Migration 0059 (Exomem move-cloud-cells-to-local-storage D10): cellctl
+  // records the size it grew a local cell's volume to. Without the grant every
+  // growth would fail in production; substrate_app must never write it.
+  it("lets exomem_cellctl record a cell's grown size, and substrate_app cannot", async () => {
+    const tenantId = await newTenant();
+    const id = cellId("m");
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET grown_storage_gib = 8 WHERE cell_id = $1",
+      [id]
+    );
+    const { rows } = await ownerPool!.query(
+      "SELECT grown_storage_gib FROM exomem_cloud_cells WHERE cell_id = $1",
+      [id]
+    );
+    assert.equal(rows[0]!.grown_storage_gib, 8);
+    await assert.rejects(
+      appPool!.query("UPDATE exomem_cloud_cells SET grown_storage_gib = 12 WHERE cell_id = $1", [
+        id,
+      ]),
+      /permission denied/
+    );
+  });
+
   it("lets exomem_cellctl write C1c and its own C1d fields, never C1b", async () => {
     await cellctlPool!.query(
       "INSERT INTO exomem_cloud_capacity (node, cell_slots, attachments_used) VALUES ($1, 2, 0)",
