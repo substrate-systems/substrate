@@ -32,7 +32,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - id: install
+        run: npm ci
       - run: npm test
       - name: Hosted Exomem reviewer bootstrap PostgreSQL race matrix
         env:
@@ -82,6 +83,15 @@ jobs:
           src/lib/exomem-hosted/__tests__/cloud-release-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-cancellation-notice-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-paddle-activation-postgres.integration.test.ts
+      # Both run even when a test step failed, so one push reports every kind of failure.
+      # tsc covers the whole repository, the gateway included (`npm run gateway:typecheck`
+      # runs the same command). ESLint fails on errors only; warnings do not fail.
+      - name: Type-check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npx tsc --noEmit
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint
 
   e2e:
     name: onboarding end-to-end
@@ -119,3 +129,25 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 7
+
+  # Engineering practices quality check: fails a pull request that adds dead code
+  # and posts a Quality report. Configured by .github/quality.yml; see
+  # https://github.com/Artexis10/engineering-practices
+  quality:
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
+    needs: [test, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: quality-${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write # the sticky comment
+      actions: read # test-job runtimes
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the merge base must be present
+          persist-credentials: false
+      - uses: Artexis10/engineering-practices@v1
