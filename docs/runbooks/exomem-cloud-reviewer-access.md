@@ -72,9 +72,10 @@ Operator revocation remains available when the reviewer flag is disabled.
 ## Verify actual reviewer sign-in
 
 Start from the provider's normal OAuth connection in a clean browser without
-owner cookies. Enter the credential in the existing reviewer disclosure/form,
-then complete ordinary consent. The client must already qualify under Cloud's
-pinned/CIMD admission and match the credential's provider. The continuation,
+owner cookies. Open the "Reviewing Exomem for a directory?" disclosure at the
+bottom of the consent page, enter the credential, then complete ordinary
+consent. The client must already qualify under Cloud's pinned/CIMD admission
+and match the credential's provider. The continuation,
 form nonce and resource are checked; credentials cannot transfer another
 reviewer's transaction.
 
