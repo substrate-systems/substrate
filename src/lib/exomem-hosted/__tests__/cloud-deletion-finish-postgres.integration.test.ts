@@ -138,6 +138,11 @@ type AdmittedTenant = {
  * A real Cloud OAuth admission (invite, grant, code, session, cell) followed by
  * a real token exchange, so the tenant holds a grant, a token family, an
  * access token and, with offline access, a refresh token.
+ *
+ * A paid invite gets no grant before its first payment, so a paid tenant is
+ * admitted through a complimentary invite and recast to the rows a paid
+ * admission writes. That is a paid tenant connected before that rule, whose
+ * tokens deletion must still revoke.
  */
 async function admitCloudTenant(input: {
   source: "complimentary" | "paddle";
@@ -174,8 +179,8 @@ async function admitCloudTenant(input: {
     `INSERT INTO exomem_invites (
        token_digest, email_normalized, entitlement_source, entitlement_capabilities,
        entitlement_limits, created_by_principal_digest, expires_at
-     ) VALUES ($1, $2, $3, '["capture","recall"]'::jsonb, '{}'::jsonb, $4, now() + interval '1 day')`,
-    [inviteDigest, email, input.source, randomBytes(32)]
+     ) VALUES ($1, $2, 'complimentary', '["capture","recall"]'::jsonb, '{}'::jsonb, $3, now() + interval '1 day')`,
+    [inviteDigest, email, randomBytes(32)]
   );
   const transactionDigest = randomBytes(32);
   const scopes = input.offlineAccess ? ["exomem.read", "offline_access"] : ["exomem.read"];
@@ -218,6 +223,20 @@ async function admitCloudTenant(input: {
     accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
   });
   assert.ok(issued, "sanity: the admitted tenant holds live Cloud tokens");
+  if (input.source === "paddle") {
+    await pool!.query(
+      `UPDATE exomem_entitlements
+       SET source = 'paddle', source_state = 'awaiting_checkout', effective_state = 'provisioning'
+       WHERE tenant_id = $1`,
+      [admission!.tenantId]
+    );
+    await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1", [
+      admission!.cellId,
+    ]);
+    await pool!.query("UPDATE exomem_invites SET entitlement_source = 'paddle' WHERE token_digest = $1", [
+      inviteDigest,
+    ]);
+  }
   const owner = await pool!.query<{ owner_user_id: string }>(
     "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
     [admission!.tenantId]
