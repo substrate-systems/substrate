@@ -15,7 +15,7 @@ import {
   findMarketplaceReviewerCredentialForAuthentication,
 } from "@/lib/exomem-hosted/reviewer-access-store";
 import {
-  oauthConfirmationHandle,
+  oauthConsentPath,
   oauthContinuationDigest,
   oauthContinuationToken,
   resolveOAuthContinuation,
@@ -106,7 +106,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       {
         success: true,
         status: "authenticated",
-        destination: `/exomem/authorize?confirmation=${encodeURIComponent(oauthConfirmationHandle(transaction))}`,
+        destination: oauthConsentPath(transaction),
       },
       { headers }
     );

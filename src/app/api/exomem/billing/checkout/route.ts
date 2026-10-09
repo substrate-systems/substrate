@@ -5,6 +5,7 @@ import {
 } from "@/lib/exomem-hosted/billing-account";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
+import { liveOAuthConsentPath } from "@/lib/exomem-hosted/oauth-continuity";
 import { resolveExomemSession, validateMutationRequest } from "@/lib/exomem-hosted/sessions";
 
 export const runtime = "nodejs";
@@ -45,8 +46,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         session.tenantId,
         transactionId
       );
+      // A checkout started from the consent page returns there while its OAuth
+      // transaction is live, so the visitor connects next; otherwise Home.
       result =
-        returned.state === "settled" ? { ...returned, redirectUrl: "/exomem/home" } : returned;
+        returned.state === "settled"
+          ? { ...returned, redirectUrl: (await liveOAuthConsentPath(request)) ?? "/exomem/home" }
+          : returned;
     } else {
       result = await startOwnerCheckout(session.userId, session.tenantId);
     }

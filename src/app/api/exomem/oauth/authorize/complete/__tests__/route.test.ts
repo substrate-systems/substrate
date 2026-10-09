@@ -7,6 +7,10 @@ const STALE_HANDLE = "handle-for-an-earlier-transaction";
 
 let nonceValid = true;
 let attachCalls = 0;
+let attachResult: { grantId: string; tenantId: string } | null = {
+  grantId: "grant-1",
+  tenantId: "tenant-1",
+};
 
 before(() => {
   mock.module("@/lib/exomem-hosted/oauth-continuity", {
@@ -14,9 +18,9 @@ before(() => {
       resolveOAuthContinuation: async () => ({ clientId: "client-1" }),
       oauthContinuationDigest: () => Buffer.alloc(32, 1),
       oauthContinuationToken: () => LIVE_TRANSACTION,
-      oauthConfirmationHandle: (transaction: string) => {
+      oauthConsentPath: (transaction: string) => {
         assert.equal(transaction, LIVE_TRANSACTION);
-        return LIVE_HANDLE;
+        return `/exomem/authorize?confirmation=${encodeURIComponent(LIVE_HANDLE)}`;
       },
       matchesOAuthConfirmationHandle: (_transaction: string, confirmation: string) =>
         confirmation === LIVE_HANDLE,
@@ -41,7 +45,7 @@ before(() => {
     namedExports: {
       attachExistingOwnerAuthorizationAtomic: async () => {
         attachCalls += 1;
-        return true;
+        return attachResult;
       },
     },
   });
@@ -52,6 +56,7 @@ after(() => mock.reset());
 beforeEach(() => {
   nonceValid = true;
   attachCalls = 0;
+  attachResult = { grantId: "grant-1", tenantId: "tenant-1" };
 });
 
 function post(confirmation: string, nonce = "form-nonce"): Request {
@@ -236,6 +241,21 @@ describe("POST /api/exomem/oauth/authorize/complete", () => {
     assert.equal(response!.status, 400);
     assert.equal((errors.at(-1) as { stage?: string })?.stage, "origin");
     assert.equal(attachCalls, 0, "a cross-site post must not mint an authorization");
+  });
+
+  it("sends a refused Connect back to the consent page instead of a raw access_denied body", async () => {
+    // The account changed after the page rendered: signed out, payment still due,
+    // paused or ended. The consent page renders the step that state needs.
+    attachResult = null;
+    const { POST } = await import("../route");
+    const response = await POST(post(LIVE_HANDLE));
+
+    assert.equal(response.status, 303);
+    assert.equal(
+      response.headers.get("location"),
+      `https://substratesystems.io/exomem/authorize?confirmation=${encodeURIComponent(LIVE_HANDLE)}`
+    );
+    assert.equal(attachCalls, 1);
   });
 
   it("mints the code when confirmation and nonce both match the live transaction", async () => {

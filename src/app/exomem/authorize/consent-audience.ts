@@ -5,24 +5,36 @@
 // invited person actually needed, and "Continue" was offered to visitors with no
 // session, for whom it can only end in access_denied. Expressing the decision as
 // data lets it be asserted directly, without rendering.
+import type { ConsentStep } from "./consent-state";
+
 export type ConsentSection =
   | "connect"
-  | "check-email"
   | "sign-in"
-  | "paste-invitation"
-  | "reviewer";
+  | "invitation"
+  | "reviewer"
+  | "subscribe"
+  | "payment-failed"
+  | "ended"
+  | "paused"
+  | "suspended";
 
 export function consentSections(input: {
-  signedIn: boolean;
+  step: ConsentStep;
   reviewerEnabled: boolean;
 }): ConsentSection[] {
-  // A visitor who already has an Exomem needs exactly one thing, and none of the
-  // sign-up paths apply to them.
-  if (input.signedIn) return ["connect"];
-  return [
-    "check-email",
-    "sign-in",
-    "paste-invitation",
-    ...(input.reviewerEnabled ? (["reviewer"] as const) : []),
-  ];
+  switch (input.step) {
+    // Signing in comes first: most visitors with no session on this device already
+    // have an Exomem. The invitation path is for new people, and reviewer access is
+    // an internal path, so it stays last.
+    case "sign-in":
+      return ["sign-in", "invitation", ...(input.reviewerEnabled ? (["reviewer"] as const) : [])];
+    case "connect-read-only":
+      return ["payment-failed", "connect"];
+    case "subscribe":
+    case "connect":
+    case "ended":
+    case "paused":
+    case "suspended":
+      return [input.step];
+  }
 }

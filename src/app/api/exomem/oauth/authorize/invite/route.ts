@@ -9,12 +9,14 @@ import {
   authorizationRedirect,
   clearOAuthContinuationCookie,
   mintContinuationCode,
+  oauthConsentPath,
   oauthContinuationDigest,
   oauthContinuationToken,
   resolveOAuthContinuation,
   validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
+import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import {
   applySessionCookies,
@@ -98,11 +100,18 @@ export async function POST(request: Request): Promise<NextResponse> {
           codeExpiresAt: code.codeExpiresAt,
         });
     if (!admitted) return accessDenied();
-    const response = NextResponse.redirect(authorizationRedirect(continuation, code.code), 303);
+    // A paid invite is admitted without a code; the consent page continues at checkout.
+    const connected = admitted.grantId !== null;
+    const response = NextResponse.redirect(
+      connected
+        ? authorizationRedirect(continuation, code.code)
+        : new URL(oauthConsentPath(transaction), exomemPublicBaseUrlFromEnv()),
+      303
+    );
     for (const [name, value] of Object.entries(oauthNoStoreHeaders()))
       response.headers.set(name, value);
     applySessionCookies(response, session);
-    clearOAuthContinuationCookie(response);
+    if (connected) clearOAuthContinuationCookie(response);
     return response;
   } catch (error) {
     // Security review finding 11: CAPACITY_UNAVAILABLE is the hosted

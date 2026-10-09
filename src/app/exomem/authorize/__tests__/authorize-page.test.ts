@@ -43,7 +43,7 @@ test("does not render authorization controls for an invalid continuation", async
     searchParams: Promise.resolve({ confirmation: "opaque-confirmation" }),
   });
 
-  assert.match(textContent(rendered), /connection request is no longer active/i);
+  assert.match(textContent(rendered), /connection request has expired/i);
   assert.equal(containsTag(rendered, "form"), false);
   assert.equal(containsTag(rendered, "button"), false);
 });

@@ -11,6 +11,13 @@ import {
 } from "../cloud-admission";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import {
+  createOAuthContinuation,
+  liveOAuthConsentPath,
+  oauthConsentPath,
+} from "../oauth-continuity";
+import { attachExistingOwnerAuthorizationAtomic } from "../oauth-store";
+import { tokenDigest } from "../security";
 import type { ExomemPaddleConfig } from "../paddle-config";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
@@ -115,10 +122,13 @@ async function createInvite(
 
 async function createCloudOAuthFixture(
   email = `cloud-oauth-admit-${randomUUID()}@example.test`,
-  purpose = false
+  purpose = false,
+  source: "complimentary" | "paddle" = "complimentary"
 ): Promise<{
   inviteDigest: Buffer;
   transactionDigest: Buffer;
+  clientId: string;
+  redirectUri: string;
 }> {
   const clientId = `https://cloud-oauth-fixture-${randomUUID()}.example.test/client.json`;
   const host = new URL(clientId).hostname;
@@ -145,8 +155,8 @@ async function createCloudOAuthFixture(
     `INSERT INTO exomem_invites (
        token_digest, email_normalized, entitlement_source, entitlement_capabilities,
        entitlement_limits, created_by_principal_digest, expires_at, marketplace_reviewer_purpose
-     ) VALUES ($1, $2, 'complimentary', '["capture","recall"]'::jsonb, '{}'::jsonb, $3, now() + interval '1 day', $4)`,
-    [inviteDigest, email, randomBytes(32), purpose]
+     ) VALUES ($1, $2, $3, '["capture","recall"]'::jsonb, '{}'::jsonb, $4, now() + interval '1 day', $5)`,
+    [inviteDigest, email, source, randomBytes(32), purpose]
   );
 
   const transactionDigest = randomBytes(32);
@@ -166,7 +176,7 @@ async function createCloudOAuthFixture(
     ]
   );
 
-  return { inviteDigest, transactionDigest };
+  return { inviteDigest, transactionDigest, clientId, redirectUri: redirectUris[0]! };
 }
 
 function redemptionInput(tokenDigest: Buffer) {
@@ -1097,5 +1107,137 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
   it("randomCloudCellId produces the 16-character lowercase base32 shape the cell_id CHECK requires", () => {
     const id = randomCloudCellId();
     assert.match(id, /^[a-z2-7]{16}$/);
+  });
+
+  // A friend joins through a paid invite from the consent page of the app they are
+  // connecting. Before this change the invite minted a code before payment, and every
+  // tool call on the resulting connection failed until checkout.
+  describe("a paid invite redeemed from the consent page pays before its first grant", () => {
+    const priorEnv: Record<string, string | undefined> = {};
+    before(() => {
+      for (const key of ["EXOMEM_CLOUD_ENABLED", "EXOMEM_CONTROL_PLANE_KEY"]) {
+        priorEnv[key] = process.env[key];
+      }
+      process.env.EXOMEM_CLOUD_ENABLED = "true";
+      process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 11).toString("base64url");
+    });
+    after(() => {
+      for (const [key, value] of Object.entries(priorEnv)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+
+    // Admits a paid invite under a real OAuth continuation, as the redeem route does
+    // when the invitation is accepted in the browser that holds the consent page.
+    async function admitPaidInviteFromConsentPage() {
+      await resetFleet();
+      await configureCapacity(1);
+      const fixture = await createCloudOAuthFixture(undefined, false, "paddle");
+      const continuation = await createOAuthContinuation({
+        clientId: fixture.clientId,
+        redirectUri: fixture.redirectUri,
+        resource: "https://cloud.example.test/mcp/v1",
+        scopes: ["exomem.read", "exomem.write"],
+        state: "paid-invite-state",
+        codeChallenge: "paid-invite-challenge",
+        offlineAccess: false,
+      });
+      assert.ok(continuation, "the consent page holds a live OAuth transaction");
+      const transactionDigest = tokenDigest(continuation.transaction)!;
+      const admitted = await admitFirstCloudOAuthInviteAtomic({
+        inviteDigest: fixture.inviteDigest,
+        transactionDigest,
+        sessionDigest: randomBytes(32),
+        csrfDigest: randomBytes(32),
+        sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        codeDigest: randomBytes(32),
+        codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      assert.ok(admitted);
+      return { fixture, transaction: continuation.transaction, transactionDigest, admitted };
+    }
+
+    it("admits and signs in a paid invite, but mints no grant or code and leaves the transaction open", async () => {
+      const { fixture, transactionDigest, admitted } = await admitPaidInviteFromConsentPage();
+
+      assert.equal(admitted.grantId, null);
+      const counts = await pool!.query(
+        `SELECT
+           (SELECT count(*)::int FROM exomem_oauth_grants WHERE tenant_id = $1) AS grants,
+           (SELECT count(*)::int FROM exomem_oauth_authorization_codes) AS codes,
+           (SELECT count(*)::int FROM exomem_sessions WHERE id = $2) AS sessions`,
+        [admitted.tenantId, admitted.sessionId]
+      );
+      assert.deepEqual(counts.rows[0], { grants: 0, codes: 0, sessions: 1 });
+      const transaction = await pool!.query(
+        "SELECT consumed_at FROM exomem_oauth_authorization_transactions WHERE transaction_digest = $1",
+        [transactionDigest]
+      );
+      assert.equal(transaction.rows[0]!.consumed_at, null, "the consent page can still connect");
+      const invite = await pool!.query(
+        "SELECT consumed_at FROM exomem_invites WHERE token_digest = $1",
+        [fixture.inviteDigest]
+      );
+      assert.notEqual(invite.rows[0]!.consumed_at, null, "the invitation is spent once");
+      const entitlement = await pool!.query(
+        "SELECT source_state FROM exomem_entitlements WHERE tenant_id = $1",
+        [admitted.tenantId]
+      );
+      assert.equal(entitlement.rows[0]!.source_state, "awaiting_checkout");
+    });
+
+    it("refuses consent while the first payment is outstanding, and grants it once payment settles", async () => {
+      const { transactionDigest, admitted } = await admitPaidInviteFromConsentPage();
+      const connect = () =>
+        attachExistingOwnerAuthorizationAtomic({
+          sessionId: admitted.sessionId,
+          transactionDigest,
+          codeDigest: randomBytes(32),
+          codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        });
+
+      // Both pre-payment states carry effective state `provisioning`, which the
+      // gate used to accept.
+      for (const sourceState of ["awaiting_checkout", "checkout_pending"]) {
+        await pool!.query(
+          "UPDATE exomem_entitlements SET source_state = $2, effective_state = 'provisioning' WHERE tenant_id = $1",
+          [admitted.tenantId, sourceState]
+        );
+        assert.equal(await connect(), null, `${sourceState} must not connect`);
+      }
+
+      await pool!.query(
+        "UPDATE exomem_entitlements SET source_state = 'active', effective_state = 'active' WHERE tenant_id = $1",
+        [admitted.tenantId]
+      );
+      const granted = await connect();
+      assert.ok(granted, "a paid owner connects through the same transaction");
+      assert.equal(granted.tenantId, admitted.tenantId);
+    });
+
+    it("returns a settled checkout to the consent page only while the OAuth transaction is live", async () => {
+      const { transaction, transactionDigest } = await admitPaidInviteFromConsentPage();
+      const withCookie = new Request("https://substrate.example.test/api/exomem/billing/checkout", {
+        headers: { cookie: `exomem_oauth_tx=${transaction}` },
+      });
+
+      assert.equal(await liveOAuthConsentPath(withCookie), oauthConsentPath(transaction));
+
+      await pool!.query(
+        `UPDATE exomem_oauth_authorization_transactions
+         SET created_at = now() - interval '20 minutes', expires_at = now() - interval '1 second'
+         WHERE transaction_digest = $1`,
+        [transactionDigest]
+      );
+      assert.equal(await liveOAuthConsentPath(withCookie), null, "an expired request goes Home");
+      assert.equal(
+        await liveOAuthConsentPath(
+          new Request("https://substrate.example.test/api/exomem/billing/checkout")
+        ),
+        null,
+        "no OAuth cookie goes Home"
+      );
+    });
   });
 });

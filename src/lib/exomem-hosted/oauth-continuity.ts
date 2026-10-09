@@ -173,8 +173,23 @@ export function oauthContinuationToken(request: Request): string | null {
   return cookieValue(request, EXOMEM_OAUTH_CONTINUITY_COOKIE);
 }
 
-export function oauthConfirmationHandle(transaction: string): string {
+function oauthConfirmationHandle(transaction: string): string {
   return digestSecret(transaction).toString("base64url");
+}
+
+/** The consent page for one OAuth transaction. Every return to that page uses this path. */
+export function oauthConsentPath(transaction: string): string {
+  return `/exomem/authorize?confirmation=${encodeURIComponent(oauthConfirmationHandle(transaction))}`;
+}
+
+/**
+ * The consent page when this browser holds a live OAuth transaction, otherwise null.
+ * Derived from the httpOnly continuation cookie only, so no caller can choose the target.
+ */
+export async function liveOAuthConsentPath(request: Request): Promise<string | null> {
+  const transaction = oauthContinuationToken(request);
+  if (!transaction) return null;
+  return (await resolveOAuthContinuationToken(transaction)) ? oauthConsentPath(transaction) : null;
 }
 
 export function matchesOAuthConfirmationHandle(

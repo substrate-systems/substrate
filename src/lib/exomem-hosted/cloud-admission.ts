@@ -379,7 +379,9 @@ class CloudOAuthAdmissionRejected extends Error {}
 export type CloudOAuthInviteAdmission = {
   tenantId: string;
   sessionId: string;
-  grantId: string;
+  /** Null for a paid invite: it is admitted and signed in, but gets no grant or code
+   *  and leaves the OAuth transaction open until its first payment settles. */
+  grantId: string | null;
   cellId: string;
 };
 
@@ -394,6 +396,11 @@ export type CloudOAuthInviteAdmission = {
  * machinery with the same plain capacity-gated cell creation
  * `redeemCloudInviteAtomic` uses: none of that hosted-only routing exists for
  * a Cloud cell.
+ *
+ * A paid invite pays before its first grant. It is admitted with the same
+ * tenant, cell and session, but no grant or code is written and the OAuth
+ * transaction stays unconsumed, so the consent page can continue at checkout
+ * and connect once the payment settles.
  */
 export async function admitFirstCloudOAuthInviteAtomic(input: {
   inviteDigest: Buffer;
@@ -559,6 +566,11 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       const session = sessionResult.rows[0] as { id: string } | undefined;
       if (!session) throw new CloudOAuthAdmissionRejected();
 
+      if (!isComplimentary) {
+        await consumeCloudOAuthInvite(tx, invite.id, owner.id, tenantId, session.id);
+        return { tenantId, sessionId: session.id, grantId: null, cellId };
+      }
+
       const grantResult = await tx`
         INSERT INTO exomem_oauth_grants (
           user_id, tenant_id, client_id, resource, scopes, refresh_allowed, authorization_transaction_id
@@ -585,20 +597,14 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       `;
       if (!codeResult.rows[0]) throw new CloudOAuthAdmissionRejected();
 
-      const consumedInvite = await tx`
-        UPDATE exomem_invites SET consumed_at = now(), consumed_by_user_id = ${owner.id}::uuid,
-          redeemed_tenant_id = ${tenantId}::uuid, redeemed_session_id = ${session.id}::uuid
-        WHERE id = ${invite.id}::uuid AND consumed_at IS NULL RETURNING id
-      `;
+      await consumeCloudOAuthInvite(tx, invite.id, owner.id, tenantId, session.id);
       const consumedTransaction = await tx`
         UPDATE exomem_oauth_authorization_transactions
         SET consumed_at = now(), redeemed_session_id = ${session.id}::uuid
         WHERE id = ${authorization.id}::uuid AND consumed_at IS NULL
         RETURNING id
       `;
-      if (!consumedInvite.rows[0] || !consumedTransaction.rows[0]) {
-        throw new CloudOAuthAdmissionRejected();
-      }
+      if (!consumedTransaction.rows[0]) throw new CloudOAuthAdmissionRejected();
 
       return { tenantId, sessionId: session.id, grantId: grant.id, cellId };
     });
@@ -608,6 +614,21 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
     if (typeof error === "object" && error && "code" in error && error.code === "23505") return null;
     throw error;
   }
+}
+
+async function consumeCloudOAuthInvite(
+  tx: ExomemSql,
+  inviteId: string,
+  ownerUserId: string,
+  tenantId: string,
+  sessionId: string
+): Promise<void> {
+  const consumed = await tx`
+    UPDATE exomem_invites SET consumed_at = now(), consumed_by_user_id = ${ownerUserId}::uuid,
+      redeemed_tenant_id = ${tenantId}::uuid, redeemed_session_id = ${sessionId}::uuid
+    WHERE id = ${inviteId}::uuid AND consumed_at IS NULL RETURNING id
+  `;
+  if (!consumed.rows[0]) throw new CloudOAuthAdmissionRejected();
 }
 
 export type CloudAwaitingCheckoutTenant = {

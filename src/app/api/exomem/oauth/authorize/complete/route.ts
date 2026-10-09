@@ -4,7 +4,7 @@ import {
   authorizationRedirect,
   clearOAuthContinuationCookie,
   mintContinuationCode,
-  oauthConfirmationHandle,
+  oauthConsentPath,
   oauthContinuationDigest,
   oauthContinuationToken,
   matchesOAuthConfirmationHandle,
@@ -21,8 +21,9 @@ export const dynamic = "force-dynamic";
 
 type CompleteRejectionStage = "origin" | "form" | "continuation" | "nonce";
 
-// Every gate below answers an identical bare `invalid_request`, which is right
-// for the caller and useless for the operator: on 2026-08-22 a live promotion
+// The origin, form and nonce gates below answer an identical bare `invalid_request`,
+// and the continuation gate sends the visitor to the expired-request page. That is
+// right for the caller and useless for the operator: on 2026-08-22 a live promotion
 // window produced a 400 here that could not be attributed to any of the four
 // causes from outside, because the response, the status and the access log are
 // the same for all of them. This names the gate without telling the caller
@@ -62,24 +63,25 @@ function invalidRequest(
 // continuation cookie that the handle is derived from, so this discloses nothing
 // they do not hold, and it authorizes nothing: they still have to submit the
 // fresh page, with a valid nonce, to mint a code.
+//
+// A refused Connect comes back here too. The account changed between render and
+// submit (signed out, payment still due, paused, ended), and the fresh page shows
+// the step that state needs, where a 403 body showed raw JSON.
 function freshConsentPage(transaction: string): NextResponse {
-  const response = NextResponse.redirect(
-    new URL(
-      `/exomem/authorize?confirmation=${encodeURIComponent(oauthConfirmationHandle(transaction))}`,
-      exomemPublicBaseUrlFromEnv()
-    ),
-    303
-  );
+  return consentPageRedirect(oauthConsentPath(transaction));
+}
+
+// With no live continuation there is no handle to return to. The bare page shows
+// the expired request and asks the visitor to start again from their app.
+function expiredConsentPage(): NextResponse {
+  return consentPageRedirect("/exomem/authorize");
+}
+
+function consentPageRedirect(path: string): NextResponse {
+  const response = NextResponse.redirect(new URL(path, exomemPublicBaseUrlFromEnv()), 303);
   for (const [name, value] of Object.entries(oauthNoStoreHeaders()))
     response.headers.set(name, value);
   return response;
-}
-
-function accessDenied(): NextResponse {
-  return NextResponse.json(
-    { error: "access_denied" },
-    { status: 403, headers: oauthNoStoreHeaders() }
-  );
 }
 
 // Bounded deliberately: a rejected body is by definition not one this server
@@ -177,12 +179,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     // the store would not resolve" -- a live transaction that has expired, been
     // consumed, or lost its bootstrap authority. Those need opposite responses
     // and were indistinguishable.
-    return invalidRequest("continuation", {
+    logCompleteRejection("continuation", {
       transaction_cookie_present: transaction !== null,
       transaction_digest_present: transactionDigest !== null,
       continuation_resolved: continuation !== null,
       form_nonce_present: !!form.nonce,
     });
+    return expiredConsentPage();
   }
   // Checked before the nonce deliberately: a stale tab carries a stale
   // confirmation AND a stale nonce, so testing the confirmation first is what
@@ -204,13 +207,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       codeDigest: code.codeDigest,
       codeExpiresAt: code.codeExpiresAt,
     });
-    if (!attached) return accessDenied();
+    if (!attached) return freshConsentPage(transaction);
     const response = NextResponse.redirect(authorizationRedirect(continuation, code.code), 303);
     for (const [name, value] of Object.entries(oauthNoStoreHeaders()))
       response.headers.set(name, value);
     clearOAuthContinuationCookie(response);
     return response;
   } catch {
-    return accessDenied();
+    return freshConsentPage(transaction);
   }
 }

@@ -16,6 +16,7 @@
  */
 
 import { executeExomemSql } from "./db";
+import { awaitsFirstPayment } from "./entitlements";
 import type { LifecycleStatus } from "./reconciler";
 
 type CloudCellStatusRow = {
@@ -49,9 +50,9 @@ export function mapCloudCellToLifecycleStatus(
   }
   // D1: a paid invite's cell starts `stopped` and stays that way, holding its
   // capacity slot, until checkout completes -- distinct from a cell stopped
-  // by manual suspension or a complimentary revocation, which never has an
-  // `awaiting_checkout` entitlement.
-  if (row.source_state === "awaiting_checkout") {
+  // by manual suspension or a complimentary revocation, which never awaits a
+  // first payment. A started checkout (`checkout_pending`) still awaits it.
+  if (awaitsFirstPayment(row.source_state)) {
     return { state: "awaiting_payment", code: "PAYMENT_REQUIRED", retryable: false };
   }
   if (row.desired_state === "stopped") {

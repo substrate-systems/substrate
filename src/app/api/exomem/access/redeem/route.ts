@@ -8,6 +8,7 @@ import {
   authorizationRedirect,
   clearOAuthContinuationCookie,
   mintContinuationCode,
+  oauthConsentPath,
   oauthContinuationDigest,
   oauthContinuationToken,
   oauthFormNonceFromRequest,
@@ -80,17 +81,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             codeExpiresAt: code.codeExpiresAt,
           });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
+      // A paid invite is admitted without a code. The continuation stays open, and
+      // the consent page continues at checkout with the new session.
+      const connected = admitted.grantId !== null;
       const response = NextResponse.json(
         {
           success: true,
           status: "accepted",
-          destination: authorizationRedirect(continuation, code.code),
+          destination: connected
+            ? authorizationRedirect(continuation, code.code)
+            : oauthConsentPath(transaction),
           requestId,
         },
         { status: 200, headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" } }
       );
       applySessionCookies(response, session);
-      clearOAuthContinuationCookie(response);
+      if (connected) clearOAuthContinuationCookie(response);
       return response;
     }
     const redeemed = exomemCloudEnabled()

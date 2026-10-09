@@ -49,7 +49,7 @@ before(() => {
       resolveOAuthContinuation: async () => continuation,
       oauthContinuationDigest: () => Buffer.alloc(32, 0x41),
       oauthContinuationToken: () => "opaque-continuation",
-      oauthConfirmationHandle: () => "opaque-confirmation",
+      oauthConsentPath: () => "/exomem/authorize?confirmation=opaque-confirmation",
       oauthFormNonceFromRequest: () => NONCE,
     },
   });
