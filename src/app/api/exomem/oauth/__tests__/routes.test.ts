@@ -1218,8 +1218,11 @@ describe("Exomem OAuth routes", () => {
         confirmation: confirmation(complete.started),
       })
     );
-    assert.equal(completeResponse.status, 400);
-    assert.deepEqual(await completeResponse.json(), { error: "invalid_request" });
+    // Refused without a grant. The visitor lands on the expired-request page, which
+    // tells them to start again from their app, rather than on a raw JSON body.
+    assert.equal(completeResponse.status, 303);
+    assert.equal(new URL(completeResponse.headers.get("location")!).pathname, "/exomem/authorize");
+    assert.equal(new URL(completeResponse.headers.get("location")!).search, "");
     assert.equal(attached.length, 0);
   });
 

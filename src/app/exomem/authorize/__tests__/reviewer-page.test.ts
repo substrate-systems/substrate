@@ -7,7 +7,9 @@ test("passes reviewer access only for an active authorization continuation", asy
   let enabled = true;
   let resource = "https://cloud.example.test/mcp/v1";
   let boundCredential: string | null = null;
-  let session: { reviewerCredentialId: string | null } | null = null;
+  let session: { reviewerCredentialId: string | null; userId: string; tenantId: string } | null =
+    null;
+  let account = { effectiveState: "active", sourceState: "active" };
   let storageFails = false;
   mock.module("@/lib/exomem-hosted/db", {
     namedExports: {
@@ -15,6 +17,14 @@ test("passes reviewer access only for an active authorization continuation", asy
         if (storageFails) throw new Error("storage unavailable");
         return session;
       },
+    },
+  });
+  mock.module("@/lib/exomem-hosted/billing-account", {
+    namedExports: { loadOwnerBillingAccount: async () => account },
+  });
+  mock.module("@/lib/exomem-hosted/cloud-status", {
+    namedExports: {
+      getOwnerCloudStatus: async () => ({ state: "ready", code: "CELL_READY", retryable: false }),
     },
   });
   mock.module("@/lib/exomem-hosted/security", {
@@ -92,7 +102,7 @@ test("passes reviewer access only for an active authorization continuation", asy
     while (pending.length) {
       const node = pending.pop() as {
         type?: unknown;
-        props?: { children?: unknown; reviewerEnabled?: boolean; signedIn?: boolean };
+        props?: { children?: unknown; reviewerEnabled?: boolean; step?: string };
       } | null;
       if (!node || typeof node !== "object") continue;
       if (node.type === AuthorizeClient) return node.props;
@@ -112,16 +122,20 @@ test("passes reviewer access only for an active authorization continuation", asy
   // A second connection starts unbound. The previous reviewer session must
   // offer fresh sign-in, not a Connect button the server will reject.
   enabled = true;
-  session = { reviewerCredentialId: null };
-  assert.equal((await clientState())?.signedIn, true, "ordinary signed-in owner");
-  session = { reviewerCredentialId: "reviewer-one" };
-  assert.equal((await clientState())?.signedIn, false, "new unbound connection");
+  const owner = { userId: "user-1", tenantId: "tenant-1" };
+  session = { ...owner, reviewerCredentialId: null };
+  assert.equal((await clientState())?.step, "connect", "ordinary signed-in owner");
+  account = { effectiveState: "provisioning", sourceState: "awaiting_checkout" };
+  assert.equal((await clientState())?.step, "subscribe", "owner whose first payment is due");
+  account = { effectiveState: "active", sourceState: "active" };
+  session = { ...owner, reviewerCredentialId: "reviewer-one" };
+  assert.equal((await clientState())?.step, "sign-in", "new unbound connection");
   boundCredential = "reviewer-two";
-  assert.equal((await clientState())?.signedIn, false, "different reviewer credential");
+  assert.equal((await clientState())?.step, "sign-in", "different reviewer credential");
   boundCredential = "reviewer-one";
-  assert.equal((await clientState())?.signedIn, true, "fresh matching reviewer sign-in");
+  assert.equal((await clientState())?.step, "connect", "fresh matching reviewer sign-in");
   session = null;
-  assert.equal((await clientState())?.signedIn, false, "signed-out visitor");
+  assert.equal((await clientState())?.step, "sign-in", "signed-out visitor");
   storageFails = true;
-  assert.equal((await clientState())?.signedIn, false, "unavailable session read");
+  assert.equal((await clientState())?.step, "sign-in", "unavailable session read");
 });
