@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { postPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
+import { postPrivateJson, settledCheckoutDestination } from "@/lib/exomem-hosted/hosted-browser";
 import { usePaddle } from "@/lib/paddle";
 import { AnalyticsEvent, capture } from "@/lib/analytics";
 
@@ -126,15 +126,11 @@ export function PaddleTransactionOpener({
     });
     void validationRef.current
       .then((response) => {
-        if (
-          active &&
-          response.success === true &&
-          response.state === "settled" &&
-          response.redirectUrl === "/exomem/home"
-        ) {
+        const settledDestination = settledCheckoutDestination(response);
+        if (active && settledDestination) {
           clearPendingTransaction();
           candidateRef.current = null;
-          window.location.replace(response.redirectUrl);
+          window.location.replace(settledDestination);
           return;
         }
         if (active && returnedCheckoutMatches(response, candidate)) {

@@ -533,6 +533,37 @@ export function inferMemoryTitle(content: string): string {
   );
 }
 
+// A settled checkout sends the browser to Home, or to the consent page of a live
+// OAuth transaction (billing/checkout/route.ts). Any other target is refused, so a
+// server bug cannot turn the response into a redirect off this origin.
+export function settledCheckoutDestination(response: Record<string, unknown>): string | null {
+  if (
+    response.success !== true ||
+    response.state !== "settled" ||
+    typeof response.redirectUrl !== "string"
+  ) {
+    return null;
+  }
+  const base = "https://origin.invalid";
+  let destination: URL;
+  try {
+    destination = new URL(response.redirectUrl, base);
+  } catch {
+    return null;
+  }
+  if (destination.origin !== base || destination.hash) return null;
+  const query = [...destination.searchParams.keys()];
+  if (destination.pathname === "/exomem/home" && query.length === 0) return "/exomem/home";
+  if (
+    destination.pathname === "/exomem/authorize" &&
+    query.length === 1 &&
+    query[0] === "confirmation"
+  ) {
+    return `${destination.pathname}${destination.search}`;
+  }
+  return null;
+}
+
 export function newRetryKey(): string {
   return crypto.randomUUID();
 }

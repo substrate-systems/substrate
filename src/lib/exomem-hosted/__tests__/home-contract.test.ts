@@ -168,9 +168,6 @@ describe("private Exomem Home contract", () => {
     assert.match(opener, /postPrivateJson\(validationEndpoint/);
     assert.match(opener, /transactionId: candidate/);
     assert.match(opener, /window\.history\.replaceState/);
-    assert.match(opener, /response\.state === "settled"/);
-    assert.match(opener, /response\.redirectUrl === "\/exomem\/home"/);
-    assert.match(opener, /window\.location\.replace\(response\.redirectUrl\)/);
     assert.match(opener, /window\.sessionStorage\.setItem/);
     assert.match(opener, /window\.sessionStorage\.getItem/);
     assert.match(opener, /window\.sessionStorage\.removeItem/);
