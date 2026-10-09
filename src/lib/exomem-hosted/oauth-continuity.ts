@@ -173,7 +173,7 @@ export function oauthContinuationToken(request: Request): string | null {
   return cookieValue(request, EXOMEM_OAUTH_CONTINUITY_COOKIE);
 }
 
-export function oauthConfirmationHandle(transaction: string): string {
+function oauthConfirmationHandle(transaction: string): string {
   return digestSecret(transaction).toString("base64url");
 }
 
