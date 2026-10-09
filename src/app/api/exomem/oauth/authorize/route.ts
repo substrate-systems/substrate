@@ -7,7 +7,7 @@ import {
 } from "@/lib/exomem-hosted/oauth";
 import {
   createOAuthContinuation,
-  oauthConfirmationHandle,
+  oauthConsentPath,
   resolveActiveOAuthClient,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
@@ -269,10 +269,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     if (!transaction)
       return authorizationError(callback.redirectUri, callback.state, "temporarily_unavailable");
     const response = NextResponse.redirect(
-      new URL(
-        `/exomem/authorize?confirmation=${encodeURIComponent(oauthConfirmationHandle(transaction.transaction))}`,
-        exomemPublicBaseUrlFromEnv()
-      ),
+      new URL(oauthConsentPath(transaction.transaction), exomemPublicBaseUrlFromEnv()),
       303
     );
     response.headers.set("cache-control", "no-store");
