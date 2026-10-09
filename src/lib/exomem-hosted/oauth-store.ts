@@ -17,6 +17,7 @@ import { PROVISIONER_PROTOCOL_V2, type ProvisionerWireProtocol } from "./provisi
 import { provisionerWireProtocolFromEnv } from "./provisioner-wire-protocol";
 import type { SecretEnvelope } from "./security";
 import { exomemCloudEnabled, loadExomemCloudResource } from "./cloud-config";
+import { CONNECTABLE_EFFECTIVE_STATES, FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
 
 export type OAuthTokenContext = {
@@ -534,6 +535,8 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
     FOR UPDATE OF tenant
   `;
     if (!locked.rows[0]) return null;
+    // The entitlement join is `canConnect` (entitlements.ts) in SQL. A tenant that awaits
+    // its first payment is also `provisioning`, so its source state is what refuses it.
     const { rows } = await tx`
     /* exomem:attach-existing-owner-oauth */
     WITH session AS (
@@ -548,7 +551,8 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
        AND credential.expires_at > now()
       JOIN exomem_entitlements AS entitlement
         ON entitlement.tenant_id = session.tenant_id
-       AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
+       AND entitlement.effective_state = ANY(${[...CONNECTABLE_EFFECTIVE_STATES]}::text[])
+       AND NOT (entitlement.source_state = ANY(${[...FIRST_PAYMENT_SOURCE_STATES]}::text[]))
       WHERE session.id = ${input.sessionId}::uuid
         AND session.revoked_at IS NULL AND session.expires_at > now()
         AND (session.reviewer_credential_id IS NULL OR credential.id IS NOT NULL)

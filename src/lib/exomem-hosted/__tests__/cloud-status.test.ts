@@ -44,6 +44,17 @@ describe("mapCloudCellToLifecycleStatus", () => {
     );
   });
 
+  it("reports awaiting_payment once checkout has started, not suspended", () => {
+    // Starting checkout moves the entitlement to `checkout_pending`. Home showed
+    // that owner "Your Exomem is paused" and no way to finish paying.
+    assert.deepEqual(
+      mapCloudCellToLifecycleStatus(
+        row({ desired_state: "stopped", observed_state: null, ready: false, source_state: "checkout_pending" })
+      ),
+      { state: "awaiting_payment", code: "PAYMENT_REQUIRED", retryable: false }
+    );
+  });
+
   it("reports suspended for a stopped cell that is not awaiting checkout", () => {
     assert.deepEqual(
       mapCloudCellToLifecycleStatus(

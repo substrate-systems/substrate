@@ -21,6 +21,38 @@ export type ExomemSourceProjection =
       state: "active" | "trialing" | "past_due" | "paused" | "cancelled";
     };
 
+// The source states admission and checkout write before the first payment settles
+// (cloud-admission.ts, db.ts). `source_state` has no CHECK; these writers fix the set.
+export const FIRST_PAYMENT_SOURCE_STATES = ["awaiting_checkout", "checkout_pending"] as const;
+
+// The `effective_state` values (CHECK in migration 0017) in which an owner may grant a
+// client access. A tenant that still awaits its first payment is `provisioning` too, so
+// `canConnect` excludes it by source state.
+export const CONNECTABLE_EFFECTIVE_STATES = [
+  "provisioning",
+  "active",
+  "grace",
+] as const satisfies readonly ExomemEffectiveState[];
+
+export function awaitsFirstPayment(sourceState: string | null | undefined): boolean {
+  return (FIRST_PAYMENT_SOURCE_STATES as readonly string[]).includes(sourceState ?? "");
+}
+
+export function hasConnectableEffectiveState(effectiveState: string): boolean {
+  return (CONNECTABLE_EFFECTIVE_STATES as readonly string[]).includes(effectiveState);
+}
+
+/**
+ * Whether an owner may connect a client now. The consent gate in
+ * `attachExistingOwnerAuthorizationAtomic` applies the same two lists in SQL.
+ */
+export function canConnect(entitlement: { effectiveState: string; sourceState: string }): boolean {
+  return (
+    hasConnectableEffectiveState(entitlement.effectiveState) &&
+    !awaitsFirstPayment(entitlement.sourceState)
+  );
+}
+
 export type ExomemCapability = "capture" | "recall" | "export";
 
 export type ExomemResourceLimits = {
