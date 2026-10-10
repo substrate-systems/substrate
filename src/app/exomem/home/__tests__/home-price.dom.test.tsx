@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { after, before, describe, it, mock } from "node:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import type { PricePreviewParams, PricePreviewResponse } from "@paddle/paddle-js";
 
-const PADDLE_SANDBOX_PRICES = "https://sandbox-api.paddle.com/prices/";
+// Paddle.js arrives from Paddle's CDN as this global. The real loader in
+// @paddle/paddle-js finds it and skips the script tag, so no request leaves.
+let pricePreview: (params: PricePreviewParams) => Promise<PricePreviewResponse>;
 
 function installDom(): JSDOM {
   const dom = new JSDOM('<!doctype html><body><div id="mount"></div></body>', {
@@ -11,6 +14,14 @@ function installDom(): JSDOM {
     url: "https://substratesystems.io/exomem/home",
   });
   const win = dom.window;
+  Object.assign(win, {
+    PaddleBillingV1: {
+      Initialized: false,
+      Environment: { set: () => undefined },
+      Initialize: () => undefined,
+      PricePreview: (params: PricePreviewParams) => pricePreview(params),
+    },
+  });
   const globals = {
     window: win,
     document: win.document,
@@ -29,19 +40,21 @@ function installDom(): JSDOM {
   return dom;
 }
 
-function useSandboxPaddle(priceId: string): void {
-  process.env.PADDLE_ENVIRONMENT = "sandbox";
-  process.env.PADDLE_API_KEY = "pdl_sdbx_apikey_example";
-  process.env.EXOMEM_PADDLE_PRODUCT_ID = "pro_exomem_cloud";
-  process.env.EXOMEM_PADDLE_PRICE_ID = priceId;
+function configureSandboxCheckout(priceId: string): void {
+  Object.assign(process.env, {
+    PADDLE_ENVIRONMENT: "sandbox",
+    EXOMEM_PADDLE_PRODUCT_ID: "pro_exomem_cloud",
+    EXOMEM_PADDLE_PRICE_ID: priceId,
+    EXOMEM_PUBLIC_BASE_URL: "https://substratesystems.io",
+    NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: "test_lane_price_client_token",
+    NEXT_PUBLIC_PADDLE_ENVIRONMENT: "sandbox",
+  });
 }
 
 // The browser asks for its lifecycle; this account still has to subscribe.
-// Paddle answers with whatever `paddlePrice` returns for the configured price.
-function stubFetch(paddlePrice: (url: string) => Response): void {
+function stubLifecycleFetch(): void {
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = String(input instanceof Request ? input.url : input);
-    if (url.startsWith(PADDLE_SANDBOX_PRICES)) return paddlePrice(url);
     if (url === "/api/exomem/status") {
       return Response.json({
         status: { state: "awaiting_payment", code: "PAYMENT_REQUIRED", retryable: false },
@@ -51,18 +64,18 @@ function stubFetch(paddlePrice: (url: string) => Response): void {
   }) as typeof fetch;
 }
 
-async function renderSubscribeCard(): Promise<string> {
+async function renderSubscribeCard(settled: (cardText: string) => boolean): Promise<string> {
   const { default: ExomemHomePage } = await import("../page");
   const { createRoot } = await import("react-dom/client");
   const page = await ExomemHomePage();
   const root = createRoot(document.getElementById("mount")!);
   await act(async () => root.render(page));
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (document.body.textContent?.includes("Subscribe and prepare Exomem")) break;
+  const cardText = () =>
+    document.querySelector('section[aria-labelledby="lifecycle-title"]')?.textContent ?? "";
+  for (let attempt = 0; attempt < 50 && !settled(cardText()); attempt += 1) {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   }
-  const card = document.querySelector('section[aria-labelledby="lifecycle-title"]');
-  const text = card?.textContent ?? "";
+  const text = cardText();
   await act(async () => root.unmount());
   return text;
 }
@@ -74,6 +87,7 @@ describe("Exomem home subscribe card", () => {
   before(() => {
     mock.module("../../private-shell.module.css", { defaultExport: {} });
     installDom();
+    stubLifecycleFetch();
   });
 
   after(() => {
@@ -82,39 +96,52 @@ describe("Exomem home subscribe card", () => {
     mock.reset();
   });
 
-  it("shows the amount, cadence and tax mode Paddle returns for the configured price", async () => {
-    useSandboxPaddle("pri_distinctive_amount");
-    stubFetch((url) => {
-      assert.equal(url, `${PADDLE_SANDBOX_PRICES}pri_distinctive_amount`);
-      return Response.json({
+  it("shows the total, cadence and tax that Paddle.js previews for the configured price", async () => {
+    configureSandboxCheckout("pri_distinctive_amount");
+    const previewed: PricePreviewParams[] = [];
+    pricePreview = async (params) => {
+      previewed.push(params);
+      return {
         data: {
-          id: "pri_distinctive_amount",
-          product_id: "pro_exomem_cloud",
-          status: "active",
-          tax_mode: "internal",
-          billing_cycle: { interval: "month", frequency: 1 },
-          unit_price: { amount: "1234", currency_code: "EUR" },
+          details: {
+            lineItems: [
+              {
+                price: {
+                  id: "pri_distinctive_amount",
+                  billingCycle: { interval: "month", frequency: 1 },
+                },
+                totals: { subtotal: "1020", discount: "0", tax: "214", total: "1234" },
+                formattedTotals: {
+                  subtotal: "€10.20",
+                  discount: "€0.00",
+                  tax: "€2.14",
+                  total: "€12.34",
+                },
+              },
+            ],
+          },
         },
-      });
-    });
+      } as unknown as PricePreviewResponse;
+    };
 
-    const card = await renderSubscribeCard();
+    const card = await renderSubscribeCard((text) => text.includes("€12.34"));
 
-    assert.match(card, /Subscribe before we prepare your Exomem/);
-    assert.match(card, /€12\.34 per month/);
-    assert.match(card, /including tax/);
+    assert.match(card, /€12\.34 per month, including tax\. Cancel through Paddle\./);
+    assert.deepEqual(previewed, [{ items: [{ priceId: "pri_distinctive_amount", quantity: 1 }] }]);
   });
 
   it("shows no amount and logs the failure when Paddle cannot answer", async () => {
-    useSandboxPaddle("pri_paddle_unavailable");
-    stubFetch(() => new Response("upstream unavailable", { status: 503 }));
+    configureSandboxCheckout("pri_paddle_unavailable");
+    pricePreview = async () => {
+      throw new Error("Paddle unavailable");
+    };
     const logged = mock.method(console, "error", () => undefined);
 
-    const card = await renderSubscribeCard();
+    const card = await renderSubscribeCard(() => logged.mock.callCount() > 0);
     logged.mock.restore();
 
-    assert.match(card, /Cancel through Paddle\./);
+    assert.ok(logged.mock.callCount() >= 1, "the Paddle failure is logged");
+    assert.match(card, /Paddle shows the price at checkout\. Cancel through Paddle\./);
     assert.doesNotMatch(card, /\d/, "no price number may appear without Paddle's answer");
-    assert.ok(logged.mock.callCount() >= 1, "the Paddle failure is logged server-side");
   });
 });

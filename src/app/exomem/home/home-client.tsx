@@ -18,7 +18,7 @@ import {
   postPrivateFile,
   postPrivateJson,
 } from "@/lib/exomem-hosted/hosted-browser";
-import type { ExomemCloudPrice } from "@/lib/exomem-hosted/paddle-price";
+import { type PaddlePricePreview, usePaddlePricePreview } from "@/lib/paddle";
 import styles from "../private-shell.module.css";
 import {
   type Lifecycle,
@@ -42,14 +42,11 @@ import {
 
 type Tab = "remember" | "recall";
 
-function lifecycleCopy(
-  state: LifecycleState,
-  price: ExomemCloudPrice | null
-): { eyebrow: string; title: string; body: string } {
+function lifecycleCopy(state: LifecycleState): { eyebrow: string; title: string; body: string } {
   switch (state) {
     case "awaiting_payment":
       return {
-        eyebrow: price ? `Private alpha · ${price.summary}` : "Private alpha",
+        eyebrow: "Private alpha",
         title: "Subscribe before we prepare your Exomem.",
         body: "Your place is reserved. Paddle handles payment securely, and preparation starts only after your subscription is confirmed.",
       };
@@ -140,12 +137,32 @@ function readableResult(value: unknown): string {
   return "No matching memory yet.";
 }
 
+function billingCadence(cycle: PaddlePricePreview["billingCycle"]): string {
+  if (!cycle) return "";
+  return cycle.frequency === 1
+    ? ` per ${cycle.interval}`
+    : ` every ${cycle.frequency} ${cycle.interval}s`;
+}
+
+// Mounted only on the subscribe card, so no other lifecycle state asks Paddle.
+function SubscriptionPrice({ priceId }: { priceId: string | null }) {
+  const preview = usePaddlePricePreview(priceId);
+  return (
+    <p className={styles.secondaryCopy}>
+      {preview
+        ? `${preview.total}${billingCadence(preview.billingCycle)}${preview.includesTax ? ", including tax" : ""}. Cancel through Paddle.`
+        : // Short enough to keep the Subscribe button on one line at desktop width.
+          "Paddle shows the price at checkout. Cancel through Paddle."}
+    </p>
+  );
+}
+
 export default function HomeClient({
   serverUrl,
-  price,
+  priceId,
 }: {
   serverUrl: string;
-  price: ExomemCloudPrice | null;
+  priceId: string | null;
 }) {
   const [lifecycle, setLifecycle] = useState<Lifecycle>({
     state: "loading",
@@ -503,7 +520,7 @@ export default function HomeClient({
   }
 
   if (lifecycle.state !== "ready") {
-    const copy = lifecycleCopy(lifecycle.state, price);
+    const copy = lifecycleCopy(lifecycle.state);
     if (lifecycle.state === "awaiting_payment") {
       return (
         <section className={styles.card} aria-labelledby="lifecycle-title">
@@ -527,11 +544,7 @@ export default function HomeClient({
           <div className={styles.secondaryRow}>
             <div>
               <strong>Exomem Cloud private alpha</strong>
-              <p className={styles.secondaryCopy}>
-                {price
-                  ? `${price.summary}${price.tax ? `, ${price.tax}` : ""}. Cancel through Paddle.`
-                  : "Paid subscription. Cancel through Paddle."}
-              </p>
+              <SubscriptionPrice priceId={priceId} />
             </div>
             <button
               className={styles.button}

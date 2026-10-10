@@ -12,7 +12,7 @@ allocation, and the absence of its initial provisioning operation.
 #### Scenario: Tenant is awaiting payment
 
 - **WHEN** the owner has redeemed a paid operator invite but has no authoritative active or trialing subscription
-- **THEN** Home shows the fixed €5 monthly private-alpha offer and one Subscribe and prepare Exomem action
+- **THEN** Home shows the configured Paddle price's amount, cadence and tax as Paddle presents them, or no amount when Paddle cannot answer, and one Subscribe and prepare Exomem action
 - **AND** it does not poll provisioning readiness or imply that provider resources exist
 
 #### Scenario: Tenant is provisioning
