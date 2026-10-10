@@ -68,4 +68,5 @@ Deployment evidence (2026-09-30): task 3.11 shipped in #190 (`b68c6fa`) and the 
 
 - [ ] 5.1 Delete the contract, candidate, cohort, promotion, reviewer and client-artifact code, the per-release fixtures and the v1 lifecycle for Cloud-superseded paths
 - [ ] 5.2 Remove the superseded change directories and superseded `exomem-hosted-*` canonical requirements in the same delivery as their code
-- [ ] 5.3 Delete the Neon database after 7 clean days on the new server
+- [x] 5.3 Delete the Neon database after 7 clean days on the new server
+  Retired 2026-10-10, 14 days after the 2026-09-26 cutover, with the owner's approval. Neon now lists 0 projects, and project `bold-haze-13886487` returns 404. The org API key `laptop` returns 401. The 17 Neon BWS keys are deleted. Per the runbook's retirement step, the laptop's cutover archive and password files (`~/neon-cutover`) are shredded; `neon.dump` matched its checksum before deletion. `substratesystems.io` still serves 200.
