@@ -2,7 +2,7 @@
 
 This runbook covers the friends-only Exomem Hosted alpha. Public visitors
 may express interest, but only authenticated operators issue invitations.
-Paid operator invitations use the existing €5 monthly Paddle checkout; public
+Paid operator invitations use the friends' monthly Paddle checkout; public
 self-serve admission remains disabled. The private alpha runs the checked
 `hosted-alpha-agent-v4` profile. Substrate is
 the public account, entitlement, routing, and lifecycle control plane. Every tenant
@@ -34,8 +34,8 @@ invitations require checkout before provisioning. Every route does require:
 6. a two-cell isolation/export/deletion drill before a real invite is sent.
 
 Public launch remains deferred. Configure only the existing Exomem product and
-€5 monthly price for authenticated paid invitees. Do not configure or expose the
-€12 public price. Existing paid records retain their normal reconciliation and
+the friends' monthly price for authenticated paid invitees. Do not configure or
+expose a public price. Existing paid records retain their normal reconciliation and
 cancellation paths; they are not authority to admit a new public visitor.
 
 Public interest is captured at `POST /api/exomem/interest`; the former
@@ -98,7 +98,7 @@ redeploy. Never reuse a cell credential as any control-plane secret.
 | `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`                  | One matching Paddle environment, merchant API key, and shared webhook-verification secret. Keep them configured after disabling new checkout so existing paid accounts can reconcile, manage billing, and delete safely.                                                                                                                                              |
 | `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT`              | Browser checkout token and the same explicit environment as the merchant configuration. A mismatch fails closed.                                                                                                                                                                                                                                                      |
 | `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`                  | The environment and existing Exomem Hosted product selected only by the server.                                                                                                                                                                                                                                                                                       |
-| `EXOMEM_PADDLE_PRICE_ID`                                                         | The existing €5 monthly price. This is the narrow new-checkout gate: leave it absent during deployment verification, set it only for the controlled paid rollout, and never point it at the €12 public price.                                                                                                                                                         |
+| `EXOMEM_PADDLE_PRICE_ID`                                                         | The Exomem Cloud price that checkout charges and Home shows, with the amount, cadence and tax that Paddle supplies. This is the narrow new-checkout gate: leave it absent during deployment verification, set it only for the controlled paid rollout, and never point it at the public price.                                                                        |
 | `OPENAI_APPS_CHALLENGE`                                                          | Provider-issued single-line domain proof. Set only in deployment configuration; never commit, log, or place it in a request.                                                                                                                                                                                                                                          |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                                     | Leave unset or `false` by default. Set exactly `true` only after a dedicated reviewer-purpose tenant, governed fixture, and provider credential have been prepared. Disable first during rollback or incident response.                                                                                                                                               |
 
@@ -608,8 +608,8 @@ this friends-only alpha, it charges only authenticated owners created by paid
 operator invitations. Invite redemption creates the owner, tenant, Paddle
 entitlement, browser session, and reserved allocation, but no lifecycle operation
 and no provider resource. Home then creates or resumes a server-selected checkout
-for the configured €5 monthly price. The browser cannot select a product, price,
-tenant, environment, or return URL.
+for the price in `EXOMEM_PADDLE_PRICE_ID`. The browser cannot select a product,
+price, tenant, environment, or return URL.
 
 An authoritative active or trialing subscription event releases that reservation:
 provider events release a reserved paid tenant into exactly one ordinary
@@ -1017,7 +1017,7 @@ cell of the tenant when deleting.
 
 ## Revoke historical self-serve invitations
 
-Before enabling the €5 price, check for any historical self-serve invite that
+Before enabling the friends' price, check for any historical self-serve invite that
 could still be redeemed. The public route being `410` prevents new rows; it does
 not revoke an old bearer already delivered by email.
 
@@ -1064,7 +1064,7 @@ is held only until refresh or **Lock** and is never placed in browser storage.
 The page shows hard storage/runtime reservations, outstanding paid invitations,
 and remaining paid invite headroom.
 
-Enter one email and leave **Paid — €5/month** selected. Paid is the default after
+Enter one email and leave **Paid** selected. Paid is the default after
 every send. Complimentary access is a separate selection and requires its own
 confirmation. The page refreshes capacity after successful delivery and never
 shows the plaintext invite token.
@@ -1083,16 +1083,17 @@ curl --fail-with-body \
 The response contains only an opaque invite ID and request ID. The token is sent
 by Brevo in the URL fragment, so it is not placed in request logs. Paid redemption
 burns the invite atomically and creates an `awaiting_checkout` Paddle entitlement
-and hard reservation without queuing provisioning. The owner sees the €5 monthly
-checkout on Home. Only verified payment queues provisioning. Complimentary
-redemption retains the existing behavior and queues provisioning immediately.
+and hard reservation without queuing provisioning. Home shows the owner the
+checkout for the `EXOMEM_PADDLE_PRICE_ID` price, with the amount that Paddle
+supplies. Only verified payment queues provisioning. Complimentary redemption
+retains the existing behavior and queues provisioning immediately.
 
 For the first controlled paid invitation, prove all of the following before
 inviting another person:
 
 1. redemption creates one reserved allocation with `operation_id IS NULL`, one
    `awaiting_checkout` entitlement, and no provider resource;
-2. Home opens only the server-selected €5 transaction and binds its exact Paddle
+2. Home opens only the server-selected transaction and binds its exact Paddle
    environment and transaction reference;
 3. verified active/trialing projection creates exactly one `initial-provision`
    operation and attaches it to the reserved allocation;
@@ -1104,14 +1105,14 @@ inviting another person:
 ### Sandbox and controlled production proof
 
 Run the complete paid path against a disposable preview deployment, isolated
-verification database, Paddle sandbox product/€5 price, and sandbox webhook
+verification database, Paddle sandbox product and monthly price, and sandbox webhook
 destination first. Use Paddle's sandbox checkout, then require the five database
 and readiness facts above. Deliver the same webhook twice and send one older
 subscription update; require one operation, one applied receipt, one duplicate
 disposition, one stale disposition, and no Endstate subscription change.
 
-Only after that proof is green, set the production Exomem product and existing €5
-price, redeploy, and issue exactly one controlled production paid invitation.
+Only after that proof is green, set the production Exomem product and the friends'
+monthly price, redeploy, and issue exactly one controlled production paid invitation.
 Redeem it in a clean browser, complete the real checkout, wait for `ready`, perform
 one capture/recall round trip, and confirm the Paddle customer portal opens for
 that owner. Redact email, tenant, provider, and transaction identifiers from the

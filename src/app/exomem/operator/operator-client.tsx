@@ -271,7 +271,7 @@ export default function OperatorClient() {
             setComplimentaryConfirmed(false);
           }}
         >
-          <option value="paid">Paid — €5/month</option>
+          <option value="paid">Paid</option>
           <option value="complimentary">Complimentary</option>
         </select>
 

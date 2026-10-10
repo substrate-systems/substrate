@@ -6,6 +6,7 @@ import {
   initializePaddle,
   type Environments,
   type Paddle,
+  type PricePreviewResponse,
 } from "@paddle/paddle-js";
 import { AnalyticsEvent, capture, currentDistinctId } from "@/lib/analytics";
 
@@ -106,6 +107,56 @@ function loadPaddle(): Promise<Paddle | null> {
     });
 
   return paddlePromise;
+}
+
+type PreviewLineItem = PricePreviewResponse["data"]["details"]["lineItems"][number];
+
+/**
+ * What Paddle charges this visitor for one unit of a price. Paddle.js formats
+ * the total in the visitor's currency, with their country's tax and overrides.
+ */
+export type PaddlePricePreview = Readonly<{
+  /** Paddle's formatted total, for example "€10.00". */
+  total: string;
+  billingCycle: PreviewLineItem["price"]["billingCycle"];
+  /** True when Paddle added tax to the total for the visitor's location. */
+  includesTax: boolean;
+}>;
+
+async function previewPrice(priceId: string): Promise<PaddlePricePreview | null> {
+  const paddle = await loadPaddle();
+  if (!paddle) return null;
+  try {
+    const response = await paddle.PricePreview({ items: [{ priceId, quantity: 1 }] });
+    const line = response.data.details.lineItems.find((item) => item.price.id === priceId);
+    if (!line) throw new Error("price preview omitted the requested price");
+    return {
+      total: line.formattedTotals.total,
+      billingCycle: line.price.billingCycle,
+      includesTax: Number(line.totals.tax) > 0,
+    };
+  } catch (err) {
+    console.error("[paddle] price preview failed", err);
+    return null;
+  }
+}
+
+/** Null until Paddle answers, and when it cannot; a null priceId asks nothing. */
+export function usePaddlePricePreview(priceId: string | null): PaddlePricePreview | null {
+  const [preview, setPreview] = useState<PaddlePricePreview | null>(null);
+
+  useEffect(() => {
+    if (!priceId) return;
+    let cancelled = false;
+    void previewPrice(priceId).then((result) => {
+      if (!cancelled) setPreview(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [priceId]);
+
+  return preview;
 }
 
 /**

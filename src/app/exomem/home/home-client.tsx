@@ -18,6 +18,7 @@ import {
   postPrivateFile,
   postPrivateJson,
 } from "@/lib/exomem-hosted/hosted-browser";
+import { type PaddlePricePreview, usePaddlePricePreview } from "@/lib/paddle";
 import styles from "../private-shell.module.css";
 import {
   type Lifecycle,
@@ -45,7 +46,7 @@ function lifecycleCopy(state: LifecycleState): { eyebrow: string; title: string;
   switch (state) {
     case "awaiting_payment":
       return {
-        eyebrow: "Private alpha · €5 monthly",
+        eyebrow: "Private alpha",
         title: "Subscribe before we prepare your Exomem.",
         body: "Your place is reserved. Paddle handles payment securely, and preparation starts only after your subscription is confirmed.",
       };
@@ -136,7 +137,33 @@ function readableResult(value: unknown): string {
   return "No matching memory yet.";
 }
 
-export default function HomeClient({ serverUrl }: { serverUrl: string }) {
+function billingCadence(cycle: PaddlePricePreview["billingCycle"]): string {
+  if (!cycle) return "";
+  return cycle.frequency === 1
+    ? ` per ${cycle.interval}`
+    : ` every ${cycle.frequency} ${cycle.interval}s`;
+}
+
+// Mounted only on the subscribe card, so no other lifecycle state asks Paddle.
+function SubscriptionPrice({ priceId }: { priceId: string | null }) {
+  const preview = usePaddlePricePreview(priceId);
+  return (
+    <p className={styles.secondaryCopy}>
+      {preview
+        ? `${preview.total}${billingCadence(preview.billingCycle)}${preview.includesTax ? ", including tax" : ""}. Cancel through Paddle.`
+        : // Short enough to keep the Subscribe button on one line at desktop width.
+          "Paddle shows the price at checkout. Cancel through Paddle."}
+    </p>
+  );
+}
+
+export default function HomeClient({
+  serverUrl,
+  priceId,
+}: {
+  serverUrl: string;
+  priceId: string | null;
+}) {
   const [lifecycle, setLifecycle] = useState<Lifecycle>({
     state: "loading",
     code: "TENANT_PREPARING",
@@ -517,7 +544,7 @@ export default function HomeClient({ serverUrl }: { serverUrl: string }) {
           <div className={styles.secondaryRow}>
             <div>
               <strong>Exomem Cloud private alpha</strong>
-              <p className={styles.secondaryCopy}>€5 per month. Cancel through Paddle.</p>
+              <SubscriptionPrice priceId={priceId} />
             </div>
             <button
               className={styles.button}
