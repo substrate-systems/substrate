@@ -11,7 +11,7 @@ export const metadata = buildMetadata({
 
 export default function ExomemPrivacyPage() {
   return (
-    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 4 October 2026">
+    <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 10 October 2026">
       <p>
         This policy covers the Exomem Cloud service and its public product, account, OAuth, and
         support pages. The data controller is Substrate Systems OÜ (Estonian registry code
@@ -99,12 +99,12 @@ export default function ExomemPrivacyPage() {
         sign-in and account service; Hetzner for the servers in Germany that run your cell, hold its
         encrypted storage, and host the account database; Backblaze for encrypted backups in its EU
         region; Cloudflare for DNS; Brevo for transactional email; and Paddle as merchant of record
-        when billing is enabled. Until early October 2026, Neon also holds a frozen copy of the
-        account database from before it moved to our own servers; that copy is then deleted. The
-        public site may use privacy-filtered Vercel/PostHog analytics; Exomem account identifiers,
-        email, knowledge content, tokens, and private routes are filtered from those events.
-        Providers may process data outside the EEA under the safeguards required by applicable
-        data-protection law.
+        when billing is enabled. Until 10 October 2026, Neon also held a frozen copy of the account
+        database from before it moved to our own servers; that copy is now deleted. The public site
+        may use privacy-filtered Vercel/PostHog analytics; Exomem account identifiers, email,
+        knowledge content, tokens, and private routes are filtered from those events. Providers may
+        process data outside the EEA under the safeguards required by applicable data-protection
+        law.
       </p>
 
       <h2>Retention, export, and deletion</h2>
