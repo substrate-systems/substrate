@@ -34,17 +34,11 @@ Keep the terminal open. **Do not save output to a file.**
 
 Revert the script edit after running.
 
-### 2. Insert public key into Neon
+### 2. Insert public key into the production database
 
 ```bash
-DATABASE_URL='<prod-neon-url>' psql -c \
+DATABASE_URL='<prod-database-url>' psql -c \
   "INSERT INTO signing_keys (kid, public_key, algorithm) VALUES ('<kid>', '\\x<pubhex>', 'EdDSA');"
-```
-
-Or via Neon dashboard SQL editor:
-```sql
-INSERT INTO signing_keys (kid, public_key, algorithm)
-VALUES ('<kid>', '\x<pubhex>', 'EdDSA');
 ```
 
 ### 3. Set Vercel env vars
@@ -193,7 +187,7 @@ Each of these has bitten us in production at least once during hosted-backup rol
   rm .env.production.local                                            # wipe local credentials
   ```
 
-- **Preview deploys** still skip migrations entirely. If you need to test a migration's effect on a preview env, point that preview's `DATABASE_URL` at a separate Neon branch and apply via the manual `tsx --env-file=...` form above.
+- **Preview deploys** still skip migrations entirely. If you need to test a migration's effect on a preview env, point that preview's `DATABASE_URL` at a separate, disposable database and apply via the manual `tsx --env-file=...` form above.
 *(First seen: v2.0.0 cutover, migration `0011_recovery_tokens_used.sql` was caught pre-merge by manual review during the substrate→engine handoff. Repeated 2026-05-27 with `0015_account_sessions.sql` — engine v2.4.0 and gui-v2.7.0 / v2.8.0 all shipped before the migration was applied, and the new `/account/start` route 500'd at production until the manual migration ran. That incident motivated wiring the auto-migration into `vercel-build`.)*
 
 ### Verify the bypass is wired (substrate-side, no engine needed)

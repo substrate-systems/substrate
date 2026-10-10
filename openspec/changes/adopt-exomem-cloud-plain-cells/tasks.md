@@ -61,7 +61,8 @@ Deployment evidence (2026-09-30): task 3.11 shipped in #190 (`b68c6fa`) and the 
 ## 4. Cutover and acceptance (P4)
 
 - [x] 4.1 Write the cutover runbook and script (D8): consumer inventory, Neon lockout (the database's ACL recorded, `CONNECT` taken from every role but the owner and the dump role, the owner's password reset through Neon's API when a consumer connects as it, the read-only default, then session termination), `pg_dump --no-owner --no-acl` as a separate dump role, restore as `substrate_owner`, grants script, per-table counts and checksums, `DATABASE_URL` and `DATABASE_MIGRATION_URL` switch with a production redeploy, and post-checks. Rehearse it against a disposable copy
-- [ ] 4.2 After the Exomem control server is up, run the cutover in a maintenance window, and keep Neon read-only as the rollback
+- [x] 4.2 After the Exomem control server is up, run the cutover in a maintenance window, and keep Neon read-only as the rollback
+  Ran 2026-09-26 with the owner present, under `docs/runbooks/neon-cutover.md`: about 3 min 45 s of outage, all 79 tables matched on rows and checksums, and the Paddle replay, admin read and Endstate client emulation passed. Neon stayed frozen read-only as the rollback until task 5.3.
 - [ ] 4.3 Enable `EXOMEM_CLOUD_ENABLED`, and run owner acceptance with the Exomem change's task 6.3
 
 ## 5. Retirement (R)
@@ -69,4 +70,4 @@ Deployment evidence (2026-09-30): task 3.11 shipped in #190 (`b68c6fa`) and the 
 - [ ] 5.1 Delete the contract, candidate, cohort, promotion, reviewer and client-artifact code, the per-release fixtures and the v1 lifecycle for Cloud-superseded paths
 - [ ] 5.2 Remove the superseded change directories and superseded `exomem-hosted-*` canonical requirements in the same delivery as their code
 - [x] 5.3 Delete the Neon database after 7 clean days on the new server
-  Retired 2026-10-10, 14 days after the 2026-09-26 cutover, with the owner's approval. Neon now lists 0 projects, and project `bold-haze-13886487` returns 404. The org API key `laptop` returns 401. The 17 Neon BWS keys are deleted. Per the runbook's retirement step, the laptop's cutover archive and password files (`~/neon-cutover`) are shredded; `neon.dump` matched its checksum before deletion. `substratesystems.io` still serves 200.
+  Retired 2026-10-10, 14 days after the 2026-09-26 cutover, with the owner's approval. Clean means no rollback and no restore from Neon in that time; the runbook's daily frozen checks were not recorded. Neon now lists 0 projects, and project `bold-haze-13886487` returns 404. The org API key `laptop` returns 401. The 17 Neon BWS keys are deleted. Per the runbook's retirement step, the laptop's cutover archive and password files (`~/neon-cutover`) are shredded; `neon.dump` matched its checksum before deletion. `substratesystems.io` still serves 200.

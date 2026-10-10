@@ -146,7 +146,7 @@ Then set `ENDSTATE_JWT_PRIVATE_KEY_HEX` and `ENDSTATE_JWT_ACTIVE_KID` in your en
 
 | Variable                       | Purpose                                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                 | Neon connection string                                                                     |
+| `DATABASE_URL`                 | Postgres connection string for the production database on the control server               |
 | `ENDSTATE_OIDC_ISSUER_URL`     | OIDC issuer URL (`iss` claim, JWKS URL prefix). Defaults to `https://substratesystems.io`. |
 | `ENDSTATE_JWT_PRIVATE_KEY_HEX` | 32-byte seed (hex) for the active JWT signing key                                          |
 | `ENDSTATE_JWT_ACTIVE_KID`      | `kid` for the active signing key (matches a row in `signing_keys`)                         |
