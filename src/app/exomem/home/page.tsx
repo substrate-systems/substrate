@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PaddleTransactionOpener } from "@/components/PaddleTransactionOpener";
+import { loadExomemCloudPrice } from "@/lib/exomem-hosted/paddle-price";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import { PrivateShell } from "../private-shell";
 import HomeClient from "./home-client";
@@ -13,11 +14,12 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-export default function ExomemHomePage() {
+export default async function ExomemHomePage() {
+  const price = await loadExomemCloudPrice();
   return (
     <PrivateShell>
       <PaddleTransactionOpener validationEndpoint="/api/exomem/billing/checkout" />
-      <HomeClient serverUrl={`${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`} />
+      <HomeClient serverUrl={`${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`} price={price} />
     </PrivateShell>
   );
 }

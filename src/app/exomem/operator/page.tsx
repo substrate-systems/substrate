@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { loadExomemCloudPrice } from "@/lib/exomem-hosted/paddle-price";
 import { PrivateShell } from "../private-shell";
 import OperatorClient from "./operator-client";
 
@@ -11,10 +12,11 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-export default function ExomemOperatorPage() {
+export default async function ExomemOperatorPage() {
+  const price = await loadExomemCloudPrice();
   return (
     <PrivateShell>
-      <OperatorClient />
+      <OperatorClient price={price} />
     </PrivateShell>
   );
 }

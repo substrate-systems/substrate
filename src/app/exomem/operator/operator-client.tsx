@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useRef, useState } from "react";
+import type { ExomemCloudPrice } from "@/lib/exomem-hosted/paddle-price";
 import styles from "../private-shell.module.css";
 import {
   paidInviteHeadroom,
@@ -80,7 +81,7 @@ function gibibytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(bytes % 1024 ** 3 === 0 ? 0 : 1)} GiB`;
 }
 
-export default function OperatorClient() {
+export default function OperatorClient({ price }: { price: ExomemCloudPrice | null }) {
   const bearerRef = useRef<string | null>(null);
   const [bearer, setBearer] = useState("");
   const [capacity, setCapacity] = useState<OperatorCapacity | null>(null);
@@ -271,7 +272,7 @@ export default function OperatorClient() {
             setComplimentaryConfirmed(false);
           }}
         >
-          <option value="paid">Paid — €5/month</option>
+          <option value="paid">{price ? `Paid — ${price.summary}` : "Paid"}</option>
           <option value="complimentary">Complimentary</option>
         </select>
 
