@@ -1,3 +1,4 @@
+import { cloudBearerChallenge } from "../lib/exomem-hosted/cloud-oauth";
 /**
  * Exomem Cloud gateway handler (design D3, `adopt-exomem-cloud-plain-cells`).
  *
@@ -152,17 +153,6 @@ function releaseConcurrencyWhenBodyEnds(response: Response, release: () => void)
 
 function errorResponse(status: number, code: string): Response {
   return Response.json({ error: code }, { status, headers: CACHE_HEADERS });
-}
-
-/**
- * RFC 9728 section 5.1: a 401 names the resource's own metadata document
- * (`<origin>/.well-known/oauth-protected-resource<mcpPath>`, where server.ts
- * serves it) and the scopes to request, so a client reaches the
- * authorization server without probing well-known paths.
- */
-function cloudBearerChallenge(config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath">): string {
-  const metadata = `${new URL(config.mcpUrl).origin}/.well-known/oauth-protected-resource${config.mcpPath}`;
-  return `Bearer resource_metadata="${metadata}", scope="${ADVERTISED_SCOPES.join(" ")}"`;
 }
 
 function unauthorized(config: Pick<ExomemCloudConfig, "mcpUrl" | "mcpPath">): Response {

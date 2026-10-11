@@ -6,7 +6,7 @@
 --    schema_migrations, and
 --    USAGE and SELECT on every sequence. ALTER DEFAULT PRIVILEGES FOR ROLE
 --    substrate_owner extends the same grants to tables and sequences
---    created by later migrations. The only exceptions are C1 through C1d."
+--    created by later migrations. The exceptions are C1 through C1d and C5."
 -- 2. The C1 privilege table in the companion Exomem design's "Shared
 --    contracts with Substrate" section (`adopt-exomem-cloud-plain-cells/design.md`):
 --
@@ -85,7 +85,7 @@ BEGIN
     );
   END IF;
 
-  -- 2. C1-C1d are the only exception to the schema-wide grant above: revoke
+  -- 2. C1-C1d and C5 are the exceptions to the schema-wide grant above: revoke
   -- whatever it (and PUBLIC) just gave every role on these four tables, then
   -- apply the exact C1 privilege table below. A rerun of this whole script
   -- therefore always converges to the same state, never accumulating a
@@ -162,6 +162,29 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')
      AND to_regclass('exomem_cloud_cells') IS NOT NULL THEN
     GRANT SELECT (cell_id, tenant_id, desired_state) ON exomem_cloud_cells TO exomem_gateway;
+  END IF;
+
+  -- C5 exists only after migration 0060. Revoke inherited table grants before
+  -- applying request/observation column grants, including on upgrade reruns.
+  IF to_regclass('exomem_cloud_imports') IS NOT NULL THEN
+    REVOKE ALL ON exomem_cloud_imports FROM PUBLIC;
+    FOREACH cloud_role IN ARRAY ARRAY['substrate_app', 'exomem_cellctl', 'exomem_gateway'] LOOP
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = cloud_role) THEN
+        EXECUTE format('REVOKE ALL ON exomem_cloud_imports FROM %I', cloud_role);
+      END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'substrate_app') THEN
+      GRANT SELECT ON exomem_cloud_imports TO substrate_app;
+      GRANT INSERT (import_id, cell_id, kind, declared_bytes, declared_files, requested_state,
+        part_etags, ciphertext_sha256, ciphertext_bytes) ON exomem_cloud_imports TO substrate_app;
+      GRANT UPDATE (requested_state, part_etags, ciphertext_sha256, ciphertext_bytes)
+        ON exomem_cloud_imports TO substrate_app;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_cellctl') THEN
+      GRANT SELECT ON exomem_cloud_imports TO exomem_cellctl;
+      GRANT UPDATE (recipient, upload_id, part_urls, urls_expire_at, observed_state, error_code)
+        ON exomem_cloud_imports TO exomem_cellctl;
+    END IF;
   END IF;
 
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'exomem_gateway')

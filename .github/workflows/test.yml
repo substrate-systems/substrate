@@ -62,6 +62,7 @@ jobs:
           node --import tsx --experimental-test-module-mocks --test
           src/lib/exomem-hosted/__tests__/cloud-cells-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-grants-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/cloud-imports-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-admission-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-oauth-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-reviewer-postgres.integration.test.ts
