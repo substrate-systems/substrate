@@ -27,6 +27,7 @@ classes:
     - ".gitattributes"
     - "lefthook.yml"
     - "eslint.config.mjs"
+    - "stylelint.config.mjs"
     - ".prettierrc.json"
     - "contracts/bws-exomem-production-v1.json" # the operator's secret-binding check, run by hand
   specs: ["openspec/*"]

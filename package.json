@@ -27,7 +27,8 @@
     "openspec:validate": "openspec validate --all --strict --no-interactive",
     "openspec:validate:ci": "pwsh -NoProfile -File scripts/openspec_validate.ps1",
     "test:e2e": "npm run build && playwright test",
-    "test:e2e:only": "playwright test"
+    "test:e2e:only": "playwright test",
+    "lint:css": "stylelint \"src/app/exomem/**/*.css\" \"src/components/exomem/**/*.css\""
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",
