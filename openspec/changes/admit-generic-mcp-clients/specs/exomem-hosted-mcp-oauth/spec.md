@@ -38,7 +38,7 @@ A client that no marketplace distributes SHALL be admissible without a promoted 
 
 The generic arm SHALL be present in every admission predicate in the system — authorization, consent, owner attachment, invite admission, token exchange, bearer use, the MCP lookup, and refresh — so that a client admitted at one stage is admitted at all of them.
 
-Pinned-digest and host-allowlist admission SHALL be unchanged in behaviour. A certified client SHALL still require a live cohort for its own platform.
+Pinned and host-allowlist admission SHALL be unchanged in behaviour. Adding the generic arm SHALL NOT admit a client of any other mode.
 
 #### Scenario: A generic client authorizes and calls MCP
 
@@ -52,14 +52,14 @@ Pinned-digest and host-allowlist admission SHALL be unchanged in behaviour. A ce
 
 #### Scenario: Certified admission is unaffected
 
-- **WHEN** a pinned-digest or host-allowlist client authorizes while the generic lane is enabled
-- **THEN** it is admitted on exactly the terms it was before, still requiring a live cohort for its own platform
+- **WHEN** a pinned or host-allowlist client authorizes while the generic lane is enabled
+- **THEN** it is admitted on exactly the terms it was before
+- **AND** withdrawing its host still stops a host-allowlist client at every stage
 
-#### Scenario: A generic client is refused where no platform cohort exists
+#### Scenario: A generic client is admitted where no platform cohort exists
 
 - **WHEN** a generic client authorizes while no cohort is live for any platform
 - **THEN** admission succeeds on the generic arm, because generic admission does not depend on cohort liveness
-- **AND** a certified client in the same state is still refused
 
 ### Requirement: Generic Admission Is Disabled Until Deliberately Enabled
 
