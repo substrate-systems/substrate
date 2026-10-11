@@ -18,6 +18,8 @@ const EVENT_NAMES = new Set([
   "alerts.notification.delivered",
   "alerts.notification.failed",
   "alerts.backlog.undelivered",
+  "oauth.authorize.declined",
+  "oauth.authorize.kept",
 ]);
 
 const ERROR_CODES = new Set([

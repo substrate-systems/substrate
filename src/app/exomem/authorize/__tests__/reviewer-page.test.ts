@@ -16,6 +16,21 @@ test("passes reviewer access only for an active authorization continuation", asy
         if (storageFails) throw new Error("storage unavailable");
         return session;
       },
+      executeExomemSql: async () => ({
+        rows: [{ email: "owner@example.test", already_connected: false }],
+      }),
+    },
+  });
+  mock.module("@/lib/exomem-hosted/owner-apps", {
+    namedExports: {
+      findOAuthClientIdentity: async () => ({
+        clientId: "reviewer-client",
+        clientName: null,
+        platform: "claude",
+        cimdHost: "client.example.test",
+        redirectUris: ["https://client.example.test/callback"],
+      }),
+      oauthClientDisplayName: () => ({ displayName: "Claude", displayNameSource: "platform" }),
     },
   });
   mock.module("@/lib/exomem-hosted/billing-account", {
@@ -52,6 +67,7 @@ test("passes reviewer access only for an active authorization continuation", asy
       oauthFormNonceFromCookie: () => "nonce",
       resolveOAuthContinuationToken: async () => ({
         clientId: "reviewer-client",
+        redirectUri: "https://client.example.test/callback",
         scopes: ["exomem.read"],
         resource,
         reviewerCredentialId: boundCredential,

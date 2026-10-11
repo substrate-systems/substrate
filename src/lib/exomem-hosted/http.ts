@@ -7,6 +7,12 @@ import {
   type OperationalEvent,
 } from "./observability";
 
+/** Headers for an owner's own data: no shared cache may keep it and no crawler may index it. */
+export const PRIVATE_NO_STORE_HEADERS: Readonly<Record<string, string>> = {
+  "cache-control": "private, no-store, max-age=0",
+  "x-robots-tag": "noindex, nofollow",
+};
+
 export function newRequestId(): string {
   return randomUUID();
 }
