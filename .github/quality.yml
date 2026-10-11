@@ -40,7 +40,6 @@ classes:
     - "scripts/*.sql" # the database grants migrate.ts applies
     - "scripts/verify-exomem-gateway-bundle.mjs"
     # Change production data when an operator runs them.
-    - "scripts/neon-cutover.ts"
     - "scripts/import-legacy-patron.ts"
     - "scripts/reconcile-legacy-generations.ts"
     - "scripts/strict-generation-visibility-cutover.ts"
