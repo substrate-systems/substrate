@@ -9,6 +9,7 @@ import { randomCloudCellId } from "../cloud-admission";
 import {
   createOrRotateCloudReviewerCredentialAtomic as issueReviewer,
   createCloudReviewerOAuthSessionAtomic,
+  createCloudReviewerWebSessionAtomic,
   revokeCloudReviewerCredentialAtomic,
   findCloudReviewerCredentialForAuthentication,
   getCloudReviewerCredentialStatus,
@@ -495,6 +496,53 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     assert.equal(JSON.stringify(status).includes(credential.username), false);
   });
 
+  it("signs a reviewer in on the web, without an OAuth request, for no longer than the credential", async () => {
+    const target = await sample();
+    const credentialExpiresAt = new Date(Date.now() + 3_600_000);
+    const issued = await issueReviewer({
+      ...target,
+      provider: "anthropic",
+      usernameDigest: randomBytes(32),
+      passwordHash: "$argon2id$test",
+      fixtureVersion: "sample-v1",
+      fixturePayloadDigest: "a".repeat(64),
+      expiresAt: credentialExpiresAt,
+      operatorPrincipalDigest: randomBytes(32),
+    });
+    assert.ok(issued);
+    const sessionDigest = randomBytes(32);
+
+    const created = await createCloudReviewerWebSessionAtomic({
+      credentialId: issued.credentialId,
+      sessionDigest,
+      csrfDigest: randomBytes(32),
+      expiresAt: new Date(Date.now() + 7 * 86_400_000),
+    });
+
+    assert.equal(created?.expiresAt, credentialExpiresAt.toISOString());
+    const session = await findExomemSessionByDigest(sessionDigest);
+    assert.equal(session?.reviewerCredentialId, issued.credentialId);
+    assert.equal(session?.tenantId, target.tenantId);
+    assert.equal(new Date(session!.expiresAt).toISOString(), credentialExpiresAt.toISOString());
+  });
+
+  it("refuses a web session for a revoked reviewer credential", async () => {
+    const fixture = await reviewerFixture("anthropic");
+    await revokeCloudReviewerCredentialAtomic({
+      provider: "anthropic",
+      operatorPrincipalDigest: randomBytes(32),
+    });
+
+    const created = await createCloudReviewerWebSessionAtomic({
+      credentialId: fixture.credentialId,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+
+    assert.equal(created, null);
+  });
+
   it("binds only the exact credential/resource/provider transaction and safely retries the same identity", async () => {
     const fixture = await reviewerFixture();
     assert.deepEqual(await createCloudReviewerOAuthSessionAtomic(fixture.sessionInput), {
@@ -751,7 +799,7 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     );
   });
 
-  for (const boundary of ["consent", "redemption", "exchange", "refresh"] as const) {
+  for (const boundary of ["consent", "redemption", "web", "exchange", "refresh"] as const) {
     for (const winner of ["revoke", "authorization"] as const) {
       it(`serializes ${boundary} against revocation when ${winner} wins the tenant lock`, async () => {
         const fixture = await reviewerFixture();
@@ -770,12 +818,20 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
                   ...fixture.sessionInput,
                   sessionDigest: randomBytes(32),
                 })
-              : boundary === "exchange"
-                ? issueOAuthTokensFromCodeAtomic(code!)
-                : rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens!.refreshDigest));
+              : boundary === "web"
+                ? createCloudReviewerWebSessionAtomic({
+                    credentialId: fixture.credentialId,
+                    sessionDigest: randomBytes(32),
+                    csrfDigest: randomBytes(32),
+                    expiresAt: new Date(Date.now() + 86_400_000),
+                  })
+                : boundary === "exchange"
+                  ? issueOAuthTokensFromCodeAtomic(code!)
+                  : rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens!.refreshDigest));
         const mutation = {
           consent: "exomem:attach-existing-owner-oauth",
           redemption: "exomem-cloud:redeem-reviewer",
+          web: "exomem-cloud:reviewer-web-session",
           exchange: "exomem:oauth-code-exchange",
           refresh: "exomem:oauth-refresh-rotate",
         }[boundary];

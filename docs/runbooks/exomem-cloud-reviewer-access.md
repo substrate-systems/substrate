@@ -79,6 +79,11 @@ and match the credential's provider. The continuation,
 form nonce and resource are checked; credentials cannot transfer another
 reviewer's transaction.
 
+Reviewers can also sign in on the website without an app. Open the reviewer
+sign-in page, enter the same credential, and Home for the sample account
+opens. The credential check and its rate limits are the same as in the OAuth
+form, and the session ends no later than the credential.
+
 Run sample bootstrap, capture and readback through MCP. Verify the sample vault
 is the only vault visible. Check that reviewer checkout initiation, checkout
 resumption and customer-portal creation are refused. Session/code/token expiry

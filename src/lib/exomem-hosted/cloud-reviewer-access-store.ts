@@ -243,3 +243,48 @@ export async function createCloudReviewerOAuthSessionAtomic(input: {
     return rows[0] ? { sessionId: String(rows[0].id) } : null;
   });
 }
+
+/**
+ * Web sign-in for a directory reviewer: the credential checks of
+ * `createCloudReviewerOAuthSessionAtomic` without an OAuth transaction. The
+ * session ends no later than the credential.
+ */
+export async function createCloudReviewerWebSessionAtomic(input: {
+  credentialId: string;
+  sessionDigest: Buffer;
+  csrfDigest: Buffer;
+  expiresAt: Date;
+}): Promise<{ sessionId: string; expiresAt: string } | null> {
+  if (!cloudReviewerAccessEnabled()) return null;
+  return withExomemTransaction(async (tx) => {
+    // The tenant lock is taken first, in its own statement, so the checks
+    // below read a snapshot taken after any concurrent rotation or revocation.
+    const locked = await tx`
+      SELECT tenant.id FROM exomem_tenants AS tenant
+      JOIN exomem_marketplace_reviewer_credentials AS credential ON credential.tenant_id = tenant.id
+      WHERE credential.id = ${input.credentialId}::uuid FOR UPDATE OF tenant
+    `;
+    if (!locked.rows[0]) return null;
+    const { rows } = await tx`
+      /* exomem-cloud:reviewer-web-session */
+      WITH credential AS (
+        SELECT * FROM exomem_marketplace_reviewer_credentials AS credential
+        WHERE id = ${input.credentialId}::uuid
+          AND exomem_cloud_reviewer_authorized(id, tenant_id, owner_user_id, NULL)
+        FOR UPDATE
+      )
+      INSERT INTO exomem_sessions (user_id, tenant_id, reviewer_credential_id, session_digest, csrf_digest, expires_at)
+      SELECT owner_user_id, tenant_id, credential.id, ${input.sessionDigest}, ${input.csrfDigest},
+        LEAST(${input.expiresAt.toISOString()}::timestamptz, credential.expires_at) FROM credential
+      ON CONFLICT (session_digest) DO NOTHING
+      RETURNING id, expires_at
+    `;
+    const row = rows[0];
+    return row
+      ? {
+          sessionId: String(row.id),
+          expiresAt: new Date(row.expires_at as string).toISOString(),
+        }
+      : null;
+  });
+}

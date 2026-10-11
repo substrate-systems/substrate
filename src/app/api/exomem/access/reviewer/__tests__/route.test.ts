@@ -14,7 +14,10 @@ const continuationValue = {
 };
 let continuation: typeof continuationValue | null = continuationValue;
 let authenticated = true;
+let authenticateCalls = 0;
 let bindCalls: Array<Record<string, unknown>> = [];
+let webSessionCalls: Array<Record<string, unknown>> = [];
+let webSessionExpiresAt: string | null = "2026-07-30T00:00:00.000Z";
 let cookieExpiresAt: Date | undefined;
 
 before(() => {
@@ -22,8 +25,9 @@ before(() => {
     namedExports: {
       marketplaceReviewerAccessEnabled: () =>
         process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED === "true",
-      authenticateMarketplaceReviewerCredential: async () =>
-        authenticated
+      authenticateMarketplaceReviewerCredential: async () => {
+        authenticateCalls += 1;
+        return authenticated
           ? {
               credentialId: "credential-1",
               provider: "openai",
@@ -32,7 +36,8 @@ before(() => {
               fixtureVersion: "review-fixture-v1",
               expiresAt: "2026-07-30T00:00:00.000Z",
             }
-          : null,
+          : null;
+      },
     },
   });
   mock.module("@/lib/exomem-hosted/oauth-continuity", {
@@ -50,6 +55,12 @@ before(() => {
       createCloudReviewerOAuthSessionAtomic: async (input: Record<string, unknown>) => {
         bindCalls.push({ ...input, cloud: true });
         return { sessionId: "cloud-session-1" };
+      },
+      createCloudReviewerWebSessionAtomic: async (input: Record<string, unknown>) => {
+        webSessionCalls.push(input);
+        return webSessionExpiresAt
+          ? { sessionId: "web-session-1", expiresAt: webSessionExpiresAt }
+          : null;
       },
     },
   });
@@ -85,7 +96,10 @@ beforeEach(() => {
   process.env.EXOMEM_CLOUD_MCP_URL = continuationValue.resource;
   process.env.EXOMEM_CLOUD_MCP_PATH = "/api/exomem/cloud/mcp/v1";
   authenticated = true;
+  authenticateCalls = 0;
   bindCalls = [];
+  webSessionCalls = [];
+  webSessionExpiresAt = "2026-07-30T00:00:00.000Z";
   cookieExpiresAt = undefined;
 });
 
@@ -150,20 +164,57 @@ describe("POST /api/exomem/access/reviewer", () => {
     assert.equal(bindCalls.length, 0);
   });
 
-  it("refuses missing/mismatched nonce, foreign origin and non-Cloud continuation before binding", async () => {
+  it("refuses mismatched nonce, foreign origin on either path and non-Cloud continuation before binding", async () => {
     const { POST } = await import("../route");
-    const attempts = [
-      request({ username: USERNAME, password: PASSWORD }),
-      request({ username: USERNAME, password: PASSWORD, nonce: "wrong" }),
-    ];
+    const attempts = [request({ username: USERNAME, password: PASSWORD, nonce: "wrong" })];
     const foreign = request();
     foreign.headers.set("origin", "https://foreign.example.test");
     attempts.push(foreign);
+    const foreignWeb = request({ username: USERNAME, password: PASSWORD });
+    foreignWeb.headers.set("origin", "https://foreign.example.test");
+    attempts.push(foreignWeb);
     for (const attempt of attempts) assert.equal((await POST(attempt)).status, 401);
     continuation = { ...continuationValue, resource: "https://hosted.example.test/mcp" };
     assert.equal((await POST(request())).status, 401);
     continuation = { ...continuationValue, formNonceDigest: Buffer.alloc(32) };
     assert.equal((await POST(request())).status, 401);
     assert.equal(bindCalls.length, 0);
+    assert.equal(webSessionCalls.length, 0);
+  });
+  it("signs a reviewer in on the web without an OAuth request, for no longer than the credential", async () => {
+    continuation = null;
+    webSessionExpiresAt = "2026-07-30T00:00:00.000Z";
+    const { POST } = await import("../route");
+    const response = await POST(request({ username: USERNAME, password: PASSWORD }));
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await response.json(), {
+      success: true,
+      status: "authenticated",
+      destination: "/exomem/home",
+    });
+    assert.equal(webSessionCalls.length, 1);
+    assert.equal(webSessionCalls[0].credentialId, "credential-1");
+    assert.equal(bindCalls.length, 0, "no OAuth request is bound");
+    assert.equal(cookieExpiresAt?.toISOString(), "2026-07-30T00:00:00.000Z");
+  });
+
+  it("answers a failed web sign-in with the same 401, after the same throttled credential check", async () => {
+    const { POST } = await import("../route");
+    authenticated = false;
+    const wrongPassword = await POST(request({ username: USERNAME, password: "wrong" }));
+    authenticated = true;
+    webSessionExpiresAt = null;
+    const refusedSession = await POST(request({ username: USERNAME, password: PASSWORD }));
+
+    for (const response of [wrongPassword, refusedSession]) {
+      assert.equal(response.status, 401);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+      assert.deepEqual(await response.json(), { success: false, error: "authentication_failed" });
+      assert.equal(response.headers.get("set-cookie"), null);
+    }
+    // Every well-formed attempt reaches the rate-limited Argon2 check, as the app path does.
+    assert.equal(authenticateCalls, 2);
   });
 });
