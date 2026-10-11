@@ -66,6 +66,8 @@ javascript:
       - "src/**/*.test.tsx"
       # Run by hand from the README; nothing else references it.
       - "scripts/generate-jwt-keypair.ts"
+    # Design references (boards, prototypes, locked CSS); never built or imported.
+    ignore: ["docs/**"]
 
 # Exact token clones, on code only: OpenSpec deltas repeat requirement text by design.
 duplicates:

@@ -25,8 +25,8 @@ READ FIRST, IN THIS ORDER, BEFORE WRITING ANY CODE
    prototypes in docs/exomem-design/reference/prototypes/ (open them in a browser; they're the behaviour spec).
 
 NON-NEGOTIABLES
-- Tokens only. No raw colours, no new colours, sizes, radii, shadows or animations. Add
-  docs/exomem-design/system/check-tokens.mjs to CI; it must pass. Anything new needs the product owner's yes.
+- Tokens only. No raw colours, no new colours, sizes, radii, shadows or animations. The raw-colour lint
+  runs in CI; it must pass. Anything new needs the product owner's yes.
 - Copy is verbatim from the boards (appendices list it). Never write "4 assistants".
 - Every number is computed at render (prices, dates, time limits, counts, sizes), in the reader's time zone.
 - Dark is the default; light is equally canonical; one switch, site-wide, remembered in
@@ -43,7 +43,7 @@ HOW TO WORK
    open questions. Wait for the product owner's go-ahead.
 2. PR 1 is the foundation: tokens (merge system/tokens.css into the .brand-exomem scope in globals.css),
    the scrollbar on every page, the theme switch, the shared components from components.md as React
-   components + CSS modules, check-tokens in CI, and migrating the raw colours it finds in src/app/exomem today.
+   components + CSS modules, the raw-colour lint in CI, and migrating the raw colours it finds in src/app/exomem today.
 3. Then one PR per surface, in launch-cut order: landing → sign-in / invite / reviewer → Paddle subscribe →
    add to your assistant + consent (incl. declined and kept) + handback → Home → the launch emails.
 4. Each PR: walk every state the board's data-props lists; attach Playwright screenshots of desktop (1440)

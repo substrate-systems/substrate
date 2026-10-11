@@ -18,7 +18,7 @@
 | `system/components.css` | Every class-based component style from the four product surfaces, verbatim from the boards, colours as tokens. Generated. |
 | `system/motion.css` | All 60 animations, verbatim, with the timing each element uses. Generated. |
 | `system/components.md` | The component inventory: exact specs and states for every control, container, brand element, graph element, reader block; every animation; the inline styles as built. |
-| `system/check-tokens.mjs` | Lint: fails on any raw colour in Exomem source. Put it in CI. |
+| Lint config (`npm run lint`) | Fails on any raw colour in Exomem source. Added with the foundation build. |
 | `reference/prototypes/exomem-flow-prototype.html` | The clickable prototype: landing → start with your email → inbox → invitation → Paddle → connect → Home → graph viewer → back. Has a Desktop/Phone switch and pills to jump between flows. Open in Chrome. |
 | `reference/prototypes/exomem-viewer-prototype.html` | The graph viewer on its own (narrow window = phone layout). |
 | `reference/boards/*.dc.html` | The design sources. Each is an HTML template plus a `renderVals()` JavaScript class. **Copy wording verbatim from these**; the JS shows every state and how numbers are computed. |
@@ -68,7 +68,7 @@ These came out of review. Breaking one is a bug, not a style choice.
 
 Exomem is a sibling brand inside the Substrate system: it inherits Substrate's restraint and motion philosophy (`DESIGN_SYSTEM.md`) and overrides type, palette and accent within `.brand-exomem`.
 
-**The system is locked in code, not just described.** `system/tokens.css` holds every colour used anywhere in the design (each one in the boards maps to a token; near-duplicates were merged), `system/components.css` and `system/motion.css` hold every component style and animation verbatim, `system/components.md` is the inventory with exact specs and states, and `system/check-tokens.mjs` fails the build on any raw colour. Adding a token, a component variant or an animation needs the product owner's yes. The tables below summarise; the files are the source of truth.
+**The system is locked in code, not just described.** `system/tokens.css` holds every colour used anywhere in the design (each one in the boards maps to a token; near-duplicates were merged), `system/components.css` and `system/motion.css` hold every component style and animation verbatim, `system/components.md` is the inventory with exact specs and states, and the raw-colour lint fails the build on any raw colour. Adding a token, a component variant or an animation needs the product owner's yes. The tables below summarise; the files are the source of truth.
 
 ### 2.1 Colour
 
@@ -267,7 +267,7 @@ Status is from the repos as of 12 Oct 2026 (`substrate` 544a7ef, `exomem` b2999e
 
 Launch is targeted for about a week out. Ship in this order; the rest is designed and waits.
 
-1. **Launch (must):** tokens + components + scrollbar + theme switch + `check-tokens` in CI (migrate the 78 raw colours it finds in `src/app/exomem` today); landing; start with your email + sign-in + reviewer; Paddle subscribe; add to your assistant + consent (incl. declined/kept) + handback; Home (apps, levels, plan, export, delete); emails 01, 01w, 03, 04, 05, 06, 07, 08.
+1. **Launch (must):** tokens + components + scrollbar + theme switch + the raw-colour lint in CI (migrate the raw colours in `src/app/exomem` today); landing; start with your email + sign-in + reviewer; Paddle subscribe; add to your assistant + consent (incl. declined/kept) + handback; Home (apps, levels, plan, export, delete); emails 01, 01w, 03, 04, 05, 06, 07, 08.
 2. **Next:** friend invitations + emails 09–13, 18; storage add-ons + 14, 15, 19; email change + 16/16b; bring a vault + 17.
 3. **Then:** graph viewer (overview, zoom/filter, details, reader), then Why and Review, then phone viewer polish, then listening.
 
@@ -285,7 +285,7 @@ Launch is targeted for about a week out. Ship in this order; the rest is designe
 - [ ] Keyboard: visible amber focus ring; modals trap focus and close on Esc; viewer chips/buttons reachable.
 - [ ] Viewer: hover, live events and playback move nothing but their own element; pan/zoom smooth at 60 fps on a mid laptop.
 - [ ] Copy matches the boards word for word; no "4 assistants"; sender and URLs as in §1.
-- [ ] `node docs/exomem-design/system/check-tokens.mjs` passes; no animation outside `system/motion.css`.
+- [ ] The raw-colour lint passes; no animation outside `system/motion.css`.
 
 ---
 

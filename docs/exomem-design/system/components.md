@@ -2,14 +2,14 @@
 
 Every component the design uses, where its exact styles live, and its states. Build each **once** (React component + CSS module, tokens only) and use it everywhere. Values below are the locked ones; `components.css` and `motion.css` hold them verbatim from the boards, and `tokens.css` holds every colour.
 
-**The lock, in four files:**
+**The lock, in three files and a lint:**
 
 | File | Holds | Rule |
 | --- | --- | --- |
 | `tokens.css` | Every colour (dark + light), type families, radii, durations, easings, graph opacities, scrollbar, focus ring, reduced motion | The only place a raw colour may appear |
 | `components.css` | Every class-based style from the four product surfaces, verbatim, colours as tokens | Port each section into its surface's CSS module; don't restyle |
 | `motion.css` | All 60 keyframes, verbatim, with the timing each element uses | Use these keyframes; no new animations without the product owner's yes |
-| `check-tokens.mjs` | A lint that fails on any raw colour in Exomem source | Run in CI (`node docs/exomem-design/system/check-tokens.mjs`). Today it reports 78 raw colours in `src/app/exomem` to migrate |
+| Lint config | Fails on any raw colour in Exomem source (ESLint for TS/TSX style values, Stylelint for CSS) | Runs in CI with `npm run lint`. Migrate the raw colours in `src/app/exomem` |
 
 When porting: Landing's `.hp` (hero panel) and Home's `.hp` (page root) are different things with the same name in the boards; rename one (e.g. `heroPanel`, `homePage`). Some rules read per-element custom properties set at runtime (`--dd`, `--nd`, `--ld`, `--wd`, `--td`, `--tw`, `--gd`, `--rd`, `--i`, `--d`, `--dl`, `--hd`, `--ed`, `--L`, `--o`, `--bass`, `--mid`, `--treb`): they are delays, lengths and audio levels computed per element; see the board's JS for how each is computed.
 
