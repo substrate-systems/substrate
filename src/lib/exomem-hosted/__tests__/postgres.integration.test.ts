@@ -92,6 +92,12 @@ function paidActivationApplication(input: {
       productId: "pro_atomic_fresh",
       priceId: "pri_atomic_fresh",
     },
+    subscriptionFacts: {
+      priceName: null,
+      nextBilledAt: null,
+      discountId: null,
+      scheduledChangeAt: null,
+    },
   };
 }
 
@@ -441,6 +447,12 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
           productId: "pro_after_deletion_started",
           priceId: "pri_after_deletion_started",
         },
+        subscriptionFacts: {
+          priceName: null,
+          nextBilledAt: null,
+          discountId: null,
+          scheduledChangeAt: null,
+        },
       }),
       { outcome: "applied" }
     );
@@ -491,6 +503,12 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
           transactionId: null,
           productId: "pro_reconciliation_must_not_project",
           priceId: null,
+        },
+        subscriptionFacts: {
+          priceName: null,
+          nextBilledAt: null,
+          discountId: null,
+          scheduledChangeAt: null,
         },
       }),
       { outcome: "ignored" }

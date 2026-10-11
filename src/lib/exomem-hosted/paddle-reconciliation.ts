@@ -9,6 +9,8 @@ import {
 } from "./paddle-config";
 import {
   mapPaddleSubscriptionState,
+  paddleExomemItem,
+  paddleSubscriptionFacts,
   type AtomicExomemPaddleEventStore,
   type ExomemPaddleEventApplication,
   type ExomemPaddleStoreResult,
@@ -76,14 +78,8 @@ export async function reconcileExomemPaddleSubscription(
   const state = mapPaddleSubscriptionState(data.status);
   if (!state) throw invalid();
 
-  const items = Array.isArray(data.items) ? data.items : [];
-  const catalogMatch = items.some(
-    (item) =>
-      isRecord(item) &&
-      isRecord(item.price) &&
-      item.price.product_id === dependencies.config.productId
-  );
-  if (!catalogMatch) throw invalid();
+  const item = paddleExomemItem(data, dependencies.config.productId);
+  if (!item || item.productId !== dependencies.config.productId) throw invalid();
 
   const customData = isRecord(data.custom_data) ? data.custom_data : null;
   if (customData) {
@@ -125,8 +121,9 @@ export async function reconcileExomemPaddleSubscription(
       subscriptionId,
       transactionId: null,
       productId: dependencies.config.productId,
-      priceId: null,
+      priceId: item.priceId,
     },
+    subscriptionFacts: paddleSubscriptionFacts(data, item),
   };
   return dependencies.store.applyVerifiedEventAndMarkProcessedAtomically(application);
 }

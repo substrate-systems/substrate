@@ -37,6 +37,12 @@ function application(
       productId: "pro_control_plane",
       priceId: "pri_control_plane",
     },
+    subscriptionFacts: {
+      priceName: null,
+      nextBilledAt: null,
+      discountId: null,
+      scheduledChangeAt: null,
+    },
     ...overrides,
   };
 }
