@@ -49,7 +49,12 @@ describe("a ready Cloud tenant's Home", () => {
       }
       if (url === "/api/exomem/account") {
         return Response.json({
-          billing: { source: "paddle", state: "active", checkoutAvailable: false, portalAvailable: true },
+          billing: {
+            source: "paddle",
+            state: "active",
+            checkoutAvailable: false,
+            portalAvailable: true,
+          },
         });
       }
       return Response.json({ error: { code: "NOT_FOUND" } }, { status: 404 });
@@ -67,7 +72,11 @@ describe("a ready Cloud tenant's Home", () => {
     const root = createRoot(document.getElementById("mount")!);
     await act(async () => root.render(await ExomemHomePage()));
     const home = () => document.querySelector('section[aria-labelledby="home-title"]');
-    for (let attempt = 0; attempt < 50 && !home()?.textContent?.includes("Manage billing"); attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < 50 && !home()?.textContent?.includes("Manage billing");
+      attempt += 1
+    ) {
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     }
     const text = home()?.textContent ?? "";

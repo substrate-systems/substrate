@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  Fragment,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   friendlyHostedError,
   getPrivateJson,
@@ -35,7 +28,6 @@ import {
   PROM_CONTRACTS,
   PROM_LEVELS,
 } from "./assistant-instructions";
-
 
 function lifecycleCopy(state: LifecycleState): { eyebrow: string; title: string; body: string } {
   switch (state) {
@@ -492,9 +484,7 @@ export default function HomeClient({
           accident is good; being hard to find on purpose is not, and someone who
           wants their memory gone should not have to guess which heading hides it.
         */}
-        <summary className={styles.summary}>
-          Status, billing, and deleting your Exomem
-        </summary>
+        <summary className={styles.summary}>Status, billing, and deleting your Exomem</summary>
         <div className={styles.secondaryBody}>
           <div className={styles.secondaryRow}>
             <div>
