@@ -23,7 +23,15 @@ export type LifecycleStatus = {
     | "suspended"
     | "deletion_pending"
     | "deleted";
-  code: string;
+  // Every code the mapper below can return; the status route sends it as is.
+  code:
+    | "TENANT_PREPARING"
+    | "PAYMENT_REQUIRED"
+    | "CELL_PREPARING"
+    | "CELL_READY"
+    | "CELL_NOT_READY"
+    | "EXOMEM_SUSPENDED"
+    | "EXOMEM_DELETED";
   requestId?: string;
   retryable: boolean;
 };

@@ -3,7 +3,6 @@ import test, { mock } from "node:test";
 
 test("passes reviewer access only for an active authorization continuation", async (context) => {
   const AuthorizeClient = () => null;
-  let cloud = false;
   let enabled = true;
   let resource = "https://cloud.example.test/mcp/v1";
   let boundCredential: string | null = null;
@@ -32,7 +31,6 @@ test("passes reviewer access only for an active authorization continuation", asy
   });
   mock.module("@/lib/exomem-hosted/cloud-config", {
     namedExports: {
-      exomemCloudEnabled: () => cloud,
       loadExomemCloudResource: () => ({
         mcpUrl: "https://cloud.example.test/mcp/v1",
         mcpPath: "/api/exomem/cloud/mcp/v1",
@@ -111,7 +109,6 @@ test("passes reviewer access only for an active authorization continuation", asy
       else pending.push(children);
     }
   };
-  cloud = true;
   assert.equal((await clientState())?.reviewerEnabled, true);
   resource = "https://hosted.example.test/mcp";
   assert.equal((await clientState())?.reviewerEnabled, false);

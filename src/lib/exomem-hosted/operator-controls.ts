@@ -81,7 +81,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 // The agent profile that the retained Hosted staged-release rows carry. Operator
 // client registration still names one of those rows, or a client artifact, as
-// its authority.
+// its authority. Delete this with that authority, when operator registration
+// moves to a Cloud-native authority (follow-up to adopt-exomem-cloud-plain-cells 5.1).
 const HOSTED_STAGE_PROFILE = "hosted-alpha-agent-v4";
 
 function metadataProvenance(input: {

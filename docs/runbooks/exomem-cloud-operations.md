@@ -102,15 +102,19 @@ redeploy, and confirm that the route returns `404`.
 ## External scheduler
 
 Vercel Hobby rejects cron expressions that run more than once per day, so the
-frequent Exomem jobs are absent from `vercel.json`. Their source of truth is
-`ops/exomem-hosted-schedules.json`. The K3s platform release renders it as
-CronJobs that call `https://substratesystems.io` with
-`Authorization: Bearer <EXOMEM_HOSTED_SCHEDULER_SECRET>`:
+frequent Exomem jobs are absent from `vercel.json`. The Exomem platform chart
+deploys them from its own schedule file,
+`infra/helm/platform/files/exomem-hosted-schedules-v1.json` in the Exomem
+repository, as K3s CronJobs. `ops/exomem-hosted-schedules.json` here is the
+Substrate-side copy of that contract. Each job calls `https://substratesystems.io`
+with `Authorization: Bearer <EXOMEM_HOSTED_SCHEDULER_SECRET>`:
 
-- `/api/cron/exomem-access-delivery` every minute;
-- `/api/cron/exomem-reconcile` every minute, which runs Paddle reconciliation
-  and the Cloud sweep (checkout expiry, desired-state reconcile, cancellation
-  notices and the Cloud deletion finish).
+- `/api/cron/exomem-access-delivery`;
+- `/api/cron/exomem-reconcile`, which runs Paddle reconciliation and the Cloud
+  sweep (checkout expiry, desired-state reconcile, cancellation notices and the
+  Cloud deletion finish).
+
+The chart's schedule file sets how often each job runs.
 
 The scheduler receives only the active dedicated secret. It never receives
 `CRON_SECRET`, the previous receiver secret, or database, Paddle, cell or
