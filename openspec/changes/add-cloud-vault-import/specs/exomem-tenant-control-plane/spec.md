@@ -22,7 +22,7 @@ C5 SHALL store content-free import requests under a C1 cell with the types and s
 
 ### Requirement: Cleanup retries release bounded holds without claiming success
 
-The controller SHALL record `cleanup_running` and preserve the original work outcome before idempotent cleanup. It SHALL report `cleanup_pending` for failed or deferred cleanup. It SHALL record `cleanup_stopping` after local and transport cleanup succeed, before removing Jobs. Each attempt SHALL use a bounded hold and confirm that its Job controllers and Pods are absent before release. The controller SHALL back off between attempts using `updated_at`. Lifecycle deletion SHALL take precedence, and hold release MUST preserve stopped desired state. Every cleanup observation SHALL occupy the cell's open import slot. Terminal publication and C1 hold release SHALL share the API admission row lock and one transaction, using current requested intent.
+The controller SHALL record `cleanup_running` and preserve the original work outcome before idempotent cleanup. It SHALL report `cleanup_pending` for failed or deferred cleanup. It SHALL record `cleanup_stopping` after keep-adoption cleanup and `cleanup_discard_stopping` after full discard and transport cleanup, before removing Jobs. Each attempt SHALL use a bounded hold and confirm that its Job controllers and Pods are absent before release. The controller SHALL back off between attempts using `updated_at`. Lifecycle deletion SHALL take precedence, and hold release MUST preserve stopped desired state. Every cleanup observation SHALL occupy the cell's open import slot. Terminal publication and C1 hold release SHALL share the API admission row lock and one transaction, using current requested intent.
 
 #### Scenario: Cleanup fails after an import outcome
 
@@ -40,10 +40,12 @@ The controller SHALL record `cleanup_running` and preserve the original work out
 #### Scenario: Cleanup completion waits for Kubernetes removal
 
 - **WHEN** volume and transport cleanup succeed but a Job controller or Pod remains
-- **THEN** status reports `cleanup_stopping` and admission rejects another import
-- **AND** the controller never replays prepare, import, or cleanup from that state
+- **THEN** status reports the stopping observation that matches the completed Job phase and admission rejects another import
+- **AND** the controller never replays prepare or import from a cleanup state
 - **WHEN** all phase Job controllers and Pods are absent
-- **THEN** the controller locks C1 and C5, reads current cancellation intent, publishes the terminal outcome, and clears the hold atomically
+- **THEN** the controller locks C1 and C5 and reads current state and cancellation intent
+- **AND** ordinary cleanup rearms full discard with a fresh hold when that intent requires it
+- **AND** full-discard completion publishes the terminal outcome and clears the hold atomically
 
 ### Requirement: Import endpoints derive authority from existing Cloud credentials
 
@@ -95,3 +97,13 @@ The control plane SHALL seed the pinned `exomem-cloud-cli` client with the canon
 
 - **WHEN** the operator disables the client and migrations run again
 - **THEN** the client remains disabled and Cloud OAuth admission refuses it
+
+### Requirement: Discard publication proves removal of adoption material
+
+The controller SHALL derive a stopping observation from the completed Job phase. Ordinary `cleanup_stopping` MUST NOT acknowledge full-discard intent. Under the C1 and C5 locks, newer cancellation or discard SHALL rearm ordinary cleanup as `cleanup_running` with a fresh bounded hold and the original error. `cleanup_discard_stopping` SHALL remain open until all phase Jobs and Pods are absent, then permit atomic discard publication and hold release.
+
+#### Scenario: Discard arrives after keep-adoption cleanup
+
+- **WHEN** cancellation or discard commits before or during finalization of ordinary cleanup
+- **THEN** the controller rearms full discard without restarting runtime or publishing discarded status
+- **AND** discarded status follows removal of the adoption folder, successful transport cleanup and removal of all phase Jobs and Pods

@@ -462,7 +462,12 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
       409
     );
     assert.equal((await (await call(alice, "status")).json()).import.import_id, older.import_id);
-    for (const observation of ["cleanup_running", "cleanup_stopping", "cleanup_pending"]) {
+    for (const observation of [
+      "cleanup_running",
+      "cleanup_stopping",
+      "cleanup_discard_stopping",
+      "cleanup_pending",
+    ]) {
       await pool.query("UPDATE exomem_cloud_imports SET observed_state = $2 WHERE import_id = $1", [
         older.import_id,
         observation,
@@ -552,7 +557,12 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
         { code: "23514" }
       );
       await applyMigrations({ databaseUrl: url.toString() });
-      for (const observation of ["cleanup_running", "cleanup_stopping", "cleanup_pending"]) {
+      for (const observation of [
+        "cleanup_running",
+        "cleanup_stopping",
+        "cleanup_discard_stopping",
+        "cleanup_pending",
+      ]) {
         await upgrade.query(
           "UPDATE exomem_cloud_imports SET observed_state = $2 WHERE import_id = $1",
           [importId, observation]

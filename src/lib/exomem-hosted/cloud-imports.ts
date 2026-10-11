@@ -172,7 +172,7 @@ export async function readCloudImport(principal: CloudImportPrincipal, importId?
       AND tenant.status NOT IN ('deletion_pending', 'deleted') AND cell.desired_state <> 'deleted'
       AND (${id}::uuid IS NULL OR request.import_id = ${id}::uuid)
     ORDER BY (request.observed_state IS NULL
-      OR request.observed_state IN ('key_ready', 'importing', 'cleanup_running', 'cleanup_stopping', 'cleanup_pending')
+      OR request.observed_state IN ('key_ready', 'importing', 'cleanup_running', 'cleanup_stopping', 'cleanup_discard_stopping', 'cleanup_pending')
       OR (request.requested_state = 'discard_requested' AND request.observed_state IS DISTINCT FROM 'discarded')) DESC,
       request.created_at DESC, request.import_id DESC LIMIT 1
   `;
