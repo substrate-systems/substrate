@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
-import { redeemCloudInviteAtomic } from "../cloud-admission";
+import { randomCloudCellId, redeemCloudInviteAtomic } from "../cloud-admission";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
 import { findCloudOAuthAccessToken } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
@@ -194,10 +194,10 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await adminPool?.end();
   });
 
-  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE on every public table except C1-C1d, proven with a real round trip", async () => {
+  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE outside C1-C1d and C5, proven with a real round trip", async () => {
     const tableNames = await publicTableNames();
     const nonCloudTables = tableNames.filter(
-      (name) => !(C1_TABLES as readonly string[]).includes(name) && name !== "schema_migrations"
+      (name) => !(C1_TABLES as readonly string[]).includes(name) && name !== "schema_migrations" && name !== "exomem_cloud_imports"
     );
     assert.ok(nonCloudTables.length > 10, "sanity: the schema of record has plenty of non-Cloud tables");
     const privileges = await tablePrivileges("substrate_app", nonCloudTables);
@@ -692,5 +692,106 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await applyMigrations({ databaseUrl: ownerUrl });
     const after1 = await aclSnapshot();
     assert.deepEqual(after1, before1);
+  });
+  it("enforces C5 request/observation grants after inherited grants and reruns", async () => {
+    const tenantId = await newTenant();
+    const id = randomCloudCellId();
+    await appPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [id, tenantId]
+    );
+    const created = await appPool!.query(
+      "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 12, 1) RETURNING import_id",
+      [id]
+    );
+    const importId = created.rows[0].import_id;
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_imports SET recipient = 'age1test', observed_state = 'key_ready' WHERE import_id = $1",
+      [importId]
+    );
+    await appPool!.query(
+      "UPDATE exomem_cloud_imports SET ciphertext_sha256 = $2, ciphertext_bytes = 128 WHERE import_id = $1",
+      [importId, "a".repeat(64)]
+    );
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_cells SET hold_kind = 'import' WHERE cell_id = $1",
+      [id]
+    );
+    await assert.rejects(
+      ownerPool!.query("DELETE FROM exomem_cloud_cells WHERE cell_id = $1", [id]),
+      /foreign key/
+    );
+
+    // Simulate default table grants left by a migration before the runner applies its exceptions.
+    await ownerPool!.query(
+      "GRANT ALL ON exomem_cloud_imports TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
+    );
+    await applyMigrations({ databaseUrl: roleUrl(databaseUrl!, "substrate_owner") });
+    for (const client of [appPool!, cellctlPool!, gatewayPool!]) {
+      await assert.rejects(
+        client.query("DELETE FROM exomem_cloud_imports WHERE import_id = $1", [importId]),
+        /permission denied/
+      );
+    }
+    await assert.rejects(
+      appPool!.query(
+        "UPDATE exomem_cloud_imports SET recipient = 'replacement' WHERE import_id = $1",
+        [importId]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      appPool!.query(
+        "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files, observed_state) VALUES ($1, 'adopt', 1, 1, 'done')",
+        [id]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      cellctlPool!.query(
+        "UPDATE exomem_cloud_imports SET ciphertext_bytes = 129 WHERE import_id = $1",
+        [importId]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      cellctlPool!.query(
+        "UPDATE exomem_cloud_imports SET requested_state = 'uploaded' WHERE import_id = $1",
+        [importId]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      cellctlPool!.query(
+        "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1)",
+        [id]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      gatewayPool!.query("SELECT import_id FROM exomem_cloud_imports"),
+      /permission denied/
+    );
+    await assert.rejects(
+      gatewayPool!.query("UPDATE exomem_cloud_imports SET requested_state = 'cancelled'"),
+      /permission denied/
+    );
+    await appPool!.query(
+      'UPDATE exomem_cloud_imports SET part_etags = \'[{"part_number":1,"etag":"accepted"}]\', requested_state = \'uploaded\' WHERE import_id = $1',
+      [importId]
+    );
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_imports SET observed_state = 'done', part_urls = NULL WHERE import_id = $1",
+      [importId]
+    );
+    assert.equal(
+      (
+        await appPool!.query(
+          "SELECT observed_state FROM exomem_cloud_imports WHERE import_id = $1",
+          [importId]
+        )
+      ).rows[0].observed_state,
+      "done"
+    );
   });
 });

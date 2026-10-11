@@ -1,3 +1,5 @@
+import type { ExomemCloudResource } from "./cloud-config";
+import { ADVERTISED_SCOPES } from "./oauth";
 /**
  * Exomem Cloud OAuth client admission and exact-resource token binding
  * (design D2, `adopt-exomem-cloud-plain-cells`).
@@ -261,4 +263,15 @@ export async function assertGrantOwnsCloudCell(grantId: string): Promise<void> {
     LIMIT 1
   `;
   if (!rows[0]) throw new CloudPrincipalHasNoCellError();
+}
+
+/**
+ * RFC 9728 section 5.1: a 401 names the resource's own metadata document
+ * (`<origin>/.well-known/oauth-protected-resource<mcpPath>`, where server.ts
+ * serves it) and the scopes to request, so a client reaches the
+ * authorization server without probing well-known paths.
+ */
+export function cloudBearerChallenge(config: ExomemCloudResource): string {
+  const metadata = `${new URL(config.mcpUrl).origin}/.well-known/oauth-protected-resource${config.mcpPath}`;
+  return `Bearer resource_metadata="${metadata}", scope="${ADVERTISED_SCOPES.join(" ")}"`;
 }
