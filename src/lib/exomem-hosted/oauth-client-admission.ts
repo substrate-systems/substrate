@@ -19,6 +19,9 @@ export const CIMD_TIMEOUT_MS = 3_000;
 export const CIMD_MIN_TTL_SECONDS = 300;
 export const CIMD_MAX_TTL_SECONDS = 604_800;
 export const CIMD_DEFAULT_TTL_SECONDS = 86_400;
+// Matches exomem_oauth_clients_client_name_valid (migration 0062), which is the
+// authority: a longer value would fail the insert, not be stored.
+const MAX_OAUTH_CLIENT_NAME_LENGTH = 64;
 
 export type OAuthClientAdmissionMode = "pinned" | "cimd";
 
@@ -44,6 +47,19 @@ export type CimdFetchedMetadata = {
     redirect_uris: string[];
     token_endpoint_auth_method: "none";
   };
+  /** The document's `client_name`, sanitised; absent or unusable reads as null. */
+  clientName?: string | null;
+};
+
+/**
+ * A validated RFC 7591 registration for a generic MCP client. Nothing here is
+ * trusted for admission: the client is a public client that proves possession
+ * through PKCE S256 at every authorization, and tenancy still needs an invite.
+ */
+export type GenericClientRegistration = {
+  redirectUris: string[];
+  clientName: string;
+  grantTypes: Array<"authorization_code" | "refresh_token">;
 };
 
 function configuredHosts(value: string | undefined): string[] {
@@ -163,6 +179,96 @@ export function isSafeLoopbackOAuthRedirect(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Redirect rule for a generic (dynamically registered) client. Nobody vouches
+ * for such a client, so it gets the self-registration rule rather than the
+ * operator one: https without credentials or fragment, bounded, or loopback
+ * http for a local agent that is served from no host (RFC 8252 section 7.3).
+ * It is `safeRedirectUri` with no operator-configured cleartext hosts.
+ */
+function isGenericClientRedirect(value: string): boolean {
+  return safeRedirectUri(value, []);
+}
+
+// Unicode "Other" characters: controls, format characters such as bidi
+// overrides and zero-width joiners, surrogates, private-use and unassigned code
+// points. Each lets a declared name render as something other than the text it
+// holds. This checks the shape of display text, not what the name means.
+const UNDISPLAYABLE_NAME_CHARACTERS = /\p{C}/gu;
+
+/**
+ * A client's self-declared `client_name` (RFC 7591 section 2, and the same field
+ * in a Client ID Metadata Document), made safe to show. Returns null when the
+ * value is not a string or holds nothing displayable.
+ */
+export function sanitizeOAuthClientName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value
+    .normalize("NFC")
+    // A space, not nothing, so a hidden character cannot join two visible words.
+    .replace(UNDISPLAYABLE_NAME_CHARACTERS, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!cleaned) return null;
+  return Array.from(cleaned).slice(0, MAX_OAUTH_CLIENT_NAME_LENGTH).join("").trimEnd();
+}
+
+// RFC 7591 section 2 grant and response types this server can serve. Fixed by
+// the authorization server metadata (`grant_types_supported`,
+// `response_types_supported`), not by any client.
+const GENERIC_CLIENT_GRANT_TYPES = new Set(["authorization_code", "refresh_token"]);
+
+function optionalStringList(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) return null;
+  return value;
+}
+
+/**
+ * Validate an RFC 7591 registration request from a generic MCP client.
+ *
+ * Returns null for every refusal; the caller answers all of them identically.
+ * The client must be a public client: `token_endpoint_auth_method` absent or
+ * `none`. RFC 7591 lets a server substitute a value it supports, and this server
+ * never issues a secret, so an omitted method registers as `none`. A request
+ * that names its own `client_id` or `client_secret` is refused, because both are
+ * server-assigned: honouring a requested identifier is how a registration
+ * would reach an existing client.
+ */
+export function validateGenericClientRegistration(body: unknown): GenericClientRegistration | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const request = body as Record<string, unknown>;
+  if ("client_id" in request || "client_secret" in request) return null;
+  if (
+    request.token_endpoint_auth_method !== undefined &&
+    request.token_endpoint_auth_method !== "none"
+  ) {
+    return null;
+  }
+  if (!exactStringList(request.redirect_uris)) return null;
+  const redirectUris = request.redirect_uris;
+  if (!redirectUris.every(isGenericClientRedirect)) return null;
+
+  const responseTypes = optionalStringList(request.response_types);
+  if (!responseTypes || responseTypes.some((type) => type !== "code")) return null;
+  const requestedGrants = optionalStringList(request.grant_types);
+  if (!requestedGrants || requestedGrants.some((type) => !GENERIC_CLIENT_GRANT_TYPES.has(type))) {
+    return null;
+  }
+  const grantTypes = (
+    requestedGrants.length > 0 ? requestedGrants : ["authorization_code"]
+  ) as Array<"authorization_code" | "refresh_token">;
+  if (!grantTypes.includes("authorization_code")) return null;
+
+  // A name is how the consent page and Home tell clients apart. A client that
+  // declares no usable one is named by the host that receives its codes, bounded
+  // the same way. An http(s) URL always has a non-empty host.
+  const clientName =
+    sanitizeOAuthClientName(request.client_name) ??
+    sanitizeOAuthClientName(new URL(redirectUris[0]!).hostname)!;
+  return { redirectUris: [...redirectUris], clientName, grantTypes: [...new Set(grantTypes)] };
 }
 
 function exactStringList(value: unknown): value is string[] {
@@ -437,5 +543,8 @@ export function parseCimdDocument(raw: string, clientId: string): CimdFetchedMet
       redirect_uris: candidate.redirect_uris,
       token_endpoint_auth_method: "none",
     },
+    // A display field only: an unusable name reads as none rather than refusing
+    // a document that is otherwise admissible.
+    clientName: sanitizeOAuthClientName(candidate.client_name),
   };
 }

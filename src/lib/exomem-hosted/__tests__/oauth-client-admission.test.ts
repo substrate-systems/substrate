@@ -10,6 +10,8 @@ import {
   oauthClientConfigSha256,
   operatorOAuthClientFingerprint,
   parseCimdDocument,
+  sanitizeOAuthClientName,
+  validateGenericClientRegistration,
 } from "../oauth-client-admission";
 
 function isInvalidRequest(error: unknown): boolean {
@@ -296,5 +298,91 @@ describe("operator OAuth client admission", () => {
     const web = ["https://claude.ai/api/mcp/auth_callback"];
     assert.equal(redirectUriApproved(web, "https://claude.ai/api/mcp/auth_callback"), true);
     assert.equal(redirectUriApproved(web, "https://claude.ai:8443/api/mcp/auth_callback"), false);
+  });
+});
+
+describe("generic MCP client registration", () => {
+  const valid = {
+    client_name: "Local agent",
+    redirect_uris: ["http://127.0.0.1:43123/callback", "https://agent.example.test/oauth/callback"],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  };
+
+  it("registers a public client with https or loopback redirects", () => {
+    assert.deepEqual(validateGenericClientRegistration(valid), {
+      redirectUris: valid.redirect_uris,
+      clientName: "Local agent",
+      grantTypes: ["authorization_code", "refresh_token"],
+    });
+    // RFC 7591 lets the server substitute a method it supports. This server
+    // never issues a secret, so a client that names no method registers as public.
+    assert.deepEqual(
+      validateGenericClientRegistration({ redirect_uris: valid.redirect_uris })?.grantTypes,
+      ["authorization_code"]
+    );
+  });
+
+  it("refuses an unsafe redirect, a non-public client and a requested identifier", () => {
+    for (const [reason, change] of [
+      ["cleartext off loopback", { redirect_uris: ["http://agent.example.test/callback"] }],
+      ["credentials", { redirect_uris: ["https://user:pass@agent.example.test/callback"] }],
+      ["fragment", { redirect_uris: ["https://agent.example.test/callback#code"] }],
+      ["over-long", { redirect_uris: [`https://agent.example.test/${"a".repeat(1024)}`] }],
+      ["private-use scheme", { redirect_uris: ["agent.example://oauth/callback"] }],
+      ["no redirect", { redirect_uris: [] }],
+      [
+        "repeated redirect",
+        { redirect_uris: ["https://a.example.test/cb", "https://a.example.test/cb"] },
+      ],
+      ["confidential client", { token_endpoint_auth_method: "client_secret_basic" }],
+      ["implicit flow", { response_types: ["token"] }],
+      ["client credentials", { grant_types: ["client_credentials"] }],
+      ["refresh without code", { grant_types: ["refresh_token"] }],
+      // Identifiers are server-assigned. Honouring a requested one is how a
+      // registration would reach an operator's or a connector's existing client.
+      ["requested client_id", { client_id: "https://chatgpt.com/oauth/abc/client.json" }],
+      ["requested secret", { client_secret: "chosen" }],
+    ] as const) {
+      assert.equal(
+        validateGenericClientRegistration({ ...valid, ...change }),
+        null,
+        `${reason} must be refused`
+      );
+    }
+    assert.equal(validateGenericClientRegistration([valid]), null);
+  });
+
+  it("shows a declared client name as plain text, and names a silent client by its redirect host", () => {
+    // A right-to-left override or a zero-width character makes a name render as
+    // something other than the text it holds; each becomes a visible space.
+    assert.equal(sanitizeOAuthClientName("Agent\u202Eedoc\u200B CLI\n\tv2"), "Agent edoc CLI v2");
+    assert.equal(sanitizeOAuthClientName("x".repeat(200))?.length, 64);
+    assert.equal(sanitizeOAuthClientName("\u200B \u0007"), null);
+    assert.equal(sanitizeOAuthClientName(42), null);
+    assert.equal(
+      validateGenericClientRegistration({ ...valid, client_name: "\u200B" })?.clientName,
+      "127.0.0.1"
+    );
+  });
+
+  it("keeps a CIMD document's declared name, and admits a document whose name is unusable", () => {
+    const clientId = "https://chatgpt.example.test/oauth/AbCdEf/client.json";
+    const document = {
+      client_id: clientId,
+      redirect_uris: ["https://chatgpt.example.test/connector/oauth/AbCdEf"],
+      token_endpoint_auth_method: "none",
+    };
+    assert.equal(
+      parseCimdDocument(JSON.stringify({ ...document, client_name: " ChatGPT\u202E " }), clientId)
+        .clientName,
+      "ChatGPT"
+    );
+    assert.equal(
+      parseCimdDocument(JSON.stringify({ ...document, client_name: ["ChatGPT"] }), clientId)
+        .clientName,
+      null
+    );
   });
 });

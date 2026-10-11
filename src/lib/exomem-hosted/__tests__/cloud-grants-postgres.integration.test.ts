@@ -482,33 +482,49 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
   // (never through PgBouncer) and runs findCloudOAuthAccessToken itself --
   // this proves the column-scoped OAuth grants the script gives
   // exomem_gateway are exactly enough to run that real query, and nothing
-  // more.
-  for (const reviewerPurpose of [false, true]) {
-    it(`lets exomem_gateway run findCloudOAuthAccessToken for a real ${reviewerPurpose ? "reviewer" : "ordinary"} lineage`, async () => {
+  // more. A generic client is admitted through the generic arm, which reads
+  // the lane flag: without that grant every generic client's MCP call would
+  // fail in production while superuser tests passed.
+  for (const lineage of ["ordinary", "reviewer", "generic"] as const) {
+    it(`lets exomem_gateway run findCloudOAuthAccessToken for a real ${lineage} lineage`, async () => {
+      const reviewerPurpose = lineage === "reviewer";
       const clientDbId = randomUUID();
       const host = `gateway-oauth-${randomUUID()}.example.test`;
-      await ownerPool!.query(
-        "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('claude', $1)",
-        [host],
-      );
-      await ownerPool!.query(
-        `INSERT INTO exomem_oauth_clients (
-         id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
-         metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
-         cimd_host, client_platform, oauth_client_config_sha256
-       ) VALUES (
-         $1, $2, 'cimd', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'),
-         $4, now(), 3600, now() + interval '1 hour', $5, 'claude', $6
-       )`,
-        [
-          clientDbId,
-          `https://${host}/client.json`,
-          JSON.stringify([`https://${host}/callback`]),
-          randomBytes(32),
-          host,
-          randomBytes(32).toString("hex"),
-        ],
-      );
+      if (lineage === "generic") {
+        await ownerPool!.query(
+          `INSERT INTO exomem_oauth_clients (
+           id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
+         ) VALUES (
+           $1, $2, 'generic', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'),
+           'Gateway probe'
+         )`,
+          [clientDbId, randomUUID(), JSON.stringify(["http://127.0.0.1/callback"])],
+        );
+        await ownerPool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = true");
+      } else {
+        await ownerPool!.query(
+          "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('claude', $1)",
+          [host],
+        );
+        await ownerPool!.query(
+          `INSERT INTO exomem_oauth_clients (
+           id, client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+           metadata_document_digest, metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at,
+           cimd_host, client_platform, oauth_client_config_sha256
+         ) VALUES (
+           $1, $2, 'cimd', true, $3::jsonb, digest(convert_to($3::jsonb::text, 'utf8'), 'sha256'),
+           $4, now(), 3600, now() + interval '1 hour', $5, 'claude', $6
+         )`,
+          [
+            clientDbId,
+            `https://${host}/client.json`,
+            JSON.stringify([`https://${host}/callback`]),
+            randomBytes(32),
+            host,
+            randomBytes(32).toString("hex"),
+          ],
+        );
+      }
       const tenantId = await newTenant(reviewerPurpose);
       const owner = await ownerPool!.query<{ owner_user_id: string }>(
         "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
@@ -516,7 +532,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       );
       await ownerPool!.query(
         "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
-        [cellId(reviewerPurpose ? "r" : "g"), tenantId],
+        [cellId(lineage === "reviewer" ? "r" : lineage === "generic" ? "q" : "g"), tenantId],
       );
       let reviewerCredentialId: string | null = null;
       if (reviewerPurpose) {
@@ -582,6 +598,9 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         }
       } finally {
         __setExomemSqlForTests(null);
+        if (lineage === "generic") {
+          await ownerPool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = false");
+        }
         if (previousReviewer === undefined)
           delete process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED;
         else process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = previousReviewer;

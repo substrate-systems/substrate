@@ -262,6 +262,12 @@ BEGIN
     IF to_regclass('exomem_oauth_admitted_cimd_hosts') IS NOT NULL THEN
       GRANT SELECT (host, platform) ON exomem_oauth_admitted_cimd_hosts TO exomem_gateway;
     END IF;
+    -- Migration 0062: the generic client arm that findCloudOAuthAccessToken
+    -- calls (exomem_oauth_generic_client_admitted, SECURITY INVOKER) reads
+    -- the lane's enabled flag.
+    IF to_regclass('exomem_oauth_generic_client_lane') IS NOT NULL THEN
+      GRANT SELECT (enabled) ON exomem_oauth_generic_client_lane TO exomem_gateway;
+    END IF;
     IF to_regclass('exomem_oauth_account_blocks') IS NOT NULL THEN
       GRANT SELECT (tenant_id, owner_user_id) ON exomem_oauth_account_blocks TO exomem_gateway;
     END IF;

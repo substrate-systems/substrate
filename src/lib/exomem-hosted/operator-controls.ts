@@ -17,7 +17,7 @@ import {
 export type OperatorOAuthClient = {
   id: string;
   enabled: boolean;
-  admissionMode: "pinned" | "cimd";
+  admissionMode: "pinned" | "cimd" | "generic";
   clientFingerprint: string;
   redirectDigest: string;
   redirectCount: number;
@@ -47,7 +47,11 @@ export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]>
     if (
       typeof row.id !== "string" ||
       typeof row.enabled !== "boolean" ||
-      (row.admission_mode !== "pinned" && row.admission_mode !== "cimd") ||
+      // A mode outside the schema's closed set drops the row; a known mode the
+      // list omitted would hide registered clients from the operator.
+      (row.admission_mode !== "pinned" &&
+        row.admission_mode !== "cimd" &&
+        row.admission_mode !== "generic") ||
       typeof redirectCount !== "number" ||
       !Number.isSafeInteger(redirectCount) ||
       !(redirectDigest instanceof Uint8Array) ||
