@@ -16,12 +16,11 @@
 // earlier split had one module naming three clients and the other five — a
 // mismatch that silently decided a client got the manual path.
 
-export type HomeSection = "connect" | "capture" | "account";
+export type HomeSection = "connect" | "account";
 
 export function homeSections(): HomeSection[] {
-  // Connect is unconditionally first. There is no server-side signal for "this
-  // person has already connected an assistant", so rather than guess and demote
-  // it wrongly, the section stays compact enough to sit above capture
-  // permanently.
-  return ["connect", "capture", "account"];
+  // Connect is unconditionally first. Capture and search left the page: they
+  // called routes that cannot reach a Cloud cell, so the assistant is the only
+  // way in until the redesigned Home brings them back through the cell.
+  return ["connect", "account"];
 }
