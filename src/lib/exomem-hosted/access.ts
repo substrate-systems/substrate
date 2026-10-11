@@ -1,13 +1,8 @@
-import { createHash, randomBytes as nodeRandomBytes } from "node:crypto";
+import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
+import { renderExomemInviteEmail } from "@/lib/email-templates/exomem-access";
 import {
-  renderExomemInviteEmail,
-  renderExomemWaitlistEmail,
-  renderExomemWelcomeEmail,
-} from "@/lib/email-templates/exomem-access";
-import {
-  admitSelfServeOrWaitlistAtomic,
   createInviteRecord,
   createMagicAccessToken,
   markInviteDelivered,
@@ -18,17 +13,23 @@ import {
   type CreateMagicAccessTokenInput,
   type RedeemMagicAccessTokenInput,
   type RedeemedAccess,
-  type SelfServeAdmissionInput,
-  type SelfServeAdmissionResult,
 } from "./db";
 import { exomemErrors } from "./errors";
-import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
+import { buildOperationalEvent, emitOperationalEvent } from "./observability";
 import {
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,
   parseExomemPublicBaseUrl,
 } from "./public-origin";
-import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
+import { EXOMEM_RATE_LIMITS, normalizedEmailRateLimitKey, takeExomemRateLimit } from "./rate-limit";
+import {
+  EXOMEM_INVITE_CAPABILITIES,
+  EXOMEM_INVITE_LIMITS,
+  selfServeAdmissionMode,
+  startSelfServeAtomic,
+  type SelfServeAdmissionMode,
+  type StartOutcome,
+} from "./self-serve-admission";
 import { mintSessionMaterial, type SessionMaterial } from "./sessions";
 import {
   encryptSecret,
@@ -42,23 +43,12 @@ const EMAIL = /^[^\s<>"'`&]+@[^\s<>"'`&]+\.[^\s<>"'`&]+$/;
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000;
 const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-// Shorter than an operator invitation's ceiling: a self-serve invite holds a
-// place against the pool while it is outstanding, so an abandoned signup must
-// return that place quickly rather than in a month.
-const SELF_SERVE_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-// `created_by_principal_digest` is NOT NULL because operator invites are
-// attributable. Nobody authorised a self-serve invite, so it carries a fixed
-// sentinel rather than a fabricated operator identity.
-const SELF_SERVE_PRINCIPAL_DIGEST = createHash("sha256")
-  .update("exomem:self-serve-admission")
-  .digest();
-
-const ALPHA_CAPABILITIES = ["capture", "recall", "export"];
-const ALPHA_LIMITS = {
-  storageBytes: 5 * 1024 * 1024 * 1024,
-  uploadBytes: 90 * 1024 * 1024,
-  workerCount: 0,
-};
+/**
+ * Every start request that passed the bot check takes at least this long,
+ * whatever its outcome, so its timing does not tell whether the address owns
+ * an Exomem, was admitted or was queued.
+ */
+export const START_RESPONSE_FLOOR_MS = 600;
 
 type SendEmail = typeof sendTransactionalEmail;
 
@@ -70,7 +60,12 @@ export type AccessDependencies = {
   markInviteDelivered: (inviteId: string) => Promise<void>;
   markInviteDeliveryFailed: (inviteId: string, errorCode: string) => Promise<void>;
   inspectInvite: typeof inspectValidInvite;
-  admitSelfServeOrWaitlist: (input: SelfServeAdmissionInput) => Promise<SelfServeAdmissionResult>;
+  admissionMode: () => SelfServeAdmissionMode;
+  startSelfServe: (input: {
+    emailNormalized: string;
+    timeZone: string | null;
+    mode: "waitlist" | "open";
+  }) => Promise<StartOutcome>;
   createMagicAccessToken: (
     input: CreateMagicAccessTokenInput
   ) => Promise<{ tokenId: string; emailNormalized?: string } | null>;
@@ -83,8 +78,27 @@ export type AccessDependencies = {
     rule: (typeof EXOMEM_RATE_LIMITS)[keyof typeof EXOMEM_RATE_LIMITS],
     value: string
   ) => Promise<boolean>;
-  completeMagicLinkRequest: (startedAt: Date) => Promise<void>;
+  /** Waits out the rest of the response floor, from a `performance.now()` start. */
+  completeStartRequest: (startedAtMs: number) => Promise<void>;
 };
+
+async function padStartResponse(startedAtMs: number): Promise<void> {
+  const elapsedMs = performance.now() - startedAtMs;
+  const remainingMs = START_RESPONSE_FLOOR_MS - elapsedMs;
+  if (remainingMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, remainingMs));
+    return;
+  }
+  // An overrun is the one case where timing can still differ by outcome, so
+  // it is recorded, content-free, to show whether the floor needs raising.
+  emitOperationalEvent(
+    buildOperationalEvent({
+      event: "access.start.floor_overrun",
+      outcome: "succeeded",
+      durationBucket: elapsedMs < 1_000 ? "lt_1s" : elapsedMs < 3_000 ? "lt_3s" : "ge_3s",
+    })
+  );
+}
 
 function defaults(): AccessDependencies {
   return {
@@ -95,18 +109,14 @@ function defaults(): AccessDependencies {
     markInviteDelivered,
     markInviteDeliveryFailed,
     inspectInvite: inspectValidInvite,
-    admitSelfServeOrWaitlist: admitSelfServeOrWaitlistAtomic,
+    admissionMode: () => selfServeAdmissionMode(),
+    startSelfServe: (input) => startSelfServeAtomic(input),
     createMagicAccessToken,
     encryptDeliverySecret: (value) => encryptSecret(value),
     redeemMagicAccessTokenAtomic,
     sendEmail: sendTransactionalEmail,
     takeRateLimit: takeExomemRateLimit,
-    completeMagicLinkRequest: async (startedAt) => {
-      const remainingMs = 300 - (Date.now() - startedAt.getTime());
-      if (remainingMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, remainingMs));
-      }
-    },
+    completeStartRequest: padStartResponse,
   };
 }
 
@@ -154,8 +164,8 @@ export async function issueOperatorInvite(
     tokenDigest: digest,
     emailNormalized,
     entitlementSource: input.source === "complimentary" ? "complimentary" : "paddle",
-    capabilities: ALPHA_CAPABILITIES,
-    resourceLimits: ALPHA_LIMITS,
+    capabilities: EXOMEM_INVITE_CAPABILITIES,
+    resourceLimits: EXOMEM_INVITE_LIMITS,
     marketplaceReviewerPurpose: input.marketplaceReviewerPurpose === true,
     operatorPrincipalDigest: input.operatorPrincipalDigest,
     expiresAt: input.expiresAt,
@@ -186,97 +196,6 @@ export async function issueOperatorInvite(
   return { inviteId, delivery: "sent" };
 }
 
-/**
- * Self-serve admission: a visitor asks for a place, and capacity — not an
- * operator — answers.
- *
- * The outcome is deliberately told plainly rather than behind the magic-link
- * route's generic "if eligible" response. That route hides whether an account
- * exists; this one answers a question about the *pool*, which is the same answer
- * for every visitor, so there is no account-enumeration oracle to protect. A
- * visitor who is waitlisted must know it, because the alternative is discovering
- * it after paying.
- */
-export async function requestSelfServeAccess(
-  input: {
-    email: string;
-    networkKey: string;
-  },
-  dependencies?: Partial<AccessDependencies>
-): Promise<{ outcome: "admitted" | "waitlisted"; position?: number }> {
-  const deps = withDefaults(dependencies);
-  const emailNormalized = normalizeAccessEmail(input.email);
-
-  const networkAllowed = await deps.takeRateLimit(EXOMEM_RATE_LIMITS.admissionIp, input.networkKey);
-  if (!networkAllowed) throw exomemErrors.rateLimited();
-  const accountAllowed = await deps.takeRateLimit(
-    EXOMEM_RATE_LIMITS.admissionEmail,
-    emailNormalized
-  );
-  if (!accountAllowed) throw exomemErrors.rateLimited();
-
-  const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
-  const token = generateExternalToken(deps.randomBytes);
-  const digest = tokenDigest(token);
-  if (!digest) throw exomemErrors.accessTokenInvalid();
-  const expiresAt = new Date(deps.now().getTime() + SELF_SERVE_INVITE_TTL_MS);
-
-  const decision = await deps.admitSelfServeOrWaitlist({
-    tokenDigest: digest,
-    emailNormalized,
-    capabilities: ALPHA_CAPABILITIES,
-    resourceLimits: ALPHA_LIMITS,
-    principalDigest: SELF_SERVE_PRINCIPAL_DIGEST,
-    expiresAt,
-    storageBytes: EXOMEM_ALPHA_CAPACITY.storageBytes,
-    runtimeSlots: EXOMEM_ALPHA_CAPACITY.runtimeSlots,
-    provisionSlots: EXOMEM_ALPHA_CAPACITY.provisionReservationSlots,
-  });
-
-  if (decision.outcome === "waitlisted") {
-    const rendered = renderExomemWaitlistEmail({ position: decision.position });
-    // A waitlist confirmation is a courtesy, not the record. The row is already
-    // committed, so a mail failure must not turn into a retry that re-queues
-    // them or, worse, an error that reads as rejection.
-    try {
-      await deps.sendEmail({
-        to: emailNormalized,
-        ...EXOMEM_SENDER,
-        subject: rendered.subject,
-        htmlContent: rendered.htmlContent,
-        textContent: rendered.textContent,
-      });
-    } catch {
-      // Intentionally swallowed; the visitor already has their answer on screen.
-    }
-    return { outcome: "waitlisted", position: decision.position };
-  }
-
-  const accessUrl = exomemPublicFragmentUrl(publicBaseUrl, "/exomem/invite", token);
-  const rendered = renderExomemWelcomeEmail({ accessUrl, expiresAt });
-  let delivery: Awaited<ReturnType<SendEmail>>;
-  try {
-    delivery = await deps.sendEmail({
-      to: emailNormalized,
-      ...EXOMEM_SENDER,
-      subject: rendered.subject,
-      htmlContent: rendered.htmlContent,
-      textContent: rendered.textContent,
-    });
-  } catch {
-    delivery = { success: false };
-  }
-  if (!delivery.success) {
-    // The token only exists in that email. An undelivered invite is a soft
-    // capacity reservation nobody can consume, so it is revoked rather than left
-    // to hold a place against the pool until it expires.
-    await deps.markInviteDeliveryFailed(decision.inviteId, "EMAIL_DELIVERY_UNAVAILABLE");
-    throw exomemErrors.emailDeliveryUnavailable();
-  }
-  await deps.markInviteDelivered(decision.inviteId);
-  return { outcome: "admitted" };
-}
-
 export async function inspectInvite(
   token: string,
   dependencies?: Partial<AccessDependencies>
@@ -292,39 +211,18 @@ export async function inspectInvite(
   };
 }
 
-export async function requestMagicLink(
-  input: {
-    email: string;
-    networkKey: string;
-    browserChallengeDigest: Buffer;
-  },
-  dependencies?: Partial<AccessDependencies>
-): Promise<{ accepted: true }> {
-  const deps = withDefaults(dependencies);
-  const startedAt = deps.now();
-  const accept = async (): Promise<{ accepted: true }> => {
-    await deps.completeMagicLinkRequest(startedAt);
-    return { accepted: true };
-  };
-  const networkAllowed = await deps.takeRateLimit(EXOMEM_RATE_LIMITS.magicLinkIp, input.networkKey);
-  if (!networkAllowed) return accept();
-
-  let emailNormalized: string;
-  try {
-    emailNormalized = normalizeAccessEmail(input.email);
-  } catch {
-    return accept();
-  }
-
-  const accountAllowed = await deps.takeRateLimit(
-    EXOMEM_RATE_LIMITS.magicLinkAccount,
-    emailNormalized
-  );
-  if (!accountAllowed) return accept();
-
+/**
+ * Queues a sign-in link (email 01) for the owner of an Exomem. Returns
+ * `false`, having written nothing, when the address owns none.
+ */
+async function queueOwnerSignInLink(
+  deps: AccessDependencies,
+  emailNormalized: string,
+  browserChallengeDigest: Buffer
+): Promise<boolean> {
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
-  if (!digest) return accept();
+  if (!digest) throw exomemErrors.accessTokenInvalid();
   const expiresAt = new Date(deps.now().getTime() + MAGIC_LINK_TTL_MS);
   const deliverySecretCiphertext = deps.encryptDeliverySecret(
     JSON.stringify({
@@ -338,16 +236,84 @@ export async function requestMagicLink(
   const created = await deps.createMagicAccessToken({
     emailNormalized,
     tokenDigest: digest,
-    browserChallengeDigest: input.browserChallengeDigest,
+    browserChallengeDigest,
     expiresAt,
     deliverySecretCiphertext,
   });
-  if (!created) return accept();
-  return accept();
+  return created !== null;
+}
+
+/**
+ * "Start with your email", after the bot check has passed: one request for
+ * new and returning people. The caller always answers the same way, and the
+ * email carries the outcome:
+ *
+ * - an owner of an Exomem gets a sign-in link (email 01);
+ * - anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`: nothing while it is
+ *   `closed`, otherwise a start link or a waitlist place (see
+ *   `startSelfServeAtomic`).
+ *
+ * The two rate limits run before any branch, so a limited request does the
+ * same work whoever it names. No branch sends mail itself: each writes an
+ * outbox row in the transaction that records its outcome. The response is
+ * held to `START_RESPONSE_FLOOR_MS`.
+ *
+ * A failure inside a branch is logged content-free and still answers
+ * "accepted", because a failure status from one branch only would tell the
+ * caller which branch ran. A failure of the rate-limit store comes before
+ * any branch and fails every request alike, so it is thrown.
+ */
+export async function requestStart(
+  input: {
+    email: string;
+    networkKey: string;
+    browserChallengeDigest: Buffer;
+    timeZone: string | null;
+  },
+  dependencies?: Partial<AccessDependencies>
+): Promise<{ accepted: true }> {
+  const deps = withDefaults(dependencies);
+  const startedAtMs = performance.now();
+  try {
+    const networkAllowed = await deps.takeRateLimit(EXOMEM_RATE_LIMITS.startIp, input.networkKey);
+    if (!networkAllowed) return { accepted: true };
+    const addressAllowed = await deps.takeRateLimit(
+      EXOMEM_RATE_LIMITS.startEmail,
+      normalizedEmailRateLimitKey(input.email)
+    );
+    if (!addressAllowed) return { accepted: true };
+
+    let emailNormalized: string;
+    try {
+      emailNormalized = normalizeAccessEmail(input.email);
+    } catch {
+      return { accepted: true };
+    }
+
+    try {
+      if (await queueOwnerSignInLink(deps, emailNormalized, input.browserChallengeDigest)) {
+        return { accepted: true };
+      }
+      const mode = deps.admissionMode();
+      if (mode === "closed") return { accepted: true };
+      await deps.startSelfServe({ emailNormalized, timeZone: input.timeZone, mode });
+    } catch {
+      emitOperationalEvent(
+        buildOperationalEvent({
+          event: "access.start.failed",
+          outcome: "failed",
+          errorCode: "INTERNAL_ERROR",
+        })
+      );
+    }
+    return { accepted: true };
+  } finally {
+    await deps.completeStartRequest(startedAtMs);
+  }
 }
 
 export async function redeemMagicLink(
-  input: { token: string; browserChallenge: string },
+  input: { token: string; browserChallenge: string; timeZone?: string | null },
   dependencies?: Partial<AccessDependencies>
 ): Promise<RedeemedAccess & SessionMaterial> {
   const deps = withDefaults(dependencies);
@@ -364,6 +330,7 @@ export async function redeemMagicLink(
     sessionDigest: session.sessionDigest,
     csrfDigest: session.csrfDigest,
     sessionExpiresAt: session.expiresAt,
+    timeZone: input.timeZone ?? null,
   });
   if (!row) throw exomemErrors.accessTokenInvalid();
   return { ...row, ...session };

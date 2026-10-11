@@ -5,11 +5,16 @@ import { expireCloudAwaitingCheckoutTenants } from "@/lib/exomem-hosted/cloud-ad
 import { runBoundedCloudReconcile } from "@/lib/exomem-hosted/cloud-lifecycle";
 import { retryPendingCloudCancellationNotices } from "@/lib/exomem-hosted/cloud-cancellation-notice";
 import { runBoundedCloudDeletionFinish } from "@/lib/exomem-hosted/cloud-deletion-finish";
+import {
+  promoteWaitlistedPeople,
+  type WaitlistPromotionResult,
+} from "@/lib/exomem-hosted/self-serve-admission";
 
 // Task 3.4/3.7's time-driven Cloud sweep (design D1/D4): the 7-day
 // awaiting-checkout expiry, the day-30 cancelled -> deleted transition that no
 // webhook ever fires, the retry of a cancellation notice whose send failed
-// (D4), and the Cloud deletion finish of every confirmed account deletion (D4).
+// (D4), the waitlist promotion into slots those steps freed, and the Cloud
+// deletion finish of every confirmed account deletion (D4).
 async function runCloudLane(): Promise<{
   expired: number;
   activationsSkipped: number;
@@ -20,6 +25,7 @@ async function runCloudLane(): Promise<{
   deletionsFinished: number;
   deletionsPending: number;
   deletionsFailed: number;
+  waitlistPromotion: WaitlistPromotionResult | { status: "failed"; promoted: null };
 }> {
   // Security review finding 8: expiry and the reconcile sweep run
   // independently — a failure in one (each already isolates its own
@@ -37,6 +43,16 @@ async function runCloudLane(): Promise<{
   }
   if (noticeResult.status === "rejected") {
     console.error("exomem-cloud: cancellation notice retry lane failed");
+  }
+  // Waitlist promotion runs after expiry and the sweep, so a slot they freed
+  // goes to the oldest waiting person in the same tick. It is isolated: its
+  // failure is reported as failed, never as zero promotions.
+  let waitlistPromotion: WaitlistPromotionResult | { status: "failed"; promoted: null };
+  try {
+    waitlistPromotion = await promoteWaitlistedPeople({ maxPromotions: 20 });
+  } catch {
+    console.error("exomem-cloud: waitlist promotion lane failed");
+    waitlistPromotion = { status: "failed", promoted: null };
   }
   // D4 "Cloud deletion finish": after the sweep has deleted the cell rows of
   // confirmed deletions, cancel their billing and scrub them. Each tenant is
@@ -62,6 +78,7 @@ async function runCloudLane(): Promise<{
     deletionsFinished: deletions.finished,
     deletionsPending: deletions.pending,
     deletionsFailed: deletions.failed,
+    waitlistPromotion,
   };
 }
 

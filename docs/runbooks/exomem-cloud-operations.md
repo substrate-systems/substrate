@@ -35,6 +35,9 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_PADDLE_PRICE_ID`                                            | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                               |
 | `EXOMEM_PADDLE_DUNNING_DAYS`                                        | Days that Paddle retries a failed payment, as set in payment recovery. Home shows "read-only until" as the failed-payment start plus these days. Unset or outside 1 to 365, that date is unknown.            |
 | `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                  | The recurring Paddle discount that carries the friend price. Home shows the friend price only on a subscription that carries this discount.                                                                  |
+| `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, or a secret that Cloudflare rejects, fails every start request with `503`. Use Cloudflare's documented test secrets only outside production. |
+| `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                 |
+| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `closed` (default), `waitlist` or `open`. See "Start admission" below. Any other value reads as `closed`.                                                                                                    |
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                           |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                               |
 | `EXOMEM_CONNECTOR_SETTINGS_URLS`                                    | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                 |
@@ -257,11 +260,40 @@ environment, the job returns a stable `503` before any Paddle call.
 
 ## Invitations
 
+### Start admission
+
+`POST /api/exomem/access/start` (and its earlier path `/access/magic-link`)
+serves new and returning people. Every request that passes Turnstile gets the
+same `202`, and the email carries the outcome. An owner gets a sign-in link.
+Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
+
+- `closed`: no email.
+- `waitlist`: a waitlist place.
+- `open`: a start link while Cloud has a free slot and nobody is waiting, else
+  a waitlist place. Each reconcile tick promotes the oldest waiting people into
+  free slots.
+
+A free slot is a freshly observed Cloud slot that no live cell, unused start
+link or unused paid operator invite holds. Start links expire after 48 hours.
+
+Emails for start links, waitlist places, promotions and the unpaid-hold
+reminder go through `exomem_email_outbox`. The access-delivery job sends at
+most 20 per run. To see what is stuck, run:
+
+```sql
+SELECT kind, state, last_error_code, count(*)
+FROM exomem_email_outbox
+WHERE state IN ('pending', 'leased', 'failed')
+GROUP BY kind, state, last_error_code;
+```
+
 ### Revoke historical self-serve invitations
 
-The public self-serve route returns `410`, which prevents new rows. It does not
-revoke an old bearer that email already delivered. Before you enable a price,
-count the redeemable historical self-serve invites:
+The retired self-serve route returns `410`. It does not revoke an old bearer
+that email already delivered. Run this procedure only before the first change
+of `EXOMEM_SELF_SERVE_ADMISSION` away from `closed`. After that change, the
+same rows are live start links, and this procedure revokes them. Count the
+redeemable historical self-serve invites:
 
 ```sql
 SELECT count(*) AS outstanding_historical_self_serve_invites

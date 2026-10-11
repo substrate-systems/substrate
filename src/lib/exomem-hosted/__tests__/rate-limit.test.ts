@@ -7,11 +7,11 @@ const FIRST_KEY = Buffer.alloc(32, 0x11);
 const SECOND_KEY = Buffer.alloc(32, 0x22);
 
 test("rate-limit identifiers are stable only within one secret and scope", () => {
-  const account = EXOMEM_RATE_LIMITS.magicLinkAccount;
+  const account = EXOMEM_RATE_LIMITS.startEmail;
   const first = hashRateLimitKey(account, EMAIL, FIRST_KEY);
   assert.equal(first, hashRateLimitKey(account, EMAIL, FIRST_KEY));
   assert.notEqual(first, hashRateLimitKey(account, EMAIL, SECOND_KEY));
-  assert.notEqual(first, hashRateLimitKey(EXOMEM_RATE_LIMITS.magicLinkIp, EMAIL, FIRST_KEY));
+  assert.notEqual(first, hashRateLimitKey(EXOMEM_RATE_LIMITS.startIp, EMAIL, FIRST_KEY));
   assert.equal(first.includes(EMAIL), false);
   assert.match(first, /^[0-9a-f]{64}$/);
 });

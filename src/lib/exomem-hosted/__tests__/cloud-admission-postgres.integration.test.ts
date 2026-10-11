@@ -198,6 +198,8 @@ const CLOUD_CONFIG_ENV = {
   EXOMEM_CLOUD_MCP_URL: "https://cloud.example.test/mcp/v1",
   EXOMEM_CLOUD_MCP_PATH: "/api/exomem/cloud/mcp/v1",
   EXOMEM_CLOUD_CELL_TOKEN_KEY: undefined,
+  // A paid admission enqueues its encrypted hold reminder.
+  EXOMEM_CONTROL_PLANE_KEY: randomBytes(32).toString("base64url"),
 } as const;
 const priorCloudConfigEnv: Partial<Record<keyof typeof CLOUD_CONFIG_ENV, string | undefined>> = {};
 
@@ -762,8 +764,8 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
        WHERE tenant_id = $1`,
       [result!.tenantId]
     );
-    await pool!.query("UPDATE exomem_tenants SET created_at = now() - interval '8 days' WHERE id = $1", [
-      result!.tenantId,
+    await pool!.query("UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE cell_id = $1", [
+      result!.cellId,
     ]);
 
     let cancelCalls = 0;
@@ -784,6 +786,50 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
       [result!.cellId]
     );
     assert.equal(cell.rows[0]!.desired_state, "deleted");
+  });
+
+  it("gives a re-admitted tenant a full 7-day hold from its new cell, and schedules its reminder from that cell", async () => {
+    await resetFleet();
+    await configureCapacity(2);
+    const email = `cloud-rehold-${randomUUID()}@example.test`;
+    const first = await redeemCloudInviteAtomic(
+      redemptionInput((await createInvite("paddle", email)).tokenDigest)
+    );
+    assert.ok(first);
+    // The first hold lapsed long ago, and the controller has cleaned up.
+    await pool!.query("UPDATE exomem_tenants SET created_at = now() - interval '30 days' WHERE id = $1", [
+      first!.tenantId,
+    ]);
+    await pool!.query("UPDATE exomem_cloud_cells SET created_at = now() - interval '30 days' WHERE cell_id = $1", [
+      first!.cellId,
+    ]);
+    const lapsed = await expireCloudAwaitingCheckoutTenants({ config: FAKE_PADDLE_CONFIG });
+    assert.deepEqual(lapsed.map((o) => o.outcome), ["expired"]);
+    await pool!.query(
+      "UPDATE exomem_cloud_cells SET observed_state = 'deleted', observed_generation = generation WHERE cell_id = $1",
+      [first!.cellId]
+    );
+
+    const second = await redeemCloudInviteAtomic(
+      redemptionInput((await createInvite("paddle", email)).tokenDigest)
+    );
+    assert.ok(second);
+    assert.equal(second!.tenantId, first!.tenantId);
+
+    assert.deepEqual(await expireCloudAwaitingCheckoutTenants({ config: FAKE_PADDLE_CONFIG }), []);
+    const cell = await pool!.query("SELECT desired_state FROM exomem_cloud_cells WHERE cell_id = $1", [
+      second!.cellId,
+    ]);
+    assert.equal(cell.rows[0]!.desired_state, "stopped");
+    const reminder = await pool!.query(
+      `SELECT abs(extract(epoch FROM outbox.not_before - (cell.created_at + interval '5 days'))) < 1 AS due_on_day_five,
+              abs(extract(epoch FROM outbox.expires_at - (cell.created_at + interval '7 days'))) < 1 AS ends_with_hold
+       FROM exomem_email_outbox AS outbox
+       JOIN exomem_cloud_cells AS cell ON outbox.dedupe_key = 'hold-reminder:' || cell.cell_id
+       WHERE cell.cell_id = $1`,
+      [second!.cellId]
+    );
+    assert.deepEqual(reminder.rows, [{ due_on_day_five: true, ends_with_hold: true }]);
   });
 
   // Cloud design D2 "Deletion revokes consent": the unpaid-invite expiry that
@@ -810,8 +856,8 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1", [
       admission!.cellId,
     ]);
-    await pool!.query("UPDATE exomem_tenants SET created_at = now() - interval '8 days' WHERE id = $1", [
-      admission!.tenantId,
+    await pool!.query("UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE cell_id = $1", [
+      admission!.cellId,
     ]);
     const live = () =>
       pool!.query("SELECT count(*)::int AS n FROM exomem_oauth_grants WHERE tenant_id = $1 AND revoked_at IS NULL", [
@@ -840,8 +886,8 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
        WHERE tenant_id = $1`,
       [result!.tenantId]
     );
-    await pool!.query("UPDATE exomem_tenants SET created_at = now() - interval '8 days' WHERE id = $1", [
-      result!.tenantId,
+    await pool!.query("UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE cell_id = $1", [
+      result!.cellId,
     ]);
 
     const outcomes = await expireCloudAwaitingCheckoutTenants({

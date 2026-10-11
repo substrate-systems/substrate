@@ -140,6 +140,9 @@ describe(
   { skip: !databaseUrl },
   () => {
     before(async () => {
+      // A paid admission enqueues its encrypted hold reminder.
+      priorEnv.EXOMEM_CONTROL_PLANE_KEY = process.env.EXOMEM_CONTROL_PLANE_KEY;
+      process.env.EXOMEM_CONTROL_PLANE_KEY = randomBytes(32).toString("base64url");
       schema = `cloud_paddle_activation_it_${randomUUID().replaceAll("-", "")}`;
       await ensureExomemPostgresTestExtensions(databaseUrl!);
       const admin = new Pool({ connectionString: databaseUrl });
@@ -162,6 +165,8 @@ describe(
         await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
         await admin.end();
       }
+      if (priorEnv.EXOMEM_CONTROL_PLANE_KEY === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = priorEnv.EXOMEM_CONTROL_PLANE_KEY;
     });
 
     it("Part B: a Cloud tenant's subscription.activated applies, projects, starts the cell, and dedupes on replay", async () => {

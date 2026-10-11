@@ -9,6 +9,7 @@ let cloudReconcileCalls = 0;
 let cloudNoticeRetryCalls = 0;
 let cloudDeletionFinishCalls = 0;
 let cloudDeletionFinishShouldFail = false;
+let promotionShouldFail = false;
 let cloudOrder: string[] = [];
 let cloudGate: Promise<void> | null = null;
 let paddleGate: Promise<void> | null = null;
@@ -55,6 +56,14 @@ before(() => {
       },
     },
   });
+  mock.module("@/lib/exomem-hosted/self-serve-admission", {
+    namedExports: {
+      promoteWaitlistedPeople: async () => {
+        if (promotionShouldFail) throw new Error("private promotion failure");
+        return { status: "ran", promoted: 2 };
+      },
+    },
+  });
   mock.module("@/lib/exomem-hosted/paddle-reconciliation-runtime", {
     namedExports: {
       runBoundedPaddleReconcile: async () => {
@@ -85,6 +94,7 @@ afterEach(() => {
   cloudNoticeRetryCalls = 0;
   cloudDeletionFinishCalls = 0;
   cloudDeletionFinishShouldFail = false;
+  promotionShouldFail = false;
   cloudOrder = [];
   cloudGate = null;
   paddleGate = null;
@@ -150,8 +160,22 @@ describe("GET /api/cron/exomem-reconcile", () => {
         deletionsFinished: 2,
         deletionsPending: 3,
         deletionsFailed: 1,
+        waitlistPromotion: { status: "ran", promoted: 2 },
       },
     });
+  });
+
+  it("reports a failed waitlist promotion as failed, not as zero promotions", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    promotionShouldFail = true;
+    const { GET } = await import("../route");
+    const response = await GET(request("cron-secret"));
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.equal(text.includes("private promotion failure"), false);
+    const body = JSON.parse(text) as { result: { cloud: Record<string, unknown> } };
+    assert.deepEqual(body.result.cloud.waitlistPromotion, { status: "failed", promoted: null });
+    assert.equal(cloudDeletionFinishCalls, 1);
   });
 
   it("starts billing and Cloud work together so neither lane can starve", async () => {

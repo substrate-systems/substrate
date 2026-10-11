@@ -5,8 +5,7 @@ import {
   inspectInvite,
   normalizeAccessEmail,
   redeemMagicLink,
-  requestMagicLink,
-  requestSelfServeAccess,
+  requestStart,
   type AccessDependencies,
 } from "../access";
 import { tokenDigest } from "../security";
@@ -35,10 +34,8 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
             sessionId: "session-1",
           }
         : null,
-    admitSelfServeOrWaitlist: async () => ({
-      outcome: "admitted" as const,
-      inviteId: "invite-1",
-    }),
+    admissionMode: () => "closed",
+    startSelfServe: async () => "admitted",
     createMagicAccessToken: async () => ({ tokenId: "access-1" }),
     encryptDeliverySecret: () => ({
       version: 1,
@@ -49,7 +46,7 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
     }),
     sendEmail: async () => ({ success: true, messageId: "message-1" }),
     takeRateLimit: async () => true,
-    completeMagicLinkRequest: async () => undefined,
+    completeStartRequest: async () => undefined,
     ...overrides,
   };
 }
@@ -241,105 +238,37 @@ describe("Exomem hosted access", () => {
     });
   });
 
-  it("never creates or emails for an unknown magic-link address", async () => {
+  it("queues an owner's encrypted sign-in link without consulting admission or sending mail", async () => {
     let sends = 0;
-    const deps = dependencies({
-      createMagicAccessToken: async () => null,
-      sendEmail: async () => {
-        sends += 1;
-        return { success: true };
-      },
-    });
-    const result = await requestMagicLink(
-      {
-        email: SENTINEL,
-        networkKey: "ip-hash-input",
-        browserChallengeDigest: Buffer.alloc(32, 0x63),
-      },
-      deps
-    );
-    assert.deepEqual(result, { accepted: true });
-    assert.equal(sends, 0);
-  });
-
-  it("returns the same acknowledgement when rate limited", async () => {
-    let creates = 0;
-    const deps = dependencies({
-      takeRateLimit: async () => false,
-      createMagicAccessToken: async () => {
-        creates += 1;
-        return { tokenId: "unexpected" };
-      },
-    });
-    assert.deepEqual(
-      await requestMagicLink(
-        {
-          email: SENTINEL,
-          networkKey: "ip-hash-input",
-          browserChallengeDigest: Buffer.alloc(32, 0x63),
-        },
-        deps
-      ),
-      { accepted: true }
-    );
-    assert.equal(creates, 0);
-  });
-
-  it("checks the network bucket before account-derived storage and short-circuits", async () => {
-    const scopes: string[] = [];
-    let creates = 0;
-    const deps = dependencies({
-      takeRateLimit: async (rule) => {
-        scopes.push(rule.scope);
-        return false;
-      },
-      createMagicAccessToken: async () => {
-        creates += 1;
-        return { tokenId: "unexpected" };
-      },
-    });
-    assert.deepEqual(
-      await requestMagicLink(
-        {
-          email: SENTINEL,
-          networkKey: "blocked-network",
-          browserChallengeDigest: Buffer.alloc(32, 0x63),
-        },
-        deps
-      ),
-      { accepted: true }
-    );
-    assert.deepEqual(scopes, ["exomem:magic-link:ip"]);
-    assert.equal(creates, 0);
-  });
-
-  it("atomically queues an existing owner's encrypted link without waiting on email", async () => {
-    let sends = 0;
+    let admissions = 0;
     let createInput: Record<string, unknown> | undefined;
     const deps = dependencies({
+      admissionMode: () => "open",
+      startSelfServe: async () => {
+        admissions += 1;
+        return "admitted";
+      },
       createMagicAccessToken: async (input) => {
         createInput = input;
-        return {
-          tokenId: "access-1",
-          emailNormalized: SENTINEL,
-        };
+        return { tokenId: "access-1", emailNormalized: SENTINEL };
       },
       sendEmail: async () => {
         sends += 1;
         return { success: true, messageId: "message-1" };
       },
     });
-    const result = await requestMagicLink(
+    const result = await requestStart(
       {
         email: SENTINEL,
         networkKey: "ip-hash-input",
         browserChallengeDigest: Buffer.alloc(32, 0x63),
+        timeZone: "Europe/Paris",
       },
       deps
     );
     assert.deepEqual(result, { accepted: true });
     assert.equal(sends, 0);
-    assert.equal("known" in result, false);
+    assert.equal(admissions, 0);
     assert.deepEqual(createInput?.deliverySecretCiphertext, {
       version: 1,
       algorithm: "A256GCM",
@@ -350,144 +279,83 @@ describe("Exomem hosted access", () => {
     assert.deepEqual(createInput?.browserChallengeDigest, Buffer.alloc(32, 0x63));
     assert.equal(JSON.stringify(createInput).includes("YWFh"), false);
   });
-});
 
-describe("Exomem hosted self-serve admission", () => {
-  it("admits a visitor when the pool has room and emails them a setup link", async () => {
-    const sent: Array<{ to: string; subject: string; textContent: string }> = [];
-    let delivered: string | null = null;
-    let admissionInput: { expiresAt: Date; emailNormalized: string } | null = null;
-    const result = await requestSelfServeAccess(
-      { email: SENTINEL, networkKey: "ip-hash-input" },
+  it("sends nothing to an address without an Exomem while self-serve is closed", async () => {
+    let admissions = 0;
+    const result = await requestStart(
+      {
+        email: SENTINEL,
+        networkKey: "ip-hash-input",
+        browserChallengeDigest: Buffer.alloc(32, 0x63),
+        timeZone: null,
+      },
       dependencies({
-        admitSelfServeOrWaitlist: async (input) => {
-          admissionInput = input;
-          return { outcome: "admitted", inviteId: "invite-7" };
-        },
-        sendEmail: async (input) => {
-          sent.push({
-            to: input.to,
-            subject: input.subject,
-            textContent: input.textContent ?? "",
-          });
-          return { success: true, messageId: "message-1" };
-        },
-        markInviteDelivered: async (inviteId) => {
-          delivered = inviteId;
+        createMagicAccessToken: async () => null,
+        admissionMode: () => "closed",
+        startSelfServe: async () => {
+          admissions += 1;
+          return "admitted";
         },
       })
     );
-
-    assert.deepEqual(result, { outcome: "admitted" });
-    assert.equal(delivered, "invite-7");
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0].to, SENTINEL);
-    assert.equal(sent[0].subject, "Set up your Exomem");
-    // The token must reach the visitor as a URL fragment, never a query string:
-    // fragments are not sent to the server and do not land in access logs.
-    assert.match(sent[0].textContent, /https:\/\/substratesystems\.io\/exomem\/invite#/);
-    // A self-serve invite holds a place against the pool, so it must expire in
-    // days rather than the operator invite's month-long ceiling.
-    assert.equal(admissionInput!.emailNormalized, SENTINEL);
-    assert.equal(
-      admissionInput!.expiresAt.toISOString(),
-      new Date("2026-07-19T12:00:00.000Z").toISOString()
-    );
+    assert.deepEqual(result, { accepted: true });
+    assert.equal(admissions, 0);
   });
 
-  it("waitlists plainly when the pool is full, and mints no invite", async () => {
-    const sent: string[] = [];
-    let delivered = 0;
-    const result = await requestSelfServeAccess(
-      { email: SENTINEL, networkKey: "ip-hash-input" },
-      dependencies({
-        admitSelfServeOrWaitlist: async () => ({ outcome: "waitlisted", position: 4 }),
-        sendEmail: async (input) => {
-          sent.push(input.textContent ?? "");
-          return { success: true, messageId: "message-1" };
+  for (const refused of ["exomem:start:ip", "exomem:start:email"]) {
+    it(`stops before any branch when ${refused} refuses, and still pads the answer`, async () => {
+      let lookups = 0;
+      let padded = 0;
+      const result = await requestStart(
+        {
+          email: SENTINEL,
+          networkKey: "blocked-network",
+          browserChallengeDigest: Buffer.alloc(32, 0x63),
+          timeZone: null,
         },
-        markInviteDelivered: async () => {
-          delivered += 1;
-        },
-      })
-    );
-
-    assert.deepEqual(result, { outcome: "waitlisted", position: 4 });
-    assert.equal(delivered, 0);
-    assert.equal(sent.length, 1);
-    assert.match(sent[0], /number 4 in line/);
-    // The waitlist must never read as a charge or as a rejection.
-    assert.match(sent[0], /You have not been charged/);
-    assert.equal(/set up|checkout|pay/i.test(sent[0].split("open source")[0]), false);
-  });
-
-  it("keeps the visitor waitlisted even when the courtesy email fails", async () => {
-    const result = await requestSelfServeAccess(
-      { email: SENTINEL, networkKey: "ip-hash-input" },
-      dependencies({
-        admitSelfServeOrWaitlist: async () => ({ outcome: "waitlisted", position: 1 }),
-        sendEmail: async () => {
-          throw new Error("brevo unavailable");
-        },
-      })
-    );
-    // The row is already committed. Failing here would tell a queued visitor
-    // they were rejected, and a retry would re-queue them.
-    assert.deepEqual(result, { outcome: "waitlisted", position: 1 });
-  });
-
-  it("revokes the invite when the setup email cannot be delivered", async () => {
-    let revoked: { inviteId: string; code: string } | null = null;
-    await assert.rejects(
-      requestSelfServeAccess(
-        { email: SENTINEL, networkKey: "ip-hash-input" },
         dependencies({
-          admitSelfServeOrWaitlist: async () => ({ outcome: "admitted", inviteId: "invite-9" }),
-          sendEmail: async () => ({ success: false }),
-          markInviteDeliveryFailed: async (inviteId, code) => {
-            revoked = { inviteId, code };
+          admissionMode: () => "open",
+          takeRateLimit: async (rule) => rule.scope !== refused,
+          createMagicAccessToken: async () => {
+            lookups += 1;
+            return null;
+          },
+          startSelfServe: async () => {
+            lookups += 1;
+            return "admitted";
+          },
+          completeStartRequest: async () => {
+            padded += 1;
           },
         })
-      )
-    );
-    // The token existed only in that email. Left outstanding it would hold a
-    // place against the pool that nobody can ever consume.
-    assert.deepEqual(revoked, {
-      inviteId: "invite-9",
-      code: "EMAIL_DELIVERY_UNAVAILABLE",
+      );
+      assert.deepEqual(result, { accepted: true });
+      assert.equal(lookups, 0);
+      assert.equal(padded, 1);
     });
-  });
+  }
 
-  it("refuses to decide admission for a throttled address", async () => {
-    let admissionAttempts = 0;
-    await assert.rejects(
-      requestSelfServeAccess(
-        { email: SENTINEL, networkKey: "ip-hash-input" },
-        dependencies({
-          takeRateLimit: async (rule) => rule.scope !== "exomem:admission:email",
-          admitSelfServeOrWaitlist: async () => {
-            admissionAttempts += 1;
-            return { outcome: "admitted", inviteId: "invite-1" };
-          },
-        })
-      )
+  it("answers accepted when the self-serve branch fails, so a failure names no branch", async () => {
+    let padded = 0;
+    const result = await requestStart(
+      {
+        email: SENTINEL,
+        networkKey: "ip-hash-input",
+        browserChallengeDigest: Buffer.alloc(32, 0x63),
+        timeZone: null,
+      },
+      dependencies({
+        createMagicAccessToken: async () => null,
+        admissionMode: () => "open",
+        startSelfServe: async () => {
+          throw new Error("database unavailable");
+        },
+        completeStartRequest: async () => {
+          padded += 1;
+        },
+      })
     );
-    assert.equal(admissionAttempts, 0);
-  });
-
-  it("rejects a malformed address before consuming any rate-limit budget", async () => {
-    let rateLimitChecks = 0;
-    await assert.rejects(
-      requestSelfServeAccess(
-        { email: "not-an-email", networkKey: "ip-hash-input" },
-        dependencies({
-          takeRateLimit: async () => {
-            rateLimitChecks += 1;
-            return true;
-          },
-        })
-      )
-    );
-    assert.equal(rateLimitChecks, 0);
+    assert.deepEqual(result, { accepted: true });
+    assert.equal(padded, 1);
   });
 });

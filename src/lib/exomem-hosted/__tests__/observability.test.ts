@@ -21,14 +21,18 @@ describe("operational event privacy", () => {
   });
 });
 
-describe("self-serve admission events", () => {
-  // These names shipped in the route before they were registered here. The
-  // allowlist throws on an unknown name, and the success-path emit ran *after*
-  // the invite was minted and the setup link sent -- so a completed admission
-  // was reported to the visitor as a failure, and retrying superseded the live
-  // invite they had just been emailed. Every event name a route can emit has to
-  // be registered.
-  for (const event of ["access.self_serve.admitted", "access.self_serve.waitlisted"]) {
+describe("start request events", () => {
+  // The allowlist throws on an unknown name, and the start request emits after
+  // its outcome is already committed -- an unregistered name would turn an
+  // accepted request into a failure. Every event name the start path can emit
+  // has to be registered.
+  for (const event of [
+    "access.start.accepted",
+    "access.start.challenge_failed",
+    "access.start.challenge_unavailable",
+    "access.start.failed",
+    "access.start.floor_overrun",
+  ]) {
     it(`accepts ${event}`, () => {
       assert.doesNotThrow(() =>
         buildOperationalEvent({
@@ -43,7 +47,7 @@ describe("self-serve admission events", () => {
   it("still rejects an unregistered event name", () => {
     assert.throws(() =>
       buildOperationalEvent({
-        event: "access.self_serve.invented",
+        event: "access.start.invented",
         outcome: "succeeded",
         requestId: "00000000-0000-4000-8000-000000000000",
       })

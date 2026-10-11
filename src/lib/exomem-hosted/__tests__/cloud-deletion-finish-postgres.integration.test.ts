@@ -878,7 +878,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       [tenant.tenantId, transactionRef]
     );
     await pool!.query(
-      "UPDATE exomem_tenants SET created_at = now() - interval '8 days' WHERE id = $1",
+      "UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE tenant_id = $1 AND desired_state = 'stopped'",
       [tenant.tenantId]
     );
     const expired = await expireCloudAwaitingCheckoutTenants({

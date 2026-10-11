@@ -31,29 +31,35 @@ function relativeExpiry(expiresAt: Date, now: Date): string | null {
 }
 
 /**
- * Always UTC, always labelled. No recipient locale or time zone is collected
- * anywhere in the product, so an unlabelled timestamp would be inviting the
- * reader to misread it as their own local time.
+ * Always labelled. A time is shown in the recipient's own time zone when the
+ * product knows it, and in UTC otherwise, because an unlabelled timestamp
+ * invites the reader to misread it as their own local time.
  */
-function absoluteExpiry(expiresAt: Date): string {
+function absoluteTime(at: Date, timeZone: string | null | undefined): string {
+  const zone = timeZone ?? "UTC";
   const date = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
+    timeZone: zone,
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(expiresAt);
+  }).format(at);
   const time = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
+    timeZone: zone,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).format(expiresAt);
-  return `${date} at ${time} UTC`;
+  }).format(at);
+  return zone === "UTC" ? `${date} at ${time} UTC` : `${date} at ${time} (${zone})`;
 }
 
-function expiryLabel(subject: string, expiresAt: Date, now: Date): string {
+function expiryLabel(
+  subject: string,
+  expiresAt: Date,
+  now: Date,
+  timeZone?: string | null
+): string {
   const relative = relativeExpiry(expiresAt, now);
-  const absolute = absoluteExpiry(expiresAt);
+  const absolute = absoluteTime(expiresAt, timeZone);
   return relative === null
     ? `${subject} expired on ${absolute}.`
     : `${subject} expires ${relative}, on ${absolute}.`;
@@ -90,6 +96,7 @@ export function renderExomemInviteEmail(input: {
   accessUrl: string;
   expiresAt: Date;
   now?: Date;
+  timeZone?: string | null;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Your Exomem invitation",
@@ -97,7 +104,12 @@ export function renderExomemInviteEmail(input: {
       "You have been invited to Exomem Cloud. Accept the invitation to create your private memory space.",
     actionLabel: "Accept invitation",
     accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel("This invitation", input.expiresAt, input.now ?? new Date()),
+    expiryLabel: expiryLabel(
+      "This invitation",
+      input.expiresAt,
+      input.now ?? new Date(),
+      input.timeZone
+    ),
   });
 }
 
@@ -109,6 +121,7 @@ export function renderExomemWelcomeEmail(input: {
   accessUrl: string;
   expiresAt: Date;
   now?: Date;
+  timeZone?: string | null;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Set up your Exomem",
@@ -116,8 +129,50 @@ export function renderExomemWelcomeEmail(input: {
       "Your place on Exomem Cloud is ready. Set it up to create your private memory space, then connect it to Claude or ChatGPT.",
     actionLabel: "Set up Exomem",
     accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel("This setup link", input.expiresAt, input.now ?? new Date()),
+    expiryLabel: expiryLabel(
+      "This setup link",
+      input.expiresAt,
+      input.now ?? new Date(),
+      input.timeZone
+    ),
   });
+}
+
+/**
+ * Email 18: a person who accepted but has not paid, two days before their
+ * unpaid hold ends. Subject, headline, action and small print follow the
+ * design's email catalogue. Its body names the inviter, and a self-serve
+ * start has none, so the first sentence here is adapted and awaits the copy
+ * owner's approval.
+ */
+export function renderExomemHoldReminderEmail(input: {
+  setupUrl: string;
+  holdEndsAt: Date;
+  timeZone?: string | null;
+}): RenderedExomemAccessEmail {
+  const deadline = absoluteTime(input.holdEndsAt, input.timeZone);
+  const introduction = `You started setting up Exomem but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup.`;
+  const safeUrl = escapeHtml(input.setupUrl);
+  const htmlContent = `<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
+    <p style="font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0 0 14px;">Your Exomem is waiting</p>
+    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(introduction)}</p>
+    <p style="margin: 0 0 20px;"><a href="${safeUrl}" style="display: inline-block; background: #171717; color: #ffffff; text-decoration: none; padding: 11px 18px; border-radius: 7px; font-weight: 600;">Finish setting up</a></p>
+    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">We send this once. If you’ve changed your mind, ignore it.</p>
+    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
+  </body>
+</html>`;
+  const textContent = `Your Exomem is waiting
+
+${introduction}
+
+Finish setting up: ${input.setupUrl}
+
+We send this once. If you’ve changed your mind, ignore it.
+
+— Exomem by Substrate Systems`;
+  return { subject: "Finish setting up your Exomem", htmlContent, textContent };
 }
 
 /**
@@ -150,13 +205,19 @@ export function renderExomemMagicLinkEmail(input: {
   accessUrl: string;
   expiresAt: Date;
   now?: Date;
+  timeZone?: string | null;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Sign in to Exomem",
     introduction: "Use this private link to sign in to your Exomem workspace.",
     actionLabel: "Sign in to Exomem",
     accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel("This sign-in link", input.expiresAt, input.now ?? new Date()),
+    expiryLabel: expiryLabel(
+      "This sign-in link",
+      input.expiresAt,
+      input.now ?? new Date(),
+      input.timeZone
+    ),
   });
 }
 
@@ -203,6 +264,7 @@ export function renderExomemDeletionEmail(input: {
   accessUrl: string;
   expiresAt: Date;
   now?: Date;
+  timeZone?: string | null;
 }): RenderedExomemAccessEmail {
   return renderAccessEmail({
     subject: "Confirm deletion of your Exomem",
@@ -210,6 +272,11 @@ export function renderExomemDeletionEmail(input: {
       "You asked to permanently delete your Exomem Cloud account. This removes the Exomem vault, its backups and exports, and its encryption keys. It does not delete your shared Substrate identity or other products.",
     actionLabel: "Review and confirm deletion",
     accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel("This confirmation", input.expiresAt, input.now ?? new Date()),
+    expiryLabel: expiryLabel(
+      "This confirmation",
+      input.expiresAt,
+      input.now ?? new Date(),
+      input.timeZone
+    ),
   });
 }

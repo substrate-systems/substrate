@@ -4,6 +4,7 @@ import { after, afterEach, before, describe, it, mock } from "node:test";
 const ORIGINAL_HOSTED = process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
 const ORIGINAL_GLOBAL = process.env.CRON_SECRET;
 let runCalls = 0;
+let outboxCalls = 0;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/access-delivery", {
@@ -14,12 +15,21 @@ before(() => {
       },
     },
   });
+  mock.module("@/lib/exomem-hosted/email-outbox", {
+    namedExports: {
+      drainExomemEmailOutbox: async () => {
+        outboxCalls += 1;
+        return { claimed: 0, sent: 0, retryScheduled: 0, failed: 0, cancelled: 0, lost: 0 };
+      },
+    },
+  });
 });
 
 after(() => mock.reset());
 
 afterEach(() => {
   runCalls = 0;
+  outboxCalls = 0;
   if (ORIGINAL_HOSTED === undefined) delete process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
   else process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = ORIGINAL_HOSTED;
   if (ORIGINAL_GLOBAL === undefined) delete process.env.CRON_SECRET;
@@ -40,6 +50,7 @@ describe("GET /api/cron/exomem-access-delivery", () => {
     const response = await GET(request("global-cron-secret"));
     assert.equal(response.status, 401);
     assert.equal(runCalls, 0);
+    assert.equal(outboxCalls, 0);
   });
 
   it("runs only with the dedicated hosted scheduler bearer", async () => {
@@ -48,5 +59,6 @@ describe("GET /api/cron/exomem-access-delivery", () => {
     const response = await GET(request("hosted-scheduler-secret"));
     assert.equal(response.status, 200);
     assert.equal(runCalls, 1);
+    assert.equal(outboxCalls, 1);
   });
 });

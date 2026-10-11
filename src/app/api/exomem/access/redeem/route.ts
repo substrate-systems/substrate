@@ -19,6 +19,10 @@ import {
   mintSessionMaterial,
   validatePublicAccessRequest,
 } from "@/lib/exomem-hosted/sessions";
+import { normalizeTimeZone } from "@/lib/exomem-hosted/time-zone";
+
+/** The journey's "Add Exomem to your assistant" step, where a paid start continues. */
+const PAID_WEB_DESTINATION = "/exomem/setup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,10 +40,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (
       typeof body.token !== "string" ||
       body.token.length === 0 ||
-      Object.keys(body).length !== 1
+      Object.keys(body).some((key) => key !== "token" && key !== "timeZone")
     ) {
       throw exomemErrors.invalidRequest();
     }
+    const timeZone = normalizeTimeZone(body.timeZone);
     const transaction = oauthContinuationToken(request);
     const formNonce = oauthFormNonceFromRequest(request);
     if (transaction || formNonce) {
@@ -66,6 +71,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         sessionExpiresAt: session.expiresAt,
         codeDigest: code.codeDigest,
         codeExpiresAt: code.codeExpiresAt,
+        timeZone,
       });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
       // A paid invite is admitted without a code. The continuation stays open, and
@@ -86,12 +92,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (connected) clearOAuthContinuationCookie(response);
       return response;
     }
-    const redeemed = await redeemCloudInvite(body.token);
+    const redeemed = await redeemCloudInvite(body.token, { timeZone });
     const response = NextResponse.json(
       {
         success: true,
         status: "accepted",
-        destination: "/exomem/home",
+        destination: redeemed.paid ? PAID_WEB_DESTINATION : "/exomem/home",
         requestId,
       },
       { status: 200 }

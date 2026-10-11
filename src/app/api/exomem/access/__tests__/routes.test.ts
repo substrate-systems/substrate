@@ -7,10 +7,10 @@ const CSRF_TOKEN = Buffer.alloc(32, 0x22).toString("base64url");
 const MAGIC_CHALLENGE = Buffer.alloc(32, 0x23).toString("base64url");
 const SENTINEL = "route-email-token-credential-path-query-sentinel";
 let cloudInviteError: Error | null = null;
-let magicRequests = 0;
+let cloudInvitePaid = false;
+let startRequests = 0;
 let magicRedeems = 0;
 let continuationLookups = 0;
-let selfServeRequests = 0;
 let cloudInviteCalls = 0;
 let cloudOAuthAdmissionCalls = 0;
 
@@ -25,6 +25,7 @@ before(() => {
           tenantId: "018f2d91-7c42-7000-8000-000000000032",
           sessionId: "018f2d91-7c42-7000-8000-000000000033",
           cellId: "aaaaaaaaaaaaaaaa",
+          paid: cloudInvitePaid,
           sessionToken: SESSION_TOKEN,
           sessionDigest: Buffer.alloc(32),
           csrfToken: CSRF_TOKEN,
@@ -40,9 +41,8 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/access", {
     namedExports: {
-      requestMagicLink: async (input: { browserChallengeDigest: Buffer }) => {
-        assert.equal(input.browserChallengeDigest.length, 32);
-        magicRequests += 1;
+      requestStart: async () => {
+        startRequests += 1;
         return { accepted: true };
       },
       redeemMagicLink: async (input: { browserChallenge: string }) => {
@@ -65,10 +65,6 @@ before(() => {
           expiresAt: new Date("2026-07-14T00:00:00.000Z"),
         };
       },
-      requestSelfServeAccess: async () => {
-        selfServeRequests += 1;
-        return { outcome: "admitted" as const };
-      },
     },
   });
   mock.module("@/lib/exomem-hosted/oauth-store", {
@@ -86,10 +82,10 @@ after(() => mock.reset());
 
 beforeEach(() => {
   cloudInviteError = null;
-  magicRequests = 0;
+  cloudInvitePaid = false;
+  startRequests = 0;
   magicRedeems = 0;
   continuationLookups = 0;
-  selfServeRequests = 0;
   cloudInviteCalls = 0;
   cloudOAuthAdmissionCalls = 0;
 });
@@ -119,7 +115,7 @@ describe("Exomem access routes", () => {
     const response = await POST();
 
     assert.equal(response.status, 410);
-    assert.equal(selfServeRequests, 0);
+    assert.equal(startRequests, 0);
   });
 
   it("redeems an invite into product-specific session and CSRF cookies", async () => {
@@ -218,26 +214,33 @@ describe("Exomem access routes", () => {
     assert.equal(cloudInviteCalls, 0);
   });
 
-  it("returns the same non-enumerating magic-link acknowledgement", async () => {
-    const { POST } = await import("../magic-link/route");
-    const known = await POST(post("/api/exomem/access/magic-link", { email: "known@example.com" }));
-    const unknown = await POST(
-      post("/api/exomem/access/magic-link", { email: "unknown@example.com" })
-    );
-    const knownBody = (await known.json()) as Record<string, unknown>;
-    const unknownBody = (await unknown.json()) as Record<string, unknown>;
-    delete knownBody.requestId;
-    delete unknownBody.requestId;
-    assert.equal(known.status, unknown.status);
-    assert.deepEqual(knownBody, unknownBody);
-    assert.equal(magicRequests, 2);
-    for (const response of [known, unknown]) {
-      const cookies = response.headers.getSetCookie().join("\n");
-      assert.match(cookies, /exomem_magic_challenge=/);
-      assert.match(cookies, /HttpOnly/i);
-      assert.match(cookies, /SameSite=lax/i);
-      assert.match(cookies, /Path=\/api\/exomem\/access\/magic-link/i);
+  it("refuses a sign-in request on the earlier path without a Turnstile token", async () => {
+    const previous = process.env.EXOMEM_TURNSTILE_SECRET_KEY;
+    // Cloudflare's documented always-pass test secret: only the missing token
+    // can fail this request.
+    process.env.EXOMEM_TURNSTILE_SECRET_KEY = "1x0000000000000000000000000000000AA";
+    try {
+      const { POST } = await import("../magic-link/route");
+      const response = await POST(
+        post("/api/exomem/access/magic-link", { email: "known@example.com" })
+      );
+      assert.equal(response.status, 400);
+      assert.deepEqual(await response.json(), { success: false, error: "challenge_failed" });
+      assert.equal(response.headers.getSetCookie().length, 0);
+      assert.equal(startRequests, 0);
+    } finally {
+      if (previous === undefined) delete process.env.EXOMEM_TURNSTILE_SECRET_KEY;
+      else process.env.EXOMEM_TURNSTILE_SECRET_KEY = previous;
     }
+  });
+
+  it("sends a paid web redemption on to the setup journey", async () => {
+    cloudInvitePaid = true;
+    const { POST } = await import("../redeem/route");
+    const response = await POST(post("/api/exomem/access/redeem", { token: SENTINEL }));
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { destination: string };
+    assert.equal(body.destination, "/exomem/setup");
   });
 
   it("requires a browser challenge, creates a session once, and clears the challenge", async () => {

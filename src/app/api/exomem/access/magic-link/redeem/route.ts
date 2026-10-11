@@ -9,6 +9,7 @@ import {
   magicLinkChallengeFromRequest,
   validatePublicAccessRequest,
 } from "@/lib/exomem-hosted/sessions";
+import { normalizeTimeZone } from "@/lib/exomem-hosted/time-zone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,11 +30,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (
       typeof body.token !== "string" ||
       body.token.length === 0 ||
-      Object.keys(body).length !== 1
+      Object.keys(body).some((key) => key !== "token" && key !== "timeZone")
     ) {
       throw exomemErrors.invalidRequest();
     }
-    const redeemed = await redeemMagicLink({ token: body.token, browserChallenge });
+    const redeemed = await redeemMagicLink({
+      token: body.token,
+      browserChallenge,
+      timeZone: normalizeTimeZone(body.timeZone),
+    });
     response = NextResponse.json(
       {
         success: true,
