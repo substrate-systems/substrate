@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { exomemTokens } from "@/lib/exomem/design-tokens";
 
 export const runtime = "nodejs";
 
@@ -9,9 +10,11 @@ export const runtime = "nodejs";
 // keep intent without a runtime font fetch.
 
 const MONO = "IBM Plex Mono, ui-monospace, monospace";
-const AMBER = "#ffb000";
 
 export function GET() {
+  // Satori cannot read CSS variables: the literal dark-theme token values.
+  const t = exomemTokens().dark;
+  const amber = t["--exo-amber"];
   return new ImageResponse(
     (
       <div
@@ -21,8 +24,8 @@ export function GET() {
           display: "flex",
           position: "relative",
           overflow: "hidden",
-          background: "#0a0908",
-          color: "#ece9e2",
+          background: t["--bg-base"],
+          color: t["--fg-primary"],
           fontFamily: "Inter, Arial, sans-serif",
         }}
       >
@@ -33,7 +36,7 @@ export function GET() {
             inset: 0,
             display: "flex",
             background:
-              "radial-gradient(circle at 74% 44%, rgba(255,176,0,0.10), transparent 34%), radial-gradient(circle at 12% 88%, rgba(255,176,0,0.04), transparent 30%), linear-gradient(135deg, #0a0908 0%, #100e0c 60%, #14120f 100%)",
+              `radial-gradient(circle at 74% 44%, rgba(${t["--amber-rgb"]}, 0.1), transparent 34%), radial-gradient(circle at 12% 88%, rgba(${t["--amber-rgb"]}, 0.04), transparent 30%), linear-gradient(135deg, ${t["--bg-base"]} 0%, ${t["--bg-panel"]} 60%, ${t["--bg-elevated"]} 100%)`,
           }}
         />
         {/* dot grid, faded to the right */}
@@ -42,11 +45,10 @@ export function GET() {
             position: "absolute",
             inset: 0,
             display: "flex",
-            backgroundImage:
-              "radial-gradient(rgba(236,233,226,0.05) 1px, transparent 1px)",
+            backgroundImage: `radial-gradient(rgba(${t["--ink-rgb"]}, 0.05) 1px, transparent 1px)`,
             backgroundSize: "26px 26px",
-            maskImage:
-              "linear-gradient(90deg, transparent 0%, black 50%, black 100%)",
+            // A mask reads only alpha: any opaque token shows the grid.
+            maskImage: `linear-gradient(90deg, transparent 0%, ${t["--bg-base"]} 50%, ${t["--bg-base"]} 100%)`,
           }}
         />
 
@@ -60,10 +62,9 @@ export function GET() {
             display: "flex",
             flexDirection: "column",
             borderRadius: 12,
-            border: "1px solid rgba(236,233,226,0.10)",
-            background: "#100e0c",
-            boxShadow:
-              "0 0 0 1px rgba(0,0,0,0.4), 0 30px 90px rgba(0,0,0,0.5), 0 0 120px rgba(255,176,0,0.06)",
+            border: `1px solid ${t["--exo-border-card"]}`,
+            background: t["--bg-panel"],
+            boxShadow: `0 0 0 1px ${t["--shadow-color"]}, 0 30px 90px ${t["--shadow-color"]}, 0 0 120px rgba(${t["--amber-rgb"]}, 0.06)`,
             overflow: "hidden",
           }}
         >
@@ -74,16 +75,16 @@ export function GET() {
               alignItems: "center",
               justifyContent: "space-between",
               padding: "16px 20px",
-              borderBottom: "1px solid rgba(236,233,226,0.07)",
+              borderBottom: `1px solid ${t["--exo-rule"]}`,
               fontFamily: MONO,
               fontSize: 17,
             }}
           >
-            <div style={{ display: "flex", color: "#a39e93" }}>
-              <span style={{ color: "#5c574d" }}>$&nbsp;</span>kb find
+            <div style={{ display: "flex", color: t["--fg-secondary"] }}>
+              <span style={{ color: t["--fg-tertiary"] }}>$&nbsp;</span>kb find
               &quot;stale decision&quot;
             </div>
-            <div style={{ display: "flex", color: AMBER, fontSize: 15 }}>
+            <div style={{ display: "flex", color: amber, fontSize: 15 }}>
               864 ms
             </div>
           </div>
@@ -106,10 +107,8 @@ export function GET() {
                 alignItems: "center",
               }}
             >
-              <span style={{ color: "#ece9e2" }}>
-                → notes/newer-constraint.md
-              </span>
-              <span style={{ color: AMBER, fontSize: 15 }}>current</span>
+              <span style={{ color: t["--fg-primary"] }}>→ notes/newer-constraint.md</span>
+              <span style={{ color: amber, fontSize: 15 }}>current</span>
             </div>
             <div
               style={{
@@ -118,14 +117,12 @@ export function GET() {
                 alignItems: "center",
               }}
             >
-              <span
-                style={{ color: "#6b655a", textDecoration: "line-through" }}
-              >
+              <span style={{ color: t["--fg-dim-struck"], textDecoration: "line-through" }}>
                 → notes/old-plan.md
               </span>
-              <span style={{ color: "#5c574d", fontSize: 15 }}>superseded</span>
+              <span style={{ color: t["--fg-tertiary"], fontSize: 15 }}>superseded</span>
             </div>
-            <div style={{ display: "flex", color: "#5c574d", fontSize: 15 }}>
+            <div style={{ display: "flex", color: t["--fg-tertiary"], fontSize: 15 }}>
               2 results · 864 ms end-to-end · 50,000 notes
             </div>
           </div>
@@ -136,10 +133,10 @@ export function GET() {
               display: "flex",
               gap: 20,
               padding: "14px 20px",
-              borderTop: "1px solid rgba(236,233,226,0.07)",
+              borderTop: `1px solid ${t["--exo-rule"]}`,
               fontFamily: MONO,
               fontSize: 14,
-              color: "#5c574d",
+              color: t["--fg-tertiary"],
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
@@ -148,7 +145,7 @@ export function GET() {
                   width: 9,
                   height: 9,
                   borderRadius: 999,
-                  background: AMBER,
+                  background: amber,
                 }}
               />
               retrieved
@@ -164,7 +161,7 @@ export function GET() {
                   width: 9,
                   height: 9,
                   borderRadius: 999,
-                  border: "1px solid #5c574d",
+                  border: `1px solid ${t["--fg-tertiary"]}`,
                 }}
               />
               note
@@ -189,12 +186,12 @@ export function GET() {
                 width: 44,
                 height: 44,
                 borderRadius: 11,
-                border: "1px solid rgba(236,233,226,0.14)",
+                border: `1px solid ${t["--exo-border-input"]}`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: "#171512",
-                color: "#fafafa",
+                background: t["--bg-hover"],
+                color: t["--fg-primary"],
                 fontFamily: MONO,
                 fontSize: 23,
                 fontWeight: 600,
@@ -205,7 +202,7 @@ export function GET() {
             <div
               style={{
                 display: "flex",
-                color: "#ece9e2",
+                color: t["--fg-primary"],
                 fontFamily: MONO,
                 fontSize: 27,
                 fontWeight: 600,
@@ -227,7 +224,7 @@ export function GET() {
               style={{
                 display: "flex",
                 flexDirection: "column",
-                color: "#ece9e2",
+                color: t["--fg-primary"],
                 fontFamily: MONO,
                 fontSize: 66,
                 lineHeight: 1.12,
@@ -242,7 +239,7 @@ export function GET() {
               style={{
                 display: "flex",
                 marginTop: 28,
-                color: "#a39e93",
+                color: t["--fg-secondary"],
                 fontSize: 25,
                 lineHeight: 1.35,
                 maxWidth: 500,
@@ -255,7 +252,7 @@ export function GET() {
               style={{
                 display: "flex",
                 marginTop: 26,
-                color: "#5c574d",
+                color: t["--fg-tertiary"],
                 fontFamily: MONO,
                 fontSize: 17,
               }}
