@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exomem: one page, every step</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+.jp button:focus-visible,.jp a:focus-visible,.jp input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+/* stars */
+.fd{position:absolute;border-radius:50%;background:var(--fg);opacity:.1;animation:jTwinkle var(--td) ease-in-out var(--tw) infinite}
+.s-connected .fd{animation:jWake 1.6s cubic-bezier(.2,.7,.2,1) var(--wd) both}
+.fl{position:absolute;height:1px;background:var(--acc);opacity:0;transform-origin:0 50%}
+.s-connecting .fl{animation:jLine 1.8s ease-in-out var(--ld) infinite}
+/* graph + web */
+.ge{position:absolute;height:1px;transform-origin:0 50%}
+.gi{width:100%;height:100%;background:var(--fg);opacity:.075;transform-origin:0 50%;transition:background .55s ease,opacity .55s ease}
+.ge.on .gi{background:var(--acc);opacity:.62}
+.gn{position:absolute;border-radius:50%;background:var(--fg);opacity:.24;transition:background .55s ease,opacity .55s ease,transform .55s cubic-bezier(.2,.8,.2,1),box-shadow .55s ease}
+.gn.near{opacity:.6}
+.gn.on{background:var(--acc);opacity:1;transform:scale(1.7);box-shadow:0 0 9px var(--acc)}
+.m-web .ge.nw .gi{opacity:0;transform:scaleX(0)}
+.m-web .ge.nw.gr .gi{animation:jGrow 1.6s cubic-bezier(.3,0,.2,1) both}
+.m-graph.s-connecting .gi,.m-web.s-connecting .ge.nw:not(.gr) .gi{animation:jDraw 1.05s cubic-bezier(.3,0,.2,1) var(--dd) both}
+.m-web.s-connecting .ge:not(.nw) .gi,.m-web.s-connecting .ge.gr .gi{animation:jGlow 1.4s ease-out var(--dd) both}
+.s-connecting .gn{animation:jHit 1s ease-out var(--nd) both}
+.s-connected .gi{animation:jLive 2.6s ease-out both}
+.s-connected .gn{animation:jNodeRest 2.6s ease-out both}
+.gp{position:absolute;top:-1.5px;left:0;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--acc);box-shadow:0 0 6px var(--acc);opacity:0}
+.s-connected .ge.sg .gp{animation:jSig 1.5s cubic-bezier(.45,0,.55,1) both}
+.s-connected .gn.hub{animation:jHubIn 1.4s ease-out both,jHub 2.8s ease-in-out 1.4s infinite alternate}
+.s-connected .gn.on,.s-connected .ge.on .gi{animation:none}
+/* the stops: the field stays, the light goes out */
+.k-stop .gi,.k-stop .ge.on .gi{background:var(--fg);opacity:.05}
+.k-stop .gn,.k-stop .gn.on,.k-stop .gn.near{background:var(--fg);opacity:.14;transform:none;box-shadow:none}
+.k-stop .fd{animation:none;opacity:.07}
+/* pairing */
+.pl{stroke:var(--fg);stroke-opacity:.18;transition:stroke .6s ease,stroke-opacity .6s ease}
+.s-connecting .pl,.s-connected .pl{stroke:var(--acc);stroke-opacity:.6}
+.k-stop .pl{stroke-dasharray:3 5}
+.pd{opacity:0}
+.s-connecting .pd{opacity:1;animation:jTravel 1.1s cubic-bezier(.65,0,.35,1) infinite}
+/* the Exomem tile lights up in the accent while it connects, and stays lit once it has */
+.xt{transition:border-color .6s ease,box-shadow .6s ease,background .6s ease}
+.s-connecting .xt{border-color:var(--acc) !important}
+.s-connected .xt{border-color:var(--acc) !important;background:var(--tint) !important;animation:jBloom 1.1s ease-out both}
+.ed{fill:var(--fg);transition:fill .6s ease}
+.md{fill:var(--fg);opacity:.55;animation:jBreath 3.2s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.k-stop .md{animation:none;opacity:.3}
+.k-stop .ed{opacity:.5}
+.s-connecting .ed{animation:jSweep 1.1s ease-in-out infinite;animation-delay:var(--rd)}
+.s-connecting .md{fill:var(--acc);animation:jWave 1.1s ease-in-out infinite;animation-delay:calc(var(--i) * .14s)}
+.s-connected .ed{fill:var(--acc);animation:jIgnite .7s ease-out both;animation-delay:var(--rd)}
+.s-connected .md{fill:var(--acc);opacity:1;animation:jSettle .9s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--i) * .06s);filter:drop-shadow(0 0 1px var(--acc))}
+.fade-in{animation:jIn .6s cubic-bezier(.16,1,.3,1) both}
+.cd{font-variant-numeric:tabular-nums}
+.wk{animation:jWork 1.4s cubic-bezier(.45,0,.55,1) infinite}
+@keyframes jWork{0%{left:-30%}100%{left:100%}}
+@keyframes jTwinkle{0%,100%{opacity:.08}50%{opacity:.3}}
+@keyframes jWake{0%{opacity:.1;background:var(--fg);transform:scale(1)}30%{opacity:.9;background:var(--acc);transform:scale(1.6)}100%{opacity:.14;background:var(--fg);transform:scale(1)}}
+@keyframes jLine{0%{opacity:0}45%{opacity:.45}100%{opacity:0}}
+@keyframes jGrow{0%{transform:scaleX(0);background:var(--acc);opacity:.9}55%{transform:scaleX(1);opacity:.55}100%{transform:scaleX(1);background:var(--fg);opacity:.09}}
+@keyframes jDraw{0%{transform:scaleX(0);background:var(--acc);opacity:.95}70%{opacity:.6}100%{transform:scaleX(1);background:var(--acc);opacity:.34}}
+@keyframes jGlow{0%{background:var(--fg);opacity:.075}35%{background:var(--acc);opacity:.5}100%{background:var(--acc);opacity:.3}}
+@keyframes jLive{0%{transform:scaleX(1);background:var(--acc);opacity:.34}100%{transform:scaleX(1);background:var(--acc);opacity:.15}}
+@keyframes jSig{0%{left:0;opacity:0}15%{opacity:1}85%{opacity:1}100%{left:100%;opacity:0}}
+@keyframes jRest{0%{transform:scaleX(1);background:var(--acc);opacity:.34}100%{transform:scaleX(1);background:var(--fg);opacity:.1}}
+@keyframes jHit{0%{background:var(--fg);opacity:.24;transform:scale(1)}28%{background:var(--acc);opacity:1;transform:scale(1.9);box-shadow:0 0 11px var(--acc)}100%{background:var(--acc);opacity:.75;transform:scale(1);box-shadow:0 0 0 transparent}}
+@keyframes jNodeRest{0%{background:var(--acc);opacity:.75}100%{background:var(--fg);opacity:.3}}
+@keyframes jHubIn{0%{background:var(--acc);opacity:.75;box-shadow:0 0 0 transparent}100%{background:var(--acc);opacity:.7;box-shadow:0 0 5px var(--acc)}}
+@keyframes jHub{0%{background:var(--acc);opacity:.7;box-shadow:0 0 5px var(--acc)}100%{background:var(--acc);opacity:1;box-shadow:0 0 11px var(--acc)}}
+@keyframes jTravel{0%{transform:translateX(0);opacity:0}12%{opacity:1}88%{opacity:1}100%{transform:translateX(var(--pw));opacity:0}}
+@keyframes jBloom{0%{box-shadow:0 0 0 0 var(--glow)}35%{box-shadow:0 0 26px 4px var(--glow)}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes jBreath{0%,100%{opacity:.45}50%{opacity:.75}}
+@keyframes jWave{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes jSweep{0%{fill:var(--fg)}35%{fill:var(--acc)}100%{fill:var(--fg)}}
+@keyframes jIgnite{0%{fill:var(--fg)}100%{fill:var(--acc)}}
+@keyframes jSettle{0%{transform:scale(1.5);opacity:.4}100%{transform:scale(1);opacity:1}}
+@keyframes jIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* Held in the tile: the live line breathes, slides while connecting, and the whole mark lights once connected */
+.hb{stroke:var(--fg);transition:stroke .6s ease}
+.hl{stroke:var(--acc);transform-box:fill-box;transform-origin:0 50%;animation:jBreath 3.2s ease-in-out infinite}
+.s-connecting .hl{animation:hPull 1.1s cubic-bezier(.45,0,.2,1) infinite}
+.s-connected .hb{stroke:var(--acc)}
+.s-connected .hl{animation:hIn .8s cubic-bezier(.34,1.5,.64,1) both}
+.k-stop .hl{stroke:var(--fg);opacity:.3;animation:none}
+@keyframes hPull{0%,100%{transform:none}50%{transform:translateX(5px)}}
+@keyframes hIn{0%{transform:translateX(9px);opacity:.3}100%{transform:none;opacity:1}}
+/* Cut E in the tile: a glint crosses the facets while connecting; connected lights every facet */
+.cf{fill:var(--fg);fill-opacity:var(--o)}
+.cfa{fill:var(--acc);fill-opacity:var(--o)}
+.s-consent .cf{animation:cGlint 5s ease-in-out var(--gd) infinite}
+.s-connecting .cf{animation:cGlint2 1.1s ease-in-out var(--gd) infinite}
+.s-connected .cf{animation:cLit .7s ease-out var(--gd) both}
+.k-stop .cfa{fill:var(--fg);fill-opacity:.3}
+.k-stop .cf{animation:none;fill-opacity:calc(var(--o) * .5)}
+@keyframes cGlint{0%,10%,100%{fill-opacity:var(--o)}5%{fill-opacity:1}}
+@keyframes cGlint2{0%,100%{fill-opacity:var(--o)}35%{fill:var(--acc);fill-opacity:.9}}
+@keyframes cLit{0%{fill:var(--fg)}100%{fill:var(--acc)}}
+.rm *{animation:none !important;transition:none !important}
+.gn.c1{opacity:.62;transition-duration:.3s}.gn.c0{background:var(--acc);opacity:1;transform:scale(1.55);box-shadow:0 0 10px var(--glow);transition-duration:.3s}
+.ge.cn:not(.nw) .gi,.ge.cn.gr .gi{background:var(--acc);opacity:.45;transition:background .3s ease,opacity .3s ease}
+.t-light .gn.c1{opacity:.62}
+.t-light .gi{opacity:.12}.t-light .gn{opacity:.3}.t-light .gn.near{opacity:.62}.t-light .fd{opacity:.16}
+.wk2{animation:jpBlink 1.4s ease-in-out infinite}@keyframes jpBlink{0%,100%{opacity:1}50%{opacity:.3}}
+@media (prefers-reduced-motion: reduce){.jp *{animation:none !important;transition:none !important}}
+</style>
+</helmet>
+<main onMouseMove="{{ onMove }}" onMouseLeave="{{ onLeave }}" class="jp t-{{ theme }} s-{{ phase }} m-{{ mode }} k-{{ kind }} {{ rmCls }}" style="--acc: {{accent}}; --fg: {{fg}}; --tint: {{tint}}; --glow: {{glow}}; --pw: {{ pw }}px; width: {{ vw }}px; height: {{ vh }}px; position: relative; overflow: hidden; background: {{bg}}; color: {{fg}}; font-family: Inter, system-ui, sans-serif">
+  <sc-for list="{{ lines }}" as="l" hint-placeholder-count="0">
+    <div class="fl" style="left: {{ l.x }}px; top: {{ l.y }}px; width: {{ l.w }}px; transform: rotate({{ l.a }}deg); --ld: {{ l.d }}s"></div>
+  </sc-for>
+  <sc-for list="{{ dots }}" as="d" hint-placeholder-count="0">
+    <div class="fd" style="left: {{ d.x }}px; top: {{ d.y }}px; width: {{ d.s }}px; height: {{ d.s }}px; --tw: {{ d.tw }}s; --td: {{ d.td }}s; --wd: {{ d.wd }}s"></div>
+  </sc-for>
+  <sc-for list="{{ edges }}" as="e" hint-placeholder-count="0">
+    <div class="ge {{ e.c }}" style="left: {{ e.x }}px; top: {{ e.y }}px; width: {{ e.w }}px; transform: rotate({{ e.a }}deg); --dd: {{ e.dd }}s"><div class="gi"></div><div class="gp"></div></div>
+  </sc-for>
+  <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="0">
+    <div class="gn {{ n.c }}" style="left: {{ n.x }}px; top: {{ n.y }}px; width: {{ n.s }}px; height: {{ n.s }}px; --nd: {{ n.nd }}s"></div>
+  </sc-for>
+
+  <div style="position: absolute; left: {{ gutter }}px; top: 29px; line-height: 0; color: {{fg}}"><svg viewBox="2.30 -27.92 139.90 28.40" height="17" role="img" aria-label="Exomem"><g transform="translate(-6.642 -32.782) scale(0.7843)"><circle cx="13.6" cy="8.4" r="2.2" fill="currentColor"/><circle cx="18.8" cy="8.4" r="2.2" fill="currentColor"/><circle cx="24" cy="8.4" r="2.2" fill="currentColor"/><circle cx="29.2" cy="8.4" r="2.2" fill="currentColor"/><circle cx="34.4" cy="8.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="13.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="18.8" r="2.2" fill="currentColor"/><circle cx="13.6" cy="29.2" r="2.2" fill="currentColor"/><circle cx="13.6" cy="34.4" r="2.2" fill="currentColor"/><circle cx="13.6" cy="39.6" r="2.2" fill="currentColor"/><circle cx="18.8" cy="39.6" r="2.2" fill="currentColor"/><circle cx="24" cy="39.6" r="2.2" fill="currentColor"/><circle cx="29.2" cy="39.6" r="2.2" fill="currentColor"/><circle cx="34.4" cy="39.6" r="2.2" fill="currentColor"/><circle cx="13.6" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="18.8" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="24" cy="24" r="2.2" style="fill: var(--acc)"/><circle cx="29.2" cy="24" r="2.2" style="fill: var(--acc)"/></g><path d="M25.8 0.0 33.480000000000004 -10.48 26.12 -20.64H31.2L33.92 -16.72L36.08 -13.6H36.32L38.44 -16.72L41.16 -20.64H45.879999999999995L38.480000000000004 -10.64L46.24 0.0H41.120000000000005L38.04 -4.44L35.92 -7.48H35.68L33.6 -4.44L30.560000000000002 0.0ZM60.0 0.48Q57.72 0.48 55.9 -0.28Q54.08 -1.04 52.82 -2.44Q51.56 -3.84 50.88 -5.84Q50.2 -7.84 50.2 -10.32Q50.2 -12.8 50.88 -14.8Q51.56 -16.8 52.82 -18.200000000000003Q54.08 -19.6 55.9 -20.36Q57.72 -21.12 60.0 -21.12Q62.28 -21.12 64.1 -20.36Q65.92 -19.6 67.18 -18.200000000000003Q68.44 -16.8 69.12 -14.8Q69.8 -12.8 69.8 -10.32Q69.8 -7.84 69.12 -5.84Q68.44 -3.84 67.18 -2.44Q65.92 -1.04 64.1 -0.28Q62.28 0.48 60.0 0.48ZM60.0 -2.96Q62.4 -2.96 63.82000000000001 -4.42Q65.24000000000001 -5.88 65.24000000000001 -8.76V-11.88Q65.24000000000001 -14.76 63.82000000000001 -16.22Q62.4 -17.68 60.0 -17.68Q57.6 -17.68 56.18 -16.22Q54.76 -14.76 54.76 -11.88V-8.76Q54.76 -5.88 56.18 -4.42Q57.6 -2.96 60.0 -2.96ZM73.76 0.0V-20.64H77.48V-17.96H77.68Q78.16 -19.28 79.06 -20.200000000000003Q79.96 -21.12 81.64 -21.12Q83.28 -21.12 84.18 -20.22Q85.08 -19.32 85.32 -17.76H85.48Q86.04 -19.16 87.03999999999999 -20.14Q88.03999999999999 -21.12 89.92 -21.12Q92.32 -21.12 93.25999999999999 -19.44Q94.2 -17.76 94.2 -14.52V0.0H90.48V-13.96Q90.48 -16.12 89.96000000000001 -16.94Q89.44 -17.76 88.28 -17.76Q87.24 -17.76 86.53999999999999 -17.060000000000002Q85.84 -16.36 85.84 -14.96V0.0H82.12V-13.96Q82.12 -16.12 81.62 -16.94Q81.12 -17.76 79.96 -17.76Q78.88 -17.76 78.18 -17.060000000000002Q77.48 -16.36 77.48 -14.96V0.0ZM108.44 0.48Q106.08 0.48 104.19999999999999 -0.28Q102.32 -1.04 101.03999999999999 -2.44Q99.76 -3.84 99.08000000000001 -5.82Q98.4 -7.8 98.4 -10.28Q98.4 -12.76 99.1 -14.760000000000002Q99.8 -16.76 101.06 -18.18Q102.32 -19.6 104.12 -20.36Q105.92 -21.12 108.12 -21.12Q110.28 -21.12 112.03999999999999 -20.380000000000003Q113.8 -19.64 115.03999999999999 -18.28Q116.28 -16.92 116.94 -15.040000000000001Q117.6 -13.16 117.6 -10.88V-9.24H102.8V-8.56Q102.8 -6.12 104.32 -4.58Q105.84 -3.04 108.52 -3.04Q110.52 -3.04 111.94 -3.9Q113.36 -4.76 114.24000000000001 -6.2L116.96000000000001 -3.8000000000000003Q115.92 -2.0 113.78 -0.76Q111.64 0.48 108.44 0.48ZM108.12 -17.8Q106.96000000000001 -17.8 105.98 -17.4Q105.0 -17.0 104.3 -16.259999999999998Q103.6 -15.52 103.19999999999999 -14.52Q102.8 -13.52 102.8 -12.32V-12.040000000000001H113.16V-12.44Q113.16 -14.88 111.78 -16.34Q110.4 -17.8 108.12 -17.8ZM121.76 0.0V-20.64H125.48V-17.96H125.68Q126.16 -19.28 127.06 -20.200000000000003Q127.96 -21.12 129.64 -21.12Q131.28 -21.12 132.18 -20.22Q133.08 -19.32 133.32 -17.76H133.48Q134.04 -19.16 135.04 -20.14Q136.04 -21.12 137.92000000000002 -21.12Q140.32 -21.12 141.26 -19.44Q142.2 -17.76 142.2 -14.52V0.0H138.48V-13.96Q138.48 -16.12 137.95999999999998 -16.94Q137.44 -17.76 136.28 -17.76Q135.24 -17.76 134.54000000000002 -17.060000000000002Q133.84 -16.36 133.84 -14.96V0.0H130.12V-13.96Q130.12 -16.12 129.62 -16.94Q129.12 -17.76 127.96 -17.76Q126.88 -17.76 126.18 -17.060000000000002Q125.48 -16.36 125.48 -14.96V0.0Z" fill="currentColor"/></svg>
+</div>
+  <sc-if value="{{ showHeaderEmail }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; right: {{ gutter }}px; top: 32px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}">{{ email }}</div>
+  </sc-if>
+
+  <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 {{ gutter }}px; box-sizing: border-box">
+    <div style="width: {{ colW }}px; max-width: 100%; display: flex; flex-direction: column; align-items: center; gap: {{ colGap }}px">
+      <div style="display: {{ tileDisplay }}; align-items: center">
+        <sc-if value="{{ hasApp }}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; align-items: center">
+        <div title="{{ appName }}" style="width: 56px; height: 56px; border-radius: 14px; background: {{panel}}; border: 1px solid {{line}}; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: {{ appGlyphSize }}px; color: {{fg}}">{{ appGlyph }}</div>
+        <svg viewBox="0 0 {{ pairW }} 10" width="{{ pairW }}" height="10" aria-hidden="true"><path class="pl" d="M4 5 H{{ pairEnd }}" stroke-width="1.5"></path><circle class="pd" cx="4" cy="5" r="2.6" fill="{{accent}}" style="filter: drop-shadow(0 0 3px {{accent}})"></circle></svg>
+        </div>
+        </sc-if>
+        <div class="xt" style="width: 56px; height: 56px; border-radius: 14px; background: {{panel}}; border: 1px solid {{line}}; display: flex; align-items: center; justify-content: center">
+          <sc-if value="{{ markDot }}" hint-placeholder-val="{{ true }}">
+          <svg viewBox="0 0 48 48" width="42" height="42" role="img" aria-label="Exomem">
+            <circle class="ed" cx="13.6" cy="8.4" r="2.2" style="--rd: 0s"></circle><circle class="ed" cx="18.8" cy="8.4" r="2.2" style="--rd: .05s"></circle><circle class="ed" cx="24" cy="8.4" r="2.2" style="--rd: .1s"></circle><circle class="ed" cx="29.2" cy="8.4" r="2.2" style="--rd: .15s"></circle><circle class="ed" cx="34.4" cy="8.4" r="2.2" style="--rd: .2s"></circle>
+            <circle class="ed" cx="13.6" cy="13.6" r="2.2" style="--rd: .25s"></circle><circle class="ed" cx="13.6" cy="18.8" r="2.2" style="--rd: .3s"></circle>
+            <circle class="md" cx="13.6" cy="24" r="2.2" style="--i: 0"></circle><circle class="md" cx="18.8" cy="24" r="2.2" style="--i: 1"></circle><circle class="md" cx="24" cy="24" r="2.2" style="--i: 2"></circle><circle class="md" cx="29.2" cy="24" r="2.2" style="--i: 3"></circle>
+            <circle class="ed" cx="13.6" cy="29.2" r="2.2" style="--rd: .4s"></circle><circle class="ed" cx="13.6" cy="34.4" r="2.2" style="--rd: .45s"></circle>
+            <circle class="ed" cx="13.6" cy="39.6" r="2.2" style="--rd: .5s"></circle><circle class="ed" cx="18.8" cy="39.6" r="2.2" style="--rd: .55s"></circle><circle class="ed" cx="24" cy="39.6" r="2.2" style="--rd: .6s"></circle><circle class="ed" cx="29.2" cy="39.6" r="2.2" style="--rd: .65s"></circle><circle class="ed" cx="34.4" cy="39.6" r="2.2" style="--rd: .7s"></circle>
+          </svg>
+          </sc-if>
+          <sc-if value="{{ markHeld }}" hint-placeholder-val="{{ false }}">
+          <svg viewBox="0 0 48 48" width="40" height="40" role="img" aria-label="Exomem"><path class="hb" d="M34 9 H14 V39 H34" fill="none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"></path><path class="hl" d="M24 24 H33" fill="none" stroke-width="6" stroke-linecap="round"></path></svg>
+          </sc-if>
+          <sc-if value="{{ markCut }}" hint-placeholder-val="{{ false }}">
+          <svg viewBox="0 0 48 48" width="40" height="40" role="img" aria-label="Exomem"><path class="cf" d="M11 5 L37 5 L19 12 Z" style="--o: 0.95; --gd: 0.10s"></path><path class="cf" d="M37 5 L33 12 L19 12 Z" style="--o: 0.68; --gd: 0.30s"></path><path class="cf" d="M11 5 L19 12 L11 42 Z" style="--o: 0.55; --gd: 0.00s"></path><path class="cf" d="M19 12 L19 35 L11 42 Z" style="--o: 0.82; --gd: 0.05s"></path><path class="cfa" d="M19 20 L32 20 L19 27 Z" style="--o: 1; --gd: 0.20s"></path><path class="cfa" d="M32 20 L29 27 L19 27 Z" style="--o: 0.72; --gd: 0.35s"></path><path class="cf" d="M19 35 L33 35 L37 42 Z" style="--o: 0.66; --gd: 0.40s"></path><path class="cf" d="M19 35 L37 42 L11 42 Z" style="--o: 0.92; --gd: 0.20s"></path></svg>
+          </sc-if>
+        </div>
+      </div>
+
+      <div class="fade-in" style="display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center">
+          <h1 style="margin: 0; font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: {{ h1 }}px; letter-spacing: -0.02em; line-height: 1.25; text-wrap: balance">{{ title }}</h1>
+          <p style="margin: 0; font-size: 14.5px; line-height: 1.55; color: {{muted}}; max-width: 440px; text-wrap: pretty">{{ lede }}</p>
+        </div>
+
+        <sc-if value="{{ hasNotice }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; box-sizing: border-box; border: 1px solid {{line}}; border-left: 2px solid {{ noticeEdge }}; border-radius: 8px; padding: 12px 14px; font-size: 13.5px; line-height: 1.5; color: {{fg}}; background: {{panel}}">{{ notice }}</div>
+        </sc-if>
+
+        <sc-if value="{{ showNote }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; box-sizing: border-box; border-left: 2px solid {{accent}}; padding: 2px 0 2px 16px; display: flex; flex-direction: column; gap: 6px; text-align: left">
+            <span style="font-size: 14.5px; line-height: 1.55; color: {{fg}}">“{{ inviteNote }}”</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}">{{ inviter }}</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showPrice }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; box-sizing: border-box; background: {{panel}}; border: 1px solid {{line}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; text-align: left">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: {{accent}}">{{ priceLabel }}</span>
+            <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 500; letter-spacing: -0.01em; color: {{fg}}">{{ priceMain }}</span>
+              <sc-if value="{{ hasWas }}" hint-placeholder-val="{{ true }}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: {{muted}}"><span style="text-decoration: line-through">{{ priceWas }}</span></span></sc-if>
+            </div>
+            <span style="font-size: 12.5px; line-height: 1.5; color: {{muted}}">{{ priceNote }}</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showInviteProto }}" hint-placeholder-val="{{ false }}">
+          <button type="button" onClick="{{ protoBadInvite }}" style="order: 9; min-height: 40px; padding: 0 14px; border: 1px dashed {{lineStrong}}; border-radius: 8px; background: transparent; color: {{fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">Prototype: open an old invitation →</button>
+        </sc-if>
+        <sc-if value="{{ showEmailForm }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 10px">
+            <label style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}" for="jp-email">Email</label>
+            <div id="jp-email" style="height: 48px; box-sizing: border-box; border: 1px solid {{lineStrong}}; border-radius: 8px; padding: 0 14px; display: flex; align-items: center; font-size: 15px; color: {{fg}}; background: {{panel}}">{{ email }}</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showReviewer }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 10px">
+            <label style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}" for="jp-rv-user">Reviewer username</label>
+            <div id="jp-rv-user" style="height: 48px; box-sizing: border-box; border: 1px solid {{lineStrong}}; border-radius: 8px; padding: 0 14px; display: flex; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: {{fg}}; background: {{panel}}">{{ reviewerUser }}</div>
+            <label style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}; padding-top: 4px" for="jp-rv-pass">Reviewer password</label>
+            <div id="jp-rv-pass" style="height: 48px; box-sizing: border-box; border: 1px solid {{ passBorder }}; border-radius: 8px; padding: 0 14px; display: flex; align-items: center; font-size: 15px; letter-spacing: 0.18em; color: {{fg}}; background: {{panel}}">{{ reviewerPass }}</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showUrl }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; box-sizing: border-box; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 8px 8px 14px; border-radius: 10px; border: 1px solid {{lineStrong}}; background: {{panel}}">
+            <span style="flex: 1; min-width: 0; font-family: 'IBM Plex Mono', monospace; font-size: 13.5px; line-height: 1.45; color: {{fg}}; overflow-wrap: anywhere; text-align: left">{{ mcpUrl }}</span>
+            <button type="button" onClick="{{ copyUrl }}" aria-live="polite" style="height: 40px; min-width: 84px; padding: 0 14px; border: 0; border-radius: 7px; background: {{fg}}; color: {{bg}}; font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; cursor: pointer; flex: none">{{ copyLabel }}</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showTune }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 10px">
+            <div role="group" aria-label="How much your app uses Exomem" style="display: flex; padding: 3px; border-radius: 9px; border: 1px solid {{line}}; background: {{panel}}">
+              <sc-for list="{{ levels }}" as="lv" hint-placeholder-count="4">
+                <button type="button" onClick="{{ lv.pick }}" aria-pressed="{{ lv.on }}" style="flex: 1; min-height: 38px; border: 0; border-radius: 6px; background: {{ lv.bg }}; color: {{ lv.fg }}; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer">{{ lv.name }}</button>
+              </sc-for>
+            </div>
+            <div style="font-size: 12.5px; line-height: 1.5; color: {{muted}}; text-align: center; min-height: 38px; display: flex; align-items: center; justify-content: center">{{ levelDesc }}</div>
+            <div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: {{accent}}"><span>{{ levelName }} instructions</span><span style="color: {{muted}}">{{ blockChars }} characters</span></div>
+            <div style="position: relative; width: 100%; box-sizing: border-box; height: {{ blockH }}px; overflow: hidden; border: 1px solid {{line}}; border-radius: 8px; background: {{panel}}; padding: 10px 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.5; color: {{muted}}; white-space: pre-wrap; text-align: left">{{ levelBlock }}<div style="position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: linear-gradient(transparent, {{panel}})"></div></div>
+            <div style="display: flex; align-items: center; gap: 12px">
+              <span style="flex: 1; font-size: 12px; line-height: 1.45; color: {{muted}}; text-align: left">Paste it into the app’s instructions, or its rules file (AGENTS.md).</span>
+              <button type="button" onClick="{{ copyBlock }}" aria-live="polite" style="height: 40px; min-width: 112px; padding: 0 14px; border: 1px solid {{lineStrong}}; border-radius: 8px; background: transparent; color: {{fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer; flex: none">{{ blockLabel }}</button>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showWorking }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; height: 2px; border-radius: 2px; background: {{line}}; overflow: hidden; position: relative"><div class="wk" style="position: absolute; top: 0; bottom: 0; width: 30%; background: {{fg}}; opacity: .6"></div></div>
+        </sc-if>
+
+        <sc-if value="{{ showSent }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; box-sizing: border-box; background: {{panel}}; border: 1px solid {{line}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px">
+            <div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Sent to</span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ email }}</span></div>
+            <div style="display: flex; justify-content: space-between; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px"><span style="color: {{muted}}">Link works for</span><span class="cd">{{ linkLeft }}</span></div>
+            <div style="height: 2px; border-radius: 2px; background: {{line}}; overflow: hidden"><div style="height: 100%; width: {{ linkPct }}%; background: {{fg}}; opacity: .5"></div></div>
+            <div style="color: {{muted}}; line-height: 1.5">Open it on this device. It brings you back here.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showScopes }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; box-sizing: border-box; background: {{panel}}; border: 1px solid {{line}}; border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 11px; font-size: 14px">
+            <sc-for list="{{ scopes }}" as="sc" hint-placeholder-count="3">
+              <div style="display: flex; gap: 12px; align-items: baseline; color: {{ sc.color }}"><span style="font-family: 'IBM Plex Mono', monospace; color: {{muted}}; width: 12px">{{ sc.mark }}</span><span style="text-decoration: {{ sc.deco }}">{{ sc.text }}</span><span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{muted}}">{{ sc.note }}</span></div>
+            </sc-for>
+            <div style="font-size: 12.5px; color: {{muted}}; padding-top: 8px; border-top: 1px solid {{line}}">Nothing is deleted or overwritten without you.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showChoose }}" hint-placeholder-val="{{ false }}">
+          <div style="width: 100%; display: flex; flex-direction: column; gap: 10px">
+            <sc-for list="{{ choices }}" as="ch" hint-placeholder-count="2">
+              <button type="button" onClick="{{ ch.pick }}" style="width: 100%; min-height: 72px; box-sizing: border-box; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 10px; border: 1px solid {{line}}; background: {{panel}}; color: {{fg}}; cursor: pointer; text-align: left">
+                <span style="width: 40px; height: 40px; flex: none; border-radius: 10px; background: {{bg}}; border: 1px solid {{line}}; display: inline-flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 15px">{{ ch.glyph }}</span>
+                <span style="flex: 1; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 15px">{{ ch.name }}</span><span style="font-size: 12.5px; color: {{muted}}">{{ ch.also }}</span></span>
+                <span style="width: 128px; flex: none; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: {{ ch.ctaColor }}; white-space: nowrap">{{ ch.cta }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ hasPrimary }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%">
+            <button type="button" onClick="{{ primaryAct }}" aria-disabled="{{ primaryDisabled }}" style="width: 100%; height: 48px; border: 0; border-radius: 8px; background: {{fg}}; color: {{bg}}; opacity: {{ primaryOpacity }}; font-family: 'IBM Plex Mono', monospace; font-size: 14px; font-weight: 500; cursor: pointer">{{ primary }}</button>
+            <sc-if value="{{ hasSecondary }}" hint-placeholder-val="{{ false }}">
+              <button type="button" onClick="{{ secondaryAct }}" style="min-height: 44px; padding: 0 16px; border: 0; background: transparent; color: {{muted}}; font-family: 'IBM Plex Mono', monospace; font-size: 13px; cursor: pointer">{{ secondary }}</button>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ showSignedIn }}" hint-placeholder-val="{{ false }}">
+          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}; text-align: center">Signed in as {{ email }} · <button type="button" onClick="{{ switchAccount }}" style="border: 0; background: transparent; padding: 0; color: {{fg}}; font: inherit; text-decoration: underline; cursor: pointer">Switch account</button></div>
+        </sc-if>
+
+        <sc-if value="{{ showInvite }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 13px; color: {{muted}}; text-align: center">
+            <sc-if value="{{ inviteOnly }}" hint-placeholder-val="{{ false }}"><span>New here? <a href="#" style="color: {{fg}}">Use your invitation</a></span></sc-if>
+            <button type="button" onClick="{{ openReviewer }}" style="min-height: 32px; border: 0; background: transparent; padding: 0; font-family: Inter, system-ui, sans-serif; font-size: 12px; color: {{muted}}; text-decoration: underline; cursor: pointer">App reviewer? Sign in here</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showWaitNote }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; gap: 10px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: {{muted}}"><span class="wk2" style="width: 7px; height: 7px; border-radius: 50%; background: {{accent}}; flex: none"></span>Waiting for {{ waitingFor }}…</div>
+          <button type="button" onClick="{{ protoConfirm }}" style="min-height: 44px; padding: 0 16px; border: 1px dashed {{lineStrong}}; border-radius: 8px; background: transparent; color: {{fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer">Prototype: {{ waitingForTitle }} opens the confirm page →</button>
+        </sc-if>
+        <sc-if value="{{ showReviewerNote }}" hint-placeholder-val="{{ false }}">
+          <sc-if value="{{ reviewerNoteApart }}" hint-placeholder-val="{{ true }}"><div style="font-size: 12.5px; line-height: 1.5; color: {{muted}}; text-align: center; max-width: 380px">{{ reviewerNote }}</div></sc-if>
+          <button type="button" onClick="{{ protoWrong }}" style="min-height: 44px; padding: 0 16px; border: 1px dashed {{lineStrong}}; border-radius: 8px; background: transparent; color: {{fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer">{{ protoWrongLabel }}</button>
+        </sc-if>
+        <sc-if value="{{ showOpenMail }}" hint-placeholder-val="{{ false }}">
+          <button type="button" onClick="{{ openMail }}" style="min-height: 44px; padding: 0 16px; border: 1px dashed {{lineStrong}}; border-radius: 8px; background: transparent; color: {{fg}}; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; cursor: pointer">Prototype: open the email →</button>
+        </sc-if>
+
+        <sc-if value="{{ isDone }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; gap: 10px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: {{muted}}"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{accent}}; box-shadow: 0 0 10px {{accent}}; flex: none"></span>{{ doneLine }}</div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{ showPaddle }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; inset: 0; background: {{ scrim }}; display: flex; align-items: center; justify-content: center">
+      <div style="width: {{ paddleW }}px; height: 520px; border-radius: 12px; background: {{ pBg }}; color: {{ pFg }}; border: 1px solid rgba({{ pRgb }},0.12); box-shadow: 0 30px 80px -20px rgba(0,0,0,0.8); box-sizing: border-box; padding: 26px; display: flex; flex-direction: column; gap: 14px; font-family: Inter, system-ui, sans-serif">
+        <div style="display: flex; justify-content: space-between; align-items: center"><span style="line-height: 0"><svg viewBox="2.30 -27.92 139.90 28.40" height="14" role="img" aria-label="Exomem"><g transform="translate(-6.642 -32.782) scale(0.7843)"><circle cx="13.6" cy="8.4" r="2.2" fill="{{ pFg }}"/><circle cx="18.8" cy="8.4" r="2.2" fill="{{ pFg }}"/><circle cx="24" cy="8.4" r="2.2" fill="{{ pFg }}"/><circle cx="29.2" cy="8.4" r="2.2" fill="{{ pFg }}"/><circle cx="34.4" cy="8.4" r="2.2" fill="{{ pFg }}"/><circle cx="13.6" cy="13.6" r="2.2" fill="{{ pFg }}"/><circle cx="13.6" cy="18.8" r="2.2" fill="{{ pFg }}"/><circle cx="13.6" cy="29.2" r="2.2" fill="{{ pFg }}"/><circle cx="13.6" cy="34.4" r="2.2" fill="{{ pFg }}"/><circle cx="13.6" cy="39.6" r="2.2" fill="{{ pFg }}"/><circle cx="18.8" cy="39.6" r="2.2" fill="{{ pFg }}"/><circle cx="24" cy="39.6" r="2.2" fill="{{ pFg }}"/><circle cx="29.2" cy="39.6" r="2.2" fill="{{ pFg }}"/><circle cx="34.4" cy="39.6" r="2.2" fill="{{ pFg }}"/><circle cx="13.6" cy="24" r="2.2" fill="{{ accent }}"/><circle cx="18.8" cy="24" r="2.2" fill="{{ accent }}"/><circle cx="24" cy="24" r="2.2" fill="{{ accent }}"/><circle cx="29.2" cy="24" r="2.2" fill="{{ accent }}"/></g><path d="M25.8 0.0 33.480000000000004 -10.48 26.12 -20.64H31.2L33.92 -16.72L36.08 -13.6H36.32L38.44 -16.72L41.16 -20.64H45.879999999999995L38.480000000000004 -10.64L46.24 0.0H41.120000000000005L38.04 -4.44L35.92 -7.48H35.68L33.6 -4.44L30.560000000000002 0.0ZM60.0 0.48Q57.72 0.48 55.9 -0.28Q54.08 -1.04 52.82 -2.44Q51.56 -3.84 50.88 -5.84Q50.2 -7.84 50.2 -10.32Q50.2 -12.8 50.88 -14.8Q51.56 -16.8 52.82 -18.200000000000003Q54.08 -19.6 55.9 -20.36Q57.72 -21.12 60.0 -21.12Q62.28 -21.12 64.1 -20.36Q65.92 -19.6 67.18 -18.200000000000003Q68.44 -16.8 69.12 -14.8Q69.8 -12.8 69.8 -10.32Q69.8 -7.84 69.12 -5.84Q68.44 -3.84 67.18 -2.44Q65.92 -1.04 64.1 -0.28Q62.28 0.48 60.0 0.48ZM60.0 -2.96Q62.4 -2.96 63.82000000000001 -4.42Q65.24000000000001 -5.88 65.24000000000001 -8.76V-11.88Q65.24000000000001 -14.76 63.82000000000001 -16.22Q62.4 -17.68 60.0 -17.68Q57.6 -17.68 56.18 -16.22Q54.76 -14.76 54.76 -11.88V-8.76Q54.76 -5.88 56.18 -4.42Q57.6 -2.96 60.0 -2.96ZM73.76 0.0V-20.64H77.48V-17.96H77.68Q78.16 -19.28 79.06 -20.200000000000003Q79.96 -21.12 81.64 -21.12Q83.28 -21.12 84.18 -20.22Q85.08 -19.32 85.32 -17.76H85.48Q86.04 -19.16 87.03999999999999 -20.14Q88.03999999999999 -21.12 89.92 -21.12Q92.32 -21.12 93.25999999999999 -19.44Q94.2 -17.76 94.2 -14.52V0.0H90.48V-13.96Q90.48 -16.12 89.96000000000001 -16.94Q89.44 -17.76 88.28 -17.76Q87.24 -17.76 86.53999999999999 -17.060000000000002Q85.84 -16.36 85.84 -14.96V0.0H82.12V-13.96Q82.12 -16.12 81.62 -16.94Q81.12 -17.76 79.96 -17.76Q78.88 -17.76 78.18 -17.060000000000002Q77.48 -16.36 77.48 -14.96V0.0ZM108.44 0.48Q106.08 0.48 104.19999999999999 -0.28Q102.32 -1.04 101.03999999999999 -2.44Q99.76 -3.84 99.08000000000001 -5.82Q98.4 -7.8 98.4 -10.28Q98.4 -12.76 99.1 -14.760000000000002Q99.8 -16.76 101.06 -18.18Q102.32 -19.6 104.12 -20.36Q105.92 -21.12 108.12 -21.12Q110.28 -21.12 112.03999999999999 -20.380000000000003Q113.8 -19.64 115.03999999999999 -18.28Q116.28 -16.92 116.94 -15.040000000000001Q117.6 -13.16 117.6 -10.88V-9.24H102.8V-8.56Q102.8 -6.12 104.32 -4.58Q105.84 -3.04 108.52 -3.04Q110.52 -3.04 111.94 -3.9Q113.36 -4.76 114.24000000000001 -6.2L116.96000000000001 -3.8000000000000003Q115.92 -2.0 113.78 -0.76Q111.64 0.48 108.44 0.48ZM108.12 -17.8Q106.96000000000001 -17.8 105.98 -17.4Q105.0 -17.0 104.3 -16.259999999999998Q103.6 -15.52 103.19999999999999 -14.52Q102.8 -13.52 102.8 -12.32V-12.040000000000001H113.16V-12.44Q113.16 -14.88 111.78 -16.34Q110.4 -17.8 108.12 -17.8ZM121.76 0.0V-20.64H125.48V-17.96H125.68Q126.16 -19.28 127.06 -20.200000000000003Q127.96 -21.12 129.64 -21.12Q131.28 -21.12 132.18 -20.22Q133.08 -19.32 133.32 -17.76H133.48Q134.04 -19.16 135.04 -20.14Q136.04 -21.12 137.92000000000002 -21.12Q140.32 -21.12 141.26 -19.44Q142.2 -17.76 142.2 -14.52V0.0H138.48V-13.96Q138.48 -16.12 137.95999999999998 -16.94Q137.44 -17.76 136.28 -17.76Q135.24 -17.76 134.54000000000002 -17.060000000000002Q133.84 -16.36 133.84 -14.96V0.0H130.12V-13.96Q130.12 -16.12 129.62 -16.94Q129.12 -17.76 127.96 -17.76Q126.88 -17.76 126.18 -17.060000000000002Q125.48 -16.36 125.48 -14.96V0.0Z" fill="{{ pFg }}"/></svg>
+</span><span style="font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: {{ pMuted }}">Paddle checkout</span></div>
+        <div style="height: 14px; width: 60%; border-radius: 4px; background: rgba({{ pRgb }},0.10)"></div>
+        <sc-if value="{{ paddleDiscount }}" hint-placeholder-val="{{ false }}"><div style="display: flex; justify-content: space-between; font-size: 13px; color: {{ pFg }}"><span>{{ paddleDiscountLabel }}</span><span style="color: {{ pMuted }}">applied</span></div></sc-if>
+        <div style="height: 44px; border-radius: 6px; border: 1px solid rgba({{ pRgb }},0.14); background: {{ pField }}"></div>
+        <div style="height: 44px; border-radius: 6px; border: 1px solid rgba({{ pRgb }},0.14); background: {{ pField }}"></div>
+        <div style="height: 44px; border-radius: 6px; border: 1px solid rgba({{ pRgb }},0.14); background: {{ pField }}"></div>
+        <button type="button" onClick="{{ payAct }}" style="margin-top: auto; height: 46px; border-radius: 6px; border: 0; background: {{ pBtnBg }}; color: {{ pBtnFg }}; font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; cursor: pointer">Pay with Paddle</button>
+        <div style="font-size: 12px; line-height: 1.5; color: {{ pMuted }}">Paddle's overlay in its {{ pTheme }} theme, with our logo and colours set in Paddle. The fields, prices and receipt stay Paddle's; Exomem opens it and waits for the result.</div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ hasFooter }}" hint-placeholder-val="{{ true }}"><div style="position: absolute; left: 0; right: 0; bottom: 24px; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{muted}}; opacity: 0.8">{{ footer }}</div></sc-if>
+</main>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"hover":{"editor":"enum","default":"glow","options":["glow","push","clear"]},"step":{"editor":"enum","default":"auto","options":["auto","signedout","invite","accepting","invitebad","inviteexisting","inviteapplied","invitekept","connecterror","reviewer","reviewerfail","sent","subscribe","paying","confirming","choose","waiting","other","joined","connect","preparing","readonly","ended","paused","suspended","expired","connecting","handback","declined","kept"]},"app":{"editor":"enum","default":"Claude Code","options":["Claude Code","Claude","ChatGPT","Codex","web"]},"joined":{"editor":"enum","default":"Claude","options":["Claude","ChatGPT"]},"sequence":{"editor":"enum","default":"app","options":["app","web","connect"]},"inviteOnly":{"editor":"boolean","default":false},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"joinedApp":{"editor":"enum","default":"none","options":["none","Claude","ChatGPT","other"]},"level":{"editor":"enum","default":"default","options":["default","off","light","balanced","maximal"]},"invite":{"editor":"enum","default":"none","options":["none","friend","covered"]},"inviter":{"editor":"text","default":"Alex"},"inviteNote":{"editor":"text","default":"This is what I’ve been building. I’d love to know what you think."},"inviteEmail":{"editor":"text","default":"maria@example.com"},"usualPrice":{"editor":"text","default":"€15"},"friendPrice":{"editor":"text","default":"€10"},"discountMonths":{"editor":"number","default":0},"sides":{"editor":"enum","default":"none","options":["none","chain"]},"screenH":{"editor":"number","default":844},"graceDays":{"editor":"number","default":14},"retentionDays":{"editor":"number","default":30},"reference":{"editor":"text","default":"EX-7Q4M"},"field":{"editor":"enum","default":"web","options":["web","graph","stars"]},"mark":{"editor":"enum","default":"dot","options":["dot","held","cut"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"still":{"editor":"boolean","default":false},"accent":{"editor":"color","default":"#FFB000","options":["#FFB000","#FF6B3D","#FFF1D6","#E8C47C","#C6F26B"]},"email":{"editor":"text","default":"you@example.com"},"price":{"editor":"text","default":""},"bg":{"editor":"color","default":"#0A0908"},"panel":{"editor":"color","default":"#12100E"},"fg":{"editor":"color","default":"#ECE9E2"},"muted":{"editor":"color","default":"#A39E93"},"$preview":{"width":1280,"height":820}}'>
+// Every number on this page is computed at render: the link clock, the resend clock, the price (from Paddle, or nothing).
+const AUTO = [['signedout', 3400], ['sent', 3800], ['connect', 3800], ['connecting', 2700], ['handback', 4800]];
+// Started on the web: the start page, then Claude's consent page (the app changes mid-way), then back to the start page.
+const AUTO_WEB = [['signedout', 2800], ['sent', 3000], ['subscribe', 2400], ['paying', 2600], ['confirming', 1800], ['choose', 3000],
+  ['connect', 2600, 'Claude'], ['connecting', 2700, 'Claude'], ['handback', 3200, 'Claude'], ['joined', 4400]];
+const AUTO_CONNECT = [['connect', 2600], ['connecting', 2700], ['handback', 4200]];
+const APPS = {
+  'Claude Code': { glyph: '>_', size: 17, host: 'localhost', loopback: true },
+  'Claude': { glyph: 'C', size: 20, host: 'claude.ai', loopback: false },
+  'ChatGPT': { glyph: 'G', size: 20, host: 'chatgpt.com', loopback: false },
+  'Codex': { glyph: '>_', size: 17, host: 'localhost', loopback: true },
+  'web': { glyph: '', size: 0, host: 'substratesystems.io', loopback: false, web: true },
+  // Any other MCP app. The real consent page names it from its registration; the prototype says "your app".
+  'other': { glyph: 'MCP', size: 12, host: 'your app', loopback: false, label: 'your app', title: 'Your app' },
+};
+// Started on the web ("Start with your email"): no app is waiting, so after paying the page offers where to add it.
+const CHOICES = [
+  { name: 'Claude', also: 'also Claude Code, Desktop and Cowork', glyph: 'C', cta: 'Open Claude ↗', app: 'Claude' },
+  { name: 'ChatGPT', also: 'also Codex', glyph: 'G', cta: 'Open ChatGPT ↗', app: 'ChatGPT' },
+  { name: 'Another app', also: 'any app that supports MCP', glyph: '+', cta: 'Show address', app: 'other' },
+];
+const MCP_URL = 'https://substratesystems.io/api/exomem/mcp/v1';
+// Prominence levels and their copy-paste blocks, verbatim from exomem docs/prominence.md.
+const LEVELS = [{"key": "off", "name": "Off", "desc": "Exomem stays connected but waits. It searches or saves only when you ask it to.", "block": "I keep a personal Knowledge Base served by the Exomem MCP connector. Use it only when I explicitly ask you to search it or save to it. Never search or write on your own judgment, and don't mention it otherwise."}, {"key": "light", "name": "Light", "desc": "Searches when you ask, or when the topic is clearly its. Saves only when you ask.", "block": "I keep a personal Knowledge Base served by the Exomem MCP connector.\n\nExomem prominence: LIGHT.\n- Recall: search Exomem only when I ask a recall question outright, or when the turn is unmistakably about a topic it covers. When in doubt, don't search.\n- Capture: write to Exomem only when I ask. Do not save on your own judgment, however durable the conclusion looks.\n- Narration: never mention searching. Fold anything you retrieve into the answer with a citation and nothing more."}, {"key": "balanced", "name": "Balanced", "desc": "Searches when the topic matches. Saves conclusions. Stays quiet.", "block": "I use Exomem as my durable Knowledge Base. If no skill is loaded, call bootstrap(profile=\"compact\") once per chat and follow it.\n\nExomem prominence: BALANCED.\n- Recall: search when a turn concerns my projects, domains, named entities, or prior conclusions, attempts, or decisions. Skip chit-chat, control, and answered follow-ups; cite useful hits.\n- Capture: save at a stepping stone: a durable conclusion, reusable fact about a recurring entity, or a method carried out with a reported result. A stable preference, recurring routine, historical baseline, or durable affiliation qualifies only with stability or recurrence plus reusable comparison, interpretation, or decision value. Use a uniquely resolved Entity's narrow facet, else concise compiled observation: `proactive_capture`; Records only for a compatible measurement; affiliation relation: `link_acceptance`; new Entity: `proactive_capture`; merge/structural change: confirmed `restructure_execution`. Fleeting preferences, one-offs, incidental associations, trivial metrics, and tentative claims stay quiet. Not mid-thought exploration, tangents, or open questions. Never save transcripts.\n- Entities: once per chat, after primary work and before the final response, review_memory(mode=\"attention\", categories=[\"entity_recurrence\"], limit=3); skip if unavailable.\n- Narration: stay quiet; cite useful recalls and after a write say \"Saved -> <path>\".\n- A committed final mutation result is authoritative despite adjacent warnings."}, {"key": "maximal", "name": "Maximal", "desc": "Searches before every real question. Saves every step forward, and says so.", "block": "I use Exomem as my durable Knowledge Base. If no skill is loaded, call bootstrap(profile=\"compact\") once per chat and follow it.\n\nExomem prominence: MAXIMAL.\n- Recall: search before every substantive turn; skip only chit-chat/control. Cite useful hits. An empty result is a scoped miss and reason to capture.\n- Capture: save every stepping stone: decision, solved problem, diagnosed failure, reusable pattern, reusable fact about a recurring entity, or a method carried out with a reported useful result. A stable preference, recurring routine, historical baseline, or durable affiliation qualifies only with stability or recurrence plus reusable comparison, interpretation, or decision value. Use a uniquely resolved Entity's narrow facet, else concise compiled observation; these and a new Entity: `proactive_capture`; Records only for a compatible measurement; affiliation relation: `link_acceptance`; merge/structural change: confirmed `restructure_execution`. Fleeting preferences, one-offs, incidental associations, trivial metrics, and tentative claims stay quiet. When torn between saving and letting it pass, save. Never save transcripts.\n- Entities: once per chat, after primary work and before the final response, review_memory(mode=\"attention\", categories=[\"entity_recurrence\"], limit=3); skip if unavailable.\n- Narration: cite recalls; after a write say \"Saved -> <path>\".\n- A committed final mutation result is authoritative; never invent a failure code from warnings."}];
+const LINK_MS = 15 * 60 * 1000;
+const REVIEWER_NOTE = 'It’s a sample account with example notes, already subscribed, so there is no checkout.';
+const RESEND_MS = 60 * 1000;
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.seq = props.sequence === 'web' ? AUTO_WEB : props.sequence === 'connect' ? AUTO_CONNECT : AUTO;
+    const s = props.step && props.step !== 'auto' ? props.step : this.seq[0][0];
+    const ja = props.joinedApp && props.joinedApp !== 'none' ? props.joinedApp : null;
+    this.state = { joinedApp: ja || undefined, connected: ja ? [ja] : undefined, level: props.level && props.level !== 'default' ? props.level : undefined, appOver: props.step === 'auto' ? (this.seq[0][2] || null) : null, step: s, ai: 0, focus: -1, prev: -1, grown: [], sentAt: Date.now() - 23000, now: Date.now() };
+  }
+  componentDidMount() {
+    this.reduced = (this.props.still ?? false) || (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if ((this.props.step ?? 'auto') === 'auto') this.loop();
+    this.walker = setInterval(() => this.walk(), 1150);
+    this.clock = setInterval(() => { if (this.state.step === 'sent') this.setState({ now: Date.now() }); }, 1000);
+  }
+  componentWillUnmount() { cancelAnimationFrame(this.webRaf); this.webEl = null; clearTimeout(this.t); clearTimeout(this.t2); clearTimeout(this.tc); clearInterval(this.walker); clearInterval(this.clock); }
+  loop() {
+    const [, ms] = this.seq[this.state.ai];
+    this.t = setTimeout(() => {
+      const ai = (this.state.ai + 1) % this.seq.length;
+      const step = this.seq[ai][0];
+      const patch = { ai, step, appOver: this.seq[ai][2] || null };
+      if (step === 'signedout') patch.grown = [];
+      if (step === 'sent') { patch.sentAt = Date.now(); patch.now = Date.now(); }
+      this.setState(patch, () => this.loop());
+    }, ms);
+  }
+  phaseOf(step) { return step === 'connecting' ? 'connecting' : (step === 'handback' || step === 'joined' || step === 'kept') ? 'connected' : 'consent'; }
+  kindOf(step) {
+    if (['ended', 'paused', 'suspended', 'expired'].includes(step)) return 'stop';
+    // Before anything is connected there is no memory yet: the light walks, nothing grows.
+    if (['signedout', 'sent', 'reviewer', 'reviewerfail', 'subscribe', 'choose', 'waiting', 'other', 'invite', 'invitebad', 'inviteexisting', 'invitekept', 'declined'].includes(step)) return 'quiet';
+    if (step === 'connecterror') return 'stop';
+    if (step === 'inviteapplied') return 'done';
+    // Paying: the page holds still behind the checkout.
+    if (step === 'paying' || step === 'confirming' || step === 'accepting') return 'hold';
+    if (step === 'connecting') return 'go';
+    if (step === 'handback' || step === 'joined' || step === 'kept') return 'done';
+    if (step === 'waiting') return 'live';
+    return 'live';
+  }
+  dims() {
+    const phone = (this.props.device ?? 'desktop') === 'phone';
+    // A phone page is as tall as the phone's screen (from the host), never taller than it needs to be.
+    const h = Math.max(600, Math.min(932, +(this.props.screenH || 0) || 844));
+    return phone ? { vw: 390, vh: h, phone } : { vw: 1280, vh: 820, phone };
+  }
+  mode() { return this.props.field ?? 'web'; }
+  // While you read, a light walks your notes. The web also grows a link now and then on its own:
+  // the graph changes, and what was there stays.
+  walk() {
+    if (this.reduced) return;
+    const step = this.state.step;
+    const kind = this.kindOf(step);
+    if (kind === 'stop' || kind === 'go' || kind === 'hold') return;
+    const m = this.mode();
+    if (m === 'stars') return;
+    const g = this.field();
+    const patch = {};
+    if (m === 'web' && kind === 'live' && this.state.grown.length < 14 && Math.random() < 0.45) {
+      const pool = g.edges.map((e, k) => (!e.base && !this.state.grown.includes(k) ? k : -1)).filter((k) => k >= 0);
+      if (pool.length) patch.grown = [...this.state.grown, pool[Math.floor(Math.random() * pool.length)]];
+    }
+    if (kind === 'done') {
+      const sig = [...(this.state.sig || [-1, -1, -1])];
+      sig[(this.state.sigI || 0) % 3] = Math.floor(Math.random() * g.edges.length);
+      this.setState({ sig, sigI: (this.state.sigI || 0) + 1, focus: -1 });
+      return;
+    }
+    const adj = m === 'web' ? g.adjBase : g.adj;
+    const cur = this.state.focus;
+    const opts = cur >= 0 ? adj[cur].filter((j) => j !== this.state.prev) : [];
+    if (!opts.length || Math.random() < 0.12) { patch.prev = -1; patch.focus = g.walkable[Math.floor(Math.random() * g.walkable.length)]; }
+    else { patch.prev = cur; patch.focus = opts[Math.floor(Math.random() * opts.length)]; }
+    this.setState(patch);
+  }
+  rng(seed) {
+    let s = seed;
+    return () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  box() {
+    const { vw, vh, phone } = this.dims();
+    return phone ? { x0: -1, x1: vw + 1, y0: 120, y1: vh - 110 } : { x0: vw / 2 - 290, x1: vw / 2 + 290, y0: 100, y1: vh - 90 };
+  }
+  blocked(x, y) {
+    const { vw, vh, phone } = this.dims();
+    const b = this.box();
+    if (x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1) return true;
+    if (x < 140 && y < 62) return true;
+    if (!phone && x > vw - 270 && y < 62) return true;
+    if (!this.webStart() && x > vw / 2 - 140 && x < vw / 2 + 140 && y > vh - 56) return true;
+    return false;
+  }
+  // One spring per note. The pointer pushes gently; links pass a share of it on; nothing jumps.
+  webGo() { if (this.webRaf) return; this.webRaf = requestAnimationFrame(() => this.webTick()); }
+  // Three ways for the field to answer the pointer (prop hover). Glow alone is the one we ship; push and clearing stay for comparison.
+  // Every spring is critically damped: notes ease out of the way and settle back without wobbling.
+  webTick() {
+    this.webRaf = 0;
+    let el = this.webEl; if (!el) return;
+    // a host that redraws by replacing the page hands us a new element: find it again
+    if (!el.isConnected) { const n = this.webHost && this.webHost.querySelector(':scope > main.jp'); if (!n) return; this.webEl = el = n; }
+    const step = this.state.step, kind = this.kindOf(step);
+    const f = this.field(); if (!f || !f.nodes) return;
+    const N = f.nodes.length, V = { push: { R: 150, A: 15, web: 0.14, glow: true }, clear: { R: 125, A: 34, web: 0.08, glow: false }, glow: { R: 1, A: 0, web: 0, glow: true } }[this.props.hover ?? 'glow'] || { R: 1, A: 0, web: 0, glow: true };
+    if (!this.web || this.web.n !== N || this.web.f !== f) this.web = { n: N, f, o: f.nodes.map(() => [0, 0]), v: f.nodes.map(() => [0, 0]), m: null, c0: -1, c1: new Set() };
+    const W = this.web;
+    const m = (kind === 'hold' || kind === 'stop') ? null : this.mouse;
+    W.m = m ? (W.m ? [W.m[0] + (m[0] - W.m[0]) * 0.25, W.m[1] + (m[1] - W.m[1]) * 0.25] : m.slice()) : null;
+    const ctr0 = (n) => [+n.x + n.s / 2, +n.y + n.s / 2];
+    let best = -1, bd = 70; const near = new Set();
+    const push = f.nodes.map((n, i) => {
+      if (!W.m) return [0, 0];
+      const [cx, cy] = ctr0(n), dx = cx - W.m[0], dy = cy - W.m[1], d = Math.hypot(dx, dy);
+      if (d < bd) { bd = d; best = i; } if (d < 120) near.add(i);
+      if (d >= V.R || d < 0.5) return [0, 0];
+      const q = 1 - d / V.R, k = V.A * q * Math.sqrt(q) / d;
+      return [dx * k, dy * k];
+    });
+    // links carry a little of the push to the next note, like a web
+    const adj = f.adjBase || f.adj || [];
+    const tgt = push.map((p, i) => { const nb = adj[i] || []; if (!nb.length || !V.web) return p; let sx = 0, sy = 0; nb.forEach((j) => { sx += push[j][0]; sy += push[j][1]; }); return [p[0] + V.web * sx / nb.length, p[1] + V.web * sy / nb.length]; });
+    let moving = false;
+    for (let i = 0; i < N; i++) for (let a = 0; a < 2; a++) {
+      W.v[i][a] += (tgt[i][a] - W.o[i][a]) * 0.07 - W.v[i][a] * 0.53;
+      W.o[i][a] += W.v[i][a];
+      if (Math.abs(W.v[i][a]) > 0.01 || Math.abs(W.o[i][a]) > 0.05) moving = true;
+    }
+    const gn = el.querySelectorAll(':scope > .gn'), ge = el.querySelectorAll(':scope > .ge');
+    const rest = !moving && !W.m;
+    for (let i = 0; i < N && i < gn.length; i++) gn[i].style.translate = rest ? '' : `${W.o[i][0].toFixed(2)}px ${W.o[i][1].toFixed(2)}px`;
+    // the closest note takes the light, its links warm, the ones nearby wake a little
+    const c0 = V.glow && W.m ? best : -1;
+    for (let i = 0; i < N && i < gn.length; i++) { const on0 = i === c0, on1 = V.glow && W.m && !on0 && near.has(i); if (gn[i].classList.contains('c0') !== on0) gn[i].classList.toggle('c0', on0); if (gn[i].classList.contains('c1') !== !!on1) gn[i].classList.toggle('c1', !!on1); }
+    const ctr = (i) => { const n = f.nodes[i]; return [+n.x + n.s / 2 + W.o[i][0], +n.y + n.s / 2 + W.o[i][1]]; };
+    f.edges.forEach((e, k) => {
+      const g = ge[k]; if (!g) return;
+      const cn = c0 >= 0 && (e.i === c0 || e.j === c0); if (g.classList.contains('cn') !== cn) g.classList.toggle('cn', cn);
+      if (rest) { g.style.left = e.x + 'px'; g.style.top = e.y + 'px'; g.style.width = e.w + 'px'; g.style.transform = `rotate(${e.a}deg)`; return; }
+      const ni = f.nodes[e.i], fromI = Math.hypot(+ni.x + ni.s / 2 - +e.x, +ni.y + ni.s / 2 - +e.y) < 2;
+      const [p, q] = fromI ? [ctr(e.i), ctr(e.j)] : [ctr(e.j), ctr(e.i)];
+      const dx = q[0] - p[0], dy = q[1] - p[1];
+      g.style.left = p[0].toFixed(1) + 'px'; g.style.top = p[1].toFixed(1) + 'px'; g.style.width = Math.hypot(dx, dy).toFixed(1) + 'px'; g.style.transform = `rotate(${(Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2)}deg)`;
+    });
+    // keep watching while the pointer is here (a re-render can drop the light); stop once everything has settled
+    if (rest) return;
+    this.webGo();
+  }
+  seg(a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    return { x: a.x.toFixed(1), y: a.y.toFixed(1), w: Math.hypot(dx, dy).toFixed(1), a: (Math.atan2(dy, dx) * 180 / Math.PI).toFixed(2) };
+  }
+  field() {
+    const { vw, vh, phone } = this.dims();
+    const key = this.mode() + vw + 'x' + vh + (this.webStart() ? 'w' : 'a');
+    this._f = this._f || {};
+    if (this._f[key]) return this._f[key];
+    const m = this.mode();
+    const out = m === 'stars' ? this.stars(vw, vh, phone) : this.graph(m === 'web', vw, vh, phone);
+    this._f[key] = out;
+    return out;
+  }
+  stars(vw, vh, phone) {
+    const rnd = this.rng(3);
+    const pts = [];
+    let tries = 0;
+    const N = phone ? 34 : 90;
+    while (pts.length < N && tries < 20000) {
+      tries++;
+      const x = 16 + rnd() * (vw - 32), y = 16 + rnd() * (vh - 32);
+      if (this.blocked(x, y)) continue;
+      if (pts.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > (phone ? 40 : 60) ** 2)) pts.push({ x, y });
+    }
+    const cx = vw / 2, cy = vh / 2;
+    const dots = pts.map((p) => { const sz = 2 + rnd() * 2.2; return { x: (p.x - sz / 2).toFixed(1), y: (p.y - sz / 2).toFixed(1), s: sz.toFixed(1), tw: (rnd() * 6).toFixed(2), td: (3 + rnd() * 4).toFixed(2), wd: (Math.hypot(p.x - cx, p.y - cy) / 1100).toFixed(2) }; });
+    const lines = [];
+    pts.forEach((p, i) => {
+      if (i % 3) return;
+      let best = null, bd = 1e9;
+      pts.forEach((q) => { if (q === p) return; const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2; if (d < bd) { bd = d; best = q; } });
+      if (best) lines.push({ ...this.seg(p, best), d: (rnd() * 1.6).toFixed(2) });
+    });
+    return { dots, lines, nodes: [], edges: [], adj: [], adjBase: [], walkable: [] };
+  }
+  graph(web, vw, vh, phone) {
+    const rnd = this.rng(web ? 23 : 11);
+    const N = phone ? (web ? 44 : 38) : (web ? 96 : 84);
+    const minD = phone ? 34 : (web ? 46 : 52);
+    const pts = [];
+    let tries = 0;
+    while (pts.length < N && tries < 40000) {
+      tries++;
+      const x = 18 + rnd() * (vw - 36), y = 18 + rnd() * (vh - 36);
+      if (this.blocked(x, y)) continue;
+      if (pts.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > minD * minD)) pts.push({ x, y });
+    }
+    const E = [], seen = new Set(), adj = pts.map(() => []);
+    const maxL = phone ? 110 : (web ? 150 : 165);
+    pts.forEach((p, i) => {
+      pts.map((q, j) => [j, (q.x - p.x) ** 2 + (q.y - p.y) ** 2]).filter((a) => a[0] !== i).sort((a, b) => a[1] - b[1]).slice(0, web ? 3 : 2).forEach(([j, d]) => {
+        if (Math.sqrt(d) > maxL) return;
+        const k = i < j ? i + '-' + j : j + '-' + i;
+        if (seen.has(k)) return;
+        seen.add(k); E.push([i, j]); adj[i].push(j); adj[j].push(i);
+      });
+    });
+    if (phone && this.props.sides === 'chain') {
+      const b = this.box();
+      // The sides are a jagged chain of notes, not a ruled line: each step swings in or out a little.
+      [1, -1].forEach((dir) => {
+        const ids = [];
+        const n = 9;
+        for (let k = 0; k < n; k++) {
+          const y = b.y0 - 6 + (k * (b.y1 - b.y0 + 12)) / (n - 1) + (rnd() - 0.5) * 22;
+          const inset = 10 + (k % 2 ? 12 : 0) + rnd() * 8;
+          const x = dir > 0 ? inset : vw - inset;
+          pts.push({ x, y, rail: true }); adj.push([]); ids.push(pts.length - 1);
+        }
+        const link = (i, j) => { E.push([i, j]); adj[i].push(j); adj[j].push(i); };
+        for (let k = 0; k < ids.length - 1; k++) link(ids[k], ids[k + 1]);
+        const nearest = (p, above) => { let best = -1, bd = 1e9; pts.forEach((q, j) => { if (q.rail) return; if (above ? q.y > b.y0 : q.y < b.y1) return; const d = (q.x - p.x) ** 2 + (q.y - p.y) ** 2; if (d < bd) { bd = d; best = j; } }); return best; };
+        const top = nearest(pts[ids[0]], true), bot = nearest(pts[ids[ids.length - 1]], false);
+        if (top >= 0) link(top, ids[0]);
+        if (bot >= 0) link(ids[ids.length - 1], bot);
+      });
+    }
+    const cx = vw / 2, cy = vh / 2;
+    const depth = pts.map(() => -1);
+    const q = pts.map((p, i) => [i, Math.hypot(p.x - cx, p.y - cy)]).sort((a, b) => a[1] - b[1]).slice(0, 7).map((o) => o[0]);
+    q.forEach((i) => { depth[i] = 0; });
+    for (let h = 0; h < q.length; h++) { const i = q[h]; adj[i].forEach((j) => { if (depth[j] < 0) { depth[j] = depth[i] + 1; q.push(j); } }); }
+    pts.forEach((p, i) => { if (depth[i] < 0) depth[i] = Math.round(Math.hypot(p.x - cx, p.y - cy) / 170); });
+    const maxD = Math.max(1, ...depth);
+    const stepT = Math.min(0.14, 1.25 / maxD);
+    const deg = adj.map((a) => a.length);
+    const hubs = new Set(deg.map((d, i) => [i, d]).sort((a, b) => b[1] - a[1]).slice(0, phone ? 5 : 9).map((a) => a[0]));
+    const base = E.map(([i, j]) => (pts[i].rail || pts[j].rail ? true : web ? rnd() < 0.34 : true));
+    const adjBase = pts.map(() => []);
+    E.forEach(([i, j], k) => { if (base[k]) { adjBase[i].push(j); adjBase[j].push(i); } });
+    const nodes = pts.map((p, i) => {
+      const s = p.rail ? 2.4 : web ? Math.min(9, 2.6 + deg[i] * 0.95) : 2.4 + rnd() * 1.8;
+      return { x: (p.x - s / 2).toFixed(1), y: (p.y - s / 2).toFixed(1), s: s.toFixed(1), nd: (depth[i] * stepT + 0.22).toFixed(2), hub: hubs.has(i) && !p.rail };
+    });
+    const edges = E.map(([i, j], k) => {
+      const [a, b] = depth[i] <= depth[j] ? [i, j] : [j, i];
+      return { ...this.seg(pts[a], pts[b]), dd: (depth[a] * stepT + (web ? rnd() * 0.25 : 0)).toFixed(2), i, j, base: base[k] };
+    });
+    const walkable = pts.map((_, i) => i).filter((i) => (web ? adjBase[i].length : adj[i].length) > 0);
+    return { dots: [], lines: [], nodes, edges, adj, adjBase, walkable };
+  }
+  hexA(hex, a) {
+    const h = (hex || '#ECE9E2').replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+  mmss(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+  go(step) {
+    clearTimeout(this.t); clearTimeout(this.t2);
+    if (step === 'reviewed') { this.setState({ reviewerIn: true, switched: false }); step = this.webStart() ? 'choose' : 'connect'; }
+    if (step === 'signedout') this.setState({ reviewerIn: false, invite: 'none' });
+    const patch = { step };
+    if (step === 'sent') { patch.sentAt = Date.now(); patch.now = Date.now(); }
+    this.setState(patch);
+    if (step === 'connecting') {
+      // The page plays the connection while the request completes; the server then sends the browser back to the app.
+      this.t2 = setTimeout(() => {
+        this.setState({ step: 'handback' });
+        // Started on the web: after the hand-back, the start page (still open in the other tab) lights up.
+        if (this.webStart()) this.t2 = setTimeout(() => this.setState({ step: 'joined', appOver: null, again: false, connected: [...new Set([...(this.state.connected || []), this.state.joinedApp || 'Claude'])] }), 3000);
+      }, 2600);
+    }
+    if (step === 'accepting') {
+      this.t2 = setTimeout(() => this.go('choose'), 1800);
+    }
+    if (step === 'confirming') {
+      this.t2 = setTimeout(() => this.go(this.webStart() ? 'choose' : 'connect'), 1800);
+    }
+  }
+  // A friend's invitation: who sent it, what it costs them. Prices come from Paddle's price preview with the invitation's discount.
+  inviteInfo() {
+    const kind = this.state.invite ?? (this.props.invite ?? 'none');
+    const by = this.props.inviter ?? 'Alex';
+    const months = +(this.props.discountMonths ?? 0);
+    return { on: kind === 'friend' || kind === 'covered', covered: kind === 'covered', by, note: (this.props.inviteNote ?? '').trim(),
+      was: (this.props.usualPrice ?? '').trim(), now: (this.props.friendPrice ?? '').trim(),
+      dur: months > 0 ? `for your first ${months} months` : 'for as long as you stay subscribed' };
+  }
+  // Dark is the canonical look; light is the same page on paper, with a deep amber that keeps 3:1.
+  pal() {
+    const light = this.props.theme === 'light';
+    const pick = (k, d, l) => { const v = this.props[k]; return v && v !== d ? v : (light ? l : d); };
+    return { light, accent: pick('accent', '#FFB000', '#A86E00'), bg: pick('bg', '#0A0908', '#FAF8F4'), panel: pick('panel', '#12100E', '#FFFFFF'),
+      fg: pick('fg', '#ECE9E2', '#1A1814'), muted: pick('muted', '#A39E93', '#6B665C') };
+  }
+  webStart() { return (this.props.app ?? 'Claude Code') === 'web'; }
+  copy(step, app, a) {
+    const email = this.state.reviewerIn ? 'reviewer (sample account)' : this.inviteInfo().on ? (this.props.inviteEmail ?? 'maria@example.com') : (this.props.email ?? 'you@example.com');
+    const price = (this.props.price ?? '').trim();
+    const day = 86400000;
+    const fmt = (d) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' }).format(d);
+    const graceEnd = fmt(new Date(Date.now() + (this.props.graceDays ?? 14) * day));
+    const deletes = fmt(new Date(Date.now() + (this.props.retentionDays ?? 30) * day));
+    const ref = this.props.reference ?? 'EX-7Q4M';
+    const c = { choose: false, paddle: false, working: false, title: '', lede: '', notice: '', noticeEdge: 'transparent', primary: '', primaryStep: '', secondary: '', secondaryStep: '', form: false, sent: false, scopes: false, signedIn: false, invite: false, done: '', readOnly: false };
+    switch (step) {
+      case 'signedout':
+        if (this.state.switched) c.notice = `Signed out of ${email}. Enter the email you want to use.`, c.noticeEdge = this.pal().muted;
+        Object.assign(c, a.web
+          ? { title: 'Start with your email', lede: 'New or returning, it’s the same step. No password.', form: true, primary: 'Email me a link', primaryStep: 'sent', invite: true }
+          : { title: `Connect ${app} to your memory`, lede: 'Sign in with your email. You’ll come straight back here.', form: true, primary: 'Email me a sign-in link', primaryStep: 'sent', invite: true });
+        break;
+      case 'invite': {
+        const inv = this.inviteInfo();
+        Object.assign(c, { title: `${inv.by} invited you to Exomem`, lede: 'A knowledge base that every assistant you use shares. It keeps where each thing came from, and what changed.',
+          note: !!inv.note, price: true, signedIn: true, primary: 'Accept invitation', primaryStep: inv.covered ? 'accepting' : 'subscribe', inviteProto: true });
+        break;
+      }
+      case 'accepting':
+        Object.assign(c, { title: 'Setting up your Exomem', lede: 'A few seconds. Then add it to your assistant.', signedIn: true, working: true });
+        break;
+      case 'inviteexisting': {
+        const inv = this.inviteInfo();
+        Object.assign(c, { title: 'You already have Exomem', lede: `${inv.by}’s invitation can’t start a second one, but ${inv.by}’s friend price can go on the plan you have. It starts with your next payment.`, price: true, signedIn: true, primary: `Use ${inv.by}’s friend price`, primaryStep: 'inviteapplied', secondary: 'Keep my plan as it is', secondaryStep: 'invitekept' });
+        break;
+      }
+      case 'inviteapplied': {
+        const inv = this.inviteInfo();
+        Object.assign(c, { title: 'Friend price added', lede: `${inv.by}’s friend price starts with your next payment. Paddle sends the new amount on your receipt.`, signedIn: true, primary: 'Go to Home', primaryStep: 'home', done: 'friend price · from your next payment' });
+        break;
+      }
+      case 'invitekept':
+        Object.assign(c, { title: 'Nothing changed', lede: 'Your plan stays as it is. The invitation is used up, so nobody else can use it.', signedIn: true, primary: 'Go to Home', primaryStep: 'home' });
+        break;
+      case 'connecterror':
+        Object.assign(c, { title: 'That didn’t finish', lede: `Exomem had a problem on our side while connecting ${app}. Nothing changed. Try again in a minute.`, notice: 'If it keeps happening, our status page says what we know.', noticeEdge: this.pal().muted, scopes: true, signedIn: true, primary: 'Try again', primaryStep: 'connecting', secondary: 'Status page ↗' });
+        break;
+      case 'invitebad':
+        Object.assign(c, { title: 'This invitation can’t be used', lede: 'It has expired, or it was already used. Ask the person who invited you for a new one, or start with your email.', primary: 'Start with your email', primaryStep: 'signedout' });
+        break;
+      case 'reviewer':
+      case 'reviewerfail':
+        Object.assign(c, { title: 'Sign in as a reviewer', lede: 'For app directory reviewers. Use the username and password from our submission notes.' + (this.dims().phone && this.dims().vh >= 720 ? ' ' + REVIEWER_NOTE : ''), primary: 'Sign in as reviewer', primaryStep: 'reviewed', secondary: 'Back to email sign-in', secondaryStep: 'signedout', reviewer: true });
+        if (step === 'reviewerfail') Object.assign(c, { notice: a.web ? 'That didn’t work. Check the username and password.' : `That didn’t work. Check the username and password. If this page is older than 10 minutes, start again from ${app}.`, noticeEdge: this.pal().accent });
+        break;
+      case 'waiting': {
+        const w = this.state.joinedApp || 'Claude';
+        const where = w === 'Claude' ? 'In Claude, open Settings, then Connectors. Find Exomem and press Connect.' : 'In ChatGPT, open the plugin directory. Find Exomem and press Connect.';
+        Object.assign(c, { title: `Finish in ${w}`, lede: `${where} ${w} then opens a page here to confirm.`, signedIn: true, primary: `Open ${w} ↗`, primaryStep: '', secondary: 'Pick another app', secondaryStep: 'choose', waitingFor: w });
+        break;
+      }
+      case 'other':
+        Object.assign(c, { title: 'Add Exomem to your app', lede: 'Paste this address into the app’s connector or MCP settings. The app then opens a page here to confirm.', signedIn: true, secondary: 'Pick another app', secondaryStep: 'choose', url: true });
+        break;
+      case 'choose':
+        Object.assign(c, { title: 'Add Exomem to your assistant', lede: 'Your Exomem is ready. Pick where you’ll use it first; you can add more any time.', signedIn: true, choose: true });
+        break;
+      case 'joined':
+        { const j = this.state.joinedApp || this.props.joined || 'Claude';
+        const other = j === 'Claude' ? 'ChatGPT' : 'Claude'; const both = (this.state.connected || []).includes(other);
+        const jt = (APPS[j] && APPS[j].title) || j;
+        const bare = j === 'other';
+        Object.assign(c, { title: `${jt} is connected.`, lede: bare ? 'Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.' : 'Try it: ask it to remember something today, then ask again tomorrow.', tune: bare, signedIn: true, primary: 'Go to Home', primaryStep: 'home', secondary: both ? 'Connect another app' : `Add ${other} too`, secondaryStep: 'choose', done: bare ? '' : `${jt} · memory on` }); }
+        break;
+      case 'sent':
+        Object.assign(c, { title: 'Check your email', lede: 'We sent you a link. Open it to continue. You can close this tab.', sent: true, primary: 'Send another link', primaryStep: 'sent', secondary: 'Use a different email', secondaryStep: 'signedout' });
+        break;
+      case 'connect':
+        Object.assign(c, this.state.again
+          ? { title: `${app} is already connected`, lede: 'Connect again only if it stopped working. Its old access is replaced.', scopes: true, signedIn: true, primary: 'Connect again', primaryStep: 'connecting', secondary: 'Keep it as it is', secondaryStep: this.webStart() ? 'joined' : 'kept' }
+          : { title: `Connect ${app} to your memory`, lede: 'Everything you’ve kept, available in every session.', scopes: true, signedIn: true, primary: 'Connect', primaryStep: 'connecting', secondary: 'Not now', secondaryStep: this.webStart() ? 'choose' : 'declined' });
+        break;
+      case 'preparing':
+        Object.assign(c, { title: `Connect ${app} to your memory`, lede: 'Everything you’ve kept, available in every session.', notice: 'Your Exomem is still starting. Connect now: its tools start working within a few minutes, and we’ll email you when it’s ready.', noticeEdge: this.pal().accent, scopes: true, signedIn: true, primary: 'Connect', primaryStep: 'connecting', secondary: 'Not now' });
+        break;
+      case 'readonly':
+        Object.assign(c, { title: `Connect ${app} to your memory`, lede: `You can still connect. It recalls but doesn’t save until billing is fixed.`, notice: `Your last payment failed. Exomem is read-only while Paddle retries, until ${graceEnd}; after that the subscription ends.`, noticeEdge: this.pal().muted, scopes: true, readOnly: true, signedIn: true, primary: 'Connect', primaryStep: 'connecting', secondary: 'Fix billing' });
+        break;
+      case 'subscribe':
+        if (this.inviteInfo().on) { const inv = this.inviteInfo(); Object.assign(c, { title: 'Subscribe to finish setting up', lede: `${inv.by}’s friend price is applied at checkout. Cancel any time through Paddle. Then add it to your assistant.`, price: true, signedIn: true, primary: 'Subscribe', primaryStep: 'paying', secondary: 'Not now' }); break; }
+        Object.assign(c, { title: 'Subscribe to finish setting up', lede: price ? `${price}. Cancel any time through Paddle. ${a.web ? 'Then add it to your assistant.' : `Then ${app} connects in one step.`}` : `Paddle shows the price at checkout. ${a.web ? 'Then add it to your assistant.' : `Then ${app} connects in one step.`}`, signedIn: true, primary: 'Subscribe', primaryStep: 'paying', secondary: 'Not now' });
+        break;
+      case 'paying':
+        if (this.inviteInfo().on) { const inv = this.inviteInfo(); Object.assign(c, { title: 'Subscribe to finish setting up', lede: `${inv.by}’s friend price is applied at checkout. Cancel any time through Paddle. Then add it to your assistant.`, price: true, signedIn: true, primary: 'Subscribe', primaryStep: 'confirming', paddle: true }); break; }
+        Object.assign(c, { title: 'Subscribe to finish setting up', lede: `Paddle shows the price at checkout. ${a.web ? 'Then add it to your assistant.' : `Then ${app} connects in one step.`}`, signedIn: true, primary: 'Subscribe', primaryStep: 'confirming', paddle: true });
+        break;
+      case 'confirming':
+        Object.assign(c, { title: 'Confirming your payment', lede: `A few seconds. ${a.web ? 'Then add it to your assistant.' : `Then ${app} connects in one step.`}`, signedIn: true, working: true });
+        break;
+      case 'ended':
+        Object.assign(c, { title: 'Your subscription has ended', lede: `Your memory is read-only and kept until ${deletes}. Export it any time before then, or resubscribe to connect ${app}.` + (this.inviteInfo().on && !this.inviteInfo().covered ? ` ${this.inviteInfo().by}’s friend price comes back if you do.` : ''), signedIn: true, primary: 'Resubscribe', primaryStep: 'subscribe', secondary: 'Export your memory' });
+        break;
+      case 'paused':
+        Object.assign(c, { title: 'Your subscription is paused', lede: `Your memory is kept and readable. Resume it to connect ${app}.`, signedIn: true, primary: 'Resume subscription', secondary: 'Export your memory' });
+        break;
+      case 'suspended':
+        Object.assign(c, { title: 'This Exomem is suspended', lede: `It can’t connect to ${app} while it’s suspended. Your memory is safe, and you can still export it.`, notice: `Write to support and quote ${ref}. We’ll tell you why it was suspended and what happens next.`, noticeEdge: this.pal().muted, signedIn: true, primary: 'Contact support', secondary: 'Export your memory' });
+        break;
+      case 'expired':
+        Object.assign(c, { title: 'This request has expired', lede: `Connection requests last 10 minutes. Start again from ${app}, and it will bring you back here.` });
+        break;
+      case 'connecting':
+        Object.assign(c, { title: `Connect ${app} to your memory`, lede: 'Everything you’ve kept, available in every session.', scopes: true, signedIn: true, primary: 'Connecting…', primaryStep: '' });
+        break;
+      // Not now, from inside an app: we tell the app you said no, share nothing, and leave the door open.
+      case 'declined':
+        Object.assign(c, { title: `${app} isn’t connected`, lede: a.loopback ? `Nothing was shared. Back in your terminal, ${app} stops waiting.` : `Nothing was shared. We told ${app} you said no. You can close this tab.`, signedIn: true, primary: 'Connect after all', primaryStep: 'connect' });
+        break;
+      case 'kept':
+        Object.assign(c, { title: 'Nothing changed', lede: `${app} keeps the connection it has. You can close this tab.`, done: `${app} · still connected` });
+        break;
+      case 'handback':
+        Object.assign(c, a.loopback
+          ? { title: 'Connected.', lede: `Back to your terminal: ${app} finishes there.`, done: `${app} · memory on` }
+          : { title: 'Connected.', lede: `Taking you back to ${app}…`, done: `If nothing happens, return to ${app}. It’s connected.` });
+        break;
+    }
+    return { c, email };
+  }
+  renderVals() {
+    const accent = this.pal().accent;
+    const fg = this.pal().fg;
+    const step = this.state.step;
+    const app = this.state.appOver || (this.props.app ?? 'Claude Code');
+    const a = APPS[app] || APPS['Claude Code'];
+    const { vw, vh, phone } = this.dims();
+    const phase = this.phaseOf(step);
+    const kind = this.kindOf(step);
+    const mode = this.mode();
+    const f = this.field();
+    const live = !this.reduced && kind !== 'stop' && kind !== 'go' && kind !== 'hold';
+    const focus = live ? this.state.focus : -1;
+    const grown = new Set(this.state.grown);
+    let nodes = f.nodes, edges = f.edges;
+    if (mode !== 'stars') {
+      const adj = mode === 'web' ? f.adjBase : f.adj;
+      const near = new Set(focus >= 0 ? adj[focus] : []);
+      nodes = f.nodes.map((n, i) => ({ ...n, c: (i === focus ? 'on' : near.has(i) ? 'near' : '') + (n.hub ? ' hub' : '') }));
+      const sig = new Set(kind === 'done' ? (this.state.sig || []) : []);
+      edges = f.edges.map((e, k) => ({ ...e, c: ((e.i === focus || e.j === focus) && e.base ? 'on' : '') + (e.base ? '' : ' nw') + (grown.has(k) ? ' gr' : '') + (sig.has(k) ? ' sg' : '') }));
+    }
+    const { c, email } = this.copy(step, a.label || app, a);
+    const left = LINK_MS - (this.state.now - this.state.sentAt);
+    const resendLeft = RESEND_MS - (this.state.now - this.state.sentAt);
+    let primary = c.primary, primaryDisabled = step === 'connecting';
+    if (step === 'sent' && resendLeft > 0) { primary = `Send another link in ${this.mmss(resendLeft)}`; primaryDisabled = true; }
+    const scopes = [
+      { mark: '✓', text: 'Recall what you’ve kept', note: '', color: fg, deco: 'none' },
+      { mark: c.readOnly ? '–' : '✓', text: 'Save new things, with their source', note: c.readOnly ? 'paused' : '', color: c.readOnly ? (this.pal().muted) : fg, deco: c.readOnly ? 'line-through' : 'none' },
+      { mark: '✓', text: 'Show why it believes something', note: '', color: fg, deco: 'none' },
+    ];
+    const colW = phone ? 358 : 460;
+    const pairW = phone ? 88 : 120;
+    return {
+      accent, fg,
+      bg: this.pal().bg, panel: this.pal().panel, muted: this.pal().muted,
+      line: this.hexA(fg, 0.1), lineStrong: this.hexA(fg, 0.22), tint: this.hexA(accent, 0.08), glow: this.hexA(accent, 0.42),
+      vw, vh, colW, gutter: phone ? 16 : 40, h1: phone ? 22 : 24, pairW, pairEnd: pairW - 4, pw: pairW - 8,
+      markDot: (this.props.mark ?? 'dot') === 'dot', markHeld: this.props.mark === 'held', markCut: this.props.mark === 'cut',
+      phase, kind, mode, rmCls: (this.props.still ?? false) ? 'rm' : '',
+      dots: f.dots, lines: f.lines, nodes, edges,
+      appName: app, appGlyph: a.glyph, appGlyphSize: a.size, hasApp: !a.web,
+      showChoose: c.choose,
+      choices: CHOICES.map((ch) => {
+        const on = (this.state.connected || []).includes(ch.app);
+        const any = ch.app === 'other';
+        return { ...ch, cta: on && !any ? 'connected ✓' : ch.cta, ctaColor: on && !any ? accent : (this.pal().muted),
+          pick: () => { if (any) { this.setState({ joinedApp: 'other', again: false }); this.go('other'); return; } this.setState({ joinedApp: ch.app, again: on }); this.go(on ? 'connect' : 'waiting'); if (on) this.setState({ appOver: ch.app }); } };
+      }),
+      email,
+      showHeaderEmail: !phone && c.signedIn,
+      title: c.title, lede: c.lede,
+      hasNotice: !!c.notice, notice: c.notice, noticeEdge: c.noticeEdge,
+      showEmailForm: c.form, showSent: c.sent, showPaddle: c.paddle, showWorking: c.working, paddleW: phone ? 358 : 420, showScopes: c.scopes, scopes,
+      linkLeft: this.mmss(left), linkPct: Math.max(0, Math.min(100, (left / LINK_MS) * 100)).toFixed(1),
+      hasPrimary: !!c.primary, primary, primaryDisabled, primaryOpacity: primaryDisabled && step === 'sent' ? 0.55 : 1,
+      primaryAct: () => { if (c.primaryStep === 'home') { this.props.exitTo && this.props.exitTo('home', { reviewer: !!this.state.reviewerIn, connected: this.state.connected || [], friend: this.inviteInfo().on && !this.inviteInfo().covered ? this.inviteInfo().by : '', coding: (this.state.connected || []).includes('other') ? (this.state.level || 'balanced') : '', price: this.inviteInfo().now ? `${this.inviteInfo().now} a month` : '' }); return; } if (c.primaryStep && !primaryDisabled) this.go(c.primaryStep); },
+      hasSecondary: !!c.secondary, secondary: c.secondary,
+      secondaryAct: () => { if (c.secondaryStep) this.go(c.secondaryStep); },
+      showSignedIn: c.signedIn && (phone || ['connect', 'preparing', 'readonly', 'subscribe', 'choose', 'waiting', 'joined', 'invite', 'other', 'inviteexisting', 'inviteapplied', 'invitekept', 'connecterror'].includes(step)),
+      showInvite: c.invite, inviteOnly: this.props.inviteOnly === true || this.props.inviteOnly === 'true',
+      showOpenMail: step === 'sent' && typeof this.props.exitTo === 'function',
+      openMail: () => this.props.exitTo && this.props.exitTo('inbox'),
+      payAct: () => this.go('confirming'),
+      showWaitNote: step === 'waiting' || step === 'other', waitingFor: step === 'other' ? 'your app' : (this.state.joinedApp || 'Claude'),
+      waitingForTitle: step === 'other' ? 'Your app' : (this.state.joinedApp || 'Claude'),
+      protoConfirm: () => { this.setState({ appOver: this.state.joinedApp || 'Claude' }); this.go('connect'); },
+      showReviewer: !!c.reviewer, showReviewerNote: !!c.reviewer, reviewerNoteApart: !phone, reviewerNote: REVIEWER_NOTE,
+      // A short phone screen drops the app tile so the whole step still fits without scrolling.
+      tileDisplay: phone && vh < 720 ? 'none' : 'flex', colGap: phone && vh < 720 ? 14 : 26,
+      reviewerUser: 'exr_V3k9mQ2xT8wL', reviewerPass: '••••••••••••',
+      passBorder: step === 'reviewerfail' ? (this.pal().accent) : this.hexA(fg, 0.22),
+      openReviewer: () => this.go('reviewer'),
+      protoWrong: () => this.go(step === 'reviewerfail' ? 'reviewer' : 'reviewerfail'),
+      protoWrongLabel: step === 'reviewerfail' ? 'Prototype: clear the error →' : 'Prototype: try a wrong password →',
+      showUrl: !!c.url, mcpUrl: MCP_URL.replace('.io/', '.io/\u200b'), urlDir: phone ? 'column' : 'row', urlAlign: phone ? 'flex-end' : 'center',
+      copyLabel: this.state.copied ? 'Copied' : 'Copy',
+      copyUrl: () => { try { const r = navigator.clipboard && navigator.clipboard.writeText(MCP_URL); if (r && r.catch) r.catch(() => {}); } catch (e) {} this.setState({ copied: true }); clearTimeout(this.tc); this.tc = setTimeout(() => this.setState({ copied: false }), 1800); },
+      ...(() => { const inv = this.inviteInfo(); return {
+        showNote: !!c.note, inviteNote: inv.note, inviter: inv.by,
+        showPrice: !!c.price && inv.on, priceWas: inv.covered ? '' : inv.was,
+        priceLabel: inv.covered ? `Covered by ${inv.by}` : `Friend price from ${inv.by}`, hasWas: !inv.covered && !!inv.was && !!inv.now,
+        priceMain: inv.covered ? 'Nothing to pay' : (inv.now ? `${inv.now} a month` : 'Shown at checkout'),
+        priceNote: inv.covered ? 'For as long as it’s covered. We’ll email you before that changes.' : (inv.now ? `${inv.dur[0].toUpperCase()}${inv.dur.slice(1)}.` : 'Paddle shows the exact amount before you pay.'),
+        paddleDiscount: inv.on && !inv.covered, paddleDiscountLabel: `Friend price from ${inv.by}`,
+        showInviteProto: !!c.inviteProto, protoBadInvite: () => this.go('invitebad') }; })(),
+      ...(() => { const cur = this.state.level || 'balanced'; const L = LEVELS.find((l) => l.key === cur);
+        return { blockH: phone && vh < 720 ? 56 : 74, levelName: L.name, blockChars: new Intl.NumberFormat('en-GB').format(L.block.length), showTune: !!c.tune, levelDesc: L.desc, levelBlock: L.block, blockLabel: this.state.copiedBlock ? 'Copied' : 'Copy',
+          levels: LEVELS.map((l) => ({ name: l.name, on: l.key === cur, bg: l.key === cur ? fg : 'transparent', fg: l.key === cur ? (this.pal().bg) : (this.pal().muted), pick: () => this.setState({ level: l.key, copiedBlock: false }) })),
+          copyBlock: () => { try { const r = navigator.clipboard && navigator.clipboard.writeText(L.block); if (r && r.catch) r.catch(() => {}); } catch (e) {} this.setState({ copiedBlock: true }); clearTimeout(this.tb); this.tb = setTimeout(() => this.setState({ copiedBlock: false }), 1800); } }; })(),
+      ...(() => { const L = this.pal().light; return { theme: L ? 'light' : 'dark', pTheme: L ? 'light' : 'dark', pBg: L ? '#FFFFFF' : '#14120F', pFg: L ? '#1A1814' : '#ECE9E2', pMuted: L ? '#6B665C' : '#858075', pField: L ? '#F6F4EF' : '#0E0C0B', pRgb: L ? '26,24,20' : '236,233,226', pBtnFg: L ? '#FFFFFF' : '#0A0908', pBtnBg: L ? '#1A1814' : '#ECE9E2', scrim: L ? 'rgba(26,24,20,0.28)' : 'rgba(0,0,0,0.62)' }; })(),
+      // The field is a web: notes near the pointer ease aside, their neighbours follow a little, and all of it settles back. Quiet on phones, while paying, and with reduced motion.
+      onMove: (e) => {
+        if (this.reduced || phone || kind === 'hold' || kind === 'stop' || mode === 'stars') { this.mouse = null; return; }
+        const r = e.currentTarget.getBoundingClientRect(); if (!r.width) return;
+        this.webEl = e.currentTarget; this.webHost = e.currentTarget.parentNode; this.webScale = [vw / r.width, vh / r.height];
+        this.mouse = [(e.clientX - r.left) * vw / r.width, (e.clientY - r.top) * vh / r.height];
+        this.webGo();
+      },
+      onLeave: () => { this.mouse = null; },
+      switchAccount: () => { this.setState({ switched: true, appOver: this.state.appOver }); this.go('signedout'); },
+      isDone: !!c.done, doneLine: c.done, hasFooter: !this.webStart(),
+      footer: this.webStart() ? '' : `exomem · request from ${a.loopback ? app + ' on this computer' : a.host}`,
+    };
+  }
+}
+</script>
+</body>
+</html>

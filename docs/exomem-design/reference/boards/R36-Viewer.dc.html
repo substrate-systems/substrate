@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The graph viewer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 3200px; box-sizing: border-box; padding: 56px 64px 72px; background: #050505; color: #ECE9E2; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 64px">
+  <div style="display: flex; flex-direction: column; gap: 10px; max-width: 1600px">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #858075">Round 36 · the graph viewer · the real viewer, one setting per frame</div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 40px; letter-spacing: -0.02em">The graph viewer</div>
+    <div style="font-size: 16px; color: #A39E93; line-height: 1.55">Built on Shneiderman’s mantra: overview first, zoom and filter, then details on demand. Plus the two Exomem moves: ask why a note is true, and review where notes disagree. The live board above (The graph viewer) is clickable.</div>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Desktop · overview first, then zoom and filter, then details</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">Scroll to zoom (from far out to close in), drag to move; the square button brings everything back. Closer in, more notes name themselves. Lines carry their type: amber supports, dotted refines, dashed contradicts. Every relation type can be shown or hidden. Hover a note and each of its links names its relation; click it for the details, then read the whole note. Live activity can be paused, and the timeline replays at half, normal or double speed.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">overview</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px">The whole vault, breathing; live recalls arrive top left</span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="overview" hint-size="1440px,900px"></dc-import></div></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">every relation</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px">Tap any of the 33 to show or hide it; counts are this vault’s</span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="types" hint-size="1440px,900px"></dc-import></div></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">a note</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px">Its links gather round it, labelled by type; Back walks your trail</span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="note" hint-size="1440px,900px"></dc-import></div></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">why is this true?</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px">The trail lights up: sources and the notes that back it</span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="why" hint-size="1440px,900px"></dc-import></div></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">read the note</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px">The note itself: Markdown, wikilinks you can follow, and what’s around it</span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="read" hint-size="1440px,900px"></dc-import></div></div></div></div></div><div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Desktop · reviewing disagreements</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">Exomem notices two notes that may disagree and never picks a side. You choose: one supersedes the other, both hold, not a disagreement, or later. Every choice can be undone.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">review</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px">The pair, side by side, with dates and sources</span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="review" hint-size="1440px,900px"></dc-import></div></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">after a decision</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px">The next pair comes up; Undo stays in reach</span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="reviewed" live="false" hint-size="1440px,900px"></dc-import></div></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">a note · light</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px"></span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="note" theme="light" hint-size="1440px,900px"></dc-import></div></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 720px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">why · light</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 720px"></span>
+      <div style="width: 720px; height: 450px; overflow: hidden; border-radius: 10px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.5"><dc-import name="Viewer" start="why" theme="light" hint-size="1440px,900px"></dc-import></div></div></div></div></div><div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Phone · the same viewer, re-laid for a tall screen</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">The map turns on its side to fill the screen. Pinch to zoom, drag to move. Filters scroll sideways under the search. Details rise in a sheet: a peek first, the rest when you pull it up.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 390px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">overview</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 390px">Stats in the sheet; the map above</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Viewer" device="phone" start="overview" hint-size="390px,844px"></dc-import></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">a note</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 390px">Tap a note; the sheet peeks with Why and Links</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Viewer" device="phone" start="note" hint-size="390px,844px"></dc-import></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">why</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 390px">The sheet rises with the trail</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Viewer" device="phone" start="why" hint-size="390px,844px"></dc-import></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">review</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 390px">The pair and the choices, thumb-sized</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Viewer" device="phone" start="review" hint-size="390px,844px"></dc-import></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">read the note</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 390px">Full screen; links and history below the text</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Viewer" device="phone" start="read" hint-size="390px,844px"></dc-import></div></div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">overview · light</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4; max-width: 390px"></span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Viewer" device="phone" start="overview" theme="light" hint-size="390px,844px"></dc-import></div></div></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":3200,"height":3180}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

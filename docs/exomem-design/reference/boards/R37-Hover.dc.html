@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hover, three ways</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 2560px; box-sizing: border-box; padding: 56px 64px 72px; background: #050505; color: #ECE9E2; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 40px">
+  <div style="display: flex; flex-direction: column; gap: 10px; max-width: 1500px">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #858075">Round 37 · move your pointer over each one · they’re live</div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 40px; letter-spacing: -0.02em">Hover, three ways</div>
+    <div style="font-size: 16px; color: #A39E93; line-height: 1.55">The start page’s field, answering the pointer. All three settle back without wobbling. C, glow only, was picked: it ships on every flow page. A and B stay here for the record.</div>
+  </div>
+  <div style="display: flex; gap: 40px; flex-wrap: wrap">
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 768px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #ECE9E2">A · push and glow</span>
+      <span style="font-size: 13px; color: #858075; line-height: 1.45; min-height: 38px">Notes ease away from the pointer; the closest one takes the amber. Not used.</span>
+      <div style="width: 768px; height: 492px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.6"><dc-import name="Journey-Page" step="signedout" app="web" device="desktop" hover="push" theme="dark" hint-size="1280px,820px"></dc-import></div></div></div>
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 768px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #ECE9E2">B · a clearing</span>
+      <span style="font-size: 13px; color: #858075; line-height: 1.45; min-height: 38px">A firmer push that opens a little clearing. Not used.</span>
+      <div style="width: 768px; height: 492px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.6"><dc-import name="Journey-Page" step="signedout" app="web" device="desktop" hover="clear" theme="dark" hint-size="1280px,820px"></dc-import></div></div></div>
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 768px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #ECE9E2">C · glow only · chosen</span>
+      <span style="font-size: 13px; color: #858075; line-height: 1.45; min-height: 38px">Nothing moves. The closest note lights, its links warm, the ones nearby wake. This is the flow pages’ hover.</span>
+      <div style="width: 768px; height: 492px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.6"><dc-import name="Journey-Page" step="signedout" app="web" device="desktop" hover="glow" theme="dark" hint-size="1280px,820px"></dc-import></div></div></div>
+  </div>
+  <div style="display: flex; gap: 40px; flex-wrap: wrap">
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 768px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #ECE9E2">A · light</span>
+      <span style="font-size: 13px; color: #858075; line-height: 1.45; min-height: 38px"></span>
+      <div style="width: 768px; height: 492px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.6"><dc-import name="Journey-Page" step="signedout" app="web" device="desktop" hover="push" theme="light" hint-size="1280px,820px"></dc-import></div></div></div>
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 768px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #ECE9E2">B · light</span>
+      <span style="font-size: 13px; color: #858075; line-height: 1.45; min-height: 38px"></span>
+      <div style="width: 768px; height: 492px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.6"><dc-import name="Journey-Page" step="signedout" app="web" device="desktop" hover="clear" theme="light" hint-size="1280px,820px"></dc-import></div></div></div>
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 768px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: #ECE9E2">C · light</span>
+      <span style="font-size: 13px; color: #858075; line-height: 1.45; min-height: 38px"></span>
+      <div style="width: 768px; height: 492px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><div style="zoom: 0.6"><dc-import name="Journey-Page" step="signedout" app="web" device="desktop" hover="glow" theme="light" hint-size="1280px,820px"></dc-import></div></div></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2560,"height":1500}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>
