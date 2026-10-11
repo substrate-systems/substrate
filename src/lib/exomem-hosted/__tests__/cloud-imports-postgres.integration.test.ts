@@ -461,17 +461,21 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
       (await call(alice, "create", { kind: "adopt", declared_bytes: 1, declared_files: 1 })).status,
       409
     );
-    await pool.query(
-      "UPDATE exomem_cloud_imports SET observed_state = 'cleanup_pending' WHERE import_id = $1",
-      [older.import_id]
-    );
-    const pending = await (await call(alice, "status", undefined, older.import_id)).json();
-    assert.equal(pending.import.observed_state, "cleanup_pending");
-    assert.equal(pending.import.error_code, null);
-    assert.equal(
-      (await call(alice, "create", { kind: "adopt", declared_bytes: 1, declared_files: 1 })).status,
-      409
-    );
+    assert.equal((await (await call(alice, "status")).json()).import.import_id, older.import_id);
+    for (const observation of ["cleanup_running", "cleanup_stopping", "cleanup_pending"]) {
+      await pool.query("UPDATE exomem_cloud_imports SET observed_state = $2 WHERE import_id = $1", [
+        older.import_id,
+        observation,
+      ]);
+      const pending = await (await call(alice, "status", undefined, older.import_id)).json();
+      assert.equal(pending.import.observed_state, observation);
+      assert.equal(pending.import.error_code, null);
+      assert.equal(
+        (await call(alice, "create", { kind: "adopt", declared_bytes: 1, declared_files: 1 }))
+          .status,
+        409
+      );
+    }
     await pool.query(
       "UPDATE exomem_cloud_imports SET observed_state = 'discarded' WHERE import_id = $1",
       [older.import_id]
@@ -548,17 +552,19 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
         { code: "23514" }
       );
       await applyMigrations({ databaseUrl: url.toString() });
-      await upgrade.query(
-        "UPDATE exomem_cloud_imports SET observed_state = 'cleanup_pending' WHERE import_id = $1",
-        [importId]
-      );
-      await assert.rejects(
-        upgrade.query(
-          "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1)",
-          [cellId]
-        ),
-        { code: "23505" }
-      );
+      for (const observation of ["cleanup_running", "cleanup_stopping", "cleanup_pending"]) {
+        await upgrade.query(
+          "UPDATE exomem_cloud_imports SET observed_state = $2 WHERE import_id = $1",
+          [importId, observation]
+        );
+        await assert.rejects(
+          upgrade.query(
+            "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1)",
+            [cellId]
+          ),
+          { code: "23505" }
+        );
+      }
       assert.equal(
         (
           await upgrade.query(

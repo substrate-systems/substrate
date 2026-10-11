@@ -162,6 +162,7 @@ function status(row: ImportRow) {
 
 export async function readCloudImport(principal: CloudImportPrincipal, importId?: string) {
   const id = importId === undefined ? null : uuid(importId);
+  // Migration 0061 fixes the open predicate; default status prefers unfinished work over history.
   const { rows } = await executeExomemSql`
     SELECT request.* FROM exomem_cloud_imports AS request
     JOIN exomem_cloud_cells AS cell ON cell.cell_id = request.cell_id
@@ -170,7 +171,10 @@ export async function readCloudImport(principal: CloudImportPrincipal, importId?
       AND tenant.owner_user_id = ${principal.userId}::uuid
       AND tenant.status NOT IN ('deletion_pending', 'deleted') AND cell.desired_state <> 'deleted'
       AND (${id}::uuid IS NULL OR request.import_id = ${id}::uuid)
-    ORDER BY request.created_at DESC, request.import_id DESC LIMIT 1
+    ORDER BY (request.observed_state IS NULL
+      OR request.observed_state IN ('key_ready', 'importing', 'cleanup_running', 'cleanup_stopping', 'cleanup_pending')
+      OR (request.requested_state = 'discard_requested' AND request.observed_state IS DISTINCT FROM 'discarded')) DESC,
+      request.created_at DESC, request.import_id DESC LIMIT 1
   `;
   if (!rows[0] && id) throw notFound();
   return rows[0] ? status(rows[0] as ImportRow) : null;

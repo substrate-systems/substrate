@@ -2,7 +2,7 @@
 
 ### Requirement: Encrypted import requests separate tenant intent from controller observations
 
-C5 SHALL store content-free import requests under a C1 cell with the types and split grants in the design. It MUST permit one open import per cell, including pending cleanup and any discard request not yet observed as discarded. Substrate SHALL write request/report columns only; cellctl SHALL write transport/observation columns only. The gateway SHALL have no C5 access. C1 SHALL support an `import` hold.
+C5 SHALL store content-free import requests under a C1 cell with the types and split grants in the design. It MUST permit one open import per cell, including running, stopping or pending cleanup and any discard request not yet observed as discarded. Substrate SHALL write request/report columns only; cellctl SHALL write transport/observation columns only. The gateway SHALL have no C5 access. C1 SHALL support an `import` hold.
 
 #### Scenario: Runtime roles cross the ownership boundary
 
@@ -22,7 +22,7 @@ C5 SHALL store content-free import requests under a C1 cell with the types and s
 
 ### Requirement: Cleanup retries release bounded holds without claiming success
 
-The controller SHALL report `cleanup_pending` for unfinished cleanup and preserve the original import error code. Each attempt SHALL use a bounded hold and confirm that its Job controllers and Pods are absent before release. The controller SHALL back off between attempts using `updated_at`. Lifecycle deletion SHALL take precedence, and hold release MUST preserve stopped desired state. Pending cleanup SHALL occupy the cell's open import slot.
+The controller SHALL record `cleanup_running` and preserve the original work outcome before idempotent cleanup. It SHALL report `cleanup_pending` for failed or deferred cleanup. It SHALL record `cleanup_stopping` after local and transport cleanup succeed, before removing Jobs. Each attempt SHALL use a bounded hold and confirm that its Job controllers and Pods are absent before release. The controller SHALL back off between attempts using `updated_at`. Lifecycle deletion SHALL take precedence, and hold release MUST preserve stopped desired state. Every cleanup observation SHALL occupy the cell's open import slot. Terminal publication and C1 hold release SHALL share the API admission row lock and one transaction, using current requested intent.
 
 #### Scenario: Cleanup fails after an import outcome
 
@@ -36,6 +36,14 @@ The controller SHALL report `cleanup_pending` for unfinished cleanup and preserv
 - **WHEN** a tenant discards an older import while another import is open
 - **THEN** the request returns 409 without changing the older request
 - **AND** an accepted older discard blocks new imports until the controller reports `discarded`
+
+#### Scenario: Cleanup completion waits for Kubernetes removal
+
+- **WHEN** volume and transport cleanup succeed but a Job controller or Pod remains
+- **THEN** status reports `cleanup_stopping` and admission rejects another import
+- **AND** the controller never replays prepare, import, or cleanup from that state
+- **WHEN** all phase Job controllers and Pods are absent
+- **THEN** the controller locks C1 and C5, reads current cancellation intent, publishes the terminal outcome, and clears the hold atomically
 
 ### Requirement: Import endpoints derive authority from existing Cloud credentials
 

@@ -25,17 +25,17 @@ The batch establishes C5 and its authenticated API. It does not build the browse
 | recipient, upload_id | text nullable | cellctl |
 | part_urls | jsonb nullable array of {part_number: integer, url: string, part_size_bytes: integer} | cellctl |
 | urls_expire_at | timestamptz nullable | cellctl |
-| observed_state | text nullable: key_ready, importing, cleanup_pending, done, failed, expired, discarded | cellctl |
+| observed_state | text nullable: key_ready, importing, cleanup_running, cleanup_stopping, cleanup_pending, done, failed, expired, discarded | cellctl |
 | error_code | text nullable | cellctl |
 | created_at, updated_at | timestamptz NOT NULL DEFAULT now() | database |
 
 Substrate and cellctl can read C5. Neither receives table-wide DML. The gateway receives no C5 privileges. The grants script revokes default grants before applying column grants and tolerates pre-C5 upgrades. The cell hold CHECK adds `import`.
 
-A partial unique index permits one open import per cell. NULL, `key_ready`, `importing`, and `cleanup_pending` observations are open. A `discard_requested` row also remains open until its observation is `discarded`, including an older row with a terminal import outcome. A trigger freezes accepted request/report fields and maintains updated_at. This prevents a concurrent retry from substituting the authenticated upload tuple. Cancellation records intent; only cellctl reports terminal state. Cell deletion waits for explicit lifecycle cleanup.
+A partial unique index permits one open import per cell. NULL, `key_ready`, `importing`, `cleanup_running`, `cleanup_stopping`, and `cleanup_pending` observations are open. A `discard_requested` row also remains open until its observation is `discarded`, including an older row with a terminal import outcome. A trigger freezes accepted request/report fields and maintains updated_at. This prevents a concurrent retry from substituting the authenticated upload tuple. Cancellation records intent; only cellctl reports terminal state. Cell deletion waits for explicit lifecycle cleanup.
 
 ### Bounded cleanup holds
 
-`cleanup_pending` reports unfinished cleanup explicitly and preserves `error_code` as the original import outcome. The controller uses `updated_at` for retry backoff. Cleanup failure never becomes successful import or successful discard status.
+`cleanup_running` fixes the work outcome before idempotent cleanup. `cleanup_stopping` records successful volume and transport cleanup while Jobs and Pods drain. The controller publishes the current requested outcome and clears the C1 hold in one transaction under the API admission row lock. `cleanup_pending` reports failed or deferred cleanup explicitly and preserves `error_code` as the original import outcome. The controller uses `updated_at` for retry backoff. Cleanup failure never becomes successful import or successful discard status.
 
 Each cleanup attempt uses the persisted C1 `hold_started_at` and a bounded deadline. Controller configuration defaults to a two-minute cleanup attempt and one hour between retries. On failure or expiry, the controller removes the import's Job controllers and Pods. It confirms that both are absent before releasing the hold. Cleanup then remains pending between attempts, so a failed Job cannot keep the runtime stopped forever.
 
