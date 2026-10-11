@@ -44,24 +44,8 @@ describe("private Exomem Home contract", () => {
     assert.match(signIn, /mode === "confirm"/);
   });
 
-  it("offers retry-safe capture, immediate recall, and progressive owner actions", () => {
+  it("offers deletion without exposing tenant routing", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
-    // Deliberately NOT `commands/remember`, which this asserted until
-    // 2026-08-16. `remember` is the governed-conclusion lane and enforces the
-    // semantic contract; routing a person's typed sentence there refused their
-    // first memory for having no semantic unit and every memory after it for
-    // having no qualifying relation. `capture_source` is the raw-capture lane
-    // and takes ordinary prose. The assertion was pinning the defect.
-    assert.match(home, /commands\/capture_source/);
-    assert.doesNotMatch(home, /commands\/remember/);
-    assert.match(home, /idempotencyKey: retryKeyRef\.current/);
-    assert.match(home, /commands\/ask_memory/);
-    assert.match(home, /commands\/browse_memory/);
-    assert.match(home, /commands\/review_memory/);
-    assert.match(home, /postPrivateFile/);
-    assert.match(home, /uploadRetryRef/);
-    assert.match(home, /exportRetryKeyRef/);
-    assert.match(home, /api\/exomem\/exports/);
     assert.match(home, /api\/exomem\/deletion\/request/);
     assert.doesNotMatch(home, /tenantId|cellId|vaultRoot|privateEndpoint/);
   });
@@ -90,14 +74,14 @@ describe("private Exomem Home contract", () => {
     assert.doesNotMatch(home, /https:\/\/[a-z]/);
   });
 
-  it("leads the ready view with connecting an assistant, not with a capture box", () => {
+  it("leads the ready view with connecting an assistant", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
     const sections = source("src/app/exomem/home/home-sections.ts");
     // The ordering lives in `home-sections.ts` and is asserted directly there;
     // this pins that the component actually renders from it rather than
     // hardcoding an order that could drift from the tested one.
     assert.match(home, /const sections = homeSections\(\)/);
-    assert.match(sections, /return \["connect", "capture", "account"\]/);
+    assert.match(sections, /return \["connect", "account"\]/);
 
     // Every assistant is named, whether or not a one-click install exists for
     // it. The first version rendered install actions plus a single fallback
@@ -123,7 +107,7 @@ describe("private Exomem Home contract", () => {
       home,
       /sections\.map\(\(section\) => \(\s*<Fragment key=\{section\}>\{rendered\[section\]\}<\/Fragment>/
     );
-    for (const key of ["connect:", "capture:", "account:"]) {
+    for (const key of ["connect:", "account:"]) {
       assert.ok(home.includes(key), `the rendered record must cover ${key}`);
     }
     assert.match(home, /Connect an assistant/);
@@ -210,19 +194,6 @@ describe("private Exomem Home contract", () => {
     assert.match(signOut, /session is still active/i);
     assert.doesNotMatch(signOut, /finally/);
     assert.match(signOut, /window\.location\.replace/);
-  });
-
-  it("retains a failed file for an explicit retry and resets file selection", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-    assert.match(home, /failedUpload/);
-    assert.match(home, /Retry upload/);
-    assert.match(home, /currentTarget\.value = ""/);
-    assert.match(home, /uploadInFlightRef/);
-    assert.match(home, /file: File/);
-    assert.doesNotMatch(home, /fingerprint/);
-    assert.match(home, /upload\(file, "selection"\)/);
-    assert.match(home, /upload\(failedUpload, "retry"\)/);
-    assert.match(home, /disabled=\{uploading\}/);
   });
 
   it("does not mount analytics providers on private Exomem routes", () => {

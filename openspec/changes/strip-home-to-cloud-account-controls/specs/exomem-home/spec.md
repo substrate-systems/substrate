@@ -55,3 +55,36 @@ Home SHALL provide service status, billing source/status, sign-out, and product-
 
 - **WHEN** the cell is sealed but external destruction is pending
 - **THEN** Home says deletion is in progress and offers no capture/recall surface
+
+### Requirement: Exomem Home reflects service state honestly
+
+The signed-in Home surface SHALL render one of preparing, awaiting-payment, ready, degraded, suspended, deletion-pending, or deleted states from authoritative control-plane data. It MUST NOT display the ready view before the tenant's cell passes readiness.
+
+#### Scenario: Tenant is provisioning
+
+- **WHEN** the owner's cell is not yet ready
+- **THEN** Home shows plain-language deterministic progress, polls a content-free status route, and exposes a request reference for support
+
+#### Scenario: Tenant is ready
+
+- **WHEN** the entitlement and the cell's readiness both permit service
+- **THEN** Home presents connecting an assistant as the primary action, with the tenant's Cloud connector address
+
+#### Scenario: Tenant is suspended
+
+- **WHEN** manual or entitlement suspension is active
+- **THEN** Home explains the available recovery and account actions, and never attempts to route around suspension
+
+### Requirement: Home is accessible and resilient for non-technical users
+
+The primary onboarding, connect, status, billing, and deletion flows SHALL support keyboard operation, programmatic labels, visible focus, meaningful loading states, reduced motion, and narrow mobile layouts. Recoverable errors MUST offer one concrete next action.
+
+#### Scenario: User navigates with a keyboard on a narrow screen
+
+- **WHEN** Home is used without a pointer at a mobile viewport
+- **THEN** the connect, status, and account controls remain reachable in a logical order without horizontal scrolling
+
+#### Scenario: Recoverable service error occurs
+
+- **WHEN** an action fails with a retryable gateway or lifecycle code
+- **THEN** Home explains the next action and displays a copyable request reference

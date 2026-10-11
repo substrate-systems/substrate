@@ -99,8 +99,7 @@
   text-transform: uppercase;
 }
 
-.input,
-.textarea {
+.input {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 0;
@@ -116,15 +115,7 @@
   padding: 0 15px;
 }
 
-.textarea {
-  min-height: 180px;
-  padding: 16px;
-  line-height: 1.6;
-  resize: vertical;
-}
-
 .input:focus,
-.textarea:focus,
 .button:focus-visible,
 .quietButton:focus-visible,
 .dangerButton:focus-visible,
@@ -222,13 +213,6 @@
   border-radius: 999px;
   background: #75bf8b;
   box-shadow: 0 0 0 4px rgba(117, 191, 139, 0.09);
-}
-
-.tabs {
-  display: flex;
-  gap: 4px;
-  margin: 0 0 24px;
-  border-bottom: 1px solid var(--line);
 }
 
 .tab {

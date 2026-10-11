@@ -370,8 +370,8 @@ export default function HomeClient({
 
   // Every section is rendered by mapping over `sections`, not written out in
   // source order — so the ordering asserted in `home-sections.test.ts` is the
-  // ordering that ships, and moving one back below capture takes a deliberate
-  // edit to the data rather than an accidental one to the markup.
+  // ordering that ships, and reordering them takes a deliberate edit to the
+  // data rather than an accidental one to the markup.
   const rendered: Record<HomeSection, ReactNode> = {
     connect: (
       <div className={styles.connect}>
@@ -522,8 +522,6 @@ export default function HomeClient({
               </button>
             ) : null}
           </div>
-          {/* Install actions used to live here, inside a collapsed panel below
-              capture and search. They are now the first thing on the page. */}
           <div className={styles.secondaryRow}>
             <div>
               <strong>Delete Exomem</strong>

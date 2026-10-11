@@ -3,10 +3,16 @@ import { after, before, describe, it, mock } from "node:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 
-// A Cloud tenant's Home must not offer actions whose routes reach only the
-// retired Hosted cells: capture, search, overview, upload and export failed for
-// every Cloud tenant.
-const HOSTED_ONLY = ["/api/exomem/commands", "/api/exomem/exports", "/api/exomem/upload"];
+// A Cloud tenant's Home may call only the routes that work for a Cloud tenant.
+// Capture, search, overview, upload and export called routes that reach only
+// the retired Hosted cells, so they failed for every Cloud tenant.
+const CLOUD_ROUTES = [
+  "/api/exomem/status",
+  "/api/exomem/account",
+  "/api/exomem/billing/",
+  "/api/exomem/deletion/",
+  "/api/exomem/access/logout",
+];
 
 function installDom(): void {
   const dom = new JSDOM('<!doctype html><body><div id="mount"></div></body>', {
@@ -66,7 +72,7 @@ describe("a ready Cloud tenant's Home", () => {
     mock.reset();
   });
 
-  it("offers connect, billing and deletion, and nothing that calls a Hosted-only route", async () => {
+  it("offers connect, billing and deletion, and calls only Cloud routes", async () => {
     const { default: ExomemHomePage } = await import("../page");
     const { createRoot } = await import("react-dom/client");
     const root = createRoot(document.getElementById("mount")!);
@@ -80,6 +86,7 @@ describe("a ready Cloud tenant's Home", () => {
       await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     }
     const text = home()?.textContent ?? "";
+    const forms = document.querySelectorAll("form").length;
     for (const button of Array.from(document.querySelectorAll("button"))) {
       await act(async () => button.click());
     }
@@ -88,9 +95,9 @@ describe("a ready Cloud tenant's Home", () => {
     assert.match(text, /https:\/\/cloud\.example\.test\/mcp\/v1/);
     assert.match(text, /Manage billing/);
     assert.match(text, /Delete Exomem/);
-    assert.equal(document.querySelector("form"), null);
+    assert.equal(forms, 0);
     assert.deepEqual(
-      requested.filter((url) => HOSTED_ONLY.some((prefix) => url.startsWith(prefix))),
+      requested.filter((url) => !CLOUD_ROUTES.some((prefix) => url.startsWith(prefix))),
       []
     );
   });
