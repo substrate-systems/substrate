@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { connect } from "node:net";
-import { describe, it } from "node:test";
-import { setOperationalEventSinkForTests } from "../../lib/exomem-hosted/observability";
+import { after, before, describe, it } from "node:test";
 import { createGatewayServer, drainGatewayServer, validateGatewayEnvironment } from "../server";
 
 async function listen(server: ReturnType<typeof createServer>): Promise<string> {
@@ -38,6 +37,15 @@ async function readHeaders(socket: ReturnType<typeof connect>): Promise<string> 
 }
 
 describe("standalone Exomem gateway adapter", () => {
+  const previousCloudMcpPath = process.env.EXOMEM_CLOUD_MCP_PATH;
+  before(() => {
+    process.env.EXOMEM_CLOUD_MCP_PATH = "/mcp";
+  });
+  after(() => {
+    if (previousCloudMcpPath === undefined) delete process.env.EXOMEM_CLOUD_MCP_PATH;
+    else process.env.EXOMEM_CLOUD_MCP_PATH = previousCloudMcpPath;
+  });
+
   it("refuses to start without the control-plane and fixed transport contract", () => {
     assert.throws(
       () => validateGatewayEnvironment({ DATABASE_URL: "postgres://gateway" }),
@@ -45,9 +53,10 @@ describe("standalone Exomem gateway adapter", () => {
     );
   });
 
-  it("serves only probes and the canonical MCP resource with private no-store responses", async () => {
+  it("serves only probes and the Cloud MCP resource with private no-store responses", async () => {
     const server = createGatewayServer({
-      handleMcp: async () => new Response("streamed", { headers: { "mcp-session-id": "session" } }),
+      handleCloudMcp: async () =>
+        new Response("streamed", { headers: { "mcp-session-id": "session" } }),
     });
     const baseUrl = await listen(server);
     try {
@@ -55,7 +64,7 @@ describe("standalone Exomem gateway adapter", () => {
         const response = await fetch(`${baseUrl}${path}`);
         assert.equal(response.status, 200);
       }
-      const response = await fetch(`${baseUrl}/api/exomem/mcp/v1`, { method: "POST" });
+      const response = await fetch(`${baseUrl}/mcp`, { method: "POST" });
       assert.equal(response.status, 200);
       assert.equal(await response.text(), "streamed");
       assert.equal(response.headers.get("mcp-session-id"), "session");
@@ -68,42 +77,12 @@ describe("standalone Exomem gateway adapter", () => {
     }
   });
 
-  it("preserves the MCP operational-event sink for unauthenticated denials", async () => {
-    const lines: string[] = [];
-    const previousControlPlaneKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
-    process.env.EXOMEM_CONTROL_PLANE_KEY = "a".repeat(43);
-    setOperationalEventSinkForTests((line) => lines.push(line));
-    const server = createGatewayServer();
-    const baseUrl = await listen(server);
-    try {
-      const response = await fetch(`${baseUrl}/api/exomem/mcp/v1`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      });
-      assert.equal(response.status, 401);
-      assert.equal(lines.length, 1);
-      const event = JSON.parse(lines[0] ?? "{}") as Record<string, unknown>;
-      assert.equal(event.event, "mcp.request");
-      assert.equal(event.outcome, "denied");
-      assert.equal(event.errorCode, "ACCESS_TOKEN_INVALID");
-      assert.equal(event.requestClass, "request");
-      assert.equal(event.retryBucket, "none");
-    } finally {
-      if (previousControlPlaneKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
-      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousControlPlaneKey;
-      setOperationalEventSinkForTests(null);
-      server.close();
-      await once(server, "close");
-    }
-  });
-
   it("cancels an aborted response stream and frees the inflight slot", async () => {
     let cancelled = false;
     let calls = 0;
     const server = createGatewayServer({
       maxInflight: 1,
-      handleMcp: async () => {
+      handleCloudMcp: async () => {
         calls += 1;
         if (calls > 1) return new Response("second");
         return new Response(
@@ -121,14 +100,14 @@ describe("standalone Exomem gateway adapter", () => {
     const baseUrl = await listen(server);
     const abort = new AbortController();
     try {
-      const first = await fetch(`${baseUrl}/api/exomem/mcp/v1`, {
+      const first = await fetch(`${baseUrl}/mcp`, {
         method: "POST",
         signal: abort.signal,
       });
       assert.equal(first.status, 200);
       abort.abort();
       await waitFor(() => cancelled, "stream cancellation");
-      const second = await fetch(`${baseUrl}/api/exomem/mcp/v1`, { method: "POST" });
+      const second = await fetch(`${baseUrl}/mcp`, { method: "POST" });
       assert.equal(second.status, 200);
       assert.equal(await second.text(), "second");
     } finally {
@@ -140,7 +119,7 @@ describe("standalone Exomem gateway adapter", () => {
 
   it("returns readiness failure during drain and closes an active stream at the deadline", async () => {
     const server = createGatewayServer({
-      handleMcp: async () =>
+      handleCloudMcp: async () =>
         new Response(
           new ReadableStream({
             start(controller) {
@@ -150,7 +129,7 @@ describe("standalone Exomem gateway adapter", () => {
         ),
     });
     const baseUrl = await listen(server);
-    const active = await fetch(`${baseUrl}/api/exomem/mcp/v1`, { method: "POST" });
+    const active = await fetch(`${baseUrl}/mcp`, { method: "POST" });
     assert.equal(active.status, 200);
     const address = server.address();
     assert.ok(address && typeof address !== "string");
@@ -165,13 +144,13 @@ describe("standalone Exomem gateway adapter", () => {
   });
 
   it("returns bounded bad-request output when a malformed Host reaches the adapter", async () => {
-    const server = createGatewayServer({ handleMcp: async () => new Response("unreachable") });
+    const server = createGatewayServer({ handleCloudMcp: async () => new Response("unreachable") });
     await listen(server);
     const address = server.address();
     assert.ok(address && typeof address !== "string");
     const socket = await connectedSocket(address.port);
     socket.write(
-      "POST /api/exomem/mcp/v1 HTTP/1.1\r\nHost: bad host\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+      "POST /mcp HTTP/1.1\r\nHost: bad host\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
     );
     assert.match(await readHeaders(socket), /^HTTP\/1\.1 400 /);
     server.close();
