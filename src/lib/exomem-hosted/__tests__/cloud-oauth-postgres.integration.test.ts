@@ -3,7 +3,6 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Pool } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
-import { EXOMEM_HOSTED_RESOURCE } from "../agent-contract-store";
 import { randomCloudCellId } from "../cloud-admission";
 import {
   assertGrantOwnsCloudCell,
@@ -175,7 +174,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     assert.equal(await resolveApprovedCloudOAuthClient(staleClientId), null);
   });
 
-  it("refuses cross-resource tokens in both directions", async () => {
+  it("refuses a token minted for another resource, such as a retired Hosted token", async () => {
     const clientId = `https://cross-resource-${randomUUID()}.example.test/client.json`;
     const host = new URL(clientId).hostname;
     await admitCimdHost("claude", host);
@@ -192,21 +191,16 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     );
     const userId = tenant.rows[0]!.owner_user_id;
 
-    // A hosted-resource token must never be accepted on the Cloud path.
+    // Retired Hosted tokens stay in the table until they expire; the Cloud
+    // path must never accept one.
     const hostedToken = await mintAccessToken({
       clientDbId,
       tenantId,
       userId,
-      resource: EXOMEM_HOSTED_RESOURCE,
+      resource: "https://substratesystems.io/api/exomem/mcp/v1",
     });
     assert.equal(await findCloudOAuthAccessToken(hostedToken, CLOUD_RESOURCE), null);
 
-    // A Cloud-resource token must never be accepted on the hosted path.
-    // findActiveOAuthAccessToken/findMcpOAuthAccessToken (oauth-store.ts)
-    // do not themselves filter on the resource literal — mcp.ts's inline
-    // `access.resource !== EXOMEM_HOSTED_RESOURCE` check is what refuses it
-    // — so the fact this suite proves is the one that check depends on: a
-    // Cloud-resource token's stored resource is never the hosted one.
     const cloudToken = await mintAccessToken({
       clientDbId,
       tenantId,
@@ -214,9 +208,7 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
       resource: CLOUD_RESOURCE,
     });
     const found = await findCloudOAuthAccessToken(cloudToken, CLOUD_RESOURCE);
-    assert.ok(found);
-    assert.notEqual(found!.resource, EXOMEM_HOSTED_RESOURCE);
-    assert.equal(found!.resource, CLOUD_RESOURCE);
+    assert.equal(found?.resource, CLOUD_RESOURCE);
   });
 
   it("L3: refuses a Cloud token once the tenant is deletion_pending or deleted, even with a live cell", async () => {

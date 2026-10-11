@@ -156,12 +156,9 @@ export function friendlyHostedError(error: unknown): string {
     // nor cure, which reads as a broken product rather than a stale link.
     return "That link has expired or was already used. Enter your email below for a new one.";
   }
-  if (error.code === "CELL_UNAVAILABLE" || error.code === "CELL_MAPPING_MISSING") {
-    return "Your Exomem is waking up. Give it a moment, then try again.";
-  }
-  // Where the cell said what would fix it, say that. The cases above are the
-  // ones we can phrase better than the cell can, because they are about the
-  // session or the service rather than about the request.
+  // Where the server said what would fix it, say that. The cases above are the
+  // ones we can phrase better, because they are about the session rather than
+  // about the request.
   if (error.remediation) return `${error.message} ${error.remediation}`;
   return error.message;
 }

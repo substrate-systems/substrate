@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { after, before, beforeEach, describe, it, mock } from "node:test";
 import {
   comparePaddleRevisions,
   dispatchVerifiedExomemPaddleEvent,
@@ -88,6 +88,36 @@ class MemoryAtomicStore implements AtomicExomemPaddleEventStore {
     return { outcome };
   }
 }
+
+// Every applied event runs the default Cloud post-commit hook, so the whole
+// file replaces the two Cloud modules it imports with recording fakes.
+let reconcileCalls: string[] = [];
+let cancellationNoticeCalls: Array<{ tenantId: string; sourceOccurredAt: Date }> = [];
+
+before(() => {
+  mock.module("@/lib/exomem-hosted/cloud-lifecycle", {
+    namedExports: {
+      reconcileCloudCellDesiredState: async (tenantId: string) => {
+        reconcileCalls.push(tenantId);
+        return "running";
+      },
+    },
+  });
+  // Item 5 / task 3.7: a distinct fake from the one above -- if the hook
+  // never called this at all, cancellationNoticeCalls would stay empty
+  // even on a "cancelled" event, and the Cloud hook test below would fail on
+  // that assertion.
+  mock.module("@/lib/exomem-hosted/cloud-cancellation-notice", {
+    namedExports: {
+      sendCloudCancellationNoticeOnce: async (tenantId: string, sourceOccurredAt: Date) => {
+        cancellationNoticeCalls.push({ tenantId, sourceOccurredAt });
+        return true;
+      },
+    },
+  });
+});
+
+after(() => mock.reset());
 
 describe("Exomem Paddle webhook dispatcher", () => {
   it("maps all supported Paddle subscription states explicitly", () => {
@@ -432,63 +462,20 @@ describe("Exomem Paddle webhook dispatcher", () => {
 });
 
 // Item 2 / tasks 3.4 & 3.7: the real (non-injected) default Cloud hook --
-// flag gating and reconcile-driven active/trialing "checkout completed"
-// handling -- rather than the dispatcher's exactly-once invocation contract
-// proved above.
+// reconcile-driven active/trialing "checkout completed" handling -- rather
+// than the dispatcher's exactly-once invocation contract proved above.
 //
 // Security review finding 13: there is no separate "activate on checkout"
 // call any more. reconcileCloudCellDesiredState alone maps an active/trialing
 // entitlement to `running`, so activateCloudCellOnCheckoutAtomic was deleted
 // and this suite no longer mocks or asserts on it.
 describe("Exomem Paddle webhook default Cloud post-commit hook", () => {
-  let reconcileCalls: string[] = [];
-  let cancellationNoticeCalls: Array<{ tenantId: string; sourceOccurredAt: Date }> = [];
-
-  before(() => {
-    mock.module("@/lib/exomem-hosted/cloud-lifecycle", {
-      namedExports: {
-        reconcileCloudCellDesiredState: async (tenantId: string) => {
-          reconcileCalls.push(tenantId);
-          return "running";
-        },
-      },
-    });
-    // Item 5 / task 3.7: a distinct fake from the one above -- if the hook
-    // never called this at all, cancellationNoticeCalls would stay empty
-    // even on a "cancelled" event, and the flag-on test below would fail on
-    // that assertion.
-    mock.module("@/lib/exomem-hosted/cloud-cancellation-notice", {
-      namedExports: {
-        sendCloudCancellationNoticeOnce: async (tenantId: string, sourceOccurredAt: Date) => {
-          cancellationNoticeCalls.push({ tenantId, sourceOccurredAt });
-          return true;
-        },
-      },
-    });
-  });
-
-  after(() => mock.reset());
-
   beforeEach(() => {
     reconcileCalls = [];
     cancellationNoticeCalls = [];
-    delete process.env.EXOMEM_CLOUD_ENABLED;
   });
 
-  afterEach(() => {
-    delete process.env.EXOMEM_CLOUD_ENABLED;
-  });
-
-  it("flag off: never imports or calls either Cloud function", async () => {
-    const store = new MemoryAtomicStore();
-    const result = await dispatchVerifiedExomemPaddleEvent(event(), { env: env(), store });
-    assert.deepEqual(result, { kind: "handled", outcome: "applied" });
-    assert.equal(reconcileCalls.length, 0);
-    assert.equal(cancellationNoticeCalls.length, 0);
-  });
-
-  it("flag on: an active/trialing checkout event reconciles the cell; other entitlement events reconcile too", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("an active/trialing checkout event reconciles the cell; other entitlement events reconcile too", async () => {
     const store = new MemoryAtomicStore();
 
     const activation = await dispatchVerifiedExomemPaddleEvent(event(), { env: env(), store });
@@ -512,8 +499,7 @@ describe("Exomem Paddle webhook default Cloud post-commit hook", () => {
     assert.equal(cancellationNoticeCalls.length, 0);
   });
 
-  it("flag on: a cancellation event sends the cancellation notice keyed on the event's own occurredAt; other entitlement events do not", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("a cancellation event sends the cancellation notice keyed on the event's own occurredAt; other entitlement events do not", async () => {
     const store = new MemoryAtomicStore();
 
     const cancelled = await dispatchVerifiedExomemPaddleEvent(
@@ -544,15 +530,5 @@ describe("Exomem Paddle webhook default Cloud post-commit hook", () => {
     assert.deepEqual(paused, { kind: "handled", outcome: "applied" });
     // Unchanged: still exactly the one cancellation call above.
     assert.equal(cancellationNoticeCalls.length, 1);
-  });
-
-  it("flag off: a cancellation event never calls the cancellation notice", async () => {
-    const store = new MemoryAtomicStore();
-    const cancelled = await dispatchVerifiedExomemPaddleEvent(
-      event({ event_type: "subscription.canceled" }),
-      { env: env(), store }
-    );
-    assert.deepEqual(cancelled, { kind: "handled", outcome: "applied" });
-    assert.equal(cancellationNoticeCalls.length, 0);
   });
 });

@@ -7,14 +7,19 @@ import { after, before, beforeEach, describe, it, mock } from "node:test";
 const CODE = Buffer.alloc(32, 9).toString("base64url");
 const VERIFIER = "v".repeat(64);
 const REFRESH = Buffer.alloc(32, 11).toString("base64url");
-const RESOURCE = "https://substratesystems.io/api/exomem/mcp/v1";
+const RESOURCE = "https://gateway.example.test/mcp";
 
 let exchangeResult: unknown = null;
 let rotateResult: unknown = null;
 
 before(() => {
-  mock.module("@/lib/exomem-hosted/public-origin", {
-    namedExports: { exomemPublicBaseUrlFromEnv: () => "https://substratesystems.io" },
+  process.env.EXOMEM_CLOUD_MCP_URL = RESOURCE;
+  process.env.EXOMEM_CLOUD_MCP_PATH = "/mcp";
+  mock.module("@/lib/exomem-hosted/cloud-oauth", {
+    namedExports: {
+      assertGrantOwnsCloudCell: async () => undefined,
+      CloudPrincipalHasNoCellError: class extends Error {},
+    },
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {
     namedExports: {
@@ -31,7 +36,11 @@ before(() => {
   });
 });
 
-after(() => mock.reset());
+after(() => {
+  delete process.env.EXOMEM_CLOUD_MCP_URL;
+  delete process.env.EXOMEM_CLOUD_MCP_PATH;
+  mock.reset();
+});
 
 beforeEach(() => {
   exchangeResult = null;

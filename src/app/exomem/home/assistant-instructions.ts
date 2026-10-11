@@ -114,8 +114,6 @@ export type ClientGuide = {
   commands?: (serverUrl: string) => string;
   /** Where this client keeps the instructions the block goes into. */
   pasteTarget: string;
-  /** True when a marketplace one-click install could exist for this client. */
-  installable: boolean;
   /**
    * Set when this client cannot connect at all yet, with the reason.
    *
@@ -129,10 +127,6 @@ export type ClientGuide = {
 /**
  * Every client, always — each naming its own paste target, because that is the
  * step people get wrong and it differs per client.
- *
- * A one-click install replaces the `connect` half for a client when one exists;
- * it never removes the paste half, since no marketplace listing carries the
- * instructions block today.
  */
 export const CLIENT_GUIDES: readonly ClientGuide[] = [
   {
@@ -141,7 +135,6 @@ export const CLIENT_GUIDES: readonly ClientGuide[] = [
     connect:
       "Settings → Connectors → Add custom connector, paste the server address, then sign in when Claude prompts you.",
     pasteTarget: "Settings → Profile → personal preferences",
-    installable: true,
   },
   {
     client: "chatgpt",
@@ -149,7 +142,6 @@ export const CLIENT_GUIDES: readonly ClientGuide[] = [
     connect:
       "Settings → Connectors → add a custom connector with the server address, then sign in when prompted.",
     pasteTarget: "Settings → Personalization → Custom instructions",
-    installable: true,
   },
   {
     client: "claude-code",
@@ -158,7 +150,6 @@ export const CLIENT_GUIDES: readonly ClientGuide[] = [
     commands: (serverUrl) =>
       `claude mcp add --transport http exomem ${serverUrl}\n/mcp   # then choose exomem and authenticate`,
     pasteTarget: "CLAUDE.md, in your home directory or the project you want it in",
-    installable: false,
   },
   {
     client: "codex",
@@ -178,7 +169,6 @@ export const CLIENT_GUIDES: readonly ClientGuide[] = [
       "support yet, so there is nothing for it to authenticate as. Adding it needs a " +
       "registration endpoint on the Exomem side.",
     pasteTarget: "AGENTS.md, once Codex can connect",
-    installable: false,
   },
   {
     client: "other",
@@ -186,6 +176,5 @@ export const CLIENT_GUIDES: readonly ClientGuide[] = [
     connect:
       "Add the server address as a remote (streamable HTTP) MCP server. It uses OAuth, so expect a browser sign-in once.",
     pasteTarget: "wherever that client keeps system prompts or custom instructions",
-    installable: false,
   },
 ];

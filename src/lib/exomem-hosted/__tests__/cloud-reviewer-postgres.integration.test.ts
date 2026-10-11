@@ -33,7 +33,6 @@ let pool: Pool;
 let schema: string;
 let statementBarrier: ((text: string) => Promise<void>) | null = null;
 const environmentKeys = [
-  "EXOMEM_CLOUD_ENABLED",
   "EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED",
   "EXOMEM_CLOUD_MCP_URL",
   "EXOMEM_CLOUD_MCP_PATH",
@@ -214,7 +213,6 @@ function refreshInput(fixture: Awaited<ReturnType<typeof reviewerFixture>>, refr
 
 describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
   before(async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
     process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
     process.env.EXOMEM_CLOUD_MCP_URL = CLOUD_RESOURCE;
     process.env.EXOMEM_CLOUD_MCP_PATH = "/api/exomem/cloud/mcp/v1";
@@ -669,19 +667,17 @@ describe("Cloud reviewer PostgreSQL authority", { skip: !databaseUrl }, () => {
     );
   });
 
-  it("refuses disabled reviewer flags and Hosted redemption while preserving ordinary Cloud reads", async () => {
+  it("refuses a disabled reviewer flag and Hosted redemption while preserving ordinary Cloud reads", async () => {
     const fixture = await reviewerFixture();
     const tokens = await authorize(fixture);
-    for (const key of ["EXOMEM_CLOUD_ENABLED", "EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED"]) {
-      process.env[key] = "false";
-      assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
-      assert.equal(await createCloudReviewerOAuthSessionAtomic(fixture.sessionInput), null);
-      assert.equal(
-        await rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens.refreshDigest)),
-        null
-      );
-      process.env[key] = "true";
-    }
+    process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "false";
+    assert.equal(await findCloudOAuthAccessToken(tokens.accessDigest, CLOUD_RESOURCE), null);
+    assert.equal(await createCloudReviewerOAuthSessionAtomic(fixture.sessionInput), null);
+    assert.equal(
+      await rotateOAuthRefreshTokenAtomic(refreshInput(fixture, tokens.refreshDigest)),
+      null
+    );
+    process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
     const hosted = await insertCredential(fixture, "provider_review", "openai");
     assert.equal(
       await createCloudReviewerOAuthSessionAtomic({

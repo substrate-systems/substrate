@@ -79,7 +79,7 @@ describe("every client is named with its own paste target", () => {
   });
 
   it("uses the real CLI syntax, verified against the installed tools", () => {
-    const url = "https://example.test/api/exomem/mcp/v1";
+    const url = "https://example.test/mcp";
     // This used to assert the Codex pair too. Those commands were removed rather
     // than corrected: `codex mcp add` works and `codex mcp login` cannot, because
     // Codex authenticates by registering itself through RFC 7591 and Exomem has
@@ -88,11 +88,6 @@ describe("every client is named with its own paste target", () => {
     const claudeCode = CLIENT_GUIDES.find((g) => g.client === "claude-code")?.commands?.(url) ?? "";
     // `claude mcp add --transport http <name> <url>` is the documented HTTP form.
     assert.match(claudeCode, /claude mcp add --transport http exomem https:\/\/example\.test/);
-  });
-
-  it("marks only the chat clients installable, since no CLI has a marketplace listing", () => {
-    const installable = CLIENT_GUIDES.filter((g) => g.installable).map((g) => g.client);
-    assert.deepEqual(installable, ["claude", "chatgpt"]);
   });
 });
 

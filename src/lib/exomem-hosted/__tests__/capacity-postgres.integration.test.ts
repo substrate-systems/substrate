@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
-import { acquireCapacityProviderWorkAtomic } from "../capacity-store";
 import { admitSelfServeOrWaitlistAtomic } from "../db";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { EXOMEM_ALPHA_CAPACITY as ALPHA } from "../oauth-admission";
@@ -39,75 +38,6 @@ async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>
   }
 }
 
-async function runningProvision(legacyUnmetered = false): Promise<string> {
-  const candidate = await pool!.query<{ id: string }>(
-    `INSERT INTO exomem_agent_contract_candidates (
-       state, profile_id, endpoint, source_release, command_fingerprint, schema_digest,
-       compatibility_digest, protocol_version, contract, claude_package_lock, claude_archive_lock
-     ) VALUES ('pending', $1, 'https://capacity.example.test', 'capacity-test', $2, $3, $4,
-               '1', '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)
-     RETURNING id`,
-    [`capacity-${randomUUID()}`, "b".repeat(64), "c".repeat(64), "d".repeat(64)]
-  );
-  const email = `capacity-${randomUUID()}@example.test`;
-  const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [email]);
-  const tenant = await pool!.query(
-    "INSERT INTO exomem_tenants (owner_user_id, legacy_unmetered) VALUES ($1, $2) RETURNING id",
-    [user.rows[0].id, legacyUnmetered]
-  );
-  const operation = await pool!.query(
-    `INSERT INTO exomem_lifecycle_operations (
-       tenant_id, operation_type, state, idempotency_key, fence_generation,
-       checkpoint, lease_owner, lease_expires_at, target_candidate_id, target_source_release,
-       target_protocol_version, target_gateway_contract_digest, target_command_fingerprint,
-       target_schema_digest, target_compatibility_digest
-     ) VALUES ($1, 'provision', 'running', $2, 1, 'candidate-created', 'worker-a',
-               now() + interval '1 hour', $3, 'capacity-test', '1', $4, $5, $6, $7)
-     RETURNING id`,
-    [
-      tenant.rows[0].id,
-      randomUUID(),
-      candidate.rows[0].id,
-      "a".repeat(64),
-      "b".repeat(64),
-      "c".repeat(64),
-      "d".repeat(64),
-    ]
-  );
-  return operation.rows[0].id;
-}
-
-async function meteredRunningProvision(checkpoint = "candidate-created"): Promise<string> {
-  const operationId = await runningProvision();
-  const operation = await pool!.query<{ tenant_id: string }>(
-    "SELECT tenant_id FROM exomem_lifecycle_operations WHERE id = $1",
-    [operationId]
-  );
-  const poolRow = await pool!.query<{ id: string }>(
-    "SELECT id FROM exomem_capacity_pools WHERE pool_key = 'exomem-hosted-alpha'"
-  );
-  await pool!.query(
-    `UPDATE exomem_capacity_pools
-     SET storage_capacity_bytes = 100, runtime_capacity_slots = 1,
-         provision_reservation_capacity = 1, provision_claim_capacity = 1,
-         reserved_storage_bytes = 1, reserved_runtime_slots = 1, reserved_provision_slots = 1,
-         configured_at = now(), updated_at = now()
-     WHERE id = $1`,
-    [poolRow.rows[0]!.id]
-  );
-  await pool!.query(
-    `INSERT INTO exomem_capacity_allocations (
-       pool_id, tenant_id, storage_bytes, runtime_slots, provision_slots, state, operation_id
-     ) VALUES ($1, $2, 1, 1, 1, 'reserved', $3)`,
-    [poolRow.rows[0]!.id, operation.rows[0]!.tenant_id, operationId]
-  );
-  await pool!.query("UPDATE exomem_lifecycle_operations SET checkpoint = $2 WHERE id = $1", [
-    operationId,
-    checkpoint,
-  ]);
-  return operationId;
-}
-
 describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
     schema = `capacity_it_${randomUUID().replaceAll("-", "")}`;
@@ -132,61 +62,6 @@ describe("capacity lifecycle PostgreSQL integration", { skip: !databaseUrl }, ()
       await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
       await admin.end();
     }
-  });
-
-  it("rejects arbitrary allocation-less rows but admits only the explicit legacy marker", async () => {
-    const unmarked = await runningProvision();
-    assert.equal(
-      await acquireCapacityProviderWorkAtomic({
-        operationId: unmarked,
-        leaseOwner: "worker-a",
-        kind: "initial_provision",
-        leaseSeconds: 60,
-      }),
-      "conflict"
-    );
-
-    const legacy = await runningProvision(true);
-    assert.equal(
-      await acquireCapacityProviderWorkAtomic({
-        operationId: legacy,
-        leaseOwner: "worker-a",
-        kind: "initial_provision",
-        leaseSeconds: 60,
-      }),
-      "legacy"
-    );
-  });
-
-  it("serializes the final provider claim and fences a stale checkpoint", async () => {
-    const first = await meteredRunningProvision();
-    const second = await meteredRunningProvision();
-    const [firstResult, secondResult] = await Promise.all([
-      acquireCapacityProviderWorkAtomic({
-        operationId: first,
-        leaseOwner: "worker-a",
-        kind: "initial_provision",
-        leaseSeconds: 300,
-      }),
-      acquireCapacityProviderWorkAtomic({
-        operationId: second,
-        leaseOwner: "worker-a",
-        kind: "initial_provision",
-        leaseSeconds: 300,
-      }),
-    ]);
-    assert.deepEqual(new Set([firstResult, secondResult]), new Set(["acquired", "exhausted"]));
-
-    const stale = await meteredRunningProvision("provider-converged");
-    assert.equal(
-      await acquireCapacityProviderWorkAtomic({
-        operationId: stale,
-        leaseOwner: "worker-a",
-        kind: "initial_provision",
-        leaseSeconds: 300,
-      }),
-      "conflict"
-    );
   });
 
   // Self-serve admission decides before money changes hands, so these exercise

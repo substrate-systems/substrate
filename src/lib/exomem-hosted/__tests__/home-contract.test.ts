@@ -50,14 +50,9 @@ describe("private Exomem Home contract", () => {
     assert.doesNotMatch(home, /tenantId|cellId|vaultRoot|privateEndpoint/);
   });
 
-  it("renders only server-provided connection routes", () => {
+  it("renders only the server-provided connector address", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
-    const state = source("src/app/exomem/home/home-state.ts");
-    assert.match(home, /setInstallActions\(parseInstallActions\(response\)\)/);
-    assert.match(home, /Install in/);
     assert.doesNotMatch(home, /mcpUrl|tenantId/);
-    assert.match(state, /platform !== "claude" && candidate\.platform !== "openai"/);
-    assert.match(state, /installUrl\.protocol !== "https:"/);
     // The server address comes from the status response, so the client never
     // builds an endpoint of its own.
     assert.doesNotMatch(home, /https:\/\/[a-z]/);

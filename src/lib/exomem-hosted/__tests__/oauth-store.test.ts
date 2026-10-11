@@ -1,13 +1,10 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
   attachExistingOwnerAuthorizationAtomic,
-  findActiveOAuthAccessToken,
-  findMcpOAuthAccessToken,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
-  resolveApprovedOAuthClient,
   revokeOAuthTokenForClient,
   revokeOAuthTokenFamilyForOwner,
   rotateOAuthRefreshTokenAtomic,
@@ -19,6 +16,17 @@ afterEach(() => {
 });
 
 let transactionSql: ExomemSql | null = null;
+
+// The token store binds Cloud reviewer authority to the configured Cloud resource.
+before(() => {
+  process.env.EXOMEM_CLOUD_MCP_URL = "https://gateway.example.test/mcp";
+  process.env.EXOMEM_CLOUD_MCP_PATH = "/mcp";
+});
+
+after(() => {
+  delete process.env.EXOMEM_CLOUD_MCP_URL;
+  delete process.env.EXOMEM_CLOUD_MCP_PATH;
+});
 
 beforeEach(() => {
   __setExomemTransactionForTests(async (callback) => callback(transactionSql!));
@@ -77,25 +85,6 @@ describe("Exomem OAuth token store", () => {
     assert.match(source, /INSERT INTO exomem_oauth_access_tokens[\s\S]*LEAST\(/i);
   });
 
-  it("propagates immutable candidate lineage through code exchange and refresh rotation", async () => {
-    const source = await import("node:fs").then(({ readFileSync }) =>
-      readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
-    );
-    const exchange = source.slice(
-      source.indexOf("exomem:oauth-code-exchange"),
-      source.indexOf("exomem:oauth-refresh-rotate")
-    );
-    const refresh = source.slice(source.indexOf("exomem:oauth-refresh-rotate"));
-
-    for (const query of [exchange, refresh]) {
-      assert.match(query, /candidate_id, assignment_id, assignment_generation, staged_client_release_id/i);
-      assert.match(query, /reviewer_credential_id/i);
-    }
-    assert.match(exchange, /INSERT INTO exomem_oauth_refresh_tokens \([\s\S]*oauth_client_id/i);
-    assert.match(refresh, /credential\.oauth_client_id = family\.client_id/i);
-    assert.match(refresh, /credential\.candidate_id = family\.candidate_id/i);
-  });
-
   it("returns CTE fields consumed by reviewer authorization and code exchange", async () => {
     const source = await import("node:fs").then(({ readFileSync }) =>
       readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
@@ -111,59 +100,6 @@ describe("Exomem OAuth token store", () => {
 
     assert.match(attach, /RETURNING id, tenant_id, reviewer_credential_id/i);
     assert.match(codeExchange, /RETURNING id, grant_id, client_id, expires_at/i);
-  });
-
-  it("rejects expired reviewer grants during active and MCP token lookup while retaining null attribution", async () => {
-    const source = await import("node:fs").then(({ readFileSync }) =>
-      readFileSync("src/lib/exomem-hosted/oauth-store.ts", "utf8")
-    );
-    const active = source.slice(
-      source.indexOf("exomem:find-active-oauth-access-token"),
-      source.indexOf("exomem:find-mcp-oauth-access-token")
-    );
-    const mcp = source.slice(source.indexOf("exomem:find-mcp-oauth-access-token"));
-    for (const query of [active, mcp]) {
-      assert.match(query, /LEFT JOIN exomem_marketplace_reviewer_credentials/i);
-      assert.match(query, /oauth_grant\.reviewer_credential_id IS NULL/i);
-      assert.match(query, /reviewer_credential\.revoked_at IS NULL/i);
-      assert.match(query, /reviewer_credential\.expires_at > now\(\)/i);
-    }
-  });
-
-  it("fences MCP access under the shared lock and accepts non-ready token context", async () => {
-    const queries: string[] = [];
-    setSqlForTests(async (strings) => {
-      const query = strings.join("?");
-      queries.push(query);
-      return query.includes("find-mcp-oauth-access-token")
-        ? {
-            rows: [
-              {
-                family_id: "family-1",
-                grant_id: "grant-1",
-                user_id: "user-1",
-                tenant_id: "tenant-1",
-                client_id: "client-1",
-                resource: "https://substratesystems.io/api/exomem/mcp/v1",
-                scopes: ["exomem.read"],
-              },
-            ],
-          }
-        : { rows: [] };
-    });
-
-    assert.equal((await findMcpOAuthAccessToken(Buffer.alloc(32, 1)))?.tenantId, "tenant-1");
-    assert.match(queries[0] ?? "", /pg_advisory_xact_lock_shared/i);
-    assert.doesNotMatch(queries[1] ?? "", /exomem_hosted_alpha_platform_cohort/i);
-    assert.match(queries[1] ?? "", /exomem_oauth_account_blocks/i);
-    assert.match(queries[1] ?? "", /tenant\.status <> 'deleted'/i);
-    assert.doesNotMatch(queries[1] ?? "", /tenant\.status IN \('provisioning', 'active'\)/i);
-    assert.match(queries[1] ?? "", /family\.grant_id = token\.grant_id/i);
-    assert.match(queries[1] ?? "", /family\.client_id = token\.client_id/i);
-    assert.doesNotMatch(queries[1] ?? "", /family\.resource = token\.resource/i);
-    assert.match(queries[1] ?? "", /oauth_grant\.client_id = token\.client_id/i);
-    assert.match(queries[1] ?? "", /oauth_grant\.resource = token\.resource/i);
-    assert.match(queries[1] ?? "", /token\.scopes <@ oauth_grant\.scopes/i);
   });
 
   it("consumes a code and persists a new token family in one statement", async () => {
@@ -298,42 +234,20 @@ describe("Exomem OAuth token store", () => {
     assert.match(queries[1] ?? "", /admission_mode = 'cimd'/i);
   });
 
-  it("resolves only current entitled access and revokes one family without touching another", async () => {
+  it("revokes one family only for its owner and tenant", async () => {
     const queries: string[] = [];
     setSqlForTests(async (strings) => {
-      const query = strings.join("?");
-      queries.push(query);
-      if (query.includes("exomem:find-active-oauth-access-token")) {
-        return {
-          rows: [
-            {
-              family_id: "family-1",
-              grant_id: "grant-1",
-              user_id: "user-1",
-              tenant_id: "tenant-1",
-              client_id: "client-1",
-              resource: "resource",
-              scopes: ["exomem.read"],
-            },
-          ],
-        };
-      }
+      queries.push(strings.join("?"));
       return { rows: [] };
     });
-    const access = await findActiveOAuthAccessToken(Buffer.alloc(32, 4));
-    assert.equal(access?.tenantId, "tenant-1");
     await revokeOAuthTokenFamilyForOwner({
       familyId: "family-1",
       ownerUserId: "user-1",
       tenantId: "tenant-1",
     });
-    const accessQuery = queries.find((query) =>
-      query.includes("exomem:find-active-oauth-access-token")
-    );
     const revokeQuery = queries.find((query) =>
       query.includes("exomem:revoke-oauth-token-family-for-owner")
     );
-    assert.match(accessQuery ?? "", /exomem_entitlements/i);
     assert.match(revokeQuery ?? "", /WHERE family\.id = \?::uuid/i);
     assert.match(revokeQuery ?? "", /oauth_grant\.user_id = \?::uuid/i);
     assert.match(revokeQuery ?? "", /oauth_grant\.tenant_id = \?::uuid/i);
@@ -350,42 +264,6 @@ describe("Exomem OAuth token store", () => {
 
     assert.match(query, /client\.client_id = \?/i);
     assert.doesNotMatch(query, /client\.enabled = true/i);
-  });
-
-  it("resolves approved service clients without a live artifact cohort", async () => {
-    let query = "";
-    setSqlForTests(async (strings) => {
-      query = strings.join("?");
-      return { rows: [] };
-    });
-
-    assert.equal(await resolveApprovedOAuthClient("client-1"), null);
-    assert.doesNotMatch(query, /exomem_hosted_alpha_platform_cohort/i);
-    assert.match(query, /exomem_oauth_admitted_cimd_hosts/i);
-    assert.match(
-      query,
-      /redirect_uris_digest = digest\(convert_to\(redirect_uris::text, 'utf8'\), 'sha256'\)/i
-    );
-    assert.match(query, /exomem_staged_client_releases/i);
-    assert.match(query, /credential\.credential_kind = 'internal_canary'/i);
-    assert.doesNotMatch(query, /HAVING count\(\*\) = 1/i);
-  });
-
-  it("locks the cohort before taking the authorization snapshot", async () => {
-    let transactionQueries = 0;
-    let firstQuery = "";
-    __setExomemSqlForTests(async () => ({ rows: [] }));
-    __setExomemTransactionForTests(async (callback) =>
-      callback(async (strings) => {
-        transactionQueries += 1;
-        if (transactionQueries === 1) firstQuery = strings.join("?");
-        return { rows: [] };
-      })
-    );
-
-    assert.equal(await resolveApprovedOAuthClient("client-1"), null);
-    assert.equal(transactionQueries, 2);
-    assert.match(firstQuery, /pg_advisory_xact_lock_shared/i);
   });
 
   it("locks the tenant before checking its durable block during code exchange", async () => {

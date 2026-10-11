@@ -6,26 +6,24 @@ const SESSION_TOKEN = Buffer.alloc(32, 0x21).toString("base64url");
 const CSRF_TOKEN = Buffer.alloc(32, 0x22).toString("base64url");
 const MAGIC_CHALLENGE = Buffer.alloc(32, 0x23).toString("base64url");
 const SENTINEL = "route-email-token-credential-path-query-sentinel";
-let inviteCalls = 0;
-let inviteError: Error | null = null;
+let cloudInviteError: Error | null = null;
 let magicRequests = 0;
 let magicRedeems = 0;
 let continuationLookups = 0;
 let selfServeRequests = 0;
 let cloudInviteCalls = 0;
 let cloudOAuthAdmissionCalls = 0;
-const ORIGINAL_CLOUD_ENABLED = process.env.EXOMEM_CLOUD_ENABLED;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/cloud-admission", {
     namedExports: {
       redeemCloudInvite: async () => {
         cloudInviteCalls += 1;
+        if (cloudInviteError) throw cloudInviteError;
         return {
           userId: "018f2d91-7c42-7000-8000-000000000031",
           tenantId: "018f2d91-7c42-7000-8000-000000000032",
           sessionId: "018f2d91-7c42-7000-8000-000000000033",
-          operationId: null,
           cellId: "aaaaaaaaaaaaaaaa",
           sessionToken: SESSION_TOKEN,
           sessionDigest: Buffer.alloc(32),
@@ -42,21 +40,6 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/access", {
     namedExports: {
-      redeemInvite: async () => {
-        inviteCalls += 1;
-        if (inviteError) throw inviteError;
-        return {
-          userId: "018f2d91-7c42-7000-8000-000000000021",
-          tenantId: "018f2d91-7c42-7000-8000-000000000022",
-          sessionId: "018f2d91-7c42-7000-8000-000000000023",
-          operationId: "018f2d91-7c42-7000-8000-000000000024",
-          sessionToken: SESSION_TOKEN,
-          sessionDigest: Buffer.alloc(32),
-          csrfToken: CSRF_TOKEN,
-          csrfDigest: Buffer.alloc(32),
-          expiresAt: new Date("2026-07-14T00:00:00.000Z"),
-        };
-      },
       requestMagicLink: async (input: { browserChallengeDigest: Buffer }) => {
         assert.equal(input.browserChallengeDigest.length, 32);
         magicRequests += 1;
@@ -90,13 +73,11 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/oauth-store", {
     namedExports: {
-      admitFirstOAuthInviteAtomic: async () => null,
       createAuthorizationTransaction: async () => null,
       findPendingOAuthAuthorization: async () => {
         continuationLookups += 1;
         return null;
       },
-      resolveApprovedOAuthClient: async () => null,
     },
   });
 });
@@ -104,16 +85,13 @@ before(() => {
 after(() => mock.reset());
 
 beforeEach(() => {
-  inviteCalls = 0;
-  inviteError = null;
+  cloudInviteError = null;
   magicRequests = 0;
   magicRedeems = 0;
   continuationLookups = 0;
   selfServeRequests = 0;
   cloudInviteCalls = 0;
   cloudOAuthAdmissionCalls = 0;
-  if (ORIGINAL_CLOUD_ENABLED === undefined) delete process.env.EXOMEM_CLOUD_ENABLED;
-  else process.env.EXOMEM_CLOUD_ENABLED = ORIGINAL_CLOUD_ENABLED;
 });
 
 function post(
@@ -159,24 +137,11 @@ describe("Exomem access routes", () => {
     assert.equal(body.includes(SENTINEL), false);
   });
 
-  it("redeems through the hosted path when EXOMEM_CLOUD_ENABLED is unset", async () => {
-    delete process.env.EXOMEM_CLOUD_ENABLED;
-    const { POST } = await import("../redeem/route");
-    const response = await POST(post("/api/exomem/access/redeem", { token: SENTINEL }));
-    assert.equal(response.status, 200);
-    assert.equal(inviteCalls, 1);
-    assert.equal(cloudInviteCalls, 0);
-    // Neither continuation-shaped admission path fires on the plain branch.
-    assert.equal(cloudOAuthAdmissionCalls, 0);
-  });
-
-  it("redeems through redeemCloudInvite, never the hosted path, when EXOMEM_CLOUD_ENABLED is on", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("redeems a plain invite through redeemCloudInvite without an OAuth admission", async () => {
     const { POST } = await import("../redeem/route");
     const response = await POST(post("/api/exomem/access/redeem", { token: SENTINEL }));
     assert.equal(response.status, 200);
     assert.equal(cloudInviteCalls, 1);
-    assert.equal(inviteCalls, 0);
     assert.equal(cloudOAuthAdmissionCalls, 0);
   });
 
@@ -189,7 +154,7 @@ describe("Exomem access routes", () => {
       })
     );
     assert.equal(response.status, 400);
-    assert.equal(inviteCalls, 0);
+    assert.equal(cloudInviteCalls, 0);
   });
 
   it("rejects an incomplete OAuth continuation before looking it up", async () => {
@@ -202,7 +167,7 @@ describe("Exomem access routes", () => {
       )
     );
     assert.equal(response.status, 400);
-    assert.equal(inviteCalls, 0);
+    assert.equal(cloudInviteCalls, 0);
     assert.equal(continuationLookups, 0);
   });
 
@@ -250,7 +215,7 @@ describe("Exomem access routes", () => {
     assert.match(magicCookies, /exomem_magic_challenge=.*Max-Age=0/i);
     assert.doesNotMatch(magicCookies, /exomem_session=/i);
     assert.equal(magic.cookies.get("exomem_magic_challenge")?.value, "");
-    assert.equal(inviteCalls, 0);
+    assert.equal(cloudInviteCalls, 0);
   });
 
   it("returns the same non-enumerating magic-link acknowledgement", async () => {
@@ -297,7 +262,7 @@ describe("Exomem access routes", () => {
   });
 
   it("maps consumed and expired token replays to the same stable failure", async () => {
-    inviteError = new ExomemHostedError({
+    cloudInviteError = new ExomemHostedError({
       code: "ACCESS_TOKEN_INVALID",
       status: 401,
       message: "the access link is invalid or unavailable",

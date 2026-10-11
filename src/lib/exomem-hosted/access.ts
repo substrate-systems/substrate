@@ -13,11 +13,9 @@ import {
   markInviteDelivered,
   markInviteDeliveryFailed,
   inspectValidInvite,
-  redeemInviteAtomic,
   redeemMagicAccessTokenAtomic,
   type CreateInviteRecordInput,
   type CreateMagicAccessTokenInput,
-  type RedeemInviteAtomicInput,
   type RedeemMagicAccessTokenInput,
   type RedeemedAccess,
   type SelfServeAdmissionInput,
@@ -72,7 +70,6 @@ export type AccessDependencies = {
   markInviteDelivered: (inviteId: string) => Promise<void>;
   markInviteDeliveryFailed: (inviteId: string, errorCode: string) => Promise<void>;
   inspectInvite: typeof inspectValidInvite;
-  redeemInviteAtomic: (input: RedeemInviteAtomicInput) => Promise<RedeemedAccess | null>;
   admitSelfServeOrWaitlist: (input: SelfServeAdmissionInput) => Promise<SelfServeAdmissionResult>;
   createMagicAccessToken: (
     input: CreateMagicAccessTokenInput
@@ -80,7 +77,7 @@ export type AccessDependencies = {
   encryptDeliverySecret: (value: string) => SecretEnvelope;
   redeemMagicAccessTokenAtomic: (
     input: RedeemMagicAccessTokenInput
-  ) => Promise<Omit<RedeemedAccess, "operationId"> | null>;
+  ) => Promise<RedeemedAccess | null>;
   sendEmail: SendEmail;
   takeRateLimit: (
     rule: (typeof EXOMEM_RATE_LIMITS)[keyof typeof EXOMEM_RATE_LIMITS],
@@ -98,7 +95,6 @@ function defaults(): AccessDependencies {
     markInviteDelivered,
     markInviteDeliveryFailed,
     inspectInvite: inspectValidInvite,
-    redeemInviteAtomic,
     admitSelfServeOrWaitlist: admitSelfServeOrWaitlistAtomic,
     createMagicAccessToken,
     encryptDeliverySecret: (value) => encryptSecret(value),
@@ -281,8 +277,6 @@ export async function requestSelfServeAccess(
   return { outcome: "admitted" };
 }
 
-export type RedeemedBrowserAccess = RedeemedAccess & SessionMaterial;
-
 export async function inspectInvite(
   token: string,
   dependencies?: Partial<AccessDependencies>
@@ -296,27 +290,6 @@ export async function inspectInvite(
     email: invite.emailNormalized,
     expiresAt: invite.expiresAt,
   };
-}
-
-export async function redeemInvite(
-  token: string,
-  dependencies?: Partial<AccessDependencies>
-): Promise<RedeemedBrowserAccess> {
-  const deps = withDefaults(dependencies);
-  const digest = tokenDigest(token);
-  if (!digest) throw exomemErrors.accessTokenInvalid();
-  const session = mintSessionMaterial({
-    now: deps.now(),
-    randomBytes: deps.randomBytes,
-  });
-  const row = await deps.redeemInviteAtomic({
-    tokenDigest: digest,
-    sessionDigest: session.sessionDigest,
-    csrfDigest: session.csrfDigest,
-    sessionExpiresAt: session.expiresAt,
-  });
-  if (!row) throw exomemErrors.accessTokenInvalid();
-  return { ...row, ...session };
 }
 
 export async function requestMagicLink(
@@ -376,7 +349,7 @@ export async function requestMagicLink(
 export async function redeemMagicLink(
   input: { token: string; browserChallenge: string },
   dependencies?: Partial<AccessDependencies>
-): Promise<Omit<RedeemedBrowserAccess, "operationId">> {
+): Promise<RedeemedAccess & SessionMaterial> {
   const deps = withDefaults(dependencies);
   const digest = tokenDigest(input.token);
   const browserChallengeDigest = tokenDigest(input.browserChallenge);

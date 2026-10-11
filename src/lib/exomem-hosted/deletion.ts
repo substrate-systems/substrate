@@ -2,7 +2,6 @@ import { randomBytes as nodeRandomBytes } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { renderExomemDeletionEmail } from "@/lib/email-templates/exomem-access";
-import { exomemCloudEnabled } from "./cloud-config";
 import { finishCloudAccountDeletion } from "./cloud-deletion-finish";
 import { reconcileCloudCellDesiredState } from "./cloud-lifecycle";
 import {
@@ -18,7 +17,6 @@ import {
   parseExomemPublicBaseUrl,
 } from "./public-origin";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "./rate-limit";
-import { immediateBestEffortReconcile } from "./reconcile-runtime";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
 
 const DELETION_CONFIRMATION_TTL_MS = 15 * 60 * 1000;
@@ -32,7 +30,6 @@ export type DeletionDependencies = {
   markDelivered: typeof markAccessTokenDelivered;
   markFailed: typeof markAccessTokenDeliveryFailed;
   consume: typeof consumeDeletionConfirmationAtomic;
-  reconcile: typeof immediateBestEffortReconcile;
   reconcileCloud: (tenantId: string) => Promise<unknown>;
   finishCloud: (tenantId: string) => Promise<unknown>;
   sendEmail: typeof sendTransactionalEmail;
@@ -48,7 +45,6 @@ function defaults(): DeletionDependencies {
     markDelivered: markAccessTokenDelivered,
     markFailed: markAccessTokenDeliveryFailed,
     consume: consumeDeletionConfirmationAtomic,
-    reconcile: immediateBestEffortReconcile,
     reconcileCloud: (tenantId) => reconcileCloudCellDesiredState(tenantId),
     finishCloud: (tenantId) => finishCloudAccountDeletion(tenantId),
     sendEmail: sendTransactionalEmail,
@@ -111,25 +107,20 @@ export async function confirmDeletion(
   token: string,
   session: { userId: string; tenantId: string },
   dependencies?: Partial<DeletionDependencies>
-): Promise<{ operationId?: string; requestId?: string; state: "deletion_pending" }> {
+): Promise<{ state: "deletion_pending" }> {
   const deps = withDefaults(dependencies);
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
-  const result = await deps.consume({
+  const consumed = await deps.consume({
     userId: session.userId,
     tenantId: session.tenantId,
     tokenDigest: digest,
   });
-  if (!result) throw exomemErrors.accessTokenInvalid();
-  await deps.reconcile(session.tenantId).catch(() => undefined);
-  // Cloud: the confirmed deletion reaches the tenant's cell row (and revokes
-  // its consent) now, and the Cloud deletion finish then cancels billing and
+  if (!consumed) throw exomemErrors.accessTokenInvalid();
+  // The confirmed deletion reaches the tenant's cell row (and revokes its
+  // consent) now, and the Cloud deletion finish then cancels billing and
   // scrubs the tenant. The periodic Cloud sweep is the backstop for both.
-  if (exomemCloudEnabled()) {
-    await deps.reconcileCloud(session.tenantId).catch(() => undefined);
-    await deps.finishCloud(session.tenantId).catch(() => undefined);
-  }
-  // Only a v1 tenant has a lifecycle operation to report.
-  if (result.operationId === null) return { state: "deletion_pending" };
-  return { ...result, state: "deletion_pending" };
+  await deps.reconcileCloud(session.tenantId).catch(() => undefined);
+  await deps.finishCloud(session.tenantId).catch(() => undefined);
+  return { state: "deletion_pending" };
 }

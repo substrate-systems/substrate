@@ -11,7 +11,7 @@ import {
   resolveActiveOAuthClient,
   setOAuthContinuationCookie,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { resolveCloudAuthorizationScope } from "@/lib/exomem-hosted/cloud-oauth";
 import { unnormalizedRequestUrl } from "@/lib/exomem-hosted/oauth-http";
 import { registerAdmittedCimdClient } from "@/lib/exomem-hosted/oauth-store";
@@ -165,13 +165,11 @@ export async function GET(request: Request): Promise<NextResponse> {
     const clientId = parameter(url.searchParams, "client_id");
     if (!clientId || clientId.length > 2048) return error();
     stage = "client_resolution";
-    // Item 4 / task 3.5 (design D2), and the lane C follow-up ruling:
-    // resolveActiveOAuthClient (oauth-continuity.ts) is the single flag-gated
-    // resolver shared by initial admission here and by every later
-    // re-validation of the continuation it mints. `registerAdmittedCimdClient`
-    // stays unconditional: it inserts into the same `exomem_oauth_clients` /
-    // admitted-CIMD-host tables that resolveApprovedCloudOAuthClient reads, so
-    // a fresh CIMD client still self-registers under either resolver.
+    // Item 4 / task 3.5 (design D2): resolveActiveOAuthClient
+    // (oauth-continuity.ts) is the single resolver shared by initial admission
+    // here and by every later re-validation of the continuation it mints.
+    // `registerAdmittedCimdClient` inserts into the same `exomem_oauth_clients`
+    // and admitted-CIMD-host tables that resolver reads.
     let client = await resolveActiveOAuthClient(clientId);
     if (!client) {
       // A client we cannot admit may simply be one we have never met. Register it
@@ -228,32 +226,22 @@ export async function GET(request: Request): Promise<NextResponse> {
     // code, and that nonce cookie is httpOnly.
     if (!(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthAuthorizeClient, client.clientId)))
       return authorizationError(callback.redirectUri, callback.state, "temporarily_unavailable");
-    // Cloud replaces the hosted resource entirely once the flag is on, same
-    // as client resolution above -- a misconfigured Cloud deployment throws
-    // ExomemCloudConfigurationError here, which the outer catch below turns
-    // into the bound client's temporarily_unavailable callback rather than a
-    // silent fall-through to the hosted resource.
-    const cloudEnabled = exomemCloudEnabled();
-    const resource = cloudEnabled
-      ? loadExomemCloudResource().mcpUrl
-      : `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
+    // A misconfigured Cloud deployment throws ExomemCloudConfigurationError
+    // here, which the outer catch below turns into the bound client's
+    // temporarily_unavailable callback.
+    const resource = loadExomemCloudResource().mcpUrl;
     // D2: a Cloud-resource grant always carries both exomem.read and
     // exomem.write. An omitted scope receives both; a request naming only a
     // subset is refused with invalid_scope before validateAuthorizationRequest
-    // ever runs, since that function's own subset-accepting rule is correct
-    // for the hosted resource and would otherwise silently under-grant here.
-    let scope = parameters.scope ?? "";
-    if (cloudEnabled) {
-      const resolved = resolveCloudAuthorizationScope(scope);
-      if (resolved === null) {
-        return authorizationError(
-          callback.redirectUri,
-          callback.state,
-          "invalid_scope",
-          "Exomem Cloud needs both exomem.read and exomem.write"
-        );
-      }
-      scope = resolved;
+    // runs, since that function's own rule accepts a subset.
+    const scope = resolveCloudAuthorizationScope(parameters.scope ?? "");
+    if (scope === null) {
+      return authorizationError(
+        callback.redirectUri,
+        callback.state,
+        "invalid_scope",
+        "Exomem Cloud needs both exomem.read and exomem.write"
+      );
     }
     const authorization = validateAuthorizationRequest({
       client: { clientId: client.clientId, redirectUris: client.redirectUris },

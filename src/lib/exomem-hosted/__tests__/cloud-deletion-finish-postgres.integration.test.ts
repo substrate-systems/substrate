@@ -408,21 +408,11 @@ async function confirmCloudDeletion(
     expiresAt: new Date(Date.now() + 15 * 60 * 1000),
   });
   assert.ok(created, "sanity: the owner can request a deletion confirmation");
-  const prior = process.env.EXOMEM_CLOUD_ENABLED;
-  process.env.EXOMEM_CLOUD_ENABLED = "1";
-  try {
-    return await confirmDeletion(
-      token,
-      { userId: tenant.userId, tenantId: tenant.tenantId },
-      {
-        reconcile: async () => ({ attempted: false, code: "RECONCILE_IDLE" }),
-        finishCloud,
-      }
-    );
-  } finally {
-    if (prior === undefined) delete process.env.EXOMEM_CLOUD_ENABLED;
-    else process.env.EXOMEM_CLOUD_ENABLED = prior;
-  }
+  return confirmDeletion(
+    token,
+    { userId: tenant.userId, tenantId: tenant.tenantId },
+    { finishCloud }
+  );
 }
 
 type ForeignKeyEdge = {
@@ -650,11 +640,10 @@ async function subscriptionRef(tenantId: string): Promise<string | null> {
 
 describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databaseUrl }, () => {
   before(async () => {
-    for (const key of [...Object.keys(CLOUD_CONFIG_ENV), "EXOMEM_CLOUD_ENABLED"]) {
+    for (const key of Object.keys(CLOUD_CONFIG_ENV)) {
       priorEnv[key] = process.env[key];
     }
     Object.assign(process.env, CLOUD_CONFIG_ENV);
-    delete process.env.EXOMEM_CLOUD_ENABLED;
     schema = `cloud_deletion_it_${randomUUID().replaceAll("-", "")}`;
     await ensureExomemPostgresTestExtensions(databaseUrl!);
     const admin = new Pool({ connectionString: databaseUrl });
@@ -1230,7 +1219,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     assert.equal(await subscriptionRef(tenant.tenantId), subscription.subscriptionRef);
   });
 
-  it("keeps the v1 delete operation for a tenant without a Cloud cell, and the finish never touches it", async () => {
+  it("leaves a confirmed legacy tenant without a Cloud cell pending, queues no v1 operation, and the finish never touches it", async () => {
     await resetFleet();
     const user = await pool!.query<{ id: string }>(
       "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
@@ -1259,20 +1248,9 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       tenantId: v1TenantId,
       tokenDigest: digest,
     });
-    assert.ok(consumed);
-    assert.equal(typeof consumed.operationId, "string");
-    const operation = await pool!.query(
-      "SELECT id, request_id, operation_type, idempotency_key FROM exomem_lifecycle_operations WHERE tenant_id = $1",
-      [v1TenantId]
-    );
-    assert.deepEqual(operation.rows, [
-      {
-        id: consumed.operationId,
-        request_id: consumed.requestId,
-        operation_type: "delete",
-        idempotency_key: `confirmed-deletion-${created.tokenId}`,
-      },
-    ]);
+    assert.equal(consumed, true);
+    assert.equal(await tenantStatus(v1TenantId), "deletion_pending");
+    assert.equal(await lifecycleOperations(v1TenantId), 0);
 
     // A Cloud tenant in the same sweep proves the sweep ran.
     const cloudTenant = await admitCloudTenant({ source: "complimentary" });
@@ -1298,7 +1276,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       [v1TenantId]
     );
     assert.deepEqual(v1After.rows, v1Before.rows);
-    assert.equal(await lifecycleOperations(v1TenantId), 1);
+    assert.equal(await lifecycleOperations(v1TenantId), 0);
   });
 
   it("L4: applies at most one scrub when two finishes race on the same tenant, against realistic Paddle", async () => {

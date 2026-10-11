@@ -10,7 +10,7 @@ import {
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
 import { loadOwnerBillingAccount } from "@/lib/exomem-hosted/billing-account";
-import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
@@ -38,9 +38,7 @@ async function visitorAccount(
     if (!session || (session.reviewerCredentialId ?? null) !== reviewerCredentialId) return null;
     const account = await loadOwnerBillingAccount(session.userId, session.tenantId);
     if (!account) return null;
-    // Only Cloud reports when a cell is ready, so the hosted path shows no starting note.
-    const cellStarting =
-      exomemCloudEnabled() && (await getOwnerCloudStatus(session.tenantId)).state !== "ready";
+    const cellStarting = (await getOwnerCloudStatus(session.tenantId)).state !== "ready";
     return {
       effectiveState: account.effectiveState,
       sourceState: account.sourceState,
@@ -145,7 +143,7 @@ export default async function ExomemAuthorizePage({
           cellStarting={account?.cellStarting ?? false}
           reviewerEnabled={
             marketplaceReviewerAccessEnabled() &&
-            (!exomemCloudEnabled() || continuation.resource === loadExomemCloudResource().mcpUrl)
+            continuation.resource === loadExomemCloudResource().mcpUrl
           }
         />
       </main>

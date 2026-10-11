@@ -1,4 +1,4 @@
-import { exomemCloudEnabled } from "./cloud-config";
+import { assertPrincipalOwnsCloudCell, CloudPrincipalHasNoCellError } from "./cloud-oauth";
 import {
   clearExomemCheckoutTransaction,
   executeExomemSql,
@@ -221,7 +221,6 @@ export async function ownerBillingSummary(
 }
 
 export type CloudCheckoutGateDependencies = {
-  cloudEnabled?: typeof exomemCloudEnabled;
   assertCloudCellOwnership?: (tenantId: string) => Promise<void>;
 };
 
@@ -243,31 +242,18 @@ export async function startOwnerCheckout(
   ) {
     throw exomemErrors.entitlementDenied();
   }
-  // Security review finding 4: under the Cloud flag, checkout is refused
-  // while this tenant has no non-deleted Cloud cell row -- the same
-  // ownership guard token issuance already enforces
-  // (assertPrincipalOwnsCloudCell in cloud-oauth.ts), applied here too so a
-  // tenant whose only cell was fully deleted can't buy a subscription that
-  // reconcile will never have a cell to apply to. A fresh invite re-admits
-  // the tenant instead (redeemCloudInviteAtomic: same capacity check, a new
-  // cell row) -- checkout itself never creates one. Dynamic import, like
-  // every other Cloud branch added to a hosted-shared function in this
-  // codebase (e.g. paddle-webhook.ts's defaultCloudPaddleHook): a hosted-only
-  // deployment with the flag off never loads any Cloud module from here.
-  if ((dependencies.cloudEnabled ?? exomemCloudEnabled)()) {
-    const assertCloudCellOwnership =
-      dependencies.assertCloudCellOwnership ??
-      (async (id: string) => {
-        const { assertPrincipalOwnsCloudCell } = await import("./cloud-oauth");
-        await assertPrincipalOwnsCloudCell(id);
-      });
-    try {
-      await assertCloudCellOwnership(tenantId);
-    } catch (error) {
-      const { CloudPrincipalHasNoCellError } = await import("./cloud-oauth");
-      if (error instanceof CloudPrincipalHasNoCellError) throw exomemErrors.entitlementDenied();
-      throw error;
-    }
+  // Security review finding 4: checkout is refused while this tenant has no
+  // non-deleted Cloud cell row -- the same ownership guard token issuance
+  // enforces (assertPrincipalOwnsCloudCell in cloud-oauth.ts), so a tenant
+  // whose only cell was fully deleted can't buy a subscription that reconcile
+  // will never have a cell to apply to. A fresh invite re-admits the tenant
+  // instead (redeemCloudInviteAtomic: same capacity check, a new cell row) --
+  // checkout itself never creates one.
+  try {
+    await (dependencies.assertCloudCellOwnership ?? assertPrincipalOwnsCloudCell)(tenantId);
+  } catch (error) {
+    if (error instanceof CloudPrincipalHasNoCellError) throw exomemErrors.entitlementDenied();
+    throw error;
   }
   try {
     if (account.transactionRef) {

@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
-  bearerChallenge,
   buildAuthorizationServerMetadata,
-  buildProtectedResourceMetadata,
   exchangeAuthorizationCode,
   isPkceVerifier,
   mintAuthorizationCode,
@@ -24,13 +22,7 @@ const client = {
 };
 
 describe("Exomem Hosted OAuth protocol", () => {
-  it("publishes canonical protected-resource and authorization-server metadata", () => {
-    assert.deepEqual(buildProtectedResourceMetadata(baseUrl), {
-      resource,
-      authorization_servers: [`${baseUrl}/api/exomem/oauth`],
-      bearer_methods_supported: ["header"],
-      scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
-    });
+  it("publishes canonical authorization-server metadata", () => {
     assert.deepEqual(buildAuthorizationServerMetadata(baseUrl), {
       issuer: `${baseUrl}/api/exomem/oauth`,
       authorization_endpoint: `${baseUrl}/api/exomem/oauth/authorize`,
@@ -43,36 +35,6 @@ describe("Exomem Hosted OAuth protocol", () => {
       token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["exomem.read", "exomem.write", "offline_access"],
     });
-    assert.equal(
-      bearerChallenge(baseUrl),
-      `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource/api/exomem/mcp/v1", ` +
-        `scope="exomem.read exomem.write offline_access"`
-    );
-  });
-
-  // The three surfaces a client can read a scope list from must agree. They did
-  // not: the resource document omitted `offline_access` while the authorization
-  // server advertised it, and because `refresh_allowed` is derived from the
-  // requested scope, that disagreement decided which connectors survived past
-  // their fifteen-minute access token. A client is entitled to build its
-  // authorize request from any one of them and get a working grant.
-  it("advertises the same scopes on the resource, the server and the challenge", () => {
-    const expected = ["exomem.read", "exomem.write", "offline_access"];
-    const resourceScopes = (
-      buildProtectedResourceMetadata(baseUrl) as { scopes_supported: string[] }
-    ).scopes_supported;
-    const serverScopes = (
-      buildAuthorizationServerMetadata(baseUrl) as { scopes_supported: string[] }
-    ).scopes_supported;
-    const challengeScopes = /scope="([^"]+)"/.exec(bearerChallenge(baseUrl))?.[1].split(" ");
-
-    assert.deepEqual(resourceScopes, expected);
-    assert.deepEqual(serverScopes, expected);
-    assert.deepEqual(challengeScopes, expected);
-    assert.ok(
-      resourceScopes.includes("offline_access"),
-      "a client that reads only the resource document must still learn it may ask for a refresh token"
-    );
   });
 
   // Guards the derivation, not the constant: a grant is only refreshable when

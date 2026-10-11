@@ -565,9 +565,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         ],
       );
 
-      const previousCloud = process.env.EXOMEM_CLOUD_ENABLED;
       const previousReviewer = process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED;
-      process.env.EXOMEM_CLOUD_ENABLED = "true";
       process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = "true";
       __setExomemSqlForTests(taggedSql(gatewayPool!));
       try {
@@ -584,8 +582,6 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         }
       } finally {
         __setExomemSqlForTests(null);
-        if (previousCloud === undefined) delete process.env.EXOMEM_CLOUD_ENABLED;
-        else process.env.EXOMEM_CLOUD_ENABLED = previousCloud;
         if (previousReviewer === undefined)
           delete process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED;
         else process.env.EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED = previousReviewer;

@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
-import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
+import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { getOwnerCloudStatus, type LifecycleStatus } from "@/lib/exomem-hosted/cloud-status";
 import { safeErrorResponse } from "@/lib/exomem-hosted/next-error-response";
-import { getOwnerLifecycleStatus } from "@/lib/exomem-hosted/reconcile-runtime";
 import { resolveExomemSession } from "@/lib/exomem-hosted/sessions";
-import type { LifecycleStatus } from "@/lib/exomem-hosted/reconciler";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// The codes mapCloudCellToLifecycleStatus returns, plus the fallback below.
 const SAFE_STATUS_CODES = new Set([
   "TENANT_PREPARING",
   "PAYMENT_REQUIRED",
@@ -16,18 +15,7 @@ const SAFE_STATUS_CODES = new Set([
   "CELL_READY",
   "CELL_NOT_READY",
   "CELL_UNAVAILABLE",
-  "CELL_READINESS_MISMATCH",
-  "CELL_BINDING_CONFLICT",
-  "LIFECYCLE_MAX_ATTEMPTS",
-  "CAPACITY_UNAVAILABLE",
-  "PROVISIONER_UNAVAILABLE",
-  "PROVISIONER_TIMEOUT",
-  "PROVISIONER_CONFIGURATION_INVALID",
-  "PROVISIONER_REJECTED",
-  "PROVISIONER_RESPONSE_INVALID",
-  "BILLING_TERMINATION_UNAVAILABLE",
   "EXOMEM_SUSPENDED",
-  "DELETION_IN_PROGRESS",
   "EXOMEM_DELETED",
 ]);
 
@@ -56,16 +44,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       "cache-control": "private, no-store, max-age=0",
       "x-robots-tag": "noindex, nofollow",
     };
-    if (exomemCloudEnabled()) {
-      const status = safeStatus(await getOwnerCloudStatus(session.tenantId));
-      const connectorUrl = cloudConnectorUrl();
-      return NextResponse.json(
-        { success: true, status, ...(connectorUrl ? { cloudConnectorUrl: connectorUrl } : {}) },
-        { headers }
-      );
-    }
-    const status = safeStatus(await getOwnerLifecycleStatus(session.tenantId));
-    return NextResponse.json({ success: true, status }, { headers });
+    const status = safeStatus(await getOwnerCloudStatus(session.tenantId));
+    const connectorUrl = cloudConnectorUrl();
+    return NextResponse.json(
+      { success: true, status, ...(connectorUrl ? { cloudConnectorUrl: connectorUrl } : {}) },
+      { headers }
+    );
   } catch (error) {
     const response = safeErrorResponse(error);
     response.headers.set("cache-control", "private, no-store, max-age=0");

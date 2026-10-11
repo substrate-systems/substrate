@@ -1,9 +1,4 @@
-import {
-  ADMISSION_CLOSURE_PROCEDURES,
-  ADMISSION_CLOSURE_REASONS,
-  ADMISSION_CLOSURE_SITES,
-  ExomemHostedError,
-} from "./errors";
+import { ExomemHostedError } from "./errors";
 
 const EVENT_NAMES = new Set([
   "access.invite.created",
@@ -16,9 +11,6 @@ const EVENT_NAMES = new Set([
   "access.request.denied",
   "access.self_serve.admitted",
   "access.self_serve.waitlisted",
-  "lifecycle.capacity.transition",
-  "lifecycle.capacity.claim",
-  "mcp.request",
   "alerts.transition.accepted",
   "alerts.transition.duplicate",
   "alerts.transition.denied",
@@ -33,7 +25,6 @@ const ERROR_CODES = new Set([
   "ADMIN_DISABLED",
   "ADMIN_UNAUTHORIZED",
   "CELL_MAPPING_AMBIGUOUS",
-  "CELL_MAPPING_MISSING",
   "CSRF_REJECTED",
   "EMAIL_DELIVERY_UNAVAILABLE",
   "EXOMEM_SESSION_INVALID",
@@ -44,10 +35,7 @@ const ERROR_CODES = new Set([
   "INVALID_REQUEST",
   "RATE_LIMITED",
   "CAPACITY_UNAVAILABLE",
-  "CELL_RESPONSE_INVALID",
   "CELL_UNAVAILABLE",
-  "COMMAND_NOT_FOUND",
-  "CELL_PROTOCOL_MISMATCH",
   "DELETION_IN_PROGRESS",
   "EXOMEM_ENTITLEMENT_DENIED",
   "EXOMEM_DELETED",
@@ -55,9 +43,6 @@ const ERROR_CODES = new Set([
   "EXOMEM_PROVISIONING_FAILED",
   "EXOMEM_SUSPENDED",
   "HOSTED_ADMISSION_CLOSED",
-  "HOSTED_SELECTOR_REJECTED",
-  "HOSTED_CONTRACT_UNAVAILABLE",
-  "MCP_PROTOCOL_UNSUPPORTED",
   "TENANT_PREPARING",
   "TOO_LARGE",
   "ALERT_ENDPOINT_NOT_FOUND",
@@ -71,21 +56,6 @@ const ERROR_CODES = new Set([
 ]);
 
 const OUTCOMES = new Set(["succeeded", "failed", "denied", "pending"]);
-const CAPACITY_BUCKETS = new Set(["storage", "runtime", "provision"]);
-const CAPACITY_TRANSITIONS = new Set([
-  "reserved_to_uncertain",
-  "uncertain_to_occupied",
-  "occupied_to_retained_storage",
-  "uncertain_to_retained_storage",
-  "retained_storage_to_uncertain",
-  "any_to_released",
-]);
-const CLAIM_KINDS = new Set(["initial_provision", "resume"]);
-// Closed sets, not bounded labels: this is the only place an operator learns
-// why admission refused, and nothing tenant-derived may reach it.
-const CLOSURE_REASONS = new Set<string>(ADMISSION_CLOSURE_REASONS);
-const CLOSURE_SITES = new Set<string>(ADMISSION_CLOSURE_SITES);
-const CLOSURE_PROCEDURES = new Set<string>(ADMISSION_CLOSURE_PROCEDURES);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type OperationalEvent = {
@@ -103,9 +73,6 @@ export type OperationalEvent = {
   byteBucket?: string;
   responseByteBucket?: string;
   countBucket?: string;
-  capacityBucket?: string;
-  transition?: string;
-  claimKind?: string;
   clientHash?: string;
   cohortHash?: string;
   tenantHash?: string;
@@ -119,12 +86,6 @@ export type OperationalEvent = {
   alertName?: string;
   /** Opaque sender-derived transition digest; carries no content. */
   transitionHash?: string;
-  /** Why hosted admission refused, which of its three sites refused, and the
-   * procedure that clears it. Fixed labels from `errors.ts`; the refused
-   * person's payload carries none of them. */
-  closureReason?: string;
-  closureSite?: string;
-  closureProcedure?: string;
 };
 
 function optionalUuid(value: unknown): string | undefined {
@@ -133,10 +94,6 @@ function optionalUuid(value: unknown): string | undefined {
 
 function optionalBoundedLabel(value: unknown): string | undefined {
   return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,64}$/.test(value) ? value : undefined;
-}
-
-function optionalEnum(value: unknown, allowed: Set<string>): string | undefined {
-  return typeof value === "string" && allowed.has(value) ? value : undefined;
 }
 
 function optionalOpaqueHash(value: unknown): string | undefined {
@@ -187,15 +144,6 @@ export function buildOperationalEvent(
     ...(optionalBoundedLabel(input.countBucket)
       ? { countBucket: optionalBoundedLabel(input.countBucket) }
       : {}),
-    ...(optionalEnum(input.capacityBucket, CAPACITY_BUCKETS)
-      ? { capacityBucket: optionalEnum(input.capacityBucket, CAPACITY_BUCKETS) }
-      : {}),
-    ...(optionalEnum(input.transition, CAPACITY_TRANSITIONS)
-      ? { transition: optionalEnum(input.transition, CAPACITY_TRANSITIONS) }
-      : {}),
-    ...(optionalEnum(input.claimKind, CLAIM_KINDS)
-      ? { claimKind: optionalEnum(input.claimKind, CLAIM_KINDS) }
-      : {}),
     ...(optionalOpaqueHash(input.clientHash)
       ? { clientHash: optionalOpaqueHash(input.clientHash) }
       : {}),
@@ -225,15 +173,6 @@ export function buildOperationalEvent(
       : {}),
     ...(optionalOpaqueHash(input.transitionHash)
       ? { transitionHash: optionalOpaqueHash(input.transitionHash) }
-      : {}),
-    ...(optionalEnum(input.closureReason, CLOSURE_REASONS)
-      ? { closureReason: optionalEnum(input.closureReason, CLOSURE_REASONS) }
-      : {}),
-    ...(optionalEnum(input.closureSite, CLOSURE_SITES)
-      ? { closureSite: optionalEnum(input.closureSite, CLOSURE_SITES) }
-      : {}),
-    ...(optionalEnum(input.closureProcedure, CLOSURE_PROCEDURES)
-      ? { closureProcedure: optionalEnum(input.closureProcedure, CLOSURE_PROCEDURES) }
       : {}),
   };
 }

@@ -35,15 +35,6 @@ before(() => {
           : null,
     },
   });
-  mock.module("@/lib/exomem-hosted/reviewer-access-store", {
-    namedExports: {
-      findMarketplaceReviewerCredentialForAuthentication: async () => null,
-      createMarketplaceReviewerOAuthSessionAtomic: async (input: Record<string, unknown>) => {
-        bindCalls.push(input);
-        return { sessionId: "session-1" };
-      },
-    },
-  });
   mock.module("@/lib/exomem-hosted/oauth-continuity", {
     namedExports: {
       resolveOAuthContinuation: async () => continuation,
@@ -126,6 +117,7 @@ describe("POST /api/exomem/access/reviewer", () => {
     assert.equal(body.status, "authenticated");
     assert.match(String(body.destination), /^\/exomem\/authorize\?confirmation=/);
     assert.equal(bindCalls.length, 1);
+    assert.equal(bindCalls[0].cloud, true);
     assert.equal(bindCalls[0].credentialId, "credential-1");
     assert.equal(bindCalls[0].transactionDigest instanceof Buffer, true);
     assert.equal(JSON.stringify(bindCalls[0]).includes(USERNAME), false);
@@ -134,22 +126,6 @@ describe("POST /api/exomem/access/reviewer", () => {
     assert.equal(JSON.stringify(body).includes("owner-sentinel"), false);
     assert.equal(JSON.stringify(body).includes("tenant-sentinel"), false);
     assert.equal(JSON.stringify(body).includes("review-fixture-v1"), false);
-  });
-
-  // Cloud design D2: the reviewer-credential branch does not apply under
-  // Cloud, so a credential issued before the flag was turned on no longer
-  // redeems either.
-  it("uses independent reviewer redemption while Exomem Cloud is enabled", async () => {
-    const { POST } = await import("../route");
-    process.env.EXOMEM_CLOUD_ENABLED = "1";
-    try {
-      const response = await POST(request());
-      assert.equal(response.status, 200);
-      assert.equal(bindCalls.length, 1);
-      assert.equal(bindCalls[0].cloud, true);
-    } finally {
-      delete process.env.EXOMEM_CLOUD_ENABLED;
-    }
   });
 
   it("uses one generic no-store failure for disabled, missing continuation, invalid credentials, and malformed credentials", async () => {
@@ -175,24 +151,19 @@ describe("POST /api/exomem/access/reviewer", () => {
   });
 
   it("refuses missing/mismatched nonce, foreign origin and non-Cloud continuation before binding", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
-    try {
-      const { POST } = await import("../route");
-      const attempts = [
-        request({ username: USERNAME, password: PASSWORD }),
-        request({ username: USERNAME, password: PASSWORD, nonce: "wrong" }),
-      ];
-      const foreign = request();
-      foreign.headers.set("origin", "https://foreign.example.test");
-      attempts.push(foreign);
-      for (const attempt of attempts) assert.equal((await POST(attempt)).status, 401);
-      continuation = { ...continuationValue, resource: "https://hosted.example.test/mcp" };
-      assert.equal((await POST(request())).status, 401);
-      continuation = { ...continuationValue, formNonceDigest: Buffer.alloc(32) };
-      assert.equal((await POST(request())).status, 401);
-      assert.equal(bindCalls.length, 0);
-    } finally {
-      delete process.env.EXOMEM_CLOUD_ENABLED;
-    }
+    const { POST } = await import("../route");
+    const attempts = [
+      request({ username: USERNAME, password: PASSWORD }),
+      request({ username: USERNAME, password: PASSWORD, nonce: "wrong" }),
+    ];
+    const foreign = request();
+    foreign.headers.set("origin", "https://foreign.example.test");
+    attempts.push(foreign);
+    for (const attempt of attempts) assert.equal((await POST(attempt)).status, 401);
+    continuation = { ...continuationValue, resource: "https://hosted.example.test/mcp" };
+    assert.equal((await POST(request())).status, 401);
+    continuation = { ...continuationValue, formNonceDigest: Buffer.alloc(32) };
+    assert.equal((await POST(request())).status, 401);
+    assert.equal(bindCalls.length, 0);
   });
 });

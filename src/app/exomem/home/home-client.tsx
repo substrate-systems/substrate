@@ -12,11 +12,9 @@ import styles from "../private-shell.module.css";
 import {
   type Lifecycle,
   type LifecycleState,
-  type InstallAction,
   createSingleFlight,
   nextStatusPollDelayMs,
   parseCloudConnectorUrl,
-  parseInstallActions,
   parseLifecycleResponse,
 } from "./home-state";
 import { type HomeSection, homeSections } from "./home-sections";
@@ -112,7 +110,6 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
     checkoutAvailable: boolean;
     portalAvailable: boolean;
   } | null>(null);
-  const [installActions, setInstallActions] = useState<InstallAction[]>([]);
   // Null until /api/exomem/status returns the tenant's Cloud connector URL.
   // The status route omits it when the deployment has no Cloud resource
   // configured, and Home then says the address is unavailable.
@@ -180,7 +177,6 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
     if (lifecycle.state !== "ready" && lifecycle.state !== "awaiting_payment") return;
     void getPrivateJson("/api/exomem/account")
       .then((response) => {
-        setInstallActions(parseInstallActions(response));
         const value = response.billing;
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
         const candidate = value as Record<string, unknown>;
@@ -429,48 +425,26 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
 
         <p className={styles.connectLabel}>Where each step goes</p>
         <div className={styles.connectRoutes}>
-          {CLIENT_GUIDES.map((guide) => {
-            // One source of truth: a client can show an install button only if
-            // it is installable at all AND the server actually published an
-            // action for its platform.
-            const action = guide.installable
-              ? installActions.find(
-                  (candidate) =>
-                    candidate.platform === (guide.client === "claude" ? "claude" : "openai")
-                )
-              : undefined;
-            return (
-              <div key={guide.client}>
-                <div className={styles.secondaryRow}>
-                  <div>
-                    <strong>{guide.name}</strong>
-                    <p className={styles.secondaryCopy}>
-                      {action
-                        ? `One-click install · version ${action.version}`
-                        : `Connect: ${guide.connect}`}
-                    </p>
-                    {guide.blocked ? (
-                      <p className={styles.secondaryCopy}>{guide.blocked}</p>
-                    ) : (
-                      <p className={styles.secondaryCopy}>
-                        Instructions go in: {guide.pasteTarget}
-                      </p>
-                    )}
-                  </div>
-                  {action ? (
-                    <a className={styles.quietButton} href={action.installUrl}>
-                      Install in {guide.name}
-                    </a>
-                  ) : null}
+          {CLIENT_GUIDES.map((guide) => (
+            <div key={guide.client}>
+              <div className={styles.secondaryRow}>
+                <div>
+                  <strong>{guide.name}</strong>
+                  <p className={styles.secondaryCopy}>Connect: {guide.connect}</p>
+                  {guide.blocked ? (
+                    <p className={styles.secondaryCopy}>{guide.blocked}</p>
+                  ) : (
+                    <p className={styles.secondaryCopy}>Instructions go in: {guide.pasteTarget}</p>
+                  )}
                 </div>
-                {guide.commands && !action && cloudConnectorUrl ? (
-                  <pre className={styles.connectCommands}>
-                    <code>{guide.commands(cloudConnectorUrl)}</code>
-                  </pre>
-                ) : null}
               </div>
-            );
-          })}
+              {guide.commands && cloudConnectorUrl ? (
+                <pre className={styles.connectCommands}>
+                  <code>{guide.commands(cloudConnectorUrl)}</code>
+                </pre>
+              ) : null}
+            </div>
+          ))}
         </div>
       </div>
     ),

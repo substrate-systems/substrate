@@ -15,12 +15,6 @@ export type Lifecycle = {
   requestId?: string;
 };
 
-export type InstallAction = {
-  platform: "claude" | "openai";
-  version: string;
-  installUrl: string;
-};
-
 export function createSingleFlight<T>(): (load: () => Promise<T>) => Promise<T> {
   let pending: Promise<T> | null = null;
   return (load) => {
@@ -71,11 +65,9 @@ export function parseLifecycleResponse(value: unknown): Lifecycle | null {
 }
 
 /**
- * Item 6 / task 3.7: the Cloud MCP connector URL /api/exomem/status returns
- * under EXOMEM_CLOUD_ENABLED. Validated the same way `parseInstallActions`
- * validates an install URL -- https, no credentials, no query/fragment --
- * even though this is our own server's response, for the same reason that
- * function already applies that rigor to one.
+ * Item 6 / task 3.7: the Cloud MCP connector URL /api/exomem/status returns.
+ * Only an https URL with no credentials, query or fragment is shown, even
+ * though this is our own server's response.
  */
 export function parseCloudConnectorUrl(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -90,46 +82,6 @@ export function parseCloudConnectorUrl(value: unknown): string | null {
   } catch {
     return null;
   }
-}
-
-export function parseInstallActions(value: unknown): InstallAction[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  const actions = (value as Record<string, unknown>).installActions;
-  if (!Array.isArray(actions)) return [];
-  return actions.flatMap((action) => {
-    if (!action || typeof action !== "object" || Array.isArray(action)) return [];
-    const candidate = action as Record<string, unknown>;
-    if (
-      (candidate.platform !== "claude" && candidate.platform !== "openai") ||
-      typeof candidate.version !== "string" ||
-      !candidate.version ||
-      typeof candidate.installUrl !== "string"
-    ) {
-      return [];
-    }
-    try {
-      const installUrl = new URL(candidate.installUrl);
-      if (
-        installUrl.protocol !== "https:" ||
-        installUrl.username ||
-        installUrl.password ||
-        installUrl.search ||
-        installUrl.hash ||
-        /(?:bearer|cell|mcp|secret|tenant|token)/i.test(installUrl.toString())
-      ) {
-        return [];
-      }
-      return [
-        {
-          platform: candidate.platform,
-          version: candidate.version,
-          installUrl: installUrl.href,
-        },
-      ];
-    } catch {
-      return [];
-    }
-  });
 }
 
 export function nextStatusPollDelayMs(lifecycle: Lifecycle, attempt: number): number | null {

@@ -51,6 +51,7 @@ describe("owner Exomem billing account", () => {
   it("creates checkout with only session-derived owner and tenant", async () => {
     let input: unknown;
     const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+      assertCloudCellOwnership: async () => undefined,
       load: async () => ACCOUNT,
       checkout: async (value) => {
         input = value;
@@ -61,12 +62,11 @@ describe("owner Exomem billing account", () => {
     assert.equal(result.checkoutUrl, "https://checkout.paddle.test/exomem");
   });
 
-  // Security review finding 4: while a Cloud tenant has no non-deleted cell
-  // row, checkout is refused under the flag -- the same ownership guard
-  // token issuance already enforces (assertPrincipalOwnsCloudCell), so a
-  // subscription can never be bought for a tenant reconcile has nothing to
-  // apply it to.
-  it("Cloud flag on, no live cell: refuses checkout instead of creating a Paddle transaction", async () => {
+  // Security review finding 4: while a tenant has no non-deleted Cloud cell
+  // row, checkout is refused -- the same ownership guard token issuance
+  // already enforces (assertPrincipalOwnsCloudCell), so a subscription can
+  // never be bought for a tenant reconcile has nothing to apply it to.
+  it("refuses checkout instead of creating a Paddle transaction when no live cell exists", async () => {
     let checkoutCalled = false;
     let ownershipCheckedTenantId: string | undefined;
     await assert.rejects(
@@ -76,7 +76,6 @@ describe("owner Exomem billing account", () => {
           checkoutCalled = true;
           return { checkoutUrl: "https://checkout.paddle.test/exomem" };
         },
-        cloudEnabled: () => true,
         assertCloudCellOwnership: async (tenantId) => {
           ownershipCheckedTenantId = tenantId;
           const { CloudPrincipalHasNoCellError } = await import("../cloud-oauth");
@@ -89,12 +88,11 @@ describe("owner Exomem billing account", () => {
     assert.equal(ownershipCheckedTenantId, ACCOUNT.tenantId);
   });
 
-  it("Cloud flag on, a live cell: checks ownership but still creates checkout as normal", async () => {
+  it("checks cell ownership and then creates checkout as normal when a live cell exists", async () => {
     let ownershipChecked = false;
     const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
       load: async () => ACCOUNT,
       checkout: async () => ({ checkoutUrl: "https://checkout.paddle.test/exomem" }),
-      cloudEnabled: () => true,
       assertCloudCellOwnership: async () => {
         ownershipChecked = true;
       },
@@ -103,24 +101,11 @@ describe("owner Exomem billing account", () => {
     assert.equal(result.checkoutUrl, "https://checkout.paddle.test/exomem");
   });
 
-  it("Cloud flag off: never checks cell ownership at all", async () => {
-    let ownershipChecked = false;
-    const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
-      load: async () => ACCOUNT,
-      checkout: async () => ({ checkoutUrl: "https://checkout.paddle.test/exomem" }),
-      cloudEnabled: () => false,
-      assertCloudCellOwnership: async () => {
-        ownershipChecked = true;
-      },
-    });
-    assert.equal(ownershipChecked, false);
-    assert.equal(result.checkoutUrl, "https://checkout.paddle.test/exomem");
-  });
-
   it("reuses the authoritative Paddle transaction instead of creating an orphan retry", async () => {
     const transactionRef = `txn_${"a".repeat(26)}`;
     let resumed: unknown;
     const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+      assertCloudCellOwnership: async () => undefined,
       load: async () => ({ ...ACCOUNT, transactionRef, providerEnvironment: "sandbox" }),
       checkout: async () => {
         throw new Error("must not create a second transaction");
@@ -383,6 +368,7 @@ describe("owner Exomem billing account", () => {
     const calls: Array<{ operation: string; input: unknown }> = [];
 
     const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+      assertCloudCellOwnership: async () => undefined,
       load: async () => ({ ...ACCOUNT, transactionRef, providerEnvironment: "sandbox" }),
       resume: async (input) => {
         calls.push({ operation: "resume", input });
@@ -431,6 +417,7 @@ describe("owner Exomem billing account", () => {
     let checkoutCalls = 0;
     await assert.rejects(
       startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+        assertCloudCellOwnership: async () => undefined,
         load: async () => ({
           ...ACCOUNT,
           transactionRef: `txn_${"a".repeat(26)}`,
@@ -457,6 +444,7 @@ describe("owner Exomem billing account", () => {
 
     await assert.rejects(
       startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
+        assertCloudCellOwnership: async () => undefined,
         load: async () => ({ ...ACCOUNT, transactionRef, providerEnvironment: "sandbox" }),
         resume: async (input) => {
           calls.push({ operation: "resume", input });

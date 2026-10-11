@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import {
   createCloudReviewerOAuthSessionAtomic,
   findCloudReviewerCredentialForAuthentication,
@@ -10,10 +10,6 @@ import {
   marketplaceReviewerAccessEnabled,
   authenticateMarketplaceReviewerCredential,
 } from "@/lib/exomem-hosted/reviewer-access";
-import {
-  createMarketplaceReviewerOAuthSessionAtomic,
-  findMarketplaceReviewerCredentialForAuthentication,
-} from "@/lib/exomem-hosted/reviewer-access-store";
 import {
   oauthConsentPath,
   oauthContinuationDigest,
@@ -42,7 +38,6 @@ function authenticationFailed(): NextResponse {
 
 export async function POST(request: Request): Promise<NextResponse> {
   if (!marketplaceReviewerAccessEnabled()) return authenticationFailed();
-  const cloud = exomemCloudEnabled();
   try {
     validatePublicAccessRequest(request);
     const continuation = await resolveOAuthContinuation(request);
@@ -61,22 +56,20 @@ export async function POST(request: Request): Promise<NextResponse> {
     ) {
       return authenticationFailed();
     }
-    if (cloud) {
-      const nonce = oauthFormNonceFromRequest(request);
-      const submittedNonce = (body as { nonce?: unknown }).nonce;
-      if (
-        request.headers.get("origin") !== new URL(request.url).origin ||
-        continuation.resource !== loadExomemCloudResource().mcpUrl ||
-        !nonce ||
-        typeof submittedNonce !== "string" ||
-        !constantTimeSecretEqual(nonce, submittedNonce) ||
-        !constantTimeSecretEqual(
-          digestSecret(nonce).toString("base64url"),
-          continuation.formNonceDigest.toString("base64url")
-        )
+    const nonce = oauthFormNonceFromRequest(request);
+    const submittedNonce = (body as { nonce?: unknown }).nonce;
+    if (
+      request.headers.get("origin") !== new URL(request.url).origin ||
+      continuation.resource !== loadExomemCloudResource().mcpUrl ||
+      !nonce ||
+      typeof submittedNonce !== "string" ||
+      !constantTimeSecretEqual(nonce, submittedNonce) ||
+      !constantTimeSecretEqual(
+        digestSecret(nonce).toString("base64url"),
+        continuation.formNonceDigest.toString("base64url")
       )
-        return authenticationFailed();
-    }
+    )
+      return authenticationFailed();
     const credential = await authenticateMarketplaceReviewerCredential(
       {
         username: (body as { username: string }).username,
@@ -85,16 +78,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       },
       {
         enabled: true,
-        lookup: cloud
-          ? findCloudReviewerCredentialForAuthentication
-          : findMarketplaceReviewerCredentialForAuthentication,
+        lookup: findCloudReviewerCredentialForAuthentication,
       }
     );
     if (!credential) return authenticationFailed();
     const session = mintSessionMaterial();
-    const created = await (
-      cloud ? createCloudReviewerOAuthSessionAtomic : createMarketplaceReviewerOAuthSessionAtomic
-    )({
+    const created = await createCloudReviewerOAuthSessionAtomic({
       credentialId: credential.credentialId,
       transactionDigest,
       sessionDigest: session.sessionDigest,

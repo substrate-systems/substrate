@@ -4,7 +4,6 @@ import {
   issueOperatorInvite,
   inspectInvite,
   normalizeAccessEmail,
-  redeemInvite,
   redeemMagicLink,
   requestMagicLink,
   requestSelfServeAccess,
@@ -27,12 +26,6 @@ function dependencies(overrides: Partial<AccessDependencies> = {}): AccessDepend
     inspectInvite: async () => ({
       emailNormalized: SENTINEL,
       expiresAt: "2026-07-14T12:00:00.000Z",
-    }),
-    redeemInviteAtomic: async () => ({
-      userId: "user-1",
-      tenantId: "tenant-1",
-      sessionId: "session-1",
-      operationId: "operation-1",
     }),
     redeemMagicAccessTokenAtomic: async (input) =>
       input.browserChallengeDigest.equals(tokenDigest(CHALLENGE)!)
@@ -166,15 +159,6 @@ describe("Exomem hosted access", () => {
       })
     );
     assert.match(rendered, /http:\/\/127\.0\.0\.1:3000\/exomem\/invite#/);
-  });
-
-  it("rejects replay with one non-enumerating stable failure", async () => {
-    const deps = dependencies({ redeemInviteAtomic: async () => null });
-    await assert.rejects(
-      () => redeemInvite("YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE", deps),
-      (error: unknown) =>
-        error instanceof Error && "code" in error && error.code === "ACCESS_TOKEN_INVALID"
-    );
   });
 
   it("lets only the valid invite holder inspect the email they are about to accept", async () => {

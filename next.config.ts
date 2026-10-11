@@ -3,28 +3,6 @@ import type { NextConfig } from "next";
 // Keep in sync with src/app/providers.tsx — the SDK posts to /ingest and these
 // rewrites forward to whichever PostHog region is configured.
 const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
-const EXOMEM_GATEWAY_TUNNEL_ORIGIN = process.env.EXOMEM_GATEWAY_TUNNEL_ORIGIN;
-
-function exomemGatewayRewrite() {
-  if (!EXOMEM_GATEWAY_TUNNEL_ORIGIN) return [];
-  const origin = new URL(EXOMEM_GATEWAY_TUNNEL_ORIGIN);
-  if (
-    origin.protocol !== "https:" ||
-    origin.username ||
-    origin.password ||
-    origin.pathname !== "/" ||
-    origin.search ||
-    origin.hash
-  ) {
-    throw new Error("EXOMEM_GATEWAY_TUNNEL_ORIGIN must be an HTTPS origin");
-  }
-  return [
-    {
-      source: "/api/exomem/mcp/v1",
-      destination: new URL("/api/exomem/mcp/v1", origin).toString(),
-    },
-  ];
-}
 
 /**
  * PostHog serves the SDK bundle and session assets from a sibling `-assets`
@@ -45,9 +23,6 @@ const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
   async rewrites() {
     return {
-      // Cutover stays disabled until the companion tunnel origin is configured.
-      // beforeFiles runs before the local MCP App Route, so Vercel never invokes it.
-      beforeFiles: exomemGatewayRewrite(),
       afterFiles: [
         // Pretty public URL for the Endstate installer. Served by the
         // /api/download route which 302s to the current artifact.
@@ -74,10 +49,6 @@ const nextConfig: NextConfig = {
     ];
     return [
       { source: "/exomem/operator", headers: privateHeaders },
-      {
-        source: "/api/exomem/mcp/v1",
-        headers: [...privateHeaders, { key: "x-vercel-enable-rewrite-caching", value: "0" }],
-      },
       { source: "/api/exomem/admin/:path*", headers: privateHeaders },
     ];
   },

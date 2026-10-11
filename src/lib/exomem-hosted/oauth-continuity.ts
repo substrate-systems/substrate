@@ -1,12 +1,10 @@
 import { createHmac } from "node:crypto";
 import { NextResponse } from "next/server";
-import { exomemCloudEnabled } from "./cloud-config";
 import { resolveApprovedCloudOAuthClient } from "./cloud-oauth";
 import { mintAuthorizationCode, type AuthorizationCodeRecord } from "./oauth";
 import {
   createAuthorizationTransaction,
   findPendingOAuthAuthorization,
-  resolveApprovedOAuthClient,
   type PendingOAuthAuthorization,
 } from "./oauth-store";
 import {
@@ -205,25 +203,15 @@ export function matchesOAuthConfirmationHandle(
 
 export type ApprovedOAuthContinuationClient = { clientId: string; redirectUris: string[] };
 
-// Lane C follow-up ruling: an OAuth continuation must be re-validated with
-// the same client resolver that admitted it at /authorize. EXOMEM_CLOUD_ENABLED
-// switches the live resolver everywhere a client is resolved for OAuth
-// purposes -- not only at initial admission (authorize/route.ts, which now
-// calls this same function) but at every later re-validation of an
-// already-minted continuation (the invite POST, /authorize/complete, and the
-// access-redeem routes, all of which call resolveOAuthContinuation below).
-// Before this fix, resolveOAuthContinuationToken always re-validated through
-// the hosted resolveApprovedOAuthClient, regardless of the flag -- so a
-// client that lost Cloud admission after its continuation was minted could
-// still pass re-validation if it happened to qualify under the hosted
-// resolver's whole-cohort or marketplace-reviewer-bootstrap OR-branches,
-// neither of which is supposed to apply to Cloud at all.
+// An OAuth continuation is re-validated with the same client resolver that
+// admitted it at /authorize, at every later use (the invite POST,
+// /authorize/complete and the access-redeem routes all call
+// resolveOAuthContinuation below), so a client that lost Cloud admission after
+// its continuation was minted cannot complete it.
 export async function resolveActiveOAuthClient(
   clientId: string
 ): Promise<ApprovedOAuthContinuationClient | null> {
-  return exomemCloudEnabled()
-    ? resolveApprovedCloudOAuthClient(clientId)
-    : resolveApprovedOAuthClient(clientId);
+  return resolveApprovedCloudOAuthClient(clientId);
 }
 
 export async function resolveOAuthContinuation(

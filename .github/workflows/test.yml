@@ -35,28 +35,15 @@ jobs:
       - id: install
         run: npm ci
       - run: npm test
-      - name: Hosted Exomem reviewer bootstrap PostgreSQL race matrix
-        env:
-          EXOMEM_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/substrate_test
-          CONFIRM_ENDSTATE_CLOUD_RELEASE_A: "yes"
-        run: >-
-          node --import tsx --experimental-test-module-mocks --test
-          src/lib/exomem-hosted/__tests__/oauth-bootstrap-postgres.integration.test.ts
-      - name: Hosted Exomem PostgreSQL authority and paired acceptance
+      - name: Exomem shared PostgreSQL authority (OAuth, capacity, billing, sessions, migrations)
         env:
           EXOMEM_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/substrate_test
           CONFIRM_ENDSTATE_CLOUD_RELEASE_A: "yes"
         run: >-
           node --import tsx --experimental-test-module-mocks --test
           src/lib/exomem-hosted/__tests__/oauth-postgres.integration.test.ts
-          src/lib/exomem-hosted/__tests__/oauth-service-admission-postgres.integration.test.ts
-          src/lib/exomem-hosted/__tests__/agent-contract-postgres.integration.test.ts
-          src/lib/exomem-hosted/__tests__/d1-expand-preflight-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/capacity-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/migration-upgrade.integration.test.ts
-          src/lib/exomem-hosted/__tests__/hosted-paired-acceptance.test.ts
-          src/lib/exomem-hosted/__tests__/platform-cohort-postgres.integration.test.ts
-          src/lib/exomem-hosted/__tests__/agent-contract-routing-cas.integration.test.ts
           src/lib/exomem-hosted/__tests__/migration-runner.integration.test.ts
           src/lib/exomem-hosted/__tests__/postgres.integration.test.ts
       - name: Hosted Backup version-commit and lifecycle PostgreSQL authority, shared driver

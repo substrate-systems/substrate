@@ -1,31 +1,25 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { after, afterEach, before, beforeEach, describe, it, mock } from "node:test";
+import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { NextRequest } from "next/server";
 import { pkceS256 } from "@/lib/exomem-hosted/oauth";
 import { readOAuthForm } from "@/lib/exomem-hosted/oauth-http";
 import { digestSecret } from "@/lib/exomem-hosted/security";
 
 const BASE_URL = "https://hosted.example.test";
-const RESOURCE = `${BASE_URL}/api/exomem/mcp/v1`;
+const RESOURCE = "https://cloud.example.test/mcp/v1";
+// A retired Hosted resource: tokens minted for it must never cross to Cloud.
+const RETIRED_HOSTED_RESOURCE = `${BASE_URL}/api/exomem/mcp/v1`;
 const CLIENT_ID = "https://client.example.test/client.json";
 const REDIRECT_URI = "https://client.example.test/oauth/callback";
 const VERIFIER = "v".repeat(43);
 const SESSION_TOKEN = Buffer.alloc(32, 0x31).toString("base64url");
 const FORM_SECRET = "oauth-route-content-sentinel";
 
-// Task 3.5 / item 4 (OAuth resource binding): a Cloud-only client and
-// resource, resolved only through cloud-oauth.ts's resolveApprovedCloudOAuthClient
-// -- never through the hosted resolveApprovedOAuthClient mock above, which
-// returns null for anything but CLIENT_ID. If a route under test still called
-// the hosted resolver despite the flag being on, these tests would fail at
-// client resolution rather than at the resource assertion.
-const CLOUD_RESOURCE = "https://cloud.example.test/mcp/v1";
+// A second Cloud client, so a test can tell which admitted client a route bound.
 const CLOUD_CLIENT_ID = "https://cloud-client.example.test/client.json";
 const CLOUD_REDIRECT_URI = "https://cloud-client.example.test/oauth/callback";
 const CLOUD_CELL_TOKEN_KEY = randomBytes(32).toString("hex");
-const ORIGINAL_CLOUD_ENABLED = process.env.EXOMEM_CLOUD_ENABLED;
-let cloudClientResolutions = 0;
 // Item 6 / security review finding 7: whether a mocked cloud grant "owns" a
 // non-deleted cell row, i.e. what assertGrantOwnsCloudCell answers. true by
 // default so every existing Cloud-flagged test (none of which are about this
@@ -37,15 +31,9 @@ class CloudPrincipalHasNoCellErrorMock extends Error {}
 let cloudAdmissionError: Error | null = null;
 let cloudAdmitCalls: Array<Record<string, unknown>> = [];
 
-// Lane C follow-up ruling: a client that was Cloud-admitted when its
-// continuation was minted, but has since lost Cloud admission, would still
-// pass the HOSTED resolver's whole-cohort / marketplace-reviewer-bootstrap
-// branches -- the mocks below simulate exactly that pass-through, on a
-// dedicated client id kept separate from CLOUD_CLIENT_ID so the trap comment
-// above (assert.equal(oauthClientResolutions, 0) at mint time) still holds
-// for every other Cloud-flagged test. resolveOAuthContinuationToken must
-// refuse re-validation once this flag flips false, proving it never falls
-// back to the hosted resolver for a Cloud continuation.
+// A client that was admitted when its continuation was minted, but has since
+// lost admission: resolveOAuthContinuationToken must refuse re-validation once
+// this flag flips false.
 const REVOKED_CLOUD_CLIENT_ID = "https://revoked-cloud-client.example.test/client.json";
 const REVOKED_CLOUD_REDIRECT_URI = "https://revoked-cloud-client.example.test/oauth/callback";
 let revokedCloudClientStillCloudAdmitted = true;
@@ -66,8 +54,6 @@ type StoredContinuation = {
 
 const continuations = new Map<string, StoredContinuation>();
 const attached: Array<{ sessionId: string; transactionDigest: Buffer; codeDigest: Buffer }> = [];
-let admitCalls: Array<Record<string, unknown>> = [];
-let admissionError: Error | null = null;
 let rateLimitAllowed = true;
 let oauthClientResolutions = 0;
 let oauthClientResolutionError: Error | null = null;
@@ -153,20 +139,22 @@ function storedContinuation(input: StoredContinuation) {
 before(() => {
   process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 0x51).toString("base64url");
   process.env.EXOMEM_PUBLIC_BASE_URL = BASE_URL;
-  // Cloud config vars (item 4 / task 3.5): harmless while EXOMEM_CLOUD_ENABLED
-  // stays unset, since exomemCloudEnabled() gates every reader of them.
-  process.env.EXOMEM_CLOUD_MCP_URL = CLOUD_RESOURCE;
+  process.env.EXOMEM_CLOUD_MCP_URL = RESOURCE;
   process.env.EXOMEM_CLOUD_MCP_PATH = "/api/exomem/cloud/mcp/v1";
   process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY = CLOUD_CELL_TOKEN_KEY;
-  delete process.env.EXOMEM_CLOUD_ENABLED;
-  // A deliberately different client/resolver from the hosted mock below: if a
-  // route under test called resolveApprovedOAuthClient instead of this one
-  // despite EXOMEM_CLOUD_ENABLED being on, CLOUD_CLIENT_ID would never
-  // resolve and every Cloud-flagged test would fail at client resolution.
   mock.module("@/lib/exomem-hosted/cloud-oauth", {
     namedExports: {
       resolveApprovedCloudOAuthClient: async (clientId: string) => {
-        cloudClientResolutions += 1;
+        oauthClientResolutions += 1;
+        if (oauthClientResolutionError) throw oauthClientResolutionError;
+        if (clientId === CLIENT_ID) {
+          return {
+            id: "018f2d91-7c42-7000-8000-000000000041",
+            clientId: CLIENT_ID,
+            redirectUris: approvedRedirectUris,
+            admissionMode: "pinned" as const,
+          };
+        }
         if (clientId === CLOUD_CLIENT_ID) {
           return {
             id: "018f2d91-7c42-7000-8000-000000000099",
@@ -218,32 +206,6 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/oauth-store", {
     namedExports: {
-      resolveApprovedOAuthClient: async (clientId: string) => {
-        oauthClientResolutions += 1;
-        if (oauthClientResolutionError) throw oauthClientResolutionError;
-        if (clientId === CLIENT_ID) {
-          return {
-            id: "018f2d91-7c42-7000-8000-000000000041",
-            clientId: CLIENT_ID,
-            redirectUris: approvedRedirectUris,
-            admissionMode: "pinned",
-          };
-        }
-        // Lane C follow-up ruling, test 1: REVOKED_CLOUD_CLIENT_ID always
-        // resolves here, unconditionally -- standing in for the hosted
-        // resolver's whole-cohort / marketplace-reviewer-bootstrap
-        // OR-branches, which do not model Cloud admission at all and must
-        // never be allowed to re-validate a Cloud continuation.
-        if (clientId === REVOKED_CLOUD_CLIENT_ID) {
-          return {
-            id: "018f2d91-7c42-7000-8000-000000000097",
-            clientId: REVOKED_CLOUD_CLIENT_ID,
-            redirectUris: [REVOKED_CLOUD_REDIRECT_URI],
-            admissionMode: "pinned",
-          };
-        }
-        return null;
-      },
       createAuthorizationTransaction: async (input: StoredContinuation) => {
         continuations.set(digestKey(input.transactionDigest), input);
         return { id: `transaction-${continuations.size}` };
@@ -355,11 +317,6 @@ before(() => {
           family.revokedReason = "client_revoked";
         }
       },
-      admitFirstOAuthInviteAtomic: async (input: Record<string, unknown>) => {
-        admitCalls.push(input);
-        if (admissionError) throw admissionError;
-        return { tenantId: "tenant-1", sessionId: "session-1", grantId: "grant-1" };
-      },
     },
   });
   mock.module("@/lib/exomem-hosted/rate-limit", {
@@ -411,15 +368,11 @@ before(() => {
 
 after(() => {
   mock.reset();
-  if (ORIGINAL_CLOUD_ENABLED === undefined) delete process.env.EXOMEM_CLOUD_ENABLED;
-  else process.env.EXOMEM_CLOUD_ENABLED = ORIGINAL_CLOUD_ENABLED;
 });
 
 beforeEach(() => {
   continuations.clear();
   attached.length = 0;
-  admitCalls = [];
-  admissionError = null;
   rateLimitAllowed = true;
   oauthClientResolutions = 0;
   oauthClientResolutionError = null;
@@ -429,19 +382,11 @@ beforeEach(() => {
   refreshCredentials.clear();
   families.clear();
   revocableCredentialFamilies.clear();
-  cloudClientResolutions = 0;
   cloudGrantOwnsCell = true;
   cloudGrantOwnershipChecks = 0;
   cloudAdmissionError = null;
   cloudAdmitCalls = [];
   revokedCloudClientStillCloudAdmitted = true;
-  delete process.env.EXOMEM_CLOUD_ENABLED;
-});
-
-// Belt-and-suspenders: a test that sets EXOMEM_CLOUD_ENABLED and throws
-// before its own finally block must not leak the flag into later tests.
-afterEach(() => {
-  delete process.env.EXOMEM_CLOUD_ENABLED;
 });
 
 function authorizeRequest(state = "client-state", overrides: Record<string, string> = {}): Request {
@@ -450,7 +395,7 @@ function authorizeRequest(state = "client-state", overrides: Record<string, stri
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     resource: RESOURCE,
-    scope: "exomem.read offline_access",
+    scope: "exomem.read exomem.write offline_access",
     state,
     code_challenge: pkceS256(VERIFIER),
     code_challenge_method: "S256",
@@ -657,7 +602,9 @@ describe("Exomem OAuth routes", () => {
   it("returns approved authorization failures to the bound client with the original state", async () => {
     const { GET } = await import("../authorize/route");
     const response = await GET(
-      authorizeRequest("opaque client state", { scope: "exomem.read unsupported.scope" })
+      authorizeRequest("opaque client state", {
+        scope: "exomem.read exomem.write unsupported.scope",
+      })
     );
 
     assert.equal(response.status, 303);
@@ -674,7 +621,7 @@ describe("Exomem OAuth routes", () => {
     const response = await GET(
       authorizeRequest("attacker state", {
         redirect_uri: "https://attacker.example.test/oauth/callback",
-        scope: "exomem.read unsupported.scope",
+        scope: "exomem.read exomem.write unsupported.scope",
       })
     );
 
@@ -687,7 +634,7 @@ describe("Exomem OAuth routes", () => {
   it("omits an oversized state from an approved authorization error callback", async () => {
     const { GET } = await import("../authorize/route");
     const response = await GET(
-      authorizeRequest("s".repeat(2049), { scope: "exomem.read unsupported.scope" })
+      authorizeRequest("s".repeat(2049), { scope: "exomem.read exomem.write unsupported.scope" })
     );
 
     assert.equal(response.status, 303);
@@ -733,7 +680,7 @@ describe("Exomem OAuth routes", () => {
         clientId: CLIENT_ID,
         redirectUri: REDIRECT_URI,
         resource: RESOURCE,
-        scopes: ["exomem.read", "offline_access"],
+        scopes: ["exomem.read", "exomem.write", "offline_access"],
         pkceChallenge: pkceS256(VERIFIER),
       }
     );
@@ -818,7 +765,7 @@ describe("Exomem OAuth routes", () => {
         client_id: CLIENT_ID,
         redirect_uri: LOOPBACK_REDIRECT,
         resource: RESOURCE,
-        scope: "exomem.read",
+        scope: "exomem.read exomem.write",
         state: "loop.127.0.0.1",
         code_challenge: pkceS256(VERIFIER),
         code_challenge_method: "plain",
@@ -834,24 +781,17 @@ describe("Exomem OAuth routes", () => {
     });
   });
 
-  // Item 4 / task 3.5: under EXOMEM_CLOUD_ENABLED, /authorize must resolve the
-  // client and bind the resource through cloud-oauth.ts's
-  // resolveApprovedCloudOAuthClient, not the hosted resolver -- mirroring how
-  // admission already switched fully to Cloud for redeem/invite (items 1/3).
-  // Before this wiring exists the route always resolves via the hosted
-  // mock, which does not know CLOUD_CLIENT_ID, so this fails closed (400)
-  // rather than opening a continuation.
-  it("flag on: authorizes through the Cloud OAuth client resolver and binds the Cloud resource", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  // Design D2: /authorize resolves the client through
+  // resolveApprovedCloudOAuthClient and binds the Cloud resource.
+  it("authorizes through the Cloud OAuth client resolver and binds the Cloud resource", async () => {
     const { GET } = await import("../authorize/route");
     const response = await GET(
       authorizeRequest("cloud-client-state", {
         client_id: CLOUD_CLIENT_ID,
         redirect_uri: CLOUD_REDIRECT_URI,
-        resource: CLOUD_RESOURCE,
-        // D2: a Cloud-resource grant always needs both scopes. The suite's
-        // default "exomem.read offline_access" is a valid hosted-resource
-        // request but an invalid Cloud one (see the invalid_scope test below).
+        resource: RESOURCE,
+        // D2: a Cloud-resource grant always needs both scopes (see the
+        // invalid_scope test below).
         scope: "exomem.read exomem.write",
       })
     );
@@ -861,17 +801,15 @@ describe("Exomem OAuth routes", () => {
     assert.ok(stored);
     assert.deepEqual(
       { clientId: stored.clientId, redirectUri: stored.redirectUri, resource: stored.resource },
-      { clientId: CLOUD_CLIENT_ID, redirectUri: CLOUD_REDIRECT_URI, resource: CLOUD_RESOURCE }
+      { clientId: CLOUD_CLIENT_ID, redirectUri: CLOUD_REDIRECT_URI, resource: RESOURCE }
     );
-    assert.equal(oauthClientResolutions, 0);
-    assert.equal(cloudClientResolutions, 1);
+    assert.equal(oauthClientResolutions, 1);
   });
 
   // Design C4: only the gateway and cellctl hold cell_token_key. The OAuth
   // routes run on Vercel and need only the Cloud resource URL, so a
   // deployment without the key must still authorize against it.
-  it("flag on: authorizes against the Cloud resource without a cell token key configured", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("authorizes against the Cloud resource without a cell token key configured", async () => {
     delete process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY;
     try {
       const { GET } = await import("../authorize/route");
@@ -879,14 +817,14 @@ describe("Exomem OAuth routes", () => {
         authorizeRequest("cloud-keyless-state", {
           client_id: CLOUD_CLIENT_ID,
           redirect_uri: CLOUD_REDIRECT_URI,
-          resource: CLOUD_RESOURCE,
+          resource: RESOURCE,
           scope: "exomem.read exomem.write",
         })
       );
       assert.equal(response.status, 303);
       const transaction = cookie(response, "exomem_oauth_tx");
       const stored = continuations.get(digestKey(digestSecret(transaction)));
-      assert.equal(stored?.resource, CLOUD_RESOURCE);
+      assert.equal(stored?.resource, RESOURCE);
     } finally {
       process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY = CLOUD_CELL_TOKEN_KEY;
     }
@@ -895,17 +833,16 @@ describe("Exomem OAuth routes", () => {
   // Security review finding 2: a cell exposes one fixed non-owner principal
   // and cannot itself enforce a read-only grant, so a Cloud-resource request
   // naming only a subset of exomem.read/exomem.write is refused outright,
-  // and an omitted scope receives both rather than falling back to hosted's
+  // and an omitted scope receives both rather than falling back to the
   // ordinary subset-accepting rule.
-  it("flag on: refuses a subset scope with invalid_scope, and grants both when scope is omitted", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("refuses a subset scope with invalid_scope, and grants both when scope is omitted", async () => {
     const { GET } = await import("../authorize/route");
 
     const subset = await GET(
       authorizeRequest("cloud-subset-state", {
         client_id: CLOUD_CLIENT_ID,
         redirect_uri: CLOUD_REDIRECT_URI,
-        resource: CLOUD_RESOURCE,
+        resource: RESOURCE,
         scope: "exomem.read",
       })
     );
@@ -921,7 +858,7 @@ describe("Exomem OAuth routes", () => {
       response_type: "code",
       client_id: CLOUD_CLIENT_ID,
       redirect_uri: CLOUD_REDIRECT_URI,
-      resource: CLOUD_RESOURCE,
+      resource: RESOURCE,
       state: "cloud-omitted-scope-state",
       code_challenge: pkceS256(VERIFIER),
       code_challenge_method: "S256",
@@ -936,14 +873,6 @@ describe("Exomem OAuth routes", () => {
     const stored = continuations.get(digestKey(digestSecret(transaction)));
     assert.ok(stored);
     assert.deepEqual(new Set(stored.scopes), new Set(["exomem.read", "exomem.write"]));
-  });
-
-  it("flag off: authorize keeps resolving through the hosted client resolver and never touches cloud-oauth", async () => {
-    const { GET } = await import("../authorize/route");
-    const response = await GET(authorizeRequest());
-    assert.equal(response.status, 303);
-    assert.equal(cloudClientResolutions, 0);
-    assert.ok(oauthClientResolutions >= 1);
   });
 
   // A continuation cookie from an earlier attempt used to refuse this one with
@@ -1119,55 +1048,18 @@ describe("Exomem OAuth routes", () => {
       clearedContinuityCookies.every((value) => /Path=\//i.test(value) && /Max-Age=0/i.test(value)),
       true
     );
-    assert.equal(admitCalls.length, 1);
-    assert.deepEqual(admitCalls[0].transactionDigest, digestSecret(transaction));
-    assert.deepEqual(admitCalls[0].inviteDigest, digestSecret(inviteToken));
-    assert.ok(Buffer.isBuffer(admitCalls[0].sessionDigest));
-    assert.ok(Buffer.isBuffer(admitCalls[0].codeDigest));
+    assert.equal(cloudAdmitCalls.length, 1);
+    assert.deepEqual(cloudAdmitCalls[0].transactionDigest, digestSecret(transaction));
+    assert.deepEqual(cloudAdmitCalls[0].inviteDigest, digestSecret(inviteToken));
+    assert.ok(Buffer.isBuffer(cloudAdmitCalls[0].sessionDigest));
+    assert.ok(Buffer.isBuffer(cloudAdmitCalls[0].codeDigest));
   });
 
-  it("returns an opaque temporary-unavailable OAuth response when first-admission capacity is exhausted", async () => {
-    admissionError = new (await import("@/lib/exomem-hosted/errors")).ExomemHostedError({
-      code: "CAPACITY_UNAVAILABLE",
-      status: 503,
-      message: "hosted capacity is temporarily unavailable",
-      retryable: true,
-    });
-    const { GET } = await import("../authorize/route");
-    const { POST } = await import("../authorize/invite/route");
-    const started = await GET(authorizeRequest("capacity-state"));
-    const transaction = cookie(started, "exomem_oauth_tx");
-    const nonce = cookie(started, "exomem_oauth_form_nonce");
-    const response = await POST(
-      new Request(`${BASE_URL}/api/exomem/oauth/authorize/invite`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          origin: BASE_URL,
-          cookie: `exomem_oauth_tx=${transaction}`,
-        },
-        body: JSON.stringify({ token: Buffer.alloc(32, 0x45).toString("base64url"), nonce }),
-      })
-    );
-    assert.equal(response.status, 503);
-    const body = (await response.json()) as { error: string; request_id?: string };
-    assert.equal(body.error, "temporarily_unavailable");
-    assert.match(body.request_id ?? "", /^[0-9a-f-]{36}$/i);
-    assert.equal(response.headers.get("cache-control"), "no-store");
-    assert.equal(response.headers.get("retry-after"), "1");
-  });
-
-  // Lane C follow-up ruling, test 1 (red-first): a continuation minted for
-  // REVOKED_CLOUD_CLIENT_ID while it was Cloud-admitted, whose client then
-  // loses Cloud admission before re-validation, must be refused -- both at
-  // the invite POST and at /authorize/complete, which also calls
-  // resolveOAuthContinuation. The hosted resolver mock above still resolves
-  // this client unconditionally (standing in for the whole-cohort /
-  // marketplace-reviewer-bootstrap branches), so a pass here would mean
-  // resolveOAuthContinuationToken fell back to it instead of staying on the
-  // Cloud resolver.
-  it("flag on: refuses re-validation for a continuation whose client has since lost Cloud admission, at both the invite POST and authorize/complete", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  // A continuation minted for REVOKED_CLOUD_CLIENT_ID while it was admitted,
+  // whose client then loses admission before re-validation, must be refused --
+  // both at the invite POST and at /authorize/complete, which also calls
+  // resolveOAuthContinuation.
+  it("refuses re-validation for a continuation whose client has since lost Cloud admission, at both the invite POST and authorize/complete", async () => {
     const { GET } = await import("../authorize/route");
     const { POST: invitePost } = await import("../authorize/invite/route");
     const { POST: completePost } = await import("../authorize/complete/route");
@@ -1178,12 +1070,12 @@ describe("Exomem OAuth routes", () => {
         authorizeRequest(state, {
           client_id: REVOKED_CLOUD_CLIENT_ID,
           redirect_uri: REVOKED_CLOUD_REDIRECT_URI,
-          resource: CLOUD_RESOURCE,
+          resource: RESOURCE,
           scope: "exomem.read exomem.write",
         })
       );
       assert.equal(started.status, 303);
-      assert.equal(cloudClientResolutions > 0, true);
+      assert.equal(oauthClientResolutions > 0, true);
       const transaction = cookie(started, "exomem_oauth_tx");
       const nonce = cookie(started, "exomem_oauth_form_nonce");
       // Revoked between minting and re-validation.
@@ -1231,15 +1123,14 @@ describe("Exomem OAuth routes", () => {
   // completes the whole invite flow to a 303 redirect once
   // resolveOAuthContinuationToken re-validates it through the Cloud
   // resolver, proving the fix does not over-refuse.
-  it("flag on: an ordinary Cloud-admitted client's continuation still completes", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("an ordinary Cloud-admitted client's continuation still completes", async () => {
     const { GET } = await import("../authorize/route");
     const { POST } = await import("../authorize/invite/route");
     const started = await GET(
       authorizeRequest("cloud-happy-path-state", {
         client_id: CLOUD_CLIENT_ID,
         redirect_uri: CLOUD_REDIRECT_URI,
-        resource: CLOUD_RESOURCE,
+        resource: RESOURCE,
         scope: "exomem.read exomem.write",
       })
     );
@@ -1265,17 +1156,9 @@ describe("Exomem OAuth routes", () => {
     assert.equal(cloudAdmitCalls.length, 1);
   });
 
-  // Security review finding 11: the mirror of the hosted case above, under
-  // EXOMEM_CLOUD_ENABLED, and the flag-gating itself.
-  //
-  // The continuation is minted through the real Cloud client/resource (flag
-  // on for both the GET and the invite POST), now that
-  // resolveOAuthContinuationToken re-validates through the Cloud resolver
-  // under the flag (the lane C follow-up ruling above) instead of the earlier
-  // workaround of minting through the hosted client and only flipping the
-  // flag for the POST.
-  it("flag on: returns temporarily_unavailable for Cloud's HOSTED_ADMISSION_CLOSED, but not for the hosted-only CAPACITY_UNAVAILABLE code", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  // Security review finding 11: the invite route maps only Cloud's
+  // HOSTED_ADMISSION_CLOSED to temporarily_unavailable.
+  it("returns temporarily_unavailable for Cloud's HOSTED_ADMISSION_CLOSED, but not for another 503 code", async () => {
     const { ExomemHostedError } = await import("@/lib/exomem-hosted/errors");
     const { GET } = await import("../authorize/route");
     const { POST } = await import("../authorize/invite/route");
@@ -1285,7 +1168,7 @@ describe("Exomem OAuth routes", () => {
         authorizeRequest(state, {
           client_id: CLOUD_CLIENT_ID,
           redirect_uri: CLOUD_REDIRECT_URI,
-          resource: CLOUD_RESOURCE,
+          resource: RESOURCE,
           scope: "exomem.read exomem.write",
         })
       );
@@ -1332,10 +1215,10 @@ describe("Exomem OAuth routes", () => {
   });
 
   it("returns a safe retryable capacity envelope from the UI-facing access redeem path", async () => {
-    admissionError = new (await import("@/lib/exomem-hosted/errors")).ExomemHostedError({
-      code: "CAPACITY_UNAVAILABLE",
+    cloudAdmissionError = new (await import("@/lib/exomem-hosted/errors")).ExomemHostedError({
+      code: "HOSTED_ADMISSION_CLOSED",
       status: 503,
-      message: "hosted capacity is temporarily unavailable",
+      message: "exomem cloud is temporarily closed",
       retryable: true,
       retryAfterMs: 1000,
       remediation: "retry_later",
@@ -1368,7 +1251,7 @@ describe("Exomem OAuth routes", () => {
         remediation?: string;
       };
     };
-    assert.equal(body.error.code, "CAPACITY_UNAVAILABLE");
+    assert.equal(body.error.code, "HOSTED_ADMISSION_CLOSED");
     assert.equal(body.error.retryable, true);
     assert.equal(body.error.retryAfterMs, 1000);
     assert.equal(body.error.remediation, "retry_later");
@@ -1465,23 +1348,18 @@ describe("Exomem OAuth routes", () => {
     assert.deepEqual(await replay.json(), { error: "invalid_grant" });
   });
 
-  // Item 4 / task 3.5: token issuance binds the exact Cloud resource under
-  // EXOMEM_CLOUD_ENABLED, refusing a code minted for one resource when
-  // presented against the other. Before this wiring exists the route accepts
-  // only the single hardcoded hosted resource, so both the correct-direction
-  // Cloud exchange and the cross-resource refusals fail for the wrong
-  // reason (every Cloud-resource request is rejected outright).
-  it("flag on: exchanges a Cloud-resource code only against the Cloud resource, refusing it in both cross-resource directions", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  // Item 4 / task 3.5: token issuance binds the exact Cloud resource, and a
+  // code minted for the retired Hosted resource no longer exchanges at all.
+  it("exchanges a Cloud-resource code only against the Cloud resource and refuses a retired Hosted code", async () => {
     const { POST } = await import("../token/route");
     const cloudCode = Buffer.alloc(32, 0x71).toString("base64url");
     const hostedCode = Buffer.alloc(32, 0x72).toString("base64url");
     seedCode(cloudCode, {
       clientId: CLOUD_CLIENT_ID,
       redirectUri: CLOUD_REDIRECT_URI,
-      resource: CLOUD_RESOURCE,
+      resource: RESOURCE,
     });
-    seedCode(hostedCode);
+    seedCode(hostedCode, { resource: RETIRED_HOSTED_RESOURCE });
 
     const cloudAgainstHosted = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
@@ -1493,28 +1371,30 @@ describe("Exomem OAuth routes", () => {
           client_id: CLOUD_CLIENT_ID,
           redirect_uri: CLOUD_REDIRECT_URI,
           code_verifier: VERIFIER,
-          resource: RESOURCE,
+          resource: RETIRED_HOSTED_RESOURCE,
         }),
       })
     );
     assert.equal(cloudAgainstHosted.status, 400);
     assert.equal(codes.get(tokenKey(cloudCode))?.consumed, false);
 
-    const hostedAgainstCloud = await POST(
-      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: hostedCode,
-          client_id: CLIENT_ID,
-          redirect_uri: REDIRECT_URI,
-          code_verifier: VERIFIER,
-          resource: CLOUD_RESOURCE,
-        }),
-      })
-    );
-    assert.equal(hostedAgainstCloud.status, 400);
+    for (const resource of [RETIRED_HOSTED_RESOURCE, RESOURCE]) {
+      const hosted = await POST(
+        new Request(`${BASE_URL}/api/exomem/oauth/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code: hostedCode,
+            client_id: CLIENT_ID,
+            redirect_uri: REDIRECT_URI,
+            code_verifier: VERIFIER,
+            resource: resource,
+          }),
+        })
+      );
+      assert.equal(hosted.status, 400);
+    }
     assert.equal(codes.get(tokenKey(hostedCode))?.consumed, false);
 
     const cloudCorrect = await POST(
@@ -1527,33 +1407,15 @@ describe("Exomem OAuth routes", () => {
           client_id: CLOUD_CLIENT_ID,
           redirect_uri: CLOUD_REDIRECT_URI,
           code_verifier: VERIFIER,
-          resource: CLOUD_RESOURCE,
+          resource: RESOURCE,
         }),
       })
     );
     assert.equal(cloudCorrect.status, 200);
     assert.equal(codes.get(tokenKey(cloudCode))?.consumed, true);
-
-    const hostedCorrect = await POST(
-      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: hostedCode,
-          client_id: CLIENT_ID,
-          redirect_uri: REDIRECT_URI,
-          code_verifier: VERIFIER,
-          resource: RESOURCE,
-        }),
-      })
-    );
-    assert.equal(hostedCorrect.status, 200);
-    assert.equal(codes.get(tokenKey(hostedCode))?.consumed, true);
   });
 
-  it("flag on: exchanges a Cloud-resource code without a cell token key configured", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("exchanges a Cloud-resource code without a cell token key configured", async () => {
     delete process.env.EXOMEM_CLOUD_CELL_TOKEN_KEY;
     try {
       const { POST } = await import("../token/route");
@@ -1561,7 +1423,7 @@ describe("Exomem OAuth routes", () => {
       seedCode(cloudCode, {
         clientId: CLOUD_CLIENT_ID,
         redirectUri: CLOUD_REDIRECT_URI,
-        resource: CLOUD_RESOURCE,
+        resource: RESOURCE,
       });
       const response = await POST(
         new Request(`${BASE_URL}/api/exomem/oauth/token`, {
@@ -1573,7 +1435,7 @@ describe("Exomem OAuth routes", () => {
             client_id: CLOUD_CLIENT_ID,
             redirect_uri: CLOUD_REDIRECT_URI,
             code_verifier: VERIFIER,
-            resource: CLOUD_RESOURCE,
+            resource: RESOURCE,
           }),
         })
       );
@@ -1584,45 +1446,18 @@ describe("Exomem OAuth routes", () => {
     }
   });
 
-  it("flag off: a Cloud-resource token request is refused even though a matching code exists", async () => {
-    const { POST } = await import("../token/route");
-    const cloudCode = Buffer.alloc(32, 0x73).toString("base64url");
-    seedCode(cloudCode, {
-      clientId: CLOUD_CLIENT_ID,
-      redirectUri: CLOUD_REDIRECT_URI,
-      resource: CLOUD_RESOURCE,
-    });
-    const response = await POST(
-      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: cloudCode,
-          client_id: CLOUD_CLIENT_ID,
-          redirect_uri: CLOUD_REDIRECT_URI,
-          code_verifier: VERIFIER,
-          resource: CLOUD_RESOURCE,
-        }),
-      })
-    );
-    assert.equal(response.status, 400);
-    assert.equal(codes.get(tokenKey(cloudCode))?.consumed, false);
-  });
-
-  // Item 6 / security review finding 7: the hosted-shared minting queries
-  // know nothing about Cloud cells, so this is the post-condition the route
-  // itself applies before ever revealing minted material — for both code
-  // exchange and refresh rotation.
-  it("flag on: refuses to reveal a minted token when the grant's tenant owns no live Cloud cell", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  // Item 6 / security review finding 7: the shared minting queries know
+  // nothing about Cloud cells, so this is the post-condition the route itself
+  // applies before ever revealing minted material — for both code exchange and
+  // refresh rotation.
+  it("refuses to reveal a minted token when the grant's tenant owns no live Cloud cell", async () => {
     cloudGrantOwnsCell = false;
     const { POST } = await import("../token/route");
     const cloudCode = Buffer.alloc(32, 0x75).toString("base64url");
     seedCode(cloudCode, {
       clientId: CLOUD_CLIENT_ID,
       redirectUri: CLOUD_REDIRECT_URI,
-      resource: CLOUD_RESOURCE,
+      resource: RESOURCE,
     });
     const codeResponse = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
@@ -1634,7 +1469,7 @@ describe("Exomem OAuth routes", () => {
           client_id: CLOUD_CLIENT_ID,
           redirect_uri: CLOUD_REDIRECT_URI,
           code_verifier: VERIFIER,
-          resource: CLOUD_RESOURCE,
+          resource: RESOURCE,
         }),
       })
     );
@@ -1647,7 +1482,7 @@ describe("Exomem OAuth routes", () => {
       familyId: "cloud-no-cell-refresh-family",
       policy: true,
       clientId: CLOUD_CLIENT_ID,
-      resource: CLOUD_RESOURCE,
+      resource: RESOURCE,
     });
     const refreshResponse = await POST(
       new Request(`${BASE_URL}/api/exomem/oauth/token`, {
@@ -1657,44 +1492,22 @@ describe("Exomem OAuth routes", () => {
           grant_type: "refresh_token",
           refresh_token: cloudRefresh,
           client_id: CLOUD_CLIENT_ID,
-          resource: CLOUD_RESOURCE,
+          resource: RESOURCE,
         }),
       })
     );
     assert.equal(refreshResponse.status, 400);
     assert.deepEqual(await refreshResponse.json(), { error: "invalid_grant" });
-
-    // A hosted-resource request must never even consult the Cloud check.
-    cloudGrantOwnershipChecks = 0;
-    const hostedCode = Buffer.alloc(32, 0x77).toString("base64url");
-    seedCode(hostedCode);
-    const hostedResponse = await POST(
-      new Request(`${BASE_URL}/api/exomem/oauth/token`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code: hostedCode,
-          client_id: CLIENT_ID,
-          redirect_uri: REDIRECT_URI,
-          code_verifier: VERIFIER,
-          resource: RESOURCE,
-        }),
-      })
-    );
-    assert.equal(hostedResponse.status, 200);
-    assert.equal(cloudGrantOwnershipChecks, 0);
   });
 
-  it("flag on: refresh rotation binds the exact Cloud resource, refusing cross-resource rotation", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "true";
+  it("refresh rotation binds the exact Cloud resource, refusing cross-resource rotation", async () => {
     const { POST } = await import("../token/route");
     const cloudRefresh = Buffer.alloc(32, 0x74).toString("base64url");
     seedRefreshToken(cloudRefresh, {
       familyId: "cloud-refresh-family-1",
       policy: true,
       clientId: CLOUD_CLIENT_ID,
-      resource: CLOUD_RESOURCE,
+      resource: RESOURCE,
     });
 
     const againstHosted = await POST(
@@ -1705,7 +1518,7 @@ describe("Exomem OAuth routes", () => {
           grant_type: "refresh_token",
           refresh_token: cloudRefresh,
           client_id: CLOUD_CLIENT_ID,
-          resource: RESOURCE,
+          resource: RETIRED_HOSTED_RESOURCE,
         }),
       })
     );
@@ -1720,7 +1533,7 @@ describe("Exomem OAuth routes", () => {
           grant_type: "refresh_token",
           refresh_token: cloudRefresh,
           client_id: CLOUD_CLIENT_ID,
-          resource: CLOUD_RESOURCE,
+          resource: RESOURCE,
         }),
       })
     );

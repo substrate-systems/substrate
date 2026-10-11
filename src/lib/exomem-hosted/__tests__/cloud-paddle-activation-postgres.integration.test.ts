@@ -140,8 +140,6 @@ describe(
   { skip: !databaseUrl },
   () => {
     before(async () => {
-      priorEnv.EXOMEM_CLOUD_ENABLED = process.env.EXOMEM_CLOUD_ENABLED;
-      process.env.EXOMEM_CLOUD_ENABLED = "1";
       schema = `cloud_paddle_activation_it_${randomUUID().replaceAll("-", "")}`;
       await ensureExomemPostgresTestExtensions(databaseUrl!);
       const admin = new Pool({ connectionString: databaseUrl });
@@ -164,8 +162,6 @@ describe(
         await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
         await admin.end();
       }
-      if (priorEnv.EXOMEM_CLOUD_ENABLED === undefined) delete process.env.EXOMEM_CLOUD_ENABLED;
-      else process.env.EXOMEM_CLOUD_ENABLED = priorEnv.EXOMEM_CLOUD_ENABLED;
     });
 
     it("Part B: a Cloud tenant's subscription.activated applies, projects, starts the cell, and dedupes on replay", async () => {

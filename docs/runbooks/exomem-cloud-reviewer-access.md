@@ -44,8 +44,8 @@ owner, a Cloud cell with desired and observed state `running` and `ready: true`,
 and an active complimentary entitlement with no Paddle customer, subscription
 or transaction references. Issuance does not admit, provision or change purpose.
 
-Enable `EXOMEM_CLOUD_ENABLED` and `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`
-on both the web and gateway processes. Cloud configuration must name the same
+Enable `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED` on both the web and gateway
+processes. Cloud configuration must name the same
 MCP resource on both.
 
 ## Issue and store access
