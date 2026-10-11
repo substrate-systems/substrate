@@ -438,6 +438,59 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
     assert.equal((await discarded.json()).import.requested_state, "discard_requested");
   });
 
+  it("reserves the cell for an older discard and reports deferred cleanup without claiming completion", async () => {
+    const alice = await owner();
+    const older = await create(alice);
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET observed_state = 'done' WHERE import_id = $1",
+      [older.import_id]
+    );
+    const newer = await create(alice);
+    assert.equal((await call(alice, "discard", undefined, older.import_id)).status, 409);
+    assert.equal(
+      (await (await call(alice, "status", undefined, older.import_id)).json()).import
+        .requested_state,
+      "requested"
+    );
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET observed_state = 'discarded' WHERE import_id = $1",
+      [newer.import_id]
+    );
+    assert.equal((await call(alice, "discard", undefined, older.import_id)).status, 200);
+    assert.equal(
+      (await call(alice, "create", { kind: "adopt", declared_bytes: 1, declared_files: 1 })).status,
+      409
+    );
+    assert.equal((await (await call(alice, "status")).json()).import.import_id, older.import_id);
+    for (const observation of [
+      "cleanup_running",
+      "cleanup_stopping",
+      "cleanup_discard_stopping",
+      "cleanup_pending",
+    ]) {
+      await pool.query("UPDATE exomem_cloud_imports SET observed_state = $2 WHERE import_id = $1", [
+        older.import_id,
+        observation,
+      ]);
+      const pending = await (await call(alice, "status", undefined, older.import_id)).json();
+      assert.equal(pending.import.observed_state, observation);
+      assert.equal(pending.import.error_code, null);
+      assert.equal(
+        (await call(alice, "create", { kind: "adopt", declared_bytes: 1, declared_files: 1 }))
+          .status,
+        409
+      );
+    }
+    await pool.query(
+      "UPDATE exomem_cloud_imports SET observed_state = 'discarded' WHERE import_id = $1",
+      [older.import_id]
+    );
+    assert.equal(
+      (await call(alice, "create", { kind: "adopt", declared_bytes: 1, declared_files: 1 })).status,
+      201
+    );
+  });
+
   it("admits loopback CLI redirects without marketplace identity and preserves disabled admission on replay", async () => {
     const client = await resolveApprovedCloudOAuthClient("exomem-cloud-cli");
     assert.ok(client);
@@ -454,7 +507,7 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
     await applyMigrations({ databaseUrl: scopedUrl });
     assert.equal(await resolveApprovedCloudOAuthClient("exomem-cloud-cli"), null);
   });
-  it("upgrades pre-C5 databases without re-enabling an operator-disabled CLI client", async () => {
+  it("upgrades C5 cleanup authority without re-enabling an operator-disabled CLI client", async () => {
     const migrationRoot = await mkdtemp(join(tmpdir(), "cloud-import-upgrade-"));
     const upgradeSchema = `cloud_import_upgrade_${randomUUID().replaceAll("-", "")}`;
     const admin = new Pool({ connectionString: databaseUrl });
@@ -477,7 +530,51 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
       await upgrade.query(`INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest)
         VALUES ('exomem-cloud-cli', 'pinned', false, '["http://127.0.0.1/callback"]',
           digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'))`);
+      await cp(
+        "migrations/0060_exomem_cloud_imports.sql",
+        join(migrationRoot, "0060_exomem_cloud_imports.sql")
+      );
+      await applyMigrations({ databaseUrl: url.toString(), migrationsDir: migrationRoot });
+      const cellId = randomCloudCellId();
+      const created = await upgrade.query(
+        `WITH owner AS (
+        INSERT INTO users (email) VALUES ($1) RETURNING id
+      ), tenant AS (
+        INSERT INTO exomem_tenants (owner_user_id) SELECT id FROM owner RETURNING id
+      ), cell AS (
+        INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state)
+        SELECT $2, id, 'running' FROM tenant RETURNING cell_id
+      ) INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files)
+        SELECT cell_id, 'adopt', 1, 1 FROM cell RETURNING import_id`,
+        [`upgrade-${randomUUID()}@example.test`, cellId]
+      );
+      const importId = created.rows[0].import_id;
+      await assert.rejects(
+        upgrade.query(
+          "UPDATE exomem_cloud_imports SET observed_state = 'cleanup_pending' WHERE import_id = $1",
+          [importId]
+        ),
+        { code: "23514" }
+      );
       await applyMigrations({ databaseUrl: url.toString() });
+      for (const observation of [
+        "cleanup_running",
+        "cleanup_stopping",
+        "cleanup_discard_stopping",
+        "cleanup_pending",
+      ]) {
+        await upgrade.query(
+          "UPDATE exomem_cloud_imports SET observed_state = $2 WHERE import_id = $1",
+          [importId, observation]
+        );
+        await assert.rejects(
+          upgrade.query(
+            "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1)",
+            [cellId]
+          ),
+          { code: "23505" }
+        );
+      }
       assert.equal(
         (
           await upgrade.query(
@@ -489,7 +586,7 @@ describe("Cloud import API PostgreSQL boundary", { skip: !databaseUrl }, () => {
       assert.equal(
         (await upgrade.query("SELECT count(*)::int AS count FROM exomem_cloud_imports")).rows[0]
           .count,
-        0
+        1
       );
     } finally {
       await upgrade?.end();

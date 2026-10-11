@@ -2,7 +2,7 @@
 
 ### Requirement: Encrypted import requests separate tenant intent from controller observations
 
-C5 SHALL store content-free import requests under a C1 cell with the types and split grants in the design. It MUST permit one nonterminal import per cell. Substrate SHALL write request/report columns only; cellctl SHALL write transport/observation columns only. The gateway SHALL have no C5 access. C1 SHALL support an `import` hold.
+C5 SHALL store content-free import requests under a C1 cell with the types and split grants in the design. It MUST permit one open import per cell, including running, stopping or pending cleanup and any discard request not yet observed as discarded. Substrate SHALL write request/report columns only; cellctl SHALL write transport/observation columns only. The gateway SHALL have no C5 access. C1 SHALL support an `import` hold.
 
 #### Scenario: Runtime roles cross the ownership boundary
 
@@ -12,13 +12,40 @@ C5 SHALL store content-free import requests under a C1 cell with the types and s
 #### Scenario: Two requests race for one cell
 
 - **WHEN** concurrent requests create imports for one cell
-- **THEN** at most one nonterminal row exists
+- **THEN** at most one open row exists
 - **AND** cancellation leaves the row open until cellctl reports a terminal observation
 
 #### Scenario: Cell deletion precedes cleanup
 
 - **WHEN** a cell still has import records
 - **THEN** PostgreSQL restricts deletion of the cell until lifecycle cleanup removes those records
+
+### Requirement: Cleanup retries release bounded holds without claiming success
+
+The controller SHALL record `cleanup_running` and preserve the original work outcome before idempotent cleanup. It SHALL report `cleanup_pending` for failed or deferred cleanup. It SHALL record `cleanup_stopping` after keep-adoption cleanup and `cleanup_discard_stopping` after full discard and transport cleanup, before removing Jobs. Each attempt SHALL use a bounded hold and confirm that its Job controllers and Pods are absent before release. The controller SHALL back off between attempts using `updated_at`. Lifecycle deletion SHALL take precedence, and hold release MUST preserve stopped desired state. Every cleanup observation SHALL occupy the cell's open import slot. Terminal publication and C1 hold release SHALL share the API admission row lock and one transaction, using current requested intent.
+
+#### Scenario: Cleanup fails after an import outcome
+
+- **WHEN** cleanup fails or reaches its deadline
+- **THEN** status reports `cleanup_pending` with the original import error code
+- **AND** the controller removes its Jobs and Pods and confirms their absence before releasing the hold
+- **AND** cleanup retries after backoff without claiming successful completion
+
+#### Scenario: An older discard competes with a new import
+
+- **WHEN** a tenant discards an older import while another import is open
+- **THEN** the request returns 409 without changing the older request
+- **AND** an accepted older discard blocks new imports until the controller reports `discarded`
+
+#### Scenario: Cleanup completion waits for Kubernetes removal
+
+- **WHEN** volume and transport cleanup succeed but a Job controller or Pod remains
+- **THEN** status reports the stopping observation that matches the completed Job phase and admission rejects another import
+- **AND** the controller never replays prepare or import from a cleanup state
+- **WHEN** all phase Job controllers and Pods are absent
+- **THEN** the controller locks C1 and C5 and reads current state and cancellation intent
+- **AND** ordinary cleanup rearms full discard with a fresh hold when that intent requires it
+- **AND** full-discard completion publishes the terminal outcome and clears the hold atomically
 
 ### Requirement: Import endpoints derive authority from existing Cloud credentials
 
@@ -70,3 +97,13 @@ The control plane SHALL seed the pinned `exomem-cloud-cli` client with the canon
 
 - **WHEN** the operator disables the client and migrations run again
 - **THEN** the client remains disabled and Cloud OAuth admission refuses it
+
+### Requirement: Discard publication proves removal of adoption material
+
+The controller SHALL derive a stopping observation from the completed Job phase. Ordinary `cleanup_stopping` MUST NOT acknowledge full-discard intent. Under the C1 and C5 locks, newer cancellation or discard SHALL rearm ordinary cleanup as `cleanup_running` with a fresh bounded hold and the original error. `cleanup_discard_stopping` SHALL remain open until all phase Jobs and Pods are absent, then permit atomic discard publication and hold release.
+
+#### Scenario: Discard arrives after keep-adoption cleanup
+
+- **WHEN** cancellation or discard commits before or during finalization of ordinary cleanup
+- **THEN** the controller rearms full discard without restarting runtime or publishing discarded status
+- **AND** discarded status follows removal of the adoption folder, successful transport cleanup and removal of all phase Jobs and Pods

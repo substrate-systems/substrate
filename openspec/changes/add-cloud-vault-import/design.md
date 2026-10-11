@@ -25,13 +25,25 @@ The batch establishes C5 and its authenticated API. It does not build the browse
 | recipient, upload_id | text nullable | cellctl |
 | part_urls | jsonb nullable array of {part_number: integer, url: string, part_size_bytes: integer} | cellctl |
 | urls_expire_at | timestamptz nullable | cellctl |
-| observed_state | text nullable: key_ready, importing, done, failed, expired, discarded | cellctl |
+| observed_state | text nullable: key_ready, importing, cleanup_running, cleanup_stopping, cleanup_discard_stopping, cleanup_pending, done, failed, expired, discarded | cellctl |
 | error_code | text nullable | cellctl |
 | created_at, updated_at | timestamptz NOT NULL DEFAULT now() | database |
 
 Substrate and cellctl can read C5. Neither receives table-wide DML. The gateway receives no C5 privileges. The grants script revokes default grants before applying column grants and tolerates pre-C5 upgrades. The cell hold CHECK adds `import`.
 
-A partial unique index permits one nonterminal import per cell. NULL observation is nonterminal. A trigger freezes accepted request/report fields and maintains updated_at. This prevents a concurrent retry from substituting the authenticated upload tuple. Cancellation records intent; only cellctl reports terminal state. Cell deletion waits for explicit lifecycle cleanup.
+A partial unique index permits one open import per cell. NULL, `key_ready`, `importing`, `cleanup_running`, `cleanup_stopping`, `cleanup_discard_stopping`, and `cleanup_pending` observations are open. A `discard_requested` row also remains open until its observation is `discarded`, including an older row with a terminal import outcome. A trigger freezes accepted request/report fields and maintains updated_at. This prevents a concurrent retry from substituting the authenticated upload tuple. Cancellation records intent; only cellctl reports terminal state. Cell deletion waits for explicit lifecycle cleanup.
+
+### Bounded cleanup holds
+
+`cleanup_running` fixes the work outcome before idempotent cleanup. `cleanup_stopping` records successful keep-adoption cleanup. `cleanup_discard_stopping` records successful full discard and transport cleanup while Jobs and Pods drain.
+
+The controller locks C1 then C5 and reads current state and intent. Late full-discard intent rearms ordinary cleanup with a fresh bounded C1 hold in that transaction. Only completed full discard can publish discarded status and release the hold. Terminal publication and release remain atomic.
+
+`cleanup_pending` reports failed or deferred cleanup explicitly and preserves `error_code` as the original import outcome. The controller uses `updated_at` for retry backoff. Cleanup failure never becomes successful import or successful discard status.
+
+Each cleanup attempt uses the persisted C1 `hold_started_at` and a bounded deadline. Controller configuration defaults to a two-minute cleanup attempt and one hour between retries. On failure or expiry, the controller removes the import's Job controllers and Pods. It confirms that both are absent before releasing the hold. Cleanup then remains pending between attempts, so a failed Job cannot keep the runtime stopped forever.
+
+Lifecycle deletion takes precedence over import work. Hold release restores only the current desired lifecycle; a stopped cell retains zero replicas. A new import cannot compete with pending cleanup. Discarding an older import claims the same open slot and returns 409 when another import already owns it.
 
 ### API and authentication
 
@@ -62,12 +74,16 @@ The C5 access split adds one migration and one service module to maintain. Reusi
 
 ## Migration Plan
 
-1. Deploy the additive migration and grants, then verify the API boundary.
+1. Deploy the additive migrations and grants, including migration 0061, then verify the API boundary.
 2. Deploy cellctl consumers after C5 exists, then verify import Jobs.
 3. Deploy the browser flow after the transport works, then verify its upload workflow.
 
-Rollback disables new client requests while retaining C5 records and controller cleanup. Dropping the table is not a rollback step.
+Rollback disables new client requests while retaining C5 records and controller cleanup. Dropping the table is not a rollback step. Migration 0060 remains immutable. Migration 0061 extends the observation CHECK and open-slot index without new columns or grants. Existing conflicting open intents must be reconciled before that index can be created; the migration does not rewrite outcomes.
 
 ## Proof Plan
 
 Disposable PostgreSQL tests exercise real role grants, migration upgrades, tenant isolation, authentication, CSRF, lifecycle enforcement, completion retries, and concurrent writers. Existing migration tests cover pre-C5 grants. Scoped tests, typecheck, lint, build, and strict OpenSpec validation precede independent review. The delivery owner runs full-suite verification and completes release.
+
+### Cleanup rollback boundary
+
+Deploy migration 0061 before the controller uses the new observations. Keep the new controller while records use `cleanup_discard_stopping`; older readers do not reliably understand that open state.
