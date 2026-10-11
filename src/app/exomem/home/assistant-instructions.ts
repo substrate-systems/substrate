@@ -6,21 +6,17 @@
 // behavioural layer, and pasting it is the difference between a connector that
 // is merely attached and a knowledge base that actually gets used.
 //
-// It also carries the prominence level. `src/exomem/prominence.py` defines four
-// levels and defaults hookless surfaces (web, hosted, chatgpt, claude-ai) to
-// `maximal`, because there are no hooks there to re-arm the check each turn and
-// passive instructions decay over a long conversation. The engine has no hosted
-// command for changing it — `exomem prominence <level>` is CLI-only, and a
-// hosted user has neither a shell nor a filesystem — so the mechanism the skill
-// documents for these surfaces is exactly this: edit the level block in your
-// assistant's custom instructions. Until a `set_prominence` command exists,
-// generating that block here IS the setting.
+// It also carries the prominence level. Hookless surfaces (web, hosted, chatgpt,
+// claude-ai) default to `maximal`, because there are no hooks there to re-arm the
+// check each turn and passive instructions decay over a long conversation. The
+// `configure_memory` command changes the saved level; the Cloud cell profile
+// exposes it.
 //
-// DRIFT WARNING: the level text below is transcribed from
-// `exomem/src/exomem/prominence.py` (`CONTRACTS`). Different repo, different
-// language, so it cannot be imported. If that file's wording changes, change it
-// here too. `assistant-instructions.test.ts` pins the level set so at least a
-// added or removed level cannot pass silently.
+// The block text is not written here. It is generated from the Exomem repo's
+// `docs/prominence.md` (`npm run sync:instruction-blocks`), so it cannot drift
+// from the doc: a hand-trimmed capture list silently drops classes of capture.
+
+import { INSTRUCTION_BLOCKS } from "./instruction-blocks.generated";
 
 export type PromLevel = "off" | "light" | "balanced" | "maximal";
 
@@ -34,73 +30,30 @@ type LevelContract = {
   label: string;
   /** One line the user reads while choosing. */
   summary: string;
-  recall: string;
-  capture: string;
-  narration: string;
 };
 
 export const PROM_CONTRACTS: Record<PromLevel, LevelContract> = {
   off: {
     label: "Off",
     summary: "Only when I ask, explicitly.",
-    recall: "Never search memory unless the user explicitly asks you to.",
-    capture: "Never write to memory unless the user explicitly asks you to.",
-    narration: "Say nothing about memory unless asked.",
   },
   light: {
     label: "Light",
     summary: "Recall when asked or clearly on-topic. Never writes on its own.",
-    recall:
-      "Search memory only when the user asks a recall question outright, or when the turn is unmistakably about a topic the knowledge base covers. When in doubt, do not search.",
-    capture:
-      "Write to memory only when the user asks. Do not capture on your own judgment, however durable the conclusion looks.",
-    narration:
-      "Never narrate memory activity. Fold retrieved facts into the answer with a citation and nothing more.",
   },
   balanced: {
     label: "Balanced",
     summary: "Recall on topic match, capture durable conclusions, stay quiet.",
-    recall:
-      "Search memory first when a turn references a project, a domain, a named entity, or asks what was concluded, tried, or decided. Skip it for chit-chat, control messages, and fresh tasks with no prior context.",
-    capture:
-      "Capture when the conversation reaches a stepping stone: a durable conclusion lands, or a recurring entity accumulates reusable facts. Not mid-thought exploration, tangents, or unresolved questions.",
-    narration:
-      "Stay quiet. Mention memory only when a search returned something you used, and report one line after a write.",
   },
   maximal: {
     label: "Maximal",
     summary: "Recall before every substantive turn, capture freely, and say so.",
-    recall:
-      "Search memory before answering any substantive turn, not only the ones that obviously reference prior work. Assume the knowledge base may hold something relevant until a search says otherwise. Only skip for pure chit-chat and control messages.",
-    capture:
-      "Capture at every stepping stone, and treat the bar for 'durable' as low: a decision, a resolved problem, a diagnosed failure, a reusable pattern, a fact about a recurring entity. When torn between capturing and letting it pass, capture. Prefer a real page over a mental note.",
-    narration:
-      "Say what you did. Name what you recalled and cite it; state one line after every write. The user should be able to see memory working without asking.",
   },
 };
 
-/**
- * The block to paste. Identical for every client — only where it goes differs.
- *
- * The closing two lines are not level-dependent and never omitted: the first is
- * the boundary that keeps secrets and throwaway chat out of a durable store, and
- * the second resolves the conflict every assistant has between its own memory
- * feature and this one.
- */
+/** The block to paste, exactly as `docs/prominence.md` has it. Identical for every client. */
 export function assistantInstructions(level: PromLevel): string {
-  const contract = PROM_CONTRACTS[level];
-  return [
-    "Use Exomem as my long-term governed knowledge store, through its MCP tools.",
-    "",
-    `RECALL: ${contract.recall}`,
-    "",
-    `CAPTURE: ${contract.capture}`,
-    "",
-    `NARRATION: ${contract.narration}`,
-    "",
-    "Never capture transient chat, credentials, or anything I say not to save.",
-    "Treat your own built-in memory as short-term working context; Exomem is the durable store.",
-  ].join("\n");
+  return INSTRUCTION_BLOCKS[level];
 }
 
 export type ConnectClient = "claude" | "chatgpt" | "claude-code" | "codex" | "other";

@@ -3,58 +3,47 @@ import { describe, it } from "node:test";
 import {
   assistantInstructions,
   CLIENT_GUIDES,
-  DEFAULT_PROM_LEVEL,
   PROM_CONTRACTS,
   PROM_LEVELS,
-  type PromLevel,
 } from "../assistant-instructions";
+import { INSTRUCTION_BLOCKS, INSTRUCTION_BLOCKS_SOURCE } from "../instruction-blocks.generated";
 
-describe("the instructions block carries the behaviour, because nothing else does", () => {
-  it("always states the store, the boundary, and the memory precedence", () => {
-    // Without a marketplace plugin there are no skills, so a bare MCP
-    // connection leaves the assistant with tools and no reason to use them.
-    // These three lines are the whole behavioural contract and are never
-    // level-dependent.
-    for (const level of PROM_LEVELS) {
-      const text = assistantInstructions(level);
-      assert.match(text, /long-term governed knowledge store/);
-      assert.match(text, /Never capture transient chat, credentials/);
-      assert.match(text, /Exomem is the durable store/);
-    }
-  });
-
-  it("carries all three axes for every level", () => {
-    for (const level of PROM_LEVELS) {
-      const text = assistantInstructions(level);
-      for (const axis of ["RECALL:", "CAPTURE:", "NARRATION:"]) {
-        assert.ok(text.includes(axis), `${level} is missing ${axis}`);
-      }
-    }
-  });
-
-  it("produces genuinely different text per level", () => {
+describe("each level hands over its own block from the Exomem doc", () => {
+  it("returns a distinct, non-empty block for every level", () => {
+    // A level that maps to nothing, or two levels that collapse to the same
+    // block, would paste the wrong behaviour into someone's assistant.
     const rendered = PROM_LEVELS.map((level) => assistantInstructions(level));
+    for (const [index, text] of rendered.entries()) {
+      assert.ok(text.trim().length > 0, `${PROM_LEVELS[index]} has no block`);
+    }
     assert.equal(new Set(rendered).size, PROM_LEVELS.length, "levels must not collapse");
   });
 
-  it("says never for off and before every substantive turn for maximal", () => {
-    assert.match(assistantInstructions("off"), /Never search memory/);
-    assert.match(assistantInstructions("maximal"), /before answering any substantive turn/);
-  });
-
-  it("defaults to maximal, matching WEB_DEFAULT_PROMINENCE for hookless surfaces", () => {
-    // exomem/src/exomem/prominence.py defaults web/hosted/chatgpt/claude-ai to
-    // maximal, because there are no hooks there to re-arm the check each turn.
-    assert.equal(DEFAULT_PROM_LEVEL, "maximal");
-  });
-
-  it("pins the level set against the engine's, which it cannot import", () => {
-    // Transcribed across a repo and language boundary. If prominence.py grows or
-    // loses a level, this is the tripwire.
-    assert.deepEqual([...PROM_LEVELS], ["off", "light", "balanced", "maximal"]);
-    for (const level of PROM_LEVELS) {
-      assert.ok(PROM_CONTRACTS[level as PromLevel]?.summary, `${level} needs a picker summary`);
+  it("does not hand a level the block of another", () => {
+    // The generator maps doc headings to levels by their first word. The doc's
+    // light, balanced and maximal blocks each open with their own level name, so
+    // a swapped heading shows here. The off block carries no such line.
+    for (const level of ["light", "balanced", "maximal"] as const) {
+      assert.ok(
+        assistantInstructions(level).includes(`Exomem prominence: ${level.toUpperCase()}.`),
+        `${level} returns another level's block`
+      );
     }
+  });
+
+  it("covers exactly the levels the generated blocks and the picker define", () => {
+    // The generator takes its level set from the doc; the picker takes its own.
+    // They must stay one set, or a level would be unselectable or have no block.
+    assert.deepEqual(Object.keys(INSTRUCTION_BLOCKS).sort(), [...PROM_LEVELS].sort());
+    for (const level of PROM_LEVELS) {
+      assert.ok(PROM_CONTRACTS[level]?.summary, `${level} needs a picker summary`);
+    }
+  });
+
+  it("names the Exomem commit the blocks were copied from", () => {
+    // A placeholder or hand-edited source would let the copy drift without a trace.
+    assert.match(INSTRUCTION_BLOCKS_SOURCE.commit, /^[0-9a-f]{40}$/);
+    assert.equal(INSTRUCTION_BLOCKS_SOURCE.path, "docs/prominence.md");
   });
 });
 

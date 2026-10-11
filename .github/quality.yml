@@ -17,6 +17,7 @@ classes:
     - "scripts/dev.ps1"
     - "scripts/openspec_validate.ps1"
     - "scripts/verify-exomem-gateway-publication.mjs"
+    - "scripts/sync-exomem-instruction-blocks.mjs" # run by hand to refresh the Home instruction blocks
   tooling:
     - ".github/quality.yml"
     - ".github/workflows/test.yml"
