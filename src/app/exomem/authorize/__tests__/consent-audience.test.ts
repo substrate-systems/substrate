@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { consentSections } from "../consent-audience";
-import type { ConsentStep } from "../consent-state";
+import type { ConsentStep } from "@/lib/exomem-hosted/consent-state";
 
 describe("the consent page offers one path per step", () => {
   it("leads a signed-out visitor with sign-in, then the invitation, and keeps reviewer access last", () => {

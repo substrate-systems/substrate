@@ -16,7 +16,11 @@ import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
 import AuthorizeClient from "./authorize-client";
-import { type ConsentAccount, type ConsentStep, consentStep } from "./consent-state";
+import {
+  type ConsentAccount,
+  type ConsentStep,
+  consentStep,
+} from "@/lib/exomem-hosted/consent-state";
 
 type VisitorAccount = ConsentAccount & { cellStarting: boolean };
 
