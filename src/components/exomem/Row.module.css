@@ -1,0 +1,34 @@
+/* Row (components.md: Containers). From .prow in the Viewer board. */
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 0;
+  border: 0;
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.06);
+  background: transparent;
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.interactive {
+  cursor: pointer;
+}
+
+.interactive:hover .title {
+  color: var(--exo-amber);
+}

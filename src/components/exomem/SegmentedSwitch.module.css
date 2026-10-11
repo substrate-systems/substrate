@@ -1,0 +1,53 @@
+/* Segmented switch (components.md: Controls). From the level switch on the Journey board (page)
+   and the compact rows on the Home board (row). */
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.track {
+  display: flex;
+  padding: 3px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-panel);
+}
+
+.row .track {
+  background: var(--bg-base);
+}
+
+.segment {
+  flex: 1;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.row .segment {
+  min-height: 36px;
+  font-size: 12px;
+}
+
+.segment[aria-pressed="true"] {
+  background: var(--fg-primary);
+  color: var(--bg-base);
+}
+
+/* The description reserves its height, so switching levels moves nothing. */
+.description {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  text-align: center;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

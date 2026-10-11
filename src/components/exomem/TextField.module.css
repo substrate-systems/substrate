@@ -1,0 +1,47 @@
+/* Text field (components.md: Controls). Label above; from the flow's email field. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.label {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.input {
+  height: 48px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0 14px;
+  border: 1px solid var(--exo-border-input);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--fg-primary);
+  font-family: var(--font-sans-exo);
+  font-size: 15px;
+  outline: none;
+}
+
+/* Focus and a failed attempt both draw the amber border. */
+.input:focus,
+.input[aria-invalid="true"] {
+  border-color: var(--exo-amber);
+}
+
+/* The generic error: drawn as the flow's notice (a 2 px amber edge). */
+.error {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--exo-border-card);
+  border-left: 2px solid var(--exo-amber);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg-primary);
+  background: var(--bg-panel);
+}

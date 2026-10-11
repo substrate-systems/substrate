@@ -1,0 +1,10 @@
+/* Card (components.md: Containers). From .card in the Viewer board. */
+.card {
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-panel);
+  border-radius: var(--r-card);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

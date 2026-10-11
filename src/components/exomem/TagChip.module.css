@@ -1,0 +1,15 @@
+/* Tag chip (components.md: Controls). From .rchip / .rchip.cur in the Viewer board. */
+.tag {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  color: var(--fg-secondary);
+}
+
+/* "current": the one state a tag lights. */
+.current {
+  color: var(--exo-amber);
+  border-color: var(--exo-amber-line);
+}

@@ -1,0 +1,24 @@
+/* Popover (components.md: Containers). The surface only; the caller places it. */
+.popover {
+  padding: 14px 16px;
+  border-radius: var(--r-pop);
+  border: 1px solid var(--exo-border-input);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: vIn 0.2s ease both;
+}
+
+/* Viewer · vIn .2s ease both — popover drops in */
+@keyframes vIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

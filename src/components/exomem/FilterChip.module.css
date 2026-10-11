@@ -1,0 +1,30 @@
+/* Filter chip (components.md: Controls). From .chip / .chip.offc / .chip.lensc in the Viewer board. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--exo-border-input);
+  background: transparent;
+  color: var(--fg-primary);
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: none;
+}
+
+/* Off: the relation is hidden. */
+.chip[aria-pressed="false"] {
+  color: var(--fg-tertiary);
+  border-color: rgba(var(--ink-rgb), 0.06);
+}
+
+/* The review chip ("19 to review"): amber text and line. */
+.review,
+.review[aria-pressed] {
+  border-color: rgba(var(--amber-rgb), 0.55);
+  color: var(--exo-amber);
+}

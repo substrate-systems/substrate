@@ -1,0 +1,23 @@
+/* Notice (components.md: Containers). A card with one action; from Home's notices
+   (trouble, storage 80%, storage full). The left edge is muted, or amber when the
+   notice is about a live state that needs the person now (storage full). */
+.notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--exo-border-card);
+  border-left: 2px solid var(--fg-muted);
+  background: var(--bg-panel);
+}
+
+.attention {
+  border-left-color: var(--exo-amber);
+}
+
+.text {
+  font-size: 14px;
+  line-height: 1.5;
+}
