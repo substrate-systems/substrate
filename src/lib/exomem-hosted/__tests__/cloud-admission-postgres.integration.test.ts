@@ -1115,10 +1115,9 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
   describe("a paid invite redeemed from the consent page pays before its first grant", () => {
     const priorEnv: Record<string, string | undefined> = {};
     before(() => {
-      for (const key of ["EXOMEM_CLOUD_ENABLED", "EXOMEM_CONTROL_PLANE_KEY"]) {
+      for (const key of ["EXOMEM_CONTROL_PLANE_KEY"]) {
         priorEnv[key] = process.env[key];
       }
-      process.env.EXOMEM_CLOUD_ENABLED = "true";
       process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 11).toString("base64url");
     });
     after(() => {

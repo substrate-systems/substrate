@@ -8,7 +8,6 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY src ./src
-COPY contracts ./contracts
 COPY scripts/verify-exomem-gateway-bundle.mjs ./scripts/verify-exomem-gateway-bundle.mjs
 COPY tsconfig.json ./
 RUN npm run gateway:build

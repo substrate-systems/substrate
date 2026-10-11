@@ -2,7 +2,6 @@ import {
   createCipheriv,
   createDecipheriv,
   createHash,
-  createHmac,
   randomBytes as nodeRandomBytes,
   timingSafeEqual,
 } from "node:crypto";
@@ -144,13 +143,4 @@ export function decryptSecret(
   } catch {
     throw exomemErrors.encryptedSecretInvalid();
   }
-}
-
-export function opaquePrincipalScope(
-  input: { product: "exomem"; userId: string; tenantId: string },
-  key?: Buffer
-): string {
-  return createHmac("sha256", requireKey(key))
-    .update(`${input.product}\0${input.userId}\0${input.tenantId}`, "utf8")
-    .digest("base64url");
 }

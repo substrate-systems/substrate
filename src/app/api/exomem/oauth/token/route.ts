@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { exomemCloudEnabled, loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
-import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
+import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
+import {
+  assertGrantOwnsCloudCell,
+  CloudPrincipalHasNoCellError,
+} from "@/lib/exomem-hosted/cloud-oauth";
 import {
   isPkceVerifier,
   mintOpaqueTokenMaterial,
@@ -94,56 +97,32 @@ function invalidRequest(
   );
 }
 
-// Item 4 / task 3.5 (design D2): exact-resource binding, extended to admit
-// a second live resource rather than swapping the one hosted resource for a
-// Cloud one. A refresh token minted before EXOMEM_CLOUD_ENABLED was ever set
-// must keep rotating against the hosted resource regardless of the flag's
-// current value -- only /authorize's admission path is flag-switched
-// (item 4's authorize wiring); this endpoint has no "current path", only
-// codes and refresh credentials already bound to one resource or the other,
-// and it must keep validating whichever one each credential was minted for.
-// Misconfigured Cloud (flag on, config incomplete) is deliberately silent
-// here -- the resource then simply never matches, which is the same
-// invalid_request/invalid_grant response already returned for any other
-// mismatched resource.
-function resolveRequestedResource(
-  requested: string | undefined,
-  hostedResource: string
-): string | null {
-  if (requested === hostedResource) return hostedResource;
-  if (requested && exomemCloudEnabled()) {
-    try {
-      const cloudResource = loadExomemCloudResource().mcpUrl;
-      if (requested === cloudResource) return cloudResource;
-    } catch {
-      // Cloud flagged on but unconfigured: fall through to the null return.
-    }
+// Item 4 / task 3.5 (design D2): exact-resource binding. Codes and refresh
+// tokens are honoured only for the Cloud resource. A misconfigured Cloud
+// deployment never matches, which returns the same invalid_request as any
+// other mismatched resource.
+function resolveRequestedResource(requested: string | undefined): string | null {
+  if (!requested) return null;
+  try {
+    const cloudResource = loadExomemCloudResource().mcpUrl;
+    return requested === cloudResource ? cloudResource : null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /**
- * Security review finding 7: `resolveRequestedResource` returns either the
- * hosted resource or, only when Cloud is enabled and configured, the Cloud
- * one -- so any resource other than hosted here is the Cloud resource, and
- * D2's cell-ownership requirement applies. Called after a mint has already
- * succeeded but before its material is revealed to the caller: on refusal,
- * the already-minted (but never revealed) token rows are simply orphaned,
- * exactly as any other post-mint admission failure in this route already
- * behaves for the caller.
+ * Security review finding 7 (D2): a Cloud-resource token is issued only while
+ * the grant's principal owns a non-deleted cell row. Called after a mint has
+ * succeeded but before its material is revealed: on refusal, the minted (but
+ * never revealed) token rows are orphaned, as with any other post-mint
+ * admission failure in this route.
  */
-async function assertCloudTokenIssuancePermitted(
-  resource: string,
-  hostedResource: string,
-  grantId: string
-): Promise<boolean> {
-  if (resource === hostedResource) return true;
+async function assertCloudTokenIssuancePermitted(grantId: string): Promise<boolean> {
   try {
-    const { assertGrantOwnsCloudCell } = await import("@/lib/exomem-hosted/cloud-oauth");
     await assertGrantOwnsCloudCell(grantId);
     return true;
   } catch (error) {
-    const { CloudPrincipalHasNoCellError } = await import("@/lib/exomem-hosted/cloud-oauth");
     if (error instanceof CloudPrincipalHasNoCellError) return false;
     throw error;
   }
@@ -187,9 +166,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
     if (!allowed) return rateLimited();
     const form = await readOAuthForm(request, TOKEN_FIELDS, { ignoreUnrecognized: true });
-    const hostedResource = `${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`;
     if (form.grant_type === "authorization_code") {
-      const resource = resolveRequestedResource(form.resource, hostedResource);
+      const resource = resolveRequestedResource(form.resource);
       if (
         !hasExactFields(form, [
           "grant_type",
@@ -238,7 +216,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           client_id: form.client_id,
           redirect_uri: form.redirect_uri,
         });
-      if (!(await assertCloudTokenIssuancePermitted(resource, hostedResource, issued.grantId)))
+      if (!(await assertCloudTokenIssuancePermitted(issued.grantId)))
         return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),
@@ -247,7 +225,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
     }
     if (form.grant_type === "refresh_token") {
-      const resource = resolveRequestedResource(form.resource, hostedResource);
+      const resource = resolveRequestedResource(form.resource);
       if (
         !hasExactFields(form, ["grant_type", "refresh_token", "client_id", "resource"]) ||
         !form.refresh_token ||
@@ -272,7 +250,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Rotation also answers null for a replayed refresh token, which revokes
       // the family -- so this line is the operator's only sight of a replay.
       if (!issued) return invalidGrant("refresh_rotation", { client_id: form.client_id });
-      if (!(await assertCloudTokenIssuancePermitted(resource, hostedResource, issued.grantId)))
+      if (!(await assertCloudTokenIssuancePermitted(issued.grantId)))
         return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
       return tokenResponse({
         accessToken: material.accessToken.reveal(),

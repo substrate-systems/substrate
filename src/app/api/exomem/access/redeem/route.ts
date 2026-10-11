@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { redeemInvite } from "@/lib/exomem-hosted/access";
 import { admitFirstCloudOAuthInviteAtomic, redeemCloudInvite } from "@/lib/exomem-hosted/cloud-admission";
-import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
 import {
@@ -15,7 +13,6 @@ import {
   resolveOAuthContinuation,
   validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import { admitFirstOAuthInviteAtomic } from "@/lib/exomem-hosted/oauth-store";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import {
   applySessionCookies,
@@ -61,25 +58,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (!inviteDigest) throw exomemErrors.accessTokenInvalid();
       const session = mintSessionMaterial();
       const code = mintContinuationCode(continuation);
-      const admitted = exomemCloudEnabled()
-        ? await admitFirstCloudOAuthInviteAtomic({
-            inviteDigest,
-            transactionDigest,
-            sessionDigest: session.sessionDigest,
-            csrfDigest: session.csrfDigest,
-            sessionExpiresAt: session.expiresAt,
-            codeDigest: code.codeDigest,
-            codeExpiresAt: code.codeExpiresAt,
-          })
-        : await admitFirstOAuthInviteAtomic({
-            inviteDigest,
-            transactionDigest,
-            sessionDigest: session.sessionDigest,
-            csrfDigest: session.csrfDigest,
-            sessionExpiresAt: session.expiresAt,
-            codeDigest: code.codeDigest,
-            codeExpiresAt: code.codeExpiresAt,
-          });
+      const admitted = await admitFirstCloudOAuthInviteAtomic({
+        inviteDigest,
+        transactionDigest,
+        sessionDigest: session.sessionDigest,
+        csrfDigest: session.csrfDigest,
+        sessionExpiresAt: session.expiresAt,
+        codeDigest: code.codeDigest,
+        codeExpiresAt: code.codeExpiresAt,
+      });
       if (!admitted) throw exomemErrors.accessTokenInvalid();
       // A paid invite is admitted without a code. The continuation stays open, and
       // the consent page continues at checkout with the new session.
@@ -99,9 +86,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (connected) clearOAuthContinuationCookie(response);
       return response;
     }
-    const redeemed = exomemCloudEnabled()
-      ? await redeemCloudInvite(body.token)
-      : await redeemInvite(body.token);
+    const redeemed = await redeemCloudInvite(body.token);
     const response = NextResponse.json(
       {
         success: true,
@@ -117,7 +102,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       outcome: "succeeded",
       requestId,
       tenantId: redeemed.tenantId,
-      ...(redeemed.operationId ? { operationId: redeemed.operationId } : {}),
     });
     return response;
   } catch (error) {

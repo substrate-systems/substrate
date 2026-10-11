@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyHostedSchedulerAuth } from "@/lib/exomem-hosted/scheduler-auth";
-import { runBoundedLifecycleReconcile } from "@/lib/exomem-hosted/reconcile-runtime";
 import { runBoundedPaddleReconcile } from "@/lib/exomem-hosted/paddle-reconciliation-runtime";
-import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { expireCloudAwaitingCheckoutTenants } from "@/lib/exomem-hosted/cloud-admission";
 import { runBoundedCloudReconcile } from "@/lib/exomem-hosted/cloud-lifecycle";
 import { retryPendingCloudCancellationNotices } from "@/lib/exomem-hosted/cloud-cancellation-notice";
 import { runBoundedCloudDeletionFinish } from "@/lib/exomem-hosted/cloud-deletion-finish";
 
-// Task 3.4/3.7's time-driven Cloud sweep, added to the same authenticated
-// schedule the hosted lanes already run on (design D1/D4) rather than a new
-// scheduled job: the 7-day awaiting-checkout expiry, and the day-30
-// cancelled -> deleted transition that no webhook ever fires, the retry
-// of a cancellation notice whose send failed (D4), and the Cloud deletion
-// finish of every confirmed account deletion (D4). A true no-op
-// with the flag off -- it never runs a query in that case, matching every
-// other flag-off Cloud code path in this codebase.
+// Task 3.4/3.7's time-driven Cloud sweep (design D1/D4): the 7-day
+// awaiting-checkout expiry, the day-30 cancelled -> deleted transition that no
+// webhook ever fires, the retry of a cancellation notice whose send failed
+// (D4), and the Cloud deletion finish of every confirmed account deletion (D4).
 async function runCloudLane(): Promise<{
   expired: number;
   activationsSkipped: number;
@@ -26,8 +20,7 @@ async function runCloudLane(): Promise<{
   deletionsFinished: number;
   deletionsPending: number;
   deletionsFailed: number;
-} | null> {
-  if (!exomemCloudEnabled()) return null;
+}> {
   // Security review finding 8: expiry and the reconcile sweep run
   // independently — a failure in one (each already isolates its own
   // per-tenant failures) must not prevent the other from running this tick.
@@ -74,9 +67,6 @@ async function runCloudLane(): Promise<{
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// The tick is the only thing that moves a lifecycle operation, so its ceiling
-// is the cell's latency floor. At the previous 8-second budget an operation
-// advanced one checkpoint per cron interval whatever the interval was.
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -87,66 +77,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
   try {
-    const [lifecycleResult, paddleResult, cloudResult] = await Promise.allSettled([
-      // Cloud owns lifecycle through desired state. The old queue can still
-      // contain due alpha operations, so do not claim or dispatch it while
-      // its provisioner is paused. Keep the count-only response shape stable.
-      exomemCloudEnabled()
-        ? Promise.resolve({
-            attempted: 0,
-            advanced: 0,
-            succeeded: 0,
-            retryScheduled: 0,
-            terminal: 0,
-            renewalsEnqueued: 0,
-            renewalsBlocked: 0,
-            renewalsFailed: 0,
-          })
-        : runBoundedLifecycleReconcile({
-            maxOperations: 60,
-            // Sized to land inside the scheduler contract, not inside the platform
-            // ceiling: the caller is a K3s CronJob whose contract pins a 20 s total
-            // timeout and a 30 s activeDeadline. A pass that outlived those would
-            // still finish its work -- the client disconnecting does not stop the
-            // function -- but every draining tick would be recorded as a failed
-            // run, and two in a row raise an alert. So the budget stays under the
-            // client's timeout, and the gain comes from the waits inside it.
-            // 12s, not 15s: the deadline is checked between steps, so a step that
-            // starts just inside the budget still runs its provisioner call, which
-            // is 5s by default. 12 + 5 leaves margin under the 20s client timeout.
-            timeBudgetMs: 12_000,
-            // Keep working while the operations this tick started are still
-            // producing steps; an empty queue still costs one claim and returns.
-            idleWaitMs: 1_500,
-          }),
+    const [paddleResult, cloudResult] = await Promise.allSettled([
       runBoundedPaddleReconcile({
         maxSubscriptions: 5,
         timeBudgetMs: 8_000,
       }),
       runCloudLane(),
     ]);
-    if (
-      lifecycleResult.status === "rejected" ||
-      paddleResult.status === "rejected" ||
-      cloudResult.status === "rejected"
-    ) {
+    if (paddleResult.status === "rejected" || cloudResult.status === "rejected") {
       throw new Error("EXOMEM_RECONCILIATION_LANE_FAILED");
     }
-    const result = lifecycleResult.value;
     const paddle = paddleResult.value;
-    const cloud = cloudResult.value;
     return NextResponse.json(
       {
         success: true,
         result: {
-          attempted: result.attempted,
-          advanced: result.advanced,
-          succeeded: result.succeeded,
-          retryScheduled: result.retryScheduled,
-          terminal: result.terminal,
-          renewalsEnqueued: result.renewalsEnqueued,
-          renewalsBlocked: result.renewalsBlocked,
-          renewalsFailed: result.renewalsFailed,
           paddle: {
             configured: paddle.configured,
             attempted: paddle.attempted,
@@ -156,10 +101,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             ignored: paddle.ignored,
             failed: paddle.failed,
           },
-          // Present only when EXOMEM_CLOUD_ENABLED is on -- absent, not
-          // zeroed, when it is off, so an unconfigured deployment's response
-          // shape is byte-identical to before this lane existed.
-          ...(cloud ? { cloud } : {}),
+          cloud: cloudResult.value,
         },
       },
       { headers: { "cache-control": "no-store" } }

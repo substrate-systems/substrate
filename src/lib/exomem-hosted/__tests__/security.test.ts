@@ -8,7 +8,6 @@ import {
   digestSecret,
   encryptSecret,
   generateExternalToken,
-  opaquePrincipalScope,
   tokenDigest,
 } from "../security";
 import { safeErrorEnvelope } from "../errors";
@@ -46,21 +45,6 @@ describe("Exomem hosted secrets", () => {
     assert.equal(inspect(secret).includes(SENTINEL), false);
     assert.equal(String(secret).includes(SENTINEL), false);
     assert.ok(secret instanceof SensitiveSecret);
-  });
-
-  it("builds opaque principals without embedding identity", () => {
-    const key = Buffer.alloc(32, 0x44);
-    const first = opaquePrincipalScope(
-      { product: "exomem", userId: "user-sentinel", tenantId: "tenant-sentinel" },
-      key
-    );
-    const second = opaquePrincipalScope(
-      { product: "exomem", userId: "user-sentinel", tenantId: "tenant-sentinel" },
-      key
-    );
-    assert.equal(first, second);
-    assert.equal(first.includes("user-sentinel"), false);
-    assert.equal(first.includes("tenant-sentinel"), false);
   });
 
   it("excludes arbitrary sensitive keys from errors and operational events", () => {

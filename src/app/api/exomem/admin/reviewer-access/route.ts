@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import {
   newRequestId,
@@ -15,14 +14,6 @@ import {
   marketplaceReviewerAccessEnabled,
 } from "@/lib/exomem-hosted/reviewer-access";
 import {
-  createOrRotateMarketplaceReviewerCredentialAtomic,
-  createInternalCanaryReviewerCredentialAtomic,
-  getInternalCanaryReviewerCredentialStatus,
-  getMarketplaceReviewerCredentialStatus,
-  revokeInternalCanaryReviewerCredentialAtomic,
-  revokeMarketplaceReviewerCredentialAtomic,
-} from "@/lib/exomem-hosted/reviewer-access-store";
-import {
   createOrRotateCloudReviewerCredentialAtomic,
   getCloudReviewerCredentialStatus,
   revokeCloudReviewerCredentialAtomic,
@@ -33,46 +24,11 @@ export const dynamic = "force-dynamic";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+// The one credential kind this route manages (add-cloud-reviewer-access).
+const CLOUD_PROVIDER_REVIEW = "cloud_provider_review";
 
 function provider(value: unknown): MarketplaceReviewerProvider | null {
   return value === "openai" || value === "anthropic" ? value : null;
-}
-
-type InternalCanarySelector = {
-  platform: "claude" | "openai";
-  tenantId: string;
-  candidateId: string;
-  assignmentId: string;
-  assignmentGeneration: number;
-  stagedClientReleaseId: string;
-  oauthClientId: string;
-};
-
-function internalCanarySelector(body: Record<string, unknown>): InternalCanarySelector | null {
-  return body.platform === "claude" || body.platform === "openai"
-    ? typeof body.tenantId === "string" &&
-      UUID.test(body.tenantId) &&
-      typeof body.candidateId === "string" &&
-      UUID.test(body.candidateId) &&
-      typeof body.assignmentId === "string" &&
-      UUID.test(body.assignmentId) &&
-      Number.isSafeInteger(body.assignmentGeneration) &&
-      (body.assignmentGeneration as number) > 0 &&
-      typeof body.stagedClientReleaseId === "string" &&
-      UUID.test(body.stagedClientReleaseId) &&
-      typeof body.oauthClientId === "string" &&
-      UUID.test(body.oauthClientId)
-      ? {
-          platform: body.platform,
-          tenantId: body.tenantId,
-          candidateId: body.candidateId,
-          assignmentId: body.assignmentId,
-          assignmentGeneration: body.assignmentGeneration as number,
-          stagedClientReleaseId: body.stagedClientReleaseId,
-          oauthClientId: body.oauthClientId,
-        }
-      : null
-    : null;
 }
 
 function credentialInput(body: Record<string, unknown>) {
@@ -101,41 +57,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     await requireRateLimitedExomemOperator(request, "read");
     const params = new URL(request.url).searchParams;
-    const kind = params.get("credentialKind");
-    const internalSelector = internalCanarySelector({
-      platform: params.get("platform"),
-      tenantId: params.get("tenantId"),
-      candidateId: params.get("candidateId"),
-      assignmentId: params.get("assignmentId"),
-      assignmentGeneration: Number(params.get("assignmentGeneration")),
-      stagedClientReleaseId: params.get("stagedClientReleaseId"),
-      oauthClientId: params.get("oauthClientId"),
-    });
-    const status =
-      kind === "cloud_provider_review"
-        ? await getCloudReviewerCredentialStatus(
-            provider(params.get("provider")) ??
-              (() => {
-                throw exomemErrors.invalidRequest();
-              })()
-          )
-        : kind === "internal_canary"
-          ? await getInternalCanaryReviewerCredentialStatus(
-              internalSelector ??
-                (() => {
-                  throw exomemErrors.invalidRequest();
-                })()
-            )
-          : kind === null || kind === "provider_review"
-            ? await getMarketplaceReviewerCredentialStatus(
-                provider(params.get("provider")) ??
-                  (() => {
-                    throw exomemErrors.invalidRequest();
-                  })()
-              )
-            : (() => {
-                throw exomemErrors.invalidRequest();
-              })();
+    const selected = provider(params.get("provider"));
+    if (params.get("credentialKind") !== CLOUD_PROVIDER_REVIEW || !selected) {
+      throw exomemErrors.invalidRequest();
+    }
+    const status = await getCloudReviewerCredentialStatus(selected);
     operatorSuccessEvent(requestId);
     return NextResponse.json({ success: true, status, requestId });
   } catch (error) {
@@ -150,41 +76,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await readOperatorJsonRecord(request);
     const shared = credentialInput(body);
     if (!shared) throw exomemErrors.invalidRequest();
-    const credential = generateMarketplaceReviewerCredential();
-    if (body.credentialKind === "internal_canary") {
-      if (exomemCloudEnabled()) throw exomemErrors.invalidRequest();
-      const selector = internalCanarySelector(body);
-      if (!selector) throw exomemErrors.invalidRequest();
-      const created = await createInternalCanaryReviewerCredentialAtomic({
-        ...selector,
-        usernameDigest: credential.usernameDigest,
-        passwordHash: await hashMarketplaceReviewerPassword(credential.password),
-        ...shared,
-        operatorPrincipalDigest: operator.principalDigest,
-      });
-      if (!created) throw exomemErrors.invalidRequest();
-      operatorSuccessEvent(requestId);
-      return NextResponse.json(
-        {
-          success: true,
-          credentialKind: "internal_canary",
-          platform: selector.platform,
-          fixtureVersion: shared.fixtureVersion,
-          fixturePayloadDigest: shared.fixturePayloadDigest,
-          expiresAt: created.expiresAt,
-          credentials: { username: credential.username, password: credential.password },
-          requestId,
-        },
-        { status: 201, headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" } }
-      );
-    }
-    const cloud = body.credentialKind === "cloud_provider_review";
-    if (body.credentialKind !== undefined && body.credentialKind !== "provider_review" && !cloud)
-      throw exomemErrors.invalidRequest();
-    // Cloud design D2: the reviewer-credential branch does not apply to the
-    // Cloud resource, so no provider-review credential is issued while Cloud
-    // is on. Revoking one (DELETE) stays available.
-    if (cloud ? !exomemCloudEnabled() || !marketplaceReviewerAccessEnabled() : exomemCloudEnabled())
+    if (body.credentialKind !== CLOUD_PROVIDER_REVIEW || !marketplaceReviewerAccessEnabled())
       throw exomemErrors.invalidRequest();
     const selected = provider(body.provider);
     if (
@@ -196,11 +88,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     ) {
       throw exomemErrors.invalidRequest();
     }
-    const created = await (
-      cloud
-        ? createOrRotateCloudReviewerCredentialAtomic
-        : createOrRotateMarketplaceReviewerCredentialAtomic
-    )({
+    const credential = generateMarketplaceReviewerCredential();
+    const created = await createOrRotateCloudReviewerCredentialAtomic({
       provider: selected,
       usernameDigest: credential.usernameDigest,
       passwordHash: await hashMarketplaceReviewerPassword(credential.password),
@@ -216,7 +105,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         success: true,
-        ...(cloud ? { credentialKind: "cloud_provider_review" } : {}),
+        credentialKind: CLOUD_PROVIDER_REVIEW,
         provider: selected,
         fixtureVersion: shared.fixtureVersion,
         fixturePayloadDigest: shared.fixturePayloadDigest,
@@ -236,24 +125,11 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
     const operator = await requireRateLimitedExomemOperator(request);
     const body = await readOperatorJsonRecord(request);
-    if (body.credentialKind === "internal_canary") {
-      const selector = internalCanarySelector(body);
-      if (!selector) throw exomemErrors.invalidRequest();
-      const revoked = await revokeInternalCanaryReviewerCredentialAtomic({
-        ...selector,
-        operatorPrincipalDigest: operator.principalDigest,
-      });
-      operatorSuccessEvent(requestId);
-      return NextResponse.json({ success: true, revoked: revoked > 0, requestId });
-    }
-    const cloud = body.credentialKind === "cloud_provider_review";
-    if (body.credentialKind !== undefined && body.credentialKind !== "provider_review" && !cloud)
-      throw exomemErrors.invalidRequest();
     const selected = provider(body.provider);
-    if (!selected) throw exomemErrors.invalidRequest();
-    const revoked = await (
-      cloud ? revokeCloudReviewerCredentialAtomic : revokeMarketplaceReviewerCredentialAtomic
-    )({
+    if (body.credentialKind !== CLOUD_PROVIDER_REVIEW || !selected) {
+      throw exomemErrors.invalidRequest();
+    }
+    const revoked = await revokeCloudReviewerCredentialAtomic({
       provider: selected,
       operatorPrincipalDigest: operator.principalDigest,
     });

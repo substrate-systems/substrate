@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { admitFirstCloudOAuthInviteAtomic } from "@/lib/exomem-hosted/cloud-admission";
-import { exomemCloudEnabled } from "@/lib/exomem-hosted/cloud-config";
 import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
 import { newRequestId } from "@/lib/exomem-hosted/http";
 import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
-import { admitFirstOAuthInviteAtomic } from "@/lib/exomem-hosted/oauth-store";
 import {
   authorizationRedirect,
   clearOAuthContinuationCookie,
@@ -80,25 +78,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (!inviteDigest) return accessDenied();
     const session = mintSessionMaterial();
     const code = mintContinuationCode(continuation);
-    const admitted = exomemCloudEnabled()
-      ? await admitFirstCloudOAuthInviteAtomic({
-          inviteDigest,
-          transactionDigest,
-          sessionDigest: session.sessionDigest,
-          csrfDigest: session.csrfDigest,
-          sessionExpiresAt: session.expiresAt,
-          codeDigest: code.codeDigest,
-          codeExpiresAt: code.codeExpiresAt,
-        })
-      : await admitFirstOAuthInviteAtomic({
-          inviteDigest,
-          transactionDigest,
-          sessionDigest: session.sessionDigest,
-          csrfDigest: session.csrfDigest,
-          sessionExpiresAt: session.expiresAt,
-          codeDigest: code.codeDigest,
-          codeExpiresAt: code.codeExpiresAt,
-        });
+    const admitted = await admitFirstCloudOAuthInviteAtomic({
+      inviteDigest,
+      transactionDigest,
+      sessionDigest: session.sessionDigest,
+      csrfDigest: session.csrfDigest,
+      sessionExpiresAt: session.expiresAt,
+      codeDigest: code.codeDigest,
+      codeExpiresAt: code.codeExpiresAt,
+    });
     if (!admitted) return accessDenied();
     // A paid invite is admitted without a code; the consent page continues at checkout.
     const connected = admitted.grantId !== null;
@@ -114,18 +102,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (connected) clearOAuthContinuationCookie(response);
     return response;
   } catch (error) {
-    // Security review finding 11: CAPACITY_UNAVAILABLE is the hosted
-    // capacity-pool exhaustion code; HOSTED_ADMISSION_CLOSED is Cloud's
-    // (cloud-admission.ts). Both are a retryable "no room right now", never
-    // the invite's fault, so both get the same 503 rather than being folded
-    // into an ordinary access denial — but the mapping is gated on the same
-    // flag that chose which admission function actually ran above. Neither
-    // function can throw the other's code in ordinary operation, so this
-    // changes no normal response; it means a routing bug that let the wrong
-    // admission path run would surface as an unexpected access_denied
-    // rather than being silently absorbed as a plausible-looking 503.
-    const expectedCode = exomemCloudEnabled() ? "HOSTED_ADMISSION_CLOSED" : "CAPACITY_UNAVAILABLE";
-    if (error instanceof ExomemHostedError && error.code === expectedCode) {
+    // HOSTED_ADMISSION_CLOSED is Cloud admission's "no room right now"
+    // (cloud-admission.ts): retryable and never the invite's fault, so it gets
+    // a 503 rather than an ordinary access denial.
+    if (error instanceof ExomemHostedError && error.code === "HOSTED_ADMISSION_CLOSED") {
       return temporarilyUnavailable(requestId);
     }
     return accessDenied();

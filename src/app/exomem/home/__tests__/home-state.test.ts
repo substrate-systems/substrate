@@ -4,7 +4,6 @@ import {
   createSingleFlight,
   nextStatusPollDelayMs,
   parseCloudConnectorUrl,
-  parseInstallActions,
   parseLifecycleResponse,
 } from "../home-state";
 
@@ -48,32 +47,6 @@ describe("hosted Home lifecycle state", () => {
     assert.equal(parseLifecycleResponse({}), null);
     assert.equal(parseLifecycleResponse({ status: { state: "invented" } }), null);
     assert.equal(parseLifecycleResponse({ status: [] }), null);
-  });
-
-  it("accepts only tenant-neutral HTTPS install actions", () => {
-    assert.deepEqual(
-      parseInstallActions({
-        installActions: [
-          {
-            platform: "claude",
-            version: "0.34.0",
-            installUrl: "https://claude.ai/plugins/exomem-hosted",
-          },
-          {
-            platform: "openai",
-            version: "0.34.0",
-            installUrl: "https://chatgpt.com/plugins/exomem-hosted?tenant=private",
-          },
-        ],
-      }),
-      [
-        {
-          platform: "claude",
-          version: "0.34.0",
-          installUrl: "https://claude.ai/plugins/exomem-hosted",
-        },
-      ]
-    );
   });
 
   it("accepts only a tenant-neutral HTTPS Cloud connector URL", () => {

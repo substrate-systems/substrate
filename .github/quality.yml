@@ -12,15 +12,11 @@
 classes:
   fixtures: ["*/__tests__/fixtures/*", "*/__tests__/*fixture*"]
   tests: ["*/__tests__/*", "*.test.ts", "*.test.tsx", "e2e/*", "playwright.config.ts"]
-  # Dev and validation tooling, the contract generator, and read-only checks.
+  # Dev and validation tooling and read-only checks.
   scripts:
     - "scripts/dev.ps1"
     - "scripts/openspec_validate.ps1"
-    - "scripts/generate-exomem-hosted-contract.mjs"
-    - "scripts/exomem-d1-expand-preflight.ts"
-    - "scripts/exomem-marketplace-preflight.ts"
     - "scripts/verify-exomem-gateway-publication.mjs"
-    - "scripts/verify-exomem-hosted-runtime-trust.ts"
   tooling:
     - ".github/quality.yml"
     - ".github/workflows/test.yml"
@@ -37,7 +33,6 @@ classes:
     - "migrations/*"
     - "content/*"
     - "public/*"
-    - "contracts/hosted-agent-command-binding-v1.json" # imported by the gateway
     - "ops/*" # the hosted scheduler's cron jobs
     # Run by every production deploy (vercel-build) or by the gateway image build.
     - "scripts/vercel-maybe-migrate.ts"
@@ -45,7 +40,6 @@ classes:
     - "scripts/*.sql" # the database grants migrate.ts applies
     - "scripts/verify-exomem-gateway-bundle.mjs"
     # Change production data when an operator runs them.
-    - "scripts/neon-cutover.ts"
     - "scripts/import-legacy-patron.ts"
     - "scripts/reconcile-legacy-generations.ts"
     - "scripts/strict-generation-visibility-cutover.ts"
@@ -70,9 +64,8 @@ javascript:
     entry:
       # `npm test` runs src/**/*.test.tsx too; the Node plugin only knows *.test.ts.
       - "src/**/*.test.tsx"
-      # Run by hand from the README and the hosted runbook; nothing else references them.
+      # Run by hand from the README; nothing else references it.
       - "scripts/generate-jwt-keypair.ts"
-      - "scripts/generate-exomem-hosted-contract.mjs"
 
 # Exact token clones, on code only: OpenSpec deltas repeat requirement text by design.
 duplicates:

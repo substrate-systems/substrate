@@ -1,4 +1,3 @@
-import { exomemCloudEnabled } from "./cloud-config";
 import {
   EXOMEM_PADDLE_PRODUCT_KEY,
   ExomemPaddleConfigurationError,
@@ -116,7 +115,6 @@ type DispatchDependencies = {
  * removed along with the function itself).
  */
 async function defaultCloudPaddleHook(application: ExomemPaddleEventApplication): Promise<void> {
-  if (!exomemCloudEnabled()) return;
   const { reconcileCloudCellDesiredState } = await import("./cloud-lifecycle");
   await reconcileCloudCellDesiredState(application.correlation.tenantId);
   // Item 5 / task 3.7 (design D4): the one-time cancellation notice, keyed

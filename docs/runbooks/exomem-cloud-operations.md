@@ -1,0 +1,252 @@
+# Exomem Cloud — Substrate Operator Runbook
+
+Substrate is the account, entitlement, OAuth and billing control plane for
+Exomem Cloud. It admits owners, takes payment through Paddle, and records each
+tenant's cell row and its `desired_state`. Exomem's cellctl creates and runs
+the cells; the Substrate gateway passes MCP traffic to them. This runbook
+covers the Substrate side. The Cloud design is the OpenSpec change
+`adopt-exomem-cloud-plain-cells`; directory reviewer access has its own
+runbook, `exomem-cloud-reviewer-access.md`.
+
+## Substrate configuration
+
+Set secrets in every Vercel environment that can run an Exomem route, then
+redeploy. Never reuse a cell credential as a control-plane secret.
+
+| Variable                                                            | Requirement                                                                                                                                                                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                                      | Postgres connection used by migrations and product-scoped rows.                                                                                                                                              |
+| `EXOMEM_PUBLIC_BASE_URL`                                            | Production HTTPS origin, exactly `https://substratesystems.io`. Credentials, query, fragment and non-root paths are rejected, and there is no request-derived fallback. Development HTTP is loopback-only.   |
+| `EXOMEM_ADMIN_TOKEN`                                                | At least 32 random bytes, known only to operators. Protects the operator API and page.                                                                                                                       |
+| `EXOMEM_CONTROL_PLANE_KEY`                                          | Exactly 32 random bytes as unpadded base64url, on the web app and the gateway. Seals OAuth continuations and queued email links, and keys rate-limit buckets.                                                |
+| `EXOMEM_CLOUD_MCP_URL`, `EXOMEM_CLOUD_MCP_PATH`                     | The Cloud MCP resource URL and its path on the gateway. The web app and the gateway must name the same resource. A missing value fails OAuth closed.                                                         |
+| `EXOMEM_CLOUD_CELL_TOKEN_KEY`                                       | Gateway only: 32 bytes as hex, used to derive each cell's bearer. The web app does not need it.                                                                                                              |
+| `CRON_SECRET`                                                       | Vercel-only bearer for unrelated daily and weekly jobs. Never install it in the K3s scheduler.                                                                                                               |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                    | Dedicated active bearer shared only by the two Exomem scheduled routes and the K3s scheduler.                                                                                                                |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                           | Optional Vercel receiver-only overlap during rotation. Absent in steady state and never installed in K3s.                                                                                                    |
+| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256`                                  | SHA-256 of the scheduler alert receiver capability for `/api/exomem/alerts/[token]`. Unset means the endpoint answers `404`. Only the digest belongs here.                                                   |
+| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS`                         | Optional receiver-only overlap during alert capability rotation. A malformed value is ignored.                                                                                                               |
+| `EXOMEM_HOSTED_ALERT_RECIPIENT`                                     | Optional alert address override; defaults to `founder@substratesystems.io`.                                                                                                                                  |
+| `BREVO_API_KEY`                                                     | Delivers invite, magic-link, deletion-confirmation, cancellation and alert email.                                                                                                                            |
+| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                           | Optional verified sender overrides.                                                                                                                                                                          |
+| `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`     | One matching Paddle environment, merchant API key and webhook-verification secret. Keep them configured after new checkout stops, so existing paid accounts can reconcile, manage billing and delete safely. |
+| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT` | Browser checkout token and the same environment as the merchant configuration. A mismatch fails closed.                                                                                                      |
+| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`     | The environment and the Exomem product that the server selects.                                                                                                                                              |
+| `EXOMEM_PADDLE_PRICE_ID`                                            | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                               |
+| `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                           |
+| `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                               |
+
+Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
+key, never plain hashes of email or IP addresses. The access-delivery job prunes
+buckets older than the longest window plus one hour, in bounded batches.
+
+The anonymous interest endpoint, `/api/exomem/interest`, takes durable IP and
+normalized-email buckets before it calls Brevo. A denied bucket returns `429`
+with `Retry-After`. An unavailable limiter fails closed with `503`, so the
+endpoint cannot spend the shared email quota. Add a Vercel edge or WAF rule for
+that path as a burst-control layer. The rule must not log raw emails or IPs.
+
+## OAuth and client admission
+
+The authorization server metadata is at
+`/.well-known/oauth-authorization-server/api/exomem/oauth`. The endpoints are
+`/api/exomem/oauth/authorize`, `/token` and `/revoke`. Tokens are bound to
+`EXOMEM_CLOUD_MCP_URL` by exact equality, and a grant always carries both
+`exomem.read` and `exomem.write`. Token issuance requires a non-deleted cell
+row for the tenant.
+
+MCP bearer credentials belong only in the `Authorization` header. Never put
+them in a URL, cookie, tool argument, log or cell header.
+
+`EXOMEM_CONTROL_PLANE_KEY` has one envelope key and no key ID, so do not rotate
+it in place. If it changes by accident, restore the exact old key before serving
+traffic. Never rotate by deleting token, grant or family rows. Revoke a
+compromised client family first. Use account-wide revocation only when every
+client must re-authorize.
+
+### Withdraw or revive a self-registering client
+
+A client is admitted when it is enabled and either pinned or serving a valid
+metadata document from a host in `exomem_oauth_admitted_cimd_hosts`
+(`chatgpt.com` → `openai`, `claude.ai` → `claude`). Clients on an admitted host
+register and refresh themselves on contact with `/authorize`.
+
+To withdraw one, delete its allowlist row. Setting `enabled = false` on the
+client is not a durable off switch, because the next anonymous contact
+re-enables it. Deleting the row for `claude.ai` withdraws every Claude client,
+because claude.ai serves one global client document.
+
+Cached metadata lives 24 hours. When it lapses, the row is disabled, and token
+issuance and refresh need unexpired metadata. Clients then see a Connect prompt
+until the next `/authorize` fetches the document again and revives the row. A
+lapse is not a revocation and burns no refresh token.
+
+Operator registration and enabling of a pinned client still check the legacy
+Hosted staged-release and artifact rows. A follow-up change must replace that
+authority before a new pinned client can be registered.
+
+### OpenAI domain proof
+
+OpenAI issues the value for `OPENAI_APPS_CHALLENGE`.
+
+1. Store the exact single-line value in each deployment that serves the canonical origin.
+2. Redeploy.
+3. Request `/.well-known/openai-apps-challenge`.
+
+The route returns only the plain-text value with `Cache-Control: no-store`. An
+absent or unsafe value returns `404`. Never put the value in a shell command,
+ticket, screenshot, test fixture or log. To rotate it, replace the value and
+redeploy before the provider verifies it. To remove it, delete the variable,
+redeploy, and confirm that the route returns `404`.
+
+## External scheduler
+
+Vercel Hobby rejects cron expressions that run more than once per day, so the
+frequent Exomem jobs are absent from `vercel.json`. The Exomem platform chart
+deploys them from its own schedule file,
+`infra/helm/platform/files/exomem-hosted-schedules-v1.json` in the Exomem
+repository, as K3s CronJobs. `ops/exomem-hosted-schedules.json` here is the
+Substrate-side copy of that contract. Each job calls `https://substratesystems.io`
+with `Authorization: Bearer <EXOMEM_HOSTED_SCHEDULER_SECRET>`:
+
+- `/api/cron/exomem-access-delivery`;
+- `/api/cron/exomem-reconcile`, which runs Paddle reconciliation and the Cloud
+  sweep (checkout expiry, desired-state reconcile, cancellation notices and the
+  Cloud deletion finish).
+
+The chart's schedule file sets how often each job runs.
+
+The scheduler receives only the active dedicated secret. It never receives
+`CRON_SECRET`, the previous receiver secret, or database, Paddle, cell or
+browser credentials. The contract pins GET, redirect rejection, timeouts,
+`Forbid` concurrency, deadlines, attempts, job history, content-free metrics
+and alert thresholds.
+
+To rotate the dedicated bearer:
+
+1. In Vercel, set the new value as `EXOMEM_HOSTED_SCHEDULER_SECRET` and the old value as `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`, then redeploy.
+2. Update the SOPS-encrypted K3s scheduler Secret to the new value, and apply the platform release.
+3. Prove that every scheduled route succeeds with the new value.
+4. Remove `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS` from Vercel and redeploy.
+5. Prove that the old value returns `401` and unrelated cron routes still require `CRON_SECRET`.
+
+Generate a control-plane key without printing raw bytes in shell history:
+
+```bash
+node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+## Paid checkout and reconciliation
+
+Paddle is a billing adapter, never a cell runtime dependency. A paid invite
+redemption creates the owner, tenant, an `awaiting_checkout` Paddle entitlement
+and one cell row with `desired_state = stopped`. That row holds its Cloud
+capacity slot, and cellctl creates nothing for a row that has never run. Home
+then creates or resumes a server-selected checkout for `EXOMEM_PADDLE_PRICE_ID`.
+The browser cannot select a product, price, tenant, environment or return URL.
+
+A verified active or trialing subscription event makes the entitlement active.
+The Cloud reconcile then sets the row to `running`. Duplicate and stale events
+change nothing. A tenant still `awaiting_checkout` after 7 days is expired: the
+sweep cancels its pending transaction and sets the row to `deleted`, unless
+Paddle reports the transaction completed.
+
+A transaction return is accepted only when its exact transaction ID and
+provider environment are already bound to the signed-in owner. A settled or
+canceled return clears or promotes only the recorded binding. It never creates
+a replacement transaction.
+
+Keep the shared Paddle destination at
+`$EXOMEM_PUBLIC_BASE_URL/api/webhooks/paddle`, its `PADDLE_WEBHOOK_SECRET`, and
+the `transaction.completed` and subscription `created`, `activated`, `updated`,
+`past_due`, `paused`, `resumed` and `canceled` events. Rotate the secret on the
+destination and the deployment together, or deliveries fail verification.
+Provider identifiers stay in Substrate's tables and never reach a cell.
+
+The reconcile job also checks each due Paddle subscription under a 30-second
+lease, at most once per six hours after a success. Failures retry from one
+minute with exponential backoff capped at six hours. If paid rows exist but the
+Paddle configuration is missing or a stored reference belongs to another
+environment, the job returns a stable `503` before any Paddle call.
+
+## Invitations
+
+### Revoke historical self-serve invitations
+
+The public self-serve route returns `410`, which prevents new rows. It does not
+revoke an old bearer that email already delivered. Before you enable a price,
+count the redeemable historical self-serve invites:
+
+```sql
+SELECT count(*) AS outstanding_historical_self_serve_invites
+FROM exomem_invites
+WHERE self_serve
+  AND consumed_at IS NULL
+  AND revoked_at IS NULL
+  AND expires_at > now();
+```
+
+If the count is not zero, stop and revoke only that exact set in one
+transaction. Keep the rows for audit:
+
+```sql
+BEGIN;
+SELECT id FROM exomem_invites
+WHERE self_serve AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+FOR UPDATE;
+
+UPDATE exomem_invites
+SET revoked_at = now()
+WHERE self_serve AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+RETURNING id;
+COMMIT;
+```
+
+Run the count again and require zero.
+
+### Issue an invite
+
+1. Open `/exomem/operator` directly; it is absent from public navigation and the sitemap.
+2. Paste `EXOMEM_ADMIN_TOKEN` into the page. The page holds it only until refresh or "Lock".
+3. Enter one email and leave "Paid" selected. "Complimentary" needs its own confirmation.
+4. Send the invitation. The page then refreshes its capacity figures.
+
+The page and paid invite issuance still read the legacy capacity pool
+`exomem-hosted-alpha`. Redemption is gated separately: the count of non-deleted
+Cloud cell rows must stay below the `cell_slots` total in
+`exomem_cloud_capacity`. When Cloud capacity is full, redemption returns
+`HOSTED_ADMISSION_CLOSED` and leaves the invite unconsumed.
+
+The authenticated API is the non-browser fallback. Keep the operator token out
+of logs and chat transcripts:
+
+```bash
+curl --fail-with-body \
+  -X POST "$EXOMEM_PUBLIC_BASE_URL/api/exomem/admin/invites" \
+  -H "Authorization: Bearer $EXOMEM_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"email":"invitee@example.com","source":"paid"}'
+```
+
+The response contains only an opaque invite ID and request ID. Brevo sends the
+token in the URL fragment, so request logs never contain it. A complimentary
+redemption creates a cell row with `desired_state = running`.
+
+## Account deletion
+
+Home sends a fresh one-use email confirmation. Confirmation sets the tenant to
+`deletion_pending`, revokes Exomem sessions and tokens, gates the entitlement,
+and sets the cell row to `deleted`, which also revokes the tenant's OAuth
+grants. The Cloud deletion finish then cancels the Paddle subscription and
+scrubs the tenant in one transaction. The reconcile job retries both until they
+succeed. Deletion never removes the shared `users` row or Endstate data.
+
+A legacy Hosted tenant without a Cloud cell row stays `deletion_pending` after
+confirmation, because no worker finishes it. Count such tenants before you rely
+on deletion receipts:
+
+```sql
+SELECT count(*) FROM exomem_tenants AS tenant
+WHERE tenant.status = 'deletion_pending'
+  AND NOT EXISTS (SELECT 1 FROM exomem_cloud_cells AS cell WHERE cell.tenant_id = tenant.id);
+```

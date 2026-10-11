@@ -1,11 +1,8 @@
 /**
  * Exomem Cloud gateway handler (design D3, `adopt-exomem-cloud-plain-cells`).
  *
- * An authenticated pass-through: unlike `handleHostedMcpRequest` (mcp.ts),
- * which runs the MCP server in-process, this resolves the caller's cell and
- * streams the request straight to it. Additive and gated — nothing here is
- * imported by the hosted MCP path, and this module is only reachable when
- * `EXOMEM_CLOUD_MCP_PATH` is configured (server.ts).
+ * An authenticated pass-through: it resolves the caller's cell and streams the
+ * request straight to it. server.ts mounts it at `EXOMEM_CLOUD_MCP_PATH`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -14,13 +11,13 @@ import {
   cloudArtifactGrant,
   readCloudArtifactBody,
 } from "./cloud-artifacts";
+import { hasForbiddenGatewayHeaders } from "./forbidden-headers";
 import { deriveCloudCellBearer } from "../lib/exomem-hosted/cloud-cell-bearer";
 import { loadExomemCloudConfig, type ExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
 import {
   findCloudOAuthAccessToken,
   type ActiveCloudOAuthAccessToken,
 } from "../lib/exomem-hosted/cloud-oauth";
-import { hasForbiddenGatewayHeaders } from "../lib/exomem-hosted/gateway";
 import { ADVERTISED_SCOPES, parseBearerAuthorization } from "../lib/exomem-hosted/oauth";
 import { exomemPublicBaseUrlFromEnv } from "../lib/exomem-hosted/public-origin";
 import { EXOMEM_RATE_LIMITS, takeExomemRateLimit } from "../lib/exomem-hosted/rate-limit";

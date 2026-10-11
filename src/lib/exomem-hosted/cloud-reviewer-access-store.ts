@@ -1,4 +1,4 @@
-import { exomemCloudEnabled, loadExomemCloudResource } from "./cloud-config";
+import { loadExomemCloudResource } from "./cloud-config";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import {
   marketplaceReviewerAccessEnabled,
@@ -6,13 +6,29 @@ import {
   type MarketplaceReviewerAuthenticationRecord,
   type MarketplaceReviewerProvider,
 } from "./reviewer-access";
-import type {
-  CreateMarketplaceReviewerCredentialInput,
-  MarketplaceReviewerCredentialStatus,
-} from "./reviewer-access-store";
+
+type CreateMarketplaceReviewerCredentialInput = {
+  provider: MarketplaceReviewerProvider;
+  usernameDigest: Buffer;
+  passwordHash: string;
+  ownerUserId: string;
+  tenantId: string;
+  fixtureVersion: string;
+  fixturePayloadDigest: string;
+  expiresAt: Date;
+  operatorPrincipalDigest: Buffer;
+};
+
+type MarketplaceReviewerCredentialStatus = {
+  provider: MarketplaceReviewerProvider;
+  fixtureVersion: string;
+  fixturePayloadDigest: string;
+  expiresAt: string;
+  revokedAt: string | null;
+};
 
 export function cloudReviewerAccessEnabled(): boolean {
-  return exomemCloudEnabled() && marketplaceReviewerAccessEnabled();
+  return marketplaceReviewerAccessEnabled();
 }
 
 async function lockProviderTenants(

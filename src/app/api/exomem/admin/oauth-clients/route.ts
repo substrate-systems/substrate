@@ -8,13 +8,10 @@ import {
   requireRateLimitedExomemOperator,
 } from "@/lib/exomem-hosted/operator-admin";
 import {
-  createReviewerOAuthBootstrapAuthority,
   listOperatorOAuthClients,
-  listReviewerOAuthBootstrapAuthorities,
   preflightReusablePinnedOAuthClient,
   refreshOperatorCimdOAuthClient,
   registerOperatorOAuthClient,
-  revokeReviewerOAuthBootstrapAuthority,
   setOperatorOAuthClientEnabled,
 } from "@/lib/exomem-hosted/operator-controls";
 
@@ -28,10 +25,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     await requireRateLimitedExomemOperator(request, "read");
-    const [clients, bootstrapAuthorities] = await Promise.all([
-      listOperatorOAuthClients(),
-      listReviewerOAuthBootstrapAuthorities(),
-    ]);
+    const clients = await listOperatorOAuthClients();
     operatorSuccessEvent(requestId);
     return NextResponse.json({
       success: true,
@@ -44,7 +38,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         redirectCount: client.redirectCount,
         metadataExpiresAt: client.metadataExpiresAt,
       })),
-      bootstrapAuthorities,
       requestId,
     });
   } catch (error) {
@@ -75,7 +68,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
-    const operator = await requireRateLimitedExomemOperator(request);
+    await requireRateLimitedExomemOperator(request);
     const body = await readOperatorJsonRecord(request);
     let result: { id: string; enabled: boolean };
     if (
@@ -137,41 +130,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       UUID.test(body.id)
     ) {
       result = await refreshOperatorCimdOAuthClient(body.id);
-    } else if (
-      body.action === "create_reviewer_bootstrap" &&
-      typeof body.inviteId === "string" &&
-      UUID.test(body.inviteId) &&
-      typeof body.stagedClientReleaseId === "string" &&
-      UUID.test(body.stagedClientReleaseId) &&
-      typeof body.oauthClientId === "string" &&
-      UUID.test(body.oauthClientId) &&
-      typeof body.expiresAt === "string"
-    ) {
-      const expiresAt = new Date(body.expiresAt);
-      const authority = await createReviewerOAuthBootstrapAuthority({
-        inviteId: body.inviteId,
-        stagedClientReleaseId: body.stagedClientReleaseId,
-        oauthClientId: body.oauthClientId,
-        expiresAt,
-        operatorPrincipalDigest: operator.principalDigest,
-      });
-      if (!authority) throw exomemErrors.invalidRequest();
-      operatorSuccessEvent(requestId);
-      return NextResponse.json({
-        success: true,
-        authority: { id: authority.id, state: "active", expiresAt: authority.expiresAt },
-        requestId,
-      });
-    } else if (
-      body.action === "revoke_reviewer_bootstrap" &&
-      typeof body.id === "string" &&
-      UUID.test(body.id)
-    ) {
-      if (!(await revokeReviewerOAuthBootstrapAuthority({ authorityId: body.id }))) {
-        throw exomemErrors.invalidRequest();
-      }
-      operatorSuccessEvent(requestId);
-      return NextResponse.json({ success: true, id: body.id, state: "revoked", requestId });
     } else {
       throw exomemErrors.invalidRequest();
     }

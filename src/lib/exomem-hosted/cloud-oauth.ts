@@ -2,11 +2,7 @@
  * Exomem Cloud OAuth client admission and exact-resource token binding
  * (design D2, `adopt-exomem-cloud-plain-cells`).
  *
- * Additive and gated: nothing here is called from any hosted code path.
- * `resolveApprovedOAuthClient` and `findActiveOAuthAccessToken` /
- * `findMcpOAuthAccessToken` (oauth-store.ts) keep their whole-cohort EXISTS
- * and reviewer-credential branches entirely unchanged — Cloud admission is a
- * parallel, narrower predicate matching D2 exactly:
+ * Cloud admission is the D2 predicate, exactly:
  *
  *   "For the Cloud MCP resource, an OAuth client SHALL be admitted when it
  *    is enabled, its redirect URI matches its registered digest, and its
@@ -14,12 +10,9 @@
  *    live cohort or a reviewer credential."
  *
  * A token is bound to exactly one resource, and is accepted only where its
- * resource is exactly equal to the resource being served. That is already
- * how the schema works — `exomem_oauth_access_tokens.resource` is a plain
- * text column and every lookup here filters on it exactly — so the
- * "exact resource equality" requirement composes with the existing hosted
- * lookup path (mcp.ts's `access.resource !== EXOMEM_HOSTED_RESOURCE` check)
- * without either side needing to know about the other's resource literal.
+ * resource is exactly equal to the resource being served:
+ * `exomem_oauth_access_tokens.resource` is a plain text column and every
+ * lookup here filters on it exactly.
  */
 
 import { executeExomemSql } from "./db";
@@ -115,9 +108,8 @@ export type ActiveCloudOAuthAccessToken = {
  * cell row. Reviewer lineages additionally require matching Cloud credential
  * authority; ordinary NULL lineages retain their existing routing semantics.
  * There is no candidate or assignment authority. `expectedResource` is compared
- * with plain equality against the token's stored resource: a hosted-resource
- * token never matches here, symmetrically to how a Cloud-resource token
- * never matches `EXOMEM_HOSTED_RESOURCE` in the hosted path.
+ * with plain equality against the token's stored resource, so a token minted
+ * for the retired Hosted resource never matches here.
  *
  * Returns the cell's `desired_state` rather than gating on it here — D3
  * gates on desired state as a distinct routing decision the gateway makes

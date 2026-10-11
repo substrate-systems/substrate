@@ -12,11 +12,9 @@ import styles from "../private-shell.module.css";
 import {
   type Lifecycle,
   type LifecycleState,
-  type InstallAction,
   createSingleFlight,
   nextStatusPollDelayMs,
   parseCloudConnectorUrl,
-  parseInstallActions,
   parseLifecycleResponse,
 } from "./home-state";
 import { type HomeSection, homeSections } from "./home-sections";
@@ -96,13 +94,7 @@ function SubscriptionPrice({ priceId }: { priceId: string | null }) {
   );
 }
 
-export default function HomeClient({
-  serverUrl,
-  priceId,
-}: {
-  serverUrl: string;
-  priceId: string | null;
-}) {
+export default function HomeClient({ priceId }: { priceId: string | null }) {
   const [lifecycle, setLifecycle] = useState<Lifecycle>({
     state: "loading",
     code: "TENANT_PREPARING",
@@ -118,11 +110,9 @@ export default function HomeClient({
     checkoutAvailable: boolean;
     portalAvailable: boolean;
   } | null>(null);
-  const [installActions, setInstallActions] = useState<InstallAction[]>([]);
-  // Item 6 / task 3.7: null until /api/exomem/status returns one (only ever
-  // happens under EXOMEM_CLOUD_ENABLED) -- flag off, this never leaves null
-  // and every render below falls through to the hosted `serverUrl` prop
-  // exactly as before.
+  // Null until /api/exomem/status returns the tenant's Cloud connector URL.
+  // The status route omits it when the deployment has no Cloud resource
+  // configured, and Home then says the address is unavailable.
   const [cloudConnectorUrl, setCloudConnectorUrl] = useState<string | null>(null);
   const [urlCopied, setUrlCopied] = useState(false);
   const [promLevel, setPromLevel] = useState<PromLevel>(DEFAULT_PROM_LEVEL);
@@ -187,7 +177,6 @@ export default function HomeClient({
     if (lifecycle.state !== "ready" && lifecycle.state !== "awaiting_payment") return;
     void getPrivateJson("/api/exomem/account")
       .then((response) => {
-        setInstallActions(parseInstallActions(response));
         const value = response.billing;
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
         const candidate = value as Record<string, unknown>;
@@ -339,11 +328,6 @@ export default function HomeClient({
   }
 
   const sections = homeSections();
-  // Item 6 / task 3.7: the Cloud connector URL, when /api/exomem/status has
-  // returned one, replaces the hosted `serverUrl` prop everywhere it is
-  // shown -- the same MCP server address concept, pointed at the tenant's
-  // Cloud cell instead of the shared hosted MCP endpoint.
-  const effectiveServerUrl = cloudConnectorUrl ?? serverUrl;
 
   async function copyInstructions() {
     try {
@@ -357,8 +341,9 @@ export default function HomeClient({
   }
 
   async function copyServerUrl() {
+    if (!cloudConnectorUrl) return;
     try {
-      await navigator.clipboard.writeText(cloudConnectorUrl ?? serverUrl);
+      await navigator.clipboard.writeText(cloudConnectorUrl);
       setUrlCopied(true);
       window.setTimeout(() => mountedRef.current && setUrlCopied(false), 2000);
     } catch {
@@ -383,12 +368,22 @@ export default function HomeClient({
         </p>
 
         <p className={styles.connectLabel}>Step 1 · Your Exomem server address</p>
-        <p className={styles.serverUrl}>
-          <span className={styles.serverUrlValue}>{effectiveServerUrl}</span>
-          <button className={styles.quietButton} type="button" onClick={() => void copyServerUrl()}>
-            {urlCopied ? "Copied" : "Copy"}
-          </button>
-        </p>
+        {cloudConnectorUrl ? (
+          <p className={styles.serverUrl}>
+            <span className={styles.serverUrlValue}>{cloudConnectorUrl}</span>
+            <button
+              className={styles.quietButton}
+              type="button"
+              onClick={() => void copyServerUrl()}
+            >
+              {urlCopied ? "Copied" : "Copy"}
+            </button>
+          </p>
+        ) : (
+          <p className={styles.secondaryCopy}>
+            Your server address is not available right now. Reload this page in a moment.
+          </p>
+        )}
         <p className={styles.secondaryCopy}>
           The same address for every client. You sign in once, in the browser, when your assistant
           asks.
@@ -430,48 +425,26 @@ export default function HomeClient({
 
         <p className={styles.connectLabel}>Where each step goes</p>
         <div className={styles.connectRoutes}>
-          {CLIENT_GUIDES.map((guide) => {
-            // One source of truth: a client can show an install button only if
-            // it is installable at all AND the server actually published an
-            // action for its platform.
-            const action = guide.installable
-              ? installActions.find(
-                  (candidate) =>
-                    candidate.platform === (guide.client === "claude" ? "claude" : "openai")
-                )
-              : undefined;
-            return (
-              <div key={guide.client}>
-                <div className={styles.secondaryRow}>
-                  <div>
-                    <strong>{guide.name}</strong>
-                    <p className={styles.secondaryCopy}>
-                      {action
-                        ? `One-click install · version ${action.version}`
-                        : `Connect: ${guide.connect}`}
-                    </p>
-                    {guide.blocked ? (
-                      <p className={styles.secondaryCopy}>{guide.blocked}</p>
-                    ) : (
-                      <p className={styles.secondaryCopy}>
-                        Instructions go in: {guide.pasteTarget}
-                      </p>
-                    )}
-                  </div>
-                  {action ? (
-                    <a className={styles.quietButton} href={action.installUrl}>
-                      Install in {guide.name}
-                    </a>
-                  ) : null}
+          {CLIENT_GUIDES.map((guide) => (
+            <div key={guide.client}>
+              <div className={styles.secondaryRow}>
+                <div>
+                  <strong>{guide.name}</strong>
+                  <p className={styles.secondaryCopy}>Connect: {guide.connect}</p>
+                  {guide.blocked ? (
+                    <p className={styles.secondaryCopy}>{guide.blocked}</p>
+                  ) : (
+                    <p className={styles.secondaryCopy}>Instructions go in: {guide.pasteTarget}</p>
+                  )}
                 </div>
-                {guide.commands && !action ? (
-                  <pre className={styles.connectCommands}>
-                    <code>{guide.commands(effectiveServerUrl)}</code>
-                  </pre>
-                ) : null}
               </div>
-            );
-          })}
+              {guide.commands && cloudConnectorUrl ? (
+                <pre className={styles.connectCommands}>
+                  <code>{guide.commands(cloudConnectorUrl)}</code>
+                </pre>
+              ) : null}
+            </div>
+          ))}
         </div>
       </div>
     ),

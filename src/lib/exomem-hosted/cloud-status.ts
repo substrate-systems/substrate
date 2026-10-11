@@ -1,13 +1,9 @@
 /**
  * Exomem Cloud Home status (item 6 / task 3.7, `adopt-exomem-cloud-plain-cells`).
  *
- * Additive and gated: nothing here is called from any hosted code path.
- * `/api/exomem/status` (status/route.ts) calls this only under
- * `EXOMEM_CLOUD_ENABLED`, in place of `getOwnerLifecycleStatus`
- * (reconcile-runtime.ts). Returns the exact same `LifecycleStatus` shape
- * hosted status already uses -- state, code, retryable -- so the browser's
- * home-client.tsx and home-state.ts need no Cloud-specific branching at all;
- * it already renders any tenant whose status maps onto that vocabulary.
+ * `/api/exomem/status` (status/route.ts) returns this `LifecycleStatus` --
+ * state, code, retryable -- and the browser's home-client.tsx and
+ * home-state.ts render it.
  *
  * Reads only `exomem_cloud_cells` (desired_state, observed_state, ready,
  * last_error_code) and `exomem_entitlements.source_state`, to distinguish an
@@ -17,7 +13,28 @@
 
 import { executeExomemSql } from "./db";
 import { awaitsFirstPayment } from "./entitlements";
-import type { LifecycleStatus } from "./reconciler";
+
+export type LifecycleStatus = {
+  state:
+    | "awaiting_payment"
+    | "preparing"
+    | "ready"
+    | "degraded"
+    | "suspended"
+    | "deletion_pending"
+    | "deleted";
+  // Every code the mapper below can return; the status route sends it as is.
+  code:
+    | "TENANT_PREPARING"
+    | "PAYMENT_REQUIRED"
+    | "CELL_PREPARING"
+    | "CELL_READY"
+    | "CELL_NOT_READY"
+    | "EXOMEM_SUSPENDED"
+    | "EXOMEM_DELETED";
+  requestId?: string;
+  retryable: boolean;
+};
 
 type CloudCellStatusRow = {
   desired_state: "running" | "read_only" | "stopped" | "deleted";
@@ -75,7 +92,7 @@ export function mapCloudCellToLifecycleStatus(
   }
   // Any other observed/desired mismatch (e.g. stopping or deleting while
   // desired_state calls for the cell to be live) is a transitional or
-  // controller-side anomaly -- surfaced the same way hosted surfaces one.
+  // controller-side anomaly.
   return { state: "degraded", code: "CELL_NOT_READY", retryable: true };
 }
 

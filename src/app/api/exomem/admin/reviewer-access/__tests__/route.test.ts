@@ -9,7 +9,6 @@ const OWNER_ID = "018f2d91-7c42-7000-8000-000000000011";
 const TENANT_ID = "018f2d91-7c42-7000-8000-000000000012";
 let created: Record<string, unknown> | null = null;
 let revoked: Record<string, unknown> | null = null;
-let createdInternal: Record<string, unknown> | null = null;
 
 before(() => {
   process.env.EXOMEM_ADMIN_TOKEN = ADMIN_TOKEN;
@@ -42,37 +41,6 @@ before(() => {
       },
     },
   });
-  mock.module("@/lib/exomem-hosted/reviewer-access-store", {
-    namedExports: {
-      createOrRotateMarketplaceReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
-        created = input;
-        return { credentialId: "credential-1", ownerUserId: "owner-1", tenantId: "tenant-1" };
-      },
-      createInternalCanaryReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
-        createdInternal = input;
-        return {
-          credentialId: "credential-2",
-          ownerUserId: "owner-1",
-          tenantId: "tenant-1",
-          expiresAt: "2026-07-31T00:00:00.000Z",
-        };
-      },
-      getMarketplaceReviewerCredentialStatus: async () => ({
-        provider: "openai",
-        fixtureVersion: "review-fixture-v1",
-        fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
-        expiresAt: "2026-08-01T00:00:00.000Z",
-        revokedAt: null,
-      }),
-      revokeMarketplaceReviewerCredentialAtomic: async (input: Record<string, unknown>) => {
-        revoked = input;
-        return 1;
-      },
-      revokeInternalCanaryReviewerCredentialAtomic: async () => {
-        return 1;
-      },
-    },
-  });
   mock.module("@/lib/exomem-hosted/rate-limit", {
     namedExports: {
       EXOMEM_RATE_LIMITS: {
@@ -95,7 +63,6 @@ after(() => {
 beforeEach(() => {
   created = null;
   revoked = null;
-  createdInternal = null;
 });
 
 function request(
@@ -104,7 +71,9 @@ function request(
 ) {
   const headers = new Headers({ "content-type": "application/json" });
   if (input.authorization) headers.set("authorization", input.authorization);
-  const query = input.provider ? `?provider=${encodeURIComponent(input.provider)}` : "";
+  const query = input.provider
+    ? `?credentialKind=cloud_provider_review&provider=${encodeURIComponent(input.provider)}`
+    : "";
   return new Request(`https://substratesystems.io/api/exomem/admin/reviewer-access${query}`, {
     method,
     headers,
@@ -118,7 +87,38 @@ describe("Exomem operator reviewer access", () => {
     assert.equal((await GET(request("GET", { provider: "openai" }))).status, 401);
   });
 
-  it("creates a generated credential and returns plaintext only in that response", async () => {
+  it("creates a generated Cloud credential and returns plaintext only in that response", async () => {
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("POST", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: {
+          credentialKind: "cloud_provider_review",
+          provider: "openai",
+          ownerUserId: OWNER_ID,
+          tenantId: TENANT_ID,
+          fixtureVersion: "sample-v1",
+          fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
+          expiresAt: "2026-08-01T00:00:00.000Z",
+        },
+      })
+    );
+
+    assert.equal(response.status, 201);
+    const body = (await response.json()) as Record<string, unknown>;
+    assert.equal(body.credentialKind, "cloud_provider_review");
+    assert.deepEqual(body.credentials, { username: USERNAME, password: PASSWORD });
+    assert.equal(created?.cloud, true);
+    assert.equal(created?.passwordHash, "$argon2id$operator-test");
+    assert.equal(created?.usernameDigest instanceof Buffer, true);
+    assert.equal(created?.fixturePayloadDigest, FIXTURE_PAYLOAD_DIGEST);
+    assert.equal(JSON.stringify(body).includes("owner-1"), false);
+    assert.equal(JSON.stringify(body).includes("tenant-1"), false);
+    assert.equal(JSON.stringify(body).includes(OWNER_ID), false);
+    assert.equal(JSON.stringify(body).includes(TENANT_ID), false);
+  });
+
+  it("refuses a credential request that does not name the Cloud credential kind", async () => {
     const { POST } = await import("../route");
     const response = await POST(
       request("POST", {
@@ -133,78 +133,9 @@ describe("Exomem operator reviewer access", () => {
         },
       })
     );
-
-    assert.equal(response.status, 201);
-    const body = (await response.json()) as Record<string, unknown>;
-    assert.deepEqual(body.credentials, { username: USERNAME, password: PASSWORD });
-    assert.equal(created?.passwordHash, "$argon2id$operator-test");
-    assert.equal(created?.usernameDigest instanceof Buffer, true);
-    assert.equal(created?.fixturePayloadDigest, FIXTURE_PAYLOAD_DIGEST);
-    assert.equal(JSON.stringify(body).includes("owner-1"), false);
-    assert.equal(JSON.stringify(body).includes("tenant-1"), false);
-    assert.equal(JSON.stringify(body).includes(OWNER_ID), false);
-    assert.equal(JSON.stringify(body).includes(TENANT_ID), false);
-  });
-
-  it("refuses a provider-review credential while Exomem Cloud is enabled, but still revokes one", async () => {
-    const { POST, DELETE } = await import("../route");
-    process.env.EXOMEM_CLOUD_ENABLED = "1";
-    try {
-      const response = await POST(
-        request("POST", {
-          authorization: `Bearer ${ADMIN_TOKEN}`,
-          body: {
-            provider: "openai",
-            ownerUserId: OWNER_ID,
-            tenantId: TENANT_ID,
-            fixtureVersion: "review-fixture-v1",
-            fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
-            expiresAt: "2026-08-01T00:00:00.000Z",
-          },
-        })
-      );
-      assert.equal(response.status, 400);
-      assert.equal(created, null);
-      const body = (await response.json()) as Record<string, unknown>;
-      assert.equal(JSON.stringify(body).includes(PASSWORD), false);
-
-      const revokeResponse = await DELETE(
-        request("DELETE", {
-          authorization: `Bearer ${ADMIN_TOKEN}`,
-          body: { provider: "openai" },
-        })
-      );
-      assert.equal(revokeResponse.status, 200);
-      assert.notEqual(revoked, null);
-    } finally {
-      delete process.env.EXOMEM_CLOUD_ENABLED;
-    }
-  });
-
-  it("issues only the explicit Cloud credential kind under Cloud", async () => {
-    process.env.EXOMEM_CLOUD_ENABLED = "1";
-    try {
-      const { POST } = await import("../route");
-      const response = await POST(
-        request("POST", {
-          authorization: `Bearer ${ADMIN_TOKEN}`,
-          body: {
-            credentialKind: "cloud_provider_review",
-            provider: "openai",
-            ownerUserId: OWNER_ID,
-            tenantId: TENANT_ID,
-            fixtureVersion: "sample-v1",
-            fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
-            expiresAt: "2026-08-01T00:00:00.000Z",
-          },
-        })
-      );
-      assert.equal(response.status, 201);
-      assert.equal(created?.cloud, true);
-      assert.equal((await response.json()).credentialKind, "cloud_provider_review");
-    } finally {
-      delete process.env.EXOMEM_CLOUD_ENABLED;
-    }
+    assert.equal(response.status, 400);
+    assert.equal(created, null);
+    assert.equal((await response.text()).includes(PASSWORD), false);
   });
 
   it("rejects missing or malformed fixture payload digests before credential persistence", async () => {
@@ -214,6 +145,7 @@ describe("Exomem operator reviewer access", () => {
         request("POST", {
           authorization: `Bearer ${ADMIN_TOKEN}`,
           body: {
+            credentialKind: "cloud_provider_review",
             provider: "openai",
             ownerUserId: "018f2d91-7c42-7000-8000-000000000011",
             tenantId: "018f2d91-7c42-7000-8000-000000000012",
@@ -228,39 +160,6 @@ describe("Exomem operator reviewer access", () => {
     }
   });
 
-  it("issues an exact internal-canary credential without exposing its stored selectors", async () => {
-    const { POST } = await import("../route");
-    const response = await POST(
-      request("POST", {
-        authorization: `Bearer ${ADMIN_TOKEN}`,
-        body: {
-          credentialKind: "internal_canary",
-          platform: "claude",
-          tenantId: TENANT_ID,
-          candidateId: "018f2d91-7c42-7000-8000-000000000021",
-          assignmentId: "018f2d91-7c42-7000-8000-000000000022",
-          assignmentGeneration: 2,
-          stagedClientReleaseId: "018f2d91-7c42-7000-8000-000000000023",
-          oauthClientId: "018f2d91-7c42-7000-8000-000000000024",
-          fixtureVersion: "internal-canary-v1",
-          fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
-          expiresAt: "2026-08-01T00:00:00.000Z",
-        },
-      })
-    );
-
-    assert.equal(response.status, 201);
-    const body = (await response.json()) as Record<string, unknown>;
-    assert.deepEqual(body.credentials, { username: USERNAME, password: PASSWORD });
-    assert.equal(createdInternal?.platform, "claude");
-    assert.equal(createdInternal?.tenantId, TENANT_ID);
-    assert.equal(createdInternal?.assignmentGeneration, 2);
-    assert.equal(created, null);
-    assert.equal(body.expiresAt, "2026-07-31T00:00:00.000Z");
-    assert.equal(JSON.stringify(body).includes("000000000021"), false);
-    assert.equal(JSON.stringify(body).includes("passwordHash"), false);
-  });
-
   it("returns only sanitized status and revokes idempotently", async () => {
     const { DELETE, GET } = await import("../route");
     const status = await GET(
@@ -269,20 +168,23 @@ describe("Exomem operator reviewer access", () => {
     assert.equal(status.status, 200);
     assert.deepEqual((await status.json()).status, {
       provider: "openai",
-      fixtureVersion: "review-fixture-v1",
-      fixturePayloadDigest: FIXTURE_PAYLOAD_DIGEST,
+      fixtureVersion: "sample-v1",
       expiresAt: "2026-08-01T00:00:00.000Z",
       revokedAt: null,
     });
 
     const response = await DELETE(
-      request("DELETE", { authorization: `Bearer ${ADMIN_TOKEN}`, body: { provider: "openai" } })
+      request("DELETE", {
+        authorization: `Bearer ${ADMIN_TOKEN}`,
+        body: { credentialKind: "cloud_provider_review", provider: "openai" },
+      })
     );
     assert.equal(response.status, 200);
     const body = (await response.json()) as Record<string, unknown>;
     assert.equal(body.success, true);
     assert.equal(body.revoked, true);
     assert.equal(typeof body.requestId, "string");
+    assert.equal(revoked?.cloud, true);
     assert.equal(revoked?.provider, "openai");
     assert.equal(revoked?.operatorPrincipalDigest instanceof Buffer, true);
   });

@@ -2,10 +2,7 @@ import { Readable } from "node:stream";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { buildCloudProtectedResourceMetadata, handleCloudMcpRequest } from "./cloud-handler";
 import { loadExomemCloudConfig } from "../lib/exomem-hosted/cloud-config";
-import { handleHostedMcpRequest } from "../lib/exomem-hosted/mcp";
-import { emitOperationalEvent } from "../lib/exomem-hosted/observability";
 
-const MCP_PATH = "/api/exomem/mcp/v1";
 const CACHE_HEADERS = {
   "cache-control": "private, no-store, max-age=0",
   "x-vercel-enable-rewrite-caching": "0",
@@ -14,17 +11,18 @@ const REQUIRED_GATEWAY_ENV = [
   "DATABASE_URL",
   "EXOMEM_CONTROL_PLANE_KEY",
   "EXOMEM_PUBLIC_BASE_URL",
-  "EXOMEM_CELL_PROTOCOL_VERSION",
-  "EXOMEM_GATEWAY_CONTROL_HOSTNAME",
-  "EXOMEM_GATEWAY_INTERNAL_ORIGIN",
   "EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER",
   "EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE",
+  // The gateway serves only the Cloud resource, so without these it would
+  // report ready and answer every request with 404 or 503.
+  "EXOMEM_CLOUD_MCP_URL",
+  "EXOMEM_CLOUD_MCP_PATH",
+  "EXOMEM_CLOUD_CELL_TOKEN_KEY",
 ] as const;
 
 class InvalidNodeRequestError extends Error {}
 
 export type GatewayServerOptions = {
-  handleMcp?: typeof handleHostedMcpRequest;
   handleCloudMcp?: typeof handleCloudMcpRequest;
   maxInflight?: number;
 };
@@ -99,15 +97,9 @@ async function writeResponse(response: Response, target: ServerResponse): Promis
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}): Server {
-  const handleMcp =
-    options.handleMcp ??
-    ((request) => handleHostedMcpRequest(request, { telemetry: emitOperationalEvent }));
   const handleCloudMcp = options.handleCloudMcp ?? handleCloudMcpRequest;
-  // Absent unless a Cloud deployment configures it — every existing hosted
-  // deployment and test leaves this unset, so `cloudMcpPath`/
-  // `cloudMetadataPath` are never truthy and every branch below that checks
-  // them is dead code for those callers, identical to before this option
-  // existed.
+  // validateGatewayEnvironment requires this at startup; without it the
+  // server answers only its probes.
   const cloudMcpPath = process.env.EXOMEM_CLOUD_MCP_PATH?.trim() || null;
   const cloudMetadataPath = cloudMcpPath
     ? `/.well-known/oauth-protected-resource${cloudMcpPath}`
@@ -137,14 +129,14 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
           return;
         }
         const body = JSON.stringify(buildCloudProtectedResourceMetadata(loadExomemCloudConfig()));
-        response
-          .writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" })
-          .end(body);
+        response.writeHead(200, { ...CACHE_HEADERS, "content-type": "application/json" }).end(body);
         return;
       }
-      const activeHandler =
-        path === MCP_PATH ? handleMcp : cloudMcpPath && path === cloudMcpPath ? handleCloudMcp : null;
-      if (!activeHandler || !["GET", "POST", "DELETE"].includes(request.method ?? "")) {
+      if (
+        !cloudMcpPath ||
+        path !== cloudMcpPath ||
+        !["GET", "POST", "DELETE"].includes(request.method ?? "")
+      ) {
         response.writeHead(404, CACHE_HEADERS).end();
         return;
       }
@@ -161,7 +153,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Server 
       request.once("aborted", cancel);
       response.once("close", cancel);
       await writeResponse(
-        await activeHandler(requestFromNode(request, controller.signal)),
+        await handleCloudMcp(requestFromNode(request, controller.signal)),
         response
       );
     } catch (error) {

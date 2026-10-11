@@ -1,10 +1,6 @@
 /**
  * Shared configuration surface for Exomem Cloud (design `adopt-exomem-cloud-plain-cells`).
- *
- * Everything Cloud sits behind `EXOMEM_CLOUD_ENABLED`. With the flag off,
- * every Cloud-specific code path this module's callers gate on is simply
- * never reached, so hosted behaviour is unchanged — this module itself has
- * no side effects and touches no existing hosted table or function.
+ * This module has no side effects; nothing here runs at import time.
  */
 
 import { createPrivateKey, type KeyObject } from "node:crypto";
@@ -16,11 +12,6 @@ export const DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS = 30;
 
 /** Design D1's unpaid-invite expiry: fixed at 7 days, not independently configured. */
 export const CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS = 7;
-
-export function exomemCloudEnabled(env: EnvironmentSource = process.env): boolean {
-  const value = env.EXOMEM_CLOUD_ENABLED?.trim().toLowerCase();
-  return value === "1" || value === "true";
-}
 
 export class ExomemCloudConfigurationError extends Error {
   constructor(readonly missing: readonly string[]) {
@@ -59,8 +50,7 @@ const CELL_TOKEN_KEY_HEX = /^[0-9a-f]{64}$/i;
  * cell-bearer key. The OAuth and status routes run on Vercel and need only
  * the resource; C4 gives `cell_token_key` to the gateway and cellctl alone,
  * so the web app never has to hold it. Throws only when a caller actually
- * needs this -- an unconfigured Cloud deployment must not fail anything on
- * the hosted path, so nothing here runs at import time.
+ * needs this.
  */
 export function loadExomemCloudResource(env: EnvironmentSource = process.env): ExomemCloudResource {
   const missing: string[] = [];

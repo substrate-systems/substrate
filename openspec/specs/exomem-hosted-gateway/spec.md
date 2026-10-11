@@ -27,25 +27,6 @@ The Exomem gateway SHALL authenticate the public product session or API credenti
 - **THEN** routing fails closed with a stable content-free error
 - **AND** the gateway does not reuse a recent, default, or neighboring cell
 
-### Requirement: Gateway command behavior is derived from Exomem's versioned registry
-
-The gateway SHALL consume a versioned Exomem registry contract containing command names, parameter schemas, read/write metadata, result/error envelopes, capability metadata, and compatibility data. It MUST NOT maintain a hand-copied command allowlist or reimplement Exomem command coercion and governance.
-
-#### Scenario: Contract command is forwarded
-
-- **WHEN** a requested command is present in the compatible contract and the tenant is entitled
-- **THEN** the gateway forwards the canonical command name and caller arguments to the cell's registry-backed route
-
-#### Scenario: Unknown command is requested
-
-- **WHEN** the command is absent from the cell's exposed contract
-- **THEN** the gateway rejects it without substituting an alias or invoking another command
-
-#### Scenario: Gateway and cell protocol are incompatible
-
-- **WHEN** contract negotiation finds no supported version or digest relationship
-- **THEN** the cell is treated as unavailable for that request and no command executes
-
 ### Requirement: Private forwarding authenticates and binds cell context
 
 Every gateway-to-cell request SHALL use the destination cell's unique service credential over the configured private transport and SHALL include trusted cell identity, protocol, request ID, and opaque principal scope. The public Authorization header MUST NOT be forwarded, and the cell's private credential or address MUST NOT be returned.
@@ -109,25 +90,6 @@ The gateway SHALL retry only the originally resolved cell and only according to 
 
 - **WHEN** a write encounters an ambiguous transport failure without an authenticated idempotency key
 - **THEN** the gateway does not automatically replay it
-
-### Requirement: Hosted transfer grants are short lived and tenant bound
-
-The gateway SHALL issue signed transfer grants bound to an authenticated principal scope, tenant, cell, upload or download operation, hosted-transfer audience, issue/expiry time, unique grant identity, and resource limits. A grant MUST NOT contain or reveal a cell credential or private endpoint.
-
-#### Scenario: Authorized upload grant is used
-
-- **WHEN** a signed-in owner presents an unexpired upload grant and the same current tenant/cell mapping
-- **THEN** the gateway enforces its size limits and streams only to that cell's governed upload boundary
-
-#### Scenario: Grant is replayed against another tenant
-
-- **WHEN** a grant issued for one cell is presented from a session or route resolving another cell
-- **THEN** it is rejected before file existence, content, or metadata is disclosed
-
-#### Scenario: Transfer scope or lifetime is wrong
-
-- **WHEN** an upload grant is used for download, a download grant is used for upload, or the grant is expired
-- **THEN** the transfer is rejected before reading or writing tenant data
 
 ### Requirement: Gateway errors and logs do not cross content boundaries
 

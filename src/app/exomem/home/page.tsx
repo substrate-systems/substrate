@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { PaddleTransactionOpener } from "@/components/PaddleTransactionOpener";
 import { loadExomemPaddleConfig } from "@/lib/exomem-hosted/paddle-config";
-import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
 import { PrivateShell } from "../private-shell";
 import HomeClient from "./home-client";
 
@@ -30,10 +29,7 @@ export default function ExomemHomePage() {
   return (
     <PrivateShell>
       <PaddleTransactionOpener validationEndpoint="/api/exomem/billing/checkout" />
-      <HomeClient
-        serverUrl={`${exomemPublicBaseUrlFromEnv()}/api/exomem/mcp/v1`}
-        priceId={checkoutPriceId()}
-      />
+      <HomeClient priceId={checkoutPriceId()} />
     </PrivateShell>
   );
 }

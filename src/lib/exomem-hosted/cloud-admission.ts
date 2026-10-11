@@ -1,13 +1,8 @@
 /**
  * Exomem Cloud admission (design D1, `adopt-exomem-cloud-plain-cells`).
  *
- * Additive and gated: nothing here is called from any hosted code path, and
- * this module imports no hosted admission function. `redeemInviteAtomic` and
- * `admitFirstOAuthInviteAtomic` (db.ts / oauth-store.ts) keep their v2
- * contract-candidate, cohort and capacity-pool machinery entirely unchanged;
- * Cloud admission is a parallel, much smaller redemption that targets
- * `exomem_cloud_cells` instead, matching D1's replacement of the live-target
- * snapshot and cohort lock with a plain capacity check.
+ * An invite redemption creates the tenant, its entitlement and one
+ * `exomem_cloud_cells` row under a plain capacity check.
  */
 
 import { randomBytes } from "node:crypto";
@@ -39,11 +34,8 @@ export function randomCloudCellId(): string {
 }
 
 /**
- * `HOSTED_ADMISSION_CLOSED`, 503, retryable — the same code and shape hosted
- * admission raises on cohort closure (errors.ts), so callers do not need a
- * second error code to handle. Cloud's own reason is Cloud-only, so it does
- * not extend `AdmissionClosureReason` (which is a closed hosted-cohort
- * vocabulary) — it just borrows the public contract.
+ * `HOSTED_ADMISSION_CLOSED`, 503, retryable: the public code clients already
+ * handle for closed admission.
  */
 function cloudAdmissionClosed(): ExomemHostedError {
   return new ExomemHostedError({
@@ -102,13 +94,11 @@ type LockedCloudInvite = {
 
 /**
  * Redeems a Cloud invite: invite validity, account-block and tenant-dedupe
- * checks are preserved from the hosted flow's shape, but the live-target
- * snapshot and cohort advisory lock are replaced with a capacity check under
+ * checks, then a capacity check under
  * `pg_advisory_xact_lock(hashtext('exomem-cloud-capacity'))` (D1), taken
- * before any write-bearing statement. Returns `null` for "no such invite"
- * (mirroring `redeemInviteAtomic`); throws `HOSTED_ADMISSION_CLOSED` when
- * capacity is exhausted, leaving the invite unconsumed since the whole
- * transaction rolls back.
+ * before any write-bearing statement. Returns `null` for "no such invite";
+ * throws `HOSTED_ADMISSION_CLOSED` when capacity is exhausted, leaving the
+ * invite unconsumed since the whole transaction rolls back.
  */
 export async function redeemCloudInviteAtomic(
   input: RedeemCloudInviteInput
@@ -346,19 +336,13 @@ export type RedeemedCloudBrowserAccess = {
   userId: string;
   tenantId: string;
   sessionId: string;
-  /** Never present on the Cloud path -- kept only so callers that branch on
-   *  the hosted `RedeemedAccess` shape (`redeemed.operationId ? ... : {}`)
-   *  need no Cloud-specific special case. */
-  operationId: null;
   cellId: string;
 } & SessionMaterial;
 
 /**
  * The browser-facing wrapper `/api/exomem/access/redeem`'s plain (non-OAuth-
- * continuation) branch calls under `EXOMEM_CLOUD_ENABLED` -- mints session
- * material and calls `redeemCloudInviteAtomic`, exactly mirroring what
- * `redeemInvite` (access.ts) does for the hosted path, so the route needs no
- * shape-specific branching beyond which function it calls.
+ * continuation) branch calls: mints session material and calls
+ * `redeemCloudInviteAtomic`.
  */
 export async function redeemCloudInvite(token: string): Promise<RedeemedCloudBrowserAccess> {
   const digest = tokenDigest(token);
@@ -371,7 +355,7 @@ export async function redeemCloudInvite(token: string): Promise<RedeemedCloudBro
     sessionExpiresAt: session.expiresAt,
   });
   if (!row) throw exomemErrors.accessTokenInvalid();
-  return { ...row, operationId: null, ...session };
+  return { ...row, ...session };
 }
 
 class CloudOAuthAdmissionRejected extends Error {}
@@ -387,15 +371,10 @@ export type CloudOAuthInviteAdmission = {
 
 /**
  * The OAuth-continuation admission `/api/exomem/access/redeem` and
- * `/api/exomem/oauth/authorize/invite` both call under `EXOMEM_CLOUD_ENABLED`
- * for a first-time invite that arrived via an OAuth client's "connect" flow.
- * Mirrors `admitFirstOAuthInviteAtomic`'s invite + OAuth-transaction + grant +
- * authorization-code shape exactly (same tables -- OAuth client/transaction
- * admission is shared infrastructure, not something C1-C1d replaces), but
- * replaces its contract-candidate / lifecycle-operation / reviewer-bootstrap
- * machinery with the same plain capacity-gated cell creation
- * `redeemCloudInviteAtomic` uses: none of that hosted-only routing exists for
- * a Cloud cell.
+ * `/api/exomem/oauth/authorize/invite` both call for a first-time invite that
+ * arrived via an OAuth client's "connect" flow. It consumes the invite, binds
+ * the OAuth transaction, and issues the grant and authorization code, with the
+ * same plain capacity-gated cell creation `redeemCloudInviteAtomic` uses.
  *
  * A paid invite pays before its first grant. It is admitted with the same
  * tenant, cell and session, but no grant or code is written and the OAuth
