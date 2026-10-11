@@ -6,7 +6,8 @@ import { defineConfig, devices } from "@playwright/test";
 // stubs the API routes it touches, so this job stays independent of the
 // PostgreSQL services the unit and integration jobs require.
 
-const PORT = 3000;
+// PLAYWRIGHT_PORT lets a second checkout run the suite beside a server already on 3000.
+const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 3000);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
@@ -22,9 +23,28 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: "exomem-design/**" },
+    // The Exomem design checks run at the sizes the design is drawn for: desktop, and the
+    // two phones its QA list names. Only the specs under e2e/exomem-design run here.
+    {
+      name: "exomem desktop 1440",
+      testMatch: "exomem-design/**/*.spec.ts",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: "exomem phone 390",
+      testMatch: "exomem-design/**/*.spec.ts",
+      use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
+    },
+    {
+      name: "exomem phone 375",
+      testMatch: "exomem-design/**/*.spec.ts",
+      use: { ...devices["Pixel 7"], viewport: { width: 375, height: 667 } },
+    },
+  ],
   webServer: {
-    command: "npm run start",
+    command: `npm run start -- --port ${PORT}`,
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
