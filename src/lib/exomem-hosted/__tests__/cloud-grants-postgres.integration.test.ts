@@ -781,8 +781,39 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       [importId]
     );
     await cellctlPool!.query(
-      "UPDATE exomem_cloud_imports SET observed_state = 'done', part_urls = NULL WHERE import_id = $1",
+      "UPDATE exomem_cloud_imports SET observed_state = 'cleanup_pending', error_code = 'IMPORT_FAILED', part_urls = NULL WHERE import_id = $1",
       [importId]
+    );
+    await assert.rejects(
+      appPool!.query(
+        "UPDATE exomem_cloud_imports SET observed_state = 'discarded' WHERE import_id = $1",
+        [importId]
+      ),
+      /permission denied/
+    );
+    await assert.rejects(
+      appPool!.query(
+        "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1)",
+        [id]
+      ),
+      { code: "23505" }
+    );
+    assert.deepEqual(
+      (
+        await appPool!.query(
+          "SELECT observed_state, error_code FROM exomem_cloud_imports WHERE import_id = $1",
+          [importId]
+        )
+      ).rows[0],
+      { observed_state: "cleanup_pending", error_code: "IMPORT_FAILED" }
+    );
+    await cellctlPool!.query(
+      "UPDATE exomem_cloud_imports SET observed_state = 'failed' WHERE import_id = $1",
+      [importId]
+    );
+    await appPool!.query(
+      "INSERT INTO exomem_cloud_imports (cell_id, kind, declared_bytes, declared_files) VALUES ($1, 'adopt', 1, 1)",
+      [id]
     );
     assert.equal(
       (
@@ -791,7 +822,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
           [importId]
         )
       ).rows[0].observed_state,
-      "done"
+      "failed"
     );
   });
 });

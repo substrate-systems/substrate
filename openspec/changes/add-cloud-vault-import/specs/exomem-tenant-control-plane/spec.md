@@ -2,7 +2,7 @@
 
 ### Requirement: Encrypted import requests separate tenant intent from controller observations
 
-C5 SHALL store content-free import requests under a C1 cell with the types and split grants in the design. It MUST permit one nonterminal import per cell. Substrate SHALL write request/report columns only; cellctl SHALL write transport/observation columns only. The gateway SHALL have no C5 access. C1 SHALL support an `import` hold.
+C5 SHALL store content-free import requests under a C1 cell with the types and split grants in the design. It MUST permit one open import per cell, including pending cleanup and any discard request not yet observed as discarded. Substrate SHALL write request/report columns only; cellctl SHALL write transport/observation columns only. The gateway SHALL have no C5 access. C1 SHALL support an `import` hold.
 
 #### Scenario: Runtime roles cross the ownership boundary
 
@@ -12,13 +12,30 @@ C5 SHALL store content-free import requests under a C1 cell with the types and s
 #### Scenario: Two requests race for one cell
 
 - **WHEN** concurrent requests create imports for one cell
-- **THEN** at most one nonterminal row exists
+- **THEN** at most one open row exists
 - **AND** cancellation leaves the row open until cellctl reports a terminal observation
 
 #### Scenario: Cell deletion precedes cleanup
 
 - **WHEN** a cell still has import records
 - **THEN** PostgreSQL restricts deletion of the cell until lifecycle cleanup removes those records
+
+### Requirement: Cleanup retries release bounded holds without claiming success
+
+The controller SHALL report `cleanup_pending` for unfinished cleanup and preserve the original import error code. Each attempt SHALL use a bounded hold and confirm that its Job controllers and Pods are absent before release. The controller SHALL back off between attempts using `updated_at`. Lifecycle deletion SHALL take precedence, and hold release MUST preserve stopped desired state. Pending cleanup SHALL occupy the cell's open import slot.
+
+#### Scenario: Cleanup fails after an import outcome
+
+- **WHEN** cleanup fails or reaches its deadline
+- **THEN** status reports `cleanup_pending` with the original import error code
+- **AND** the controller removes its Jobs and Pods and confirms their absence before releasing the hold
+- **AND** cleanup retries after backoff without claiming successful completion
+
+#### Scenario: An older discard competes with a new import
+
+- **WHEN** a tenant discards an older import while another import is open
+- **THEN** the request returns 409 without changing the older request
+- **AND** an accepted older discard blocks new imports until the controller reports `discarded`
 
 ### Requirement: Import endpoints derive authority from existing Cloud credentials
 
