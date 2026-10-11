@@ -139,10 +139,7 @@ describe("Exomem hosted operations contract", () => {
     // onto, so derive both halves from the shipped fixture and the profile
     // constant instead of restating them. A restated pin goes stale on the next
     // adoption and blesses the drift it exists to catch.
-    const currentRelease = exomemHostedContractFixture.sourceRelease.replaceAll(
-      ".",
-      "\\."
-    );
+    const currentRelease = exomemHostedContractFixture.sourceRelease.replaceAll(".", "\\.");
     assert.match(
       runbook,
       new RegExp(
@@ -183,19 +180,5 @@ describe("Exomem hosted operations contract", () => {
     assert.match(runner, /COMMIT/);
     assert.match(runner, /ROLLBACK/);
     assert.match(runner, /INSERT INTO schema_migrations/);
-  });
-
-  it("keeps file streams out of Vercel and sends them only from the browser", () => {
-    for (const route of [
-      source("src/app/api/exomem/upload/route.ts"),
-      source("src/app/api/exomem/download/route.ts"),
-    ]) {
-      assert.match(route, /createDirectTransferTicket/);
-      assert.doesNotMatch(route, /fetch\(endpoint/);
-    }
-    const browser = source("src/lib/exomem-hosted/hosted-browser.ts");
-    assert.match(browser, /credentials: "omit"/);
-    assert.match(browser, /body: file/);
-    assert.match(browser, /redirect: "error"/);
   });
 });

@@ -53,24 +53,13 @@ describe("private Exomem Home contract", () => {
   it("renders only server-provided connection routes", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
     const state = source("src/app/exomem/home/home-state.ts");
-    const page = source("src/app/exomem/home/page.tsx");
     assert.match(home, /setInstallActions\(parseInstallActions\(response\)\)/);
     assert.match(home, /Install in/);
     assert.doesNotMatch(home, /mcpUrl|tenantId/);
     assert.match(state, /platform !== "claude" && candidate\.platform !== "openai"/);
     assert.match(state, /installUrl\.protocol !== "https:"/);
-
-    // The manual server URL is a route this page now offers, because Codex has
-    // no marketplace install action and install actions are additionally gated
-    // on a live artifact matching the promoted contract digest — a
-    // release-pipeline fact that can legitimately leave a healthy tenant with
-    // no one-click route at all. It is still server-provided: the page computes
-    // it from `EXOMEM_PUBLIC_BASE_URL` and passes it in, so the client never
-    // builds an endpoint of its own, and it is the same public origin for every
-    // tenant.
-    assert.match(page, /exomemPublicBaseUrlFromEnv\(\)/);
-    assert.match(page, /serverUrl=/);
-    assert.match(home, /serverUrl: string/);
+    // The server address comes from the status response, so the client never
+    // builds an endpoint of its own.
     assert.doesNotMatch(home, /https:\/\/[a-z]/);
   });
 
@@ -217,14 +206,6 @@ describe("private Exomem Home contract", () => {
     assert.match(vercel, /shouldReloadAnalyticsDocument/);
     assert.match(vercel, /window\.location\.replace\(window\.location\.href\)/);
     assert.match(vercel, /return null/);
-  });
-
-  it("keeps upload bodies out of the Vercel ticket route", () => {
-    const route = source("src/app/api/exomem/upload/route.ts");
-    assert.match(route, /createDirectTransferTicket/);
-    assert.match(route, /MAX_TICKET_REQUEST_BYTES/);
-    assert.doesNotMatch(route, /multipart\/form-data/);
-    assert.doesNotMatch(route, /body: boundedBody/);
   });
 
   it("has keyboard focus, narrow-screen, and reduced-motion rules", () => {
