@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Every new screen</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 2680px; box-sizing: border-box; padding: 56px 64px 72px; background: #050505; color: #ECE9E2; font-family: Inter, system-ui, sans-serif; display: flex; flex-direction: column; gap: 64px">
+  <div style="display: flex; flex-direction: column; gap: 10px; max-width: 1500px">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #858075">Round 30 · every new screen, side by side · the real pages, not pictures of them</div>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 40px; letter-spacing: -0.02em">Every new screen</div>
+    <div style="font-size: 16px; color: #A39E93; line-height: 1.55">Invitations, the reviewer, any MCP app, Home’s new states and flows, and light mode. Nothing to click: each frame is the page with one setting. The emails for these moments are on the board below (One Exomem email).</div>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Invitations</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">A friend’s invitation signs them in, shows who sent it and their price, then joins the normal path. Invitations last 30 days.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">invite · friend</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Alex’s note and the friend price</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="invite" device="phone" screen-h="844" still="true" app="web" invite="friend" invite-note="This is what I’ve been building. I’d love to know what you think." usual-price="€15" friend-price="€10" hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">invite · covered</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Alex pays; there is no checkout</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="invite" device="phone" screen-h="844" still="true" app="web" invite="covered" invite-note="This is what I’ve been building. I’d love to know what you think." usual-price="€15" friend-price="€10" hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">paying · friend</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Paddle opens with the discount</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="paying" device="phone" screen-h="844" still="true" app="web" invite="friend" invite-note="This is what I’ve been building. I’d love to know what you think." usual-price="€15" friend-price="€10" hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">inviteexisting</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">They already have Exomem</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="inviteexisting" device="phone" screen-h="844" still="true" app="web" invite="friend" invite-note="This is what I’ve been building. I’d love to know what you think." usual-price="€15" friend-price="€10" hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">inviteapplied</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Friend price goes on their plan</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="inviteapplied" device="phone" screen-h="844" still="true" app="web" invite="friend" invite-note="This is what I’ve been building. I’d love to know what you think." usual-price="€15" friend-price="€10" hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">invitebad</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Expired or already used; names no one</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="invitebad" device="phone" screen-h="844" still="true" app="web"  hint-size="390px,844px"></dc-import></div>
+    </div></div></div><div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Reviewer, any app, and when it breaks</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">Reviewers sign in with the credentials from our submission. Any MCP app gets the address, then instructions for the level you pick. A failure on our side says so and changes nothing.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">reviewer</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Username and password from the submission</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="reviewer" device="phone" screen-h="844" still="true" app="web"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">reviewerfail</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">One generic message</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="reviewerfail" device="phone" screen-h="844" still="true" app="web"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">choose</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Claude, ChatGPT, or another app</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="choose" device="phone" screen-h="844" still="true" app="web"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">other</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">The MCP address, then wait</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="other" device="phone" screen-h="844" still="true" app="web" joined-app="other"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">joined · app without the plugin</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Pick a level; copy its instructions</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="joined" device="phone" screen-h="844" still="true" app="web" joined-app="other" level="balanced"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">connecterror</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Our fault, nothing changed, try again</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="connecterror" device="phone" screen-h="844" still="true" app="Claude"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">declined</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Not now, from inside an app: nothing shared</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="declined" device="phone" screen-h="844" still="true" app="Claude"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">kept</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Keep it as it is: nothing changes</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="kept" device="phone" screen-h="844" still="true" app="Claude"  hint-size="390px,844px"></dc-import></div>
+    </div></div></div><div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Home · new states</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">Each is the real Home with one setting changed. Phones shown; desktop is the same page wider.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">a new account</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">No notes yet; only what they connected</span>
+      <div style="width: 390px; height: 2060px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" fresh="true" connected="Claude"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">the first note</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">The first save lights up</span>
+      <div style="width: 390px; height: 2060px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" fresh="true" connected="Claude" first-note="true"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">friend + export kept</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Friend price on the plan; export kept 24 h</span>
+      <div style="width: 390px; height: 2060px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" fresh="true" connected="Claude" friend="Alex" price="€10 a month" export-state="ready" email="maria@example.com"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">80% full</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">A quiet note; everything works</span>
+      <div style="width: 390px; height: 2060px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" storage-used-gb="4.1"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">full, and trouble</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Add room carries saving on; slow saving on our side</span>
+      <div style="width: 390px; height: 2060px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" storage-used-gb="5" trouble="true"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">reviewer</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Sample account, no billing or delete</span>
+      <div style="width: 390px; height: 2060px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" account="reviewer" connected="Claude"  hint-size="390px,2060px"></dc-import></div>
+    </div></div></div><div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Home · flows</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">Add room, bring a vault, restore an export, change email. Each step is a real state of the page.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">bring a vault · choose</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">An Exomem export or a Markdown folder</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" open-modal="import-pick"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">bring a vault · check</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Checked before anything changes</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" open-modal="import-summary"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">bring a vault · plain notes</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Any notes: folder, .zip or files</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" open-modal="import-notes"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">bring a vault · done</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">The computer’s vault is unchanged</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" open-modal="import-done"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">restore an export</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Back to how it was, while it’s kept</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" export-state="ready" open-modal="restore"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">add another app · open</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">One quiet row until you need it</span>
+      <div style="width: 390px; height: 1500px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" fresh="true" connected="Claude" add-open="true"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">more storage</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">More space, or let it grow automatically</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" storage-used-gb="4.6" open-modal="room"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">storage added</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Saving carries on</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" storage-used-gb="4.6" open-modal="room-done"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">change email</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Links go to the new address</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" open-modal="email"  hint-size="390px,2060px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">change email · sent</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">Both inboxes hear about it</span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" open-modal="email-sent"  hint-size="390px,2060px"></dc-import></div>
+    </div></div></div><div style="display: flex; flex-direction: column; gap: 18px">
+    <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #858075">Light</span><span style="font-size: 15px; color: #A39E93; line-height: 1.5; max-width: 1500px">Dark stays the default. A small switch in the site’s header turns everything light, and the site remembers it.</span></div>
+    <div style="display: flex; gap: 40px; flex-wrap: wrap; align-items: flex-start"><div style="display: flex; flex-direction: column; gap: 8px; width: 1280px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">the landing · light</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4">The switch sits next to Sign in</span>
+      <div style="width: 1280px; height: 820px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Landing-Page" device="desktop" theme="light"  hint-size="1280px,820px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">invite · light</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4"></span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="invite" device="phone" screen-h="844" still="true" app="web" invite="friend" theme="light" invite-note="This is what I’ve been building. I’d love to know what you think." usual-price="€15" friend-price="€10" hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">joined · light</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4"></span>
+      <div style="width: 390px; height: 844px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Journey-Page" step="joined" device="phone" screen-h="844" still="true" app="web" joined-app="other" level="maximal" theme="light"  hint-size="390px,844px"></dc-import></div>
+    </div><div style="display: flex; flex-direction: column; gap: 8px; width: 390px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: #ECE9E2">Home · light</span>
+      <span style="font-size: 12px; color: #858075; min-height: 34px; line-height: 1.4"></span>
+      <div style="width: 390px; height: 2060px; overflow: hidden; border-radius: 12px; border: 1px solid rgba(236,233,226,0.1)"><dc-import name="Home-Page" device="phone" state="ready" fresh="true" connected="Claude" first-note="true" theme="light"  hint-size="390px,2060px"></dc-import></div>
+    </div></div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":2680,"height":11380}}'>
+class Component extends DCLogic { renderVals() { return {}; } }
+</script>
+</body>
+</html>

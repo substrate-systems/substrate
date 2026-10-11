@@ -1,0 +1,1410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exomem viewer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=Inter:wght@400;500&amp;display=swap">
+<style>
+body{margin:0}
+.vw button{font-family:inherit}
+.vw button:focus-visible,.vw input:focus-visible{outline:2px solid var(--v1);outline-offset:2px}
+.mono{font-family:'IBM Plex Mono',monospace}
+.stage{touch-action:none;cursor:grab}
+.vw.drag .stage{cursor:grabbing}
+.ln{position:absolute;height:1px;transform-origin:0 50%;background:var(--v0);opacity:.07;transition:opacity .4s ease,left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1),width .6s cubic-bezier(.2,.7,.2,1),transform .6s cubic-bezier(.2,.7,.2,1);pointer-events:none}
+.ln.dim{opacity:.035}
+.ln.hl{opacity:.32}
+.ln.t-supports{height:2px;margin-top:-.5px;background:var(--v1);opacity:.85}
+.ln.t-refines{background:repeating-linear-gradient(90deg,var(--v1) 0 2px,transparent 2px 6px);opacity:.9}
+.ln.t-contradicts{background:repeating-linear-gradient(90deg,var(--v0) 0 7px,transparent 7px 12px);opacity:.7}
+.ln.t-supersedes{background:var(--v1);opacity:.8}
+.ln.t-relates{background:var(--v0);opacity:.35}
+.ln.lens{background:repeating-linear-gradient(90deg,var(--v0) 0 7px,transparent 7px 12px);opacity:.6;height:1.4px}
+.ln.pair{background:repeating-linear-gradient(90deg,var(--v1) 0 7px,transparent 7px 12px);opacity:1;height:2px}
+.ln.trail{background:var(--v1);opacity:.9;height:2px;margin-top:-.5px}
+.ln.live{background:var(--v1);opacity:.55;height:1.4px}
+.ln.off,.ln.hide{opacity:0}
+.ln.ov-supports{background:var(--v1);opacity:.24}
+.ln.ov-refines{background:repeating-linear-gradient(90deg,var(--v1) 0 2px,transparent 2px 5px);opacity:.38}
+.ln.ov-contradicts{background:repeating-linear-gradient(90deg,var(--v0) 0 5px,transparent 5px 9px);opacity:.28}
+.ln.ov-supersedes{background:var(--v1);opacity:.3}
+.vw .ln.hl{opacity:.62}
+.vw .ln.hl:not([class*="ov-"]){opacity:.38}
+.ln.rev .sg{animation-name:vSigR}
+.ar.hide{opacity:0}
+.el{position:absolute;font-family:'IBM Plex Mono',monospace;font-size:9.5px;line-height:13px;color:var(--v5);background:rgba(var(--v14),.88);padding:0 4px;border-radius:3px;pointer-events:none;transform:translate(-50%,-50%);white-space:nowrap;animation:vFade .25s ease both;z-index:2}
+.el.core{color:var(--v1)}
+.lb.hid{opacity:0;pointer-events:none}
+.lb.hovl{z-index:3}
+.nd.hvn{opacity:.6}
+.ln .sg{position:absolute;top:-2px;left:0;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:var(--v1);box-shadow:0 0 8px var(--v1);animation:vSig 1.4s cubic-bezier(.4,0,.2,1) both}
+.ln.trail .sg{animation:vSig 2.2s cubic-bezier(.4,0,.2,1) infinite}
+.ar{position:absolute;width:7px;height:7px;border-top:1.5px solid var(--v1);border-right:1.5px solid var(--v1);margin:-4px 0 0 -4px;transition:left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1);pointer-events:none}
+.nd{position:absolute;border-radius:50%;background:var(--v0);opacity:.24;cursor:pointer;transition:opacity .4s ease,transform .5s cubic-bezier(.2,.7,.2,1),background .4s ease,left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1),width .6s ease,height .6s ease,box-shadow .4s ease;animation:vDrift var(--dd) ease-in-out infinite alternate;animation-delay:var(--dl)}
+.nd::after{content:'';position:absolute;inset:-7px;border-radius:50%}
+.nd.hub{opacity:.5}
+.nd.nb{opacity:.85}
+.nd.dim{opacity:.1}
+.nd.gone{opacity:0;pointer-events:none;transform:scale(.2)}
+.nd.hov{opacity:1;box-shadow:0 0 0 3px rgba(var(--v12),.12)}
+.nd.old{background:var(--v4);box-shadow:inset 0 0 0 1.4px var(--v2);opacity:1}
+.nd.lensn{opacity:.85;background:var(--v0)}
+.nd.pairn{background:var(--v1);opacity:1;box-shadow:0 0 0 5px rgba(var(--v13),.16),0 0 12px rgba(var(--v13),.6)}
+.nd.trailn{background:var(--v1);opacity:1;box-shadow:0 0 8px rgba(var(--v13),.55)}
+.nd.hit{background:var(--v1);opacity:1;box-shadow:0 0 10px rgba(var(--v13),.75);transform:scale(1.35)}
+.nd.born{background:var(--v1);opacity:1;box-shadow:0 0 0 6px rgba(var(--v13),.18),0 0 14px rgba(var(--v13),.8)}
+.nd.focus{background:var(--v1);opacity:1;box-shadow:0 0 12px rgba(var(--v13),.6);animation:vPulse 3s ease-in-out infinite}
+.nd.focus.was{background:var(--v4);box-shadow:inset 0 0 0 2px var(--v1);animation:none}
+.vw.still .nd{animation-play-state:paused}
+.vw.drag .ln,.vw.drag .nd,.vw.drag .lb,.vw.drag .ar{transition:opacity .4s ease,background .4s ease}
+.lb{position:absolute;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--v5);white-space:nowrap;padding:1px 5px;border-radius:3px;background:rgba(var(--v14),.78);cursor:pointer;transition:opacity .4s ease,left .6s cubic-bezier(.2,.7,.2,1),top .6s cubic-bezier(.2,.7,.2,1)}
+.lb.focus{color:var(--v1)}
+.lb.dim{opacity:.45}
+.lb.nbl{color:var(--v0)}
+.lb.hitl,.lb.trl{color:var(--v1)}
+.lb.hovl{color:var(--v0);box-shadow:0 0 0 1px rgba(var(--v12),.14);background:rgba(var(--v14),.94)}
+.lb.cl{background:transparent;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--v3);cursor:pointer}
+.lb.cl:hover{color:var(--v5)}
+.lb .rt{color:var(--v2);margin-right:6px}
+.lb .tag{color:var(--v4);background:var(--v1);border-radius:2px;padding:0 4px;margin-right:6px}
+.chip{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:6px;border:1px solid rgba(var(--v12),.14);background:transparent;color:var(--v0);font-family:'IBM Plex Mono',monospace;font-size:11.5px;cursor:pointer;white-space:nowrap;flex:none}
+.vw .chip.offc{color:var(--v3);border-color:rgba(var(--v12),.06)}
+.vw .chip.lensc{border-color:rgba(var(--v13),.55);color:var(--v1)}
+.tchip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px;border-radius:5px;border:1px solid rgba(var(--v12),.12);background:transparent;color:var(--v0);font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer}
+.tchip i{font-style:normal;color:var(--v2)}
+.tchip.offc{color:var(--v3);border-style:dashed;text-decoration:line-through}
+.tchip.none{opacity:.45;cursor:default}
+.tick{flex:1;height:30px;display:flex;align-items:flex-end;justify-content:center;cursor:pointer;border:0;background:transparent;padding:0}
+.tick span{display:block;width:100%;height:4px;background:var(--v9);transition:background .3s ease}
+.tick.on span{background:var(--v3)}
+.tick.cur span{background:var(--v1)}
+.prow{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid rgba(var(--v12),.06);font-size:13px;cursor:pointer}
+.prow:hover .pt{color:var(--v1)}
+.feed{display:flex;gap:10px;align-items:baseline;padding:7px 0;border-bottom:1px solid rgba(var(--v12),.06);font-size:12.5px}
+.res{display:flex;justify-content:space-between;gap:12px;width:100%;padding:8px 12px;border:0;background:transparent;color:var(--v0);font-family:'IBM Plex Mono',monospace;font-size:12px;cursor:pointer;text-align:left}
+.res:hover{background:var(--v6)}
+.live-dot{width:7px;height:7px;border-radius:50%;background:var(--v1);box-shadow:0 0 8px var(--v1);animation:vBlink 1.6s ease-in-out infinite}
+.vw.paused .live-dot{background:var(--v3);box-shadow:none;animation:none}
+.ghost{border:0;background:transparent;color:var(--v2);font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;padding:2px 4px;border-radius:4px}
+.ghost:hover{color:var(--v0)}
+.zb{width:32px;height:32px;border:0;background:transparent;color:var(--v5);font-family:'IBM Plex Mono',monospace;font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.zb:hover{color:var(--v0);background:var(--v6)}
+.btn{height:36px;padding:0 14px;border-radius:7px;border:1px solid rgba(var(--v12),.16);background:transparent;color:var(--v0);font-family:'IBM Plex Mono',monospace;font-size:12px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:rgba(var(--v12),.34)}
+.btn.pri{background:var(--v0);color:var(--v4);border-color:var(--v0)}
+.btn.amb{border-color:rgba(var(--v13),.55);color:var(--v1)}
+.btn.amb:hover{background:rgba(var(--v13),.08)}
+.card{border:1px solid rgba(var(--v12),.1);background:var(--v7);border-radius:9px;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.trow{display:flex;gap:10px;align-items:baseline;padding:8px 0 8px 14px;border-left:1.5px solid rgba(var(--v13),.4);margin-left:5px;font-size:13px;cursor:pointer;position:relative}
+.trow::before{content:'';position:absolute;left:-4.5px;top:13px;width:7px;height:7px;border-radius:50%;background:var(--v1)}
+.trow.src::before{background:var(--v4);box-shadow:inset 0 0 0 1.5px var(--v1)}
+.trow:hover .pt{color:var(--v1)}
+.sheet{overflow:hidden;position:absolute;left:0;right:0;bottom:0;background:var(--v10);border-top:1px solid rgba(var(--v12),.1);border-radius:16px 16px 0 0;box-shadow:0 -18px 40px -20px var(--v15);display:flex;flex-direction:column;transition:height .35s cubic-bezier(.2,.7,.2,1);z-index:4}
+.rchip{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid rgba(var(--v12),.16);color:var(--v5)}
+.rchip.cur{color:var(--v1);border-color:rgba(var(--v13),.5)}
+.rd p{margin:0;font-size:16px;line-height:1.7;color:var(--v11)}
+.rd h2{margin:14px 0 0;font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--v2)}
+.rd .obs{display:grid;grid-template-columns:104px minmax(0,1fr);column-gap:16px;align-items:baseline;font-size:15px;line-height:1.6;color:var(--v11);padding:11px 14px;border-radius:8px;background:var(--v7);border:1px solid rgba(var(--v12),.07)}
+.rd .gl{font-style:normal;display:inline-block;width:14px;opacity:.9}
+.rd .f-dec{border-left:2px solid var(--v1);background:linear-gradient(90deg,rgba(var(--v13),.06),var(--v7) 40%)}
+.rd .f-q{background:transparent;border:1px dashed rgba(var(--v12),.24)}
+.rd .f-q .cat{color:var(--v0)}
+.rd .f-con{border-left:2px solid var(--v3)}
+.rd .f-con .cat,.rd .f-fact .cat,.rd .f-find .cat,.rd .f-pat .cat,.rd .f-gen .cat{color:var(--v5)}
+.rd .f-rel{background:transparent}
+.rd .f-rel .cat{color:var(--v2)}
+.rd .f-sup{background:transparent;color:var(--v5)}
+.rd .f-sup .cat{color:var(--v2);text-decoration:line-through}
+.rd .srcs{display:flex;flex-direction:column;gap:8px}
+.rd .srcc{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:baseline;padding:10px 14px;border-radius:8px;border:1px solid rgba(var(--v12),.08);font-size:14px}
+.rd .srcc.on{cursor:pointer}.rd .srcc.on:hover{border-color:rgba(var(--v13),.4)}
+.rd .sg2{font-family:'IBM Plex Mono',monospace;color:var(--v1)}
+.rd .sp{display:flex;flex-direction:column;min-width:0}.rd .st{color:var(--v0)}.rd .spath{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--v2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rd .sd{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--v2)}
+.lb .tag.rd{}
+.rd .ob{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rd .ctx{font-size:13px;color:var(--v5)}
+.rd .tags{display:flex;flex-wrap:wrap;gap:6px}
+.rd .tg{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--v2)}
+.rd .rel{display:grid;grid-template-columns:104px minmax(0,1fr);column-gap:16px;align-items:baseline;font-size:14.5px;padding:3px 14px}
+.rd-ph .obs{grid-template-columns:1fr;row-gap:4px}
+.rd-ph .rel{grid-template-columns:96px minmax(0,1fr);padding:3px 0}
+.rd .cat{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--v1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd .rel .cat{color:var(--v2)}
+.rd .wl{white-space:nowrap;color:var(--v1);text-decoration:underline;text-decoration-color:rgba(var(--v13),.4);text-underline-offset:3px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:.88em}
+.rd .wl:hover{text-decoration-color:var(--v1)}
+.rd .wl.dead{color:var(--v5);text-decoration-style:dotted;text-decoration-color:rgba(var(--v12),.3);cursor:default}
+.hscroll{overflow-x:auto;scrollbar-width:none}.hscroll::-webkit-scrollbar{display:none}
+.vscroll{overflow-y:auto}
+/* the Exomem scrollbar (R15) */
+@supports not selector(::-webkit-scrollbar){.vw,.vw *{scrollbar-width:thin;scrollbar-color:rgba(var(--v12),.22) transparent}}
+.vw ::-webkit-scrollbar{width:12px;height:12px}
+.vw ::-webkit-scrollbar-track,.vw ::-webkit-scrollbar-corner{background:transparent}
+.vw ::-webkit-scrollbar-thumb{background-color:rgba(var(--v12),.16);border-radius:12px;border:4px solid transparent;background-clip:padding-box}
+.vw :hover::-webkit-scrollbar-thumb{background-color:rgba(var(--v12),.26)}
+.vw ::-webkit-scrollbar-thumb:hover{background-color:rgba(var(--v12),.42);border-width:3px}
+.vw ::-webkit-scrollbar-thumb:active{background-color:var(--v1);border-width:3px}
+.clamp2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.clamp3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+@keyframes vPulse{0%,100%{box-shadow:0 0 6px rgba(var(--v13),.45)}50%{box-shadow:0 0 16px rgba(var(--v13),.8)}}
+@keyframes vDrift{from{translate:0 0}to{translate:1.4px -1px}}
+@keyframes vSig{from{left:0;opacity:0}15%{opacity:1}85%{opacity:1}to{left:100%;opacity:0}}
+@keyframes vSigR{from{left:100%;opacity:0}15%{opacity:1}85%{opacity:1}to{left:0;opacity:0}}
+@keyframes vFade{from{opacity:0}to{opacity:1}}
+@keyframes vIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+@keyframes vBlink{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* listening: the low end breathes in the busy notes, the highs shimmer along the links, a beat sends a light down a link */
+.vw.mu .nd{transition:opacity .4s ease,background .4s ease,left .6s ease,top .6s ease,transform .09s linear,box-shadow .12s linear}
+.vw.mu .nd.hub{transform:scale(calc(1 + var(--bass,0) * .4));box-shadow:0 0 calc(var(--bass,0) * 18px) rgba(var(--v13),calc(var(--bass,0) * .65))}
+.vw.mu .nd.hub:not(.focus):not(.hit){background:color-mix(in srgb,var(--v1) calc(var(--bass,0) * 85%),var(--v0))}
+.vw.mu .ln{filter:brightness(calc(1 + var(--treb,0) * 1.8))}
+.vw.mu .ln.beat{background:var(--v1);opacity:.5;height:1.4px}
+.mbtn{width:28px;height:28px;border-radius:14px;border:0;background:transparent;color:var(--v3);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:color .3s ease}
+.mbtn:hover{color:var(--v5)}.vw.mu .mbtn{color:var(--v1)}
+.mbar{display:inline-flex;align-items:flex-end;gap:2px;height:12px}
+.mbar i{display:block;width:2px;background:var(--v1);border-radius:1px;transition:height .08s linear}
+.mpop{position:absolute;right:0;top:34px;width:250px;padding:12px;border-radius:10px;border:1px solid rgba(var(--v12),.12);background:var(--v10);box-shadow:0 20px 50px -10px var(--v15);display:flex;flex-direction:column;gap:6px;z-index:6;animation:vIn .2s ease both}
+.mpop button{height:36px;border:0;border-radius:7px;background:transparent;color:var(--v0);font-family:'IBM Plex Mono',monospace;font-size:12px;text-align:left;padding:0 10px;cursor:pointer}
+.mpop button:hover{background:var(--v6)}
+@media (prefers-reduced-motion: reduce){.vw *{animation:none !important;transition:none !important}}
+</style>
+</helmet>
+<main class="vw {{ muCls }} {{ dragCls }} {{ stillCls }}" style="{{ vwVars }} width: {{ mw }}px; height: {{ mh }}px; background: var(--v4); color: var(--v0); font-family: Inter, system-ui, sans-serif; position: relative; overflow: hidden">
+
+  <!-- the map -->
+  <div class="stage" onPointerDown="{{ pDown }}" onPointerMove="{{ pMove }}" onPointerUp="{{ pUp }}" onPointerCancel="{{ pUp }}" onPointerLeave="{{ pLeave }}" onWheel="{{ wheel }}" onClick="{{ bgClick }}" style="position: absolute; left: 0; top: {{ gTop }}px; width: {{ gW }}px; height: {{ gH }}px; overflow: hidden">
+    <div class="layer" style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; transform: {{ layerT }}">
+    <sc-for list="{{ lines }}" as="l" hint-placeholder-count="0">
+      <div class="ln {{ l.c }}" style="left: {{ l.x }}px; top: {{ l.y }}px; width: {{ l.w }}px; transform: rotate({{ l.a }}deg)"><sc-if value="{{ l.sig }}" hint-placeholder-val="{{ false }}"><i class="sg" style="animation-delay: {{ l.sd }}s"></i></sc-if></div>
+    </sc-for>
+    <sc-for list="{{ arrows }}" as="a" hint-placeholder-count="0">
+      <div class="ar {{ a.c }}" style="left: {{ a.x }}px; top: {{ a.y }}px; transform: rotate({{ a.r }}deg)"></div>
+    </sc-for>
+    <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="0">
+      <div class="nd {{ n.c }}" onClick="{{ n.pick }}" onMouseEnter="{{ n.over }}" onMouseLeave="{{ n.out }}" role="button" aria-label="{{ n.title }}" style="left: {{ n.x }}px; top: {{ n.y }}px; width: {{ n.s }}px; height: {{ n.s }}px; --dd: {{ n.dd }}s; --dl: {{ n.dl }}s"></div>
+    </sc-for>
+    <sc-for list="{{ labels }}" as="b" hint-placeholder-count="0">
+      <div class="lb {{ b.c }}" onClick="{{ b.pick }}" style="left: {{ b.x }}px; top: {{ b.y }}px"><sc-if value="{{ b.tag }}" hint-placeholder-val="{{ false }}"><span class="tag">{{ b.tag }}</span></sc-if><sc-if value="{{ b.rt }}" hint-placeholder-val="{{ false }}"><span class="rt">{{ b.rt }}</span></sc-if>{{ b.t }}</div>
+    </sc-for>
+    <sc-for list="{{ elabels }}" as="x" hint-placeholder-count="0">
+      <div class="el {{ x.c }}" style="left: {{ x.x }}px; top: {{ x.y }}px">{{ x.t }}</div>
+    </sc-for>
+    </div>
+
+    <!-- live: what the connected assistants are doing right now; pausable -->
+    <div style="position: absolute; left: {{ edge }}px; top: {{ liveTop }}px; display: flex; align-items: center; gap: 9px; font-family: 'IBM Plex Mono', monospace; font-size: {{ liveFs }}px; color: var(--v5); max-width: {{ liveMax }}px">
+      <span class="live-dot" style="flex: none"></span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ liveLine }}</span>
+      <button type="button" class="ghost" onClick="{{ togglePause }}" aria-pressed="{{ paused }}" style="flex: none">{{ pauseLabel }}</button>
+    </div>
+    <div style="position: absolute; right: {{ edgeR }}px; top: {{ cntTop }}px; display: flex; align-items: center; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--v2)">
+      <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}"><span>{{ shownCount }} of {{ totalCount }} notes</span></sc-if>
+      <span style="position: relative; display: inline-flex">
+        <button type="button" class="mbtn" onClick="{{ musicBtn }}" aria-label="{{ musicLabel }}" title="{{ musicLabel }}">
+          <sc-if value="{{ muOff }}" hint-placeholder-val="{{ true }}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><path d="M3 6.2v3.6h2.4L8.6 12.4V3.6L5.4 6.2z"></path><path d="M10.8 6a3 3 0 0 1 0 4"></path></svg></sc-if>
+          <sc-if value="{{ muOn }}" hint-placeholder-val="{{ false }}"><span class="mbar"><i style="height: calc(3px + var(--bass,0) * 9px)"></i><i style="height: calc(3px + var(--mid,0) * 9px)"></i><i style="height: calc(3px + var(--treb,0) * 9px)"></i></span></sc-if>
+        </button>
+        <sc-if value="{{ muPop }}" hint-placeholder-val="{{ false }}">
+          <div class="mpop">
+            <span style="font-size: 12.5px; color: var(--v0); font-family: Inter, system-ui, sans-serif; padding: 2px 10px 4px">Let the graph listen</span>
+            <button type="button" onClick="{{ musicMic }}">Use the microphone</button>
+            <button type="button" onClick="{{ musicFile }}">Play a song from a file</button>
+            <span style="font-size: 11.5px; line-height: 1.45; color: {{ muNoteColor }}; font-family: Inter, system-ui, sans-serif; padding: 4px 10px 0">{{ muNote }}</span>
+          </div>
+        </sc-if>
+      </span>
+    </div>
+
+    <!-- zoom: overview first, then closer; the last button always brings everything back -->
+    <div style="position: absolute; right: {{ edgeR }}px; bottom: {{ zoomBottom }}px; display: flex; flex-direction: column; border: 1px solid rgba(var(--v12),.12); border-radius: 8px; background: rgba(var(--v14),.82); overflow: hidden">
+      <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}">
+        <button type="button" class="zb" onClick="{{ zoomIn }}" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" class="zb" onClick="{{ zoomOut }}" aria-label="Zoom out" title="Zoom out">−</button>
+      </sc-if>
+      <button type="button" class="zb" onClick="{{ fitAll }}" aria-label="Show everything" title="Show everything"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"></path></svg></button>
+    </div>
+    <sc-if value="{{ zoomNote }}" hint-placeholder-val="{{ false }}">
+      <div class="mono" style="position: absolute; right: {{ zoomNoteR }}px; bottom: {{ zoomNoteB }}px; font-size: 10.5px; color: var(--v3)">{{ zoomPct }}</div>
+    </sc-if>
+
+    <!-- time: replay how the vault grew, at your pace -->
+    <sc-if value="{{ showTime }}" hint-placeholder-val="{{ true }}">
+      <div onPointerDown="{{ stop }}" style="position: absolute; left: 0; right: 0; bottom: 0; padding: 22px {{ edge }}px {{ timeBottom }}px; background: linear-gradient(rgba(var(--v14),0), rgba(var(--v14),.9) 45%); display: flex; flex-direction: column; gap: 4px">
+        <div style="display: flex; align-items: center; gap: 12px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--v2)">
+          <button type="button" onClick="{{ togglePlay }}" aria-label="{{ playLabel }}" style="width: 26px; height: 26px; flex: none; border-radius: 50%; border: 1px solid rgba(var(--v12),.2); background: transparent; color: var(--v0); cursor: pointer; font-size: 10px; line-height: 1; padding: 0">{{ playGlyph }}</button>
+          <button type="button" class="ghost" onClick="{{ cycleSpeed }}" aria-label="{{ speedAria }}" title="{{ speedAria }}" style="flex: none; border: 1px solid rgba(var(--v12),.12); padding: 3px 7px">{{ speedLabel }}</button>
+          <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}"><span>{{ firstMonth }}</span></sc-if>
+          <span style="flex: 1; text-align: center; color: var(--v0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ asOfLabel }}</span>
+          <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}"><span>today</span></sc-if>
+        </div>
+        <div style="display: flex; gap: 3px">
+          <sc-for list="{{ ticks }}" as="t" hint-placeholder-count="12">
+            <button type="button" class="tick {{ t.c }}" onClick="{{ t.pick }}" aria-label="{{ t.label }}" style="height: {{ tickH }}px"><span></span></button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- ===== desktop header ===== -->
+  <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}">
+    <header style="position: absolute; left: 0; right: 0; top: 0; height: 60px; display: flex; align-items: center; gap: 18px; padding: 0 24px; box-sizing: border-box; border-bottom: 1px solid rgba(var(--v12),.08); background: var(--v4); z-index: 5">
+      <button type="button" onClick="{{ toOverview }}" aria-label="Overview" style="border: 0; background: transparent; padding: 0; cursor: pointer; line-height: 0">
+        <svg viewBox="0 0 48 48" width="26" height="26" aria-hidden="true">
+          <circle cx="13.6" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="18.8" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="24" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="29.2" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="34.4" cy="8.4" r="2.2" fill="var(--v0)"></circle>
+          <circle cx="13.6" cy="13.6" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="18.8" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="29.2" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="34.4" r="2.2" fill="var(--v0)"></circle>
+          <circle cx="13.6" cy="24" r="2.2" fill="var(--v1)"></circle><circle cx="18.8" cy="24" r="2.2" fill="var(--v1)"></circle><circle cx="24" cy="24" r="2.2" fill="var(--v1)"></circle><circle cx="29.2" cy="24" r="2.2" fill="var(--v1)"></circle>
+          <circle cx="13.6" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="18.8" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="24" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="29.2" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="34.4" cy="39.6" r="2.2" fill="var(--v0)"></circle>
+        </svg>
+      </button>
+      <div style="position: relative; width: 320px; flex: none">
+        <div style="height: 36px; border-radius: 8px; border: 1px solid {{ searchBorder }}; background: var(--v7); display: flex; align-items: center; gap: 10px; padding: 0 12px; box-sizing: border-box">
+          <span class="mono" style="color: var(--v2); font-size: 13px">/</span>
+          <input type="text" aria-label="Search notes" placeholder="{{ searchPlaceholder }}" onFocus="{{ openSearch }}" onInput="{{ typeSearch }}" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--v0); font: 13.5px Inter, system-ui, sans-serif">
+          <span class="mono" style="font-size: 10.5px; color: var(--v3)">⌘K</span>
+        </div>
+        <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; left: 0; right: 0; top: 42px; background: var(--v8); border: 1px solid rgba(var(--v12),.14); border-radius: 10px; padding: 6px 0; box-shadow: 0 20px 50px var(--v15)">
+            <div class="mono" style="font-size: 10.5px; color: var(--v3); padding: 4px 12px 6px; letter-spacing: .12em">{{ resultsHead }}</div>
+            <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
+              <button type="button" class="res" onClick="{{ r.pick }}"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span><span style="color: var(--v2); flex: none">{{ r.k }}</span></button>
+            </sc-for>
+            <sc-if value="{{ rdHasSrc }}" hint-placeholder-val="{{ true }}">
+              <h2>Sources</h2>
+              <div class="srcs"><sc-for list="{{ rdSrc }}" as="sr" hint-placeholder-count="2"><div class="{{ sr.c }}" onClick="{{ sr.pick }}"><span class="sg2">↳</span><span class="sp"><span class="st">{{ sr.t }}</span><span class="spath">{{ sr.path }}</span></span><span class="sd">{{ sr.d }}</span></div></sc-for></div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+      <div style="display: flex; gap: 6px">
+        <sc-for list="{{ chips }}" as="c" hint-placeholder-count="5">
+          <button type="button" class="chip {{ c.cls }}" onClick="{{ c.toggle }}" aria-pressed="{{ c.on }}" title="{{ c.tip }}"><svg width="22" height="6" aria-hidden="true"><line x1="1" y1="3" x2="21" y2="3" stroke="{{ c.col }}" stroke-width="{{ c.w }}" stroke-dasharray="{{ c.dash }}" stroke-opacity="{{ c.op }}"></line></svg>{{ c.label }}</button>
+        </sc-for>
+        <button type="button" class="chip {{ moreCls }}" onClick="{{ toggleMore }}" aria-expanded="{{ moreOpen }}" style="color: var(--v2)">{{ moreLabel }}</button>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 14px">
+        <button type="button" class="chip {{ lensCls }}" onClick="{{ openReview }}">{{ lensLabel }}</button>
+        <span class="mono" style="font-size: 11px; color: var(--v3); padding: 3px 7px; border: 1px dashed rgba(var(--v12),.14); border-radius: 4px">sample vault</span>
+        <button type="button" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}" title="{{ themeLabel }}" style="width: 28px; height: 28px; border-radius: 14px; border: 0; background: transparent; color: var(--v2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M8 1.8 A6.2 6.2 0 0 1 8 14.2 Z" fill="currentColor"></path></svg></button>
+        <button type="button" onClick="{{ goHome }}" style="height: 30px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(var(--v12),.14); background: transparent; color: var(--v0); font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; cursor: pointer">Home</button>
+      </div>
+    </header>
+  </sc-if>
+
+  <!-- ===== phone header: the mark, search, theme, Home; filters scroll sideways underneath ===== -->
+  <sc-if value="{{ isPhone }}" hint-placeholder-val="{{ false }}">
+    <header style="position: absolute; left: 0; right: 0; top: 0; height: 96px; background: var(--v4); border-bottom: 1px solid rgba(var(--v12),.08); z-index: 5; display: flex; flex-direction: column">
+      <div style="height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 14px">
+        <button type="button" onClick="{{ toOverview }}" aria-label="Overview" style="border: 0; background: transparent; padding: 0; cursor: pointer; line-height: 0; flex: none">
+          <svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><circle cx="13.6" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="18.8" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="24" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="29.2" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="34.4" cy="8.4" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="13.6" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="18.8" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="29.2" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="34.4" r="2.2" fill="var(--v0)"></circle><circle cx="13.6" cy="24" r="2.2" fill="var(--v1)"></circle><circle cx="18.8" cy="24" r="2.2" fill="var(--v1)"></circle><circle cx="24" cy="24" r="2.2" fill="var(--v1)"></circle><circle cx="29.2" cy="24" r="2.2" fill="var(--v1)"></circle><circle cx="13.6" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="18.8" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="24" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="29.2" cy="39.6" r="2.2" fill="var(--v0)"></circle><circle cx="34.4" cy="39.6" r="2.2" fill="var(--v0)"></circle></svg>
+        </button>
+        <div style="flex: 1; min-width: 0; height: 36px; border-radius: 8px; border: 1px solid {{ searchBorder }}; background: var(--v7); display: flex; align-items: center; gap: 8px; padding: 0 10px; box-sizing: border-box">
+          <span class="mono" style="color: var(--v2); font-size: 13px">/</span>
+          <input type="text" aria-label="Search notes" placeholder="{{ searchPlaceholder }}" onFocus="{{ openSearch }}" onInput="{{ typeSearch }}" style="flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--v0); font: 15px Inter, system-ui, sans-serif">
+        </div>
+        <button type="button" onClick="{{ toggleTheme }}" aria-label="{{ themeLabel }}" style="width: 36px; height: 36px; flex: none; border: 0; background: transparent; color: var(--v2); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.3"></circle><path d="M8 1.8 A6.2 6.2 0 0 1 8 14.2 Z" fill="currentColor"></path></svg></button>
+        <button type="button" onClick="{{ goHome }}" style="height: 36px; flex: none; padding: 0 10px; border-radius: 7px; border: 1px solid rgba(var(--v12),.14); background: transparent; color: var(--v0); font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer">Home</button>
+      </div>
+      <div class="hscroll" style="height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 14px">
+        <button type="button" class="chip {{ lensCls }}" onClick="{{ openReview }}">{{ lensLabel }}</button>
+        <sc-for list="{{ chips }}" as="c" hint-placeholder-count="5">
+          <button type="button" class="chip {{ c.cls }}" onClick="{{ c.toggle }}" aria-pressed="{{ c.on }}"><svg width="18" height="6" aria-hidden="true"><line x1="1" y1="3" x2="17" y2="3" stroke="{{ c.col }}" stroke-width="{{ c.w }}" stroke-dasharray="{{ c.dash }}" stroke-opacity="{{ c.op }}"></line></svg>{{ c.label }}</button>
+        </sc-for>
+        <button type="button" class="chip {{ moreCls }}" onClick="{{ toggleMore }}" aria-expanded="{{ moreOpen }}" style="color: var(--v2)">{{ moreLabel }}</button>
+        <span style="flex: none; width: 4px"></span>
+      </div>
+      <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 10px; right: 10px; top: 50px; background: var(--v8); border: 1px solid rgba(var(--v12),.14); border-radius: 10px; padding: 6px 0; box-shadow: 0 20px 50px var(--v15); z-index: 7">
+          <div class="mono" style="font-size: 10.5px; color: var(--v3); padding: 4px 12px 6px; letter-spacing: .12em">{{ resultsHead }}</div>
+          <sc-for list="{{ results }}" as="r" hint-placeholder-count="5">
+            <button type="button" class="res" onClick="{{ r.pick }}" style="padding: 11px 12px"><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span><span style="color: var(--v2); flex: none">{{ r.k }}</span></button>
+          </sc-for>
+        </div>
+      </sc-if>
+    </header>
+  </sc-if>
+
+  <!-- every relation Exomem knows: tap to show or hide -->
+  <sc-if value="{{ moreOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ stop }}" style="position: absolute; left: {{ moreL }}px; top: {{ moreT }}px; width: {{ moreW }}px; box-sizing: border-box; background: var(--v8); border: 1px solid rgba(var(--v12),.14); border-radius: 10px; padding: 14px 16px; box-shadow: 0 20px 50px var(--v15); display: flex; flex-direction: column; gap: 10px; z-index: 6">
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span class="mono" style="font-size: 10.5px; color: var(--v3); letter-spacing: .12em">EVERY RELATION EXOMEM KNOWS · {{ totalTypes }}</span>
+        <span style="margin-left: auto; display: flex; gap: 4px"><button type="button" class="ghost" onClick="{{ showAllTypes }}">Show all</button><button type="button" class="ghost" onClick="{{ onlyCore }}">Only the five</button></span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{ moreTypes }}" as="m" hint-placeholder-count="12">
+          <button type="button" class="tchip {{ m.cls }}" onClick="{{ m.toggle }}" aria-pressed="{{ m.on }}" style="color: {{ m.col }}">{{ m.t }}<i>{{ m.n }}</i></button>
+        </sc-for>
+      </div>
+      <div class="mono" style="font-size: 10.5px; color: var(--v3); letter-spacing: .12em; padding-top: 2px">YOUR OWN · {{ customCount }}</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px">
+        <sc-for list="{{ customTypes }}" as="m" hint-placeholder-count="2">
+          <button type="button" class="tchip {{ m.cls }}" onClick="{{ m.toggle }}" aria-pressed="{{ m.on }}" style="color: {{ m.col }}">{{ m.t }}<i>{{ m.n }}</i></button>
+        </sc-for>
+      </div>
+      <div style="font-size: 12.5px; color: var(--v2); line-height: 1.5">Tap a type to show or hide it everywhere. Relations you define yourself appear under Your own, with the same controls. The five on top have their own line; the rest draw as plain links and name their type on hover and in the panel.</div>
+    </div>
+  </sc-if>
+
+  <!-- ===== the note, to read: desktop ===== -->
+  <sc-if value="{{ isDeskRead }}" hint-placeholder-val="{{ false }}">
+    <div class="vscroll" style="position: absolute; left: 0; top: 60px; width: 1040px; bottom: 0; background: var(--v4); z-index: 4">
+      <div style="position: sticky; top: 0; height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: rgba(var(--v14),.94); border-bottom: 1px solid rgba(var(--v12),.06); z-index: 1">
+        <button type="button" class="btn" onClick="{{ toMap }}" style="height: 30px">← map</button>
+        <sc-if value="{{ rdPrev }}" hint-placeholder-val="{{ false }}"><button type="button" class="ghost" onClick="{{ rdBack }}">‹ previous note</button></sc-if>
+        <span class="mono" style="font-size: 11.5px; color: var(--v2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ rdFolder }} / <span style="color: var(--v0)">{{ rdFile }}</span></span>
+        <span style="margin-left: auto; display: flex; gap: 8px"><button type="button" class="ghost" onClick="{{ copyPath }}">{{ copyLabel }}</button><button type="button" class="btn amb" onClick="{{ rdWhy }}" style="height: 30px">Why is this true?</button></span>
+      </div>
+      <article style="max-width: 640px; margin: 0 auto; padding: 44px 0 90px; display: flex; flex-direction: column; gap: 16px">
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+            <sc-for list="{{ rdChips }}" as="c" hint-placeholder-count="3"><span class="rchip {{ c.c }}">{{ c.t }}</span></sc-for>
+          </div>
+          <h1 class="mono" style="margin: 0; font-weight: 500; font-size: {{ rdH1 }}px; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere">{{ rdFile }}</h1>
+          <div class="mono" style="font-size: 11px; color: var(--v2); margin-top: -6px">{{ rdMeta }}</div>
+          <div class="{{ rdCls }}" style="display: flex; flex-direction: column; gap: 12px">
+            <sc-for list="{{ rdBlocks }}" as="b" hint-placeholder-count="6">
+              <sc-if value="{{ b.h2 }}" hint-placeholder-val="{{ false }}"><h2>{{ b.t }}</h2></sc-if>
+              <sc-if value="{{ b.p }}" hint-placeholder-val="{{ true }}"><p><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></p></sc-if>
+              <sc-if value="{{ b.obs }}" hint-placeholder-val="{{ false }}"><div class="obs {{ b.fam }}" id="{{ b.anchor }}"><span class="cat"><i class="gl">{{ b.glyph }}</i>{{ b.cat }}</span><div class="ob"><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span><sc-if value="{{ b.hasCtx }}" hint-placeholder-val="{{ false }}"><span class="ctx">{{ b.ctx }}</span></sc-if><sc-if value="{{ b.hasTags }}" hint-placeholder-val="{{ false }}"><span class="tags"><sc-for list="{{ b.tags }}" as="tg" hint-placeholder-count="1"><span class="tg">{{ tg.t }}</span></sc-for></span></sc-if></div></div></sc-if>
+              <sc-if value="{{ b.rel }}" hint-placeholder-val="{{ false }}"><div class="rel"><span class="cat">{{ b.cat }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span></div></sc-if>
+            </sc-for>
+            <sc-if value="{{ rdHasSrc }}" hint-placeholder-val="{{ true }}">
+              <h2>Sources</h2>
+              <div class="srcs"><sc-for list="{{ rdSrc }}" as="sr" hint-placeholder-count="2"><div class="{{ sr.c }}" onClick="{{ sr.pick }}"><span class="sg2">↳</span><span class="sp"><span class="st">{{ sr.t }}</span><span class="spath">{{ sr.path }}</span></span><span class="sd">{{ sr.d }}</span></div></sc-for></div>
+            </sc-if>
+          </div>
+        <div class="mono" style="font-size: 11.5px; color: {{ recalledCol }}; padding-top: 14px; border-top: 1px solid rgba(var(--v12),.08)">{{ recalled }}</div>
+      </article>
+    </div>
+  </sc-if>
+
+  <!-- ===== desktop panel ===== -->
+  <sc-if value="{{ isDesk }}" hint-placeholder-val="{{ true }}">
+    <aside style="position: absolute; right: 0; top: 60px; bottom: 0; width: 400px; border-left: 1px solid rgba(var(--v12),.08); padding: 24px 26px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; overflow: hidden; background: var(--v4); z-index: 3">
+      <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; flex-direction: column; gap: 18px; height: 100%">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span class="mono" style="font-size: 11px; color: var(--v2)">{{ asOfShort }}</span>
+            <div class="mono" style="font-weight: 500; font-size: 19px; letter-spacing: -0.01em">Your knowledge</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px">
+            <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+              <button type="button" onClick="{{ s.pick }}" style="text-align: left; border: 1px solid {{ s.bd }}; background: var(--v7); border-radius: 8px; padding: 12px 14px; color: var(--v0); cursor: {{ s.cur }}; display: flex; flex-direction: column; gap: 4px"><span class="mono" style="font-size: 22px; font-weight: 500; color: {{ s.col }}">{{ s.v }}</span><span style="font-size: 12px; color: var(--v2)">{{ s.k }}</span></button>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">{{ feedHead }}</span>
+            <sc-for list="{{ feed }}" as="f" hint-placeholder-count="4">
+              <div class="feed"><span class="mono" style="font-size: 11px; color: {{ f.col }}; width: 92px; flex: none">{{ f.app }}</span><span style="flex: 1; min-width: 0; color: var(--v11); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ f.what }}</span><span class="mono" style="font-size: 11px; color: var(--v3)">{{ f.ago }}</span></div>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">MOST CONNECTED</span>
+            <sc-for list="{{ top }}" as="h" hint-placeholder-count="4">
+              <div class="prow" onClick="{{ h.pick }}"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ h.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ h.d }} links</span></div>
+            </sc-for>
+          </div>
+          <div style="margin-top: auto; font-size: 12.5px; color: var(--v2); line-height: 1.55">Scroll to zoom, drag to move. Click a note to see why it’s true. Press play to watch the vault grow.</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isNote }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 18px; height: 100%">
+          <div style="display: flex; gap: 8px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+            <span style="padding: 3px 8px; border-radius: 4px; border: 1px solid {{ statusBorder }}; color: {{ statusColor }}">{{ status }}</span>
+            <span style="color: var(--v2)">{{ kind }}</span>
+            <button type="button" class="ghost" onClick="{{ goBack }}" style="margin-left: auto">{{ backLabel }}</button>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div class="mono" style="font-weight: 500; font-size: 19px; letter-spacing: -0.01em; line-height: 1.3; overflow-wrap: anywhere">{{ focusTitle }}</div>
+            <div style="font-size: 13.5px; line-height: 1.55; color: var(--v5)">{{ summary }}</div>
+            <div><button type="button" class="ghost" onClick="{{ readIt }}" style="padding: 2px 0; color: var(--v1); font-size: 12px">Read the whole note →</button></div>
+          </div>
+          <sc-if value="{{ hasSuper }}" hint-placeholder-val="{{ false }}">
+            <div class="card">
+              <span class="mono" style="font-size: 11px; color: var(--v2)">{{ supHead }}</span>
+              <span onClick="{{ supPick }}" style="font-size: 13px; color: {{ supColor }}; text-decoration: {{ supDeco }}; cursor: pointer">{{ supersedes }}</span>
+              <span class="mono" style="font-size: 11px; color: var(--v2)">{{ supersededOn }}</span>
+            </div>
+          </sc-if>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
+            <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
+              <div class="prow" onClick="{{ s.pick }}"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px; min-height: 0">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+            <sc-for list="{{ rels }}" as="r" hint-placeholder-count="4">
+              <div class="prow" onClick="{{ r.pick }}"><span class="mono" style="font-size: 11px; color: {{ r.col }}; width: 104px; flex: none; white-space: nowrap">{{ r.type }}</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span></div>
+            </sc-for>
+            <sc-if value="{{ hasMore }}" hint-placeholder-val="{{ false }}"><div class="mono" style="font-size: 11px; color: var(--v2); padding-top: 8px">{{ moreRels }}</div></sc-if>
+          </div>
+          <div style="margin-top: auto; display: flex; flex-direction: column; gap: 12px">
+            <div class="mono" style="font-size: 11.5px; color: {{ recalledCol }}">{{ recalled }}</div>
+            <div style="display: flex; gap: 8px"><button type="button" class="btn amb" onClick="{{ askWhy }}">Why is this true?</button><button type="button" class="btn pri" onClick="{{ readIt }}">Read the note</button></div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isRead }}" hint-placeholder-val="{{ false }}">
+        <div class="vscroll" style="display: flex; flex-direction: column; gap: 18px; height: 100%; margin-right: -12px; padding-right: 12px">
+          <span class="mono" style="font-size: 11px; color: var(--v1); letter-spacing: .1em">AROUND THIS NOTE</span>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+            <sc-for list="{{ rdGroups }}" as="r" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; padding: 6px 0; border-bottom: 1px solid rgba(var(--v12),.06)">
+                <span class="mono" style="font-size: 11px; color: {{ r.col }}; padding-bottom: 2px">{{ r.k }}</span>
+                <sc-for list="{{ r.items }}" as="it" hint-placeholder-count="2"><div class="prow" onClick="{{ it.pick }}" style="border: 0; padding: 4px 0"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.t }}</span></div></sc-for>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
+            <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
+              <div class="prow" onClick="{{ s.pick }}"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">HISTORY</span>
+            <sc-for list="{{ rdHist }}" as="h" hint-placeholder-count="4">
+              <div class="feed"><span class="mono" style="font-size: 11px; color: var(--v2); width: 84px; flex: none">{{ h.k }}</span><span style="flex: 1; color: var(--v11)">{{ h.t }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isWhy }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 16px; height: 100%">
+          <div style="display: flex; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+            <span style="color: var(--v1); letter-spacing: .1em">WHY EXOMEM BELIEVES THIS</span>
+            <button type="button" class="ghost" onClick="{{ backToNote }}" style="margin-left: auto">← the note</button>
+          </div>
+          <div class="mono" style="font-weight: 500; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere">{{ focusTitle }}</div>
+          <div style="font-size: 14px; line-height: 1.6; color: var(--v11)">{{ whyAnswer }}</div>
+          <div style="display: flex; flex-direction: column">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 6px">THE TRAIL · {{ trailCount }}</span>
+            <sc-for list="{{ trail }}" as="t" hint-placeholder-count="4">
+              <div class="trow {{ t.c }}" onClick="{{ t.pick }}"><span class="mono" style="font-size: 11px; color: var(--v2); width: 70px; flex: none">{{ t.k }}</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ t.t }}</span><span class="mono" style="font-size: 11px; color: var(--v3)">{{ t.d }}</span></div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ hasDoubt }}" hint-placeholder-val="{{ false }}">
+            <div class="card" style="border-color: rgba(var(--v12),.16)">
+              <span class="mono" style="font-size: 11px; color: var(--v2)">{{ doubtHead }}</span>
+              <span style="font-size: 13px">{{ doubtTitle }}</span>
+              <div><button type="button" class="ghost" onClick="{{ doubtReview }}" style="padding: 2px 0; color: var(--v1)">Review the two side by side →</button></div>
+            </div>
+          </sc-if>
+          <div style="margin-top: auto; display: flex; flex-direction: column; gap: 12px"><div style="font-size: 12px; color: var(--v2); line-height: 1.55">From your notes only. Every line links to its note; nothing here is invented.</div><div><button type="button" class="btn" onClick="{{ readIt }}">Read the note</button></div></div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReview }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; gap: 14px; height: 100%">
+          <div style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+            <span style="color: var(--v1); letter-spacing: .1em">REVIEW</span>
+            <span style="color: var(--v2)">{{ rvPos }}</span>
+            <span style="margin-left: auto; display: flex; gap: 2px"><button type="button" class="ghost" onClick="{{ rvPrev }}" aria-label="Previous pair">←</button><button type="button" class="ghost" onClick="{{ rvNext }}" aria-label="Next pair">→</button><button type="button" class="ghost" onClick="{{ toOverview }}">Done</button></span>
+          </div>
+          <sc-if value="{{ rvAny }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 14px">
+              <div style="font-size: 13.5px; line-height: 1.55; color: var(--v5)">These two may disagree. Exomem doesn’t pick a side; you decide, and it records why.</div>
+              <sc-for list="{{ pair }}" as="p" hint-placeholder-count="2">
+                <div class="card" onClick="{{ p.pick }}" style="cursor: pointer">
+                  <div style="display: flex; gap: 8px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px"><span style="background: var(--v1); color: var(--v4); border-radius: 3px; padding: 0 5px">{{ p.tag }}</span><span style="color: var(--v2)">{{ p.when }}</span><span style="margin-left: auto; color: var(--v3)">{{ p.src }}</span></div>
+                  <span class="mono" style="font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ p.t }}</span>
+                  <span style="font-size: 13.5px; line-height: 1.5; color: var(--v11)">“{{ p.claim }}”</span>
+                </div>
+              </sc-for>
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <button type="button" class="btn pri" onClick="{{ rvKeepB }}" style="text-align: left">{{ keepBLabel }}</button>
+                <button type="button" class="btn" onClick="{{ rvKeepA }}" style="text-align: left">{{ keepALabel }}</button>
+                <button type="button" class="btn" onClick="{{ rvBoth }}" style="text-align: left">Both hold, in different situations</button>
+                <div style="display: flex; gap: 14px; padding-top: 2px"><button type="button" class="ghost" onClick="{{ rvFalse }}" style="padding: 2px 0">Not a disagreement</button><button type="button" class="ghost" onClick="{{ rvLater }}" style="padding: 2px 0">Ask me in a week</button></div>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ rvNone }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 10px"><span class="mono" style="font-size: 17px">All reviewed</span><span style="font-size: 13.5px; color: var(--v5); line-height: 1.55">Nothing in this vault is waiting on you. New disagreements show up here when they appear.</span></div>
+          </sc-if>
+          <sc-if value="{{ rvToast }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top: auto; display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; color: var(--v5); line-height: 1.5; padding: 10px 12px; border-radius: 8px; background: var(--v6)"><span style="flex: 1">{{ rvMsg }}</span><button type="button" class="ghost" onClick="{{ rvUndo }}" style="color: var(--v0); text-decoration: underline">Undo</button></div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </aside>
+  </sc-if>
+
+  <!-- ===== phone sheet ===== -->
+  <sc-if value="{{ isPhone }}" hint-placeholder-val="{{ false }}">
+    <div class="sheet" style="height: {{ sheetH }}px">
+      <button type="button" onClick="{{ toggleSheet }}" aria-label="{{ sheetAria }}" style="height: 24px; flex: none; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0"><span style="width: 36px; height: 4px; border-radius: 2px; background: var(--v9)"></span></button>
+      <div class="{{ sheetScroll }}" style="flex: 1; min-height: 0; padding: 0 18px 18px; display: flex; flex-direction: column; gap: 14px">
+
+        <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-direction: column; gap: 14px">
+            <div style="display: flex; align-items: baseline; gap: 10px"><span class="mono" style="font-weight: 500; font-size: 17px">Your knowledge</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ asOfShort }}</span></div>
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px">
+              <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+                <button type="button" onClick="{{ s.pick }}" style="text-align: left; border: 1px solid {{ s.bd }}; background: var(--v7); border-radius: 8px; padding: 9px 9px; color: var(--v0); cursor: {{ s.cur }}; display: flex; flex-direction: column; gap: 2px; min-width: 0"><span class="mono" style="font-size: 17px; font-weight: 500; color: {{ s.col }}">{{ s.v }}</span><span style="font-size: 10.5px; line-height: 1.25; color: var(--v2)">{{ s.ks }}</span></button>
+              </sc-for>
+            </div>
+            <div style="font-size: 12.5px; color: var(--v2); line-height: 1.5">Pinch to zoom, drag to move. Tap a note to see why it’s true.</div>
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">{{ feedHead }}</span>
+              <sc-for list="{{ feed }}" as="f" hint-placeholder-count="4">
+                <div class="feed"><span class="mono" style="font-size: 11px; color: {{ f.col }}; width: 84px; flex: none">{{ f.app }}</span><span style="flex: 1; min-width: 0; color: var(--v11); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ f.what }}</span><span class="mono" style="font-size: 11px; color: var(--v3)">{{ f.ago }}</span></div>
+              </sc-for>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">MOST CONNECTED</span>
+              <sc-for list="{{ top }}" as="h" hint-placeholder-count="4">
+                <div class="prow" onClick="{{ h.pick }}" style="padding: 10px 0"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ h.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ h.d }} links</span></div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isNote }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; gap: 8px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px">
+              <span style="padding: 3px 8px; border-radius: 4px; border: 1px solid {{ statusBorder }}; color: {{ statusColor }}">{{ status }}</span>
+              <span style="color: var(--v2)">{{ kind }}</span>
+              <button type="button" class="ghost" onClick="{{ goBack }}" style="margin-left: auto; padding: 6px 4px">{{ backLabel }}</button>
+            </div>
+            <div class="mono" style="font-weight: 500; font-size: 16px; line-height: 1.3; overflow-wrap: anywhere">{{ focusTitle }}</div>
+            <div class="{{ sumClamp }}" style="font-size: 13.5px; line-height: 1.5; color: var(--v5)">{{ summary }}</div>
+            <div style="display: flex; gap: 6px"><button type="button" class="btn amb" onClick="{{ askWhy }}" style="flex: 1; height: 40px; padding: 0 10px">Why is this true?</button><button type="button" class="btn pri" onClick="{{ readIt }}" style="height: 40px; padding: 0 12px">Read</button><button type="button" class="btn" onClick="{{ toggleSheet }}" style="height: 40px; padding: 0 10px">{{ linksBtn }}</button></div>
+            <sc-if value="{{ hasSuper }}" hint-placeholder-val="{{ false }}">
+              <div class="card"><span class="mono" style="font-size: 11px; color: var(--v2)">{{ supHead }}</span><span onClick="{{ supPick }}" style="font-size: 13px; color: {{ supColor }}; text-decoration: {{ supDeco }}">{{ supersedes }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ supersededOn }}</span></div>
+            </sc-if>
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
+              <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
+                <div class="prow" onClick="{{ s.pick }}" style="padding: 10px 0"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
+              </sc-for>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px">
+              <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+              <sc-for list="{{ relsAll }}" as="r" hint-placeholder-count="4">
+                <div class="prow" onClick="{{ r.pick }}" style="padding: 10px 0"><span class="mono" style="font-size: 11px; color: {{ r.col }}; width: 96px; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.type }}</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ r.t }}</span></div>
+              </sc-for>
+            </div>
+            <div class="mono" style="font-size: 11.5px; color: {{ recalledCol }}">{{ recalled }}</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isWhy }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px"><span style="color: var(--v1); letter-spacing: .1em">WHY EXOMEM BELIEVES THIS</span><button type="button" class="ghost" onClick="{{ backToNote }}" style="margin-left: auto; padding: 6px 4px">← the note</button></div>
+            <div class="mono" style="font-weight: 500; font-size: 15px; line-height: 1.3; overflow-wrap: anywhere">{{ focusTitle }}</div>
+            <div style="font-size: 14px; line-height: 1.55; color: var(--v11)">{{ whyAnswer }}</div>
+            <div style="display: flex; flex-direction: column">
+              <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 6px">THE TRAIL · {{ trailCount }}</span>
+              <sc-for list="{{ trail }}" as="t" hint-placeholder-count="4">
+                <div class="trow {{ t.c }}" onClick="{{ t.pick }}" style="padding-top: 10px; padding-bottom: 10px"><span class="mono" style="font-size: 11px; color: var(--v2); width: 64px; flex: none">{{ t.k }}</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ t.t }}</span></div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ hasDoubt }}" hint-placeholder-val="{{ false }}">
+              <div class="card"><span class="mono" style="font-size: 11px; color: var(--v2)">{{ doubtHead }}</span><span style="font-size: 13px">{{ doubtTitle }}</span><div><button type="button" class="ghost" onClick="{{ doubtReview }}" style="padding: 6px 0; color: var(--v1)">Review the two side by side →</button></div></div>
+            </sc-if>
+            <div style="font-size: 12px; color: var(--v2); line-height: 1.5">From your notes only. Nothing here is invented.</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isReview }}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px"><span style="color: var(--v1); letter-spacing: .1em">REVIEW</span><span style="color: var(--v2)">{{ rvPos }}</span><span style="margin-left: auto; display: flex; gap: 2px"><button type="button" class="ghost" onClick="{{ rvPrev }}" aria-label="Previous pair" style="padding: 6px 8px">←</button><button type="button" class="ghost" onClick="{{ rvNext }}" aria-label="Next pair" style="padding: 6px 8px">→</button><button type="button" class="ghost" onClick="{{ toOverview }}" style="padding: 6px 4px">Done</button></span></div>
+            <sc-if value="{{ rvAny }}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; flex-direction: column; gap: 8px">
+                <sc-for list="{{ pair }}" as="p" hint-placeholder-count="2">
+                  <div class="card" onClick="{{ p.pick }}" style="padding: 10px 12px; gap: 4px">
+                    <div style="display: flex; gap: 8px; align-items: center; font-family: 'IBM Plex Mono', monospace; font-size: 11px"><span style="background: var(--v1); color: var(--v4); border-radius: 3px; padding: 0 5px">{{ p.tag }}</span><span style="color: var(--v2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ p.t }}</span><span style="margin-left: auto; color: var(--v3); flex: none">{{ p.when }}</span></div>
+                    <span style="font-size: 13.5px; line-height: 1.45; color: var(--v11)">“{{ p.claim }}”</span>
+                  </div>
+                </sc-for>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding-top: 2px">
+                  <button type="button" class="btn pri" onClick="{{ rvKeepB }}" style="height: 42px">{{ keepBShort }}</button>
+                  <button type="button" class="btn" onClick="{{ rvKeepA }}" style="height: 42px">{{ keepAShort }}</button>
+                  <button type="button" class="btn" onClick="{{ rvBoth }}" style="height: 42px; grid-column: 1 / -1">Both hold, in different situations</button>
+                </div>
+                <div style="display: flex; justify-content: space-between"><button type="button" class="ghost" onClick="{{ rvFalse }}" style="padding: 8px 0">Not a disagreement</button><button type="button" class="ghost" onClick="{{ rvLater }}" style="padding: 8px 0">Ask me in a week</button></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ rvNone }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column; gap: 6px"><span class="mono" style="font-size: 16px">All reviewed</span><span style="font-size: 13.5px; color: var(--v5); line-height: 1.5">Nothing is waiting on you.</span></div>
+            </sc-if>
+            <sc-if value="{{ rvToast }}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; color: var(--v5); line-height: 1.45; padding: 9px 12px; border-radius: 8px; background: var(--v6)"><span style="flex: 1">{{ rvMsg }}</span><button type="button" class="ghost" onClick="{{ rvUndo }}" style="color: var(--v0); text-decoration: underline">Undo</button></div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+  <!-- ===== the note, to read: phone ===== -->
+  <sc-if value="{{ isPhoneRead }}" hint-placeholder-val="{{ false }}">
+    <div class="vscroll" style="position: absolute; left: 0; right: 0; top: 52px; bottom: 0; background: var(--v4); z-index: 6; border-top: 1px solid rgba(var(--v12),.08)">
+      <div style="position: sticky; top: 0; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 14px; background: rgba(var(--v14),.95); border-bottom: 1px solid rgba(var(--v12),.06); z-index: 1">
+        <button type="button" class="btn" onClick="{{ toMap }}" style="height: 34px; padding: 0 10px">← map</button>
+        <sc-if value="{{ rdPrev }}" hint-placeholder-val="{{ false }}"><button type="button" class="ghost" onClick="{{ rdBack }}" style="padding: 8px 4px">‹ previous</button></sc-if>
+        <button type="button" class="btn amb" onClick="{{ rdWhy }}" style="height: 34px; padding: 0 10px; margin-left: auto">Why is this true?</button>
+      </div>
+      <article style="padding: 22px 18px 40px; display: flex; flex-direction: column; gap: 14px">
+          <div class="mono" style="font-size: 11px; color: var(--v2)">{{ rdFolder }}</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+            <sc-for list="{{ rdChips }}" as="c" hint-placeholder-count="3"><span class="rchip {{ c.c }}">{{ c.t }}</span></sc-for>
+          </div>
+          <h1 class="mono" style="margin: 0; font-weight: 500; font-size: {{ rdH1 }}px; letter-spacing: -0.01em; line-height: 1.25; overflow-wrap: anywhere">{{ rdFile }}</h1>
+          <div class="mono" style="font-size: 11px; color: var(--v2); margin-top: -6px">{{ rdMeta }}</div>
+          <div class="{{ rdCls }}" style="display: flex; flex-direction: column; gap: 12px">
+            <sc-for list="{{ rdBlocks }}" as="b" hint-placeholder-count="6">
+              <sc-if value="{{ b.h2 }}" hint-placeholder-val="{{ false }}"><h2>{{ b.t }}</h2></sc-if>
+              <sc-if value="{{ b.p }}" hint-placeholder-val="{{ true }}"><p><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></p></sc-if>
+              <sc-if value="{{ b.obs }}" hint-placeholder-val="{{ false }}"><div class="obs {{ b.fam }}" id="{{ b.anchor }}"><span class="cat"><i class="gl">{{ b.glyph }}</i>{{ b.cat }}</span><div class="ob"><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span><sc-if value="{{ b.hasCtx }}" hint-placeholder-val="{{ false }}"><span class="ctx">{{ b.ctx }}</span></sc-if><sc-if value="{{ b.hasTags }}" hint-placeholder-val="{{ false }}"><span class="tags"><sc-for list="{{ b.tags }}" as="tg" hint-placeholder-count="1"><span class="tg">{{ tg.t }}</span></sc-for></span></sc-if></div></div></sc-if>
+              <sc-if value="{{ b.rel }}" hint-placeholder-val="{{ false }}"><div class="rel"><span class="cat">{{ b.cat }}</span><span><sc-for list="{{ b.segs }}" as="g" hint-placeholder-count="1"><span class="{{ g.c }}" onClick="{{ g.pick }}">{{ g.t }}</span></sc-for></span></div></sc-if>
+            </sc-for>
+          </div>
+          <div style="height: 1px; background: rgba(var(--v12),.08); margin: 8px 0"></div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">LINKS · {{ relCount }}</span>
+            <sc-for list="{{ rdGroups }}" as="r" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; padding: 6px 0; border-bottom: 1px solid rgba(var(--v12),.06)">
+                <span class="mono" style="font-size: 11px; color: {{ r.col }}; padding-bottom: 2px">{{ r.k }}</span>
+                <sc-for list="{{ r.items }}" as="it" hint-placeholder-count="2"><div class="prow" onClick="{{ it.pick }}" style="border: 0; padding: 4px 0"><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ it.t }}</span></div></sc-for>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">SOURCES</span>
+            <sc-for list="{{ sources }}" as="s" hint-placeholder-count="2">
+              <div class="prow" onClick="{{ s.pick }}"><span class="mono" style="color: var(--v1); font-size: 11px">↳</span><span class="pt" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ s.t }}</span><span class="mono" style="font-size: 11px; color: var(--v2)">{{ s.d }}</span></div>
+            </sc-for>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span class="mono" style="font-size: 11px; color: var(--v2); padding-bottom: 4px">HISTORY</span>
+            <sc-for list="{{ rdHist }}" as="h" hint-placeholder-count="4">
+              <div class="feed"><span class="mono" style="font-size: 11px; color: var(--v2); width: 84px; flex: none">{{ h.k }}</span><span style="flex: 1; color: var(--v11)">{{ h.t }}</span></div>
+            </sc-for>
+          </div>
+      </article>
+    </div>
+  </sc-if>
+</main>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"live":{"editor":"boolean","default":true},"theme":{"editor":"enum","default":"dark","options":["dark","light"]},"device":{"editor":"enum","default":"desktop","options":["desktop","phone"]},"start":{"editor":"enum","default":"overview","options":["overview","note","why","read","review","types","reviewed"]},"screenH":{"editor":"number","default":844},"$preview":{"width":1440,"height":900}}'>
+// Exomem's graph viewer over a sample vault. One colour: amber lights only what is live, retrieved or current.
+// Overview first; zoom and filter; details on demand. Click a note and the camera moves to it, its links gather
+// around it, labelled by type. Ask why, and the trail that backs it lights up. Disagreements wait for review.
+const W = 1040, H = 700;
+const HUBS = [
+  { t: 'notes/newer-constraint.md', kind: 'decision', status: 'current', domain: 'retrieval', sum: 'Retrieval stays local and on SQLite: FTS5 for keywords, sqlite-vec for vectors. No separate search service to run or keep in sync.', supOn: 'superseded 3 Aug · after benchmark run 014', src: [['sources/bench/run-014.md', '12 Jul'], ['sources/meeting-2026-05-12.md', '12 May']],
+    why: 'Benchmark run 014 measured hybrid retrieval on SQLite alone at 864 ms, with 50,000 notes and a cold cache. That took away the reason for a separate search service.' },
+  { t: 'decisions/gpu-batching.md', kind: 'decision', status: 'current', domain: 'embeddings', sum: 'Batch embeddings at 256 on 16 GB cards. VRAM headroom, not throughput, is the bound.', src: [['sources/bench/run-014.md', '12 Jul']],
+    why: 'In run 014, batches above 256 ran out of VRAM on 16 GB cards while throughput stayed flat.' },
+  { t: 'research/embedding-models.md', kind: 'research', status: 'current', domain: 'research', sum: 'Five embedding models compared on this vault: recall at 10, latency, and size on disk.', src: [['sources/papers/mteb-2026.md', '20 Jun'], ['sources/bench/run-009.md', '24 Jun']],
+    why: 'It’s a comparison, not a verdict: one paper and one benchmark run, both measured on this vault.' },
+  { t: 'insights/first-latency.md', kind: 'insight', status: 'current', domain: 'latency', sum: 'Cold-start latency is dominated by opening the index, not by retrieval. Warm it when an assistant connects.', src: [['sources/bench/run-014.md', '12 Jul']],
+    why: 'In run 014 most of the first query’s time went to opening the index; warm queries were fast.' },
+  { t: 'sources/bench/run-014.md', kind: 'source', status: 'evidence', domain: 'benchmarks', sum: 'Benchmark run 014: 50,000 notes, hybrid retrieval, 864 ms end to end with a cold cache.', src: [],
+    why: 'It’s evidence, not a conclusion: a recorded benchmark run. Notes cite it; it cites nothing.' },
+  { t: 'decisions/vault-layout.md', kind: 'decision', status: 'current', domain: 'vault', sum: 'Notes live as plain Markdown in the vault; the index is a sidecar that can always be rebuilt from the files.', src: [['sources/meeting-2026-04-02.md', '2 Apr']],
+    why: 'Decided on 2 Apr: the Markdown files stay the source of truth, so the index can always be rebuilt from them.' },
+  { t: 'research/cli-indexing.md', kind: 'research', status: 'open question', domain: 'indexing', sum: 'Should the CLI index on save or on a schedule? Two benchmarks disagree.', src: [['sources/bench/run-012.md', '5 Jul']],
+    why: 'It isn’t settled. Two benchmarks disagree, so it stays an open question until one of them is superseded.' },
+];
+const OLD_PLAN = 'notes/old-plan.md';
+const OLD_SUM = 'The first plan: run a separate vector database next to the vault. Benchmark run 014 showed SQLite alone stays sub-second at 50,000 notes, so it was superseded.';
+const NOTES = ['notes/index-rebuild.md', 'insights/rerank-cost.md', 'patterns/cache-warm.md', 'decisions/fts5.md', 'research/rrf-k.md', 'sources/issue-212.md', 'notes/vault-sync.md', 'insights/edge-cases.md', 'decisions/no-gpu-default.md', 'research/chunking.md', 'sources/meeting-2026-06-30.md', 'patterns/supersede-not-delete.md', 'notes/ocr-pipeline.md', 'insights/recall-at-10.md', 'research/hybrid-weights.md', 'decisions/plugin-route.md'];
+const TYPES = ['supports', 'refines', 'contradicts', 'supersedes', 'relates'];
+const TCOL = { supports: 'var(--v1)', refines: 'var(--v1)', contradicts: 'var(--v0)', supersedes: 'var(--v1)', relates: 'var(--v2)' };
+const OTHER_TYPES = ['evidenced by', 'derived from', 'cites', 'answers', 'raises question', 'resolves', 'depends on', 'implements', 'mitigates', 'causes', 'caused by', 'blocks', 'tests', 'duplicates', 'used for', 'observed in', 'mentions', 'about entity', 'links to', 'part of', 'contains', 'extends', 'member of', 'owns', 'operates', 'produces', 'supplies', 'located at'];
+// What two notes say when they may disagree. The vault is about running a knowledge base, so its arguments are too.
+const CLAIMS = [
+  ['Index each note when it’s saved, so recall is never stale.', 'Index on a schedule; saving should never wait on the index.'],
+  ['Typed links should rank ahead of plain wikilinks in recall.', 'Plain wikilinks are enough; typing them adds work for no ranking gain.'],
+  ['Tune ranking from how I actually search; cited notes are the signal.', 'Keep ranking fixed; tuning from usage will drift.'],
+  ['Adopt a tuned ranking only if the golden queries don’t get worse.', 'Adopt whichever tuning cites more of my notes.'],
+  ['Warm the index as soon as an assistant connects.', 'Warm it on the first search; most connections never search.'],
+  ['Chunk notes by heading, so a decision stays in one piece.', 'Chunk at a fixed size; headings vary too much.'],
+];
+const APPS = [['Claude Code', 'recalled'], ['ChatGPT', 'recalled'], ['Claude', 'saved'], ['Codex', 'recalled']];
+const MONTHS = ['Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct'];
+// Relations people define for their own vault. They get the same controls as the built-in ones.
+// What the notes say, as Markdown. Links are [[wikilinks]]; observations are "- [category] text".
+// What the notes say, in Exomem's own note format: a lead paragraph, then sections; observations are
+// "- [category] content #tags (context) ^anchor"; relations are "- type [[target]]" under ## Relations.
+const BODIES = {
+  'notes/newer-constraint.md': 'Retrieval stays local and on SQLite. Keywords go through FTS5, vectors through sqlite-vec, and both live in one file next to the vault.\n## Why\n[[sources/bench/run-014.md]] ran hybrid retrieval over 50,000 notes: 864 ms end to end, with a cold cache. That was the last reason for a separate search service, so this replaces [[notes/old-plan.md]].\n## Observations\n- [decision] No separate search service to run, back up or keep in sync #retrieval #ops ^no-search-service\n- [constraint] The first query is slow while the index opens; see [[insights/first-latency.md]] #latency (cold start) ^cold-open\n- [open question] Index on save or on a schedule is still open in [[research/cli-indexing.md]] #indexing ^index-timing\n## Relations\n- supersedes [[notes/old-plan.md]]\n- evidenced_by [[sources/bench/run-014.md]]\n- relates_to [[insights/first-latency.md]]',
+  'decisions/gpu-batching.md': 'Batch embeddings at 256 on 16 GB cards.\n## Why\nIn [[sources/bench/run-014.md]], batches above 256 ran out of VRAM while throughput stayed flat. VRAM headroom, not throughput, is the bound.\n## Observations\n- [decision] Default batch size is 256 on 16 GB cards #embeddings ^batch-256\n- [method] Model choice comes from [[research/embedding-models.md]] #embeddings ^model-choice\n## Relations\n- evidenced_by [[sources/bench/run-014.md]]\n- derived_from [[research/embedding-models.md]]',
+  'research/embedding-models.md': 'Five embedding models compared on this vault: recall at 10, latency, and size on disk.\n## Sources\n[[sources/papers/mteb-2026.md]] for the shortlist, [[sources/bench/run-009.md]] for the numbers on this vault.\n## Observations\n- [finding] A comparison, not a verdict #research ^not-a-verdict\n- [used by] [[decisions/gpu-batching.md]] builds on it #embeddings ^used-by-batching',
+  'insights/first-latency.md': 'Cold-start latency is dominated by opening the index, not by retrieval.\n## Why\nIn [[sources/bench/run-014.md]], most of the first query’s time went to opening the index; warm queries were fast.\n## Observations\n- [pattern] Warm the index when an assistant connects #latency (on connect) ^warm-on-connect\n- [explains] The cold number in [[notes/newer-constraint.md]] #latency ^explains-cold\n## Relations\n- evidenced_by [[sources/bench/run-014.md]]\n- refines [[notes/newer-constraint.md]]',
+  'sources/bench/run-014.md': 'Benchmark run 014: 50,000 notes, hybrid retrieval, 864 ms end to end with a cold cache.\n## Setup\n- [fact] 50,000 notes; hybrid retrieval with FTS5 and sqlite-vec #benchmark ^setup-size\n- [fact] Cold cache, timed end to end #benchmark ^setup-timing\n## Cited by\n[[notes/newer-constraint.md]], [[decisions/gpu-batching.md]] and [[insights/first-latency.md]].',
+  'decisions/vault-layout.md': 'Notes live as plain Markdown in the vault; the index is a sidecar that can always be rebuilt from the files.\n## Why\nDecided on 2 Apr ([[sources/meeting-2026-04-02.md]]): the Markdown files stay the source of truth.\n## Observations\n- [decision] Deleting the index loses nothing; it rebuilds from the files #vault ^index-is-sidecar',
+  'research/cli-indexing.md': 'Should the CLI index on save or on a schedule? Two benchmarks disagree.\n## What disagrees\n[[sources/bench/run-012.md]] favours indexing on save; a later run favours a schedule.\n## Observations\n- [open question] Which matters more here: fresh recall, or instant saves? #indexing ^save-or-schedule',
+  'notes/old-plan.md': 'The first plan: run a separate vector database next to the vault.\n## What happened\nBenchmark run 014 showed SQLite alone stays under a second at 50,000 notes.\n## Observations\n- [superseded] Replaced by [[notes/newer-constraint.md]] on 3 Aug; kept for history #retrieval ^replaced\n## Relations\n- superseded_by [[notes/newer-constraint.md]]',
+};
+// Each kind of observation gets its own component: a mark, a colour rule, a frame.
+const FAM = { decision: ['dec', '◆'], constraint: ['con', '⊣'], 'open question': ['q', '?'], question: ['q', '?'], finding: ['find', '●'], fact: ['fact', '■'], pattern: ['pat', '↻'], method: ['pat', '↻'], superseded: ['sup', '↧'], 'used by': ['rel', '→'], explains: ['rel', '→'], relates: ['rel', '→'] };
+const CUSTOM = ['inspired by', 'blocks release'];
+const SPEEDS = [[0.5, '½×', 'half speed'], [1, '1×', 'normal speed'], [2, '2×', 'double speed']];
+
+// Dark is canonical and so is light: the same viewer on paper, with deep amber.
+const VPAL = {"dark": {"v0": "#ECE9E2", "v1": "#FFB000", "v2": "#858075", "v3": "#5C574D", "v4": "#0A0908", "v5": "#A39E93", "v6": "#1A1815", "v7": "#100E0C", "v8": "#12100E", "v9": "#2A2724", "v10": "#14120F", "v11": "#C9C5BC", "v12": "236,233,226", "v13": "255,176,0", "v14": "10,9,8", "v15": "rgba(0,0,0,.6)"}, "light": {"v0": "#1A1814", "v1": "#A86E00", "v2": "#7A756B", "v3": "#B5AFA3", "v4": "#FAF8F4", "v5": "#6B665C", "v6": "#EFEBE3", "v7": "#FFFFFF", "v8": "#FFFFFF", "v9": "#E5E0D6", "v10": "#FFFFFF", "v11": "#3D3A34", "v12": "26,24,20", "v13": "168,110,0", "v14": "250,248,244", "v15": "rgba(60,50,30,.16)"}};
+const base = (t) => t.split('/').pop();
+const stopEv = (e) => { if (e && e.stopPropagation) e.stopPropagation(); };
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const s = props.start || 'overview', g = this.graph();
+    const mode = s === 'note' || s === 'why' || s === 'read' ? s : (s === 'review' || s === 'reviewed') ? 'review' : 'overview';
+    this.state = { focus: mode === 'note' || mode === 'why' || mode === 'read' ? g.hubs[0] : -1, mode, off: {}, asOf: 11, q: '', searchOpen: false, moreOpen: s === 'types', playing: false, speed: 1,
+      ev: [], evN: 0, now: 0, cam: null, drag: false, hist: [], hover: -1, paused: props.live === false, rv: 0, resolved: {}, over: {}, rvLast: null,
+      sheet: mode === 'why' || mode === 'review' ? 'open' : 'peek' };
+    if (s === 'reviewed') { const q = this.queue(this.state); if (q.length) { const [a, b] = q[0]; this.state = { ...this.state, ...this.resolveState(this.state, q[0], 'keepB') }; } }
+  }
+  componentDidMount() {
+    this.reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (this.props.live === false) return;
+    this.fire(150000); this.fire(42000); this.fire(9000);
+    this.startLive();
+  }
+  componentWillUnmount() { this.gone = true; clearTimeout(this.beatT); clearInterval(this.liveT); clearInterval(this.playT); clearTimeout(this.fadeT); cancelAnimationFrame(this.gRaf); clearTimeout(this.hovT); clearTimeout(this.wheelT); this.musicStop(true); }
+  startLive() { clearInterval(this.liveT); this.liveT = setInterval(() => this.fire(), this.reduced ? 9000 : 4200); }
+
+  // ---- listening. Opt-in, from a quiet speaker in the corner: the microphone, or a song file. Nothing is recorded or sent.
+  musicStart(source) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return this.setState({ muNote: 'This browser can’t listen.', muErr: true });
+    this.musicStop(true);
+    const ctx = new AC(), an = ctx.createAnalyser();
+    an.fftSize = 2048; an.smoothingTimeConstant = 0.55; an.minDecibels = -85; an.maxDecibels = -20;
+    this.mu = { ctx, an, buf: new Uint8Array(an.frequencyBinCount), bass: 0, mid: 0, treb: 0, avg: 0.2, last: 0, lo: [0.3, 0.3, 0.3], hi: [0.6, 0.6, 0.6] };
+    if (!document.getElementById('vw-mu')) { const st = document.createElement('style'); st.id = 'vw-mu'; document.head.appendChild(st); }
+    source(ctx, an).then(() => { this.setState({ muOn: true, muPop: false, muErr: false }); this.musicLoop(); })
+      .catch(() => { this.musicStop(true); this.setState({ muNote: 'The microphone isn’t available here. Try a song file instead.', muErr: true }); });
+  }
+  musicLoop() {
+    const m = this.mu; if (!m) return;
+    m.an.getByteFrequencyData(m.buf);
+    const hz = m.ctx.sampleRate / 2 / m.buf.length;
+    const band = (lo, hi) => { let s = 0, n = 0; for (let k = Math.max(1, Math.floor(lo / hz)); k <= Math.ceil(hi / hz) && k < m.buf.length; k++) { s += m.buf[k]; n++; } return n ? s / n / 255 : 0; };
+    const raw = [band(30, 160), band(400, 2000), band(4000, 12000)];
+    // each band against its own recent floor and ceiling, so a loud mix and a quiet one both move
+    const norm = raw.map((x, k) => {
+      m.lo[k] = x < m.lo[k] ? m.lo[k] + (x - m.lo[k]) * 0.3 : m.lo[k] + (x - m.lo[k]) * 0.004;
+      m.hi[k] = x > m.hi[k] ? m.hi[k] + (x - m.hi[k]) * 0.3 : m.hi[k] + (x - m.hi[k]) * 0.004;
+      const span = Math.max(0.08, m.hi[k] - m.lo[k]);
+      return Math.max(0, Math.min(1, (x - m.lo[k]) / span));
+    });
+    const ease = (v, x, up, dn) => v + (x - v) * (x > v ? up : dn);
+    m.bass = ease(m.bass, norm[0] * norm[0], 0.6, 0.14);
+    m.mid = ease(m.mid, norm[1], 0.4, 0.1);
+    m.treb = ease(m.treb, norm[2] * norm[2], 0.5, 0.16);
+    const el = document.getElementById('vw-mu');
+    if (el) el.textContent = `.vw{--bass:${m.bass.toFixed(3)};--mid:${m.mid.toFixed(3)};--treb:${m.treb.toFixed(3)}}`;
+    // a beat: the low end jumps well above its recent level, no more than about twice a second
+    m.avg = m.avg * 0.96 + raw[0] * 0.04;
+    const now = performance.now();
+    if (norm[0] > 0.72 && raw[0] > m.avg * 1.12 && now - m.last > 450) {
+      m.last = now;
+      const g = this.graph(), pick = () => Math.floor(Math.random() * g.E.length);
+      this.setState({ beatE: [pick(), pick()] });
+      clearTimeout(this.beatT); this.beatT = setTimeout(() => this.setState({ beatE: [] }), 900);
+    }
+    this.muRaf = requestAnimationFrame(() => this.musicLoop());
+  }
+  musicStop(quiet) {
+    cancelAnimationFrame(this.muRaf); clearTimeout(this.beatT);
+    const m = this.mu; this.mu = null;
+    if (m) { try { m.stream && m.stream.getTracks().forEach((t) => t.stop()); } catch (e) {} try { m.audio && m.audio.pause(); } catch (e) {} try { m.ctx.close(); } catch (e) {} }
+    const el = typeof document !== 'undefined' && document.getElementById('vw-mu'); if (el) el.textContent = '';
+    if (!quiet) this.setState({ muOn: false, beatE: [] });
+  }
+
+  // ---- the vault
+  rng(seed) { let s = seed; return () => { s |= 0; s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  graph() {
+    if (this._g) return this._g;
+    const rnd = this.rng(17);
+    const centres = [[300, 300], [180, 520], [560, 180], [700, 430], [470, 560], [860, 220], [880, 560]];
+    const pts = [];
+    centres.forEach(([cx, cy], c) => {
+      const k = 30 + Math.floor(rnd() * 16);
+      let made = 0, tries = 0;
+      while (made < k && tries < 4000) {
+        tries++;
+        const a = rnd() * 6.283, r = Math.abs((rnd() + rnd() + rnd() - 1.5)) * 150;
+        const x = cx + Math.cos(a) * r * 1.3, y = cy + Math.sin(a) * r;
+        if (x < 20 || x > W - 20 || y < 40 || y > H - 10) continue;
+        if (pts.every((p) => (p.x - x) ** 2 + (p.y - y) ** 2 > 15 * 15)) { pts.push({ x, y, c, t: rnd() }); made++; }
+      }
+    });
+    const hubs = centres.map(([cx, cy], c) => { let best = -1, bd = 1e9; pts.forEach((p, i) => { if (p.c !== c) return; const d = (p.x - cx) ** 2 + (p.y - cy) ** 2; if (d < bd) { bd = d; best = i; } }); pts[best].t = 0; pts[best].hub = c; return best; });
+    const E = new Map(), adj = pts.map(() => []);
+    const add = (i, j) => { const k = i < j ? i + '-' + j : j + '-' + i; if (i === j || E.has(k)) return; E.set(k, [i, j]); adj[i].push(j); adj[j].push(i); };
+    pts.forEach((p, i) => {
+      pts.map((q, j) => [j, (q.x - p.x) ** 2 + (q.y - p.y) ** 2]).filter((a) => a[0] !== i).sort((a, b) => a[1] - b[1]).slice(0, 2).forEach(([j, d]) => { if (d < 80 * 80) add(i, j); });
+      if (rnd() < 0.4) add(i, hubs[p.c]);
+    });
+    for (let a = 0; a < hubs.length; a++) for (let b = a + 1; b < hubs.length; b++) if (rnd() < 0.5) add(hubs[a], hubs[b]);
+    const deg = adj.map((a) => a.length);
+    pts.forEach((p, i) => { p.title = p.hub !== undefined ? HUBS[p.hub].t : NOTES[i % NOTES.length].replace('.md', '') + (i >= NOTES.length ? '-' + (i % 7 + 2) : '') + '.md'; p.dd = (5 + rnd() * 5).toFixed(2); p.dl = (-rnd() * 8).toFixed(2); });
+    const old = adj[hubs[0]].find((j) => pts[j].hub === undefined);
+    pts[old].title = OLD_PLAN; pts[old].t = 0;
+    const box = { x0: Math.min(...pts.map((p) => p.x)) - 10, x1: Math.max(...pts.map((p) => p.x)) + 10, y0: Math.min(...pts.map((p) => p.y)) - 30, y1: Math.max(...pts.map((p) => p.y)) + 10 };
+    this._g = { pts, E: [...E.values()], adj, deg, hubs, old, box };
+    return this._g;
+  }
+  key(i, j) { return i < j ? i + '-' + j : j + '-' + i; }
+  relType(i, j) {
+    const g = this._g, a = Math.min(i, j), b = Math.max(i, j);
+    if ((a === g.hubs[0] && b === g.old) || (b === g.hubs[0] && a === g.old)) return 'supersedes';
+    // Most links in a real vault are plain; the epistemic ones are rarer, contradictions rarest.
+    const h = Math.abs((a * 73856093) ^ (b * 19349663));
+    if (g.pts[a].hub !== undefined || g.pts[b].hub !== undefined) { const m = h % 12; return m === 0 ? 'contradicts' : m < 4 ? 'supports' : m < 7 ? 'refines' : 'relates'; }
+    const m = h % 40; return m === 0 ? 'contradicts' : m < 3 ? 'supersedes' : m < 11 ? 'supports' : m < 17 ? 'refines' : 'relates';
+  }
+  // the type a link has now: a review decision can change it; plain links carry one of the other relations
+  tOf(i, j, st = this.state) {
+    const o = st.over[this.key(i, j)]; if (o) return o.t;
+    const t = this.relType(i, j); if (t !== 'relates') return t;
+    const a = Math.min(i, j), b = Math.max(i, j), h = Math.abs((a * 2654435761) ^ (b * 40503));
+    if (h % 23 === 0) return CUSTOM[0]; if (h % 31 === 0) return CUSTOM[1];
+    return h % 5 < 2 ? 'relates' : OTHER_TYPES[(h >> 3) % OTHER_TYPES.length];
+  }
+  newer(i, j, st = this.state) {
+    const o = st.over[this.key(i, j)]; if (o && o.newer !== undefined) return o.newer;
+    const g = this._g, P = g.pts; if (P[i].hub !== undefined) return i; if (P[j].hub !== undefined) return j; if (i === g.old) return j; if (j === g.old) return i; return P[i].t >= P[j].t ? i : j;
+  }
+  visibleAt(i, asOf) { return this.graph().pts[i].t <= (asOf + 1) / 12; }
+  when(i) { const p = this.graph().pts[i], m = Math.min(11, Math.floor(p.t * 12)); return `${1 + (i * 7) % (m === 11 ? 10 : 27)} ${MONTHS[m]} ${m < 2 ? 2025 : 2026}`; }
+  // Contradictions waiting for a decision, newest first.
+  allContra(st = this.state) {
+    const g = this.graph(), vis = (i) => this.visibleAt(i, st.asOf);
+    return g.E.filter(([i, j]) => vis(i) && vis(j) && this.relType(i, j) === 'contradicts').sort((x, y) => Math.max(g.pts[y[0]].t, g.pts[y[1]].t) - Math.max(g.pts[x[0]].t, g.pts[x[1]].t) || x[0] - y[0]);
+  }
+  queue(st = this.state) { return this.allContra(st).filter(([i, j]) => !st.resolved[this.key(i, j)]); }
+  pairOf(e) { const g = this.graph(), [i, j] = e; return g.pts[i].t <= g.pts[j].t ? [i, j] : [j, i]; }
+  resolveState(st, e, how) {
+    const g = this.graph(), [A, B] = this.pairOf(e), k = this.key(A, B), over = { ...st.over }, resolved = { ...st.resolved, [k]: how };
+    const a = base(g.pts[A].title), b = base(g.pts[B].title);
+    let msg = '';
+    if (how === 'keepB') { over[k] = { t: 'supersedes', newer: B }; msg = `${b} now supersedes ${a}. The older note stays, marked superseded.`; }
+    if (how === 'keepA') { over[k] = { t: 'supersedes', newer: A }; msg = `${a} now supersedes ${b}. The other note stays, marked superseded.`; }
+    if (how === 'both') msg = 'Kept both. Exomem records that they hold in different situations.';
+    if (how === 'false') { over[k] = { t: 'relates' }; msg = 'Marked as not a disagreement. It comes back only if one of them changes.'; }
+    if (how === 'later') msg = 'Snoozed. It comes back in a week.';
+    return { over, resolved, rvLast: { k, prevOver: st.over[k], msg } };
+  }
+
+  // A recall or a save arrives from one of the connected assistants.
+  fire(ago = 0) {
+    if ((this.state.paused || this.gest) && ago === 0) return;
+    const g = this.graph(), n = this.state.evN, rnd = this.rng(101 + n * 7);
+    const [app, verb] = APPS[n % APPS.length];
+    const vis = (i) => this.visibleAt(i, this.state.asOf);
+    let anchor = this.state.focus >= 0 && rnd() < 0.6 ? this.state.focus : g.hubs[Math.floor(rnd() * g.hubs.length)];
+    if (!vis(anchor)) anchor = g.hubs[0];
+    let ids = [anchor];
+    if (verb === 'recalled') {
+      const nb = g.adj[anchor].filter(vis);
+      for (let k = 0; k < 3 && nb.length; k++) ids.push(nb.splice(Math.floor(rnd() * nb.length), 1)[0]);
+    } else {
+      const cand = g.adj[anchor].filter((j) => vis(j) && g.pts[j].hub === undefined);
+      ids = [anchor, cand[Math.floor(rnd() * cand.length)] ?? anchor];
+    }
+    const ev = { k: n, app, verb, ids, at: Date.now() - ago };
+    this.setState({ ev: [ev, ...this.state.ev].slice(0, 4), evN: n + 1, now: Date.now() });
+    clearTimeout(this.fadeT); this.fadeT = setTimeout(() => this.setState({ now: Date.now() }), 3700);
+  }
+  readNote(i) {
+    if (this.justDragged) return;
+    const st = this.state, hist = st.focus >= 0 && st.focus !== i ? [...st.hist, st.focus].slice(-12) : st.hist;
+    this.setState({ focus: i, mode: 'read', hist, cam: null, searchOpen: false, moreOpen: false, hover: -1 });
+  }
+  // a tiny Markdown reader: headings, paragraphs, observations, [[wikilinks]]
+  md(text, titleIdx, go) {
+    const segs = (line) => line.split(/(\[\[[^\]]+\]\])/).filter(Boolean).map((x) => {
+      const m = x.match(/^\[\[(.+)\]\]$/); if (!m) return { t: x, c: '', pick: () => {} };
+      const i = titleIdx(m[1]); return { t: base(m[1]).replace('.md', ''), c: i >= 0 ? 'wl' : 'wl dead', pick: i >= 0 ? (e) => { stopEv(e); go(i); } : () => {} };
+    });
+    const blank = { fam: '', glyph: '', h2: false, p: false, obs: false, rel: false, t: '', cat: '', segs: [], tags: [], hasTags: false, ctx: '', hasCtx: false, anchor: '' };
+    let sec = '';
+    return text.split('\n').filter((l) => l.trim()).map((l) => {
+      if (l.startsWith('## ')) { sec = l.slice(3).toLowerCase(); return { ...blank, h2: true, t: l.slice(3) }; }
+      const r = sec === 'relations' && l.match(/^- ([a-z_ ]+) (\[\[.+\]\])$/);
+      if (r) return { ...blank, rel: true, cat: r[1].replace(/_/g, ' '), segs: segs(r[2]) };
+      const o = l.match(/^- \[([^\]]+)\] (.*)$/);
+      if (o) {
+        let body = o[2], anchor = '', ctx = '';
+        const an = body.match(/\s\^([\w-]+)\s*$/); if (an) { anchor = an[1]; body = body.slice(0, an.index); }
+        const tags = (body.match(/(^|\s)#[\w-]+/g) || []).map((t) => t.trim()); body = body.replace(/(^|\s)#[\w-]+/g, '');
+        const cx = body.match(/\s\(([^)]*)\)\s*$/); if (cx) { ctx = cx[1]; body = body.slice(0, cx.index); }
+        const fm = FAM[o[1].toLowerCase()] || ['gen', '·'];
+        return { ...blank, obs: true, fam: 'f-' + fm[0], glyph: fm[1], cat: o[1], segs: segs(body.trim()), tags: tags.map((t) => ({ t })), hasTags: tags.length > 0, ctx, hasCtx: !!ctx, anchor };
+      }
+      return { ...blank, p: true, segs: segs(l) };
+    });
+  }
+  focusOn(i) {
+    if (this.justDragged) return;
+    const st = this.state, hist = st.focus >= 0 && st.focus !== i ? [...st.hist, st.focus].slice(-12) : st.hist;
+    this.setState({ focus: i, mode: 'note', hist, cam: null, searchOpen: false, moreOpen: false, hover: -1, sheet: 'peek' });
+  }
+  play() {
+    clearInterval(this.playT);
+    if (this.state.playing) { this.setState({ playing: false }); return; }
+    const from = this.state.asOf >= 11 ? 0 : Math.floor(this.state.asOf);
+    this.setState({ playing: true, asOf: from, focus: -1, mode: this.state.mode === 'review' ? 'review' : 'overview', cam: null });
+    this.tickPlay();
+  }
+  tickPlay() {
+    clearInterval(this.playT);
+    // quarter-month steps, so the vault grows note by note rather than in monthly jumps
+    const ms = (this.reduced ? 500 : 340) / this.state.speed;
+    this.playT = setInterval(() => {
+      const a = this.state.asOf + (this.reduced ? 1 : 0.25);
+      if (a >= 11) { clearInterval(this.playT); this.setState({ asOf: 11, playing: false }); } else this.setState({ asOf: a });
+    }, ms);
+  }
+
+  // ---- the frame: desktop has a panel on the right; a phone has a sheet that rises from the bottom
+  dims(st = this.state) {
+    const phone = (this.props.device ?? 'desktop') === 'phone';
+    if (!phone) return { phone, mw: 1440, mh: 900, gTop: 60, gW: 1040, gH: 840, vp: { x0: 0, x1: 1040, y0: 44, y1: 752 } };
+    const mh = Math.max(640, Math.min(932, +(this.props.screenH || 0) || 844));
+    const peek = 188, open = Math.round(mh * 0.56), gH = mh - 96 - peek + 16;
+    const sheetH = st.sheet === 'open' ? open : peek;
+    const y1 = st.sheet === 'open' ? mh - 96 - open - 12 : gH - 16 - 64;
+    return { phone, mw: 390, mh, gTop: 96, gW: 390, gH, sheetH, vp: { x0: 0, x1: 390, y0: 34, y1 } };
+  }
+  // world → screen. A phone turns the map on its side so it fills a tall screen.
+  proj(p, c, phone) { return phone ? { x: p.y * c.k + c.cx, y: p.x * c.k + c.cy } : { x: p.x * c.k + c.cx, y: p.y * c.k + c.cy }; }
+  fitK(d) { const b = this.graph().box, bw = d.phone ? b.y1 - b.y0 : b.x1 - b.x0, bh = d.phone ? b.x1 - b.x0 : b.y1 - b.y0; return Math.min((d.vp.x1 - d.vp.x0 - 24) / bw, (d.vp.y1 - d.vp.y0 - 12) / bh); }
+  autoCam(st, d, pos, ring) {
+    const g = this.graph(), vcx = (d.vp.x0 + d.vp.x1) / 2, vcy = (d.vp.y0 + d.vp.y1) / 2;
+    const at = (wx, wy, k, dx = 0) => { const s = this.proj({ x: wx, y: wy }, { k, cx: 0, cy: 0 }, d.phone); return { k, cx: vcx + dx - s.x, cy: vcy - s.y }; };
+    if ((st.mode === 'note' || st.mode === 'why' || st.mode === 'read') && st.focus >= 0) {
+      const R = ring, vw = d.vp.x1 - d.vp.x0, vh = d.vp.y1 - d.vp.y0;
+      const k = Math.min(1, d.phone ? Math.min(vw / (2 * R * 0.92 + 70), vh / (2 * R + 40)) : Math.min(vw / (2 * R + 420), vh / (2 * R * 0.92 + 70)));
+      const F = g.pts[st.focus]; return at(F.x, F.y, k, d.phone ? 0 : -40);
+    }
+    if (st.mode === 'review') {
+      const q = this.queue(st);
+      if (q.length) { const [A, B] = this.pairOf(q[Math.min(st.rv, q.length - 1)]), a = g.pts[A], b = g.pts[B], dist = Math.max(60, Math.hypot(a.x - b.x, a.y - b.y));
+        const k = Math.max(0.8, Math.min(2.2, Math.min(d.vp.x1 - d.vp.x0, d.vp.y1 - d.vp.y0) * 0.42 / dist)); return at((a.x + b.x) / 2, (a.y + b.y) / 2, k); }
+    }
+    const b = g.box; return at((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, this.fitK(d));
+  }
+  // Pan and zoom move one layer with a transform while you gesture; the map is redrawn once, when you let go.
+  clampK(k) { const d = this.dims(), f = this.fitK(d); return Math.max(f * 0.3, Math.min(d.phone ? 6 : 7, k)); }
+  zoomCam(c, x, y, z) { const k = this.clampK(c.k * z); return { k, cx: x - (x - c.cx) * k / c.k, cy: y - (y - c.cy) * k / c.k }; }
+  zoomAt(x, y, z) { this.setState({ cam: this.zoomCam(this.lastCam, x, y, z) }); }
+  gestStart() { if (this.gest) return; clearTimeout(this.hovT); this.gest = { c0: { ...this.lastCam }, c: { ...this.lastCam } }; this.state.hover = -1; }
+  gestSet(c) { this.gest.c = c; if (this.gRaf) return; this.gRaf = requestAnimationFrame(() => { this.gRaf = 0; const L = this.stageEl && this.stageEl.querySelector('.layer'); if (L && this.gest) L.style.transform = this.layerT(); }); }
+  layerT() { const g = this.gest; if (!g) return 'none'; const s = g.c.k / g.c0.k; return `translate(${(g.c.cx - g.c0.cx * s).toFixed(2)}px, ${(g.c.cy - g.c0.cy * s).toFixed(2)}px) scale(${s.toFixed(4)})`; }
+  gestEnd() { const g = this.gest; if (!g) return; this.gest = null; cancelAnimationFrame(this.gRaf); this.gRaf = 0; this.setState({ cam: g.c, drag: true, hover: -1 }); requestAnimationFrame(() => requestAnimationFrame(() => { if (!this.gone) this.setState({ drag: false }); })); }
+  local(e) { const r = e.currentTarget.getBoundingClientRect(), d = this.dims(), sc = r.width / d.gW || 1; return { x: (e.clientX - r.left) / sc, y: (e.clientY - r.top) / sc }; }
+
+  renderVals() {
+    const g = this.graph(), st = this.state, d = this.dims(), phone = d.phone;
+    const mode = st.focus < 0 && (st.mode === 'note' || st.mode === 'why' || st.mode === 'read') ? 'overview' : st.mode;
+    const focused = mode === 'note' || mode === 'why' || mode === 'read';
+    const focus = focused ? st.focus : -1;
+    const visible = (i) => this.visibleAt(i, st.asOf);
+    const live = st.ev[0], liveFresh = !st.paused && live && Date.now() - live.at < 3600;
+    const hitSet = new Set(liveFresh ? live.ids.slice(live.verb === 'saved' ? 1 : 0) : []);
+    const bornId = liveFresh && live.verb === 'saved' ? live.ids[1] : -1;
+    if (bornId >= 0) hitSet.delete(bornId);
+    const isCore = (t) => TYPES.includes(t);
+    const label = (t) => t === 'relates' ? 'relates to' : t;
+    // the pair under review
+    const allC = this.allContra(), Q = this.queue();
+    const rv = Math.max(0, Math.min(st.rv, Q.length - 1));
+    const pairE = mode === 'review' && Q.length ? this.pairOf(Q[rv]) : null;
+    // focus ring
+    const typeOf = {}, byOf = {};
+    let nb = new Set(), ring = [], superseded, supersededBy;
+    const pos = g.pts.map((p) => ({ x: p.x, y: p.y }));
+    const R = phone ? 132 : 175;
+    if (focused) {
+      nb = new Set(g.adj[focus].filter(visible));
+      g.adj[focus].forEach((j) => { typeOf[j] = this.tOf(focus, j); if (typeOf[j] === 'supersedes' && this.newer(focus, j) === j) byOf[j] = true; });
+      supersededBy = [...nb].find((j) => byOf[j]);
+      superseded = [...nb].find((j) => typeOf[j] === 'supersedes' && !byOf[j]);
+      const F = g.pts[focus], ord = (t) => isCore(t) ? TYPES.indexOf(t) : 5;
+      ring = [...nb].sort((x, y) => ord(typeOf[x]) - ord(typeOf[y]) || x - y);
+      const side = [ring.filter((_, k) => k % 2 === 0), ring.filter((_, k) => k % 2 === 1)];
+      side.forEach((arr, sd) => arr.forEach((j, k) => {
+        const n = arr.length, span = Math.min(phone ? 150 : 140, 34 * Math.max(1, n - 1));
+        const dg = n === 1 ? 0 : -span / 2 + span * k / (n - 1);
+        const th = (sd === 0 ? dg : 180 - dg) * Math.PI / 180;
+        pos[j] = { x: F.x + Math.cos(th) * R * (phone ? 0.92 : 1), y: F.y + Math.sin(th) * R * (phone ? 1 : 0.92), sd };
+      }));
+    }
+    // why: the trail that backs the focus
+    const trailSet = new Set();
+    if (mode === 'why') ring.forEach((j) => { const t = typeOf[j]; if ((t === 'supports' || t === 'refines' || t === 'evidenced by' || t === 'derived from' || t === 'cites') && !st.off[t]) trailSet.add(j); if (g.pts[j].title.startsWith('sources/')) trailSet.add(j); });
+    // camera
+    const cam = st.cam || this.autoCam({ ...st, mode }, d, pos, R);
+    this.lastCam = cam;
+    const fitK = this.fitK(d), S = pos.map((p) => this.proj(p, cam, phone));
+    const vp = d.vp;
+    // edges: one element per link, always in the same order, so no line ever slides into another link's place
+    const lines = [], arrows = [], elabels = [];
+    let sigK = 0;
+    const beatSet = new Set(st.beatE || []);
+    const lensOn = mode === 'review';
+    const pairKey = pairE ? this.key(pairE[0], pairE[1]) : '';
+    const counts = {};
+    const hv = !phone && st.hover >= 0 && visible(st.hover) && !focused ? st.hover : -1;
+    this._eb = [];
+    g.E.forEach(([i, j], ek) => {
+      const t = this.tOf(i, j), shownE = visible(i) && visible(j);
+      if (shownE) counts[t] = (counts[t] || 0) + 1;
+      const p = S[i], q = S[j], dx = q.x - p.x, dy = q.y - p.y, L = Math.hypot(dx, dy), ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      const touches = focused && (i === focus || j === focus), other = touches ? (i === focus ? j : i) : -1;
+      const off = !!st.off[t], k = this.key(i, j), isContra = this.relType(i, j) === 'contradicts' && !st.resolved[k];
+      const isTrail = touches && trailSet.has(other);
+      const isLive = liveFresh && live.verb === 'recalled' && (i === live.ids[0] || j === live.ids[0]) && hitSet.has(i) && hitSet.has(j);
+      const core = isCore(t) ? t : 'relates';
+      let c, sig = false, rev = false;
+      if (!shownE || off || (focused && !touches && (nb.has(i) || nb.has(j)))) c = 'hide';
+      else if (touches) { c = isTrail ? 'trail' : 't-' + core; if (mode === 'why' && !isTrail) c += ' dim'; if (isTrail && !this.reduced) { sig = true; rev = other === j; } }
+      else if (k === pairKey) c = 'pair';
+      else if (lensOn && isContra) c = 'lens';
+      else if (isLive) { c = 'live'; sig = true; rev = j === live.ids[0]; }
+      else if (focused) c = 'dim';
+      else c = (core !== 'relates' ? 'ov-' + core : '') + (hv >= 0 && (i === hv || j === hv) ? ' hl' : '');
+      if (beatSet.has(ek) && c !== 'hide' && !touches) { c += ' beat'; sig = true; }
+      lines.push({ x: p.x.toFixed(1), y: p.y.toFixed(1), w: L.toFixed(1), a: ang.toFixed(2), c: c + (rev ? ' rev' : ''), sig, sd: isTrail ? (0.35 * sigK++).toFixed(2) : beatSet.has(ek) ? '0' : (0.15 * sigK++).toFixed(2) });
+      // the hovered note names each of its links where it runs
+      if (hv >= 0 && (i === hv || j === hv) && c !== 'hide' && elabels.length < 18 && L > 34) {
+        // measured from the hovered note outwards; skip a name rather than stack it on another
+        const h0 = i === hv ? p : q, h1 = i === hv ? q : p, tw = label(t).length * 5.9 + 8;
+        for (const f of [0.55, 0.78, 0.36]) {
+          const x = h0.x + (h1.x - h0.x) * f, y = h0.y + (h1.y - h0.y) * f, bx = [x - tw / 2, y - 7, x + tw / 2, y + 7];
+          if (Math.hypot(x - h0.x, y - h0.y) < 26 || this._eb.some((o) => !(bx[2] < o[0] || bx[0] > o[2] || bx[3] < o[1] || bx[1] > o[3]))) continue;
+          this._eb.push(bx); elabels.push({ x: x.toFixed(1), y: y.toFixed(1), t: label(t), c: core !== 'relates' ? 'core' : '' }); break;
+        }
+      }
+    });
+    // supersession arrows: one per superseding link, shown when its note is in focus
+    g.E.forEach(([i, j]) => {
+      if (this.tOf(i, j) !== 'supersedes') return;
+      const touches = focused && (i === focus || j === focus) && visible(i) && visible(j) && !st.off.supersedes;
+      const other = i === focus ? j : i, fp = S[touches ? focus : i], op = S[touches ? other : j];
+      const dx = op.x - fp.x, dy = op.y - fp.y, ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      arrows.push({ x: (fp.x + dx * 0.62).toFixed(1), y: (fp.y + dy * 0.62).toFixed(1), r: (ang + 45 + (touches && byOf[other] ? 180 : 0)).toFixed(1), c: touches ? '' : 'hide' });
+    });
+    const lensNodes = new Set();
+    if (lensOn) Q.forEach(([i, j]) => { lensNodes.add(i); lensNodes.add(j); });
+    const zs = 0.55 + 0.45 * Math.min(cam.k, 2.2);
+    const nodes = g.pts.map((p, i) => {
+      const s0 = Math.min(14, 3 + g.deg[i] * 0.55);
+      let c = p.hub !== undefined ? 'hub' : '';
+      if (!visible(i)) c += ' gone';
+      else if (i === focus) c += supersededBy !== undefined ? ' focus was' : ' focus';
+      else if (pairE && (i === pairE[0] || i === pairE[1])) c += ' pairn';
+      else if (trailSet.has(i)) c += ' trailn';
+      else if (i === bornId) c += ' born';
+      else if (hitSet.has(i)) c += ' hit';
+      else if (lensOn) c += lensNodes.has(i) ? ' lensn' : ' dim';
+      else if (focused && i === superseded && !st.off.supersedes) c += ' old';
+      else if (focused && nb.has(i)) c += st.off[typeOf[i]] || mode === 'why' ? ' dim' : ' nb';
+      else if (focused) c += ' dim';
+      else if (hv >= 0 && g.adj[hv].includes(i)) c += ' hvn';
+      if (i === hv) c += ' hov';
+      const sw = nb.has(i) ? Math.max(s0, 7) : (pairE && (i === pairE[0] || i === pairE[1])) ? Math.max(s0, 9) : s0;
+      const sz = Math.max(2.5, Math.min(24, sw * zs));
+      return { x: (S[i].x - sz / 2).toFixed(1), y: (S[i].y - sz / 2).toFixed(1), s: sz.toFixed(1), c, title: p.title, dd: p.dd, dl: p.dl,
+        pick: (e) => { stopEv(e); if (i === focus && !this.justDragged) this.readNote(i); else this.focusOn(i); },
+        over: () => { if (phone || this.gest) return; clearTimeout(this.hovT); this.hovT = setTimeout(() => { if (this.state.hover !== i && !this.gest) this.setState({ hover: i }); }, 70); },
+        out: () => { clearTimeout(this.hovT); this.hovT = setTimeout(() => { if (this.state.hover === i) this.setState({ hover: -1 }); }, 140); } };
+    });
+    // labels: one slot per note, fixed order, so a label only ever moves with its own note.
+    // Stable labels are placed first; live ones fill gaps and never push the others around; hover floats above.
+    const slots = g.pts.map(() => null), placed = [], cw = 6.62;
+    const inView = (b) => b[0] >= vp.x0 + 4 && b[2] <= vp.x1 - 4 && b[1] >= vp.y0 && b[3] <= Math.max(vp.y1, vp.y0 + 40) + 8;
+    const hit = (b) => placed.some((q) => !(b[2] + 4 < q[0] || b[0] > q[2] + 4 || b[3] + 2 < q[1] || b[1] > q[3] + 2));
+    const put = (i, b, lab) => { placed.push(b); slots[i] = { rt: '', tag: '', ...lab, x: b[0].toFixed(1), y: b[1].toFixed(1) }; };
+    const pickL = (i) => (e) => { stopEv(e); this.focusOn(i); };
+    const around = (i, t, c, rt = '', tag = '') => {
+      if (slots[i]) return false;
+      const p = S[i], tw = (t.length + (rt ? rt.length + 1 : 0) + (tag ? tag.length + 2 : 0)) * cw + 10;
+      for (const [dx, dy] of [[10, -18], [10, 6], [-tw - 10, -18], [-tw - 10, 6]]) {
+        const b = [p.x + dx, p.y + dy, p.x + dx + tw, p.y + dy + 16];
+        if (!inView(b) || hit(b)) continue;
+        put(i, b, { t, rt, c, tag, pick: pickL(i) }); return true;
+      }
+      return false;
+    };
+    const kindOf = (p) => p.hub !== undefined ? HUBS[p.hub].kind : p.title.split('/')[0].replace(/s$/, '');
+    const short = (i) => phone ? base(g.pts[i].title) : g.pts[i].title;
+    const cl = g.hubs.map(() => null);
+    if (focused) {
+      const F = S[focus], t = short(focus), tw = (t.length + 6) * cw + 10;
+      put(focus, [F.x - tw / 2, F.y - 34, F.x + tw / 2, F.y - 18], { t, c: 'focus', tag: 'read', pick: (e) => { stopEv(e); this.readNote(focus); } });
+      ring.forEach((j) => {
+        const rt = byOf[j] ? 'superseded by' : label(typeOf[j]), tt = g.pts[j].title, c = (trailSet.has(j) ? 'trl' : 'nbl') + (hitSet.has(j) ? ' hitl' : '') + (st.off[typeOf[j]] || (mode === 'why' && !trailSet.has(j)) ? ' dim' : '');
+        if (phone) { around(j, base(tt).replace('.md', ''), c); return; }
+        const p = S[j], w2 = (tt.length + rt.length + 1) * cw + 10;
+        const b = pos[j].sd === 0 ? [p.x + 10, p.y - 8, p.x + 10 + w2, p.y + 8] : [p.x - 10 - w2, p.y - 8, p.x - 10, p.y + 8];
+        put(j, b, { t: tt, rt, c, pick: pickL(j) });
+      });
+    }
+    if (pairE) pairE.forEach((i, k) => around(i, short(i), 'hitl', '', k ? 'B' : 'A'));
+    if (!focused) g.hubs.forEach((hb, c) => {
+      if (!visible(hb)) return;
+      const p = S[hb], t = HUBS[c].domain, tw = t.length * 7.6 + 6, b = [p.x - tw / 2, p.y - 32, p.x + tw / 2, p.y - 16];
+      if (inView(b) && !hit(b)) { placed.push(b); cl[c] = { t, x: b[0].toFixed(1), y: b[1].toFixed(1) }; }
+    });
+    const zoomed = cam.k > fitK * (phone ? 1.5 : 1.35);
+    g.hubs.filter((h) => h !== focus && !nb.has(h) && visible(h) && (!phone || zoomed)).forEach((i) => around(i, short(i), focused ? 'dim' : ''));
+    if (!focused && zoomed && mode !== 'review') {
+      // closer in, more notes name themselves, busiest first
+      g.pts.map((p, i) => [i, g.deg[i]]).filter(([i]) => visible(i) && g.pts[i].hub === undefined).sort((a, b) => b[1] - a[1]).slice(0, 48)
+        .forEach(([i]) => { const p = S[i]; if (p.x < vp.x0 || p.x > vp.x1 || p.y < vp.y0 || p.y > vp.y1) return; around(i, base(g.pts[i].title).replace('.md', ''), 'dim'); });
+    }
+    if (!focused) [...hitSet, ...(bornId >= 0 ? [bornId] : [])].forEach((i) => { if (!visible(i)) return; if (slots[i]) { slots[i] = { ...slots[i], c: 'hitl', rt: i === bornId ? '+ saved' : '' }; return; } around(i, short(i), 'hitl', i === bornId ? '+ saved' : ''); });
+    if (hv >= 0) {
+      // hover floats above everything and moves nothing
+      const t = g.pts[hv].title, rt = `${kindOf(g.pts[hv])} · ${g.adj[hv].filter(visible).length} links`, tw = (t.length + rt.length + 1) * cw + 10, p = S[hv];
+      const x = p.x + 12 + tw > vp.x1 - 4 ? p.x - 12 - tw : p.x + 12, y = p.y - 22 < vp.y0 ? p.y + 8 : p.y - 22;
+      slots[hv] = { t, rt, tag: '', c: 'hovl', x: x.toFixed(1), y: y.toFixed(1), pick: pickL(hv) };
+    }
+    const labels = [
+      ...g.pts.map((p, i) => slots[i] || { t: base(p.title), rt: '', tag: '', c: 'hid', x: (S[i].x + 10).toFixed(1), y: (S[i].y - 18).toFixed(1), pick: () => {} }),
+      ...g.hubs.map((hb, c) => cl[c] ? { t: cl[c].t, rt: '', tag: '', c: 'cl', x: cl[c].x, y: cl[c].y, pick: (e) => { stopEv(e); if (this.justDragged) return; const k = Math.max(cam.k, fitK * 2.1); const s0 = this.proj(g.pts[hb], { k, cx: 0, cy: 0 }, phone); this.setState({ cam: { k, cx: (vp.x0 + vp.x1) / 2 - s0.x, cy: (vp.y0 + vp.y1) / 2 - s0.y } }); } }
+        : { t: HUBS[c].domain, rt: '', tag: '', c: 'cl hid', x: (S[hb].x - 30).toFixed(1), y: (S[hb].y - 32).toFixed(1), pick: () => {} }),
+    ];
+    // panel numbers
+    const vis = g.pts.map((_, i) => visible(i));
+    const visE = g.E.filter(([i, j]) => vis[i] && vis[j]);
+    const nSuper = visE.filter(([i, j]) => this.tOf(i, j) === 'supersedes').length;
+    const shown = vis.filter(Boolean).length;
+    const now = Date.now();
+    const agoOf = (t) => { const s = Math.round((now - t) / 1000); return s < 3 ? 'now' : s < 60 ? `${s} s ago` : `${Math.round(s / 60)} min ago`; };
+    const feed = st.ev.map((e) => ({ app: e.app, col: e === live && liveFresh ? 'var(--v1)' : 'var(--v2)', ago: agoOf(e.at),
+      what: e.verb === 'saved' ? `saved ${base(g.pts[e.ids[1]].title)}` : `recalled ${e.ids.length} · ${base(g.pts[e.ids[0]].title)}` }));
+    const top = g.pts.map((p, i) => [i, g.adj[i].filter((j) => vis[j]).length]).filter(([i]) => vis[i]).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([i, dd]) => ({ t: g.pts[i].title, d: dd, pick: () => this.focusOn(i) }));
+    const fmt = (n) => n.toLocaleString('en-GB');
+    const titleIdx = (t) => g.pts.findIndex((p, i) => p.title === t && vis[i]);
+    let F = {};
+    if (focused) {
+      const hub = g.pts[focus].hub;
+      const H0 = hub !== undefined ? { ...HUBS[hub] } : { t: g.pts[focus].title, kind: kindOf(g.pts[focus]), status: 'current', sum: 'A note in your vault. Its links and sources are below; open it to read the whole thing.', src: [['sources/meeting-2026-06-30.md', '30 Jun']], why: '' };
+      if (focus === g.old) H0.sum = OLD_SUM;
+      let status = H0.status, supBox = null;
+      if (superseded !== undefined) supBox = { head: 'SUPERSEDES', t: g.pts[superseded].title, on: H0.supOn || 'superseded · kept for history', strike: true, pick: () => this.focusOn(superseded) };
+      if (supersededBy !== undefined) { status = 'superseded'; supBox = { head: 'SUPERSEDED BY', t: g.pts[supersededBy].title, on: 'kept for history · recall prefers the newer note', strike: false, pick: () => this.focusOn(supersededBy) }; }
+      const allRels = g.adj[focus].filter(visible).filter((j) => !st.off[typeOf[j]]);
+      const relRow = (j) => ({ type: byOf[j] ? 'superseded by' : label(typeOf[j]), col: TCOL[typeOf[j]] || 'var(--v2)', t: g.pts[j].title, pick: () => this.focusOn(j) });
+      const lastHit = st.ev.find((e) => e.ids.includes(focus));
+      // why
+      const srcRows = H0.src.map(([t, dd]) => ({ k: 'source', t, d: dd, c: 'src', pick: () => { const i = titleIdx(t); if (i >= 0) this.focusOn(i); } }));
+      const supRows = [...trailSet].filter((j) => !H0.src.some(([t]) => t === g.pts[j].title)).map((j) => ({ k: label(typeOf[j]), t: g.pts[j].title, d: '', c: g.pts[j].title.startsWith('sources/') ? 'src' : '', pick: () => this.focusOn(j) }));
+      const trailAll = [...srcRows, ...supRows], trail = trailAll.slice(0, 7);
+      const doubts = ring.filter((j) => typeOf[j] === 'contradicts' && !st.resolved[this.key(focus, j)]);
+      const nSrc = srcRows.length, nSup = supRows.length;
+      let whyAnswer = supersededBy !== undefined ? `It no longer holds. ${base(g.pts[supersededBy].title)} replaced it, and it stays for history so you can see what changed.` : H0.why;
+      if (supersededBy === undefined) {
+        const backs = `${nSrc ? `${nSrc} source${nSrc > 1 ? 's' : ''}` : 'No source'}${nSup ? ` and ${nSup} note${nSup > 1 ? 's' : ''}` : ''}`;
+        whyAnswer = whyAnswer ? `${whyAnswer} ${backs} back it.` : `${backs} back it. Each one is on the trail below, so you can read exactly what it rests on.`;
+        if (superseded !== undefined) whyAnswer += ` It replaced ${base(g.pts[superseded].title)}, which stays for history.`;
+        if (doubts.length) whyAnswer += doubts.length > 1 ? ` ${doubts.length} notes still disagree; they wait for your review.` : ' One note still disagrees; it waits for your review.';
+      }
+      F = {
+        focusTitle: H0.t, kind: H0.kind, status, summary: H0.sum,
+        statusColor: status === 'current' ? 'var(--v1)' : 'var(--v5)', statusBorder: status === 'current' ? 'rgba(var(--v13),.5)' : 'rgba(var(--v12),.16)',
+        hasSuper: !!supBox, supHead: supBox ? supBox.head : '', supersedes: supBox ? supBox.t : '', supersededOn: supBox ? supBox.on : '', supDeco: supBox && supBox.strike ? 'line-through' : 'none', supColor: supBox && supBox.strike ? 'var(--v2)' : 'var(--v0)', supPick: supBox ? supBox.pick : () => {},
+        sources: H0.src.map(([t, dd]) => ({ t, d: dd, pick: () => { const i = titleIdx(t); if (i >= 0) this.focusOn(i); } })),
+        rels: allRels.slice(0, phone ? 99 : 6).map(relRow), relsAll: allRels.map(relRow), relCount: allRels.length,
+        moreRels: allRels.length > 6 ? `+ ${allRels.length - 6} more on the map` : '', hasMore: !phone && allRels.length > 6,
+        recalled: lastHit ? `${lastHit.verb === 'saved' ? 'linked to a note saved' : 'recalled'} by ${lastHit.app} · ${agoOf(lastHit.at)}` : 'last recalled by Claude · yesterday',
+        recalledCol: lastHit && liveFresh && lastHit === live ? 'var(--v1)' : 'var(--v2)',
+        whyAnswer, trail, trailCount: trailAll.length > trail.length ? `${trail.length} OF ${trailAll.length}` : String(trail.length), hasDoubt: doubts.length > 0,
+        doubtHead: doubts.length > 1 ? `${doubts.length} NOTES DISAGREE` : '1 NOTE DISAGREES', doubtTitle: doubts.length ? g.pts[doubts[0]].title : '',
+        doubtReview: () => { const q = this.queue(), k = q.findIndex(([i, j]) => this.key(i, j) === this.key(focus, doubts[0])); this.setState({ mode: 'review', rv: Math.max(0, k), focus: -1, cam: null, sheet: 'open' }); },
+        backLabel: st.hist.length ? '← back' : '← overview',
+        linksBtn: st.sheet === 'open' ? 'Less' : `Links · ${allRels.length}`,
+        ...(mode === 'read' ? (() => {
+          const T = g.pts[focus].title, go = (i) => this.readNote(i);
+          const near = allRels.slice(0, 4).map((j) => `- [${label(typeOf[j])}] [[${g.pts[j].title}]]`).join('\n');
+          const body = BODIES[T] || `${H0.sum}\n## Links\n${near}`;
+          const groups = {}; allRels.forEach((j) => { const k = byOf[j] ? 'superseded by' : label(typeOf[j]); (groups[k] = groups[k] || []).push(j); });
+          const ord = (k) => { const i = TYPES.indexOf(k === 'relates to' ? 'relates' : k); return i < 0 ? 9 : i; };
+          const edits = 1 + focus % 4, by = APPS[focus % 4][0];
+          return {
+            rdFolder: T.split('/').slice(0, -1).join(' / ') || 'vault', rdFile: base(T),
+            rdChips: [H0.kind, status, hub !== undefined ? '#' + HUBS[hub].domain : '#' + T.split('/')[0]].map((t, k) => ({ t, c: k === 1 && status === 'current' ? 'cur' : '' })),
+            rdMeta: `created ${this.when(focus)} · edited ${edits} time${edits > 1 ? 's' : ''}, last by ${by}`,
+            rdBlocks: this.md(body, titleIdx, go),
+            rdSrc: H0.src.map(([t, dd]) => { const i = titleIdx(t); return { t: base(t), path: t, d: dd, c: i >= 0 ? 'srcc on' : 'srcc', pick: i >= 0 ? (e) => { stopEv(e); go(i); } : () => {} }; }), rdHasSrc: H0.src.length > 0,
+            rdGroups: Object.keys(groups).sort((a, b) => ord(a) - ord(b) || a.localeCompare(b)).map((k) => ({ k, col: TCOL[k === 'relates to' ? 'relates' : k] || 'var(--v2)', items: groups[k].map((j) => ({ t: g.pts[j].title, pick: () => go(j) })) })),
+            rdHist: [
+              { k: 'created', t: this.when(focus) },
+              ...(superseded !== undefined ? [{ k: 'supersedes', t: base(g.pts[superseded].title) }] : []),
+              ...(supersededBy !== undefined ? [{ k: 'superseded', t: `by ${base(g.pts[supersededBy].title)}` }] : []),
+              { k: 'edited', t: `${edits} time${edits > 1 ? 's' : ''} · last by ${by}` },
+              { k: 'recalled', t: lastHit ? `by ${lastHit.app} · ${agoOf(lastHit.at)}` : 'by Claude · yesterday' },
+            ],
+            rdPrev: st.hist.length > 0,
+          };
+        })() : {}),
+      };
+    }
+    // review
+    let RV = { rvAny: false, rvNone: mode === 'review', pair: [] };
+    if (pairE) {
+      const ci = allC.findIndex(([i, j]) => this.key(i, j) === pairKey), cl = CLAIMS[(ci < 0 ? 0 : ci) % CLAIMS.length];
+      const [A, B] = pairE, srcN = (i) => 1 + (i % 3);
+      const act = (how) => () => { const s2 = this.resolveState(this.state, [A, B], how); this.setState({ ...s2, cam: null }); };
+      RV = { rvAny: true, rvNone: false,
+        pair: [[A, 'A', cl[0]], [B, 'B', cl[1]]].map(([i, tag, claim]) => ({ tag, t: g.pts[i].title, when: this.when(i), src: `${srcN(i)} source${srcN(i) > 1 ? 's' : ''}`, claim, pick: () => this.focusOn(i) })),
+        keepBLabel: `B holds · it supersedes A`, keepALabel: `A holds · it supersedes B`, keepBShort: 'B holds', keepAShort: 'A holds',
+        rvKeepB: act('keepB'), rvKeepA: act('keepA'), rvBoth: act('both'), rvFalse: act('false'), rvLater: act('later') };
+    }
+    const q = st.q.trim().toLowerCase();
+    const pool = g.pts.map((p, i) => [i, p]).filter(([i]) => vis[i]);
+    const matches = (q ? pool.filter(([, p]) => p.title.toLowerCase().includes(q)) : pool.filter(([, p]) => p.hub !== undefined)).slice(0, 6);
+    const hiddenOther = [...OTHER_TYPES, ...CUSTOM].filter((t) => st.off[t]).length;
+    const speed = SPEEDS.find((s) => s[0] === st.speed) || SPEEDS[1];
+    const mi = Math.min(11, Math.floor(st.asOf));
+    const theme = (st.theme || this.props.theme) === 'light' ? 'light' : 'dark';
+    const unresolved = Q.length;
+    return {
+      lines, arrows, nodes, labels, elabels, layerT: this.layerT(),
+      mw: d.mw, mh: d.mh, gTop: d.gTop, gW: d.gW, gH: d.gH, sheetH: d.sheetH || 0,
+      isDesk: !phone, isPhone: phone, dragCls: st.drag ? 'drag' : '', stillCls: st.paused ? 'still paused' : '',
+      edge: phone ? 14 : 24, edgeR: phone ? 12 : 18, liveTop: phone ? 10 : 16, cntTop: phone ? 4 : 10, liveFs: phone ? 11 : 11.5, liveMax: phone ? 300 : 620,
+      zoomBottom: phone ? 92 : 94, timeBottom: phone ? 24 : 16, tickH: phone ? 22 : 30, showTime: true,
+      zoomNote: !!st.cam && Math.abs(cam.k / fitK - 1) > 0.05, zoomPct: `${Math.round(cam.k / fitK * 100)}%`, zoomNoteR: phone ? 52 : 60, zoomNoteB: phone ? 100 : 104,
+      isOverview: mode === 'overview', isNote: mode === 'note', isRead: mode === 'read', isDeskRead: mode === 'read' && !phone, isPhoneRead: mode === 'read' && phone, rdH1: phone ? 21 : 26, rdCls: phone ? 'rd rd-ph' : 'rd', isWhy: mode === 'why', isReview: mode === 'review',
+      sheetScroll: st.sheet === 'open' ? 'vscroll' : '', sumClamp: st.sheet === 'open' ? '' : 'clamp2', sheetAria: st.sheet === 'open' ? 'Lower the panel' : 'Raise the panel',
+      toggleSheet: (e) => { stopEv(e); this.setState({ sheet: this.state.sheet === 'open' ? 'peek' : 'open', cam: null }); },
+      chips: TYPES.map((t) => ({
+        label: label(t), cls: st.off[t] ? 'offc' : '', on: !st.off[t], tip: st.off[t] ? `Show ${label(t)}` : `Hide ${label(t)}`,
+        col: TCOL[t], w: t === 'supports' ? 2 : 1.4, dash: { refines: '1 3', contradicts: '5 3' }[t] || '0', op: t === 'relates' ? 0.6 : 0.9,
+        toggle: (e) => { stopEv(e); this.setState({ off: { ...this.state.off, [t]: !this.state.off[t] } }); },
+      })),
+      moreLabel: hiddenOther ? `+${OTHER_TYPES.length + CUSTOM.length} · ${hiddenOther} hidden` : `+${OTHER_TYPES.length + CUSTOM.length}`, moreCls: hiddenOther ? 'offc' : '',
+      moreOpen: st.moreOpen, totalTypes: OTHER_TYPES.length + TYPES.length, customCount: CUSTOM.length,
+      moreL: phone ? 10 : 404, moreT: phone ? 92 : 54, moreW: phone ? 370 : 580,
+      customTypes: CUSTOM.map((t) => { const n = counts[t] || 0; return { t, n: String(n), on: !st.off[t], cls: st.off[t] ? 'offc' : '', col: 'var(--v5)', toggle: (e) => { stopEv(e); this.setState({ off: { ...this.state.off, [t]: !this.state.off[t] } }); } }; }),
+      moreTypes: [...TYPES, ...OTHER_TYPES].map((t) => { const n = counts[t] || 0; return { t: label(t), n: String(n), on: !st.off[t], cls: st.off[t] ? 'offc' : n ? '' : 'none', col: isCore(t) ? 'var(--v0)' : 'var(--v5)',
+        toggle: (e) => { stopEv(e); if (!n && !st.off[t]) return; this.setState({ off: { ...this.state.off, [t]: !this.state.off[t] } }); } }; }),
+      showAllTypes: (e) => { stopEv(e); this.setState({ off: {} }); },
+      onlyCore: (e) => { stopEv(e); const off = {}; [...OTHER_TYPES, ...CUSTOM].forEach((t) => { off[t] = true; }); this.setState({ off }); },
+      toggleMore: (e) => { stopEv(e); this.setState({ moreOpen: !st.moreOpen, searchOpen: false }); },
+      lensCls: mode === 'review' || unresolved ? 'lensc' : '', lensLabel: unresolved ? `${unresolved} to review` : 'All reviewed',
+      openReview: (e) => { stopEv(e); if (mode === 'review') this.setState({ mode: 'overview', cam: null, sheet: 'peek' }); else this.setState({ mode: 'review', focus: -1, cam: null, moreOpen: false, searchOpen: false, sheet: 'open', rvLast: null }); },
+      rvPos: Q.length ? `${rv + 1} of ${Q.length}` : `${allC.length} reviewed`,
+      rvPrev: (e) => { stopEv(e); this.setState({ rv: (rv - 1 + Q.length) % Math.max(1, Q.length), cam: null, rvLast: null }); },
+      rvNext: (e) => { stopEv(e); this.setState({ rv: (rv + 1) % Math.max(1, Q.length), cam: null, rvLast: null }); },
+      rvToast: !!st.rvLast, rvMsg: st.rvLast ? st.rvLast.msg : '',
+      rvUndo: (e) => { stopEv(e); const L = this.state.rvLast; if (!L) return; const resolved = { ...this.state.resolved }, over = { ...this.state.over }; delete resolved[L.k]; if (L.prevOver) over[L.k] = L.prevOver; else delete over[L.k]; this.setState({ resolved, over, rvLast: null, cam: null }); },
+      ...RV,
+      searchOpen: st.searchOpen, searchBorder: st.searchOpen ? 'rgba(var(--v13),.5)' : 'rgba(var(--v12),.14)',
+      searchPlaceholder: focused ? (phone ? base(g.pts[focus].title) : g.pts[focus].title) : 'Search your notes',
+      resultsHead: q ? `${matches.length ? 'MATCHES' : 'NO MATCHES'}` : 'START FROM',
+      results: matches.map(([i, p]) => ({ t: p.title, k: kindOf(p), pick: (e) => { stopEv(e); this.focusOn(i); } })),
+      openSearch: () => this.setState({ searchOpen: true, moreOpen: false }),
+      typeSearch: (e) => this.setState({ q: (e && e.target && e.target.value) || '', searchOpen: true }),
+      stop: stopEv,
+      bgClick: () => {
+        if (this.justDragged) return;
+        if (st.searchOpen || st.moreOpen || st.muPop) this.setState({ searchOpen: false, moreOpen: false, muPop: false });
+        else if (focused) this.setState({ focus: -1, mode: 'overview', cam: null, sheet: 'peek' });
+      },
+      toOverview: (e) => { stopEv(e); this.setState({ focus: -1, mode: 'overview', cam: null, searchOpen: false, moreOpen: false, sheet: 'peek', rvLast: null }); },
+      goBack: (e) => { stopEv(e); const h = [...st.hist]; const prev = h.pop(); if (prev !== undefined) this.setState({ focus: prev, mode: 'note', hist: h, cam: null }); else this.setState({ focus: -1, mode: 'overview', cam: null, sheet: 'peek' }); },
+      readIt: (e) => { stopEv(e); if (focus >= 0) this.readNote(focus); },
+      toMap: (e) => { stopEv(e); this.setState({ mode: 'note', cam: null, sheet: 'peek' }); },
+      rdBack: (e) => { stopEv(e); const h = [...st.hist]; const prev = h.pop(); if (prev !== undefined) this.setState({ focus: prev, mode: 'read', hist: h }); },
+      rdWhy: (e) => { stopEv(e); this.setState({ mode: 'why', cam: null, sheet: 'open' }); },
+      copyPath: (e) => { stopEv(e); try { const r = navigator.clipboard && navigator.clipboard.writeText(g.pts[focus].title); if (r && r.catch) r.catch(() => {}); } catch (er) {} this.setState({ copied: true }); clearTimeout(this.cpT); this.cpT = setTimeout(() => this.setState({ copied: false }), 1600); },
+      copyLabel: st.copied ? 'Copied' : 'Copy path',
+      askWhy: (e) => { stopEv(e); this.setState({ mode: 'why', cam: null, sheet: 'open' }); },
+      backToNote: (e) => { stopEv(e); this.setState({ mode: 'note', cam: null, sheet: 'peek' }); },
+      // pan, pinch and wheel. A drag never counts as a click.
+      pDown: (e) => {
+        if (e.button > 0) return;
+        this.stageEl = e.currentTarget;
+        const p = this.local(e); this.ptrs = this.ptrs || new Map(); this.ptrs.set(e.pointerId, p);
+        if (this.ptrs.size === 1) { this.drag0 = { ...p, c: null }; this.moved = false; }
+        if (this.ptrs.size === 2) { this.gestStart(); const [a, b] = [...this.ptrs.values()]; this.pinch0 = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, m: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, c: { ...this.gest.c } }; this.moved = true; }
+      },
+      pMove: (e) => {
+        if (!this.ptrs || !this.ptrs.has(e.pointerId)) return;
+        const p = this.local(e); this.ptrs.set(e.pointerId, p);
+        if (this.ptrs.size >= 2 && this.pinch0) {
+          const [a, b] = [...this.ptrs.values()], P = this.pinch0, dd = Math.hypot(a.x - b.x, a.y - b.y), m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          const k = this.clampK(P.c.k * dd / P.d), wx = (P.m.x - P.c.cx) / P.c.k, wy = (P.m.y - P.c.cy) / P.c.k;
+          this.gestSet({ k, cx: m.x - wx * k, cy: m.y - wy * k }); return;
+        }
+        const D = this.drag0; if (!D) return;
+        if (!this.moved) { if (Math.hypot(p.x - D.x, p.y - D.y) < 5) return; this.moved = true; try { e.currentTarget.setPointerCapture(e.pointerId); } catch (er) {} }
+        if (!D.c) { this.gestStart(); D.c = { ...this.gest.c }; D.x = p.x; D.y = p.y; }
+        this.gestSet({ k: D.c.k, cx: D.c.cx + p.x - D.x, cy: D.c.cy + p.y - D.y });
+      },
+      pUp: (e) => {
+        if (!this.ptrs) return;
+        this.ptrs.delete(e.pointerId);
+        if (this.ptrs.size < 2) this.pinch0 = null;
+        if (this.ptrs.size === 1) { const [p] = [...this.ptrs.values()]; this.drag0 = { ...p, c: this.gest ? { ...this.gest.c } : null }; }
+        if (!this.ptrs.size) { this.drag0 = null; if (this.moved) { this.justDragged = true; setTimeout(() => { this.justDragged = false; }, 0); } this.moved = false; this.gestEnd(); }
+      },
+      pLeave: (e) => { if (e.pointerType === 'mouse' && !e.buttons && this.ptrs && this.ptrs.size) { this.ptrs.clear(); this.drag0 = null; this.moved = false; this.gestEnd(); } },
+      wheel: (e) => { if (e.cancelable) e.preventDefault(); this.stageEl = e.currentTarget; const p = this.local(e); this.gestStart(); this.gestSet(this.zoomCam(this.gest.c, p.x, p.y, Math.exp(-Math.max(-80, Math.min(80, e.deltaY)) * 0.0026))); clearTimeout(this.wheelT); this.wheelT = setTimeout(() => this.gestEnd(), 180); },
+      zoomIn: (e) => { stopEv(e); this.zoomAt((vp.x0 + vp.x1) / 2, (vp.y0 + vp.y1) / 2, 1.5); },
+      zoomOut: (e) => { stopEv(e); this.zoomAt((vp.x0 + vp.x1) / 2, (vp.y0 + vp.y1) / 2, 1 / 1.5); },
+      fitAll: (e) => { stopEv(e); this.setState({ cam: null, focus: -1, mode: 'overview', moreOpen: false, searchOpen: false, sheet: 'peek', rvLast: null }); },
+      // live
+      paused: !!st.paused, pauseLabel: st.paused ? 'Resume' : 'Pause',
+      togglePause: (e) => { stopEv(e); const p = !this.state.paused; if (p) clearInterval(this.liveT); else { this.startLive(); } this.setState({ paused: p }); },
+      liveLine: st.paused ? `Live paused${st.ev.length ? ` · last ${agoOf(st.ev[0].at)}` : ''}` : liveFresh ? `${live.app} ${live.verb === 'saved' ? 'saved a note' : `is recalling ${live.ids.length} notes`}` : (st.ev.length ? (phone ? `Live · last ${agoOf(st.ev[0].at)}` : `Every connected assistant · last activity ${agoOf(st.ev[0].at)}`) : 'Every connected assistant'),
+      feedHead: st.paused ? 'LIVE · PAUSED' : 'LIVE',
+      // time
+      ticks: MONTHS.map((m, k) => ({ label: `${m} ${k < 2 ? 2025 : 2026}`, c: k === mi ? 'cur' : (k < mi ? 'on' : ''), pick: (e) => { stopEv(e); clearInterval(this.playT); this.setState({ asOf: k, playing: false }); } })),
+      firstMonth: 'Nov 2025', asOfLabel: st.asOf >= 11 ? 'your knowledge, today' : `${phone ? '' : 'your knowledge as it stood in '}${MONTHS[mi]} ${mi < 2 ? 2025 : 2026}`,
+      asOfShort: st.asOf >= 11 ? 'TODAY' : `AS OF ${MONTHS[mi].toUpperCase()} ${mi < 2 ? 2025 : 2026}`,
+      togglePlay: (e) => { stopEv(e); this.play(); }, playGlyph: st.playing ? '❚❚' : '▶', playLabel: st.playing ? 'Pause' : 'Play the vault growing',
+      speedLabel: speed[1], speedAria: `Playback: ${speed[2]}. Change speed`,
+      cycleSpeed: (e) => { stopEv(e); const i = SPEEDS.findIndex((s) => s[0] === this.state.speed); const nx = SPEEDS[(i + 1) % SPEEDS.length][0]; this.setState({ speed: nx }); if (this.state.playing) setTimeout(() => this.tickPlay(), 0); },
+      shownCount: fmt(shown), totalCount: fmt(g.pts.length),
+      vwVars: Object.entries(VPAL[theme]).map(([k, v]) => `--${k}: ${v};`).join(' '),
+      themeLabel: theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode',
+      toggleTheme: (e) => { stopEv(e); const t = theme === 'light' ? 'dark' : 'light'; try { localStorage.setItem('exomem-theme', t); } catch (er) {} if (typeof this.props.exitTo === 'function') this.props.exitTo('theme', t); if (!this.gone) this.setState({ theme: t }); },
+      goHome: (e) => { stopEv(e); if (typeof this.props.exitTo === 'function') this.props.exitTo('home'); },
+      muCls: st.muOn ? 'mu' : '', muOn: !!st.muOn, muOff: !st.muOn, muPop: !!st.muPop && !st.muOn,
+      musicLabel: st.muOn ? 'Stop listening' : 'Let the graph listen',
+      muNote: st.muNote || 'Only while this page is open. Nothing is recorded or sent anywhere.', muNoteColor: st.muErr ? 'var(--v1)' : 'var(--v2)',
+      musicBtn: (e) => { stopEv(e); if (st.muOn) this.musicStop(); else this.setState({ muPop: !st.muPop, muNote: '', muErr: false }); },
+      musicMic: (e) => { stopEv(e); this.musicStart((ctx, an) => navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }).then((stream) => { this.mu.stream = stream; ctx.createMediaStreamSource(stream).connect(an); })); },
+      musicFile: (e) => { stopEv(e); const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*';
+        inp.onchange = () => { const file = inp.files && inp.files[0]; if (!file) return;
+          this.musicStart((ctx, an) => { const a = new Audio(URL.createObjectURL(file)); this.mu.audio = a; const src = ctx.createMediaElementSource(a); src.connect(an); an.connect(ctx.destination); a.onended = () => this.musicStop(); return a.play(); }); };
+        inp.click(); },
+      stats: [
+        { v: fmt(shown), k: 'notes', ks: 'notes', col: 'var(--v0)', bd: 'rgba(var(--v12),.08)', cur: 'default', pick: () => {} },
+        { v: fmt(visE.length), k: 'links', ks: 'links', col: 'var(--v0)', bd: 'rgba(var(--v12),.08)', cur: 'default', pick: () => {} },
+        { v: fmt(nSuper), k: 'superseded, kept', ks: 'superseded', col: 'var(--v0)', bd: 'rgba(var(--v12),.08)', cur: 'default', pick: () => {} },
+        { v: fmt(unresolved), k: unresolved === 1 ? 'disagreement to review' : 'disagreements to review', ks: 'to review', col: unresolved ? 'var(--v1)' : 'var(--v0)', bd: unresolved ? 'rgba(var(--v13),.35)' : 'rgba(var(--v12),.08)', cur: 'pointer', pick: (e) => { stopEv(e); this.setState({ mode: 'review', focus: -1, cam: null, sheet: 'open', rvLast: null }); } },
+      ],
+      feed, top,
+      ...F,
+    };
+  }
+}
+
+</script>
+</body>
+</html>
