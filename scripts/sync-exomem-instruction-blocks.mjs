@@ -1,16 +1,21 @@
-// Copies the assistant instruction blocks out of the Exomem repo's
-// docs/prominence.md into src/app/exomem/home/instruction-blocks.generated.ts,
-// and records the Exomem commit they came from.
+// Keeps the assistant instruction blocks in step with the Exomem repo's
+// docs/prominence.md.
 //
 //   npm run sync:instruction-blocks -- <path-to-exomem-repo>
+//     Copies the blocks into src/app/exomem/home/instruction-blocks.generated.ts
+//     and records the Exomem commit they came from.
+//
+//   npm run sync:instruction-blocks -- --check <path-to-prominence.md>
+//     Compares the committed generated file with that doc and exits 1 when any
+//     block differs. The weekly drift workflow runs this against Exomem main.
 //
 // Home hands these blocks to a Cloud user to paste into an assistant that has no
 // Exomem plugin. The doc warns that a shortened capture list silently drops
 // whole classes of capture, so the blocks are copied byte for byte, never
-// retyped. The doc is read from the repo's HEAD commit, not its working tree, so
-// the commit written to the generated file is exactly the text it holds.
+// retyped. Sync reads the doc from the repo's HEAD commit, not its working tree,
+// so the commit written to the generated file is exactly the text it holds.
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { format, resolveConfig } from "prettier";
 import remarkParse from "remark-parse";
@@ -80,10 +85,17 @@ function render(blocks, commit) {
   ].join("\n");
 }
 
-async function main(repo) {
-  if (!repo) throw new Error("usage: sync-exomem-instruction-blocks.mjs <path-to-exomem-repo>");
+async function sync(repo) {
   const commit = git(repo, "rev-parse", "HEAD").trim();
   if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`unexpected commit from git: ${commit}`);
+  // Refuse a feature branch: the recorded commit must be one that Exomem shipped.
+  try {
+    git(repo, "merge-base", "--is-ancestor", "HEAD", "origin/main");
+  } catch {
+    throw new Error(
+      `exomem HEAD ${commit} is not an ancestor of origin/main; check out main and run git fetch first`
+    );
+  }
   const blocks = extractBlocks(git(repo, "show", `HEAD:${DOC_PATH}`));
   // Format with the repo's Prettier so `npm run format:check` accepts the file.
   const options = await resolveConfig(OUTPUT_PATH);
@@ -95,7 +107,33 @@ async function main(repo) {
   console.log(`wrote ${OUTPUT_PATH}\n  exomem ${commit}\n  block lengths: ${lengths}`);
 }
 
-main(process.argv[2]).catch((error) => {
+async function check(docFile) {
+  const expected = extractBlocks(readFileSync(docFile, "utf8"));
+  // Node 24 loads the .ts file by stripping its types, so no build step is needed.
+  const { INSTRUCTION_BLOCKS, INSTRUCTION_BLOCKS_SOURCE } = await import(OUTPUT_PATH);
+  const stale = LEVELS.filter((level) => INSTRUCTION_BLOCKS[level] !== expected[level]);
+  if (stale.length > 0) {
+    throw new Error(
+      `instruction blocks differ from ${docFile} for: ${stale.join(", ")}\n` +
+        `  committed copy is from exomem ${INSTRUCTION_BLOCKS_SOURCE.commit}\n` +
+        "  run: npm run sync:instruction-blocks -- <path-to-exomem-repo>"
+    );
+  }
+  console.log(
+    `instruction blocks match ${docFile} (copied from exomem ${INSTRUCTION_BLOCKS_SOURCE.commit})`
+  );
+}
+
+async function main([first, second]) {
+  if (first === "--check" && second) return check(second);
+  if (first && !first.startsWith("--")) return sync(first);
+  throw new Error(
+    "usage: sync-exomem-instruction-blocks.mjs <path-to-exomem-repo>\n" +
+      "       sync-exomem-instruction-blocks.mjs --check <path-to-prominence.md>"
+  );
+}
+
+main(process.argv.slice(2)).catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });

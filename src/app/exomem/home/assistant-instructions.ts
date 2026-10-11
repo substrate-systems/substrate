@@ -12,9 +12,11 @@
 // `configure_memory` command changes the saved level; the Cloud cell profile
 // exposes it.
 //
-// The block text is not written here. It is generated from the Exomem repo's
-// `docs/prominence.md` (`npm run sync:instruction-blocks`), so it cannot drift
-// from the doc: a hand-trimmed capture list silently drops classes of capture.
+// The block text is not written here. `instruction-blocks.generated.ts` holds a
+// verbatim copy of the Exomem repo's `docs/prominence.md` at the commit it names.
+// Run `npm run sync:instruction-blocks -- <exomem-repo>` when the doc changes; a
+// weekly workflow fails when the doc has moved on. Never trim a block by hand: a
+// shortened capture list silently drops classes of capture.
 
 import { INSTRUCTION_BLOCKS } from "./instruction-blocks.generated";
 
@@ -51,7 +53,7 @@ export const PROM_CONTRACTS: Record<PromLevel, LevelContract> = {
   },
 };
 
-/** The block to paste, exactly as `docs/prominence.md` has it. Identical for every client. */
+/** The block to paste, exactly as the copied `docs/prominence.md` has it. Identical for every client. */
 export function assistantInstructions(level: PromLevel): string {
   return INSTRUCTION_BLOCKS[level];
 }

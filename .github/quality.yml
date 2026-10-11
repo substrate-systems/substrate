@@ -21,6 +21,7 @@ classes:
   tooling:
     - ".github/quality.yml"
     - ".github/workflows/test.yml"
+    - ".github/workflows/exomem-instruction-blocks-drift.yml" # weekly check, fails on drift; ships nothing
     - ".claude/*" # agent settings and skills; never ships
     - ".gitignore"
     - ".gitattributes"
@@ -67,6 +68,8 @@ javascript:
       - "src/**/*.test.tsx"
       # Run by hand from the README; nothing else references it.
       - "scripts/generate-jwt-keypair.ts"
+      # The drift check imports it by a computed path, which knip cannot follow.
+      - "src/app/exomem/home/instruction-blocks.generated.ts"
     # Design references (boards, prototypes, locked CSS); never built or imported.
     ignore: ["docs/**"]
 

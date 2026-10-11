@@ -337,6 +337,12 @@
   white-space: pre;
 }
 
+/* Added to .connectCommands for the pasted instruction block, whose lines run to
+   hundreds of characters and must wrap instead of scrolling sideways. */
+.instructionBlock {
+  white-space: pre-wrap;
+}
+
 .levelPicker {
   display: flex;
   flex-wrap: wrap;

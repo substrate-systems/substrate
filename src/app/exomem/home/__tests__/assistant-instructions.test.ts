@@ -6,7 +6,7 @@ import {
   PROM_CONTRACTS,
   PROM_LEVELS,
 } from "../assistant-instructions";
-import { INSTRUCTION_BLOCKS, INSTRUCTION_BLOCKS_SOURCE } from "../instruction-blocks.generated";
+import { INSTRUCTION_BLOCKS } from "../instruction-blocks.generated";
 
 describe("each level hands over its own block from the Exomem doc", () => {
   it("returns a distinct, non-empty block for every level", () => {
@@ -32,18 +32,13 @@ describe("each level hands over its own block from the Exomem doc", () => {
   });
 
   it("covers exactly the levels the generated blocks and the picker define", () => {
-    // The generator takes its level set from the doc; the picker takes its own.
-    // They must stay one set, or a level would be unselectable or have no block.
+    // The sync script keeps its own list of levels and the picker uses
+    // PROM_LEVELS. This ties the two lists, so a level added to one cannot end up
+    // unselectable or without a block.
     assert.deepEqual(Object.keys(INSTRUCTION_BLOCKS).sort(), [...PROM_LEVELS].sort());
     for (const level of PROM_LEVELS) {
       assert.ok(PROM_CONTRACTS[level]?.summary, `${level} needs a picker summary`);
     }
-  });
-
-  it("names the Exomem commit the blocks were copied from", () => {
-    // A placeholder or hand-edited source would let the copy drift without a trace.
-    assert.match(INSTRUCTION_BLOCKS_SOURCE.commit, /^[0-9a-f]{40}$/);
-    assert.equal(INSTRUCTION_BLOCKS_SOURCE.path, "docs/prominence.md");
   });
 });
 

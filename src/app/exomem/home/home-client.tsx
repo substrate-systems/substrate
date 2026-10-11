@@ -410,7 +410,7 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
           There is no plugin yet, so this text is what tells your assistant to use Exomem at all —
           connecting alone gives it the tools and no reason to reach for them. Paste it once.
         </p>
-        <pre className={styles.connectCommands}>
+        <pre className={`${styles.connectCommands} ${styles.instructionBlock}`}>
           <code>{assistantInstructions(promLevel)}</code>
         </pre>
         <p className={styles.serverUrl}>
