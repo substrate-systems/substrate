@@ -525,6 +525,11 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 - **AND** because the subscription carries the friend discount, it records `applied` and the friend offer, and answers 200 `applied`
 - **AND** a friend offer that the tenant holds never stands in for that check
 
+#### Scenario: Friend discount is not configured
+
+- **WHEN** an owner chooses `keep_plan` on a friend invitation for a live subscription and no friend discount is configured
+- **THEN** the system answers 503 with `FRIEND_PRICE_UNAVAILABLE` and leaves the invitation unconsumed, because nothing can show the discount absent
+
 #### Scenario: Payment provider fails
 
 - **WHEN** the provider refuses or times out

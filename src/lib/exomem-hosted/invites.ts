@@ -704,7 +704,9 @@ export async function decideInvitation(
  * Paddle event, prove it when they show the discount. They cannot prove its
  * absence, because the event of an update whose answer was lost may still be
  * on its way, so Paddle is read then. A friend offer the tenant holds is
- * history, not proof, and is not consulted.
+ * history, not proof, and is not consulted. Without a configured friend
+ * discount nothing can show the discount absent, so the decision waits
+ * (503, the invitation unconsumed) rather than store "kept" from a guess.
  */
 async function friendDiscountInForce(
   billing: { provider_discount_id: string | null; provider_next_billed_at: Date | string | null },
@@ -712,7 +714,7 @@ async function friendDiscountInForce(
   deps: Pick<DecideInvitationDependencies, "readSubscription" | "friendDiscountId">
 ): Promise<{ nextBilledAt: Date | string | null } | null> {
   const friendDiscountId = deps.friendDiscountId();
-  if (friendDiscountId === null) return null;
+  if (friendDiscountId === null) throw friendPriceUnavailable();
   if (billing.provider_discount_id === friendDiscountId) {
     return { nextBilledAt: billing.provider_next_billed_at };
   }

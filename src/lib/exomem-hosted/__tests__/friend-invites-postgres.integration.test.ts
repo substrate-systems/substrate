@@ -824,6 +824,38 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.equal(await friendOffer(other.tenantId), null);
   });
 
+  it("leaves the invitation unused, and answers retryable, when no configured friend discount can show the friend price absent", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    paddle.subscriptionUpdateAnswerLost = true;
+    await assert.rejects(
+      decideInvitation({ token, choice: "use_friend_price", session }),
+      (error) => error instanceof ExomemHostedError && error.status === 503
+    );
+    paddle.subscriptionUpdateAnswerLost = false;
+
+    delete process.env.EXOMEM_PADDLE_FRIEND_DISCOUNT_ID;
+    try {
+      await assert.rejects(
+        decideInvitation({ token, choice: "keep_plan", session }),
+        (error) =>
+          error instanceof ExomemHostedError &&
+          error.code === "FRIEND_PRICE_UNAVAILABLE" &&
+          error.status === 503
+      );
+    } finally {
+      process.env.EXOMEM_PADDLE_FRIEND_DISCOUNT_ID = FRIEND_DISCOUNT;
+    }
+    assert.equal((await invitation(inviteId)).consumed_at, null);
+
+    // Once the discount is configured again, the answer records the price in force.
+    assert.equal(
+      (await decideInvitation({ token, choice: "keep_plan", session })).status,
+      "applied"
+    );
+  });
+
   it("records no friend offer from an older event, and decides from the subscription's current facts rather than a friend offer", async () => {
     const owner = await paidOwner({ sourceState: "active", cell: "running" });
     const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
