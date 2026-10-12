@@ -73,6 +73,9 @@ export default defineConfig([
     "coverage/**",
     "node_modules/**",
     "next-env.d.ts",
+    // Playwright's HTML report and run output: generated files, written by CI-mode runs.
+    "playwright-report/**",
+    "test-results/**",
     "public/sw.js",
     "tsconfig.tsbuildinfo",
   ]),
