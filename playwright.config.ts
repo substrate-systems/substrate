@@ -56,5 +56,7 @@ export default defineConfig({
     url: BASE_URL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // Stop the server with SIGTERM so it exits cleanly; SIGKILL follows after 5 s.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
   },
 });

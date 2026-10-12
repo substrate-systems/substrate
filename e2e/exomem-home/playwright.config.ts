@@ -34,5 +34,8 @@ export default defineConfig({
     url: `${environment.baseUrl}/exomem/privacy`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // SIGTERM lets serve.ts stop Next and both stand-ins and delete its certificates;
+    // SIGKILL follows after 5 s.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 5_000 },
   },
 });

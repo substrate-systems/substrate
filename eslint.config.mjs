@@ -74,7 +74,9 @@ export default defineConfig([
   globalIgnores([
     ".next/**",
     "coverage/**",
+    "dist/**",
     "node_modules/**",
+    "playwright-report/**",
     "next-env.d.ts",
     "public/sw.js",
     "tsconfig.tsbuildinfo",
