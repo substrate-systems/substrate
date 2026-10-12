@@ -9,18 +9,20 @@ type MarkProps = {
   size: number;
   /** Home, while the memory is on: the lit row breathes. */
   breathing?: boolean;
+  /** False while the memory is not live (read-only, ended): the middle row is not amber. */
+  lit?: boolean;
   /** Names the mark for screen readers; omit when the mark sits inside a labelled control. */
   label?: string;
 };
 
 /** The Dot E icon: the E in dots, its middle row amber. */
-export function Mark({ size, breathing = false, label }: MarkProps) {
+export function Mark({ size, breathing = false, lit = true, label }: MarkProps) {
   return (
     <svg
       viewBox="0 0 48 48"
       width={size}
       height={size}
-      className={breathing ? styles.breathing : undefined}
+      className={breathing && lit ? styles.breathing : undefined}
       {...(label ? { role: "img", "aria-label": label } : { "aria-hidden": true })}
     >
       {DOT_E_INK.map(([cx, cy]) => (
@@ -29,7 +31,7 @@ export function Mark({ size, breathing = false, label }: MarkProps) {
       {DOT_E_LIT.map(([cx, cy], i) => (
         <circle
           key={`${cx},${cy}`}
-          className={styles.lit}
+          className={lit ? styles.lit : styles.unlit}
           cx={cx}
           cy={cy}
           r={DOT_E_RADIUS}
