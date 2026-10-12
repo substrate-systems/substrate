@@ -44,6 +44,7 @@ const VALID_ACCESS: ActiveCloudOAuthAccessToken = {
   scopes: ["exomem.read", "exomem.write"],
   cellId: TEST_CELL_ID,
   cellDesiredState: "running",
+  firstParty: false,
 };
 
 type StandInCellBehavior =

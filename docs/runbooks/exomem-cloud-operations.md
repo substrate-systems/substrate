@@ -89,6 +89,37 @@ Operator registration and enabling of a pinned client still check the legacy
 Hosted staged-release and artifact rows. A follow-up change must replace that
 authority before a new pinned client can be registered.
 
+### The first-party Home client
+
+Migration 0066 seeds one client with the admission mode `first_party`. On each
+call to an owner's cell, Home's server mints a 120-second token for this
+client. No authorization, code exchange or refresh path admits the mode, in
+this release or an earlier one. Only the gateway's token lookup admits it. The
+app list and the client slots leave the client out.
+
+Deploy the gateway that admits the mode before you set
+`EXOMEM_CLOUD_HOME_CHANNEL_ENABLED`. An older gateway refuses every Home token
+with `401`, and Home then shows the cell as unreachable.
+
+Migration 0066 stops if an ordinary client already holds the id
+`exomem-cloud-home`. Rename or delete that client, then run the migration again.
+
+The operator page can disable the Home client. The gateway then refuses the
+tokens that Home minted, and Home's levels and activity requests fail with
+`500`. The page cannot enable the client again, because the enable path needs
+a client artifact that this client does not have. To enable it again:
+
+1. Run this statement against the production database:
+
+   ```sql
+   UPDATE exomem_oauth_clients SET enabled = true, updated_at = now()
+   WHERE admission_mode = 'first_party';
+   ```
+
+2. Open Home for an account with a running cell.
+
+The levels and recent activity show again.
+
 ### Generic MCP clients
 
 A generic client is an MCP client that no marketplace distributes, such as

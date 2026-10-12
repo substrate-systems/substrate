@@ -77,7 +77,7 @@ Resubscribe: checkout refuses any owner with a Paddle customer, and re-admission
 
 Two facts live in two places, so two channels carry them.
 
-Live process facts (levels, activity, note count) come from the cell's existing `/mcp` through the public gateway. The web server mints a 120-second access token for a first-party Home client for each call, bound to the session's tenant. The module exposes exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. It is not a proxy. The token stays in memory and never reaches a log or a browser. The gateway needs no change, because its lookup already re-checks revocation, account blocks and deletion.
+Live process facts (levels, activity, note count) come from the cell's existing `/mcp` through the public gateway. The web server mints a 120-second access token for a first-party Home client for each call, bound to the session's tenant. The module exposes exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. It is not a proxy. The token stays in memory and never reaches a log or a browser. The Home client has its own admission mode, `first_party`. Every authorization, code exchange and refresh path, in this release and the one before it, admits only the modes it names, so no application version can authorize this client interactively. Only the gateway's token lookup admits the mode, and that lookup already re-checks revocation, account blocks and deletion. So the gateway ships before Home traffic is enabled.
 
 Volume and object-store facts (storage, export) come from rows that the cell controller writes and Substrate reads, the same split as imports. The cell controller has no connection to a cell, and cells have no egress.
 

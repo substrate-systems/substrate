@@ -80,29 +80,56 @@ FOR EACH ROW EXECUTE FUNCTION exomem_cloud_exports_touch();
 --
 -- Home reads and sets levels and reads activity through the cell's own /mcp,
 -- with a short-lived token that the web server mints for this client
--- (cloud-home-mcp.ts). A column, not a client id in code, marks it: the
--- marker decides that the client is no app, takes no client slot, and never
--- enters the interactive authorization flow.
+-- (cloud-home-mcp.ts). Its admission mode, not a client id in code, marks it:
+-- the mode decides that the client is no app and takes no client slot. Every
+-- authorization, code exchange and refresh path, in this release and in each
+-- earlier one, admits only the modes it names, so no application version can
+-- run an interactive authorization for this client. Only the gateway's token
+-- lookup admits the mode.
 ALTER TABLE exomem_oauth_clients
-  ADD COLUMN first_party boolean NOT NULL DEFAULT false;
+  DROP CONSTRAINT exomem_oauth_clients_admission_mode_check;
+ALTER TABLE exomem_oauth_clients
+  ADD CONSTRAINT exomem_oauth_clients_admission_mode_check
+  CHECK (admission_mode IN ('pinned', 'cimd', 'generic', 'first_party'));
 
 -- The Home channel mints for the one first-party client. A second one would
 -- make that choice ambiguous, so the database refuses it until a change
 -- decides how the channel picks between them.
 CREATE UNIQUE INDEX exomem_oauth_clients_one_first_party_idx
-  ON exomem_oauth_clients (first_party) WHERE first_party;
+  ON exomem_oauth_clients (admission_mode) WHERE admission_mode = 'first_party';
+
+-- An ordinary client that already holds the Home id is not the Home client,
+-- and the seed below must not rewrite it. Stop here so that an operator
+-- resolves the collision; the migration otherwise succeeds without a Home
+-- client, and Home fails on every call.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM exomem_oauth_clients
+    WHERE client_id = 'exomem-cloud-home' AND admission_mode <> 'first_party'
+  ) THEN
+    RAISE EXCEPTION 'client_id exomem-cloud-home belongs to an ordinary OAuth client; '
+      'rename or delete that client before migration 0066 seeds the first-party Home client';
+  END IF;
+END
+$$;
 
 -- The schema requires one to eight redirect URIs. The Home client never
 -- completes an authorization, so its only URI uses the reserved `.invalid`
--- top-level domain (RFC 6761), which no resolver answers. Replay must never
--- re-enable a client that an operator disabled.
+-- top-level domain (RFC 6761), which no resolver answers. A second run keeps
+-- an operator's disable.
 INSERT INTO exomem_oauth_clients (
-  client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name, first_party
+  client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
 ) VALUES (
-  'exomem-cloud-home', 'pinned', true, '["https://exomem-cloud-home.invalid/"]'::jsonb,
+  'exomem-cloud-home', 'first_party', true, '["https://exomem-cloud-home.invalid/"]'::jsonb,
   digest(convert_to('["https://exomem-cloud-home.invalid/"]'::jsonb::text, 'utf8'), 'sha256'),
-  'Exomem Home', true
+  'Exomem Home'
 ) ON CONFLICT (client_id) DO NOTHING;
+
+-- Each Home mint deletes its own grant's expired access tokens
+-- (cloud-home-mcp.ts). This index finds them without reading the whole table.
+CREATE INDEX exomem_oauth_access_tokens_grant_expiry_idx
+  ON exomem_oauth_access_tokens (grant_id, expires_at);
 
 -- Migration 0060 seeded the CLI client before stored client names existed.
 UPDATE exomem_oauth_clients SET client_name = 'Exomem CLI'
@@ -122,8 +149,7 @@ LANGUAGE sql STABLE AS $$
       SELECT count(*)
       FROM exomem_oauth_clients
       WHERE auto_registered = p_auto_registered
-        AND admission_mode <> 'generic'
-        AND NOT first_party
+        AND admission_mode IN ('pinned', 'cimd')
     ) < CASE WHEN p_auto_registered THEN 128 ELSE 96 END;
 $$;
 

@@ -70,11 +70,6 @@ function clientKind(redirectUris: readonly string[]): OwnerApp["kind"] {
     : "web";
 }
 
-// `first_party` is read through `to_jsonb(client)`, which yields null while
-// the table does not have the column yet. The Home-client migration adds
-// `first_party boolean NOT NULL DEFAULT false`; once it has shipped, read it
-// as a plain column instead.
-
 /** The client an authorization request names, for the consent page. */
 export async function findOAuthClientIdentity(
   clientId: string
@@ -127,7 +122,7 @@ async function ownerAppRows(
     WHERE oauth_grant.user_id = ${input.userId}::uuid
       AND oauth_grant.tenant_id = ${input.tenantId}::uuid
       AND oauth_grant.resource = ${resource}
-      AND NOT COALESCE((to_jsonb(client) ->> 'first_party')::boolean, false)
+      AND client.admission_mode <> 'first_party'
       AND (${input.grantId}::uuid IS NULL OR oauth_grant.id = ${input.grantId}::uuid)
       -- The list reads live grants only, which lets it use the partial index on
       -- live grants. Disconnect by id also sees a revoked grant, so a repeat
