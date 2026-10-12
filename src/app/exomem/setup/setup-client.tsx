@@ -130,12 +130,19 @@ function JoinedLevels({ app }: { app: ListedApp }) {
         title={joinedCopy.title(app.displayName)}
         lede={savable ? joinedCopy.ledeSaving : joinedCopy.ledeWithoutPlugin}
       />
-      <LevelTune level={level} onLevel={choose} />
-      {save.kind === "not_saved" ? <StepNotice>{joinedCopy.notSaved}</StepNotice> : null}
-      {save.kind === "refused" ? <StepNotice>{save.text}</StepNotice> : null}
-      {save.kind === "saved" ? (
-        <DoneLine>{joinedCopy.saved(levelContextTitle(app.context).toLowerCase())}</DoneLine>
-      ) : null}
+      <LevelTune
+        level={level}
+        onLevel={choose}
+        saveNote={
+          save.kind === "not_saved"
+            ? joinedCopy.notSaved
+            : save.kind === "refused"
+              ? save.text
+              : save.kind === "saved"
+                ? joinedCopy.saved(levelContextTitle(app.context).toLowerCase())
+                : null
+        }
+      />
     </>
   );
 }

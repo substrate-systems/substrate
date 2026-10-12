@@ -192,7 +192,7 @@ export const joinedCopy = {
   /** A level belongs to every app of a kind, "chat apps" or "coding agents". */
   saved: (apps: string) => `Saved for all your ${apps}.`,
   /** Not drawn by the board (design.md deviation (l)). */
-  notSaved: "Your choice isn’t saved yet: your Exomem can’t take it right now.",
+  notSaved: "Not saved yet: your Exomem can’t take it now.",
   done: (app: string) => `${app} · memory on`,
   home: "Go to Home",
   addToo: (app: string) => `Add ${app} too`,

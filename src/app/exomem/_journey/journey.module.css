@@ -478,6 +478,16 @@
   gap: 10px;
 }
 
+/* Whether the picked level was saved: one quiet line under the switch. */
+.saveNote {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--fg-secondary);
+  text-align: center;
+}
+
 .blockHead {
   display: flex;
   justify-content: space-between;

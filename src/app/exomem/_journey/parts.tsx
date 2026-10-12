@@ -262,9 +262,12 @@ const COUNT = new Intl.NumberFormat("en-GB");
 export function LevelTune({
   level,
   onLevel,
+  saveNote = null,
 }: {
   level: InvolvementLevelKey;
   onLevel: (level: InvolvementLevelKey) => void;
+  /** Whether the pick was saved, in words; one quiet line, so the step still fits a phone. */
+  saveNote?: string | null;
 }) {
   const current = involvementLevel(level);
   const [copied, setCopied] = useState(false);
@@ -299,6 +302,11 @@ export function LevelTune({
         }}
         description={current.description}
       />
+      {saveNote ? (
+        <p className={styles.saveNote} role="status">
+          {saveNote}
+        </p>
+      ) : null}
       <div className={styles.blockHead}>
         <span>{joinedCopy.instructions(current.label)}</span>
         <span className={styles.blockCount}>
