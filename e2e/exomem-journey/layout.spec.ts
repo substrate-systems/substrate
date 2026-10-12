@@ -281,7 +281,8 @@ const STEPS: Step[] = [
     },
   },
   {
-    // The tallest step: an app without the plugin gets the instructions to paste.
+    // The tallest step: an app without the plugin gets the instructions to paste, and a
+    // picked level that this server cannot save says so.
     name: "setup-joined-without-plugin",
     open: async (page, context) => {
       await signedIn(context, "ready");
@@ -294,6 +295,8 @@ const STEPS: Step[] = [
         page.getByRole("heading", { name: joinedCopy.title("Claude Code") })
       ).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText(joinedCopy.ledeWithoutPlugin)).toBeVisible();
+      await page.getByRole("button", { name: "Light", exact: true }).click();
+      await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
     },
   },
   {
