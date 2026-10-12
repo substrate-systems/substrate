@@ -67,8 +67,10 @@ export type ExomemEmailSlots = {
   /** Slot 6: one or two short paragraphs. */
   body: readonly string[];
   /**
-   * Slot 7: a person's own words with their name, or label/value rows. A note
-   * may carry rows under it: R28 draws emails 09 and 10 that way.
+   * Slot 7: a person's own words with their name, or label/value rows, never
+   * both. The exception is the friend and covered invitations, emails 09 and
+   * 10: R28 draws each with the inviter's note and the price rows under it, so
+   * there a note may carry rows (design.md, "Friend invitations").
    */
   detail?:
     | { kind: "note"; text: string; author: string; rows?: readonly ExomemEmailFact[] }

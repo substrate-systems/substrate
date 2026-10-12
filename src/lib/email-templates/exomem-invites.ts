@@ -1,7 +1,6 @@
 /**
  * The invitation emails 09 to 13, with the copy of the design catalogue
- * (R28). Each function takes the facts of one email; the shared template
- * (exomem-email.ts) renders them.
+ * (R28), each rendered through renderExomemEmail (exomem-email.ts).
  */
 
 import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
