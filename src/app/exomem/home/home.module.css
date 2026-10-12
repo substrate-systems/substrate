@@ -591,6 +591,22 @@
   flex: none;
 }
 
+/* A dot and its text. The dot takes the text's font, so 1lh is the text's line, and it
+   stays centred on the first line when the text wraps on a phone. */
+.detailLead {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+}
+
+.detailLead .dot {
+  margin-top: calc((1lh - 7px) / 2);
+}
+
 .dotQuiet {
   background: var(--fg-primary);
   opacity: 0.3;

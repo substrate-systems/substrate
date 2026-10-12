@@ -119,8 +119,10 @@ export function YourData({
           )}
           {detail?.kind === "ready" && (
             <div className={styles.detail}>
-              <span className={styles.dot} aria-hidden="true" />
-              <span className={styles.detailText}>{detail.text}</span>
+              <span className={styles.detailLead}>
+                <span className={styles.dot} aria-hidden="true" />
+                <span className={styles.detailText}>{detail.text}</span>
+              </span>
               <Button working={downloadBusy} onClick={() => onDownload(detail.exportId)}>
                 {downloadBusy ? "Preparing…" : "Download"}
               </Button>
@@ -128,9 +130,11 @@ export function YourData({
           )}
           {detail?.kind === "failed" && (
             <div className={styles.detail}>
-              <span className={styles.dot} aria-hidden="true" />
-              <span className={`${styles.detailText} ${styles.detailStrong}`}>
-                {detail.text} <span className={styles.code}>{detail.code}</span>
+              <span className={styles.detailLead}>
+                <span className={styles.dot} aria-hidden="true" />
+                <span className={`${styles.detailText} ${styles.detailStrong}`}>
+                  {detail.text} <span className={styles.code}>{detail.code}</span>
+                </span>
               </span>
               <Button working={exportBusy} onClick={onExport}>
                 Try again
@@ -139,8 +143,10 @@ export function YourData({
           )}
           {detail?.kind === "expired" && (
             <div className={styles.detail}>
-              <span className={`${styles.dot} ${styles.dotQuiet}`} aria-hidden="true" />
-              <span className={styles.detailText}>{detail.text}</span>
+              <span className={styles.detailLead}>
+                <span className={`${styles.dot} ${styles.dotQuiet}`} aria-hidden="true" />
+                <span className={styles.detailText}>{detail.text}</span>
+              </span>
             </div>
           )}
         </>
