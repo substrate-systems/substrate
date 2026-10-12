@@ -604,8 +604,9 @@
   }
 }
 
-/* A phone under 720 px tall drops the tiles and tightens the column, so every step
-   still fits without scrolling; the reviewer note moves into the lede only above it. */
+/* A phone under 720 px tall drops the tiles and tightens the column and the step, so every
+   step still fits without scrolling down to 640 px; the reviewer note moves into the lede
+   only above it. */
 @media (max-width: 640px) {
   .reviewerNoteApart {
     display: none;
@@ -617,8 +618,40 @@
     display: none;
   }
 
+  /* The step centres in the space between the wordmark and the request's origin, not in
+     the whole screen, so a tall step clears both down to 640 px. */
+  .center {
+    padding-top: 46px;
+  }
+
+  .footer {
+    position: static;
+    padding-top: 8px;
+    padding-bottom: 16px;
+  }
+
+  /* The handoff's phone title range is 21–24 px. */
+  .title {
+    font-size: 21px;
+  }
+
   .column {
     gap: 14px;
+  }
+
+  .content {
+    gap: 12px;
+  }
+
+  /* The second action's own 44 px row already sets it apart from the main one. */
+  .actions {
+    gap: 0;
+  }
+
+  .scopes {
+    gap: 8px;
+    padding-top: 12px;
+    padding-bottom: 12px;
   }
 
   .block {

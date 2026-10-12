@@ -162,7 +162,7 @@ jobs:
         run: |
           # A fresh key for this run only: the server and the seeding specs share it.
           export EXOMEM_CONTROL_PLANE_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
-          npx playwright test --project "exomem journey desktop 1440" --project "exomem journey phone 390" --project "exomem journey phone 375"
+          npx playwright test --project "exomem journey desktop 1440" --project "exomem journey phone 390" --project "exomem journey phone 375" --project "exomem journey phone 360"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
