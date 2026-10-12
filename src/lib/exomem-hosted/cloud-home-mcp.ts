@@ -16,7 +16,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { loadExomemCloudResource, type EnvironmentSource } from "./cloud-config";
-import { assertPrincipalOwnsCloudCell } from "./cloud-oauth";
+import { assertPrincipalOwnsCloudCell, CloudPrincipalHasNoCellError } from "./cloud-oauth";
 import { executeExomemSql, withExomemTransaction } from "./db";
 import { ExomemHostedError, exomemErrors, safeErrorResponse } from "./errors";
 import { readBoundedJsonRequest } from "./http";
@@ -57,8 +57,10 @@ const ConfigureMemoryAnswer = z.object({
 
 /**
  * The client families an activity event can name. This is the cell's closed
- * set: `client_family` in its `privacy_log` maps every client name to one of
- * these, or to none when the name is empty. Home imports it to label events.
+ * set, from src/exomem/privacy_log.py: the activity ledger labels each client
+ * name with `client_family`, the same labels that `log_client_label` writes
+ * under content-private logging, and none when the name is empty. Home
+ * imports it to label events.
  */
 export const ACTIVITY_CLIENT_FAMILIES = [
   "claude-ai",
@@ -233,7 +235,14 @@ async function mintHomeAccessToken(
   principal: CloudHomePrincipal,
   resource: string
 ): Promise<{ token: SensitiveSecret } | { refused: MintRefusal }> {
-  await assertPrincipalOwnsCloudCell(principal.tenantId);
+  try {
+    await assertPrincipalOwnsCloudCell(principal.tenantId);
+  } catch (error) {
+    // A deletion that began after servingCell read the cell has already
+    // removed it; any other failure stays an error.
+    if (error instanceof CloudPrincipalHasNoCellError) return { refused: "ACCOUNT_ACCESS_CLOSED" };
+    throw error;
+  }
   const token = new SensitiveSecret(generateExternalToken());
   const reviewerCredentialId = principal.reviewerCredentialId ?? null;
   return withExomemTransaction(async (tx) => {

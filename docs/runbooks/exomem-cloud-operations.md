@@ -93,9 +93,11 @@ authority before a new pinned client can be registered.
 
 Migration 0066 seeds one client with the admission mode `first_party`. On each
 call to an owner's cell, Home's server mints a 120-second token for this
-client. No authorization, code exchange or refresh path admits the mode, in
-this release or an earlier one. Only the gateway's token lookup admits it. The
-app list and the client slots leave the client out.
+client. The authorization, code exchange and refresh paths of this release
+and the one before exclude it: they admit a pinned or generic mode or admitted
+CIMD metadata, and no supported writer gives this client metadata. Only the
+gateway's token lookup admits the mode. The app list and the client slots
+leave the client out.
 
 Deploy the gateway that admits the mode before you set
 `EXOMEM_CLOUD_HOME_CHANNEL_ENABLED`. An older gateway refuses every Home token

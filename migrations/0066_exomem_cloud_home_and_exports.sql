@@ -81,10 +81,11 @@ FOR EACH ROW EXECUTE FUNCTION exomem_cloud_exports_touch();
 -- Home reads and sets levels and reads activity through the cell's own /mcp,
 -- with a short-lived token that the web server mints for this client
 -- (cloud-home-mcp.ts). Its admission mode, not a client id in code, marks it:
--- the mode decides that the client is no app and takes no client slot. Every
--- authorization, code exchange and refresh path, in this release and in each
--- earlier one, admits only the modes it names, so no application version can
--- run an interactive authorization for this client. Only the gateway's token
+-- the mode decides that the client is no app and takes no client slot. In
+-- this release and the one before, the authorization, code exchange and
+-- refresh paths admit a client by a pinned or generic mode or by admitted CIMD
+-- metadata. This row has neither, and no supported writer in either version
+-- gives it CIMD metadata, so those paths exclude it. Only the gateway's token
 -- lookup admits the mode.
 ALTER TABLE exomem_oauth_clients
   DROP CONSTRAINT exomem_oauth_clients_admission_mode_check;

@@ -700,9 +700,10 @@ describe(
           assert.ok(await findCloudOAuthAccessToken(homeConnection.accessDigest, CLOUD_RESOURCE));
         });
 
-        // The first-party mode keeps Home's client out of interactive OAuth in
-        // the release before this one too: it shares these store statements,
-        // and each admits only the modes it names.
+        // The release before this one shares these store statements. They admit
+        // a client by a pinned or generic mode or by admitted CIMD metadata;
+        // the seeded Home client has neither, and no supported writer adds
+        // that metadata to it.
         it("refuses the first-party client at authorization, code exchange and refresh", async () => {
           const owner = await newOwner();
           const seeded = await pool!.query<{ id: string; client_id: string; redirect_uri: string }>(

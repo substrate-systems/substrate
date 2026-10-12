@@ -455,6 +455,45 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(minted.rows[0].tokens, 0);
     });
 
+    it("answers unavailable, not an error, when the account's deletion begins while Home is calling", async () => {
+      const alice = await owner();
+      // The deletion commits after the session and cell checks, before the
+      // mint, as one transaction: the tenant and its cell change together.
+      __setExomemSqlForTests(async (strings, ...values) => {
+        const result = await taggedSql(pool)(strings, ...values);
+        if (strings.join("").includes("exomem-cloud:home-serving-cell")) {
+          const deletion = await pool.connect();
+          try {
+            await deletion.query("BEGIN");
+            await deletion.query(
+              "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+              [alice.tenantId]
+            );
+            await deletion.query(
+              "UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1",
+              [alice.cellId]
+            );
+            await deletion.query("COMMIT");
+          } finally {
+            deletion.release();
+          }
+        }
+        return result;
+      });
+      const cell = fakeCell(() => assert.fail("a deleting account gets no token to call with"));
+      try {
+        const levels = await getLevels(alice, cell.fetchCell);
+        assert.equal(levels.status, 200);
+        assert.deepEqual(await json(levels), {
+          state: "unavailable",
+          reason: "ACCOUNT_ACCESS_CLOSED",
+        });
+      } finally {
+        __setExomemSqlForTests(taggedSql(pool));
+      }
+      assert.equal(cell.calls.length, 0);
+    });
+
     it("answers a stopped or starting cell as unavailable without minting a token or calling it", async () => {
       const stopped = await owner({ desired: "stopped" });
       const starting = await owner({ ready: false });
