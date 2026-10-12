@@ -104,4 +104,14 @@ describe("mapCloudCellToLifecycleStatus", () => {
       { state: "degraded", code: "CELL_NOT_READY", retryable: true }
     );
   });
+
+  // An export holds a serving cell stopped on purpose; Home must not call that a fault.
+  it("reports a cell stopped by its export hold as paused for the export", () => {
+    for (const observed_state of ["stopping", "stopped"] as const) {
+      assert.deepEqual(
+        mapCloudCellToLifecycleStatus(row({ observed_state, ready: false, hold_kind: "export" })),
+        { state: "degraded", code: "CELL_PAUSED_FOR_EXPORT", retryable: true }
+      );
+    }
+  });
 });

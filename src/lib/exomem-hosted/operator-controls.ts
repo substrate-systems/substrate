@@ -300,6 +300,9 @@ export async function registerOperatorOAuthClient(
           )
         )
         AND exomem_oauth_clients.reviewer_bootstrap_ever_authorized = false
+        -- A first-party client is seeded by a migration and gets tokens only
+        -- from the server-side mint; an operator registration never rewrites it.
+        AND NOT exomem_oauth_clients.first_party
       RETURNING id, enabled
     `;
     const row = rows[0] as { id: string; enabled: boolean } | undefined;

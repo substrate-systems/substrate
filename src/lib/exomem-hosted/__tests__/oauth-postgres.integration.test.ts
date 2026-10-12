@@ -418,6 +418,58 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     );
   });
 
+  // An operator registration that names the first-party client's id must not
+  // turn Home's client into an operator client: rewritten redirects, a lost
+  // name, or the CASE that disables a client without a configuration digest.
+  it("never rewrites, renames or disables a first-party client on an operator registration", async () => {
+    const firstParty = await pool!.query(
+      `SELECT id, client_id, admission_mode, enabled, redirect_uris, client_name,
+              client_platform, oauth_client_config_sha256, authority_version
+       FROM exomem_oauth_clients WHERE first_party`
+    );
+    const seeded = firstParty.rows[0]!;
+    const redirectUri = "https://operator-takeover.example.test/callback";
+    const artifact = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_client_artifacts WHERE platform = 'claude' AND state = 'live' LIMIT 1"
+    );
+    await pool!.query(
+      "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+      [
+        oauthClientConfigSha256({
+          platform: "claude",
+          admissionMode: "pinned",
+          clientId: seeded.client_id,
+          redirectUris: [redirectUri],
+        }),
+        artifact.rows[0]!.id,
+      ]
+    );
+    try {
+      await assert.rejects(
+        registerOperatorOAuthClient({
+          admissionMode: "pinned",
+          platform: "claude",
+          artifactId: artifact.rows[0]!.id,
+          clientId: seeded.client_id,
+          redirectUris: [redirectUri],
+        }),
+        { code: "INVALID_REQUEST" }
+      );
+      const current = await pool!.query(
+        `SELECT id, client_id, admission_mode, enabled, redirect_uris, client_name,
+                client_platform, oauth_client_config_sha256, authority_version
+         FROM exomem_oauth_clients WHERE id = $1`,
+        [seeded.id]
+      );
+      assert.deepEqual(current.rows[0], seeded);
+    } finally {
+      await pool!.query(
+        "UPDATE exomem_client_artifacts SET oauth_client_config_sha256 = $1 WHERE id = $2",
+        ["f".repeat(64), artifact.rows[0]!.id]
+      );
+    }
+  });
+
   // Deliberately never restates the bound. It used to assert 32 in three places,
   // which meant raising it in the database would have been reported as a broken
   // test rather than as the intended change. The canonical source is

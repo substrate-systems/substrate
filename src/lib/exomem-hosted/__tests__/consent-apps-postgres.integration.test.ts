@@ -676,11 +676,30 @@ describe(
 
         it("keeps Home's own client out of the list and out of disconnect", async () => {
           const owner = await newOwner();
-          const home = await newPinnedClient({
-            redirectUri: `${ORIGIN}/home/callback`,
-            firstParty: true,
-          });
-          const homeConnection = await connect(owner, home);
+          // Migration 0066 seeds the one first-party client. Home mints its
+          // tokens on the server and never through a browser consent, so the
+          // grant is written here the way that mint writes it.
+          const homeGrant = await pool!.query<{ id: string; client_id: string }>(
+            `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes)
+             SELECT $1, $2, id, $3, ARRAY['exomem.read', 'exomem.write']
+             FROM exomem_oauth_clients WHERE first_party
+             RETURNING id, client_id`,
+            [owner.userId, owner.tenantId, CLOUD_RESOURCE]
+          );
+          const { id: grantId, client_id: homeClientId } = homeGrant.rows[0]!;
+          const family = await pool!.query<{ id: string }>(
+            `INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+             VALUES ($1, $2, now() + interval '30 days') RETURNING id`,
+            [grantId, homeClientId]
+          );
+          const accessDigest = randomBytes(32);
+          await pool!.query(
+            `INSERT INTO exomem_oauth_access_tokens (
+               access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
+             ) VALUES ($1, $2, $3, $4, $5, ARRAY['exomem.read', 'exomem.write'], now() + interval '2 minutes')`,
+            [accessDigest, grantId, family.rows[0]!.id, homeClientId, CLOUD_RESOURCE]
+          );
+          const homeConnection = { grantId, accessDigest };
 
           const { apps } = await listOwnerApps(owner);
           const response = await disconnectRoute(

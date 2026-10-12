@@ -4,9 +4,12 @@ import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId, redeemCloudInviteAtomic } from "../cloud-admission";
+import { handleCloudExportLinkRequest, handleCloudExportsRequest } from "../cloud-exports";
+import { handleCloudHomeLevelsRequest } from "../cloud-home-mcp";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
 import { findCloudOAuthAccessToken } from "../cloud-oauth";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import { digestSecret, generateExternalToken } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // D7 (reopened task 3.2): scripts/exomem-cloud-grants.sql is the single
@@ -194,10 +197,14 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
     await adminPool?.end();
   });
 
-  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE outside C1-C1d and C5, proven with a real round trip", async () => {
+  it("gives substrate_app SELECT/INSERT/UPDATE/DELETE outside C1-C1d, C5 and C6, proven with a real round trip", async () => {
     const tableNames = await publicTableNames();
     const nonCloudTables = tableNames.filter(
-      (name) => !(C1_TABLES as readonly string[]).includes(name) && name !== "schema_migrations" && name !== "exomem_cloud_imports"
+      (name) =>
+        !(C1_TABLES as readonly string[]).includes(name) &&
+        name !== "schema_migrations" &&
+        name !== "exomem_cloud_imports" &&
+        name !== "exomem_cloud_exports"
     );
     assert.ok(nonCloudTables.length > 10, "sanity: the schema of record has plenty of non-Cloud tables");
     const privileges = await tablePrivileges("substrate_app", nonCloudTables);
@@ -843,5 +850,203 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       ).rows[0].observed_state,
       "failed"
     );
+  });
+
+  // C6: Substrate writes the request columns, cellctl the observation
+  // columns, and the gateway has no privilege at all; cellctl alone writes the
+  // C1 disk-use columns. Checked against every column, after a blanket grant
+  // and a rerun, so a column added later without a grant decision shows up.
+  it("holds each role to exactly its C6 columns, and gives the gateway nothing on C6", async () => {
+    await ownerPool!.query(
+      "GRANT ALL ON exomem_cloud_exports TO substrate_app, exomem_cellctl, exomem_gateway, PUBLIC"
+    );
+    await applyMigrations({ databaseUrl: roleUrl(databaseUrl!, "substrate_owner") });
+
+    async function columnPrivileges(role: string, table: string, privilege: string) {
+      const { rows } = await ownerPool!.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = $2
+           AND has_column_privilege($1, quote_ident($2), column_name, $3)
+         ORDER BY column_name`,
+        [role, table, privilege]
+      );
+      return rows.map((row) => row.column_name);
+    }
+    const allColumns = (
+      await ownerPool!.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = 'exomem_cloud_exports'
+         ORDER BY column_name`
+      )
+    ).rows.map((row) => row.column_name);
+
+    assert.deepEqual(await columnPrivileges("substrate_app", "exomem_cloud_exports", "SELECT"), allColumns);
+    assert.deepEqual(await columnPrivileges("substrate_app", "exomem_cloud_exports", "INSERT"), [
+      "cell_id",
+      "export_id",
+      "link_requested_at",
+      "requested_state",
+    ]);
+    assert.deepEqual(await columnPrivileges("substrate_app", "exomem_cloud_exports", "UPDATE"), [
+      "link_requested_at",
+      "requested_state",
+    ]);
+    assert.deepEqual(await columnPrivileges("exomem_cellctl", "exomem_cloud_exports", "SELECT"), allColumns);
+    assert.deepEqual(await columnPrivileges("exomem_cellctl", "exomem_cloud_exports", "INSERT"), []);
+    assert.deepEqual(await columnPrivileges("exomem_cellctl", "exomem_cloud_exports", "UPDATE"), [
+      "archive_bytes",
+      "archive_sha256",
+      "archive_version_id",
+      "download_url",
+      "download_url_expires_at",
+      "error_code",
+      "expires_at",
+      "link_issued_at",
+      "observed_state",
+      "ready_at",
+      "upload_id",
+    ]);
+    for (const privilege of ["SELECT", "INSERT", "UPDATE"]) {
+      assert.deepEqual(await columnPrivileges("exomem_gateway", "exomem_cloud_exports", privilege), []);
+    }
+    for (const role of CLOUD_ROLES) {
+      const { rows } = await ownerPool!.query<{ can_delete: boolean }>(
+        "SELECT has_table_privilege($1, 'exomem_cloud_exports', 'DELETE') AS can_delete",
+        [role]
+      );
+      assert.equal(rows[0]!.can_delete, false, `${role} must not delete export rows`);
+    }
+
+    const usage = ["filesystem_bytes", "usage_observed_at", "used_bytes"];
+    const cellctlUpdates = await columnPrivileges("exomem_cellctl", "exomem_cloud_cells", "UPDATE");
+    assert.deepEqual(cellctlUpdates.filter((column) => usage.includes(column)), usage);
+    const appUpdates = await columnPrivileges("substrate_app", "exomem_cloud_cells", "UPDATE");
+    assert.deepEqual(appUpdates.filter((column) => usage.includes(column)), []);
+    const gatewayReads = await columnPrivileges("exomem_gateway", "exomem_cloud_cells", "SELECT");
+    assert.deepEqual(gatewayReads.filter((column) => usage.includes(column)), []);
+  });
+
+  it("runs the Home mint and the export request AS substrate_app, and the gateway resolves the Home token AS exomem_gateway", async () => {
+    const resourceEnv = {
+      EXOMEM_CLOUD_MCP_URL: CLOUD_RESOURCE,
+      EXOMEM_CLOUD_MCP_PATH: "/mcp/v1",
+      EXOMEM_CLOUD_HOME_CHANNEL_ENABLED: "true",
+      EXOMEM_CLOUD_EXPORTS_ENABLED: "true",
+    };
+    const tenantId = await newTenant();
+    const owner = await ownerPool!.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+      [tenantId]
+    );
+    const userId = owner.rows[0]!.owner_user_id;
+    const homeCellId = randomCloudCellId();
+    await ownerPool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [homeCellId, tenantId]
+    );
+    await ownerPool!.query(
+      "UPDATE exomem_cloud_cells SET ready = true, observed_state = 'running', observed_image = 'registry.example.test/exomem@sha256:' || repeat('c', 64) WHERE cell_id = $1",
+      [homeCellId]
+    );
+    const cookie = generateExternalToken();
+    const csrf = generateExternalToken();
+    await ownerPool!.query(
+      "INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')",
+      [userId, tenantId, digestSecret(cookie), digestSecret(csrf)]
+    );
+    const browser = (method: string, path: string, body?: unknown) =>
+      new Request(`https://app.example.test${path}`, {
+        method,
+        headers: {
+          cookie: `exomem_session=${cookie}; exomem_csrf=${csrf}`,
+          origin: "https://app.example.test",
+          host: "app.example.test",
+          "x-exomem-csrf": csrf,
+          "content-type": "application/json",
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+
+    async function appTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+      const client = await appPool!.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await callback(taggedSql(client));
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    let routedCellId: string | undefined;
+    const fetchCell = (async (_url: string, init: RequestInit) => {
+      const bearer = new Headers(init.headers).get("authorization")!.slice("Bearer ".length);
+      __setExomemSqlForTests(taggedSql(gatewayPool!));
+      try {
+        routedCellId = (await findCloudOAuthAccessToken(digestSecret(bearer), CLOUD_RESOURCE))?.cellId;
+      } finally {
+        __setExomemSqlForTests(taggedSql(appPool!));
+      }
+      const levels = { level: "balanced", source: "default" };
+      return Response.json({
+        jsonrpc: "2.0",
+        id: JSON.parse(String(init.body)).id,
+        result: {
+          isError: false,
+          structuredContent: { revision: "r1", levels: { coding: levels, conversation: levels } },
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    __setExomemSqlForTests(taggedSql(appPool!));
+    __setExomemTransactionForTests(appTransaction);
+    try {
+      const levels = await handleCloudHomeLevelsRequest(browser("GET", "/api/exomem/cloud/home/levels"), {
+        fetchCell,
+        env: resourceEnv,
+      });
+      assert.equal(levels.status, 200);
+      assert.equal(routedCellId, homeCellId);
+
+      const started = await handleCloudExportsRequest(browser("POST", "/api/exomem/cloud/exports", {}), {
+        env: resourceEnv,
+      });
+      assert.equal(started.status, 201);
+      const exportId = ((await started.json()) as { export: { export_id: string } }).export.export_id;
+      await cellctlPool!.query(
+        `UPDATE exomem_cloud_exports
+         SET observed_state = 'ready', archive_bytes = 10, archive_sha256 = repeat('d', 64),
+             ready_at = now(), expires_at = now() + interval '1 day'
+         WHERE export_id = $1`,
+        [exportId]
+      );
+      const answering = (async () => {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const { rowCount } = await cellctlPool!.query(
+            `UPDATE exomem_cloud_exports
+             SET download_url = 'https://objects.example.test/archive', download_url_expires_at = now() + interval '5 minutes',
+                 link_issued_at = GREATEST(clock_timestamp(), COALESCE(link_requested_at, '-infinity'))
+             WHERE export_id = $1 AND link_requested_at IS NOT NULL`,
+            [exportId]
+          );
+          if (rowCount) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+      const link = await handleCloudExportLinkRequest(
+        browser("POST", `/api/exomem/cloud/exports/${exportId}/link`),
+        exportId,
+        { env: resourceEnv, linkWaitMs: 4_000 }
+      );
+      await answering;
+      assert.equal(link.status, 200);
+    } finally {
+      __setExomemSqlForTests(null);
+      __setExomemTransactionForTests(null);
+    }
   });
 });

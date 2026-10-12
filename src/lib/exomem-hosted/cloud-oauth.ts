@@ -65,6 +65,9 @@ export async function resolveApprovedCloudOAuthClient(
       AND redirect_uris_digest = digest(convert_to(redirect_uris::text, 'utf8'), 'sha256')
       AND admission_mode IN ('pinned', 'cimd', 'generic')
       AND enabled = true
+      -- A first-party client gets tokens only from the server-side mint
+      -- (cloud-home-mcp.ts), never through a browser consent.
+      AND NOT client.first_party
       AND (
         admission_mode = 'pinned'
         OR exomem_oauth_generic_client_admitted(client.admission_mode)

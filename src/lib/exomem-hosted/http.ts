@@ -17,7 +17,11 @@ export function newRequestId(): string {
   return randomUUID();
 }
 
-export async function readBoundedJsonRequest(request: Request, maxBytes: number): Promise<unknown> {
+// Takes a Response as well as a Request: the Home channel reads the cell's answer with the same bound.
+export async function readBoundedJsonRequest(
+  request: Pick<Request, "headers" | "body">,
+  maxBytes: number
+): Promise<unknown> {
   const declaredRaw = request.headers.get("content-length");
   if (declaredRaw) {
     if (!/^\d+$/.test(declaredRaw)) throw exomemErrors.invalidRequest();

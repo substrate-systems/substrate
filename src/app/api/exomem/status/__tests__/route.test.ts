@@ -26,10 +26,10 @@ before(() => {
   });
   mock.module("@/lib/exomem-hosted/cloud-status", {
     namedExports: {
-      getOwnerCloudStatus: async (tenantId: string) => {
+      getOwnerCloudHomeStatus: async (tenantId: string) => {
         assert.equal(tenantId, TENANT);
         cloudStatusCalls += 1;
-        return cloudStatus;
+        return { status: cloudStatus, storage: { state: "unknown" } };
       },
     },
   });
