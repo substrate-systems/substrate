@@ -491,7 +491,7 @@
   flex-wrap: wrap;
   gap: 6px 18px;
   font-size: 13px;
-  color: var(--fg-secondary);
+  color: var(--fg-muted);
 }
 
 .copyright {
@@ -789,5 +789,17 @@
 
   .footer {
     padding: 24px 16px 40px;
+  }
+
+  /* Each link is a 40 px line, so wrapped rows never share a tap area (the board's
+     6 px row gap would let a tap under one link open the link below). */
+  .footerLinks {
+    row-gap: 0;
+  }
+
+  .footerLinks a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
   }
 }
