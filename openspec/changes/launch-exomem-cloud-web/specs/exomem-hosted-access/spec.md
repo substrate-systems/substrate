@@ -1,0 +1,516 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Exomem access is invite only during alpha`
+- TO: `### Requirement: Exomem access starts with an email, an invitation or a waitlist place`
+
+## MODIFIED Requirements
+
+### Requirement: Exomem access starts with an email, an invitation or a waitlist place
+
+Access SHALL start in one of three ways: a start request, an operator invitation, or a waitlist place. Only an authenticated operator SHALL create a complimentary, covered, friend or paid operator invitation. The public start form SHALL create only paid self-serve start links. Each invitation MUST be bound to one normalized email address, an entitlement source, an expiry and one high-entropy token. The system MUST store the token's digest, not the plaintext.
+
+#### Scenario: Operator creates a complimentary invite
+
+- **WHEN** an operator with valid Exomem invite authority creates an unexpired complimentary invite for an email address while Cloud has a free place
+- **THEN** the system stores a single-use digest-bound invite, counts it against Cloud capacity, and returns or delivers one redemption URL
+- **AND** the plaintext token is not written to logs or retained in the database
+
+#### Scenario: Operator creates a paid invitation
+
+- **WHEN** an authorized operator creates a paid invitation while Cloud has a free place
+- **THEN** the system stores and delivers one operator-authorized Paddle invitation and counts it against Cloud capacity
+- **AND** the browser cannot substitute the Paddle product, price, environment, or public admission path
+
+#### Scenario: Invitation delivery fails or expires
+
+- **WHEN** a paid invitation is not delivered, expires, or is revoked before redemption
+- **THEN** it no longer counts against Cloud capacity
+- **AND** its record remains available for audit
+
+#### Scenario: Public caller attempts to create an invite
+
+- **WHEN** a caller without operator authority invokes the invite creation boundary
+- **THEN** the system rejects the request without revealing invite, capacity or account state
+
+#### Scenario: Start form never creates a free invitation
+
+- **WHEN** anyone submits the start form
+- **THEN** the system creates at most a paid self-serve start link or a waitlist entry
+- **AND** it never creates a complimentary, covered or friend invitation
+
+### Requirement: Existing users can request a non-enumerating sign-in link
+
+An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The start form SHALL answer every request that passes the challenge with the same 202 acknowledgement, cookie and minimum response time. That includes six outcomes: a malformed address, a rate-limited request, an existing owner, a new address with a free place, a new address when Cloud is full, and closed admission. A start request MUST NOT create an account or tenant.
+
+#### Scenario: Existing Exomem owner requests a link
+
+- **WHEN** an existing owner submits their normalized email with a valid challenge token within rate limits
+- **THEN** the system queues a sign-in link email and returns the generic acknowledgement
+
+#### Scenario: Unknown address requests a link
+
+- **WHEN** an address with no Exomem tenant submits the same request
+- **THEN** the system returns the same acknowledgement, with a byte-identical `Set-Cookie`, and creates no identity, tenant or entitlement
+- **AND** the response takes at least as long as the minimum response time
+
+#### Scenario: Repeat requests and waitlist mode
+
+- **WHEN** a waiting person asks again, a person with a live start link asks again, or the setting is `waitlist` and a place is free
+- **THEN** the acknowledgement, the cookie and the minimum response time are the same as for every other outcome
+
+#### Scenario: Request is rate limited or malformed
+
+- **WHEN** the address is malformed, or the network or the address exceeds its hourly limit
+- **THEN** the system returns the same acknowledgement as for an accepted request and sends nothing
+
+### Requirement: Invitation and sign-in surfaces preserve account privacy
+
+Public access responses and operational logs MUST NOT reveal whether an email has an account, and MUST NOT include invite tokens, sign-in tokens, session secrets, cell credentials, or raw email where an opaque reference suffices. One response MAY say that the bound email already owns an account: the invitation inspect response, which only the holder of a valid invitation token can read.
+
+#### Scenario: Sensitive access sentinel reaches an error path
+
+- **WHEN** an invite, sign-in, or session operation fails while carrying a sensitive sentinel
+- **THEN** application logs and returned diagnostics omit the token or secret
+- **AND** public responses disclose no additional account-existence information
+
+#### Scenario: Holder inspects an invitation for an existing owner
+
+- **WHEN** the holder of a valid invitation token inspects it and the bound email already owns a tenant
+- **THEN** the response says that the owner exists
+- **AND** no other public response says whether an email has an account
+
+### Requirement: Successful onboarding reaches a useful memory flow
+
+After valid redemption, the system SHALL show deterministic provisioning progress and SHALL lead a ready tenant through the setup journey: add Exomem to an assistant, finish in that app, and see the connection. The journey MUST NOT require local installation, GitHub, Markdown, vault paths, or billing details for a complimentary invite.
+
+#### Scenario: Cell becomes ready normally
+
+- **WHEN** an invited user's cell reaches ready state within the target window
+- **THEN** the setup step offers "Add Exomem to your assistant" with the tenant's Cloud connector address
+- **AND** the user can complete it without encountering infrastructure or schema terminology
+
+#### Scenario: Provisioning is delayed
+
+- **WHEN** the cell is not yet ready
+- **THEN** the page shows a content-free progress state, refreshes automatically, and shows the support reference
+- **AND** it does not accept a write that could be lost or routed elsewhere
+
+## ADDED Requirements
+
+### Requirement: The start form is protected by a Turnstile challenge
+
+The start form SHALL check every request with a Cloudflare Turnstile challenge. The form MUST fail closed only when the service reports a token error (`missing-input-response`, `invalid-input-response` or `timeout-or-duplicate`), or when the verified hostname or action differs from the expected one. For every other failure, the form SHALL fall back to the rate limits and the server SHALL log an error. The former sign-in link route SHALL use the same handler.
+
+#### Scenario: Challenge token is missing, invalid or reused
+
+- **WHEN** the request carries a missing, invalid or already used challenge token
+- **THEN** the system answers 400 `challenge_failed` before it reads the email
+
+#### Scenario: Hostname differs
+
+- **WHEN** the service verifies the token but reports a hostname other than the public host
+- **THEN** the system answers 400 `challenge_failed`
+
+#### Scenario: Action differs
+
+- **WHEN** the service verifies the token but reports an action other than `start`
+- **THEN** the system answers 400 `challenge_failed`
+
+#### Scenario: The check cannot run
+
+- **WHEN** the service answers 408, 429 or a 5xx status, the request fails in transport, the service reports `internal-error`, the secret is missing or rejected, or a test secret runs in production
+- **THEN** the request continues under the per-address and per-network rate limits
+- **AND** the server logs an error
+
+#### Scenario: Former sign-in route is called
+
+- **WHEN** a caller posts to the former sign-in link route
+- **THEN** the same challenge, rate limits and minimum response time apply
+
+### Requirement: The admission setting decides what a new address receives
+
+The setting `EXOMEM_SELF_SERVE_ADMISSION` (`closed`, `waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default is `closed`.
+
+#### Scenario: Admission is closed
+
+- **WHEN** the setting is `closed` and an address with no tenant submits the start form
+- **THEN** the system sends no email and creates no start link and no waitlist entry
+
+#### Scenario: Admission is open and a place is free
+
+- **WHEN** the setting is `open`, Cloud has a free place, nobody waits, and a new address submits the start form
+- **THEN** the system creates a start link that expires 48 hours after creation
+- **AND** it queues one start email for that address
+
+#### Scenario: Admission is open and Cloud is full
+
+- **WHEN** the setting is `open` and Cloud has no free place, or someone waits, and a new address submits the start form
+- **THEN** the system adds the address to the waitlist and queues the waitlist email
+- **AND** it creates no start link
+
+#### Scenario: Admission is waitlist only
+
+- **WHEN** the setting is `waitlist` and a new address submits the start form
+- **THEN** the system adds the address to the waitlist even when Cloud has a free place
+
+### Requirement: Waitlisted people are admitted first come, first served
+
+While the setting is `open`, the system SHALL admit waiting people in the order they joined, one for each free Cloud place, and SHALL skip an address that already owns an active account. A new address MUST NOT pass a person who waits. A person who asks again while waiting SHALL keep their place and MUST NOT receive a second waitlist email. A person whose start link was used or lapsed SHALL join the back of the queue when they ask again. The system MUST NOT reveal a queue position.
+
+#### Scenario: A place opens
+
+- **WHEN** a Cloud place becomes free and people wait
+- **THEN** the system creates a start link for the oldest waiting person, marks them admitted and queues the place-opened email
+- **AND** each admission commits in its own transaction under the capacity lock
+
+#### Scenario: Newcomer arrives while people wait
+
+- **WHEN** Cloud has a free place, someone already waits, and a new address submits the start form
+- **THEN** the new address joins the back of the waitlist
+
+#### Scenario: Waiting person asks again
+
+- **WHEN** a person who still waits submits the start form again
+- **THEN** their entry keeps its place, no second entry exists, and no second waitlist email is sent
+
+#### Scenario: Waiting address already owns an account
+
+- **WHEN** the oldest waiting address already owns an active account
+- **THEN** promotion skips it and admits the next waiting person
+
+#### Scenario: Start link lapsed or was used
+
+- **WHEN** a person's start link lapsed unused, or was used and the tenant was later deleted, and they submit the start form again
+- **THEN** they join the back of the queue
+
+#### Scenario: Promotion runs twice at once
+
+- **WHEN** two promotion runs overlap with one free place
+- **THEN** exactly one person is admitted
+
+#### Scenario: Capacity observations are stale
+
+- **WHEN** Cloud capacity observations are stale
+- **THEN** the system admits nobody and queues new addresses
+
+### Requirement: A person's start links share one place
+
+When the system reissues a start link for the same person, it SHALL keep the original expiry and SHALL leave earlier unconsumed links valid until they expire. Redeeming one start link SHALL revoke the person's other links.
+
+#### Scenario: Person with a live start link asks again
+
+- **WHEN** a person who holds a live start link submits the start form again
+- **THEN** the system sends a fresh start link with the same expiry, and the earlier unconsumed links stay valid until they expire
+- **AND** no one else can cancel or move that person's place
+
+#### Scenario: One start link is redeemed
+
+- **WHEN** a person redeems one of several start links issued to them
+- **THEN** the system revokes the others
+
+### Requirement: Invitation and hold emails are sent once
+
+Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease and SHALL retry until the email's own expiry. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
+
+#### Scenario: The same fact is recorded twice
+
+- **WHEN** a retry records the same causing fact twice
+- **THEN** one outbox row and one email exist for that dedupe key
+
+#### Scenario: Email provider is down for hours
+
+- **WHEN** the email provider fails and recovers before a start link expires
+- **THEN** the system delivers the start email and the person keeps their place
+- **AND** after the link's own expiry the system stops retrying
+
+#### Scenario: Precondition no longer holds
+
+- **WHEN** the system claims a reminder after the person has already used the invitation
+- **THEN** the row becomes cancelled and no email is sent
+
+#### Scenario: Invitee reminder
+
+- **WHEN** an operator issues an invitation
+- **THEN** the system queues a reminder for three days before the invitation expires, with the token encrypted in the payload
+- **AND** it sends the reminder only while the invitation is still usable
+
+#### Scenario: Inviter notices
+
+- **WHEN** a friend invitation that has an inviter email is used
+- **THEN** the system queues "used" to the inviter inside the consuming transaction
+- **AND** when the invitation expires unused, the system sends "ended unused" to the inviter
+
+#### Scenario: Hold reminder
+
+- **WHEN** a person who has not paid redeems an invitation and the system stops the cell
+- **THEN** the system queues the hold reminder for five days after that cell's creation
+- **AND** it cancels the reminder if the cell no longer stops or the tenant has paid
+
+#### Scenario: Recipient time zone is unknown
+
+- **WHEN** the system renders a time limit for a recipient with no stored time zone
+- **THEN** the time shows in UTC with the label
+
+### Requirement: Email and waitlist data are kept for a limited time
+
+The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the later of the person's last request and the expiry of the entry's last start link, unless the address owns an account. Deleting an account SHALL scrub its outbox rows. The privacy page SHALL state these periods.
+
+#### Scenario: Settled email ages
+
+- **WHEN** an outbox row settled more than 30 days ago
+- **THEN** the row keeps no recipient and no payload
+
+#### Scenario: Waitlist entry ages
+
+- **WHEN** a waiting person made no request for 180 days and holds no live start link
+- **THEN** the system deletes the entry
+
+#### Scenario: Admitted entry whose link lapsed
+
+- **WHEN** a person was admitted, their last start link expired 180 days ago, and the address owns no account
+- **THEN** the system deletes the entry
+
+#### Scenario: Address owns an account
+
+- **WHEN** an entry's address owns an account
+- **THEN** the 180-day deletion does not apply to that entry
+
+#### Scenario: Account is deleted
+
+- **WHEN** an account deletion finishes
+- **THEN** no outbox row keeps that account's recipient or payload
+
+#### Scenario: Privacy page states the periods
+
+- **WHEN** a person reads the privacy page
+- **THEN** it states the outbox period of 30 days and that a waitlist entry is deleted 180 days after the later of the last request and the last link's expiry
+
+### Requirement: Start and redemption record the person's time zone
+
+The start form and the redemption routes SHALL accept an optional IANA time zone name. The system SHALL check it against the closed IANA set and SHALL store the time zone as unknown when the name is not in the set.
+
+#### Scenario: Valid time zone
+
+- **WHEN** a redemption carries `Europe/Lisbon`
+- **THEN** the tenant stores that time zone
+
+#### Scenario: Unknown time zone
+
+- **WHEN** a redemption carries a name outside the IANA set
+- **THEN** the request succeeds and the tenant's time zone stays unknown
+
+### Requirement: A paid web redemption continues in the setup journey
+
+A paid redemption that began on the web, with no live OAuth continuation, SHALL lead to the setup journey, not to Home. A redemption under a live OAuth continuation SHALL keep returning the consent path.
+
+#### Scenario: Paid web redemption
+
+- **WHEN** a person redeems a paid invitation from the web with no live OAuth continuation
+- **THEN** the destination is the setup journey step "Add Exomem to your assistant"
+
+#### Scenario: Redemption from an app
+
+- **WHEN** a person redeems an invitation while an OAuth continuation is live
+- **THEN** the response returns the consent path
+
+### Requirement: Paid redemption admits a stopped cell that starts after payment
+
+A complimentary redemption SHALL create a cell that runs. A paid redemption SHALL create the tenant, an entitlement that awaits its first payment, and a cell whose desired state is stopped and that holds its Cloud place. The system MUST NOT start that cell until a verified payment makes the entitlement active or trialing.
+
+#### Scenario: Complimentary redemption
+
+- **WHEN** a person redeems a complimentary invitation
+- **THEN** the system creates a cell whose desired state is running
+
+#### Scenario: Paid redemption
+
+- **WHEN** a person redeems a paid invitation
+- **THEN** the system creates the tenant, an entitlement that awaits its first payment, and a stopped cell
+- **AND** no runtime starts for that cell
+
+#### Scenario: Verified payment arrives
+
+- **WHEN** a verified subscription event makes the entitlement active or trialing
+- **THEN** the cell's desired state becomes running
+
+### Requirement: Not now and Keep it as it is end the request without a code
+
+When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end the OAuth request with `access_denied`, as a finished connection ends it. The decline route SHALL take its authority from the OAuth continuation cookie, SHALL check the same origin and a nonce, and SHALL consume the transaction once. It MUST redirect only to the redirect URI bound to the consumed transaction. Neither outcome SHALL write or revoke a grant or a code.
+
+#### Scenario: Web app is declined
+
+- **WHEN** a person chooses "Not now" for a web app and the transaction is live
+- **THEN** the system consumes the transaction and returns the validated redirect URI with `error=access_denied` and the original `state`
+- **AND** the page navigates the top-level window to that address after showing the declined or kept state for at most 3 seconds
+
+#### Scenario: Loopback app is declined
+
+- **WHEN** a person chooses "Not now" for an app whose redirect is a loopback address
+- **THEN** the page sends the denial to the app in the background and stays on the declined state
+- **AND** if the browser blocks that request, the page falls back to a top-level navigation
+
+#### Scenario: Connected app is kept
+
+- **WHEN** a person who already connected the app chooses "Keep it as it is"
+- **THEN** the app receives `access_denied` and the existing grant stays unchanged
+
+#### Scenario: Connect after all
+
+- **WHEN** the declined state is shown for a web app
+- **THEN** it offers a link to the app's connector settings page when one is configured for the platform, and otherwise no action
+- **AND** for a loopback app it offers no such action
+
+#### Scenario: Request is stale, replayed or expired
+
+- **WHEN** the confirmation is stale, the nonce is wrong, or the transaction was already used or expired
+- **THEN** the system answers 409 with the current consent path, 400, or 410, and redirects nowhere
+
+#### Scenario: Request comes from another origin
+
+- **WHEN** a decline request comes from a different origin
+- **THEN** the system rejects it before it touches the transaction
+
+### Requirement: The consent page shows where the code goes
+
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. When the client declared a name, the page SHALL show it next to that destination and label it as the client's own claim. The system MUST store a client name only when the client declares one.
+
+#### Scenario: Web client declares a name
+
+- **WHEN** a web client with a declared name opens the consent page
+- **THEN** the page shows the redirect host and the declared name, labelled as the client's own claim
+
+#### Scenario: Loopback client declares a name
+
+- **WHEN** a client with a loopback redirect and a declared name opens the consent page
+- **THEN** the page shows "this computer" and the declared name, labelled as the client's own claim
+
+#### Scenario: Client declares no name
+
+- **WHEN** a client declares no name
+- **THEN** the system stores no name, and the page shows the destination with the platform label when one exists
+
+### Requirement: Owners list and disconnect connected apps
+
+A signed-in owner SHALL be able to list connected apps and disconnect each one. The list MUST show the name the client declared, else the platform label, else the host. Beside a declared name, it SHALL show the redirect host and label the name as the client's own claim. It MUST NOT include first-party clients. Disconnect SHALL revoke the app's grant, token families, access tokens and unconsumed codes, limited to the session's user and tenant.
+
+#### Scenario: Owner lists apps
+
+- **WHEN** an owner opens the app list
+- **THEN** each app shows its display name, platform, kind (web or local), first connected time and last authorized time
+- **AND** a client-declared name shows the redirect host beside it, labelled as the client's own claim
+- **AND** the first-party Home client is absent
+
+#### Scenario: Owner disconnects an app
+
+- **WHEN** an owner disconnects one of their apps with a valid session and CSRF value
+- **THEN** the grant and its tokens and codes are revoked and the system answers 200
+- **AND** repeating the request also answers 200
+
+#### Scenario: Owner names another tenant's app
+
+- **WHEN** a request names an unknown id or an app of another tenant
+- **THEN** the system answers 404 and changes nothing
+
+### Requirement: Reviewers sign in on the web
+
+The reviewer sign-in route SHALL accept a username and password without an OAuth nonce, apply the same rate limits and constant-work password check as the app path, create an Exomem web session and send the reviewer to Home. Every failure MUST return the same 401. A request with a nonce SHALL keep the app path.
+
+#### Scenario: Valid reviewer credential on the web
+
+- **WHEN** a reviewer posts a valid unexpired credential without a nonce
+- **THEN** the system creates a web session and returns Home as the destination
+
+#### Scenario: Reviewer credential fails
+
+- **WHEN** the username is unknown, the password is wrong, or the credential is expired or revoked
+- **THEN** the system returns one identical 401 without saying which part failed
+
+#### Scenario: Reviewer signs in from an app
+
+- **WHEN** the request carries a nonce
+- **THEN** the system follows the existing app path unchanged
+
+### Requirement: Friend invitations name the inviter and carry the friend price
+
+An operator SHALL be able to issue an invitation of kind `standard`, `friend` or `covered`. A friend invitation SHALL carry an inviter name (up to 60 characters), an optional note (up to 280 characters) and an optional inviter email. A covered invitation SHALL grant complimentary access with no checkout. Invitees SHALL see names and notes as plain text.
+
+#### Scenario: Operator issues a friend invitation
+
+- **WHEN** an operator issues a friend invitation with an inviter name, a note and an inviter email
+- **THEN** the system stores them with the invitation and delivers one redemption URL
+
+#### Scenario: Inviter email is absent
+
+- **WHEN** an operator issues a friend invitation without an inviter email
+- **THEN** the invitation is valid and the inviter receives no notice
+
+#### Scenario: Covered invitation
+
+- **WHEN** an operator issues a covered invitation
+- **THEN** the entitlement source is complimentary and the invitee sees no checkout
+
+### Requirement: Inspecting an invitation shows only what its holder needs
+
+The inspect route SHALL take a bearer token and return the invitation's kind, bound email, expiry, inviter name, note and prices. All unusable tokens MUST get one identical 404. The route SHALL rate limit each network address. A token presented by an existing owner MUST NOT sign that owner in.
+
+#### Scenario: New person inspects a friend invitation
+
+- **WHEN** a bearer token for a usable friend invitation is inspected
+- **THEN** the answer carries the kind, bound email, expiry, inviter name, note, and the usual and friend prices
+- **AND** the answer never carries the discount id
+
+#### Scenario: Price cannot be read
+
+- **WHEN** the price preview from the payment provider fails
+- **THEN** the price field is unknown with the reason `price_unavailable` and no number is shown
+
+#### Scenario: Token is unusable
+
+- **WHEN** the token is expired, used, revoked or unknown
+- **THEN** the system answers one identical 404 that does not say which
+
+#### Scenario: Existing owner presents an invitation
+
+- **WHEN** the bound email already owns a live tenant
+- **THEN** the answer says the owner exists and whether the caller is signed in
+- **AND** the system mints no session from the token
+
+#### Scenario: Inspect is rate limited
+
+- **WHEN** one network address inspects more than the allowed number of tokens in ten minutes
+- **THEN** the system refuses further requests from that address
+
+### Requirement: An existing owner chooses the friend price or keeps their plan
+
+A signed-in owner whose email equals the invitation's email SHALL choose `use_friend_price` or `keep_plan`. The system MUST NOT change a paying owner's plan without that choice. A covered or standard invitation to a paying owner SHALL allow `keep_plan` only. The system SHALL record the decision once and return it on repeat.
+
+#### Scenario: Owner takes the friend price
+
+- **WHEN** an owner with a live subscription chooses `use_friend_price` on a friend invitation
+- **THEN** the system applies the discount to the subscription from the next billing period, then consumes the invitation and records the decision
+- **AND** it answers 200 `applied` with the next payment time
+
+#### Scenario: Subscription already ended
+
+- **WHEN** the owner's subscription has ended and they choose `use_friend_price`
+- **THEN** the system records the offer on the tenant and answers 200 `applied_on_resubscribe`
+
+#### Scenario: Owner keeps their plan
+
+- **WHEN** an owner chooses `keep_plan`
+- **THEN** the system consumes the invitation, changes no billing, and answers 200 `kept`
+
+#### Scenario: Payment provider fails
+
+- **WHEN** the provider refuses or times out
+- **THEN** the system answers 503 and leaves the invitation unconsumed
+
+#### Scenario: Friend discount fails verification
+
+- **WHEN** the configured friend discount fails its checks before the subscription update
+- **THEN** the system refuses the decision with a stable error, makes no update and leaves the invitation unconsumed
+
+#### Scenario: Session email differs
+
+- **WHEN** the session's email differs from the invitation's email
+- **THEN** the system refuses the decision and changes nothing
