@@ -32,7 +32,7 @@ import {
   type StatusRead,
   writeLevel,
 } from "./home-api";
-import { inviteCopy } from "../_journey/copy";
+import { breakCopy, consentCopy, inviteCopy } from "../_journey/copy";
 import { PriceCard } from "../_journey/parts";
 import { ConnectedApps } from "./home-apps";
 import { PlanAndAccount, YourData } from "./home-account";
@@ -520,9 +520,9 @@ export default function HomeClient({
       ? levels.levels.coding.level
       : "balanced";
   const bannerLabel = {
-    fix_billing: "Fix billing",
-    resubscribe: "Resubscribe",
-    resume: "Resume subscription",
+    fix_billing: consentCopy.readOnly.fixBilling,
+    resubscribe: breakCopy.ended.resubscribe,
+    resume: breakCopy.paused.resume,
   };
 
   return (
@@ -565,7 +565,7 @@ export default function HomeClient({
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        Status page ↗
+                        {breakCopy.connectError.statusPage}
                       </ButtonLink>
                     ) : action === "support" ? (
                       <ButtonLink key={action} size="detail" href="/exomem/support">

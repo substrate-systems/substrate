@@ -33,7 +33,7 @@ import {
   type Clock,
 } from "./home-format";
 import type { PaddlePricePreview } from "@/lib/paddle";
-import { breakCopy, subscribeCopy } from "../_journey/copy";
+import { breakCopy, consentCopy, subscribeCopy } from "../_journey/copy";
 import { friendCheckoutPanel, type PricePanel } from "../invite/invite-view";
 import type { Lifecycle } from "./home-state";
 
@@ -680,9 +680,9 @@ export function planView(
 
   let action: PlanView["action"] = null;
   if (variant === "readonly" && billing?.portalAvailable) {
-    action = { label: "Fix billing", kind: "portal" };
+    action = { label: consentCopy.readOnly.fixBilling, kind: "portal" };
   } else if (variant === "ended" && billing?.checkoutAvailable) {
-    action = { label: "Resubscribe", kind: "checkout" };
+    action = { label: breakCopy.ended.resubscribe, kind: "checkout" };
   } else if (variant !== "ended" && billing?.portalAvailable) {
     action = { label: "Manage billing", kind: "portal" };
   }
