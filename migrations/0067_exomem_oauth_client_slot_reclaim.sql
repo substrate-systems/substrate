@@ -16,7 +16,7 @@ ALTER TABLE exomem_oauth_clients
   ADD CONSTRAINT exomem_oauth_clients_retired_disabled
   CHECK (retired_at IS NULL OR (NOT enabled AND NOT first_party));
 
--- Every admission reads the partition count, and every sweep reads its
+-- Every registration reads the partition count, and every sweep reads its
 -- retirement candidates. Unretired rows stay at most the sum of the bounds
 -- while retired rows accumulate, so both read this index instead of the table.
 CREATE INDEX exomem_oauth_clients_unretired_partition_idx
@@ -62,11 +62,11 @@ INSERT INTO exomem_oauth_client_partition_bounds (client_partition, bound) VALUE
   -- Registered by hand. Migration 0051's value, about three times its use.
   ('operator', 96),
   -- One client per ChatGPT connector, so this caps connected ChatGPT users.
-  -- Ten for each of 1,000 accounts.
-  ('auto_registered', 10000),
+  -- Fifty for each of 1,000 accounts: a heavy user runs 15 to 25 apps or more.
+  ('auto_registered', 50000),
   -- One client per installed app, and more where an app registers again.
-  -- Ten for each of 1,000 accounts.
-  ('generic', 10000)
+  -- Fifty for each of 1,000 accounts, for the same heavy users.
+  ('generic', 50000)
 ON CONFLICT (client_partition) DO NOTHING;
 
 -- The partitions, their bounds and their use, defined once. The admission

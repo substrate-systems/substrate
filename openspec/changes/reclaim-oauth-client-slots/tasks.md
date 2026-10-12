@@ -6,9 +6,9 @@
   - The three partitions and their counts now live in one function, `exomem_oauth_client_partitions()`, which reads each bound from `exomem_oauth_client_partition_bounds` (1.4). Both gate functions and the headroom report read it.
   - The existing-client shortcut now matches unretired rows only, so a retired client needs a free slot to come back.
 - [x] 1.3 Index review: the partition predicate runs on every admission, so measure it before and after rather than assuming the added condition is free
-  - Measured on PostgreSQL 16 with 350 clients near the old bounds. Before: a sequential scan of 12 buffers. After: a primary-key read of the bounds table and an index-only scan of the new partial index `exomem_oauth_clients_unretired_partition_idx`, 6 buffers in all. With 20,000 retired rows added, the count still reads 2 buffers; without the index it reads 760. With both self-registering partitions one below their launch bound of 10,000, the count reads 19 buffers in about 1 ms.
+  - Measured on PostgreSQL 16 with 350 clients near the old bounds. Before: a sequential scan of 12 buffers. After: a primary-key read of the bounds table and an index-only scan of the new partial index `exomem_oauth_clients_unretired_partition_idx`, 6 buffers in all. With 20,000 retired rows added, the count still reads 2 buffers; without the index it reads 760. With both self-registering partitions at 49,999 live clients, one below their launch bound of 50,000, and 40,000 retired rows, each gate call takes 5.5 to 5.9 ms and reads 85 to 88 buffers. The count reads every unretired index entry and filters by partition, so its cost grows with all unretired clients, not with retired history.
 - [x] 1.4 Keep each partition's bound as data, and size the launch bounds so that normal growth never reaches them
-  - `exomem_oauth_client_partition_bounds`, seeded by 0067: operator 96, auto-registered 10,000, generic 10,000. One UPDATE changes a bound. A partition without a row admits no new client.
+  - `exomem_oauth_client_partition_bounds`, seeded by 0067: operator 96, auto-registered 50,000, generic 50,000. One UPDATE changes a bound. A partition without a row admits no new client.
 
 ## 2. Automatic retirement
 

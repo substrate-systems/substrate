@@ -71,8 +71,9 @@ not name the partition.
 
 Reclaim never frees a connected client, so a bound caps the clients connected at the same
 time. Every ChatGPT connector registers its own client, so the old auto-registered bound
-of 128 capped connected ChatGPT users at about 128. The launch bounds are 10,000 for the
-auto-registered and generic partitions: ten clients for each of 1,000 accounts. The
+of 128 capped connected ChatGPT users at about 128. The launch bounds are 50,000 for the
+auto-registered and generic partitions: fifty clients for each of 1,000 accounts, because
+a heavy user runs 15 to 25 apps or more at peak. The
 operator bound stays at 96, because operators register clients by hand. A bound that is
 too low leaves people unable to connect. A bound that is too high lets a registration
 flood add up to the bound in rows per retirement grace; retired rows are never deleted.

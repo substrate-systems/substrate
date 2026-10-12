@@ -117,7 +117,7 @@ that declares no readable name has none stored.
 Registration has these bounds:
 
 - 5 registrations in 10 minutes per IPv4 address, or per IPv6 /64.
-- The generic partition's bound of unretired clients, 10,000 at launch,
+- The generic partition's bound of unretired clients, 50,000 at launch,
   counted apart from operator and CIMD clients. The sweep frees the slot of a
   generic client that has held nothing for its grace; see "Client slots and
   retirement". When the partition is full, every new registration is refused.
@@ -202,12 +202,13 @@ admission reads it. The first-party Home client takes no slot.
 | Partition         | Launch bound | What one slot is                                           |
 | ----------------- | ------------ | ---------------------------------------------------------- |
 | `operator`        | 96           | A client that an operator registered by hand.              |
-| `auto_registered` | 10,000       | One ChatGPT connector, or the one global claude.ai client. |
-| `generic`         | 10,000       | One installed generic app, or one more registration of it. |
+| `auto_registered` | 50,000       | One ChatGPT connector, or the one global claude.ai client. |
+| `generic`         | 50,000       | One installed generic app, or one more registration of it. |
 
 A bound limits two things: the clients connected at the same time, and the rows
 that a registration flood can add before the sweep retires them. Each
-self-registering bound is 10 clients for each of 1,000 accounts.
+self-registering bound is 50 clients for each of 1,000 accounts, because a heavy
+user runs 15 to 25 apps or more at peak.
 
 To change a bound:
 
