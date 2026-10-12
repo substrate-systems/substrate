@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { loadExportTtlHours } from "@/lib/exomem-hosted/cloud-config";
+import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { buildMetadata } from "@/lib/seo";
 import { ExomemPublicPage } from "../public-page";
 
@@ -12,6 +13,9 @@ export const metadata = buildMetadata({
 
 export default function ExomemPrivacyPage() {
   const exportTtlHours = loadExportTtlHours();
+  // Home offers the export only while the export flag is on (design.md deviation (s)). This
+  // page is static, so it reads the flag at build, and a flag change takes a deploy.
+  const exportOffered = cloudExportsEnabled();
   return (
     <ExomemPublicPage title="Exomem Cloud privacy" eyebrow="Revised 12 October 2026">
       <p>
@@ -110,13 +114,22 @@ export default function ExomemPrivacyPage() {
       </p>
 
       <h2>Retention, export, and deletion</h2>
-      <p>
-        Your canonical knowledge content remains yours and is kept while your Cloud account is
-        active. You can start an export from Home. An export is a plain ZIP of your Markdown notes
-        and files, not encrypted to a key of your own. We keep it in our object storage, which the
-        storage provider encrypts at rest, for up to {exportTtlHours} hours, and then we delete it.
-        You can download it only from Home, through a link that works for 5 minutes.
-      </p>
+      {exportOffered ? (
+        <p>
+          Your canonical knowledge content remains yours and is kept while your Cloud account is
+          active. You can start an export from Home. An export is a plain ZIP of your Markdown notes
+          and files, not encrypted to a key of your own. We keep it in our object storage, which the
+          storage provider encrypts at rest, for up to {exportTtlHours} hours, and then we delete
+          it. You can download it only from Home, through a link that works for 5 minutes.
+        </p>
+      ) : (
+        <p>
+          Your canonical knowledge content remains yours and is kept while your Cloud account is
+          active. For an export, use the address on the{" "}
+          <Link href="/exomem/support">support page</Link>, which takes privacy, export, and
+          deletion requests.
+        </p>
+      )}
       <p>
         You can start verified account deletion from the product. Access credentials expire on their
         stated schedule. On deletion we revoke sessions and client access, close routing, and

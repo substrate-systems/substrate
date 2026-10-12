@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
 import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
 import HomeClient from "./home-client";
 import styles from "./home.module.css";
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 export default function ExomemHomePage() {
   return (
     <main className={`${styles.page} brand-exomem`}>
-      <HomeClient priceId={exomemCheckoutPriceId()} />
+      <HomeClient priceId={exomemCheckoutPriceId()} exportOffered={cloudExportsEnabled()} />
     </main>
   );
 }

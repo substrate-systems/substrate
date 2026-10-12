@@ -161,6 +161,10 @@ export default function ExomemPage() {
     },
   ];
 
+  // Promised only while Home offers the export (design.md deviation (s)). This page is
+  // static, so it reads the flag at build, and a flag change takes a deploy.
+  const exportOffered = cloudExportsEnabled();
+
   const cloudSteps = [
     { desk: "Start with your email; no password", phone: "Start with your email" },
     { desk: "Subscribe; your vault is ready in a minute", phone: "Subscribe; ready in a minute" },
@@ -183,9 +187,7 @@ export default function ExomemPage() {
       desk: `If you cancel, we keep everything for ${kept}, read-only, then delete it.`,
       phone: `Cancel, and we keep it ${kept}, read-only.`,
     },
-    // Promised only while Home offers the export (design.md deviation (s)). This page is
-    // static, so it reads the flag at build, and a flag change takes a deploy.
-    ...(cloudExportsEnabled()
+    ...(exportOffered
       ? [
           {
             desk: "Export a verified copy of your vault any time, in any state.",
@@ -376,8 +378,8 @@ export default function ExomemPage() {
                 </div>
                 <div className={styles.doorNote}>
                   <Copy
-                    desk="Monthly · cancel any time · export whenever you like"
-                    phone="Monthly · cancel any time · export any time"
+                    desk={`Monthly · cancel any time${exportOffered ? " · export whenever you like" : ""}`}
+                    phone={`Monthly · cancel any time${exportOffered ? " · export any time" : ""}`}
                   />
                 </div>
               </div>

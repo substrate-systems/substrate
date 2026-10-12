@@ -82,7 +82,14 @@ function goToSignIn() {
   window.location.replace("/exomem/sign-in");
 }
 
-export default function HomeClient({ priceId }: { priceId: string | null }) {
+export default function HomeClient({
+  priceId,
+  exportOffered,
+}: {
+  priceId: string | null;
+  /** Whether Home offers an export: the export flag (design.md deviation (s)). */
+  exportOffered: boolean;
+}) {
   const [status, setStatus] = useState<StatusRead | null>(null);
   const [account, setAccount] = useState<HomeAccount | null>(null);
   const [accountRead, setAccountRead] = useState<AccountRead>("loading");
@@ -407,8 +414,6 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
   // --- Render ---
 
   const reviewer = account?.kind === "reviewer";
-  // The status poll leaves the export out while the export flag is off.
-  const exportOffered = status?.exportSummary !== NOT_RELEASED;
   const shownEmail = account ? (reviewer ? "reviewer (sample account)" : account.email) : null;
   const header = (
     <HomeHeader email={shownEmail} onSignOut={() => void onSignOut()} signingOut={signingOut} />

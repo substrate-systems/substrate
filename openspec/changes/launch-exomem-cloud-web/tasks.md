@@ -128,7 +128,7 @@
 
 - [ ] 10.1 Deploy migrations 0063 to 0066 with every flag off
 - [ ] 10.2 Release the exomem repository and roll cells out, owner canary first
-- [ ] 10.3 Release the cell controller and turn the export flag on after the rollout
+- [ ] 10.3 Release the cell controller and turn the export flag on after the rollout, then redeploy, because the landing and privacy pages read the flag at build time
 - [ ] 10.4 Release Home with levels and activity, then export after the rehearsal
 - [ ] 10.5 Set `EXOMEM_PADDLE_DUNNING_DAYS` to match the provider's dunning settings
 - [ ] 10.6 Turn `EXOMEM_SELF_SERVE_ADMISSION` to `waitlist`, then to `open`
