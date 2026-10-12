@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
 import {
+  type PaddleTransactionFailure,
+  PaddleTransactionOpener,
+} from "@/components/PaddleTransactionOpener";
+import {
   billingDestination,
   disconnectApp,
   type HomeAccount,
@@ -390,6 +394,14 @@ export default function HomeClient() {
       <Notice layout="row">{pageMessage}</Notice>
     </div>
   );
+  // Paddle returns a checkout here with a transaction to open; the opener checks it
+  // first. It sits at the same place in every mode, so a mode change keeps its state.
+  const checkoutReturn = (
+    <PaddleTransactionOpener
+      validationEndpoint="/api/exomem/billing/checkout"
+      FailureView={CheckoutReturnFailure}
+    />
+  );
 
   if (mode.kind !== "home") {
     const copy = NOT_HOME_COPY[mode.kind];
@@ -406,6 +418,7 @@ export default function HomeClient() {
             liveLine={null}
           />
           {message}
+          {checkoutReturn}
           {mode.kind === "subscribe" && (
             <div>
               <Button
@@ -467,6 +480,7 @@ export default function HomeClient() {
           liveLine={variant === "ended" ? null : liveLine(facts, shownApps, clock)}
         />
         {message}
+        {checkoutReturn}
         {homeNotices.map((notice) => (
           <Notice
             key={notice.key}
@@ -553,6 +567,25 @@ export default function HomeClient() {
       </div>
       {dialogs}
     </>
+  );
+}
+
+/** A checkout return that could not be checked or opened, as a Home notice. */
+function CheckoutReturnFailure({ message, retry, dismiss }: PaddleTransactionFailure) {
+  return (
+    <Notice
+      layout="row"
+      action={
+        <div className={styles.noticeActions}>
+          <Button variant="primary" onClick={retry}>
+            Try again
+          </Button>
+          <Button onClick={dismiss}>Not now</Button>
+        </div>
+      }
+    >
+      {message}
+    </Notice>
   );
 }
 

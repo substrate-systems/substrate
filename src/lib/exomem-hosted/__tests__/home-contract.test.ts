@@ -53,7 +53,7 @@ describe("private Exomem Home contract", () => {
   });
 
   it("opens a server-created Paddle transaction on the private Exomem return page", () => {
-    const page = source("src/app/exomem/home/page.tsx");
+    const page = source("src/app/exomem/home/home-client.tsx");
     const opener = source("src/components/PaddleTransactionOpener.tsx");
     assert.match(page, /validationEndpoint="\/api\/exomem\/billing\/checkout"/);
     assert.match(opener, /_ptxn/);

@@ -124,6 +124,13 @@
   cursor: pointer;
 }
 
+/* A notice with two actions, such as the checkout return's Try again and Not now. */
+.noticeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* --- The column --- */
 
 .column {

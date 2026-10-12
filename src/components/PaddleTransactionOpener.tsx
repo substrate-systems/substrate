@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ComponentType, useCallback, useEffect, useRef, useState } from "react";
 import { postPrivateJson, settledCheckoutDestination } from "@/lib/exomem-hosted/hosted-browser";
 import { usePaddle } from "@/lib/paddle";
 import { AnalyticsEvent, capture } from "@/lib/analytics";
@@ -85,10 +85,20 @@ function returnedCheckoutMatches(
   }
 }
 
+/** What a page needs to show the opener's failure in its own design. */
+export type PaddleTransactionFailure = {
+  message: string;
+  retry: () => void;
+  dismiss: () => void;
+};
+
 export function PaddleTransactionOpener({
   validationEndpoint,
+  FailureView,
 }: {
   validationEndpoint?: string;
+  /** Draws the failure in the page's design system; without it the opener draws its own. */
+  FailureView?: ComponentType<PaddleTransactionFailure>;
 } = {}) {
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [validationFailed, setValidationFailed] = useState(false);
@@ -203,16 +213,22 @@ export function PaddleTransactionOpener({
   }
 
   if (validationFailed || paddleFailed) {
+    const message = paddleFailed
+      ? "Checkout couldn't open. Reload it when you're ready to try again."
+      : "We couldn't reconnect to checkout. Your Exomem account is safe.";
+    if (FailureView) {
+      return (
+        <section aria-live="polite">
+          <FailureView message={message} retry={retryValidation} dismiss={dismissValidation} />
+        </section>
+      );
+    }
     return (
       <section
         aria-live="polite"
         className="mb-4 rounded-2xl border border-amber-300/40 bg-amber-100/10 p-4 text-sm text-slate-100"
       >
-        <p>
-          {paddleFailed
-            ? "Checkout couldn't open. Reload it when you're ready to try again."
-            : "We couldn't reconnect to checkout. Your Exomem account is safe."}
-        </p>
+        <p>{message}</p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
