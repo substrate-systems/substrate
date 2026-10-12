@@ -19,6 +19,11 @@ describe("the landing's proof figures", () => {
     });
   });
 
+  // Fails if a slow recall is written in exponent form ("≈ 1e+1 s").
+  it("write a slow recall in plain digits", () => {
+    assert.equal(proofFigures(measured({ min: 9500, max: 13000 }, 910)).recall, "≈ 10 s");
+  });
+
   // Fails if the page keeps saying "still under a second" after a slower measurement.
   it("refuse a measurement that breaks the under-a-second caption", () => {
     assert.throws(() => proofFigures(measured({ min: 94, max: 159 }, 1200)), /under a second/);

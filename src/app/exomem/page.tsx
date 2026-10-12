@@ -17,6 +17,11 @@ import styles from "./landing/landing.module.css";
 const HERO_TEXT =
   "Exomem is the knowledge base all your assistants share. Claude, ChatGPT, Claude Code, Codex and every session you connect read from it and add to it. When something changes, it keeps what was true, why it changed and what replaced it, as plain Markdown you own.";
 
+// The phone lede; its first two sentences are also the page's search description.
+const PHONE_LEDE_START =
+  "The knowledge base all your assistants share, in every session. When something changes, Exomem keeps what was true, why it changed and what replaced it";
+const proof = proofFigures(recallBenchmarks);
+
 export const metadata = {
   ...buildMetadata({
     // Retargeted 2026-07-25 against measured demand: "mcp memory server" (KD 22) and
@@ -24,7 +29,7 @@ export const metadata = {
     // where "agent memory" (KD 33+) is not. Kept to 60 characters — the site audit
     // flagged over-long titles elsewhere.
     title: "Exomem — MCP memory server over your Markdown knowledge base",
-    description: HERO_TEXT,
+    description: `${PHONE_LEDE_START}.`,
     path: "/exomem",
     ogImage: "/exomem/og",
     standaloneTitle: true,
@@ -46,8 +51,7 @@ const softwareJsonLd = {
   name: "Exomem",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Windows, macOS, Linux",
-  description:
-    "Open-source MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at 50,000 notes, measured, with local OCR, ASR, and image indexing.",
+  description: `Open-source MCP memory server over a Markdown knowledge base you own — a plain folder or an Obsidian vault. Hybrid keyword and vector retrieval, sub-second at ${proof.scaleNotes} notes, measured, with local OCR, ASR, and image indexing.`,
   url: `${siteConfig.url}/exomem`,
   downloadUrl: PYPI,
   installUrl: PYPI,
@@ -115,7 +119,6 @@ function days(count: number): string {
 }
 
 export default function ExomemPage() {
-  const proof = proofFigures(recallBenchmarks);
   const kept = days(DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS);
 
   const proofCells = [
@@ -259,10 +262,7 @@ export default function ExomemPage() {
                 Stays true.
               </h1>
               <p className={styles.lede}>
-                <Copy
-                  desk={HERO_TEXT}
-                  phone="The knowledge base all your assistants share, in every session. When something changes, Exomem keeps what was true, why it changed and what replaced it, as plain Markdown you own."
-                />
+                <Copy desk={HERO_TEXT} phone={`${PHONE_LEDE_START}, as plain Markdown you own.`} />
               </p>
               <div className={styles.heroActions}>
                 <div className={styles.heroCtas}>

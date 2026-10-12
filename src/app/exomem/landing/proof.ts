@@ -19,6 +19,8 @@ export type ProofFigures = {
 };
 
 const ONE_SECOND_MS = 1000;
+// One significant figure, always in plain digits ("0.1", "10"), never "1e+1".
+const ROUGH_SECONDS = new Intl.NumberFormat("en-GB", { maximumSignificantDigits: 1 });
 
 /**
  * The proof strip and the hero's latency. A typical recall is the middle of the measured
@@ -36,7 +38,7 @@ export function proofFigures(benchmarks: RecallBenchmarks): ProofFigures {
     );
   }
   return {
-    recall: `≈ ${(typicalMs / ONE_SECOND_MS).toPrecision(1)} s`,
+    recall: `≈ ${ROUGH_SECONDS.format(typicalMs / ONE_SECOND_MS)} s`,
     heroLatency: `${Math.round(typicalMs / 10) * 10} ms`,
     scaleNotes: new Intl.NumberFormat("en-GB").format(benchmarks.scale.notes),
   };
