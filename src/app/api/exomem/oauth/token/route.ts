@@ -13,6 +13,7 @@ import {
 import { readOAuthForm, oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-http";
 import {
   issueOAuthTokensFromCodeAtomic,
+  oauthClientIsRegistered,
   rotateOAuthRefreshTokenAtomic,
 } from "@/lib/exomem-hosted/oauth-store";
 import {
@@ -83,6 +84,25 @@ function invalidGrant(
   return NextResponse.json(
     { error: "invalid_grant" },
     { status: 400, headers: oauthNoStoreHeaders() }
+  );
+}
+
+// RFC 6749 section 5.2 names an unknown client `invalid_client`. MCP SDK
+// clients register again only on that answer, so a client whose registration
+// retired recovers by itself instead of retrying a dead client ID. A client ID
+// is public: a CIMD ID is its host's URL, and a generic ID goes only to the
+// client that registered it. Unknown and retired answer alike, so this tells a
+// caller only whether the ID it sent still holds a registration.
+async function refusedGrant(
+  clientId: string,
+  stage: TokenRejectionStage,
+  diagnostics?: Record<string, boolean | number | string>
+): Promise<NextResponse> {
+  if (await oauthClientIsRegistered(clientId)) return invalidGrant(stage, diagnostics);
+  logTokenRejection(stage, { ...diagnostics, client_registered: false });
+  return NextResponse.json(
+    { error: "invalid_client" },
+    { status: 401, headers: oauthNoStoreHeaders() }
   );
 }
 
@@ -212,7 +232,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // re-querying, so it names the client and redirect it was asked about --
       // enough to find the code row by hand and evaluate the predicate against it.
       if (!issued)
-        return invalidGrant("code_exchange", {
+        return refusedGrant(form.client_id, "code_exchange", {
           client_id: form.client_id,
           redirect_uri: form.redirect_uri,
         });
@@ -249,7 +269,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       });
       // Rotation also answers null for a replayed refresh token, which revokes
       // the family -- so this line is the operator's only sight of a replay.
-      if (!issued) return invalidGrant("refresh_rotation", { client_id: form.client_id });
+      if (!issued)
+        return refusedGrant(form.client_id, "refresh_rotation", { client_id: form.client_id });
       if (!(await assertCloudTokenIssuancePermitted(issued.grantId)))
         return invalidGrant("cloud_cell_missing", { client_id: form.client_id });
       return tokenResponse({

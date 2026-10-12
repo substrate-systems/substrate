@@ -15,6 +15,7 @@ import {
   createAuthorizationTransaction,
   findPendingOAuthAuthorization,
   issueOAuthTokensFromCodeAtomic,
+  oauthClientIsRegistered,
   pruneExpiredOAuthState,
   registerAdmittedCimdClient,
   registerGenericMcpClient,
@@ -2190,6 +2191,9 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       assert.deepEqual(after.autoRegistered, before.autoRegistered);
       assert.equal(await resolveApprovedCloudOAuthClient(idle), null);
       assert.equal(await beginAuthorization(idle, redirectUri), null);
+      // /token answers invalid_client for it, so its app registers again.
+      assert.equal(await oauthClientIsRegistered(idle), false);
+      assert.equal(await oauthClientIsRegistered(recentlyDisconnected), true);
     } finally {
       await setGenericLane(false);
       await removeClients(registered);

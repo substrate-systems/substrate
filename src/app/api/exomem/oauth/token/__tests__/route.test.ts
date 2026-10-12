@@ -11,6 +11,7 @@ const RESOURCE = "https://gateway.example.test/mcp";
 
 let exchangeResult: unknown = null;
 let rotateResult: unknown = null;
+let clientRegistered = true;
 
 before(() => {
   process.env.EXOMEM_CLOUD_MCP_URL = RESOURCE;
@@ -31,6 +32,7 @@ before(() => {
   mock.module("@/lib/exomem-hosted/oauth-store", {
     namedExports: {
       issueOAuthTokensFromCodeAtomic: async () => exchangeResult,
+      oauthClientIsRegistered: async () => clientRegistered,
       rotateOAuthRefreshTokenAtomic: async () => rotateResult,
     },
   });
@@ -45,6 +47,7 @@ after(() => {
 beforeEach(() => {
   exchangeResult = null;
   rotateResult = null;
+  clientRegistered = true;
 });
 
 function post(fields: Record<string, string>): Request {
@@ -196,6 +199,42 @@ describe("POST /api/exomem/oauth/token", () => {
       "the refresh token must never reach the log"
     );
   });
+
+  // A retired generic client's app keeps sending its old client ID. MCP SDK
+  // clients register again only on invalid_client; on invalid_grant they retry
+  // the dead ID at /authorize, which refuses it without a redirect.
+  const refusedGrants: Array<{ kind: string; fields: Record<string, string> }> = [
+    {
+      kind: "code exchange",
+      fields: {
+        grant_type: "authorization_code",
+        code: CODE,
+        client_id: "retired-client",
+        redirect_uri: "http://127.0.0.1:43123/callback",
+        code_verifier: VERIFIER,
+        resource: RESOURCE,
+      },
+    },
+    {
+      kind: "refresh",
+      fields: {
+        grant_type: "refresh_token",
+        refresh_token: REFRESH,
+        client_id: "retired-client",
+        resource: RESOURCE,
+      },
+    },
+  ];
+  for (const grant of refusedGrants) {
+    it(`answers invalid_client to a ${grant.kind} from a client that holds no registration`, async () => {
+      clientRegistered = false;
+      const { response, record } = await withControlPlaneKey(() => capture(post(grant.fields)));
+
+      assert.equal(response.status, 401);
+      assert.deepEqual(await response.json(), { error: "invalid_client" });
+      assert.equal(record?.client_registered, false);
+    });
+  }
 
   it("names an unsupported grant type", async () => {
     const { record } = await capture(post({ grant_type: "client_credentials" }));

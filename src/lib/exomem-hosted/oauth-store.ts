@@ -245,6 +245,18 @@ export async function registerGenericMcpClient(
   });
 }
 
+/** Whether `clientId` names a client that holds its registration: a row that is not retired. */
+export async function oauthClientIsRegistered(clientId: string): Promise<boolean> {
+  const { rows } = await executeExomemSql`
+    /* exomem:oauth-client-is-registered */
+    SELECT EXISTS (
+      SELECT 1 FROM exomem_oauth_clients
+      WHERE client_id = ${clientId} AND retired_at IS NULL
+    ) AS registered
+  `;
+  return rows[0]?.registered === true;
+}
+
 /** Whether the generic lane admits clients now; the metadata document advertises registration only then. */
 export async function genericClientLaneEnabled(): Promise<boolean> {
   const { rows } = await executeExomemSql`
