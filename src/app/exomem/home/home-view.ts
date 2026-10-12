@@ -4,7 +4,10 @@
 // copy; a value the server does not know drops its clause rather than inventing one.
 
 import { CLIENT_PLATFORM_NAMES, displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
-import type { ActivityClientFamily } from "@/lib/exomem-hosted/cloud-home-mcp";
+import type {
+  ActivityClientFamily,
+  CloudHomeUnavailableReason,
+} from "@/lib/exomem-hosted/cloud-home-mcp";
 import type {
   HomeAccount,
   HomeActivity,
@@ -466,10 +469,16 @@ export type LevelsView =
       rows: { context: LevelContext; title: string; level: LevelKey; isDefault: boolean }[];
     };
 
-const UNAVAILABLE_LEVELS: Record<string, string> = {
+const LEVELS_UNREADABLE = "Levels can’t be read right now. Try again in a minute.";
+
+// Every reason the server can give has its own sentence, so a new reason fails tsc here.
+const UNAVAILABLE_LEVELS: Record<CloudHomeUnavailableReason, string> = {
   CELL_STOPPED: "Levels can’t be read while your Exomem is stopped.",
   CELL_NOT_READY: "Levels can’t be read while your Exomem is starting.",
+  CELL_UNREACHABLE: LEVELS_UNREADABLE,
   CELL_OUTDATED: "Levels need a newer Exomem. It updates soon.",
+  HOME_CLIENT_DISABLED: "Levels aren’t available right now.",
+  ACCOUNT_ACCESS_CLOSED: "Levels aren’t available for this account.",
 };
 
 export function levelsView(levels: HomeLevels | typeof NOT_RELEASED | null): LevelsView {
@@ -478,9 +487,8 @@ export function levelsView(levels: HomeLevels | typeof NOT_RELEASED | null): Lev
   if (levels.state === "unavailable") {
     return {
       state: "unavailable",
-      text:
-        UNAVAILABLE_LEVELS[levels.reason] ??
-        "Levels can’t be read right now. Try again in a minute.",
+      // parseLevels passes on any reason string, so one this build does not know still reads.
+      text: UNAVAILABLE_LEVELS[levels.reason] ?? LEVELS_UNREADABLE,
     };
   }
   return {
