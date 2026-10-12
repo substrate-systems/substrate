@@ -35,7 +35,6 @@ export default defineConfig([
     files: [
       "src/app/endstate/page.tsx",
       "src/app/exomem/invite/invite-client.tsx",
-      "src/app/exomem/memory-graph.tsx",
       "src/app/exomem/sign-in/sign-in-client.tsx",
       "src/components/Hero.tsx",
     ],

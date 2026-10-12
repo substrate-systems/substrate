@@ -23,6 +23,38 @@
   font-weight: 500;
 }
 
+/* The landing's calls to action ("Start with your email", Landing-Page board): Plex Mono
+   13.5 / 500, padding 13 20 around the label (12 19 inside the 1 px border), r 8, the line
+   height the board's buttons have; on a phone a full-width 52 px block, r 10, 14.5
+   (R20-Mobile). */
+.landing {
+  height: auto;
+  padding: 12px 19px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: normal;
+}
+
+@media (max-width: 640px) {
+  .landing {
+    width: 100%;
+    height: 52px;
+    padding: 0 20px;
+    border-radius: 10px;
+    font-size: 14.5px;
+  }
+}
+
+/* A link drawn as a button (ButtonLink): centred like a button's label, never underlined. */
+.link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
 .primary {
   background: var(--fg-primary);
   color: var(--bg-base);

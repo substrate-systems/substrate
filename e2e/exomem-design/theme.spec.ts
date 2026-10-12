@@ -64,8 +64,8 @@ test("leaves the rest of the site when a link leads off /exomem", async ({ page 
   await page.goto("/exomem");
   await expect(root(page)).toHaveAttribute("data-exomem", "");
 
-  // The landing's "Substrate" link is a client-side navigation: no reload clears <html>.
-  await page.getByRole("link", { name: "Substrate", exact: true }).click();
+  // The landing's "by Substrate Systems" link is a client-side navigation: no reload clears <html>.
+  await page.getByRole("link", { name: "by Substrate Systems", exact: true }).click();
   await page.waitForURL("/");
 
   await expect(root(page)).not.toHaveAttribute("data-exomem");

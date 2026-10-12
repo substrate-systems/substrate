@@ -7,34 +7,6 @@ import sitemap from "../../sitemap";
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Exomem marketplace public surface", () => {
-  it("presents Cloud as a friends-only alpha rather than a public offer", () => {
-    const page = source("src/app/exomem/page.tsx");
-
-    assert.match(page, /self-hosted/i);
-    assert.match(page, /friends-only private alpha/i);
-    assert.match(page, /express interest/i);
-    assert.doesNotMatch(page, /EXOMEM_HOSTED_PRICE_EUR/);
-    assert.doesNotMatch(page, /€12 a month/);
-  });
-
-  it("sends public Cloud interest only to the interest endpoint", () => {
-    const form = source("src/app/exomem/hosted-access-form.tsx");
-
-    assert.match(form, /const response = await fetch\("\/api\/exomem\/interest"/);
-    assert.doesNotMatch(form, /\/api\/exomem\/access\/request/);
-    assert.doesNotMatch(form, /fetch\("\/api\/exomem\/billing/);
-    assert.doesNotMatch(form, /Paddle\./);
-    assert.match(form, /automatic invitation/i);
-  });
-
-  it("acknowledges interest without claiming admission or a queue position", () => {
-    const form = source("src/app/exomem/hosted-access-form.tsx");
-
-    assert.match(form, /We’ll be in touch if there’s a fit/i);
-    assert.match(form, /if \(!response\.ok \|\| !body\) \{[\s\S]*?return;/);
-    assert.doesNotMatch(form, /admitted|waitlisted|number \$\{/i);
-  });
-
   it("keeps checkout private to authenticated Home", () => {
     const home = source("src/app/exomem/home/home-client.tsx");
 

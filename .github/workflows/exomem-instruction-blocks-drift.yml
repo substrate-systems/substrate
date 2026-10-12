@@ -3,6 +3,8 @@ name: Exomem instruction blocks drift
 # Fails when docs/prominence.md on Exomem main no longer matches the blocks that
 # Home hands out. The failed run is the signal; refresh with
 # `npm run sync:instruction-blocks -- <path-to-exomem-repo>`.
+# Also fails when docs/benchmarks.md on Exomem main differs from the copy the
+# landing's recall figures came from; refresh src/app/exomem/landing/recall-benchmarks.json.
 on:
   schedule:
     - cron: "23 5 * * 1"
@@ -25,3 +27,9 @@ jobs:
       - name: Fetch the doc from Exomem main
         run: curl -fsSL -o "$RUNNER_TEMP/prominence.md" https://raw.githubusercontent.com/Artexis10/exomem/main/docs/prominence.md
       - run: node scripts/sync-exomem-instruction-blocks.mjs --check "$RUNNER_TEMP/prominence.md"
+      - name: Fetch the benchmark doc from Exomem main
+        if: ${{ !cancelled() }}
+        run: curl -fsSL -o "$RUNNER_TEMP/benchmarks.md" https://raw.githubusercontent.com/Artexis10/exomem/main/docs/benchmarks.md
+      - name: Check the landing's recall figures
+        if: ${{ !cancelled() }}
+        run: node scripts/check-exomem-benchmarks.mjs "$RUNNER_TEMP/benchmarks.md"

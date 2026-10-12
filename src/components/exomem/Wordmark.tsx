@@ -6,9 +6,10 @@ const XOMEM =
 
 /**
  * The E-initial wordmark: the Dot E plus "xomem", in the current text colour with
- * the middle row amber. 16–17 px tall in headers and emails; never redrawn.
+ * the middle row amber. 16–17 px tall in headers and emails; the landing draws it at
+ * 19 in its desktop header and 15 in its footer. Never redrawn.
  */
-export function Wordmark({ height = 17 }: { height?: 16 | 17 }) {
+export function Wordmark({ height = 17 }: { height?: 15 | 16 | 17 | 19 }) {
   return (
     <svg viewBox="2.30 -27.92 139.90 28.40" height={height} role="img" aria-label="Exomem">
       <g transform="translate(-6.642 -32.782) scale(0.7843)">
