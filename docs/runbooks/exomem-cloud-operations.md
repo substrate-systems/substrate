@@ -653,15 +653,25 @@ A tenant's friend offer makes every later checkout carry the friend discount.
 To end an owner's friend price:
 
 1. Remove the friend discount from the owner's subscription in the Paddle dashboard.
-2. Run this statement against the production database, with the owner's tenant ID:
+2. Wait until the account no longer shows the friend price. Home's plan row
+   drops "friend price", and this statement returns a discount other than the
+   friend discount, or none:
+
+   ```sql
+   SELECT provider_discount_id FROM exomem_entitlements WHERE tenant_id = '<tenant id>';
+   ```
+
+3. Run this statement against the production database, with the owner's tenant ID:
 
    ```sql
    UPDATE exomem_tenants SET friend_offer_invite_id = NULL, updated_at = now()
    WHERE id = '<tenant id>';
    ```
 
-Without step 2, a resubscribe after the subscription ends charges the friend
-price again.
+Do step 3 only after step 2. Until the account stores Paddle's event without
+the discount, a delayed Paddle event that still carries the discount can record
+the offer again. Without step 3, a resubscribe after the subscription ends
+charges the friend price again.
 
 ## Account deletion
 
