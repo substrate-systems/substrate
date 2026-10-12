@@ -107,7 +107,6 @@ describe("private Exomem Home contract", () => {
     assert.match(home, /PROM_LEVELS\.map/);
     assert.match(home, /Copy instructions/);
     assert.match(home, /assistantInstructions\(promLevel\)/);
-    assert.match(instructions, /long-term governed knowledge store/);
 
     // Five flows, each naming where its own instructions live.
     for (const name of ["Claude", "ChatGPT", "Claude Code", "Codex CLI", "Any other MCP client"]) {

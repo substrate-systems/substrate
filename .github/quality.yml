@@ -17,9 +17,11 @@ classes:
     - "scripts/dev.ps1"
     - "scripts/openspec_validate.ps1"
     - "scripts/verify-exomem-gateway-publication.mjs"
+    - "scripts/sync-exomem-instruction-blocks.mjs" # run by hand to refresh the Home instruction blocks
   tooling:
     - ".github/quality.yml"
     - ".github/workflows/test.yml"
+    - ".github/workflows/exomem-instruction-blocks-drift.yml" # weekly check, fails on drift; ships nothing
     - ".claude/*" # agent settings and skills; never ships
     - ".gitignore"
     - ".gitattributes"
