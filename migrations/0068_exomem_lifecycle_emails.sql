@@ -23,12 +23,15 @@ ALTER TABLE exomem_email_outbox
 -- it. The row holds no address and no payload: it records only that email 03
 -- was never sent for that cell. A cell still in its unpaid hold (a Paddle
 -- entitlement still awaiting its first payment) gets no row, and receives
--- email 03 the first time it is ready after payment.
+-- email 03 the first time it is ready after payment. A marketplace reviewer's
+-- tenant never receives email 03, so its cells need no row.
 INSERT INTO exomem_email_outbox (kind, dedupe_key, state, last_error_code)
 SELECT 'ready', 'ready:' || cell.cell_id, 'cancelled', 'EMAIL_PREDATES_TRIGGER'
 FROM exomem_cloud_cells AS cell
+JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
 JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
 WHERE cell.desired_state <> 'deleted'
+  AND NOT tenant.marketplace_reviewer_purpose
   -- The pre-payment states, as FIRST_PAYMENT_SOURCE_STATES (entitlements.ts)
   -- lists them when this migration ships.
   AND NOT (

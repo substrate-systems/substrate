@@ -86,7 +86,9 @@ export type ReadyEmailSweepResult = { enqueued: number };
  * Substrate transaction holds the moment a cell becomes ready; this bounded
  * pass finds ready cells without email 03 and enqueues it, keyed by the cell.
  * Cells that had started before email 03 existed carry a settled row under the
- * same key (migration 0068), so they never get it.
+ * same key (migration 0068), so they never get it. A marketplace reviewer's
+ * tenant (`marketplace_reviewer_purpose`, set at admission and immutable) never
+ * gets it either: it is a review fixture, not a person's Exomem.
  */
 export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepResult> {
   const { rows } = await executeExomemSql`
@@ -98,6 +100,7 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
       AND cell.desired_state = 'running'
       AND cell.observed_state = 'running'
       AND tenant.status = 'active'
+      AND NOT tenant.marketplace_reviewer_purpose
       AND NOT EXISTS (
         SELECT 1 FROM exomem_email_outbox AS outbox
         WHERE outbox.dedupe_key = 'ready:' || cell.cell_id
@@ -115,7 +118,10 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
         JOIN users AS owner ON owner.id = tenant.owner_user_id
-        WHERE cell.cell_id = ${cellId} AND cell.ready AND tenant.status = 'active'
+        WHERE cell.cell_id = ${cellId}
+          AND cell.ready
+          AND tenant.status = 'active'
+          AND NOT tenant.marketplace_reviewer_purpose
       `;
       const owner = owners[0] as { email: string; time_zone: string | null } | undefined;
       if (!owner) return false;

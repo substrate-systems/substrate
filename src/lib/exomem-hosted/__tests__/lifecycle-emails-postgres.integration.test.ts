@@ -30,6 +30,7 @@ let migrationsBefore: string;
 // Cells that existed when migration 0068 ran.
 let startedBeforeDeploy: { email: string; cellId: string };
 let inHoldAtDeploy: { email: string; cellId: string; tenantId: string };
+let reviewerAtDeploy: { email: string; cellId: string };
 
 function taggedSql(client: Pool | PoolClient): ExomemSql {
   return async (strings, ...values) => {
@@ -62,13 +63,21 @@ async function seedTenant(input: {
   sourceState: string;
   cell: "running" | "read_only" | "stopped";
   sourceOccurredAt?: Date;
-}): Promise<{ email: string; userId: string; tenantId: string; cellId: string; subscriptionId: string }> {
+  marketplaceReviewer?: boolean;
+}): Promise<{
+  email: string;
+  userId: string;
+  tenantId: string;
+  cellId: string;
+  subscriptionId: string;
+}> {
   const email = `lifecycle-${randomUUID()}@example.test`;
   const user = await pool.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [email]);
   const userId = String(user.rows[0].id);
   const tenant = await pool.query(
-    "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running') RETURNING id",
-    [userId]
+    `INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
+     VALUES ($1, 'active', 'running', $2) RETURNING id`,
+    [userId, input.marketplaceReviewer ?? false]
   );
   const tenantId = String(tenant.rows[0].id);
   const subscriptionId = `sub_${randomUUID().replaceAll("-", "")}`;
@@ -132,7 +141,8 @@ function pastDueEvent(
 ): ExomemPaddleEventApplication {
   return {
     eventId: input.eventId,
-    eventType: input.sourceState === "past_due" ? "subscription.past_due" : "subscription.activated",
+    eventType:
+      input.sourceState === "past_due" ? "subscription.past_due" : "subscription.activated",
     environment: "sandbox",
     origin: "webhook",
     revision: { occurredAt: input.occurredAt, eventId: input.eventId },
@@ -147,7 +157,12 @@ function pastDueEvent(
       productId: null,
       priceId: null,
     },
-    subscriptionFacts: { priceName: null, nextBilledAt: null, discountId: null, scheduledChangeAt: null },
+    subscriptionFacts: {
+      priceName: null,
+      nextBilledAt: null,
+      discountId: null,
+      scheduledChangeAt: null,
+    },
   };
 }
 
@@ -163,7 +178,9 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
 
     // Upgrade a populated database: every migration before 0068, then cells, then 0068.
     migrationsBefore = mkdtempSync(join(tmpdir(), "exomem-lifecycle-emails-migrations-"));
-    for (const name of readdirSync(MIGRATIONS).filter((file) => file < LIFECYCLE_EMAILS_MIGRATION)) {
+    for (const name of readdirSync(MIGRATIONS).filter(
+      (file) => file < LIFECYCLE_EMAILS_MIGRATION
+    )) {
       copyFileSync(join(MIGRATIONS, name), join(migrationsBefore, name));
     }
     await applyMigrations({ databaseUrl: scoped.toString(), migrationsDir: migrationsBefore });
@@ -177,6 +194,12 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       source: "paddle",
       sourceState: "awaiting_checkout",
       cell: "stopped",
+    });
+    reviewerAtDeploy = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "stopped",
+      marketplaceReviewer: true,
     });
     await applyMigrations({ databaseUrl: scoped.toString() });
 
@@ -194,11 +217,12 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     rmSync(migrationsBefore, { recursive: true, force: true });
   });
 
-  it("03: welcomes a cell the first time it is ready, but never one that had started before deploy", async () => {
+  it("03: welcomes a cell the first time it is ready, but never one that had started before deploy or a reviewer's", async () => {
     // Both cells are ready now: the deployed one restarted, the held one was paid for.
-    await pool.query("UPDATE exomem_entitlements SET source_state = 'active' WHERE tenant_id = $1", [
-      inHoldAtDeploy.tenantId,
-    ]);
+    await pool.query(
+      "UPDATE exomem_entitlements SET source_state = 'active' WHERE tenant_id = $1",
+      [inHoldAtDeploy.tenantId]
+    );
     await markReady(startedBeforeDeploy.cellId);
     await markReady(inHoldAtDeploy.cellId);
     const admittedAfterDeploy = await seedTenant({
@@ -207,6 +231,15 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       cell: "running",
     });
     await markReady(admittedAfterDeploy.cellId);
+    // A marketplace reviewer's tenant is a review fixture: no welcome, before or after deploy.
+    const reviewerAfterDeploy = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "running",
+      marketplaceReviewer: true,
+    });
+    await markReady(reviewerAtDeploy.cellId);
+    await markReady(reviewerAfterDeploy.cellId);
 
     const first = await drain();
     const second = await drain();
@@ -220,18 +253,26 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     );
     assert.deepEqual(second.sent, []);
     assert.deepEqual(await queued(startedBeforeDeploy.email), []);
+    assert.deepEqual(await queued(reviewerAtDeploy.email), []);
+    assert.deepEqual(await queued(reviewerAfterDeploy.email), []);
     // The covered Exomem has no Paddle line; the paid one does.
     const covered = first.sent.find((email) => email.to === admittedAfterDeploy.email)!;
     assert.doesNotMatch(covered.textContent, /Paddle/);
   });
 
   it("03: cancels the welcome when the cell stopped being ready before it went out", async () => {
-    const tenant = await seedTenant({ source: "complimentary", sourceState: "complimentary_active", cell: "running" });
+    const tenant = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "running",
+    });
     await markReady(tenant.cellId);
     // Queue it without sending, then the cell goes down.
     const { enqueueReadyEmails } = await import("../lifecycle-emails");
     assert.deepEqual(await enqueueReadyEmails(), { enqueued: 1 });
-    await pool.query("UPDATE exomem_cloud_cells SET ready = false WHERE cell_id = $1", [tenant.cellId]);
+    await pool.query("UPDATE exomem_cloud_cells SET ready = false WHERE cell_id = $1", [
+      tenant.cellId,
+    ]);
 
     const result = await drain();
 
@@ -244,10 +285,18 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     const tenant = await seedTenant({ source: "paddle", sourceState: "active", cell: "running" });
 
     await store.applyVerifiedEventAndMarkProcessedAtomically(
-      pastDueEvent(tenant, { eventId: "evt_past_due_1", occurredAt: "2026-10-02T10:00:00.000Z", sourceState: "past_due" })
+      pastDueEvent(tenant, {
+        eventId: "evt_past_due_1",
+        occurredAt: "2026-10-02T10:00:00.000Z",
+        sourceState: "past_due",
+      })
     );
     await store.applyVerifiedEventAndMarkProcessedAtomically(
-      pastDueEvent(tenant, { eventId: "evt_past_due_2", occurredAt: "2026-10-03T10:00:00.000Z", sourceState: "past_due" })
+      pastDueEvent(tenant, {
+        eventId: "evt_past_due_2",
+        occurredAt: "2026-10-03T10:00:00.000Z",
+        sourceState: "past_due",
+      })
     );
     assert.deepEqual(await queued(tenant.email), [{ kind: "payment_failed", state: "pending" }]);
 
@@ -266,13 +315,25 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
 
     // A second period after recovery gets its own email, which recovery then cancels.
     await store.applyVerifiedEventAndMarkProcessedAtomically(
-      pastDueEvent(tenant, { eventId: "evt_recovered", occurredAt: "2026-10-04T10:00:00.000Z", sourceState: "active" })
+      pastDueEvent(tenant, {
+        eventId: "evt_recovered",
+        occurredAt: "2026-10-04T10:00:00.000Z",
+        sourceState: "active",
+      })
     );
     await store.applyVerifiedEventAndMarkProcessedAtomically(
-      pastDueEvent(tenant, { eventId: "evt_past_due_3", occurredAt: "2026-10-20T10:00:00.000Z", sourceState: "past_due" })
+      pastDueEvent(tenant, {
+        eventId: "evt_past_due_3",
+        occurredAt: "2026-10-20T10:00:00.000Z",
+        sourceState: "past_due",
+      })
     );
     await store.applyVerifiedEventAndMarkProcessedAtomically(
-      pastDueEvent(tenant, { eventId: "evt_recovered_2", occurredAt: "2026-10-21T10:00:00.000Z", sourceState: "active" })
+      pastDueEvent(tenant, {
+        eventId: "evt_recovered_2",
+        occurredAt: "2026-10-21T10:00:00.000Z",
+        sourceState: "active",
+      })
     );
     const afterRecovery = await drain();
     assert.deepEqual(afterRecovery.sent, []);

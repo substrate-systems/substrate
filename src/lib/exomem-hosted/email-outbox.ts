@@ -247,7 +247,9 @@ async function endedPeriodStillHolds(
       AND entitlement.source_occurred_at IS NOT NULL
       AND tenant.status NOT IN ('deletion_pending', 'deleted')
   `;
-  const row = rows[0] as { time_zone: string | null; source_occurred_at: Date | string } | undefined;
+  const row = rows[0] as
+    | { time_zone: string | null; source_occurred_at: Date | string }
+    | undefined;
   if (!row) return null;
   const keptUntil = cloudCancelledKeptUntil(new Date(row.source_occurred_at));
   return keptUntil.getTime() > Date.now() ? { timeZone: row.time_zone, keptUntil } : null;
@@ -345,7 +347,8 @@ const EXOMEM_EMAILS = {
   }),
   /**
    * Email 03: the first time an admitted cell is ready. It holds while the
-   * cell is still running and ready.
+   * cell is still running and ready, and never for a marketplace reviewer's
+   * tenant.
    */
   ready: defineEmail({
     readPayload: (value): ReadyPayload | null => readShape(value, { cellId: "cellId" }),
@@ -375,6 +378,7 @@ const EXOMEM_EMAILS = {
           AND cell.desired_state = 'running'
           AND cell.observed_state = 'running'
           AND tenant.status = 'active'
+          AND NOT tenant.marketplace_reviewer_purpose
       `;
       const row = rows[0] as
         | {
