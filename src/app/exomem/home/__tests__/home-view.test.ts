@@ -71,14 +71,14 @@ describe("which Home the owner sees", () => {
   it("shows an ended subscription as ended, though its kept cell still serves", () => {
     // A cancelled account keeps a read-only cell that passes readiness. Reading the
     // lifecycle alone would tell this owner their memory is on.
-    assert.deepEqual(homeMode(READY, account({ step: "ended" })), {
+    assert.deepEqual(homeMode(READY, account({ step: "ended" }), "known"), {
       kind: "home",
       variant: "ended",
     });
   });
 
   it("shows a failed payment as read-only", () => {
-    assert.deepEqual(homeMode(READY, account({ step: "connect-read-only" })), {
+    assert.deepEqual(homeMode(READY, account({ step: "connect-read-only" }), "known"), {
       kind: "home",
       variant: "readonly",
     });
@@ -86,11 +86,11 @@ describe("which Home the owner sees", () => {
 
   it("tells an owner-paused subscription from an operator suspension", () => {
     const stopped: Lifecycle = { state: "suspended", code: "EXOMEM_SUSPENDED", retryable: false };
-    assert.deepEqual(homeMode(stopped, account({ step: "paused" })), {
+    assert.deepEqual(homeMode(stopped, account({ step: "paused" }), "known"), {
       kind: "home",
       variant: "paused",
     });
-    assert.deepEqual(homeMode(stopped, account({ step: "suspended" })), {
+    assert.deepEqual(homeMode(stopped, account({ step: "suspended" }), "known"), {
       kind: "home",
       variant: "suspended",
     });
@@ -99,8 +99,22 @@ describe("which Home the owner sees", () => {
   it("shows the pause an owner asked for as the export, not as trouble", () => {
     const held: Lifecycle = { state: "degraded", code: "CELL_PAUSED_FOR_EXPORT", retryable: true };
     const failing: Lifecycle = { state: "degraded", code: "CELL_NOT_READY", retryable: true };
-    assert.deepEqual(homeMode(held, account()), { kind: "home", variant: "export_pause" });
-    assert.deepEqual(homeMode(failing, account()), { kind: "home", variant: "trouble" });
+    assert.deepEqual(homeMode(held, account(), "known"), { kind: "home", variant: "export_pause" });
+    assert.deepEqual(homeMode(failing, account(), "known"), { kind: "home", variant: "trouble" });
+  });
+
+  it("says nothing about the account until it is read, and claims no state when it cannot be", () => {
+    // Before the account is read, a reviewer's Home would look like an owner's, with Delete.
+    assert.deepEqual(homeMode(READY, null, "loading"), { kind: "loading" });
+    assert.deepEqual(homeMode(READY, null, "failed"), { kind: "home", variant: "unknown" });
+    const unknown = statusCopy("unknown", false, null, clock);
+    assert.equal(unknown.headline, "Your Exomem");
+    assert.deepEqual(planView("unknown", null, null, clock), {
+      name: "Plan",
+      meta: "not available right now",
+      action: null,
+      note: null,
+    });
   });
 
   it("never shows the ready Home before the first payment", () => {
@@ -109,7 +123,9 @@ describe("which Home the owner sees", () => {
       code: "PAYMENT_REQUIRED",
       retryable: false,
     };
-    assert.deepEqual(homeMode(unpaid, account({ step: "subscribe" })), { kind: "subscribe" });
+    assert.deepEqual(homeMode(unpaid, account({ step: "subscribe" }), "known"), {
+      kind: "subscribe",
+    });
   });
 });
 

@@ -39,6 +39,7 @@ import type { Clock } from "./home-format";
 import { InvolvementLevels } from "./home-levels";
 import { createSingleFlight, type Lifecycle, nextStatusPollDelayMs } from "./home-state";
 import {
+  type AccountRead,
   activityFacts,
   banner,
   exportRefusalText,
@@ -77,6 +78,7 @@ function goToSignIn() {
 export default function HomeClient() {
   const [status, setStatus] = useState<StatusRead | null>(null);
   const [account, setAccount] = useState<HomeAccount | null>(null);
+  const [accountRead, setAccountRead] = useState<AccountRead>("loading");
   const [billing, setBilling] = useState<HomeBilling | null>(null);
   const [apps, setApps] = useState<HomeApp[] | null>(null);
   const [appsFailed, setAppsFailed] = useState(false);
@@ -102,7 +104,7 @@ export default function HomeClient() {
   const statusFlight = useRef(createSingleFlight<StatusRead | null>());
 
   const lifecycle = status?.lifecycle ?? LOADING;
-  const mode = homeMode(lifecycle, account);
+  const mode = homeMode(lifecycle, account, accountRead);
   const inHome = mode.kind === "home";
   const clock: Clock = useMemo(() => ({ now }), [now]);
 
@@ -132,14 +134,23 @@ export default function HomeClient() {
     });
   }, []);
 
+  // A failed read keeps an account read before; with none, Home says it is unknown.
+  const accountKnown = useRef(false);
   const refreshAccount = useCallback(async () => {
     try {
       const next = await readAccount();
       if (!mounted.current) return;
-      setAccount(next.account);
-      setBilling(next.billing);
+      if (next.account) {
+        accountKnown.current = true;
+        setAccount(next.account);
+        setBilling(next.billing);
+        setAccountRead("known");
+      } else if (!accountKnown.current) {
+        setAccountRead("failed");
+      }
     } catch (error) {
       if (error instanceof SignedOutError) goToSignIn();
+      else if (mounted.current && !accountKnown.current) setAccountRead("failed");
     }
   }, []);
 
@@ -180,6 +191,8 @@ export default function HomeClient() {
     let timer: number | undefined;
     let attempt = 0;
     async function poll() {
+      // An account that could not be read is asked for again with each status read.
+      if (attempt > 0 && !accountKnown.current && visibleNow()) void refreshAccount();
       const next = visibleNow() ? await refreshStatus() : null;
       if (cancelled) return;
       const lifecycleNow = next?.lifecycle;
@@ -560,7 +573,7 @@ export default function HomeClient() {
           downloadBusy={downloadBusy}
           onExport={() => void onExport()}
           onDownload={(exportId) => void onDownload(exportId)}
-          reviewer={reviewer}
+          deletion={account?.kind ?? null}
           onDelete={() => setDeleteStep("ask")}
         />
         <div className={styles.footer}>Everything else happens in your assistant.</div>

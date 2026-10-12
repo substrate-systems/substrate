@@ -12,7 +12,7 @@ export function PlanAndAccount({
   onBilling,
   billingBusy,
 }: {
-  plan: PlanView | null;
+  plan: PlanView;
   storage: StorageView;
   email: string | null;
   onBilling: (kind: "portal" | "checkout") => void;
@@ -20,19 +20,17 @@ export function PlanAndAccount({
 }) {
   return (
     <Section title="Plan and account">
-      {plan && (
-        <div className={styles.row}>
-          <div className={styles.rowText}>
-            <span className={styles.rowTitle}>{plan.name}</span>
-            {plan.meta && <span className={styles.rowMeta}>{plan.meta}</span>}
-          </div>
-          {plan.action && (
-            <Button working={billingBusy} onClick={() => onBilling(plan.action!.kind)}>
-              {plan.action.label}
-            </Button>
-          )}
+      <div className={styles.row}>
+        <div className={styles.rowText}>
+          <span className={styles.rowTitle}>{plan.name}</span>
+          {plan.meta && <span className={styles.rowMeta}>{plan.meta}</span>}
         </div>
-      )}
+        {plan.action && (
+          <Button working={billingBusy} onClick={() => onBilling(plan.action!.kind)}>
+            {plan.action.label}
+          </Button>
+        )}
+      </div>
       <div className={styles.storage}>
         <div className={styles.storageLine}>
           <span className={styles.muted}>Storage</span>
@@ -60,7 +58,7 @@ export function PlanAndAccount({
           <span className={styles.rowMeta}>{email ?? "not available right now"}</span>
         </div>
       </div>
-      {plan?.note && <div className={styles.panelNote}>{plan.note}</div>}
+      {plan.note && <div className={styles.panelNote}>{plan.note}</div>}
     </Section>
   );
 }
@@ -72,7 +70,7 @@ export function YourData({
   downloadBusy,
   onExport,
   onDownload,
-  reviewer,
+  deletion,
   onDelete,
 }: {
   /** Null while export is not released: the row is left out, not shown dead. */
@@ -82,7 +80,8 @@ export function YourData({
   downloadBusy: boolean;
   onExport: () => void;
   onDownload: (exportId: string) => void;
-  reviewer: boolean;
+  /** Whose account this is: an owner may delete it, a reviewer may not; unknown leaves the row out. */
+  deletion: "owner" | "reviewer" | null;
   onDelete: () => void;
 }) {
   const detail = exportRow?.detail ?? null;
@@ -151,21 +150,23 @@ export function YourData({
           )}
         </>
       )}
-      <div className={styles.row}>
-        <div className={styles.rowText}>
-          <span className={styles.rowTitle}>Delete Exomem</span>
-          <span className={styles.rowBody}>
-            {reviewer
-              ? "Not on a reviewer account. We delete it when the review ends."
-              : "Removes everything. We email you to confirm."}
-          </span>
+      {deletion && (
+        <div className={styles.row}>
+          <div className={styles.rowText}>
+            <span className={styles.rowTitle}>Delete Exomem</span>
+            <span className={styles.rowBody}>
+              {deletion === "reviewer"
+                ? "Not on a reviewer account. We delete it when the review ends."
+                : "Removes everything. We email you to confirm."}
+            </span>
+          </div>
+          {deletion === "owner" && (
+            <button type="button" className={styles.linkButton} onClick={onDelete}>
+              Delete…
+            </button>
+          )}
         </div>
-        {!reviewer && (
-          <button type="button" className={styles.linkButton} onClick={onDelete}>
-            Delete…
-          </button>
-        )}
-      </div>
+      )}
     </Section>
   );
 }

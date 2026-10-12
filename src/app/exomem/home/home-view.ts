@@ -32,7 +32,8 @@ import type { Lifecycle } from "./home-state";
 /**
  * on: the memory is live · readonly: a payment failed · ended: the subscription
  * ended and the memory is kept · paused / suspended: the cell is stopped ·
- * trouble: the cell should run and does not · export_pause: an export holds it.
+ * trouble: the cell should run and does not · export_pause: an export holds it ·
+ * unknown: the account could not be read, so Home claims no state for it.
  */
 export type HomeVariant =
   | "on"
@@ -41,7 +42,11 @@ export type HomeVariant =
   | "paused"
   | "suspended"
   | "trouble"
-  | "export_pause";
+  | "export_pause"
+  | "unknown";
+
+/** Where the first account read is: Home says nothing about the account until it settles. */
+export type AccountRead = "loading" | "failed" | "known";
 
 export type HomeMode =
   | { kind: "loading" }
@@ -52,8 +57,19 @@ export type HomeMode =
   | { kind: "home"; variant: HomeVariant };
 
 /** The lifecycle says whether the cell serves; the account step says why it does or does not. */
-export function homeMode(lifecycle: Lifecycle, account: HomeAccount | null): HomeMode {
+export function homeMode(
+  lifecycle: Lifecycle,
+  account: HomeAccount | null,
+  accountRead: AccountRead
+): HomeMode {
   const step = account?.step ?? null;
+  // These states draw the account's Home, so they wait for the account and never guess it.
+  const needsAccount =
+    lifecycle.state === "suspended" ||
+    lifecycle.state === "degraded" ||
+    lifecycle.state === "ready";
+  if (needsAccount && accountRead === "loading") return { kind: "loading" };
+  if (needsAccount && !account) return { kind: "home", variant: "unknown" };
   switch (lifecycle.state) {
     case "loading":
       return { kind: "loading" };
@@ -231,6 +247,11 @@ export function statusCopy(
       return {
         headline: "Paused for your export",
         statusLine: "Your assistants are back in a few minutes.",
+      };
+    case "unknown":
+      return {
+        headline: "Your Exomem",
+        statusLine: "Your account details can’t be read right now. Try again in a minute.",
       };
   }
 }
@@ -475,8 +496,8 @@ export function planView(
   account: HomeAccount | null,
   billing: HomeBilling | null,
   clock: Clock
-): PlanView | null {
-  if (!account) return null;
+): PlanView {
+  if (!account) return { name: "Plan", meta: "not available right now", action: null, note: null };
   if (account.kind === "reviewer") {
     const ends = account.reviewerEndsAt.value;
     return {
