@@ -624,9 +624,9 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
 }
 
 /** Default for `EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS`: 14 days. */
-export const DEFAULT_LAPSED_CONNECTOR_GRACE_HOURS = 336;
+const DEFAULT_LAPSED_CONNECTOR_GRACE_HOURS = 336;
 /** Default for `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`: 24 hours. */
-export const DEFAULT_IDLE_CLIENT_GRACE_HOURS = 24;
+const DEFAULT_IDLE_CLIENT_GRACE_HOURS = 24;
 
 // Each sweep retires at most this many clients per partition. It runs every
 // minute and a partition holds at most its bound of unretired clients.
@@ -654,7 +654,7 @@ function graceHours(env: EnvironmentSource, name: string, fallback: number): num
   return hours;
 }
 
-export function loadOAuthClientRetirementGrace(
+function loadOAuthClientRetirementGrace(
   env: EnvironmentSource = process.env
 ): OAuthClientRetirementGrace {
   return {
