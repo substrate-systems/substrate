@@ -89,7 +89,7 @@ Home writes the same preference file the assistant uses. The cell verifier resol
 
 The activity section returns at most 20 content-free events: client family, action, item count and time. Events merge when the same client repeats an action within 60 seconds. Item counts come from the released-path outcomes of the disclosure collector, not from content. The action comes from command metadata, not a tool-name list. The ledger lives in an emptyDir, so a restart empties it and moves the start time forward. An older image refuses the unknown section, and Home shows "outdated" as unavailable. Home reads on load, on tab focus and every 30 seconds while visible. Unavailable shows nothing, never zero.
 
-One suspected bug needs a measurement before any fix: the remote HTTP surface is stateless and the gateway forwards no client name, so context detection may fall back to coding for every call. If the measurement confirms it, the gateway sets a header naming the authenticated client and the cell uses it after `clientInfo`. Otherwise nothing ships.
+A measurement confirmed one bug: the remote HTTP surface is stateless and the gateway forwards no client name, so every handshake-protocol call resolved to the coding context, and chat apps got Balanced instead of Maximal. The gateway now sets two headers from the token's stored client. `x-exomem-oauth-client` carries the display name that the app list shows; the cell uses it after `clientInfo`. `x-exomem-client-context` carries `coding` when every registered redirect URI is loopback, otherwise `conversation`; the cell honours it before name detection. The context reads the client's registered redirect URIs, because a grant keeps no redirect after its authorization transaction is pruned. The app list reports the same context for each app, so the journey saves a chosen level to it. A caller's copy of either header is refused, and the gateway replaces any copy that passes the check.
 
 ### Storage
 
@@ -154,7 +154,7 @@ For a stopped cell, the row keeps the board copy: "All your notes and files, as 
 1. Substrate migrations and grants first, with every flag off. They are additive.
 2. Exomem release and cell rollout, owner canary first. The new fields are additive and the ledger reads both versions.
 3. The cell controller. An export on an old cell image fails harmlessly as `EXPORT_FAILED`. Turn the flag on only after the rollout.
-4. The gateway header only if the measurement confirms the client-name bug.
+4. The gateway client headers, after the cell image that reads them. An older cell ignores headers it does not know.
 5. Substrate Home: levels and activity first, export after a rehearsal on a local cluster with a real gateway and an object-store stand-in.
 6. Admission last. Turn `EXOMEM_SELF_SERVE_ADMISSION` from `closed` to `waitlist`, then to `open`.
 
