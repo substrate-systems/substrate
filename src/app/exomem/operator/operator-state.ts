@@ -1,9 +1,10 @@
 import type { CloudCapacityStatus } from "@/lib/exomem-hosted/cloud-capacity";
+import {
+  inviterEmailAllowed,
+  type ExomemInviteKind,
+} from "@/lib/exomem-hosted/invitation-contract";
 
 export type OperatorCapacity = CloudCapacityStatus;
-
-/** Standard is paid; friend is paid with the friend price; covered is complimentary. */
-export type InviteKind = "standard" | "friend" | "covered";
 
 function count(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -47,13 +48,16 @@ export function invitationBlocked(capacity: OperatorCapacity): boolean {
   return capacity.freePlaces === null || capacity.freePlaces === 0;
 }
 
-export function requiresComplimentaryConfirmation(kind: InviteKind, confirmed: boolean): boolean {
+export function requiresComplimentaryConfirmation(
+  kind: ExomemInviteKind,
+  confirmed: boolean
+): boolean {
   return kind === "covered" && !confirmed;
 }
 
 export type InvitationDraft = {
   email: string;
-  kind: InviteKind;
+  kind: ExomemInviteKind;
   inviterName: string;
   inviterEmail: string;
   inviteeName: string;
@@ -68,7 +72,7 @@ export function invitationRequestBody(draft: InvitationDraft): Record<string, st
     ["inviteeName", draft.inviteeName],
     ["note", draft.note],
   ];
-  if (draft.kind === "friend") optional.push(["inviterEmail", draft.inviterEmail]);
+  if (inviterEmailAllowed(draft.kind)) optional.push(["inviterEmail", draft.inviterEmail]);
   for (const [key, value] of optional) {
     if (value.trim()) body[key] = value.trim();
   }

@@ -34,6 +34,7 @@ import {
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
+import type { ExomemInviteKind } from "./invitation-contract";
 import { CURRENCY_CODE, MONEY_MINOR_UNITS } from "./paddle-billing";
 import {
   exomemPublicBaseUrlFromEnv,
@@ -223,7 +224,7 @@ function readInvitationNoticePayload(
 }
 
 type UsableInvitation = {
-  kind: "standard" | "friend" | "covered";
+  kind: ExomemInviteKind;
   email: string;
   inviterName: string | null;
   note: string | null;

@@ -1,22 +1,30 @@
 "use client";
 
 import { FormEvent, useRef, useState } from "react";
+import {
+  EXOMEM_INVITE_KINDS,
+  INVITATION_NAME_MAX,
+  INVITATION_NOTE_MAX,
+  inviteeNameRequired,
+  inviterEmailAllowed,
+  inviterNameRequired,
+  type ExomemInviteKind,
+} from "@/lib/exomem-hosted/invitation-contract";
 import styles from "../private-shell.module.css";
 import {
   invitationBlocked,
   invitationRequestBody,
   parseOperatorCapacity,
   requiresComplimentaryConfirmation,
-  type InviteKind,
   type OperatorCapacity,
 } from "./operator-state";
 
-const KIND_LABELS: Record<InviteKind, string> = {
+const KIND_LABELS: Record<ExomemInviteKind, string> = {
   standard: "Paid",
   friend: "Friend (paid, friend price)",
   covered: "Covered (complimentary)",
 };
-const KIND_NAMES: Record<InviteKind, string> = {
+const KIND_NAMES: Record<ExomemInviteKind, string> = {
   standard: "paid",
   friend: "friend",
   covered: "covered",
@@ -96,12 +104,13 @@ export default function OperatorClient() {
   const [capacity, setCapacity] = useState<OperatorCapacity | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
   const [email, setEmail] = useState("");
-  const [kind, setKind] = useState<InviteKind>("standard");
+  const [kind, setKind] = useState<ExomemInviteKind>("standard");
   const [inviterName, setInviterName] = useState("");
   const [inviterEmail, setInviterEmail] = useState("");
   const [inviteeName, setInviteeName] = useState("");
   const [note, setNote] = useState("");
   const [complimentaryConfirmed, setComplimentaryConfirmed] = useState(false);
+  const inviteeNameNeeded = inviteeNameRequired(kind, inviterEmail.trim() !== "");
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
@@ -300,11 +309,11 @@ export default function OperatorClient() {
           id="operator-kind"
           value={kind}
           onChange={(event) => {
-            setKind(event.target.value as InviteKind);
+            setKind(event.target.value as ExomemInviteKind);
             setComplimentaryConfirmed(false);
           }}
         >
-          {(Object.keys(KIND_LABELS) as InviteKind[]).map((option) => (
+          {EXOMEM_INVITE_KINDS.map((option) => (
             <option key={option} value={option}>
               {KIND_LABELS[option]}
             </option>
@@ -312,20 +321,20 @@ export default function OperatorClient() {
         </select>
 
         <label className={styles.label} htmlFor="operator-inviter-name">
-          {kind === "standard" ? "Inviter's name (optional)" : "Inviter's name"}
+          {inviterNameRequired(kind) ? "Inviter's name" : "Inviter's name (optional)"}
         </label>
         <input
           className={styles.input}
           id="operator-inviter-name"
           type="text"
           value={inviterName}
-          maxLength={60}
+          maxLength={INVITATION_NAME_MAX}
           onChange={(event) => setInviterName(event.target.value)}
           autoComplete="off"
-          required={kind !== "standard"}
+          required={inviterNameRequired(kind)}
         />
 
-        {kind === "friend" ? (
+        {inviterEmailAllowed(kind) ? (
           <>
             <label className={styles.label} htmlFor="operator-inviter-email">
               Inviter&apos;s email (optional, for the used and ended notices)
@@ -342,16 +351,17 @@ export default function OperatorClient() {
         ) : null}
 
         <label className={styles.label} htmlFor="operator-invitee-name">
-          Invitee&apos;s name (optional)
+          {inviteeNameNeeded ? "Invitee's name" : "Invitee's name (optional)"}
         </label>
         <input
           className={styles.input}
           id="operator-invitee-name"
           type="text"
           value={inviteeName}
-          maxLength={60}
+          maxLength={INVITATION_NAME_MAX}
           onChange={(event) => setInviteeName(event.target.value)}
           autoComplete="off"
+          required={inviteeNameNeeded}
         />
 
         <label className={styles.label} htmlFor="operator-note">
@@ -361,7 +371,7 @@ export default function OperatorClient() {
           className={styles.input}
           id="operator-note"
           value={note}
-          maxLength={280}
+          maxLength={INVITATION_NOTE_MAX}
           rows={3}
           onChange={(event) => setNote(event.target.value)}
         />

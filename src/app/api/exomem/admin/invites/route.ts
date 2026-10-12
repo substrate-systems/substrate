@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
-import { issueOperatorInvite, type ExomemInviteKind } from "@/lib/exomem-hosted/invites";
+import { issueOperatorInvite } from "@/lib/exomem-hosted/invites";
+import {
+  EXOMEM_INVITE_KINDS,
+  type ExomemInviteKind,
+} from "@/lib/exomem-hosted/invitation-contract";
 import { requireExomemOperator } from "@/lib/exomem-hosted/operator-auth";
 import {
   clientAddressKey,
@@ -23,7 +27,6 @@ type InviteBody = {
   expiresAt?: unknown;
 };
 
-const KINDS: readonly ExomemInviteKind[] = ["standard", "friend", "covered"];
 // An invitation lasts 30 days unless the operator sets an earlier end
 // (design: a 30-day bearer credential, reminded 3 days before it ends).
 const DEFAULT_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -57,7 +60,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       !body ||
       typeof body !== "object" ||
       typeof body.email !== "string" ||
-      !KINDS.includes(body.kind as ExomemInviteKind) ||
+      !(EXOMEM_INVITE_KINDS as readonly unknown[]).includes(body.kind) ||
       !optionalString(body.inviterName) ||
       !optionalString(body.inviterEmail) ||
       !optionalString(body.inviteeName) ||

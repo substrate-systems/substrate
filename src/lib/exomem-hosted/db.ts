@@ -5,6 +5,7 @@ import { exomemErrors } from "./errors";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import type { SecretEnvelope } from "./security";
 import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
+import type { ExomemInviteKind } from "./invitation-contract";
 
 export type ExomemSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -137,8 +138,6 @@ export async function withExomemTransaction<T>(
 }
 
 export type EntitlementSource = "complimentary" | "paddle";
-
-export type ExomemInviteKind = "standard" | "friend" | "covered";
 
 export type CreateInviteRecordInput = {
   tokenDigest: Buffer;

@@ -15,12 +15,20 @@ import {
   executeExomemSql,
   withExomemTransaction,
   type CreateInviteRecordInput,
-  type ExomemInviteKind,
   type ExomemSql,
 } from "./db";
 import { enqueueExomemEmail, INVITATION_REMINDER_LEAD_DAYS } from "./email-outbox";
 import { LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
+import {
+  EXOMEM_INVITE_KINDS,
+  INVITATION_NAME_MAX,
+  INVITATION_NOTE_MAX,
+  inviteeNameRequired,
+  inviterEmailAllowed,
+  inviterNameRequired,
+  type ExomemInviteKind,
+} from "./invitation-contract";
 import { known, unknown, type Known } from "./known";
 import {
   applyExomemFriendDiscountToSubscription,
@@ -33,12 +41,8 @@ import { exomemPaddleBasePriceId } from "./paddle-config";
 import { EXOMEM_INVITE_CAPABILITIES, EXOMEM_INVITE_LIMITS } from "./self-serve-admission";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
 
-export type { ExomemInviteKind };
-
 const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const NAME_MAX = 60;
-const NOTE_MAX = 280;
 
 // Format checks. A name is shown to the invitee and, for the inviter, used
 // as the email sender ("Alex via Exomem"), so it carries no control or
@@ -129,23 +133,22 @@ export async function issueOperatorInvite(
   ) {
     throw exomemErrors.invalidExpiry();
   }
-  if (input.kind !== "standard" && input.kind !== "friend" && input.kind !== "covered") {
+  if (!(EXOMEM_INVITE_KINDS as readonly string[]).includes(input.kind)) {
     throw exomemErrors.invalidEntitlementSource();
   }
-  const inviterName = optionalText(input.inviterName, NAME_MAX, UNSAFE_NAME);
-  const inviteeName = optionalText(input.inviteeName, NAME_MAX, UNSAFE_NAME);
-  const note = optionalText(input.note, NOTE_MAX, UNSAFE_NOTE);
+  const inviterName = optionalText(input.inviterName, INVITATION_NAME_MAX, UNSAFE_NAME);
+  const inviteeName = optionalText(input.inviteeName, INVITATION_NAME_MAX, UNSAFE_NAME);
+  const note = optionalText(input.note, INVITATION_NOTE_MAX, UNSAFE_NOTE);
   const inviterEmail =
     input.inviterEmail === null ||
     input.inviterEmail === undefined ||
     input.inviterEmail.trim() === ""
       ? null
       : normalizeAccessEmail(input.inviterEmail);
-  // Emails 09 and 10 name who invites or covers; 12 and 13 name the invitee
-  // to an inviter, and only a friend invitation tells its inviter anything.
   if (
-    (input.kind !== "standard" && inviterName === null) ||
-    (inviterEmail !== null && (input.kind !== "friend" || inviteeName === null))
+    (inviterNameRequired(input.kind) && inviterName === null) ||
+    (inviterEmail !== null && !inviterEmailAllowed(input.kind)) ||
+    (inviteeNameRequired(input.kind, inviterEmail !== null) && inviteeName === null)
   ) {
     throw invitationFieldsInvalid();
   }
