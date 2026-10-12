@@ -9,7 +9,12 @@
  */
 
 import { formatMoney, type ExomemMoney } from "@/lib/exomem/money";
-import { renderExomemEmail, type ExomemEmailFact, type RenderedExomemEmail } from "./exomem-email";
+import {
+  renderExomemEmail,
+  type ExomemEmailFact,
+  type ExomemEmailSlots,
+  type RenderedExomemEmail,
+} from "./exomem-email";
 import {
   emailClock,
   emailCount,
@@ -115,18 +120,38 @@ export function renderExomemPaymentFailedEmail(input: {
   });
 }
 
-/** Email 05: the subscription ended (grace ran out, or a cancel took effect). */
-export function renderExomemSubscriptionEndedEmail(input: {
+/** Where an ended owner goes from emails 05 and 06. */
+type EndedLinks = {
   /** Home's export; null while the export flag is off, and the email names support instead. */
   exportUrl: string | null;
   supportUrl: string;
   resubscribeUrl: string;
-  keptUntil: Date;
-  now: Date;
-  /** Whether email 06 is queued for a week before deletion. */
-  reminderScheduled: boolean;
-  timeZone: EmailTimeZone;
-}): RenderedEmail {
+};
+
+function endedAction(links: EndedLinks): ExomemEmailSlots["action"] {
+  return links.exportUrl
+    ? {
+        label: "Export your memory",
+        url: links.exportUrl,
+        link: { label: "Resubscribe", url: links.resubscribeUrl },
+      }
+    : {
+        label: "Resubscribe",
+        url: links.resubscribeUrl,
+        link: { label: "Contact support", url: links.supportUrl },
+      };
+}
+
+/** Email 05: the subscription ended (grace ran out, or a cancel took effect). */
+export function renderExomemSubscriptionEndedEmail(
+  input: EndedLinks & {
+    keptUntil: Date;
+    now: Date;
+    /** Whether email 06 is queued for a week before deletion. */
+    reminderScheduled: boolean;
+    timeZone: EmailTimeZone;
+  }
+): RenderedEmail {
   const kept = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
   const deletes = emailDate(input.keptUntil, input.timeZone);
   return renderExomemEmail({
@@ -141,31 +166,19 @@ export function renderExomemSubscriptionEndedEmail(input: {
         ? `It’s read-only until ${deletes}. Export it any time, or resubscribe and everything comes back exactly as it was. After ${deletes} it’s permanently deleted.`
         : `It’s read-only until ${deletes}. Resubscribe and everything comes back exactly as it was. After ${deletes} it’s permanently deleted. For a copy before then, write to support.`,
     ],
-    action: input.exportUrl
-      ? {
-          label: "Export your memory",
-          url: input.exportUrl,
-          link: { label: "Resubscribe", url: input.resubscribeUrl },
-        }
-      : {
-          label: "Resubscribe",
-          url: input.resubscribeUrl,
-          link: { label: "Contact support", url: input.supportUrl },
-        },
+    action: endedAction(input),
     smallPrint: input.reminderScheduled ? "We’ll remind you a week before." : "",
   });
 }
 
 /** Email 06: a week before an ended Exomem is deleted. */
-export function renderExomemDeletionReminderEmail(input: {
-  /** Home's export; null while the export flag is off, and the email names support instead. */
-  exportUrl: string | null;
-  supportUrl: string;
-  resubscribeUrl: string;
-  keptUntil: Date;
-  now: Date;
-  timeZone: EmailTimeZone;
-}): RenderedEmail {
+export function renderExomemDeletionReminderEmail(
+  input: EndedLinks & {
+    keptUntil: Date;
+    now: Date;
+    timeZone: EmailTimeZone;
+  }
+): RenderedEmail {
   const left = emailCount(emailDaysLeft(input.now, input.keptUntil), "day");
   const deleted = `On ${emailDate(input.keptUntil, input.timeZone)} your Exomem and everything in it is permanently deleted, backups included.`;
   return renderExomemEmail({
@@ -180,17 +193,7 @@ export function renderExomemDeletionReminderEmail(input: {
         ? `${deleted} Export it now, or resubscribe to keep it.`
         : `${deleted} Resubscribe to keep it. For a copy before then, write to support.`,
     ],
-    action: input.exportUrl
-      ? {
-          label: "Export your memory",
-          url: input.exportUrl,
-          link: { label: "Resubscribe", url: input.resubscribeUrl },
-        }
-      : {
-          label: "Resubscribe",
-          url: input.resubscribeUrl,
-          link: { label: "Contact support", url: input.supportUrl },
-        },
+    action: endedAction(input),
     smallPrint: input.exportUrl ? "If you’ve already exported it, there’s nothing else to do." : "",
   });
 }
