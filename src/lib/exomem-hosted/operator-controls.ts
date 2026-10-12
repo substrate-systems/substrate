@@ -75,6 +75,47 @@ export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]>
   });
 }
 
+export type OAuthClientPartitionHeadroom = { bound: number; used: number; free: number };
+export type OAuthClientHeadroom = {
+  operator: OAuthClientPartitionHeadroom;
+  autoRegistered: OAuthClientPartitionHeadroom;
+  generic: OAuthClientPartitionHeadroom;
+};
+
+// The partition names that `exomem_oauth_client_partitions` returns: the
+// schema's own closed set, mapped to this report's keys.
+const PARTITION_KEYS = {
+  operator: "operator",
+  auto_registered: "autoRegistered",
+  generic: "generic",
+} as const;
+
+/**
+ * Each client partition's bound and use, as the database enforces them. Counts
+ * only; no client identity. Throws rather than report a partition it could not
+ * read.
+ */
+export async function readOAuthClientHeadroom(): Promise<OAuthClientHeadroom> {
+  const { rows } = await executeExomemSql`
+    /* exomem:oauth-client-headroom */
+    SELECT client_partition, bound, used FROM exomem_oauth_client_partitions()
+  `;
+  const headroom: Partial<OAuthClientHeadroom> = {};
+  for (const raw of rows) {
+    const row = raw as { client_partition?: unknown; bound?: unknown; used?: unknown };
+    const key = PARTITION_KEYS[row.client_partition as keyof typeof PARTITION_KEYS];
+    const bound = Number(row.bound);
+    const used = Number(row.used);
+    if (!key || !Number.isSafeInteger(bound) || !Number.isSafeInteger(used)) {
+      throw new Error("OAUTH_CLIENT_HEADROOM_UNREADABLE");
+    }
+    headroom[key] = { bound, used, free: Math.max(bound - used, 0) };
+  }
+  const { operator, autoRegistered, generic } = headroom;
+  if (!operator || !autoRegistered || !generic) throw new Error("OAUTH_CLIENT_HEADROOM_UNREADABLE");
+  return { operator, autoRegistered, generic };
+}
+
 type OperatorClientWriteResult = { id: string; enabled: boolean };
 type StagedOperatorOAuthClientRegistration = OperatorOAuthClientRegistration & {
   stagedClientReleaseId?: string;

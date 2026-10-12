@@ -206,13 +206,14 @@ describe("Exomem OAuth token store", () => {
   });
 
   it("retains refresh lineage and replay evidence until its family expires", async () => {
-    let query = "";
+    const queries: string[] = [];
     setSqlForTests(async (strings) => {
-      query = strings.join("?");
+      queries.push(strings.join("?"));
       return { rows: [] };
     });
 
     await pruneExpiredOAuthState();
+    const query = queries.find((text) => text.includes("exomem:prune-expired-oauth-state")) ?? "";
 
     assert.match(query, /NOT EXISTS\s*\(\s*SELECT 1 FROM exomem_oauth_refresh_tokens AS child/i);
     assert.match(query, /family\.expires_at <= now\(\)/i);

@@ -10,6 +10,7 @@ import {
 import {
   listOperatorOAuthClients,
   preflightReusablePinnedOAuthClient,
+  readOAuthClientHeadroom,
   refreshOperatorCimdOAuthClient,
   registerOperatorOAuthClient,
   setOperatorOAuthClientEnabled,
@@ -25,10 +26,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
   try {
     await requireRateLimitedExomemOperator(request, "read");
-    const clients = await listOperatorOAuthClients();
+    const [clients, headroom] = await Promise.all([
+      listOperatorOAuthClients(),
+      readOAuthClientHeadroom(),
+    ]);
     operatorSuccessEvent(requestId);
     return NextResponse.json({
       success: true,
+      headroom,
       clients: clients.map((client) => ({
         id: client.id,
         enabled: client.enabled,

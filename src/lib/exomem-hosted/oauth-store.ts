@@ -12,7 +12,11 @@ import {
   type GenericClientRegistration,
 } from "./oauth-client-admission";
 import type { SecretEnvelope } from "./security";
-import { loadExomemCloudResource } from "./cloud-config";
+import {
+  ExomemCloudConfigurationError,
+  loadExomemCloudResource,
+  type EnvironmentSource,
+} from "./cloud-config";
 import { CONNECTABLE_EFFECTIVE_STATES, FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { cloudReviewerAccessEnabled } from "./cloud-reviewer-access-store";
 
@@ -53,9 +57,10 @@ async function withCohortLock<T>(work: (tx: ExomemSql) => Promise<T>): Promise<T
  * ever connect.
  *
  * The caller's trigger is "admission returned nothing", not "no row exists".
- * Expired CIMD clients are disabled rather than deleted (see the maintenance
- * statement in `expireOAuthState`), so a returning connector whose metadata TTL
- * lapsed has a row that is present, stale and unusable. Only an upsert clears it.
+ * Expired CIMD clients are disabled, and later retired, rather than deleted (see
+ * `pruneExpiredOAuthState`), so a returning connector whose metadata TTL lapsed
+ * has a row that is present, stale and unusable. Only an upsert clears it. A
+ * retired row holds no slot, so reviving it needs a free one, like a new client.
  *
  * Returns null on every failure, and the caller must treat that identically to an
  * unknown client, so this path cannot be used to enumerate admitted hosts.
@@ -148,6 +153,7 @@ export async function registerAdmittedCimdClient(
           oauth_client_config_sha256 = EXCLUDED.oauth_client_config_sha256,
           client_name = EXCLUDED.client_name,
           enabled = true,
+          retired_at = NULL,
           authority_version = gen_random_uuid(),
           updated_at = now()
         -- Restricted to rows this path itself created. An operator-managed or
@@ -570,10 +576,80 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
   });
 }
 
-export async function pruneExpiredOAuthState(): Promise<void> {
-  await withExomemTransaction(async (tx) => {
+/** Default for `EXOMEM_OAUTH_CIMD_RETIREMENT_GRACE_HOURS`: 14 days. */
+export const DEFAULT_CIMD_RETIREMENT_GRACE_HOURS = 336;
+/** Default for `EXOMEM_OAUTH_GENERIC_RETIREMENT_GRACE_HOURS`: 24 hours. */
+export const DEFAULT_GENERIC_RETIREMENT_GRACE_HOURS = 24;
+
+// Each sweep retires at most this many clients per partition. It runs every
+// minute and a partition holds at most its bound of unretired clients.
+const RETIREMENTS_PER_PARTITION_PER_SWEEP = 100;
+
+export type OAuthClientRetirementGrace = {
+  /** Hours after its metadata expired before a disabled auto-registered CIMD client retires. */
+  cimdHours: number;
+  /** Hours a generic client must have held no live authority before it retires. */
+  genericHours: number;
+};
+
+function graceHours(env: EnvironmentSource, name: string, fallback: number): number {
+  const raw = env[name]?.trim();
+  if (!raw) return fallback;
+  const hours = Number(raw);
+  // A malformed value fails the sweep loudly rather than retiring on a guess.
+  if (!Number.isSafeInteger(hours) || hours < 1) throw new ExomemCloudConfigurationError([name]);
+  return hours;
+}
+
+export function loadOAuthClientRetirementGrace(
+  env: EnvironmentSource = process.env
+): OAuthClientRetirementGrace {
+  return {
+    // Twice the longest metadata lifetime (CIMD_MAX_TTL_SECONDS, 7 days), so a
+    // connector that lapses for a week finds its own row. A retired connector
+    // revives itself on its next authorization while its partition has a free
+    // slot, so a shorter grace costs little; a longer one holds slots longer.
+    cimdHours: graceHours(
+      env,
+      "EXOMEM_OAUTH_CIMD_RETIREMENT_GRACE_HOURS",
+      DEFAULT_CIMD_RETIREMENT_GRACE_HOURS
+    ),
+    // Keeps a registration whose person is still connecting (consent pending,
+    // account being admitted, reconnecting after a disconnect) for a day. Too
+    // short strands a returning app until its person clears its saved
+    // registration; too long lets a registration flood keep the partition full.
+    genericHours: graceHours(
+      env,
+      "EXOMEM_OAUTH_GENERIC_RETIREMENT_GRACE_HOURS",
+      DEFAULT_GENERIC_RETIREMENT_GRACE_HOURS
+    ),
+  };
+}
+
+export type OAuthStatePruneResult = {
+  /** CIMD clients whose metadata expired, disabled by this sweep. */
+  disabledCimd: number;
+  /** Clients retired by this sweep, per partition. */
+  retired: { autoRegistered: number; generic: number };
+};
+
+/**
+ * The scheduled OAuth maintenance sweep: delete expired transactions, codes and
+ * tokens, disable CIMD clients whose metadata expired, and give back the slots
+ * of clients that can no longer be used. Retirement keeps the row and is
+ * refused for any client that still holds live authority
+ * (`exomem_oauth_client_holds_live_authority`).
+ */
+export async function pruneExpiredOAuthState(
+  env: EnvironmentSource = process.env
+): Promise<OAuthStatePruneResult> {
+  const grace = loadOAuthClientRetirementGrace(env);
+  return withExomemTransaction(async (tx) => {
+    // Exclusive against every admission statement, which all take the shared
+    // lock, so no client gains a grant or token between its liveness check and
+    // its retirement.
     await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
-    await tx`
+    const disabled = await tx`
       /* exomem:prune-expired-oauth-state */
       WITH expired_transactions AS (
       DELETE FROM exomem_oauth_authorization_transactions
@@ -624,10 +700,69 @@ export async function pruneExpiredOAuthState(): Promise<void> {
       )
       RETURNING id
     )
+      -- The expiry stays as the metadata stated it: the retirement grace counts
+      -- from it, and only rows this sweep changes are written.
       UPDATE exomem_oauth_clients
-      SET enabled = false, metadata_expires_at = now()
-      WHERE admission_mode = 'cimd' AND metadata_expires_at <= now()
+      SET enabled = false, updated_at = now()
+      WHERE admission_mode = 'cimd' AND metadata_expires_at <= now() AND enabled
+      RETURNING id
     `;
+    // An auto-registered connector whose metadata expired more than the grace
+    // ago. It is already disabled, and revives itself on its next authorization.
+    const retiredAutoRegistered = await tx`
+      /* exomem:retire-expired-cimd-clients */
+      UPDATE exomem_oauth_clients AS client
+      SET retired_at = now(), updated_at = now()
+      WHERE client.id IN (
+        SELECT candidate.id
+        FROM exomem_oauth_clients AS candidate
+        WHERE candidate.admission_mode = 'cimd'
+          AND candidate.auto_registered
+          -- These two read the unretired partition index, not every retired row.
+          AND candidate.retired_at IS NULL
+          AND NOT candidate.first_party
+          AND NOT candidate.enabled
+          AND candidate.metadata_expires_at <= now() - make_interval(hours => ${grace.cimdHours})
+          AND NOT exomem_oauth_client_holds_live_authority(candidate.id)
+        ORDER BY candidate.metadata_expires_at
+        LIMIT ${RETIREMENTS_PER_PARTITION_PER_SWEEP}
+      )
+      RETURNING client.id
+    `;
+    // A generic client that holds no live authority and has held none within
+    // the grace: registered before it, with no grant created, renewed or revoked
+    // since. Disabled in the same write. Registration never names an existing
+    // id, so nothing revives it.
+    const retiredGeneric = await tx`
+      /* exomem:retire-idle-generic-clients */
+      UPDATE exomem_oauth_clients AS client
+      SET enabled = false, retired_at = now(), updated_at = now()
+      WHERE client.id IN (
+        SELECT candidate.id
+        FROM exomem_oauth_clients AS candidate
+        WHERE candidate.admission_mode = 'generic'
+          AND candidate.retired_at IS NULL
+          AND NOT candidate.first_party
+          AND candidate.created_at <= now() - make_interval(hours => ${grace.genericHours})
+          AND NOT EXISTS (
+            SELECT 1 FROM exomem_oauth_grants AS oauth_grant
+            WHERE oauth_grant.client_id = candidate.id
+              AND GREATEST(oauth_grant.updated_at, oauth_grant.revoked_at)
+                > now() - make_interval(hours => ${grace.genericHours})
+          )
+          AND NOT exomem_oauth_client_holds_live_authority(candidate.id)
+        ORDER BY candidate.created_at
+        LIMIT ${RETIREMENTS_PER_PARTITION_PER_SWEEP}
+      )
+      RETURNING client.id
+    `;
+    return {
+      disabledCimd: disabled.rows.length,
+      retired: {
+        autoRegistered: retiredAutoRegistered.rows.length,
+        generic: retiredGeneric.rows.length,
+      },
+    };
   });
 }
 
