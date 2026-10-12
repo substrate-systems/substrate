@@ -27,14 +27,39 @@ CREATE INDEX exomem_oauth_clients_unretired_partition_idx
 CREATE INDEX exomem_oauth_grants_client_idx
   ON exomem_oauth_grants (client_id);
 
+-- Each partition's bound is data, so an operator changes it with one UPDATE
+-- and no migration. The three partition names are this schema's own closed
+-- set. A missing row closes its partition: the gates refuse every new client
+-- in it rather than admit one without a bound, and the headroom report fails,
+-- which names the cause.
+CREATE TABLE exomem_oauth_client_partition_bounds (
+  client_partition text PRIMARY KEY
+    CHECK (client_partition IN ('operator', 'auto_registered', 'generic')),
+  bound integer NOT NULL CHECK (bound >= 0),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Launch defaults. Each bound limits the rows that one partition can add per
+-- retirement grace. Too low, and people cannot connect; too high, and a
+-- registration flood grows the table by up to the bound per grace.
+INSERT INTO exomem_oauth_client_partition_bounds (client_partition, bound) VALUES
+  -- Registered by hand. Migration 0051's value, about three times its use.
+  ('operator', 96),
+  -- One client per ChatGPT connector, so this caps connected ChatGPT users.
+  -- Ten for each of 1,000 accounts.
+  ('auto_registered', 10000),
+  -- One client per installed app, and more where an app registers again.
+  -- Ten for each of 1,000 accounts.
+  ('generic', 10000)
+ON CONFLICT (client_partition) DO NOTHING;
+
 -- The partitions, their bounds and their use, defined once. The admission
 -- gates and the operator headroom report both read this function, so the
--- reported bound is the enforced bound. The three partition names are this
--- schema's own closed set. The bounds are migration 0062's, unchanged.
+-- reported bound is the enforced bound.
 CREATE FUNCTION exomem_oauth_client_partitions()
 RETURNS TABLE (client_partition text, bound integer, used integer)
 LANGUAGE sql STABLE AS $$
-  SELECT slots.client_partition, slots.bound,
+  SELECT bounds.client_partition, bounds.bound,
          (
            SELECT count(*)::integer
            FROM exomem_oauth_clients AS client
@@ -44,16 +69,16 @@ LANGUAGE sql STABLE AS $$
                    WHEN client.admission_mode = 'generic' THEN 'generic'
                    WHEN client.auto_registered THEN 'auto_registered'
                    ELSE 'operator'
-                 END = slots.client_partition
+                 END = bounds.client_partition
          )
-  FROM (VALUES ('operator', 96), ('auto_registered', 128), ('generic', 128))
-    AS slots (client_partition, bound)
+  FROM exomem_oauth_client_partition_bounds AS bounds
 $$;
 
 COMMENT ON FUNCTION exomem_oauth_client_partitions() IS
-  'Client population partitions: operator (96), auto_registered CIMD (128) and '
-  'generic (128). Counts unretired clients only; first-party clients take no '
-  'slot. The single definition of every partition, bound and count.';
+  'Client population partitions (operator, auto_registered CIMD, generic), '
+  'each with its bound from exomem_oauth_client_partition_bounds and its count '
+  'of unretired clients. First-party clients take no slot. The single '
+  'definition of every partition, bound and count.';
 
 -- An existing client keeps its own slot only while it holds one. A retired
 -- client that returns needs a free slot like a new one: otherwise reviving
@@ -67,12 +92,12 @@ LANGUAGE sql STABLE AS $$
       SELECT 1 FROM exomem_oauth_clients
       WHERE client_id = p_client_id AND retired_at IS NULL
     )
-    OR (
+    OR COALESCE((
       SELECT slots.used < slots.bound
       FROM exomem_oauth_client_partitions() AS slots
       WHERE slots.client_partition =
         CASE WHEN p_auto_registered THEN 'auto_registered' ELSE 'operator' END
-    );
+    ), false);
 $$;
 
 COMMENT ON FUNCTION exomem_oauth_client_partition_available(text, boolean) IS
@@ -82,49 +107,58 @@ COMMENT ON FUNCTION exomem_oauth_client_partition_available(text, boolean) IS
 
 CREATE OR REPLACE FUNCTION exomem_oauth_generic_client_partition_available()
 RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT slots.used < slots.bound
-  FROM exomem_oauth_client_partitions() AS slots
-  WHERE slots.client_partition = 'generic';
+  SELECT COALESCE((
+    SELECT slots.used < slots.bound
+    FROM exomem_oauth_client_partitions() AS slots
+    WHERE slots.client_partition = 'generic'
+  ), false);
 $$;
 
 COMMENT ON FUNCTION exomem_oauth_generic_client_partition_available() IS
   'Whether the generic partition in exomem_oauth_client_partitions has a free '
   'slot for a new dynamically registered client.';
 
--- Whether anything issued to a client can still be used, or is being issued
--- now: a grant that is not revoked, an unexpired code, access token or refresh
--- token, or an authorization in progress. Retirement is refused while this
--- holds, whatever the client's age. A grant that is not revoked counts even
--- without tokens: Home lists it as a connected app.
+-- Every client to which something issued can still be used, or is being
+-- issued now: a grant that is not revoked, an unexpired code, access token or
+-- refresh token, or an authorization in progress. Retirement is refused for
+-- each client listed, whatever its age. A grant that is not revoked counts even
+-- without tokens: Home lists it as a connected app. The sweep anti-joins this
+-- view, so it reads each table once rather than once per candidate client.
+CREATE VIEW exomem_oauth_clients_holding_live_authority AS
+  SELECT client_id FROM exomem_oauth_grants
+  WHERE revoked_at IS NULL
+  UNION ALL
+  SELECT client_id FROM exomem_oauth_authorization_codes
+  WHERE consumed_at IS NULL AND expires_at > now()
+  UNION ALL
+  SELECT client_id FROM exomem_oauth_access_tokens
+  WHERE revoked_at IS NULL AND expires_at > now()
+  UNION ALL
+  SELECT family.client_id
+  FROM exomem_oauth_token_families AS family
+  WHERE family.revoked_at IS NULL AND family.expires_at > now()
+    AND EXISTS (
+      SELECT 1 FROM exomem_oauth_refresh_tokens AS token
+      WHERE token.family_id = family.id
+        AND token.consumed_at IS NULL AND token.expires_at > now()
+    )
+  UNION ALL
+  SELECT client_id FROM exomem_oauth_authorization_transactions
+  WHERE consumed_at IS NULL AND expires_at > now();
+
+COMMENT ON VIEW exomem_oauth_clients_holding_live_authority IS
+  'Clients that hold a grant that is not revoked, an unexpired code, access '
+  'token or refresh token, or an authorization in progress. Every retirement '
+  'path refuses them. A client may appear more than once.';
+
+-- The same rule for one client, for an operator statement.
 CREATE FUNCTION exomem_oauth_client_holds_live_authority(p_client uuid)
 RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT EXISTS (
-      SELECT 1 FROM exomem_oauth_grants
-      WHERE client_id = p_client AND revoked_at IS NULL
-    )
-    OR EXISTS (
-      SELECT 1 FROM exomem_oauth_authorization_codes
-      WHERE client_id = p_client AND consumed_at IS NULL AND expires_at > now()
-    )
-    OR EXISTS (
-      SELECT 1 FROM exomem_oauth_access_tokens
-      WHERE client_id = p_client AND revoked_at IS NULL AND expires_at > now()
-    )
-    OR EXISTS (
-      SELECT 1
-      FROM exomem_oauth_token_families AS family
-      JOIN exomem_oauth_refresh_tokens AS token ON token.family_id = family.id
-      WHERE family.client_id = p_client
-        AND family.revoked_at IS NULL AND family.expires_at > now()
-        AND token.consumed_at IS NULL AND token.expires_at > now()
-    )
-    OR EXISTS (
-      SELECT 1 FROM exomem_oauth_authorization_transactions
-      WHERE client_id = p_client AND consumed_at IS NULL AND expires_at > now()
-    );
+    SELECT 1 FROM exomem_oauth_clients_holding_live_authority
+    WHERE client_id = p_client
+  );
 $$;
 
 COMMENT ON FUNCTION exomem_oauth_client_holds_live_authority(uuid) IS
-  'True while a client holds a grant that is not revoked, an unexpired code, '
-  'access token or refresh token, or an authorization in progress. Every '
-  'retirement path refuses such a client.';
+  'Whether one client appears in exomem_oauth_clients_holding_live_authority.';
