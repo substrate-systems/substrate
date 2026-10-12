@@ -44,15 +44,29 @@ export type AccountFacts = {
   checkoutAvailable: boolean;
 };
 
+export type RequestApp = {
+  displayName: string;
+  /** Exomem stands behind the name (operator or platform), so it needs no label. */
+  vouched: boolean;
+  platform: string | null;
+  loopback: boolean;
+  redirectHost: string;
+};
+
+/**
+ * Where the request came from, at the page's foot. A name the app chose for itself could
+ * be anyone's, so the footer says so beside where the answer goes.
+ */
+function requestFooter(app: RequestApp): string {
+  const from = app.loopback ? consentCopy.onThisComputer(app.displayName) : app.redirectHost;
+  return (
+    consentCopy.footer(from) +
+    (app.vouched || app.loopback ? "" : ` · ${claimCopy(app.displayName)}`)
+  );
+}
+
 type ConsentRequest = {
-  app: {
-    displayName: string;
-    /** Exomem stands behind the name (operator or platform), so it needs no label. */
-    vouched: boolean;
-    platform: string | null;
-    loopback: boolean;
-    redirectHost: string;
-  };
+  app: RequestApp;
   scopes: string[];
   email: string | null;
   confirmation: string;
@@ -155,17 +169,25 @@ export default function AuthorizeClient({
 }: {
   screen: ConsentScreen;
   request: ConsentRequest | null;
-  /** Without a live request: the app this browser's request was from, when known. */
-  expiredApp?: string | null;
+  /**
+   * Without a live request: the app this browser's request was from, when known. Unknown,
+   * the step says "your app" and draws no app (design.md (ae)).
+   */
+  expiredApp?: RequestApp | null;
   requestLife: string;
   statusPageUrl: string | null;
 }) {
   if (!request) {
     return (
-      <JourneyPage kind="stop" stepKey="expired">
+      <JourneyPage
+        kind="stop"
+        app={expiredApp ? appTile(expiredApp) : undefined}
+        footer={expiredApp ? requestFooter(expiredApp) : null}
+        stepKey="expired"
+      >
         <StepHeading
           title={breakCopy.expired.title}
-          lede={breakCopy.expired.lede(requestLife, expiredApp ?? UNNAMED_APP)}
+          lede={breakCopy.expired.lede(requestLife, expiredApp?.displayName ?? UNNAMED_APP)}
         />
       </JourneyPage>
     );
@@ -291,11 +313,7 @@ function Consent({
   }
 
   const tile = appTile(app);
-  const from = app.loopback ? consentCopy.onThisComputer(name) : app.redirectHost;
-  // A name the app chose for itself could be anyone's, so the footer says so beside
-  // where the answer goes.
-  const footer =
-    consentCopy.footer(from) + (app.vouched || app.loopback ? "" : ` · ${claimCopy(name)}`);
+  const footer = requestFooter(app);
 
   if (current === "signedout" || current === "switched") {
     return (

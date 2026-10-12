@@ -23,22 +23,25 @@ import { findOAuthClientIdentity, oauthClientDisplayName, redirectHost } from ".
 import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
 import { tokenDigest } from "./security";
 
+/** The app a request is from, as the consent page names and draws it. */
+export type ConsentApp = {
+  displayName: string;
+  /** `displayNameVouched` says whether Exomem stands behind the name. */
+  displayNameSource: OAuthClientDisplayNameSource;
+  platform: string | null;
+  /** The request's redirect is loopback: the code goes to this computer. */
+  loopback: boolean;
+  /** The host this request's authorization code would be sent to. */
+  redirectHost: string;
+};
+
 export type ConsentView =
   // No live request to show: start again from the app. The app is named when this
   // browser's request still identifies it, and is null otherwise.
-  | { step: "expired"; app: AppName | null }
+  | { step: "expired"; app: ConsentApp | null }
   | {
       step: ConsentStep;
-      app: {
-        displayName: string;
-        /** `displayNameVouched` says whether Exomem stands behind the name. */
-        displayNameSource: OAuthClientDisplayNameSource;
-        platform: string | null;
-        /** The request's redirect is loopback: the code goes to this computer. */
-        loopback: boolean;
-        /** The host this request's authorization code would be sent to. */
-        redirectHost: string;
-      };
+      app: ConsentApp;
       scopes: string[];
       signedInEmail: string | null;
       /** A live grant already exists for this user, tenant, app and resource. */
@@ -57,8 +60,6 @@ export type ConsentViewInput = {
   formNonceCookie: string | undefined;
   sessionCookie: string | undefined;
 };
-
-type AppName = ReturnType<typeof oauthClientDisplayName>;
 
 export type ConnectorSettingsReason =
   | "local_app"
@@ -90,21 +91,21 @@ export async function loadConsentView(
   // The request was resolved against this client a moment ago; a client row
   // gone since then leaves nothing to name, so the request is over.
   if (!client) return { step: "expired", app: null };
-  // The fallback name is the host this request's code goes to, not any other
-  // redirect the client registered.
-  const name = oauthClientDisplayName(client, continuation.redirectUri);
+  const loopback = isLoopbackRedirectDestination(continuation.redirectUri);
+  const app: ConsentApp = {
+    // The fallback name is the host this request's code goes to, not any other
+    // redirect the client registered.
+    ...oauthClientDisplayName(client, continuation.redirectUri),
+    platform: client.platform,
+    loopback,
+    redirectHost: redirectHost(continuation.redirectUri),
+  };
   // Without its form nonce this page cannot answer the request, but it still knows
   // which app to start again from.
-  if (!nonce || !input.confirmation) return { step: "expired", app: name };
-  const loopback = isLoopbackRedirectDestination(continuation.redirectUri);
+  if (!nonce || !input.confirmation) return { step: "expired", app };
   return {
     step: consentStep(visitor),
-    app: {
-      ...name,
-      platform: client.platform,
-      loopback,
-      redirectHost: redirectHost(continuation.redirectUri),
-    },
+    app,
     scopes: continuation.scopes,
     signedInEmail: visitor?.email ?? null,
     alreadyConnected: visitor?.alreadyConnected ?? false,

@@ -4,7 +4,7 @@ import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
 import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
 import { displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
 import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
-import { loadConsentView } from "@/lib/exomem-hosted/consent-view";
+import { loadConsentView, type ConsentApp } from "@/lib/exomem-hosted/consent-view";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
 import { known, unknown } from "@/lib/exomem-hosted/known";
 import {
@@ -16,7 +16,7 @@ import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
 import { statusPageUrl } from "../_journey/status-page";
-import AuthorizeClient, { type AccountFacts } from "./authorize-client";
+import AuthorizeClient, { type AccountFacts, type RequestApp } from "./authorize-client";
 import { consentScreen } from "./consent-screen";
 
 export const dynamic = "force-dynamic";
@@ -67,6 +67,16 @@ async function accountFacts(sessionCookie: string | undefined): Promise<AccountF
   }
 }
 
+function requestApp(app: ConsentApp): RequestApp {
+  return {
+    displayName: app.displayName,
+    vouched: displayNameVouched(app.displayNameSource),
+    platform: app.platform,
+    loopback: app.loopback,
+    redirectHost: app.redirectHost,
+  };
+}
+
 /** "10 minutes", from the request lifetime the server enforces. */
 function requestLife(): string {
   return `${Math.round(OAUTH_TRANSACTION_TTL_MS / 60_000)} minutes`;
@@ -92,7 +102,7 @@ export default async function ExomemAuthorizePage({
       <AuthorizeClient
         screen={screen}
         request={null}
-        expiredApp={view.app?.displayName ?? null}
+        expiredApp={view.app ? requestApp(view.app) : null}
         requestLife={requestLife()}
         statusPageUrl={null}
       />
@@ -102,13 +112,7 @@ export default async function ExomemAuthorizePage({
     <AuthorizeClient
       screen={screen}
       request={{
-        app: {
-          displayName: view.app.displayName,
-          vouched: displayNameVouched(view.app.displayNameSource),
-          platform: view.app.platform,
-          loopback: view.app.loopback,
-          redirectHost: view.app.redirectHost,
-        },
+        app: requestApp(view.app),
         scopes: view.scopes,
         email: view.signedInEmail,
         confirmation: view.confirmation,
