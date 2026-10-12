@@ -50,6 +50,8 @@ export type SetupFacts = {
   mcpAddress: string | null;
   /** The assistants' own connector pages; null when not configured. */
   settings: Record<PluginApp, string | null>;
+  /** Whether sign-in offers the app reviewer's entry, as the sign-in page does. */
+  reviewerEnabled: boolean;
 };
 
 type Phase = SetupScreen | "confirming" | "waiting" | "other" | "joined" | "switched";
@@ -226,7 +228,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
     return (
       <StartFlow
         context={{ kind: "web" }}
-        reviewerEnabled={false}
+        reviewerEnabled={facts.reviewerEnabled}
         frame={{}}
         notice={{ text: startCopy.switched(facts.email), attention: false }}
       />

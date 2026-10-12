@@ -6,6 +6,7 @@ import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
 import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
 import { connectorSettingsUrl } from "@/lib/exomem-hosted/consent-view";
 import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
+import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
 import SetupClient, { type SetupFacts } from "./setup-client";
@@ -52,6 +53,7 @@ async function setupFacts(sessionCookie: string | undefined): Promise<SetupFacts
       claude: connectorSettingsUrl("claude", false).value,
       openai: connectorSettingsUrl("openai", false).value,
     },
+    reviewerEnabled: marketplaceReviewerAccessEnabled(),
   };
 }
 
