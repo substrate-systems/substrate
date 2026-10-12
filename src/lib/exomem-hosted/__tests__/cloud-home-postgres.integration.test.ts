@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { cp, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
@@ -39,6 +42,7 @@ type CellCall = {
   bearer: string;
   routedTenantId: string;
   routedCellId: string;
+  firstParty: boolean;
   rawBody: string;
 };
 
@@ -125,6 +129,7 @@ function fakeCell(answer: (call: CellCall) => unknown) {
       bearer,
       routedTenantId: access.tenantId,
       routedCellId: access.cellId,
+      firstParty: access.firstParty,
       rawBody,
     };
     calls.push(call);
@@ -235,11 +240,12 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(aliceCall!.routedCellId, alice.cellId);
       assert.equal(bobCall!.routedCellId, bob.cellId);
       assert.notEqual(aliceCall!.bearer, bobCall!.bearer);
+      assert.equal(aliceCall!.firstParty, true);
       // The request names no tenant or cell; the gateway routes from the token alone.
       assert.equal(aliceCall!.rawBody.includes(alice.tenantId), false);
       assert.equal(aliceCall!.rawBody.includes(alice.cellId), false);
       const { rows } = await pool.query(
-        `SELECT token.scopes, token.resource, client.first_party,
+        `SELECT token.scopes, token.resource, client.admission_mode,
                 extract(epoch FROM token.expires_at - token.created_at)::integer AS lifetime_seconds
          FROM exomem_oauth_access_tokens AS token
          JOIN exomem_oauth_clients AS client ON client.id = token.client_id
@@ -249,7 +255,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.deepEqual(rows[0].scopes, ["exomem.read", "exomem.write"]);
       assert.equal(rows[0].resource, RESOURCE);
       assert.equal(rows[0].lifetime_seconds, 120);
-      assert.equal(rows[0].first_party, true);
+      assert.equal(rows[0].admission_mode, "first_party");
     });
 
     it("lets the gateway refuse a Home token minted before an account block or a started deletion", async () => {
@@ -297,7 +303,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       const old = await pool.query(
         `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, reviewer_credential_id)
          SELECT $1, $2, id, $3, ARRAY['exomem.read', 'exomem.write'], $4
-         FROM exomem_oauth_clients WHERE first_party RETURNING id`,
+         FROM exomem_oauth_clients WHERE admission_mode = 'first_party' RETURNING id`,
         [alice.userId, alice.tenantId, RESOURCE, credential.rows[0].id]
       );
       const cell = fakeCell(() => ({ revision: "r1", levels: LEVELS }));
@@ -308,6 +314,184 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         old.rows[0].id,
       ]);
       assert.notEqual(retired.rows[0].revoked_at, null);
+    });
+
+    it("retires a Home grant that an interactive authorization wrote before the mint reuses it", async () => {
+      // What a browser authorization and code exchange write for a client: a
+      // grant, a family and a 900-second access token, plus a refresh token
+      // when the app asked for offline access.
+      async function interactiveLineage(
+        who: Owner,
+        lineage: { refreshAllowed: boolean; accessIssuedSecondsAgo: number }
+      ): Promise<{ grantId: string; access: string }> {
+        const access = generateExternalToken();
+        const { rows } = await pool.query(
+          `WITH oauth_grant AS (
+             INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
+             SELECT $1, $2, id, $3, ARRAY['exomem.read', 'exomem.write'], $4
+             FROM exomem_oauth_clients WHERE admission_mode = 'first_party'
+             RETURNING id, client_id
+           ), family AS (
+             INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+             SELECT id, client_id, now() + interval '30 days' FROM oauth_grant
+             RETURNING id, grant_id, client_id
+           ), refresh AS (
+             INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
+             SELECT $5, id, now() + interval '30 days' FROM family WHERE $4
+           )
+           INSERT INTO exomem_oauth_access_tokens (
+             access_digest, grant_id, family_id, client_id, resource, scopes, created_at, expires_at
+           )
+           SELECT $6, grant_id, id, client_id, $3, ARRAY['exomem.read', 'exomem.write'],
+                  now() - make_interval(secs => $7), now() - make_interval(secs => $7) + interval '900 seconds'
+           FROM family
+           RETURNING grant_id`,
+          [
+            who.userId,
+            who.tenantId,
+            RESOURCE,
+            lineage.refreshAllowed,
+            digestSecret(randomUUID()),
+            digestSecret(access),
+            lineage.accessIssuedSecondsAgo,
+          ]
+        );
+        return { grantId: rows[0].grant_id, access };
+      }
+      // A refreshable lineage whose access token has expired, and one without
+      // refresh whose access token still has minutes left.
+      const refreshable = await owner();
+      const live = await owner();
+      const refreshableLineage = await interactiveLineage(refreshable, {
+        refreshAllowed: true,
+        accessIssuedSecondsAgo: 1200,
+      });
+      const liveLineage = await interactiveLineage(live, {
+        refreshAllowed: false,
+        accessIssuedSecondsAgo: 60,
+      });
+      assert.ok(await findCloudOAuthAccessToken(digestSecret(liveLineage.access), RESOURCE));
+      const cell = fakeCell(() => ({ revision: "r1", levels: LEVELS }));
+
+      assert.equal((await getLevels(refreshable, cell.fetchCell)).status, 200);
+      assert.equal((await getLevels(live, cell.fetchCell)).status, 200);
+
+      assert.equal(
+        await findCloudOAuthAccessToken(digestSecret(liveLineage.access), RESOURCE),
+        null
+      );
+      for (const [index, retired] of [refreshableLineage, liveLineage].entries()) {
+        const minted = await findCloudOAuthAccessToken(
+          digestSecret(cell.calls[index]!.bearer),
+          RESOURCE
+        );
+        assert.notEqual(minted!.grantId, retired.grantId);
+        const grant = await pool.query("SELECT revoked_at FROM exomem_oauth_grants WHERE id = $1", [
+          retired.grantId,
+        ]);
+        assert.notEqual(grant.rows[0].revoked_at, null);
+      }
+    });
+
+    it("answers unavailable, not an error, while an operator has disabled the Home client", async () => {
+      const alice = await owner();
+      const cell = fakeCell(() => assert.fail("no token exists to call the cell with"));
+      await pool.query(
+        "UPDATE exomem_oauth_clients SET enabled = false WHERE admission_mode = 'first_party'"
+      );
+      try {
+        const levels = await getLevels(alice, cell.fetchCell);
+        assert.equal(levels.status, 200);
+        assert.deepEqual(await json(levels), {
+          state: "unavailable",
+          reason: "HOME_CLIENT_DISABLED",
+        });
+        const live = await handleCloudHomeLiveRequest(
+          browserRequest(alice, "GET", "/api/exomem/cloud/home/live"),
+          { fetchCell: cell.fetchCell, env: ENV }
+        );
+        assert.deepEqual(await json(live), {
+          state: "unavailable",
+          reason: "HOME_CLIENT_DISABLED",
+        });
+      } finally {
+        await pool.query(
+          "UPDATE exomem_oauth_clients SET enabled = true WHERE admission_mode = 'first_party'"
+        );
+      }
+    });
+
+    it("answers unavailable, not an error, when an OAuth block lands while Home is calling", async () => {
+      const alice = await owner();
+      // The session lookup refuses a blocked account, so the block lands in
+      // the window after the session and cell checks, before the mint.
+      __setExomemSqlForTests(async (strings, ...values) => {
+        const result = await taggedSql(pool)(strings, ...values);
+        if (strings.join("").includes("exomem-cloud:home-serving-cell")) {
+          await revokeOAuthAccountForOwnerTenantAtomic({
+            ownerUserId: alice.userId,
+            tenantId: alice.tenantId,
+          });
+        }
+        return result;
+      });
+      const cell = fakeCell(() => assert.fail("a blocked account gets no token to call with"));
+      try {
+        const levels = await getLevels(alice, cell.fetchCell);
+        assert.equal(levels.status, 200);
+        assert.deepEqual(await json(levels), {
+          state: "unavailable",
+          reason: "ACCOUNT_ACCESS_CLOSED",
+        });
+      } finally {
+        __setExomemSqlForTests(taggedSql(pool));
+      }
+      const minted = await pool.query(
+        `SELECT count(*)::integer AS tokens FROM exomem_oauth_access_tokens AS token
+         JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = token.grant_id
+         WHERE oauth_grant.tenant_id = $1`,
+        [alice.tenantId]
+      );
+      assert.equal(minted.rows[0].tokens, 0);
+    });
+
+    it("answers unavailable, not an error, when the account's deletion begins while Home is calling", async () => {
+      const alice = await owner();
+      // The deletion commits after the session and cell checks, before the
+      // mint, as one transaction: the tenant and its cell change together.
+      __setExomemSqlForTests(async (strings, ...values) => {
+        const result = await taggedSql(pool)(strings, ...values);
+        if (strings.join("").includes("exomem-cloud:home-serving-cell")) {
+          const deletion = await pool.connect();
+          try {
+            await deletion.query("BEGIN");
+            await deletion.query(
+              "UPDATE exomem_tenants SET status = 'deletion_pending', desired_state = 'deleted' WHERE id = $1",
+              [alice.tenantId]
+            );
+            await deletion.query(
+              "UPDATE exomem_cloud_cells SET desired_state = 'deleted' WHERE cell_id = $1",
+              [alice.cellId]
+            );
+            await deletion.query("COMMIT");
+          } finally {
+            deletion.release();
+          }
+        }
+        return result;
+      });
+      const cell = fakeCell(() => assert.fail("a deleting account gets no token to call with"));
+      try {
+        const levels = await getLevels(alice, cell.fetchCell);
+        assert.equal(levels.status, 200);
+        assert.deepEqual(await json(levels), {
+          state: "unavailable",
+          reason: "ACCOUNT_ACCESS_CLOSED",
+        });
+      } finally {
+        __setExomemSqlForTests(taggedSql(pool));
+      }
+      assert.equal(cell.calls.length, 0);
     });
 
     it("answers a stopped or starting cell as unavailable without minting a token or calling it", async () => {
@@ -397,9 +581,10 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       });
       assert.equal(refused.status, 409);
       assert.equal(((await json(refused)).error as { code: string }).code, "CLOUD_CELL_READ_ONLY");
-      assert.deepEqual(
-        cell.calls.map((call) => call.arguments.action),
-        ["inspect", "inspect"]
+      assert.equal(
+        cell.calls.some((call) => call.arguments.action !== "inspect"),
+        false,
+        "a read-only cell receives no level write"
       );
     });
 
@@ -441,11 +626,17 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
           note_count: 0,
           events: [
             {
-              client: "claude",
+              client: "claude-ai",
               action: "recalled",
               items: 5,
               at: "2026-10-12T08:59:30Z",
               query: "a private question",
+            },
+            {
+              client: "private note: an example recovery phrase",
+              action: "saved",
+              items: 1,
+              at: "2026-10-12T08:59:00Z",
             },
           ],
         },
@@ -459,7 +650,11 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         since: "2026-10-12T08:00:00Z",
         as_of: "2026-10-12T09:00:00Z",
         note_count: 0,
-        events: [{ client: "claude", action: "recalled", items: 5, at: "2026-10-12T08:59:30Z" }],
+        events: [
+          { client: "claude-ai", action: "recalled", items: 5, at: "2026-10-12T08:59:30Z" },
+          // Not a client family, so possibly content: it arrives as an unknown client.
+          { client: null, action: "saved", items: 1, at: "2026-10-12T08:59:00Z" },
+        ],
       });
       assert.deepEqual(cell.calls[0]!.arguments, { profile: "compact", section: "activity" });
     });
@@ -502,11 +697,9 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
 
     it("keeps the first-party client out of client slots and out of browser authorization", async () => {
       const home = await pool.query(
-        "SELECT client_id, first_party, enabled FROM exomem_oauth_clients WHERE first_party"
+        "SELECT client_id, enabled FROM exomem_oauth_clients WHERE admission_mode = 'first_party'"
       );
-      assert.deepEqual(home.rows, [
-        { client_id: "exomem-cloud-home", first_party: true, enabled: true },
-      ]);
+      assert.deepEqual(home.rows, [{ client_id: "exomem-cloud-home", enabled: true }]);
       assert.equal(await resolveApprovedCloudOAuthClient("exomem-cloud-home"), null);
       const cli = await pool.query(
         "SELECT client_name FROM exomem_oauth_clients WHERE client_id = 'exomem-cloud-cli'"
@@ -515,7 +708,7 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
 
       // Fill the operator partition to its last free slot; the Home client is not counted.
       const counted = await pool.query(
-        "SELECT count(*)::integer AS used FROM exomem_oauth_clients WHERE NOT auto_registered AND admission_mode <> 'generic' AND NOT first_party"
+        "SELECT count(*)::integer AS used FROM exomem_oauth_clients WHERE NOT auto_registered AND admission_mode IN ('pinned', 'cimd')"
       );
       for (let index = counted.rows[0].used; index < 95; index += 1) {
         await pool.query(
@@ -529,6 +722,54 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         "SELECT exomem_oauth_client_partition_available('one-more-operator-client', false) AS free"
       );
       assert.equal(last.rows[0].free, true);
+    });
+
+    it("stops migration 0066 when an ordinary client already holds the Home client id", async () => {
+      const migrationRoot = await mkdtemp(join(tmpdir(), "cloud-home-seed-"));
+      const upgradeSchema = `cloud_home_seed_${randomUUID().replaceAll("-", "")}`;
+      const admin = new Pool({ connectionString: databaseUrl });
+      let upgrade: Pool | undefined;
+      try {
+        for (const file of await readdir("migrations")) {
+          if (file.endsWith(".sql") && file < "0066")
+            await cp(join("migrations", file), join(migrationRoot, file));
+        }
+        await admin.query(`CREATE SCHEMA "${upgradeSchema}"`);
+        const url = new URL(databaseUrl!);
+        url.searchParams.set("options", `-c search_path=${upgradeSchema},public`);
+        await applyMigrations({ databaseUrl: url.toString(), migrationsDir: migrationRoot });
+        upgrade = new Pool({ connectionString: url.toString() });
+        await upgrade.query(
+          `INSERT INTO exomem_oauth_clients (client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name)
+           VALUES ('exomem-cloud-home', 'pinned', true, '["http://127.0.0.1/callback"]'::jsonb,
+                   digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                   'Legacy tool')`
+        );
+        await cp(
+          "migrations/0066_exomem_cloud_home_and_exports.sql",
+          join(migrationRoot, "0066_exomem_cloud_home_and_exports.sql")
+        );
+
+        await assert.rejects(
+          applyMigrations({ databaseUrl: url.toString(), migrationsDir: migrationRoot }),
+          /exomem-cloud-home belongs to an ordinary OAuth client/
+        );
+        const kept = await upgrade.query(
+          "SELECT admission_mode, enabled, client_name FROM exomem_oauth_clients WHERE client_id = 'exomem-cloud-home'"
+        );
+        assert.deepEqual(kept.rows, [
+          { admission_mode: "pinned", enabled: true, client_name: "Legacy tool" },
+        ]);
+        const recorded = await upgrade.query(
+          "SELECT count(*)::integer AS applied FROM schema_migrations WHERE version LIKE '0066%'"
+        );
+        assert.equal(recorded.rows[0].applied, 0);
+      } finally {
+        await upgrade?.end();
+        await admin.query(`DROP SCHEMA IF EXISTS "${upgradeSchema}" CASCADE`);
+        await admin.end();
+        await rm(migrationRoot, { recursive: true, force: true });
+      }
     });
 
     it("is absent while its release flag is off", async () => {
@@ -696,7 +937,59 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(issued.headers.get("referrer-policy"), "no-referrer");
     });
 
-    it("answers 410 for a link to an export past its expiry", async () => {
+    it("never hands out the link of an export that failed while the request waited", async () => {
+      const alice = await owner();
+      const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;
+      await markReady(id);
+      // cellctl reports a failure and still leaves a link and its issue time.
+      const failing = (async () => {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const { rowCount } = await pool.query(
+            `UPDATE exomem_cloud_exports
+             SET observed_state = 'failed', error_code = 'EXPORT_FAILED',
+                 download_url = 'https://objects.example.test/failed-export',
+                 download_url_expires_at = now() + interval '5 minutes',
+                 link_issued_at = GREATEST(clock_timestamp(), link_requested_at)
+             WHERE export_id = $1 AND link_requested_at IS NOT NULL`,
+            [id]
+          );
+          if (rowCount) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+      const refused = await requestLink(alice, id, 4_000);
+      await failing;
+      assert.equal(refused.status, 409);
+      assert.equal(((await json(refused)).error as { code: string }).code, "EXPORT_NOT_READY");
+    });
+
+    it("refuses a controller link that is not https, and never shows it", async () => {
+      const alice = await owner();
+      const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;
+      await markReady(id);
+      const answering = (async () => {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const { rowCount } = await pool.query(
+            `UPDATE exomem_cloud_exports
+             SET download_url = 'http://objects.example.test/archive',
+                 download_url_expires_at = now() + interval '5 minutes',
+                 link_issued_at = GREATEST(clock_timestamp(), link_requested_at)
+             WHERE export_id = $1 AND link_requested_at IS NOT NULL`,
+            [id]
+          );
+          if (rowCount) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+      const refused = await requestLink(alice, id, 4_000);
+      await answering;
+      assert.equal(refused.status, 502);
+      const body = await refused.text();
+      assert.equal(JSON.parse(body).error.code, "EXPORT_LINK_INVALID");
+      assert.equal(body.includes("objects.example.test"), false);
+    });
+
+    it("answers 410 for a link to an export past its expiry, and shows when it expired", async () => {
       const alice = await owner();
       const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;
       await markReady(id);
@@ -707,6 +1000,18 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       const gone = await requestLink(alice, id);
       assert.equal(gone.status, 410);
       assert.equal(((await json(gone)).error as { code: string }).code, "EXPORT_EXPIRED");
+      // Home says when the export was deleted.
+      const shown = await handleCloudExportsRequest(
+        browserRequest(alice, "GET", "/api/exomem/cloud/exports"),
+        { env: ENV }
+      );
+      const expiredExport = (await json(shown)).export as { state: string; expires_at: string };
+      assert.equal(expiredExport.state, "expired");
+      const stored = await pool.query(
+        "SELECT expires_at FROM exomem_cloud_exports WHERE export_id = $1",
+        [id]
+      );
+      assert.equal(expiredExport.expires_at, stored.rows[0].expires_at.toISOString());
     });
   });
 

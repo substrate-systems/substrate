@@ -428,7 +428,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     const firstParty = await pool!.query(
       `SELECT id, client_id, admission_mode, enabled, redirect_uris, client_name,
               client_platform, oauth_client_config_sha256, authority_version
-       FROM exomem_oauth_clients WHERE first_party`
+       FROM exomem_oauth_clients WHERE admission_mode = 'first_party'`
     );
     const seeded = firstParty.rows[0]!;
     const redirectUri = "https://operator-takeover.example.test/callback";
@@ -2383,7 +2383,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       // The Home channel mints its tokens for the first-party client.
       await assert.rejects(
         pool!.query(
-          "UPDATE exomem_oauth_clients SET enabled = false, retired_at = now() WHERE first_party"
+          "UPDATE exomem_oauth_clients SET enabled = false, retired_at = now() WHERE admission_mode = 'first_party'"
         ),
         (error: unknown) => (error as { code?: string }).code === "23514"
       );

@@ -24,8 +24,8 @@ async function storeTheme(page: Page, theme: "light" | "dark") {
 // drawn: the showcase pins panels of each theme on a page of the other. Remove a pair when
 // its text moves to a token that passes.
 //
-// Known gap the scan does not reach: muted and amber text over the light hover and pressed
-// fill (--bg-hover, #EFEBE3) is about 4.2:1. Axe sees only the resting state.
+// Known gap the scan does not reach: over the light hover and pressed fill (--bg-hover,
+// #EFEBE3), muted text is about 4.3:1 and amber text about 4.0:1. Axe sees only the resting state.
 type Theme = "dark" | "light";
 const BELOW_AA: { theme: Theme; text: string; ground: string }[] = [
   // Page text still drawn in --fg-tertiary (landing captions and links, page footers, the

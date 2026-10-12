@@ -8,20 +8,20 @@
  */
 
 import { validate as validUuid } from "uuid";
-import { clientPlatformName, type OAuthClientDisplayNameSource } from "./client-platforms";
+import type { OAuthClientDisplayNameSource } from "./client-platforms";
 import { loadExomemCloudResource } from "./cloud-config";
 import { revokeOwnerOAuthGrant } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
-import { isSafeLoopbackOAuthRedirect } from "./oauth-client-admission";
+import {
+  isLocalOAuthClient,
+  oauthClientContext,
+  oauthClientDisplayName,
+  redirectHost,
+  type OAuthClientContext,
+  type OAuthClientIdentity,
+} from "./oauth-client-identity";
 
-export type OAuthClientIdentity = {
-  /** The stored `client_name`, or null when the client has none. */
-  clientName: string | null;
-  /** `admission_mode`, a closed set fixed by its CHECK constraint (migrations 0025 and 0062). */
-  admissionMode: string;
-  platform: string | null;
-  redirectUris: string[];
-};
+export { oauthClientDisplayName, redirectHost, type OAuthClientIdentity };
 
 export type OwnerApp = {
   id: string;
@@ -29,51 +29,17 @@ export type OwnerApp = {
   displayNameSource: OAuthClientDisplayNameSource;
   platform: string | null;
   kind: "web" | "local";
+  /** The context the app's calls run in; the journey saves a chosen level to it. */
+  context: OAuthClientContext;
   /** Every distinct host the app's registered redirects name, loopback included. */
   redirectHosts: string[];
   connectedAt: string;
   lastAuthorizedAt: string;
 };
 
-/** The host an authorization code sent to `redirectUri` reaches. */
-export function redirectHost(redirectUri: string): string {
-  // Registration accepts only redirects that parse as URLs, so this cannot throw
-  // for a stored client; a row that broke that invariant fails the read.
-  return new URL(redirectUri).hostname;
-}
-
-/**
- * The name to show for a client: its stored name, else its platform's name,
- * else the host of `fallbackRedirectUri`.
- */
-export function oauthClientDisplayName(
-  client: Pick<OAuthClientIdentity, "clientName" | "admissionMode" | "platform">,
-  fallbackRedirectUri: string
-): { displayName: string; displayNameSource: OAuthClientDisplayNameSource } {
-  const stored = client.clientName?.trim();
-  if (stored) {
-    // A pinned client exists only because the operator registered it, so its
-    // name is the operator's. Every other client wrote its own name.
-    const source = client.admissionMode === "pinned" ? "operator" : "client_metadata";
-    return { displayName: stored, displayNameSource: source };
-  }
-  const platformName = clientPlatformName(client.platform);
-  if (platformName) return { displayName: platformName, displayNameSource: "platform" };
-  return { displayName: redirectHost(fallbackRedirectUri), displayNameSource: "redirect_host" };
-}
-
-// RFC 8252 section 7.3: a client whose every redirect is loopback receives its
-// code on the owner's own machine, so it is a local app.
 function clientKind(redirectUris: readonly string[]): OwnerApp["kind"] {
-  return redirectUris.length > 0 && redirectUris.every(isSafeLoopbackOAuthRedirect)
-    ? "local"
-    : "web";
+  return isLocalOAuthClient(redirectUris) ? "local" : "web";
 }
-
-// `first_party` is read through `to_jsonb(client)`, which yields null while
-// the table does not have the column yet. The Home-client migration adds
-// `first_party boolean NOT NULL DEFAULT false`; once it has shipped, read it
-// as a plain column instead.
 
 /** The client an authorization request names, for the consent page. */
 export async function findOAuthClientIdentity(
@@ -127,7 +93,7 @@ async function ownerAppRows(
     WHERE oauth_grant.user_id = ${input.userId}::uuid
       AND oauth_grant.tenant_id = ${input.tenantId}::uuid
       AND oauth_grant.resource = ${resource}
-      AND NOT COALESCE((to_jsonb(client) ->> 'first_party')::boolean, false)
+      AND client.admission_mode <> 'first_party'
       AND (${input.grantId}::uuid IS NULL OR oauth_grant.id = ${input.grantId}::uuid)
       -- The list reads live grants only, which lets it use the partial index on
       -- live grants. Disconnect by id also sees a revoked grant, so a repeat
@@ -163,6 +129,7 @@ export async function listOwnerApps(owner: {
       ),
       platform: row.client_platform,
       kind: clientKind(row.redirect_uris),
+      context: oauthClientContext(row.redirect_uris),
       redirectHosts: [...new Set(row.redirect_uris.map(redirectHost))],
       connectedAt: new Date(row.created_at).toISOString(),
       lastAuthorizedAt: new Date(row.updated_at).toISOString(),

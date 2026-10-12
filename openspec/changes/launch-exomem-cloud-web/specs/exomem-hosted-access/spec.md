@@ -396,7 +396,7 @@ A signed-in owner SHALL be able to list connected apps and disconnect each one. 
 #### Scenario: Owner lists apps
 
 - **WHEN** an owner opens the app list
-- **THEN** each app shows its display name, platform, kind (web or local), first connected time and last authorized time
+- **THEN** each app shows its display name, platform, kind (web or local), context (coding or conversation), first connected time and last authorized time
 - **AND** a client-declared name shows the redirect host beside it, labelled as the client's own claim
 - **AND** the first-party Home client is absent
 

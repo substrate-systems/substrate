@@ -12,7 +12,7 @@ import { getOwnerCloudStatus } from "./cloud-status";
 import { consentStep, type ConsentStep } from "./consent-state";
 import { executeExomemSql, findExomemSessionByDigest } from "./db";
 import { known, unknown, type Known } from "./known";
-import { isSafeLoopbackOAuthRedirect } from "./oauth-client-admission";
+import { isLoopbackRedirectDestination } from "./oauth-client-admission";
 import {
   matchesOAuthConfirmationHandle,
   oauthFormNonceFromCookie,
@@ -95,7 +95,7 @@ export async function loadConsentView(
   // The request was resolved against this client a moment ago; a client row
   // gone since then leaves nothing to name, so the request is over.
   if (!client) return { step: "expired" };
-  const loopback = isSafeLoopbackOAuthRedirect(continuation.redirectUri);
+  const loopback = isLoopbackRedirectDestination(continuation.redirectUri);
   return {
     step: consentStep(visitor),
     // The fallback name is the host this request's code goes to, not any other

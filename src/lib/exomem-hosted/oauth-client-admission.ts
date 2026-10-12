@@ -164,6 +164,20 @@ export function redirectUriApproved(approved: readonly string[], requested: stri
   });
 }
 
+/**
+ * Whether a code sent to an already-admitted redirect reaches only the owner's
+ * own machine: a loopback host over http or https. The admission rules decide
+ * which of these a client may register; this reads only where one goes.
+ */
+export function isLoopbackRedirectDestination(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:") && isLoopbackHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Bootstrap is intentionally narrower than ordinary client admission. */
 export function isSafeLoopbackOAuthRedirect(value: string): boolean {
   if (value.length === 0 || value.length > MAX_OAUTH_REDIRECT_URI_LENGTH) return false;

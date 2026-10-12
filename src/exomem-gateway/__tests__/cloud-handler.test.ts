@@ -44,6 +44,13 @@ const VALID_ACCESS: ActiveCloudOAuthAccessToken = {
   scopes: ["exomem.read", "exomem.write"],
   cellId: TEST_CELL_ID,
   cellDesiredState: "running",
+  client: {
+    clientName: null,
+    admissionMode: "cimd",
+    platform: "claude",
+    redirectUris: ["https://chat.example.test/oauth/callback"],
+  },
+  firstParty: false,
 };
 
 type StandInCellBehavior =
@@ -354,6 +361,52 @@ describe("Exomem Cloud gateway handler", () => {
       }
     } finally {
       warn.mock.restore();
+    }
+  });
+
+  // Home's server calls for every owner from a few shared addresses. Only a
+  // token that the lookup resolved to the first-party client skips the IP
+  // bucket; an unknown or ordinary token from that address still takes it.
+  it("skips the IP bucket only for a first-party token, and keeps its identity limit", async () => {
+    const previousHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+    const previousValue = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-ingress-trusted";
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = "traefik";
+    try {
+      const sharedAddress = { "x-ingress-trusted": "traefik", "x-real-ip": "203.0.113.9" };
+      let identityAllowed = true;
+      const buckets: string[] = [];
+      // The shared address has used up its IP bucket.
+      const takeRateLimit: CloudGatewayDependencies["takeRateLimit"] = async (limit) => {
+        buckets.push(limit.scope);
+        return limit.scope === "exomem:mcp:identity" && identityAllowed;
+      };
+      let fetchCalls = 0;
+      const fetchCell = (async () => {
+        fetchCalls += 1;
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch;
+      const send = (access: ActiveCloudOAuthAccessToken | null) =>
+        handleCloudMcpRequest(
+          postRequest({ bearer: CLIENT_BEARER, headers: sharedAddress, body: "{}" }),
+          baseDeps({ findAccessToken: async () => access, takeRateLimit, fetchCell })
+        );
+
+      const home = await send({ ...VALID_ACCESS, firstParty: true });
+      assert.equal(home.status, 200);
+      assert.deepEqual(buckets, ["exomem:mcp:identity"]);
+      assert.equal((await send(VALID_ACCESS)).status, 429);
+      assert.equal((await send(null)).status, 429);
+      identityAllowed = false;
+      assert.equal((await send({ ...VALID_ACCESS, firstParty: true })).status, 429);
+      assert.equal(fetchCalls, 1);
+    } finally {
+      if (previousHeader === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = previousHeader;
+      if (previousValue === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
     }
   });
 
@@ -730,6 +783,95 @@ describe("Exomem Cloud gateway handler", () => {
         assert.equal(response.status, 502);
         assert.deepEqual(await response.json(), { error: "CELL_AUTH_MISMATCH" });
       } finally {
+        await cell.close();
+      }
+    });
+
+    // The cell picks a level for the client's context and names its activity
+    // from these headers, so the values must come from the stored client.
+    for (const { label, client, name, context } of [
+      {
+        label: "a loopback-only client as coding",
+        client: {
+          clientName: "Example CLI",
+          admissionMode: "pinned",
+          platform: null,
+          redirectUris: ["http://127.0.0.1/callback", "http://localhost/callback"],
+        },
+        name: "Example CLI",
+        context: "coding",
+      },
+      {
+        label: "a web client as conversation",
+        client: VALID_ACCESS.client,
+        name: "Claude",
+        context: "conversation",
+      },
+      {
+        label: "a client whose name a header cannot carry by its redirect host",
+        client: {
+          clientName: "Notes ✨",
+          admissionMode: "generic",
+          platform: null,
+          redirectUris: ["https://notes.example.test/callback", "http://127.0.0.1/callback"],
+        },
+        name: "notes.example.test",
+        context: "conversation",
+      },
+    ]) {
+      it(`names ${label} to the cell`, async () => {
+        const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+        try {
+          const response = await handleCloudMcpRequest(
+            postRequest({ bearer: CLIENT_BEARER, body: "{}" }),
+            baseDeps({
+              findAccessToken: async () => ({ ...VALID_ACCESS, client }),
+              fetchCell: fetchCellAt(cell.port),
+            })
+          );
+          assert.equal(response.status, 200);
+          const received = cell.requests[0]!.headers;
+          assert.equal(received["x-exomem-oauth-client"], name);
+          assert.equal(received["x-exomem-client-context"], context);
+        } finally {
+          await cell.close();
+        }
+      });
+    }
+
+    it("never lets a caller's copy of either client header reach the cell", async () => {
+      const cell = await startStandInCell({ kind: "ok", chunks: ["{}"] });
+      const savedIngressHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      try {
+        for (const header of ["x-exomem-oauth-client", "x-exomem-client-context"]) {
+          const refused = await handleCloudMcpRequest(
+            postRequest({ bearer: CLIENT_BEARER, headers: { [header]: "coding" }, body: "{}" }),
+            baseDeps({ fetchCell: fetchCellAt(cell.port) })
+          );
+          assert.equal(refused.status, 400);
+          assert.deepEqual(await refused.json(), { error: "HOSTED_SELECTOR_REJECTED" });
+        }
+        assert.equal(cell.requests.length, 0);
+
+        // Even a copy that passes the selector check (here, by an ingress
+        // header configured with the same name) is replaced, not forwarded.
+        process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-exomem-client-context";
+        const passed = await handleCloudMcpRequest(
+          postRequest({
+            bearer: CLIENT_BEARER,
+            headers: { "x-exomem-client-context": "coding" },
+            body: "{}",
+          }),
+          baseDeps({ fetchCell: fetchCellAt(cell.port) })
+        );
+        assert.equal(passed.status, 200);
+        assert.equal(cell.requests[0]!.headers["x-exomem-client-context"], "conversation");
+      } finally {
+        if (savedIngressHeader === undefined) {
+          delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+        } else {
+          process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = savedIngressHeader;
+        }
         await cell.close();
       }
     });

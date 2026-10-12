@@ -19,14 +19,14 @@ ALTER TABLE exomem_oauth_clients
 -- takes no slot and is never retired.
 ALTER TABLE exomem_oauth_clients
   ADD CONSTRAINT exomem_oauth_clients_retired_disabled
-  CHECK (retired_at IS NULL OR (NOT enabled AND NOT first_party));
+  CHECK (retired_at IS NULL OR (NOT enabled AND admission_mode <> 'first_party'));
 
 -- Every registration reads the partition count, and every sweep reads its
 -- retirement candidates. Unretired rows stay at most the sum of the bounds
 -- while retired rows accumulate, so both read this index instead of the table.
 CREATE INDEX exomem_oauth_clients_unretired_partition_idx
   ON exomem_oauth_clients (admission_mode, auto_registered)
-  WHERE retired_at IS NULL AND NOT first_party;
+  WHERE retired_at IS NULL AND admission_mode <> 'first_party';
 
 -- Every clients statement comes before the index builds. A token request
 -- reads clients and then writes tokens, so taking the token tables first
@@ -89,7 +89,7 @@ LANGUAGE sql STABLE AS $$
            SELECT count(*)::integer
            FROM exomem_oauth_clients AS client
            WHERE client.retired_at IS NULL
-             AND NOT client.first_party
+             AND client.admission_mode <> 'first_party'
              AND CASE
                    WHEN client.admission_mode = 'generic' THEN 'generic'
                    WHEN client.auto_registered THEN 'auto_registered'

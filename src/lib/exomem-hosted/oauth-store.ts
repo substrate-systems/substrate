@@ -794,12 +794,13 @@ export async function pruneExpiredOAuthState(
     const disabled = await tx`
       /* exomem:disable-expired-cimd-clients */
       -- The expiry stays as the metadata stated it: the retirement grace counts
-      -- from it, and only rows this sweep changes are written. The last two
-      -- conditions read the unretired partition index, not every retired row.
+      -- from it, and only rows this sweep changes are written. The mode and
+      -- retired_at conditions read the unretired partition index, not every
+      -- retired row. The mode also excludes the first-party Home client.
       UPDATE exomem_oauth_clients
       SET enabled = false, updated_at = now()
       WHERE admission_mode = 'cimd' AND metadata_expires_at <= now() AND enabled
-        AND retired_at IS NULL AND NOT first_party
+        AND retired_at IS NULL
       RETURNING id
     `;
     // A disabled auto-registered connector. One that held a grant retires once
@@ -816,9 +817,9 @@ export async function pruneExpiredOAuthState(
         FROM exomem_oauth_clients AS candidate
         WHERE candidate.admission_mode = 'cimd'
           AND candidate.auto_registered
-          -- These two read the unretired partition index, not every retired row.
+          -- The mode and this read the unretired partition index, not every
+          -- retired row.
           AND candidate.retired_at IS NULL
-          AND NOT candidate.first_party
           AND NOT candidate.enabled
           AND (
             candidate.metadata_expires_at
@@ -853,7 +854,6 @@ export async function pruneExpiredOAuthState(
         FROM exomem_oauth_clients AS candidate
         WHERE candidate.admission_mode = 'generic'
           AND candidate.retired_at IS NULL
-          AND NOT candidate.first_party
           AND candidate.created_at <= now() - make_interval(hours => ${grace.idleHours})
           AND NOT EXISTS (
             SELECT 1 FROM exomem_oauth_grants AS oauth_grant

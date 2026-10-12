@@ -17,7 +17,7 @@ import {
 export type OperatorOAuthClient = {
   id: string;
   enabled: boolean;
-  admissionMode: "pinned" | "cimd" | "generic";
+  admissionMode: "pinned" | "cimd" | "generic" | "first_party";
   clientFingerprint: string;
   redirectDigest: string;
   redirectCount: number;
@@ -51,7 +51,8 @@ export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]>
       // list omitted would hide registered clients from the operator.
       (row.admission_mode !== "pinned" &&
         row.admission_mode !== "cimd" &&
-        row.admission_mode !== "generic") ||
+        row.admission_mode !== "generic" &&
+        row.admission_mode !== "first_party") ||
       typeof redirectCount !== "number" ||
       !Number.isSafeInteger(redirectCount) ||
       !(redirectDigest instanceof Uint8Array) ||
@@ -343,7 +344,7 @@ export async function registerOperatorOAuthClient(
         AND exomem_oauth_clients.reviewer_bootstrap_ever_authorized = false
         -- A first-party client is seeded by a migration and gets tokens only
         -- from the server-side mint; an operator registration never rewrites it.
-        AND NOT exomem_oauth_clients.first_party
+        AND exomem_oauth_clients.admission_mode <> 'first_party'
       RETURNING id, enabled
     `;
     const row = rows[0] as { id: string; enabled: boolean } | undefined;

@@ -12,6 +12,7 @@ import {
   resolveApprovedCloudOAuthClient,
 } from "../cloud-oauth";
 import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { oauthClientContext, oauthClientDisplayName } from "../oauth-client-identity";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // Task 3.5: Cloud OAuth client admission and exact-resource token binding
@@ -277,6 +278,55 @@ describe("Exomem Cloud OAuth admission PostgreSQL integration", { skip: !databas
     const found = await findCloudOAuthAccessToken(accessDigest, CLOUD_RESOURCE);
     assert.ok(found);
     assert.equal(found!.cellDesiredState, "stopped");
+  });
+
+  // The gateway names a token's client to the cell from these stored facts; a
+  // context taken from anything else would give a chat app a coding level.
+  it("returns each token's stored client, from which a loopback client is coding and a web client conversation", async () => {
+    const tenantId = await newTenantWithCell("running");
+    const owner = await pool!.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM exomem_tenants WHERE id = $1",
+      [tenantId]
+    );
+    const cli = await pool!.query<{ id: string }>(
+      "SELECT id FROM exomem_oauth_clients WHERE client_id = 'exomem-cloud-cli'"
+    );
+    const generic = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
+       ) VALUES (
+         $1, 'generic', true, $2::jsonb, digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'),
+         'Example Agent'
+       ) RETURNING id`,
+      [randomUUID(), JSON.stringify(["https://agent.example.test/callback"])]
+    );
+    await pool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = true");
+    try {
+      const lookup = async (clientDbId: string) => {
+        const found = await findCloudOAuthAccessToken(
+          await mintAccessToken({
+            clientDbId,
+            tenantId,
+            userId: owner.rows[0]!.owner_user_id,
+            resource: CLOUD_RESOURCE,
+          }),
+          CLOUD_RESOURCE
+        );
+        assert.ok(found);
+        return found.client;
+      };
+      const pinnedLoopback = await lookup(cli.rows[0]!.id);
+      assert.equal(pinnedLoopback.admissionMode, "pinned");
+      assert.equal(oauthClientContext(pinnedLoopback.redirectUris), "coding");
+      const genericWeb = await lookup(generic.rows[0]!.id);
+      assert.equal(oauthClientContext(genericWeb.redirectUris), "conversation");
+      assert.equal(
+        oauthClientDisplayName(genericWeb, genericWeb.redirectUris[0]!).displayName,
+        "Example Agent"
+      );
+    } finally {
+      await pool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = false");
+    }
   });
 
   it("refuses a token whose tenant's only cell row is deleted", async () => {
