@@ -107,8 +107,9 @@ The friends alpha therefore proceeds unchanged whether or not this has landed.
 ### 4. Registration is bounded like the CIMD lane, in its own partition
 
 `exomem_oauth_client_partition_available` already partitions the population bound
-by provenance (128 auto-registered, 32 operator). Generic registrations take a
-third partition. An unauthenticated flood must degrade into "no more generic
+by provenance, operator and auto-registered, each with its own bound. Generic
+registrations take a third partition. Since `reclaim-oauth-client-slots`, every
+bound is a row in `exomem_oauth_client_partition_bounds`. An unauthenticated flood must degrade into "no more generic
 clients" and never into "no more operator control" or "no more connectors".
 
 Registration is rate limited per address following

@@ -13,6 +13,8 @@ let cloudOrder: string[] = [];
 let cloudGate: Promise<void> | null = null;
 let paddleGate: Promise<void> | null = null;
 let paddleShouldFail = false;
+let oauthPruneCalls = 0;
+let oauthPruneShouldFail = false;
 
 before(() => {
   mock.module("@/lib/exomem-hosted/cloud-admission", {
@@ -55,6 +57,15 @@ before(() => {
       },
     },
   });
+  mock.module("@/lib/exomem-hosted/oauth-store", {
+    namedExports: {
+      pruneExpiredOAuthState: async () => {
+        oauthPruneCalls += 1;
+        if (oauthPruneShouldFail) throw new Error("private oauth failure");
+        return { disabledCimd: 2, retired: { autoRegistered: 1, generic: 3 } };
+      },
+    },
+  });
   mock.module("@/lib/exomem-hosted/paddle-reconciliation-runtime", {
     namedExports: {
       runBoundedPaddleReconcile: async () => {
@@ -89,6 +100,8 @@ afterEach(() => {
   cloudGate = null;
   paddleGate = null;
   paddleShouldFail = false;
+  oauthPruneCalls = 0;
+  oauthPruneShouldFail = false;
   if (ORIGINAL_SCHEDULER_SECRET === undefined) delete process.env.EXOMEM_HOSTED_SCHEDULER_SECRET;
   else process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = ORIGINAL_SCHEDULER_SECRET;
 });
@@ -151,6 +164,7 @@ describe("GET /api/cron/exomem-reconcile", () => {
         deletionsPending: 3,
         deletionsFailed: 1,
       },
+      oauth: { disabledCimd: 2, retiredAutoRegistered: 1, retiredGeneric: 3 },
     });
   });
 
@@ -191,6 +205,32 @@ describe("GET /api/cron/exomem-reconcile", () => {
       success: false,
       error: { code: "CONTROL_PLANE_UNAVAILABLE", retryable: true },
     });
+  });
+
+  // A sweep that stops reclaiming client slots must not stay silent (the
+  // partitions would fill again) or keep billing and Cloud work from running.
+  it("still runs billing and Cloud work when the OAuth lane fails, then reports the failure", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    oauthPruneShouldFail = true;
+    const logged: string[] = [];
+    const errorLog = mock.method(console, "error", (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "));
+    });
+    let response: Response;
+    try {
+      const { GET } = await import("../route");
+      response = await GET(request("cron-secret"));
+    } finally {
+      errorLog.mock.restore();
+    }
+    assert.equal(oauthPruneCalls, 1);
+    assert.equal(paddleRunCalls, 1);
+    assert.equal(cloudReconcileCalls, 1);
+    assert.equal(cloudDeletionFinishCalls, 1);
+    assert.equal(response.status, 503);
+    const text = await response.text();
+    assert.equal(text.includes("private oauth failure"), false);
+    assert.deepEqual(logged, ["exomem-oauth: expired state and client retirement lane failed"]);
   });
 
   // Cloud design D4 "Cloud deletion finish": the finish runs after the

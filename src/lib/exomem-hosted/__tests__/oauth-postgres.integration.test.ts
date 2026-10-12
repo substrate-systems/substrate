@@ -15,7 +15,9 @@ import {
   createAuthorizationTransaction,
   findPendingOAuthAuthorization,
   issueOAuthTokensFromCodeAtomic,
+  oauthClientIsRegistered,
   pruneExpiredOAuthState,
+  refreshCimdMetadataState,
   registerAdmittedCimdClient,
   registerGenericMcpClient,
   revokeOAuthAccountForOwnerTenantAtomic,
@@ -31,6 +33,7 @@ import { oauthClientConfigSha256 } from "../oauth-client-admission";
 import { EXOMEM_RATE_LIMITS } from "../rate-limit";
 import type { SecretEnvelope } from "../security";
 import {
+  readOAuthClientHeadroom,
   refreshOperatorCimdOAuthClient,
   registerOperatorOAuthClient,
   setOperatorOAuthClientEnabled,
@@ -1385,10 +1388,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       ["openai", host]
     );
     try {
-      const existing = await pool!.query<{ n: string }>(
-        "SELECT count(*) AS n FROM exomem_oauth_clients WHERE auto_registered"
-      );
-      const shortfall = 128 - Number(existing.rows[0]!.n);
+      const { autoRegistered } = await readOAuthClientHeadroom();
+      const shortfall = autoRegistered.bound - autoRegistered.used;
       assert.ok(shortfall > 0, "fixture assumes the auto partition starts below its bound");
       await pool!.query(
         `INSERT INTO exomem_oauth_clients (
@@ -1456,15 +1457,14 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     const overflow = `generic-overflow-${randomUUID()}`;
     await setGenericLane(true);
     try {
-      const counted = await pool!.query<{ generic: string; other: string }>(
-        `SELECT count(*) FILTER (WHERE admission_mode = 'generic') AS generic,
-                count(*) FILTER (WHERE admission_mode <> 'generic') AS other
-         FROM exomem_oauth_clients`
+      const counted = await pool!.query<{ other: string }>(
+        "SELECT count(*) AS other FROM exomem_oauth_clients WHERE admission_mode <> 'generic'"
       );
       assert.ok(
         Number(counted.rows[0]!.other) > 0,
         "the fixture needs clients of other modes, which the generic bound must not count"
       );
+      const { generic } = await readOAuthClientHeadroom();
       await pool!.query(
         `INSERT INTO exomem_oauth_clients (
            client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
@@ -1474,7 +1474,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
                 digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'),
                 'Filler'
          FROM generate_series(1, $2::int) AS step`,
-        [filler, 128 - Number(counted.rows[0]!.generic) - 1]
+        [filler, generic.bound - generic.used - 1]
       );
 
       const last = await registerGenericMcpClient(genericRegistration, {
@@ -1492,7 +1492,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         0
       );
 
-      // 128 generic rows would exceed the operator bound of 96 if they counted there.
+      // A full generic partition holds more clients than the operator bound, so
+      // the operator partition would be full too if generic rows counted there.
       const probe = `https://partition-probe.example.test/${randomUUID()}/client.json`;
       const free = await pool!.query<{ operator: boolean; connector: boolean }>(
         `SELECT exomem_oauth_client_partition_available($1, false) AS operator,
@@ -1966,4 +1967,540 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       "a nonce from a different transaction must not validate"
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Slot reclaim: a client that can no longer be used gives its slot back and
+  // keeps its row, and no client that still holds anything usable loses one.
+  // ---------------------------------------------------------------------------
+
+  // The sweep's configuration for these tests. Fixtures age rows against it.
+  const retirementGrace = {
+    EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS: "48",
+    EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS: "24",
+  };
+
+  async function clientStates(
+    clientIds: string[]
+  ): Promise<Record<string, { enabled: boolean; retired: boolean }>> {
+    const { rows } = await pool!.query<{ client_id: string; enabled: boolean; retired: boolean }>(
+      `SELECT client_id, enabled, retired_at IS NOT NULL AS retired
+       FROM exomem_oauth_clients WHERE client_id = ANY($1)`,
+      [clientIds]
+    );
+    return Object.fromEntries(
+      rows.map((row) => [row.client_id, { enabled: row.enabled, retired: row.retired }])
+    );
+  }
+
+  async function removeClients(clientIds: string[]): Promise<void> {
+    const internal = `SELECT id FROM exomem_oauth_clients WHERE client_id = ANY($1)`;
+    await pool!.query(`DELETE FROM exomem_oauth_grants WHERE client_id IN (${internal})`, [
+      clientIds,
+    ]);
+    await pool!.query(
+      `DELETE FROM exomem_oauth_authorization_transactions WHERE client_id IN (${internal})`,
+      [clientIds]
+    );
+    await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = ANY($1)", [clientIds]);
+  }
+
+  it("retires a connector that never held a grant after the idle grace, and one that did after the lapsed grace", async () => {
+    const host = `reclaim-expiry-${randomUUID()}.example.test`;
+    const neverGranted = `https://${host}/oauth/never-granted/client.json`;
+    const disconnected = `https://${host}/oauth/disconnected/client.json`;
+    const lapsed = `https://${host}/oauth/lapsed/client.json`;
+    const connectors = [neverGranted, disconnected, lapsed];
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1)",
+      [host]
+    );
+    try {
+      for (const [index, id] of connectors.entries()) {
+        const registered = await registerAdmittedCimdClient(id, {
+          fetchCimd: async () => cimdMetadata(id, [`https://${host}/callback`], "connector"),
+        });
+        assert.ok(registered);
+        if (id === neverGranted) continue;
+        // Its person connected it once and has since disconnected it.
+        const { grantId } = await seedAuthorizationCode(registered.id, 7201 + index, false);
+        await pool!.query(
+          "UPDATE exomem_oauth_authorization_codes SET consumed_at = now() - interval '25 hours' WHERE grant_id = $1",
+          [grantId]
+        );
+        await pool!.query(
+          `UPDATE exomem_oauth_grants
+           SET revoked_at = now() - interval '25 hours', updated_at = now() - interval '25 hours'
+           WHERE id = $1`,
+          [grantId]
+        );
+      }
+      // Registered 25 hours ago, past the 24-hour idle grace; the metadata
+      // expired an hour ago, inside the 48-hour lapsed grace -- except for the
+      // lapsed connector, whose metadata expired 49 hours ago.
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
+         SET metadata_fetched_at = now() - interval '25 hours',
+             metadata_expires_at = now() - CASE WHEN client_id = $1 THEN interval '49 hours'
+                                                ELSE interval '1 hour' END
+         WHERE client_id = ANY($2)`,
+        [lapsed, connectors]
+      );
+      const before = await readOAuthClientHeadroom();
+
+      await pruneExpiredOAuthState(retirementGrace);
+
+      assert.deepEqual(await clientStates(connectors), {
+        [neverGranted]: { enabled: false, retired: true },
+        [disconnected]: { enabled: false, retired: false },
+        [lapsed]: { enabled: false, retired: true },
+      });
+      const after = await readOAuthClientHeadroom();
+      assert.equal(after.autoRegistered.used, before.autoRegistered.used - 2);
+      assert.deepEqual(after.operator, before.operator, "reclaim never moves an operator slot");
+      assert.deepEqual(after.generic, before.generic, "reclaim never moves a generic slot");
+    } finally {
+      await removeClients(connectors);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
+
+  it("revives a returning retired connector in its own row, and only into a free slot", async () => {
+    const host = `reclaim-return-${randomUUID()}.example.test`;
+    const returning = `https://${host}/oauth/returning/client.json`;
+    const filler = `reclaim-filler-${randomUUID()}`;
+    const fetchCimd = async () =>
+      cimdMetadata(returning, [`https://${host}/callback`], "returning");
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1)",
+      [host]
+    );
+    try {
+      const first = await registerAdmittedCimdClient(returning, { fetchCimd });
+      assert.ok(first);
+      await pool!.query(
+        "UPDATE exomem_oauth_clients SET metadata_expires_at = now() - interval '49 hours' WHERE client_id = $1",
+        [returning]
+      );
+      await pruneExpiredOAuthState(retirementGrace);
+      assert.deepEqual((await clientStates([returning]))[returning], {
+        enabled: false,
+        retired: true,
+      });
+
+      // Fill the partition to its bound with live connectors.
+      const { autoRegistered } = await readOAuthClientHeadroom();
+      await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, auto_registered, redirect_uris, redirect_uris_digest,
+           client_platform, oauth_client_config_sha256, cimd_host, metadata_document_digest,
+           metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, metadata_provenance
+         )
+         SELECT format('https://%s/oauth/%s-%s/client.json', $1::text, $2::text, step),
+                'cimd', true, true,
+                '["https://filler.example.test/callback"]'::jsonb,
+                digest(convert_to('["https://filler.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                'openai',
+                encode(digest(convert_to(format('%s-%s', $2::text, step), 'utf8'), 'sha256'), 'hex'),
+                $1::text,
+                digest(convert_to(format('doc-%s-%s', $2::text, step), 'utf8'), 'sha256'),
+                now(), 3600, now() + interval '1 hour', '{}'::jsonb
+         FROM generate_series(1, $3::int) AS step`,
+        [host, filler, autoRegistered.bound - autoRegistered.used]
+      );
+      assert.equal(
+        await registerAdmittedCimdClient(returning, { fetchCimd }),
+        null,
+        "a retired connector holds no slot, so a full partition refuses it like a new one"
+      );
+      assert.deepEqual((await clientStates([returning]))[returning], {
+        enabled: false,
+        retired: true,
+      });
+
+      // One filler retires; the returning connector takes that slot in its own row.
+      await pool!.query(
+        `UPDATE exomem_oauth_clients SET enabled = false, retired_at = now()
+         WHERE client_id = (SELECT client_id FROM exomem_oauth_clients WHERE client_id LIKE $1 LIMIT 1)`,
+        [`%${filler}%`]
+      );
+      const revived = await registerAdmittedCimdClient(returning, { fetchCimd });
+      assert.equal(revived?.id, first.id, "the revival reuses the connector's own record");
+      assert.deepEqual((await clientStates([returning]))[returning], {
+        enabled: true,
+        retired: false,
+      });
+      assert.ok(await resolveApprovedCloudOAuthClient(returning));
+      const full = await readOAuthClientHeadroom();
+      assert.equal(full.autoRegistered.used, full.autoRegistered.bound);
+    } finally {
+      await removeClients([returning]);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id LIKE $1", [
+        `%${filler}%`,
+      ]);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
+
+  it("retires a generic client once it has held nothing for the grace, and its id stops working", async () => {
+    const redirectUri = genericRegistration.redirectUris[0]!;
+    await setGenericLane(true);
+    const registered: string[] = [];
+    try {
+      for (let index = 0; index < 3; index += 1) {
+        const client = await registerGenericMcpClient(genericRegistration);
+        assert.ok(client);
+        registered.push(client.clientId);
+      }
+      const [idle, recentlyDisconnected, newlyRegistered] = registered as [
+        string,
+        string,
+        string,
+      ];
+      // Registered two days ago; the grace is 24 hours.
+      await pool!.query(
+        "UPDATE exomem_oauth_clients SET created_at = now() - interval '2 days' WHERE client_id = ANY($1)",
+        [[idle, recentlyDisconnected]]
+      );
+      // Its person disconnected it an hour ago: the grace counts from then.
+      const internal = await pool!.query<{ id: string }>(
+        "SELECT id FROM exomem_oauth_clients WHERE client_id = $1",
+        [recentlyDisconnected]
+      );
+      const connected = await seedAuthorizationCode(internal.rows[0]!.id, 7001, false);
+      await pool!.query(
+        "UPDATE exomem_oauth_authorization_codes SET consumed_at = now() - interval '1 hour' WHERE grant_id = $1",
+        [connected.grantId]
+      );
+      await pool!.query(
+        `UPDATE exomem_oauth_grants
+         SET revoked_at = now() - interval '1 hour', updated_at = now() - interval '1 hour'
+         WHERE id = $1`,
+        [connected.grantId]
+      );
+      const before = await readOAuthClientHeadroom();
+
+      await pruneExpiredOAuthState(retirementGrace);
+
+      assert.deepEqual(await clientStates(registered), {
+        [idle]: { enabled: false, retired: true },
+        [recentlyDisconnected]: { enabled: true, retired: false },
+        [newlyRegistered]: { enabled: true, retired: false },
+      });
+      const after = await readOAuthClientHeadroom();
+      assert.equal(after.generic.used, before.generic.used - 1);
+      assert.deepEqual(after.operator, before.operator);
+      assert.deepEqual(after.autoRegistered, before.autoRegistered);
+      assert.equal(await resolveApprovedCloudOAuthClient(idle), null);
+      assert.equal(await beginAuthorization(idle, redirectUri), null);
+      // /token answers invalid_client for it, so its app registers again.
+      assert.equal(await oauthClientIsRegistered(idle), false);
+      assert.equal(await oauthClientIsRegistered(recentlyDisconnected), true);
+    } finally {
+      await setGenericLane(false);
+      await removeClients(registered);
+    }
+  });
+
+  // Each arm of exomem_oauth_clients_holding_live_authority, on a generic client
+  // that every other condition would retire: registered ten days ago, its one
+  // grant revoked and its code consumed two days ago.
+  const liveAuthorities: Array<{
+    kind: string;
+    hold: (fixture: {
+      clientId: string;
+      clientRecordId: string;
+      grantId: string;
+    }) => Promise<void>;
+    end: (fixture: {
+      clientId: string;
+      clientRecordId: string;
+      grantId: string;
+    }) => Promise<void>;
+  }> = [
+    {
+      // Home lists it as a connected app even when no token is left.
+      kind: "a grant that is not revoked",
+      hold: async ({ grantId }) => {
+        await pool!.query("UPDATE exomem_oauth_grants SET revoked_at = NULL WHERE id = $1", [
+          grantId,
+        ]);
+      },
+      end: async ({ grantId }) => {
+        await pool!.query(
+          "UPDATE exomem_oauth_grants SET revoked_at = now() - interval '2 days' WHERE id = $1",
+          [grantId]
+        );
+      },
+    },
+    {
+      kind: "an unexpired authorization code",
+      hold: async ({ grantId }) => {
+        await pool!.query(
+          "UPDATE exomem_oauth_authorization_codes SET consumed_at = NULL WHERE grant_id = $1",
+          [grantId]
+        );
+      },
+      end: async ({ grantId }) => {
+        await pool!.query(
+          "UPDATE exomem_oauth_authorization_codes SET consumed_at = now() WHERE grant_id = $1",
+          [grantId]
+        );
+      },
+    },
+    {
+      kind: "an unexpired access token",
+      hold: async ({ clientRecordId, grantId }) => {
+        await pool!.query(
+          `WITH family AS (
+             INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+             VALUES ($1, $2, now() + interval '30 days') RETURNING id
+           )
+           INSERT INTO exomem_oauth_access_tokens (
+             access_digest, grant_id, family_id, client_id, resource, scopes, expires_at
+           ) SELECT $3, $1, family.id, $2, $4, ARRAY['exomem.read'], now() + interval '1 hour'
+             FROM family`,
+          [grantId, clientRecordId, randomBytes(32), resource]
+        );
+      },
+      end: async ({ grantId }) => {
+        await pool!.query(
+          "UPDATE exomem_oauth_access_tokens SET revoked_at = now() WHERE grant_id = $1",
+          [grantId]
+        );
+      },
+    },
+    {
+      kind: "an unexpired refresh token",
+      hold: async ({ clientRecordId, grantId }) => {
+        await pool!.query(
+          `WITH family AS (
+             INSERT INTO exomem_oauth_token_families (grant_id, client_id, expires_at)
+             VALUES ($1, $2, now() + interval '30 days') RETURNING id
+           )
+           INSERT INTO exomem_oauth_refresh_tokens (refresh_digest, family_id, expires_at)
+           SELECT $3, family.id, now() + interval '1 day' FROM family`,
+          [grantId, clientRecordId, randomBytes(32)]
+        );
+      },
+      end: async ({ grantId }) => {
+        await pool!.query(
+          `UPDATE exomem_oauth_token_families SET revoked_at = now(), revoked_reason = 'client_revoked'
+           WHERE grant_id = $1`,
+          [grantId]
+        );
+      },
+    },
+    {
+      // A person is on the consent page for it.
+      kind: "an authorization in progress",
+      hold: async ({ clientId }) => {
+        assert.ok(await beginAuthorization(clientId, genericRegistration.redirectUris[0]!));
+      },
+      end: async ({ clientRecordId }) => {
+        await pool!.query(
+          "UPDATE exomem_oauth_authorization_transactions SET consumed_at = now() WHERE client_id = $1",
+          [clientRecordId]
+        );
+      },
+    },
+  ];
+
+  for (const [index, authority] of liveAuthorities.entries()) {
+    it(`never retires a client that holds ${authority.kind}, however long it has been idle`, async () => {
+      await setGenericLane(true);
+      let clientId: string | undefined;
+      try {
+        const client = await registerGenericMcpClient(genericRegistration);
+        assert.ok(client);
+        clientId = client.clientId;
+        const record = await pool!.query<{ id: string }>(
+          `UPDATE exomem_oauth_clients SET created_at = now() - interval '10 days'
+           WHERE client_id = $1 RETURNING id`,
+          [clientId]
+        );
+        const clientRecordId = record.rows[0]!.id;
+        const { grantId } = await seedAuthorizationCode(clientRecordId, 7100 + index, true);
+        await pool!.query(
+          "UPDATE exomem_oauth_authorization_codes SET consumed_at = now() - interval '2 days' WHERE grant_id = $1",
+          [grantId]
+        );
+        await pool!.query(
+          `UPDATE exomem_oauth_grants
+           SET revoked_at = now() - interval '2 days', updated_at = now() - interval '2 days'
+           WHERE id = $1`,
+          [grantId]
+        );
+        const fixture = { clientId, clientRecordId, grantId };
+
+        await authority.hold(fixture);
+        await pruneExpiredOAuthState(retirementGrace);
+        assert.deepEqual((await clientStates([clientId]))[clientId], {
+          enabled: true,
+          retired: false,
+        });
+
+        // The same client, once that one authority ends, retires on the next sweep.
+        await authority.end(fixture);
+        await pruneExpiredOAuthState(retirementGrace);
+        assert.deepEqual((await clientStates([clientId]))[clientId], {
+          enabled: false,
+          retired: true,
+        });
+      } finally {
+        await setGenericLane(false);
+        if (clientId) await removeClients([clientId]);
+      }
+    });
+  }
+
+  it("never enables a retired client, and never retires the first-party client", async () => {
+    const retiredClientId = `reclaim-retired-${randomUUID()}`;
+    // The live artifact's configuration, so the operator's enable arm would
+    // otherwise accept this client.
+    const retired = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_oauth_clients (
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256, retired_at
+       ) VALUES ($1, 'pinned', false, '["https://retired.example.test/callback"]'::jsonb,
+                 digest(convert_to('["https://retired.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                 'claude', $2, now())
+       RETURNING id`,
+      [retiredClientId, "f".repeat(64)]
+    );
+    try {
+      assert.equal(
+        await setOperatorOAuthClientEnabled({ clientRecordId: retired.rows[0]!.id, enabled: true }),
+        false,
+        "only a registration, which checks the bound, brings a retired client back"
+      );
+      // An enabled retired client would be admitted without holding a slot.
+      await assert.rejects(
+        pool!.query("UPDATE exomem_oauth_clients SET enabled = true WHERE client_id = $1", [
+          retiredClientId,
+        ]),
+        (error: unknown) => (error as { code?: string }).code === "23514"
+      );
+      // The Home channel mints its tokens for the first-party client.
+      await assert.rejects(
+        pool!.query(
+          "UPDATE exomem_oauth_clients SET enabled = false, retired_at = now() WHERE admission_mode = 'first_party'"
+        ),
+        (error: unknown) => (error as { code?: string }).code === "23514"
+      );
+    } finally {
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
+        retiredClientId,
+      ]);
+    }
+  });
+
+  it("takes a partition bound from its table, so an operator changes it without a migration", async () => {
+    await setGenericLane(true);
+    const registered: string[] = [];
+    const { generic } = await readOAuthClientHeadroom();
+    try {
+      await pool!.query(
+        "UPDATE exomem_oauth_client_partition_bounds SET bound = $1 WHERE client_partition = 'generic'",
+        [generic.used]
+      );
+      assert.deepEqual((await readOAuthClientHeadroom()).generic, {
+        bound: generic.used,
+        used: generic.used,
+        free: 0,
+      });
+      assert.equal(await registerGenericMcpClient(genericRegistration), null);
+
+      await pool!.query(
+        "UPDATE exomem_oauth_client_partition_bounds SET bound = $1 WHERE client_partition = 'generic'",
+        [generic.used + 1]
+      );
+      const client = await registerGenericMcpClient(genericRegistration);
+      assert.ok(client, "the raised bound admits one more client at once");
+      registered.push(client.clientId);
+    } finally {
+      await pool!.query(
+        "UPDATE exomem_oauth_client_partition_bounds SET bound = $1 WHERE client_partition = 'generic'",
+        [generic.bound]
+      );
+      await setGenericLane(false);
+      await removeClients(registered);
+    }
+  });
+
+  // A connector's metadata document is cached for a day, and refresh needs it
+  // fresh. Without a fetch at refresh, every ChatGPT connector had to be
+  // connected again a day after its last authorization.
+  it("lets a connector's refresh token work again once its expired metadata is fetched", async () => {
+    const host = `refresh-refetch-${randomUUID()}.example.test`;
+    const connector = `https://${host}/oauth/client.json`;
+    const fetchCimd = async () => cimdMetadata(connector, [`https://${host}/callback`], "c");
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1)",
+      [host]
+    );
+    try {
+      const registered = await registerAdmittedCimdClient(connector, { fetchCimd });
+      assert.ok(registered);
+      const fixture = await seedAuthorizationCode(registered.id, 7301, true);
+      assert.ok(
+        await issueOAuthTokensFromCodeAtomic({
+          codeDigest: fixture.codeDigest,
+          clientId: connector,
+          redirectUri: "https://client.example.test/callback",
+          resource,
+          pkceChallenge: "challenge",
+          refreshDigest: digest(7302),
+          refreshExpiresAt: new Date(Date.now() + 30 * 86_400_000),
+          accessDigest: digest(7303),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+        })
+      );
+      // 25 hours later the day-long metadata has expired, and the sweep has
+      // disabled the connector.
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
+         SET metadata_fetched_at = metadata_fetched_at - interval '25 hours',
+             metadata_expires_at = metadata_expires_at - interval '25 hours'
+         WHERE client_id = $1`,
+        [connector]
+      );
+      await pruneExpiredOAuthState(retirementGrace);
+      const rotate = (sequence: number) =>
+        rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(7302),
+          replacementRefreshDigest: digest(sequence),
+          accessDigest: digest(sequence + 1),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+          clientId: connector,
+          resource,
+        });
+      assert.equal(await rotate(7304), null, "refresh needs fresh metadata");
+
+      assert.equal(
+        await refreshCimdMetadataState({ refreshDigest: digest(7399), clientId: connector }),
+        "not_eligible",
+        "a caller without a live refresh token causes no fetch"
+      );
+      assert.equal(
+        await refreshCimdMetadataState({ refreshDigest: digest(7302), clientId: connector }),
+        "lapsed"
+      );
+      assert.ok(await registerAdmittedCimdClient(connector, { fetchCimd }));
+      // A request in the same herd whose rotation was refused before this fetch
+      // committed must see fresh metadata and rotate again.
+      assert.equal(
+        await refreshCimdMetadataState({ refreshDigest: digest(7302), clientId: connector }),
+        "fresh"
+      );
+      assert.ok(await rotate(7306), "the refused attempt did not spend the refresh token");
+    } finally {
+      await pool!.query(
+        `DELETE FROM exomem_oauth_grants
+         WHERE client_id = (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+        [connector]
+      );
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [connector]);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+    }
+  });
 });

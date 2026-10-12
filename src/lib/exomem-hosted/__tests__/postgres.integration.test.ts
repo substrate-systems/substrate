@@ -14,6 +14,7 @@ import {
   createMagicAccessToken,
   markMagicLinkDeliverySent,
   pruneStaleRateLimitBuckets,
+  rateLimitHasRoom,
   recordExomemCheckoutTransaction,
   redeemMagicAccessTokenAtomic,
   releaseMagicLinkDelivery,
@@ -167,6 +168,30 @@ describe("real PostgreSQL hosted contracts", { skip: !DATABASE_URL }, () => {
       ["exomem:postgres-integration"]
     );
     assert.equal(count.rows[0]?.admitted_count, 5);
+  });
+
+  // A limit that counts only failures reads the bucket before each attempt. If
+  // the read disagreed with the take, a lapsed window would refuse forever, or a
+  // full one would admit.
+  it("reads a bucket's room as the next take would find it", async () => {
+    const bucket = {
+      scope: "exomem:postgres-integration-room",
+      keyDigest: "c".repeat(64),
+      limit: 2,
+      windowSeconds: 60,
+    };
+    assert.equal(await rateLimitHasRoom(bucket), true, "a missing bucket has room");
+    await takeRateLimit(bucket);
+    assert.equal(await rateLimitHasRoom(bucket), true);
+    await takeRateLimit(bucket);
+    assert.equal(await rateLimitHasRoom(bucket), false, "a full window has none");
+    assert.equal(await takeRateLimit(bucket), false);
+    await pool.query(
+      "UPDATE exomem_rate_limit_buckets SET window_started_at = now() - interval '61 seconds' WHERE scope = $1",
+      [bucket.scope]
+    );
+    assert.equal(await rateLimitHasRoom(bucket), true, "a lapsed window has room again");
+    assert.equal(await takeRateLimit(bucket), true);
   });
 
   it("prunes only stale limiter buckets in bounded batches", async () => {
