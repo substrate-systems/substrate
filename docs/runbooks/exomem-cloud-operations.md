@@ -49,12 +49,6 @@ Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
 buckets older than the longest window plus one hour, in bounded batches.
 
-The anonymous interest endpoint, `/api/exomem/interest`, takes durable IP and
-normalized-email buckets before it calls Brevo. A denied bucket returns `429`
-with `Retry-After`. An unavailable limiter fails closed with `503`, so the
-endpoint cannot spend the shared email quota. Add a Vercel edge or WAF rule for
-that path as a burst-control layer. The rule must not log raw emails or IPs.
-
 ## OAuth and client admission
 
 The authorization server metadata is at

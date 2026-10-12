@@ -38,15 +38,9 @@ test("OAuth revocation uses a dedicated bounded IP rule", () => {
   assert.ok(rule.windowSeconds > 0);
 });
 
-test("invite requests use separate durable IP and normalized-email buckets", () => {
-  const ip = EXOMEM_RATE_LIMITS.interestIp;
-  const email = EXOMEM_RATE_LIMITS.interestEmail;
+test("start requests count one address in one bucket, whatever its case and spacing", () => {
+  const email = EXOMEM_RATE_LIMITS.startEmail;
 
-  assert.notEqual(ip.scope, email.scope);
-  assert.ok(ip.limit > 0);
-  assert.ok(ip.windowSeconds > 0);
-  assert.ok(email.limit > 0);
-  assert.ok(email.windowSeconds > 0);
   assert.equal(normalizedEmailRateLimitKey(" Friend@Example.COM "), "friend@example.com");
   assert.equal(
     hashRateLimitKey(email, normalizedEmailRateLimitKey("Friend@Example.com"), FIRST_KEY),

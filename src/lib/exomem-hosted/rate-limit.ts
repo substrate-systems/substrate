@@ -103,16 +103,6 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 3,
     windowSeconds: 60 * 60,
   },
-  interestIp: {
-    scope: "exomem:interest:ip",
-    limit: 10,
-    windowSeconds: 60 * 60,
-  },
-  interestEmail: {
-    scope: "exomem:interest:email",
-    limit: 3,
-    windowSeconds: 24 * 60 * 60,
-  },
   marketplaceReviewerIp: {
     scope: "exomem:marketplace-reviewer:ip",
     limit: 20,
