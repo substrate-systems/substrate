@@ -113,7 +113,7 @@ An owner SHALL start an export from Home while the tenant is not deleting and th
 
 ### Requirement: Export downloads start from Home and the ready email is sent once
 
-The download link for an export SHALL come only from a Home request. Each link SHALL expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
+The download link for an export SHALL come only from a Home request, and only while the export is ready and unexpired, checked on every read until the link is returned. Each link SHALL be an https URL, expire within five minutes, name only that export's object version, and be served as an attachment. Substrate MUST NOT send or log a link, and MUST NOT persist one anywhere but the export row. When an export becomes ready, the system SHALL send one email that links to Home.
 
 #### Scenario: Owner downloads a ready export
 
@@ -124,6 +124,16 @@ The download link for an export SHALL come only from a Home request. Each link S
 
 - **WHEN** the cell controller has not finished the link
 - **THEN** the system answers 202 `pending` and Home asks again
+
+#### Scenario: Export fails while the request waits
+
+- **WHEN** the export fails after the request and before the controller's link arrives
+- **THEN** the system answers 409 `EXPORT_NOT_READY` and never returns the link
+
+#### Scenario: Controller issues a link that is not https
+
+- **WHEN** the controller's link is not an https URL
+- **THEN** the system answers 502 `EXPORT_LINK_INVALID` and neither returns nor logs the link
 
 #### Scenario: Export has expired
 

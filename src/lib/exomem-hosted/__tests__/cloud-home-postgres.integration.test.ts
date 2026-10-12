@@ -835,6 +835,58 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
       assert.equal(issued.headers.get("referrer-policy"), "no-referrer");
     });
 
+    it("never hands out the link of an export that failed while the request waited", async () => {
+      const alice = await owner();
+      const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;
+      await markReady(id);
+      // cellctl reports a failure and still leaves a link and its issue time.
+      const failing = (async () => {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const { rowCount } = await pool.query(
+            `UPDATE exomem_cloud_exports
+             SET observed_state = 'failed', error_code = 'EXPORT_FAILED',
+                 download_url = 'https://objects.example.test/failed-export',
+                 download_url_expires_at = now() + interval '5 minutes',
+                 link_issued_at = GREATEST(clock_timestamp(), link_requested_at)
+             WHERE export_id = $1 AND link_requested_at IS NOT NULL`,
+            [id]
+          );
+          if (rowCount) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+      const refused = await requestLink(alice, id, 4_000);
+      await failing;
+      assert.equal(refused.status, 409);
+      assert.equal(((await json(refused)).error as { code: string }).code, "EXPORT_NOT_READY");
+    });
+
+    it("refuses a controller link that is not https, and never shows it", async () => {
+      const alice = await owner();
+      const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;
+      await markReady(id);
+      const answering = (async () => {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const { rowCount } = await pool.query(
+            `UPDATE exomem_cloud_exports
+             SET download_url = 'http://objects.example.test/archive',
+                 download_url_expires_at = now() + interval '5 minutes',
+                 link_issued_at = GREATEST(clock_timestamp(), link_requested_at)
+             WHERE export_id = $1 AND link_requested_at IS NOT NULL`,
+            [id]
+          );
+          if (rowCount) return;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })();
+      const refused = await requestLink(alice, id, 4_000);
+      await answering;
+      assert.equal(refused.status, 502);
+      const body = await refused.text();
+      assert.equal(JSON.parse(body).error.code, "EXPORT_LINK_INVALID");
+      assert.equal(body.includes("objects.example.test"), false);
+    });
+
     it("answers 410 for a link to an export past its expiry", async () => {
       const alice = await owner();
       const id = ((await json(await startExport(alice))).export as { export_id: string }).export_id;

@@ -127,6 +127,8 @@ const noData = () => exportError("EXPORT_NO_DATA", 409, "this account has never 
 const conflict = () => exportError("EXPORT_CONFLICT", 409, "that export id is in use");
 const notReady = () => exportError("EXPORT_NOT_READY", 409, "the export has no download");
 const expired = () => exportError("EXPORT_EXPIRED", 410, "the export has expired");
+const linkInvalid = () =>
+  exportError("EXPORT_LINK_INVALID", 502, "the export link could not be issued");
 
 type LiveCell = { cell_id: string; desired_state: CellDesiredState; observed_image: string | null };
 
@@ -267,10 +269,7 @@ async function exportRow(
   return (rows[0] as CloudExportRow | undefined) ?? null;
 }
 
-type LinkRow = {
-  requested_state: CloudExportRow["requested_state"];
-  observed_state: CloudExportRow["observed_state"];
-  expires_at: Date | null;
+type LinkRow = CloudExportRow & {
   download_url: string | null;
   download_url_expires_at: Date | null;
   // Compared in SQL: the driver's Date drops the microseconds both times carry.
@@ -283,7 +282,8 @@ async function readLinkRow(
 ): Promise<LinkRow | null> {
   const { rows } = await executeExomemSql`
     /* exomem-cloud:export-link-read */
-    SELECT export.requested_state, export.observed_state, export.expires_at,
+    SELECT export.export_id, export.requested_state, export.observed_state, export.error_code,
+           export.archive_bytes, export.ready_at, export.expires_at, export.created_at,
            export.download_url, export.download_url_expires_at,
            COALESCE(export.link_issued_at >= export.link_requested_at, false) AS link_answered
     FROM exomem_cloud_exports AS export
@@ -298,12 +298,22 @@ async function readLinkRow(
   return (rows[0] as LinkRow | undefined) ?? null;
 }
 
-function linkGone(row: LinkRow, now: Date): boolean {
-  return (
-    row.requested_state === "superseded" ||
-    row.observed_state === "expired" ||
-    (row.observed_state === "ready" && (!row.expires_at || now >= row.expires_at))
-  );
+/**
+ * The one decision on whether an export may hand out a link, for the request
+ * and for each poll while it waits: only a ready export does. The display rule
+ * decides, so a link and the export row on Home never disagree.
+ */
+function assertLinkable(row: LinkRow, now: Date): void {
+  const { state } = cloudExportDisplay(row, now);
+  if (state === "expired") throw expired();
+  if (state !== "ready") throw notReady();
+}
+
+/** The link the controller issued, if it is an https URL; a log line never carries it. */
+function httpsLink(url: string): string {
+  if (URL.canParse(url) && new URL(url).protocol === "https:") return url;
+  console.warn({ event: "exomem_cloud_export_link_invalid", reason: "not_https" });
+  throw linkInvalid();
 }
 
 export type CloudExportLink =
@@ -342,7 +352,7 @@ export async function requestCloudExportLink(
   if (!rows[0]) {
     const row = await readLinkRow(principal, exportId);
     if (!row) throw notFound();
-    if (linkGone(row, new Date())) throw expired();
+    assertLinkable(row, new Date());
     throw notReady();
   }
   const deadline = Date.now() + (dependencies.linkWaitMs ?? LINK_WAIT_MS);
@@ -350,7 +360,7 @@ export async function requestCloudExportLink(
     const row = await readLinkRow(principal, exportId);
     if (!row) throw notFound();
     const now = new Date();
-    if (linkGone(row, now)) throw expired();
+    assertLinkable(row, now);
     if (
       row.download_url &&
       row.download_url_expires_at &&
@@ -359,7 +369,7 @@ export async function requestCloudExportLink(
     ) {
       return {
         state: "issued",
-        url: row.download_url,
+        url: httpsLink(row.download_url),
         url_expires_at: row.download_url_expires_at.toISOString(),
       };
     }
