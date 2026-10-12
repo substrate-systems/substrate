@@ -2,7 +2,8 @@ import type { CloudCapacityStatus } from "@/lib/exomem-hosted/cloud-capacity";
 
 export type OperatorCapacity = CloudCapacityStatus;
 
-export type InviteSource = "paid" | "complimentary";
+/** Standard is paid; friend is paid with the friend price; covered is complimentary. */
+export type InviteKind = "standard" | "friend" | "covered";
 
 function count(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -38,7 +39,7 @@ export function parseOperatorCapacity(value: unknown): OperatorCapacity | null {
 }
 
 /**
- * Every invitation, paid or complimentary, takes a Cloud place, so the page
+ * Every invitation, of any kind, takes a Cloud place, so the page
  * blocks sending while no place is free or capacity is unknown. The server
  * refuses the same request; this only saves a round trip.
  */
@@ -46,9 +47,30 @@ export function invitationBlocked(capacity: OperatorCapacity): boolean {
   return capacity.freePlaces === null || capacity.freePlaces === 0;
 }
 
-export function requiresComplimentaryConfirmation(
-  source: InviteSource,
-  confirmed: boolean
-): boolean {
-  return source === "complimentary" && !confirmed;
+export function requiresComplimentaryConfirmation(kind: InviteKind, confirmed: boolean): boolean {
+  return kind === "covered" && !confirmed;
+}
+
+export type InvitationDraft = {
+  email: string;
+  kind: InviteKind;
+  inviterName: string;
+  inviterEmail: string;
+  inviteeName: string;
+  note: string;
+};
+
+/** The request body for one invitation: blank optional fields are left out. */
+export function invitationRequestBody(draft: InvitationDraft): Record<string, string> {
+  const body: Record<string, string> = { email: draft.email.trim(), kind: draft.kind };
+  const optional: Array<[string, string]> = [
+    ["inviterName", draft.inviterName],
+    ["inviteeName", draft.inviteeName],
+    ["note", draft.note],
+  ];
+  if (draft.kind === "friend") optional.push(["inviterEmail", draft.inviterEmail]);
+  for (const [key, value] of optional) {
+    if (value.trim()) body[key] = value.trim();
+  }
+  return body;
 }

@@ -41,16 +41,16 @@
 
 ## 4. Friend invitations and resubscribe (migration 0065)
 
-- [ ] 4.1 Add migration 0065: invitation kind, inviter and note fields, decision fields, friend offer on the tenant
-- [ ] 4.2 Add `POST /access/inspect` with the identical 404, the price preview cache and its rate limit
-- [ ] 4.3 Add `POST /api/exomem/invites/decision` with the Paddle update before consume
-- [ ] 4.4 Return `transactionId` from checkout and attach the friend discount on the server only
-- [ ] 4.5 Verify the friend discount's properties before each checkout and each subscription update, and fail closed on any difference
-- [ ] 4.6 Allow a new transaction for an ended owner's customer inside the kept window and let the kept cell resume
-- [ ] 4.7 Add inviter name, optional note and optional inviter email to the operator issue route and page
-- [ ] 4.8 Show free Cloud capacity on the operator page, block every invitation kind when none is free, and keep its paid default and covered confirmation
-- [ ] 4.9 Scrub the new personal data and outbox rows in deletion finish
-- [ ] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
+- [x] 4.1 Add migration 0065: invitation kind, inviter and note fields, decision fields, friend offer on the tenant
+- [x] 4.2 Add `POST /access/inspect` with the identical 404, the price preview cache and its rate limit
+- [x] 4.3 Add `POST /api/exomem/invites/decision` with the Paddle update before consume
+- [x] 4.4 Return `transactionId` from checkout and attach the friend discount on the server only
+- [x] 4.5 Verify the friend discount's properties before each checkout and each subscription update, and fail closed on any difference
+- [x] 4.6 Allow a new transaction for an ended owner's customer inside the kept window and let the kept cell resume
+- [x] 4.7 Add inviter name, optional note and optional inviter email to the operator issue route and page
+- [x] 4.8 Show free Cloud capacity on the operator page, block every invitation kind when none is free, and keep its paid default and covered confirmation
+- [x] 4.9 Scrub the new personal data and outbox rows in deletion finish
+- [x] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
 - [ ] 4.11 Run a dedicated security review of the friend price
 
 ## 5. Cell home channel, storage and export (migration 0066)
@@ -77,7 +77,7 @@
 - [ ] 6.1 Add a renderer registry keyed by email kind with the existing renderers behind it
 - [ ] 6.2 Add the waitlist and place-opened kinds with the approved copy
 - [ ] 6.3 Route emails 01, 01w, 03 to 08 and 18 through the outbox with their dedupe keys and preconditions
-- [ ] 6.4 Route friend emails 09 to 13 through the outbox, including the invitee reminder and the two inviter notices
+- [x] 6.4 Route friend emails 09 to 13 through the outbox, including the invitee reminder and the two inviter notices
 - [ ] 6.5 Enqueue the export-ready email once per export, linking to Home
 - [ ] 6.6 Render every time limit at send time in the recipient's time zone, UTC labelled when unknown
 

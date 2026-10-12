@@ -1,30 +1,15 @@
 import { randomBytes as nodeRandomBytes } from "node:crypto";
-import { sendTransactionalEmail } from "@/lib/brevo";
-import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
-import { renderExomemInviteEmail } from "@/lib/email-templates/exomem-access";
 import {
-  createInviteRecord,
   createMagicAccessToken,
-  markInviteDelivered,
-  markInviteDeliveryFailed,
-  inspectValidInvite,
   redeemMagicAccessTokenAtomic,
-  type CreateInviteRecordInput,
   type CreateMagicAccessTokenInput,
   type RedeemMagicAccessTokenInput,
   type RedeemedAccess,
 } from "./db";
 import { exomemErrors } from "./errors";
 import { buildOperationalEvent, emitOperationalEvent } from "./observability";
-import {
-  exomemPublicBaseUrlFromEnv,
-  exomemPublicFragmentUrl,
-  parseExomemPublicBaseUrl,
-} from "./public-origin";
 import { EXOMEM_RATE_LIMITS, normalizedEmailRateLimitKey, takeExomemRateLimit } from "./rate-limit";
 import {
-  EXOMEM_INVITE_CAPABILITIES,
-  EXOMEM_INVITE_LIMITS,
   selfServeAdmissionMode,
   startSelfServeAtomic,
   type SelfServeAdmissionMode,
@@ -41,7 +26,6 @@ import {
 
 const EMAIL = /^[^\s<>"'`&]+@[^\s<>"'`&]+\.[^\s<>"'`&]+$/;
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000;
-const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Every start request that passed the bot check takes at least this long,
@@ -50,16 +34,9 @@ const MAX_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  */
 export const START_RESPONSE_FLOOR_MS = 600;
 
-type SendEmail = typeof sendTransactionalEmail;
-
 export type AccessDependencies = {
   now: () => Date;
   randomBytes: RandomBytesSource;
-  publicBaseUrl: string;
-  createInvite: (input: CreateInviteRecordInput) => Promise<{ inviteId: string }>;
-  markInviteDelivered: (inviteId: string) => Promise<void>;
-  markInviteDeliveryFailed: (inviteId: string, errorCode: string) => Promise<void>;
-  inspectInvite: typeof inspectValidInvite;
   admissionMode: () => SelfServeAdmissionMode;
   startSelfServe: (input: {
     emailNormalized: string;
@@ -73,7 +50,6 @@ export type AccessDependencies = {
   redeemMagicAccessTokenAtomic: (
     input: RedeemMagicAccessTokenInput
   ) => Promise<RedeemedAccess | null>;
-  sendEmail: SendEmail;
   takeRateLimit: (
     rule: (typeof EXOMEM_RATE_LIMITS)[keyof typeof EXOMEM_RATE_LIMITS],
     value: string
@@ -104,17 +80,11 @@ function defaults(): AccessDependencies {
   return {
     now: () => new Date(),
     randomBytes: nodeRandomBytes,
-    publicBaseUrl: exomemPublicBaseUrlFromEnv(),
-    createInvite: createInviteRecord,
-    markInviteDelivered,
-    markInviteDeliveryFailed,
-    inspectInvite: inspectValidInvite,
     admissionMode: () => selfServeAdmissionMode(),
     startSelfServe: (input) => startSelfServeAtomic(input),
     createMagicAccessToken,
     encryptDeliverySecret: (value) => encryptSecret(value),
     redeemMagicAccessTokenAtomic,
-    sendEmail: sendTransactionalEmail,
     takeRateLimit: takeExomemRateLimit,
     completeStartRequest: padStartResponse,
   };
@@ -130,85 +100,6 @@ export function normalizeAccessEmail(value: string): string {
     throw exomemErrors.invalidEmail();
   }
   return normalized;
-}
-
-export async function issueOperatorInvite(
-  input: {
-    email: string;
-    source: "complimentary" | "paid";
-    marketplaceReviewerPurpose?: boolean;
-    expiresAt: Date;
-    operatorPrincipalDigest: Buffer;
-  },
-  dependencies?: Partial<AccessDependencies>
-): Promise<{ inviteId: string; delivery: "sent" }> {
-  const deps = withDefaults(dependencies);
-  const emailNormalized = normalizeAccessEmail(input.email);
-  const now = deps.now();
-  if (
-    !Number.isFinite(input.expiresAt.getTime()) ||
-    input.expiresAt <= now ||
-    input.expiresAt.getTime() - now.getTime() > MAX_INVITE_TTL_MS
-  ) {
-    throw exomemErrors.invalidExpiry();
-  }
-  if (input.source !== "complimentary" && input.source !== "paid") {
-    throw exomemErrors.invalidEntitlementSource();
-  }
-  const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
-
-  const token = generateExternalToken(deps.randomBytes);
-  const digest = tokenDigest(token);
-  if (!digest) throw exomemErrors.accessTokenInvalid();
-  const { inviteId } = await deps.createInvite({
-    tokenDigest: digest,
-    emailNormalized,
-    entitlementSource: input.source === "complimentary" ? "complimentary" : "paddle",
-    capabilities: EXOMEM_INVITE_CAPABILITIES,
-    resourceLimits: EXOMEM_INVITE_LIMITS,
-    marketplaceReviewerPurpose: input.marketplaceReviewerPurpose === true,
-    operatorPrincipalDigest: input.operatorPrincipalDigest,
-    expiresAt: input.expiresAt,
-  });
-
-  const accessUrl = exomemPublicFragmentUrl(publicBaseUrl, "/exomem/invite", token);
-  const rendered = renderExomemInviteEmail({
-    accessUrl,
-    expiresAt: input.expiresAt,
-  });
-  let delivery: Awaited<ReturnType<SendEmail>>;
-  try {
-    delivery = await deps.sendEmail({
-      to: emailNormalized,
-      ...EXOMEM_SENDER,
-      subject: rendered.subject,
-      htmlContent: rendered.htmlContent,
-      textContent: rendered.textContent,
-    });
-  } catch {
-    delivery = { success: false };
-  }
-  if (!delivery.success) {
-    await deps.markInviteDeliveryFailed(inviteId, "EMAIL_DELIVERY_UNAVAILABLE");
-    throw exomemErrors.emailDeliveryUnavailable();
-  }
-  await deps.markInviteDelivered(inviteId);
-  return { inviteId, delivery: "sent" };
-}
-
-export async function inspectInvite(
-  token: string,
-  dependencies?: Partial<AccessDependencies>
-): Promise<{ email: string; expiresAt: string }> {
-  const deps = withDefaults(dependencies);
-  const digest = tokenDigest(token);
-  if (!digest) throw exomemErrors.accessTokenInvalid();
-  const invite = await deps.inspectInvite(digest);
-  if (!invite) throw exomemErrors.accessTokenInvalid();
-  return {
-    email: invite.emailNormalized,
-    expiresAt: invite.expiresAt,
-  };
 }
 
 /**

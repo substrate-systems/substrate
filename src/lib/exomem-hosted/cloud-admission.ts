@@ -11,8 +11,9 @@ import { loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
-import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
+import { FIRST_PAYMENT_SOURCE_STATES, LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
+import { recordInvitationUse } from "./invites";
 import { cancelExomemCheckoutTransaction, type PaddleTransport } from "./paddle-billing";
 import {
   loadExomemPaddleTransactionConfig,
@@ -171,6 +172,7 @@ type LockedCloudInvite = {
   entitlement_limits: Record<string, number>;
   marketplace_reviewer_purpose: boolean;
   recipient_time_zone: string | null;
+  inviter_name: string | null;
 };
 
 /**
@@ -190,7 +192,7 @@ export async function redeemCloudInviteAtomic(
     const inviteResult = await tx`
       /* exomem-cloud:lock-invite */
       SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
-             recipient_time_zone
+             recipient_time_zone, inviter_name
       FROM exomem_invites
       WHERE token_digest = ${input.tokenDigest}
         AND consumed_at IS NULL
@@ -305,9 +307,7 @@ export async function redeemCloudInviteAtomic(
       desiredState: desiredCellState,
       recipient: invite.email_normalized,
       recipientTimeZone: timeZone,
-      // Invitations record no inviter name yet. The friend-invitation change
-      // that adds it passes it here.
-      inviterName: null,
+      inviterName: invite.inviter_name,
     });
     if (!cellId) throw exomemErrors.accessTokenInvalid();
 
@@ -334,6 +334,7 @@ export async function redeemCloudInviteAtomic(
     `;
     if (!consumedResult.rows[0]) throw exomemErrors.accessTokenInvalid();
     await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
+    await recordInvitationUse(tx, { inviteId: invite.id, tenantId });
 
     return { userId: owner.id, tenantId, sessionId: session.id, cellId, paid: !isComplimentary };
   });
@@ -415,7 +416,7 @@ async function lockExistingCloudTenant(
   if (row.has_live_cell || row.status === "deletion_pending") return REFUSED;
   const liveSubscription =
     row.provider_subscription_ref !== null &&
-    ["active", "trialing", "past_due", "paused"].includes(row.source_state ?? "");
+    (LIVE_SUBSCRIPTION_SOURCE_STATES as readonly string[]).includes(row.source_state ?? "");
   if (liveSubscription) return REFUSED;
   const prePayment =
     row.source_state === "awaiting_checkout" || row.source_state === "checkout_pending";
@@ -495,7 +496,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
 
       const inviteResult = await tx`
         SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
-               recipient_time_zone
+               recipient_time_zone, inviter_name
         FROM exomem_invites
         WHERE token_digest = ${input.inviteDigest}
           AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
@@ -632,8 +633,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         desiredState: desiredCellState,
         recipient: invite.email_normalized,
         recipientTimeZone: timeZone,
-        // See redeemCloudInviteAtomic's matching call.
-        inviterName: null,
+        inviterName: invite.inviter_name,
       });
       if (!cellId) throw new CloudOAuthAdmissionRejected();
 
@@ -712,6 +712,7 @@ async function consumeCloudOAuthInvite(
   `;
   if (!consumed.rows[0]) throw new CloudOAuthAdmissionRejected();
   await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
+  await recordInvitationUse(tx, { inviteId: invite.id, tenantId });
 }
 
 export type CloudAwaitingCheckoutTenant = {

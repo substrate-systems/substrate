@@ -10,6 +10,8 @@ import {
 
 export type PaddleTransport = (path: string, init?: RequestInit) => Promise<Response>;
 
+const PADDLE_TIMEOUT_MS = 10_000;
+
 export class ExomemBillingError extends Error {
   readonly code:
     | "EXOMEM_BILLING_INPUT_REJECTED"
@@ -18,7 +20,8 @@ export class ExomemBillingError extends Error {
     | "EXOMEM_PADDLE_ENVIRONMENT_MISMATCH"
     | "EXOMEM_BILLING_STATE_CONFLICT"
     | "EXOMEM_PADDLE_UNAVAILABLE"
-    | "EXOMEM_PADDLE_RESPONSE_INVALID";
+    | "EXOMEM_PADDLE_RESPONSE_INVALID"
+    | "EXOMEM_FRIEND_DISCOUNT_INVALID";
   readonly status: number;
 
   constructor(code: ExomemBillingError["code"], status: number) {
@@ -40,6 +43,17 @@ type CheckoutInput = {
   tenantId: string;
 };
 
+/**
+ * What the server attaches to a new checkout. Both come from stored data,
+ * never from the request: `customerId` is the owner's existing Paddle
+ * customer when they resubscribe, `friendPrice` is whether their tenant
+ * accepted a friend offer.
+ */
+export type ExomemCheckoutOptions = {
+  customerId?: string | null;
+  friendPrice?: boolean;
+};
+
 type PortalInput = CheckoutInput & {
   customerId: string;
   subscriptionId?: string;
@@ -52,12 +66,12 @@ type ResumeCheckoutInput = CheckoutInput & {
 };
 
 export type ExomemCheckoutState =
-  | { state: "open"; checkoutUrl: string }
+  | { state: "open"; checkoutUrl: string; discountId: string | null }
   | { state: "canceled" }
   | { state: "completed"; customerId: string | null; subscriptionId: string };
 
 type InspectedExomemCheckoutState =
-  | { state: "open"; checkoutUrl: string | null }
+  | { state: "open"; checkoutUrl: string | null; discountId: string | null }
   | Exclude<ExomemCheckoutState, { state: "open" }>;
 
 function assertExactInput(
@@ -95,14 +109,22 @@ function safeConfigurationError(error: unknown): ExomemBillingError {
   return new ExomemBillingError("EXOMEM_PADDLE_CONFIGURATION_INVALID", 503);
 }
 
-async function safePaddleJson(
+/**
+ * A Paddle API call whose failure says nothing about the provider's answer.
+ * Every call has a deadline: some run inside a database transaction that
+ * holds a row lock until Paddle answers.
+ */
+export async function safePaddleJson(
   transport: PaddleTransport,
   path: string,
   init: RequestInit
 ): Promise<unknown> {
   let response: Response;
   try {
-    response = await transport(path, init);
+    response = await transport(path, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(PADDLE_TIMEOUT_MS),
+    });
   } catch {
     throw new ExomemBillingError("EXOMEM_PADDLE_UNAVAILABLE", 503);
   }
@@ -156,13 +178,13 @@ function safeTransactionCheckoutUrl(
   }
 }
 
-function safePaddleId(value: unknown, prefix: "txn" | "sub" | "ctm"): string | null {
+function safePaddleId(value: unknown, prefix: "txn" | "sub" | "ctm" | "dsc"): string | null {
   return typeof value === "string" && new RegExp(`^${prefix}_[a-z0-9]{26}$`).test(value)
     ? value
     : null;
 }
 
-function safeObject(value: unknown): Record<string, unknown> | null {
+export function safeObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
@@ -178,10 +200,59 @@ async function cancelUnboundTransaction(
   });
 }
 
+/**
+ * Checks the configured friend discount at Paddle before every use (a
+ * friend checkout, a friend-price subscription update, a friend price
+ * shown): active, recurring with no limit on intervals, no code, not
+ * enabled for checkout, and restricted to exactly the base price. Returns
+ * its id.
+ *
+ * Fails closed: any difference refuses the friend price outright. It
+ * prevents a coupon anyone can type, a discount that lapses after some
+ * renewals, and a discount that also reaches the storage price. When it
+ * fires wrongly, friend checkouts and decisions fail until the operator
+ * fixes the discount in Paddle; the invitee is not charged the wrong price.
+ */
+export async function verifyExomemFriendDiscount(
+  config: ExomemPaddleConfig,
+  transport: PaddleTransport = paddleFetch
+): Promise<string> {
+  const discountId = config.friendDiscountId;
+  // A malformed id is refused before Paddle is asked.
+  if (!discountId || !safePaddleId(discountId, "dsc") || !config.priceId) {
+    throw new ExomemBillingError("EXOMEM_FRIEND_DISCOUNT_INVALID", 503);
+  }
+  const payload = await safePaddleJson(transport, `/discounts/${encodeURIComponent(discountId)}`, {
+    method: "GET",
+  });
+  const discount = safeObject(safeObject(payload)?.data);
+  const restrictTo = discount?.restrict_to;
+  if (
+    discount?.id !== discountId ||
+    discount.status !== "active" ||
+    discount.recur !== true ||
+    discount.maximum_recurring_intervals !== null ||
+    discount.code !== null ||
+    discount.enabled_for_checkout !== false ||
+    !Array.isArray(restrictTo) ||
+    restrictTo.length !== 1 ||
+    restrictTo[0] !== config.priceId
+  ) {
+    throw new ExomemBillingError("EXOMEM_FRIEND_DISCOUNT_INVALID", 503);
+  }
+  return discountId;
+}
+
+/**
+ * Creates the server-selected Paddle transaction and binds it to the owner
+ * before its URL is returned. The friend discount and the customer come
+ * only from `options`, which the caller reads from stored data.
+ */
 export async function createExomemCheckout(
   input: CheckoutInput,
-  dependencies: BillingDependencies = {}
-): Promise<{ checkoutUrl: string }> {
+  dependencies: BillingDependencies = {},
+  options: ExomemCheckoutOptions = {}
+): Promise<{ checkoutUrl: string; transactionId: string }> {
   assertExactInput(input, ["userId", "tenantId"]);
   const config = dependencies.config ?? loadExomemPaddleConfig();
   try {
@@ -189,11 +260,21 @@ export async function createExomemCheckout(
   } catch (error) {
     throw safeConfigurationError(error);
   }
+  const transport = dependencies.transport ?? paddleFetch;
+  const customerId = options.customerId ?? null;
+  if (customerId !== null && !safePaddleId(customerId, "ctm")) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  const discountId = options.friendPrice
+    ? await verifyExomemFriendDiscount(config, transport)
+    : null;
 
-  const payload = await safePaddleJson(dependencies.transport ?? paddleFetch, "/transactions", {
+  const payload = await safePaddleJson(transport, "/transactions", {
     method: "POST",
     body: JSON.stringify({
       items: [{ price_id: config.priceId, quantity: 1 }],
+      ...(discountId ? { discount_id: discountId } : {}),
+      ...(customerId ? { customer_id: customerId } : {}),
       custom_data: {
         product_key: config.productKey,
         user_id: input.userId,
@@ -205,15 +286,18 @@ export async function createExomemCheckout(
       },
     }),
   });
-  const transactionId = safePaddleId((payload as { data?: { id?: unknown } })?.data?.id, "txn");
+  const data = safeObject(safeObject(payload)?.data);
+  const transactionId = safePaddleId(data?.id, "txn");
   const checkoutUrl = transactionId
-    ? safeTransactionCheckoutUrl(
-        (payload as { data?: { checkout?: { url?: unknown } } })?.data?.checkout?.url,
-        config.checkoutUrl,
-        transactionId
-      )
+    ? safeTransactionCheckoutUrl(safeObject(data?.checkout)?.url, config.checkoutUrl, transactionId)
     : null;
   if (!checkoutUrl || !transactionId) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  // The transaction must carry exactly the discount the server chose; a
+  // provider answer that dropped or swapped it is not sold.
+  if ((data?.discount_id ?? null) !== discountId) {
+    await cancelUnboundTransaction(transactionId, transport);
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
   }
   let recorded = false;
@@ -229,11 +313,174 @@ export async function createExomemCheckout(
     recordFailed = true;
   }
   if (!recorded) {
-    await cancelUnboundTransaction(transactionId, dependencies.transport ?? paddleFetch);
+    await cancelUnboundTransaction(transactionId, transport);
     if (recordFailed) throw new ExomemBillingError("EXOMEM_PADDLE_UNAVAILABLE", 503);
     throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
   }
-  return { checkoutUrl };
+  return { checkoutUrl, transactionId };
+}
+
+/**
+ * Puts the friend discount on a live subscription from its next billing
+ * period, after checking the discount. Returns the next payment time Paddle
+ * reports, or `null` when it reports none.
+ */
+export async function applyExomemFriendDiscountToSubscription(
+  input: { subscriptionId: string; environment: ExomemPaddleConfig["environment"] },
+  dependencies: BillingDependencies = {}
+): Promise<{ nextBilledAt: string | null }> {
+  if (!safePaddleId(input.subscriptionId, "sub")) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  const config = dependencies.config ?? loadExomemPaddleConfig();
+  try {
+    assertExomemPaddlePurpose(config, "portal");
+  } catch (error) {
+    throw safeConfigurationError(error);
+  }
+  if (config.environment !== input.environment) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
+  }
+  const transport = dependencies.transport ?? paddleFetch;
+  const discountId = await verifyExomemFriendDiscount(config, transport);
+  const payload = await safePaddleJson(
+    transport,
+    `/subscriptions/${encodeURIComponent(input.subscriptionId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        discount: { id: discountId, effective_from: "next_billing_period" },
+      }),
+    }
+  );
+  const data = safeObject(safeObject(payload)?.data);
+  if (data?.id !== input.subscriptionId) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  const nextBilledAt =
+    typeof data.next_billed_at === "string" && Number.isFinite(Date.parse(data.next_billed_at))
+      ? new Date(data.next_billed_at).toISOString()
+      : null;
+  return { nextBilledAt };
+}
+
+/**
+ * A price as Paddle reports a total: `amount` in the currency's smallest
+ * unit (cents for EUR), tax included as Paddle computed it.
+ */
+export type ExomemMoney = { amount: string; currencyCode: string };
+
+export type ExomemPrices = { usual: ExomemMoney; friend: ExomemMoney | null };
+
+const PRICE_CACHE_MS = 10 * 60 * 1000;
+const PRICE_CACHE_MAX_ENTRIES = 1_000;
+const priceCache = new Map<string, { expiresAt: number; value: ExomemMoney }>();
+// When a shown friend price last passed the discount check. Only display
+// reuses it; checkout and the subscription update check afresh.
+const shownDiscountChecks = new Map<string, number>();
+
+/** Test seam: empties the price preview cache. */
+export function __clearExomemPriceCacheForTests(): void {
+  priceCache.clear();
+  shownDiscountChecks.clear();
+}
+
+/** The shape of an `ExomemMoney` amount: at most 12 digits, so it stays exact as a number. */
+export const MONEY_MINOR_UNITS = /^\d{1,12}$/;
+// ISO 4217 code format; Paddle reports the currency it priced in.
+export const CURRENCY_CODE = /^[A-Z]{3}$/;
+
+async function previewOnePrice(
+  input: { priceId: string; discountId: string | null; customerIp: string | null },
+  transport: PaddleTransport
+): Promise<ExomemMoney> {
+  const payload = await safePaddleJson(transport, "/pricing-preview", {
+    method: "POST",
+    body: JSON.stringify({
+      items: [{ price_id: input.priceId, quantity: 1 }],
+      ...(input.discountId ? { discount_id: input.discountId } : {}),
+      ...(input.customerIp ? { customer_ip_address: input.customerIp } : {}),
+    }),
+  });
+  const data = safeObject(safeObject(payload)?.data);
+  const lineItems = safeObject(data?.details)?.line_items;
+  const line = Array.isArray(lineItems)
+    ? lineItems.map(safeObject).find((item) => safeObject(item?.price)?.id === input.priceId)
+    : undefined;
+  const total = safeObject(line?.totals)?.total;
+  const currencyCode = data?.currency_code;
+  // A friend price is only a friend price if Paddle applied the discount to it.
+  const discounted =
+    input.discountId === null ||
+    (Array.isArray(line?.discounts) &&
+      line.discounts.some(
+        (entry) => safeObject(safeObject(entry)?.discount)?.id === input.discountId
+      ));
+  if (
+    typeof total !== "string" ||
+    !MONEY_MINOR_UNITS.test(total) ||
+    typeof currencyCode !== "string" ||
+    !CURRENCY_CODE.test(currencyCode) ||
+    !discounted
+  ) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  return { amount: total, currencyCode };
+}
+
+async function cachedPrice(
+  input: {
+    country: string | null;
+    priceId: string;
+    discountId: string | null;
+    customerIp: string | null;
+  },
+  transport: PaddleTransport,
+  now: number
+): Promise<ExomemMoney> {
+  const key =
+    input.country === null ? null : `${input.country}|${input.priceId}|${input.discountId ?? "-"}`;
+  const hit = key ? priceCache.get(key) : undefined;
+  if (hit && hit.expiresAt > now) return hit.value;
+  const value = await previewOnePrice(input, transport);
+  if (key) {
+    if (priceCache.size >= PRICE_CACHE_MAX_ENTRIES) priceCache.clear();
+    priceCache.set(key, { expiresAt: now + PRICE_CACHE_MS, value });
+  }
+  return value;
+}
+
+/**
+ * The usual price, and the friend price when asked, from Paddle's price
+ * preview for the caller's network address. Each price is cached for 10
+ * minutes per (country, price, discount); `country` is the platform's
+ * geolocation of the caller, and without it nothing is cached. A failure
+ * throws: the caller shows the price as unknown, never a guess.
+ */
+export async function previewExomemPrices(
+  input: { country: string | null; customerIp: string | null; friend: boolean },
+  dependencies: BillingDependencies & { now?: () => number } = {}
+): Promise<ExomemPrices> {
+  const config = dependencies.config ?? loadExomemPaddleConfig();
+  if (!config.apiKey || !config.priceId) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_CONFIGURATION_INVALID", 503);
+  }
+  const transport = dependencies.transport ?? paddleFetch;
+  const now = (dependencies.now ?? Date.now)();
+  const base = {
+    country: input.country,
+    priceId: config.priceId,
+    customerIp: input.customerIp,
+  };
+  const usual = await cachedPrice({ ...base, discountId: null }, transport, now);
+  if (!input.friend) return { usual, friend: null };
+  let discountId = config.friendDiscountId;
+  if (!discountId || (shownDiscountChecks.get(discountId) ?? 0) <= now) {
+    discountId = await verifyExomemFriendDiscount(config, transport);
+    shownDiscountChecks.set(discountId, now + PRICE_CACHE_MS);
+  }
+  const friend = await cachedPrice({ ...base, discountId }, transport, now);
+  return { usual, friend };
 }
 
 async function inspectExomemCheckout(
@@ -302,7 +549,8 @@ async function inspectExomemCheckout(
         throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
       }
     }
-    return { state: "open", checkoutUrl };
+    const discountId = typeof data.discount_id === "string" ? data.discount_id : null;
+    return { state: "open", checkoutUrl, discountId };
   }
   if (data.status === "canceled") return { state: "canceled" };
   if (["completed", "billed", "paid", "past_due"].includes(String(data.status))) {

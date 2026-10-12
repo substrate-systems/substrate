@@ -9,6 +9,7 @@ import { consentStep, type ConsentStep } from "./consent-state";
 import { executeExomemSql, type ExomemSessionRow } from "./db";
 import { exomemErrors } from "./errors";
 import { known, unknown, type Known } from "./known";
+import { exomemPaddleFriendDiscountId } from "./paddle-config";
 
 export type ExomemAccountView = {
   kind: "owner" | "reviewer";
@@ -56,6 +57,8 @@ export type ExomemAccountRow = {
   discountId: string | null;
   graceStartedAt: Date | null;
   reviewerExpiresAt: Date | null;
+  /** Who invited the tenant with the friend price, from its friend offer. */
+  friendInviterName: string | null;
 };
 
 type Environment = Record<string, string | undefined>;
@@ -75,16 +78,6 @@ function exomemPaddleDunningDays(
   return /^\d+$/.test(value) && days >= 1 && days <= 365
     ? known(days)
     : unknown("dunning_window_invalid");
-}
-
-/**
- * The one recurring Paddle discount that carries the friend price, if configured.
- * Temporary home: this reader moves to paddle-config.ts with friend-price checkout.
- */
-function exomemPaddleFriendDiscountId(
-  environment: Environment = process.env
-): string | null {
-  return environment.EXOMEM_PADDLE_FRIEND_DISCOUNT_ID?.trim() || null;
 }
 
 function planFact(
@@ -155,8 +148,7 @@ export function buildExomemAccountView(
       priceId: planFact(row, row.priceId),
       friendPrice: {
         applied: friendPriceApplied(row, friendDiscountId),
-        // Friend invitations do not store an inviter name yet.
-        inviterName: null,
+        inviterName: row.friendInviterName,
       },
     },
     nextPaymentAt: nextPaymentAt(row),
@@ -198,10 +190,12 @@ export async function loadExomemAccountView(
            entitlement.provider_next_billed_at,
            entitlement.provider_discount_id,
            entitlement.grace_started_at,
-           credential.expires_at AS reviewer_expires_at
+           credential.expires_at AS reviewer_expires_at,
+           friend_offer.inviter_name AS friend_inviter_name
     FROM exomem_tenants AS tenant
     JOIN users ON users.id = tenant.owner_user_id
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
+    LEFT JOIN exomem_invites AS friend_offer ON friend_offer.id = tenant.friend_offer_invite_id
     LEFT JOIN exomem_marketplace_reviewer_credentials AS credential
       ON credential.id = ${session.reviewerCredentialId ?? null}::uuid
      AND credential.tenant_id = tenant.id
@@ -229,6 +223,7 @@ export async function loadExomemAccountView(
       discountId: textOrNull(row.provider_discount_id),
       graceStartedAt: dateOrNull(row.grace_started_at),
       reviewerExpiresAt: dateOrNull(row.reviewer_expires_at),
+      friendInviterName: textOrNull(row.friend_inviter_name),
     },
     { reviewer: Boolean(session.reviewerCredentialId), environment: options.environment }
   );

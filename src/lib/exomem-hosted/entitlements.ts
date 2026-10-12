@@ -25,6 +25,10 @@ export type ExomemSourceProjection =
 // (cloud-admission.ts, db.ts). `source_state` has no CHECK; these writers fix the set.
 export const FIRST_PAYMENT_SOURCE_STATES = ["awaiting_checkout", "checkout_pending"] as const;
 
+// Paddle's subscription states while a subscription still exists and bills
+// (or will again, once resumed); `cancelled` is the one that has ended.
+export const LIVE_SUBSCRIPTION_SOURCE_STATES = ["active", "trialing", "past_due", "paused"] as const;
+
 // The `effective_state` values (CHECK in migration 0017) in which an owner may grant a
 // client access. A tenant that still awaits its first payment is `provisioning` too, so
 // `canConnect` excludes it by source state.

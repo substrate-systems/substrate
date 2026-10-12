@@ -47,6 +47,7 @@ const CONFIG: ExomemPaddleConfig = {
   productKey: "exomem-hosted",
   productId: null,
   priceId: null,
+  friendDiscountId: null,
   checkoutUrl: null,
   apiKey: "fake-test-key",
   webhookSecret: null,
@@ -238,7 +239,7 @@ async function admitCloudTenant(input: {
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1", [
       admission!.cellId,
     ]);
-    await pool!.query("UPDATE exomem_invites SET entitlement_source = 'paddle' WHERE token_digest = $1", [
+    await pool!.query("UPDATE exomem_invites SET entitlement_source = 'paddle', kind = 'standard' WHERE token_digest = $1", [
       inviteDigest,
     ]);
   }
@@ -779,6 +780,38 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     );
     assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0, emails: 0 });
     await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
+  });
+
+  it("removes a deleted owner's name and address from the friend invitations they asked for", async () => {
+    await resetFleet();
+    const tenant = await admitCloudTenant({ source: "complimentary" });
+    // The owner asked for a friend invitation to somebody else, which is
+    // still outstanding and would tell them when it is used or ends.
+    const { rows } = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+         entitlement_limits, created_by_principal_digest, expires_at,
+         kind, inviter_name, inviter_email, invitee_name, note
+       ) VALUES ($1, $2, 'paddle', '["capture"]'::jsonb, '{}'::jsonb, $3, now() + interval '7 days',
+                 'friend', 'Alex Example', $4, 'Sam Example', 'Have a look.')
+       RETURNING id`,
+      [randomBytes(32), `invitee-${randomUUID()}@example.test`, randomBytes(32), tenant.email]
+    );
+
+    await confirmCloudDeletion(tenant, (tenantId) =>
+      finishCloudAccountDeletion(tenantId, withPaddle(fakePaddle()))
+    );
+    assert.equal(await tenantStatus(tenant.tenantId), "deleted");
+
+    const invitation = await pool!.query(
+      "SELECT inviter_name, inviter_email, invitee_name FROM exomem_invites WHERE id = $1",
+      [rows[0]!.id]
+    );
+    assert.deepEqual(invitation.rows[0], {
+      inviter_name: null,
+      inviter_email: null,
+      invitee_name: "Sam Example",
+    });
   });
 
   async function insertUnconsumedInvite(email: string): Promise<string> {

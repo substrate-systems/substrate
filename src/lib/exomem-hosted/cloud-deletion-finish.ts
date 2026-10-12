@@ -129,6 +129,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           deleted_at = now(),
           bound_cell_id = NULL,
           time_zone = NULL,
+          friend_offer_invite_id = NULL,
           updated_at = now()
       WHERE id = ${tenantId}::uuid
     `;
@@ -244,6 +245,15 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
             SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
             WHERE authority.invite_id = invite.id
           )
+      `;
+      // The owner as an inviter: invitations they asked for keep no trace
+      // of them. Their outstanding friend invitations stop sending, since
+      // those emails name the inviter.
+      await tx`
+        /* exomem-cloud:deletion-finish-inviter */
+        UPDATE exomem_invites
+        SET inviter_email = NULL, inviter_name = NULL
+        WHERE inviter_email = ${ownerEmail}
       `;
       // Every email row for the address goes too: settled rows hold the
       // address, and a pending one must not reach a deleted account.

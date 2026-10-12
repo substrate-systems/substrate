@@ -34,7 +34,7 @@ The friend price SHALL be one recurring Paddle discount for each environment, co
 #### Scenario: Client sends a discount
 
 - **WHEN** a checkout request carries a discount identifier or code
-- **THEN** the server ignores it
+- **THEN** the server refuses the request and creates no transaction
 
 #### Scenario: Price returns on resubscribe
 

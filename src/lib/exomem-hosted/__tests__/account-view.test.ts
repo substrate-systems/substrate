@@ -21,6 +21,7 @@ function paidRow(overrides: Partial<ExomemAccountRow> = {}): ExomemAccountRow {
     discountId: null,
     graceStartedAt: null,
     reviewerExpiresAt: null,
+    friendInviterName: null,
     ...overrides,
   };
 }

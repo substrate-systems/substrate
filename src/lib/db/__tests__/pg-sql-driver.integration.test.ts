@@ -167,8 +167,8 @@ describe("standard PostgreSQL driver (design D6)", { skip: !DATABASE_URL }, () =
   });
 
   it("exomem-hosted/db.ts's default sql() reaches standard Postgres", async () => {
-    const { inspectValidInvite } = await import("../../exomem-hosted/db");
-    const result = await inspectValidInvite(randomBytes(32));
+    const { resolveOwnerTenant } = await import("../../exomem-hosted/db");
+    const result = await resolveOwnerTenant(randomUUID());
     assert.equal(result, null);
   });
 

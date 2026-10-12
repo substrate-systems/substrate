@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { issueOperatorInvite } from "@/lib/exomem-hosted/access";
 import { exomemErrors } from "@/lib/exomem-hosted/errors";
 import { accessErrorResponse, emitAccessEvent, newRequestId } from "@/lib/exomem-hosted/http";
+import { issueOperatorInvite, type ExomemInviteKind } from "@/lib/exomem-hosted/invites";
 import { requireExomemOperator } from "@/lib/exomem-hosted/operator-auth";
 import {
   clientAddressKey,
@@ -14,10 +14,23 @@ export const dynamic = "force-dynamic";
 
 type InviteBody = {
   email?: unknown;
-  source?: unknown;
+  kind?: unknown;
+  inviterName?: unknown;
+  inviterEmail?: unknown;
+  inviteeName?: unknown;
+  note?: unknown;
   marketplaceReviewerPurpose?: unknown;
   expiresAt?: unknown;
 };
+
+const KINDS: readonly ExomemInviteKind[] = ["standard", "friend", "covered"];
+// An invitation lasts 30 days unless the operator sets an earlier end
+// (design: a 30-day bearer credential, reminded 3 days before it ends).
+const DEFAULT_INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function optionalString(value: unknown): value is string | undefined | null {
+  return value === undefined || value === null || typeof value === "string";
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = newRequestId();
@@ -41,8 +54,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw exomemErrors.invalidRequest();
     }
     if (
+      !body ||
+      typeof body !== "object" ||
       typeof body.email !== "string" ||
-      (body.source !== "complimentary" && body.source !== "paid") ||
+      !KINDS.includes(body.kind as ExomemInviteKind) ||
+      !optionalString(body.inviterName) ||
+      !optionalString(body.inviterEmail) ||
+      !optionalString(body.inviteeName) ||
+      !optionalString(body.note) ||
       (body.marketplaceReviewerPurpose !== undefined &&
         typeof body.marketplaceReviewerPurpose !== "boolean")
     ) {
@@ -51,11 +70,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const expiresAt =
       typeof body.expiresAt === "string"
         ? new Date(body.expiresAt)
-        : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        : new Date(Date.now() + DEFAULT_INVITE_TTL_MS);
 
     const result = await issueOperatorInvite({
       email: body.email,
-      source: body.source,
+      kind: body.kind as ExomemInviteKind,
+      inviterName: body.inviterName,
+      inviterEmail: body.inviterEmail,
+      inviteeName: body.inviteeName,
+      note: body.note,
       marketplaceReviewerPurpose: body.marketplaceReviewerPurpose === true,
       expiresAt,
       operatorPrincipalDigest: operator.principalDigest,
@@ -68,7 +91,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       {
         success: true,
-        status: "sent",
+        status: result.delivery,
         inviteId: result.inviteId,
         requestId,
       },
@@ -77,10 +100,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     return accessErrorResponse({
       error,
-      event:
-        error instanceof Error && "code" in error && error.code === "EMAIL_DELIVERY_UNAVAILABLE"
-          ? "access.invite.delivery_failed"
-          : "access.request.denied",
+      event: "access.request.denied",
       requestId,
     });
   }

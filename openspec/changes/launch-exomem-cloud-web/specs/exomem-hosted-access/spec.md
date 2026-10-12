@@ -230,7 +230,7 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 
 #### Scenario: Invitee reminder
 
-- **WHEN** an operator issues an invitation
+- **WHEN** an operator issues a friend invitation that lasts longer than three days
 - **THEN** the system queues a reminder for three days before the invitation expires, with the token encrypted in the payload
 - **AND** it sends the reminder only while the invitation is still usable
 
@@ -432,7 +432,7 @@ The reviewer sign-in route SHALL accept a username and password without an OAuth
 
 ### Requirement: Friend invitations name the inviter and carry the friend price
 
-An operator SHALL be able to issue an invitation of kind `standard`, `friend` or `covered`. A friend invitation SHALL carry an inviter name (up to 60 characters), an optional note (up to 280 characters) and an optional inviter email. A covered invitation SHALL grant complimentary access with no checkout. Invitees SHALL see names and notes as plain text.
+An operator SHALL be able to issue an invitation of kind `standard`, `friend` or `covered`. A friend invitation SHALL carry an inviter name (up to 60 characters), an optional note (up to 280 characters) and an optional inviter email. A covered invitation SHALL carry the name of the person who covers it and SHALL grant complimentary access with no checkout. An inviter email SHALL require the invitee's name, which the inviter's notices use. Invitees SHALL see names and notes as plain text.
 
 #### Scenario: Operator issues a friend invitation
 
