@@ -65,7 +65,7 @@ type Environment = Record<string, string | undefined>;
  * makes the read-only end date unknown rather than a guess. A value outside
  * 1 to 365 days is a typo, not a dunning window, so it is unknown too.
  */
-export function exomemPaddleDunningDays(
+function exomemPaddleDunningDays(
   environment: Environment = process.env
 ): Known<number, "dunning_window_unconfigured" | "dunning_window_invalid"> {
   const value = environment.EXOMEM_PADDLE_DUNNING_DAYS?.trim();
@@ -80,7 +80,7 @@ export function exomemPaddleDunningDays(
  * The one recurring Paddle discount that carries the friend price, if configured.
  * Temporary home: this reader moves to paddle-config.ts with friend-price checkout.
  */
-export function exomemPaddleFriendDiscountId(
+function exomemPaddleFriendDiscountId(
   environment: Environment = process.env
 ): string | null {
   return environment.EXOMEM_PADDLE_FRIEND_DISCOUNT_ID?.trim() || null;
