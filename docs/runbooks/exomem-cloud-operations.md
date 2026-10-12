@@ -87,15 +87,18 @@ token issuance, refresh and MCP calls need unexpired metadata. A self-registered
 connector's next refresh fetches the document again, through the same allowlist
 and checks as `/authorize`, revives the row and then rotates the token. Its MCP
 calls fail with `401` only until that refresh. If the fetch or a check fails,
-the refresh is refused and the connector's person must connect again. A lapse
-is not a revocation and burns no refresh token. An operator-registered client
-is not fetched again at refresh.
+`/token` answers `503` with `server_error` and leaves the refresh token unspent,
+so the client keeps its tokens and tries again later. A refresh token that is
+not live still gets `invalid_grant`. A lapse is not a revocation and burns no
+refresh token. An operator-registered client is not fetched again at refresh.
 
 The rate-limit rule `oauthConnectorMetadataRefetchFailureClient` counts the
 failed re-fetches of each client ID. A successful re-fetch counts nothing. Past
-the limit, a refresh that needs the document is refused without a fetch until
-the window ends. Each such refresh logs `exomem_oauth_connector_metadata_refetch`
-with an `outcome` of `refreshed`, `failed` or `rate_limited`.
+the limit, a refresh that needs the document gets the same `503` without a
+fetch until the window ends. Each such refresh logs
+`exomem_oauth_connector_metadata_refetch` with an `outcome` of `refreshed`,
+`failed` or `rate_limited`. Each `503` also logs the token rejection stage
+`refresh_metadata_unavailable` with the client ID.
 
 Operator registration and enabling of a pinned client still check the legacy
 Hosted staged-release and artifact rows. A follow-up change must replace that

@@ -57,7 +57,7 @@
 - [x] 4.11 A bound changed in its table applies to the next registration
 - [x] 4.12 The token endpoint answers `invalid_client` for a client that holds no registration, on both grant types
 - [x] 4.13 The operator enable action refuses a retired client
-- [x] 4.14 A refresh fetches a connector's lapsed metadata again only for a live refresh token, and a failed fetch keeps the refusal. Only failed fetches count against a limit for each client ID, so a herd of refreshes for one shared client ID is never refused while its document is fine
+- [x] 4.14 A refresh fetches a connector's lapsed metadata again only for a live refresh token, and a failed fetch answers a retryable server error that leaves the refresh token unspent. Only failed fetches count against a limit for each client ID, so a herd of refreshes for one shared client ID is never refused while its document is fine
 
 ## 5. Production capacity
 

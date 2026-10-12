@@ -15,6 +15,9 @@ let clientRegistered = true;
 // A connector's cached metadata, and whether fetching it again succeeds.
 let metadataFresh = true;
 let refetchSucceeds = false;
+// Whether the presented refresh token is live, and whether a rotation spent it.
+let refreshLive = true;
+let refreshSpent = false;
 // Fetches of the connector's metadata, and the failures counted against its
 // limit, which the rate-limit mock below keeps like one real bucket.
 let refetches = 0;
@@ -54,15 +57,20 @@ before(() => {
     namedExports: {
       issueOAuthTokensFromCodeAtomic: async () => exchangeResult,
       oauthClientIsRegistered: async () => clientRegistered,
-      refreshAwaitsCimdMetadata: async () => !metadataFresh,
+      refreshAwaitsCimdMetadata: async () => refreshLive && !metadataFresh,
       registerAdmittedCimdClient: async () => {
         refetches += 1;
         if (!refetchSucceeds) return null;
         metadataFresh = true;
         return { id: "client-row" };
       },
-      // Rotation needs fresh metadata, as the store's admission predicate does.
-      rotateOAuthRefreshTokenAtomic: async () => (metadataFresh ? rotateResult : null),
+      // Rotation needs fresh metadata, as the store's admission predicate does,
+      // and spends the refresh token only when it issues.
+      rotateOAuthRefreshTokenAtomic: async () => {
+        if (!metadataFresh || !refreshLive || refreshSpent || !rotateResult) return null;
+        refreshSpent = true;
+        return rotateResult;
+      },
     },
   });
 });
@@ -79,6 +87,8 @@ beforeEach(() => {
   clientRegistered = true;
   metadataFresh = true;
   refetchSucceeds = false;
+  refreshLive = true;
+  refreshSpent = false;
   refetches = 0;
   refetchFailures = 0;
 });
@@ -298,7 +308,9 @@ describe("POST /api/exomem/oauth/token", () => {
     assert.ok(body.access_token && body.refresh_token);
   });
 
-  it("keeps refusing the refresh when the connector's metadata cannot be fetched again", async () => {
+  // Many clients drop their tokens on invalid_grant. A failed fetch at a shared
+  // client's expiry must leave every user's refresh token working.
+  it("answers a retryable server error when the metadata cannot be fetched, and keeps the refresh token", async () => {
     metadataFresh = false;
     refetchSucceeds = false;
     rotateResult = {
@@ -308,6 +320,31 @@ describe("POST /api/exomem/oauth/token", () => {
       resource: RESOURCE,
       scopes: ["exomem.read"],
     };
+    const refresh = () =>
+      withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "https://chatgpt.example.test/client.json",
+            resource: RESOURCE,
+          })
+        )
+      );
+
+    const { response, record } = await refresh();
+    assert.equal(response.status, 503);
+    assert.equal(((await response.json()) as { error?: string }).error, "server_error");
+    assert.equal(record?.stage, "refresh_metadata_unavailable");
+    assert.equal(refreshSpent, false);
+
+    refetchSucceeds = true;
+    assert.equal((await refresh()).response.status, 200);
+  });
+
+  it("keeps invalid_grant for a refresh token that is not live while the metadata lapsed", async () => {
+    metadataFresh = false;
+    refreshLive = false;
     const { response } = await withControlPlaneKey(() =>
       capture(
         post({
@@ -321,6 +358,7 @@ describe("POST /api/exomem/oauth/token", () => {
 
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: "invalid_grant" });
+    assert.equal(refetches, 0);
   });
 
   // One claude.ai client ID serves every Claude user. When its metadata lapses,
@@ -337,7 +375,9 @@ describe("POST /api/exomem/oauth/token", () => {
     };
     const herd = REFETCH_FAILURE_LIMIT * 3;
     for (let refresh = 0; refresh < herd; refresh += 1) {
+      // Each refresh is another user's token, arriving while the metadata lapsed.
       metadataFresh = false;
+      refreshSpent = false;
       const { response } = await withControlPlaneKey(() =>
         capture(
           post({
@@ -354,7 +394,7 @@ describe("POST /api/exomem/oauth/token", () => {
   });
 
   // A document that keeps failing must not be fetched on every refresh.
-  it("refuses the refresh without a fetch once repeated failures spend the limit", async () => {
+  it("answers without a fetch once repeated failures spend the limit", async () => {
     metadataFresh = false;
     refetchSucceeds = false;
     for (let refresh = 0; refresh <= REFETCH_FAILURE_LIMIT; refresh += 1) {
@@ -368,7 +408,7 @@ describe("POST /api/exomem/oauth/token", () => {
           })
         )
       );
-      assert.equal(response.status, 400);
+      assert.equal(response.status, 503);
     }
     assert.equal(refetches, REFETCH_FAILURE_LIMIT);
   });

@@ -53,6 +53,7 @@ type TokenRejectionStage =
   | "refresh_fields"
   | "refresh_shape"
   | "refresh_rotation"
+  | "refresh_metadata_unavailable"
   | "cloud_cell_missing"
   | "protocol_error"
   | "unhandled";
@@ -124,30 +125,49 @@ function logConnectorMetadataRefetch(outcome: ConnectorMetadataRefetchOutcome): 
 // authorization. Fetch the document again, through the same allowlist, bounds
 // and checks as at authorization, only for a live refresh token of that
 // connector. Only failed fetches count against the client's limit: a success
-// makes the metadata fresh, so the next refresh needs no fetch. Any failure
-// leaves the refresh refused.
-async function refetchedConnectorMetadata(
+// makes the metadata fresh, so the next refresh needs no fetch.
+//
+// `not_needed` means no live refresh token waits on this client's metadata, so
+// the refusal stands. `unavailable` means one does, and this server could not
+// fetch the metadata now.
+async function refetchConnectorMetadata(
   clientId: string,
   refreshDigest: Buffer
-): Promise<boolean> {
+): Promise<"not_needed" | "refreshed" | "unavailable"> {
   const failureLimit = EXOMEM_RATE_LIMITS.oauthConnectorMetadataRefetchFailureClient;
   try {
-    if (!(await refreshAwaitsCimdMetadata({ clientId, refreshDigest }))) return false;
+    if (!(await refreshAwaitsCimdMetadata({ clientId, refreshDigest }))) return "not_needed";
     if (!(await exomemRateLimitHasRoom(failureLimit, clientId))) {
       logConnectorMetadataRefetch("rate_limited");
-      return false;
+      return "unavailable";
     }
   } catch {
-    return false;
+    return "unavailable";
   }
   const refreshed = await registerAdmittedCimdClient(clientId).then(
     (client) => client !== null,
     () => false
   );
   logConnectorMetadataRefetch(refreshed ? "refreshed" : "failed");
+  if (refreshed) return "refreshed";
   // The refresh is refused either way; a limiter error only loses one count.
-  if (!refreshed) await takeExomemRateLimit(failureLimit, clientId).catch(() => false);
-  return refreshed;
+  await takeExomemRateLimit(failureLimit, clientId).catch(() => false);
+  return "unavailable";
+}
+
+// The refresh token is live and unspent; only the connector's metadata could
+// not be fetched. MCP SDK clients keep their tokens on `server_error` and drop
+// them on `invalid_grant`, so one upstream failure at a shared client's expiry
+// must not make every one of its users connect again.
+function connectorMetadataUnavailable(clientId: string): NextResponse {
+  logTokenRejection("refresh_metadata_unavailable", { client_id: clientId });
+  return NextResponse.json(
+    {
+      error: "server_error",
+      error_description: "The client's metadata could not be fetched. Retry later.",
+    },
+    { status: 503, headers: oauthNoStoreHeaders() }
+  );
 }
 
 function invalidRequest(
@@ -315,8 +335,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       // A rotation refused for stale metadata writes nothing, so the same
       // material can be tried again once the connector's metadata is fresh.
       let issued = await rotate();
-      if (!issued && (await refetchedConnectorMetadata(form.client_id, refreshDigest)))
-        issued = await rotate();
+      if (!issued) {
+        const refetch = await refetchConnectorMetadata(form.client_id, refreshDigest);
+        if (refetch === "unavailable") return connectorMetadataUnavailable(form.client_id);
+        if (refetch === "refreshed") issued = await rotate();
+      }
       // Rotation also answers null for a replayed refresh token, which revokes
       // the family -- so this line is the operator's only sight of a replay.
       if (!issued)
