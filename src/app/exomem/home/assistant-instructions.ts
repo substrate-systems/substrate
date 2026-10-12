@@ -21,6 +21,8 @@
 
 import { INSTRUCTION_BLOCKS } from "./instruction-blocks.generated";
 
+import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
+
 export type PromLevel = "off" | "light" | "balanced" | "maximal";
 
 export const PROM_LEVELS: readonly PromLevel[] = ["off", "light", "balanced", "maximal"];
@@ -87,14 +89,14 @@ export type ClientGuide = {
 export const CLIENT_GUIDES: readonly ClientGuide[] = [
   {
     client: "claude",
-    name: "Claude",
+    name: CLIENT_PLATFORM_NAMES.claude,
     connect:
       "Settings → Connectors → Add custom connector, paste the server address, then sign in when Claude prompts you.",
     pasteTarget: "Settings → Profile → personal preferences",
   },
   {
     client: "chatgpt",
-    name: "ChatGPT",
+    name: CLIENT_PLATFORM_NAMES.openai,
     connect:
       "Settings → Connectors → add a custom connector with the server address, then sign in when prompted.",
     pasteTarget: "Settings → Personalization → Custom instructions",

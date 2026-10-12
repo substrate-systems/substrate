@@ -330,3 +330,11 @@ export function authorizationRedirect(continuation: OAuthContinuation, code: str
   redirect.searchParams.set("state", continuation.state);
   return redirect.toString();
 }
+
+/** RFC 6749 section 4.1.2.1: the owner refused, so the client learns `access_denied` and no code. */
+export function authorizationDenialRedirect(continuation: OAuthContinuation): string {
+  const redirect = new URL(continuation.redirectUri);
+  redirect.searchParams.set("error", "access_denied");
+  redirect.searchParams.set("state", continuation.state);
+  return redirect.toString();
+}

@@ -4,53 +4,12 @@ import { PrivateShell } from "../private-shell";
 import {
   EXOMEM_OAUTH_FORM_NONCE_COOKIE,
   EXOMEM_OAUTH_CONTINUITY_COOKIE,
-  matchesOAuthConfirmationHandle,
-  oauthFormNonceFromCookie,
-  resolveOAuthContinuationToken,
 } from "@/lib/exomem-hosted/oauth-continuity";
-import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
-import { loadOwnerBillingAccount } from "@/lib/exomem-hosted/billing-account";
-import { loadExomemCloudResource } from "@/lib/exomem-hosted/cloud-config";
-import { getOwnerCloudStatus } from "@/lib/exomem-hosted/cloud-status";
-import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
-import { tokenDigest } from "@/lib/exomem-hosted/security";
+import { displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
+import { loadConsentView } from "@/lib/exomem-hosted/consent-view";
+import type { ConsentStep } from "@/lib/exomem-hosted/consent-state";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
 import AuthorizeClient from "./authorize-client";
-import { type ConsentAccount, type ConsentStep, consentStep } from "./consent-state";
-
-type VisitorAccount = ConsentAccount & { cellStarting: boolean };
-
-// Whether the visitor has an Exomem, and in what state, decides what this page
-// offers. Without it, "Continue" was rendered to everyone -- including someone
-// arriving from a connector before they have ever redeemed their invitation, or
-// before their first payment, for whom it can only ever end in a refusal.
-async function visitorAccount(
-  sessionToken: string | undefined,
-  reviewerCredentialId: string | null
-): Promise<VisitorAccount | null> {
-  if (!sessionToken) return null;
-  const digest = tokenDigest(sessionToken);
-  if (!digest) return null;
-  try {
-    const session = await findExomemSessionByDigest(digest);
-    // A reviewer cookie from another connection is not consent authority for
-    // this one. Offer fresh reviewer sign-in until its credential is bound.
-    if (!session || (session.reviewerCredentialId ?? null) !== reviewerCredentialId) return null;
-    const account = await loadOwnerBillingAccount(session.userId, session.tenantId);
-    if (!account) return null;
-    const cellStarting = (await getOwnerCloudStatus(session.tenantId)).state !== "ready";
-    return {
-      effectiveState: account.effectiveState,
-      sourceState: account.sourceState,
-      cellStarting,
-    };
-  } catch {
-    // Never let a storage failure decide the layout. Presenting the sign-in
-    // paths to someone who is in fact signed in costs them one extra click;
-    // presenting Continue to someone who is not is a dead end.
-    return null;
-  }
-}
 
 const CONNECT_COPY = {
   title: "Connect this app to Exomem",
@@ -98,14 +57,13 @@ export default async function ExomemAuthorizePage({
 }) {
   const cookieStore = await cookies();
   const query = await searchParams;
-  const nonce =
-    oauthFormNonceFromCookie(cookieStore.get(EXOMEM_OAUTH_FORM_NONCE_COOKIE)?.value) ?? "";
-  const transaction = cookieStore.get(EXOMEM_OAUTH_CONTINUITY_COOKIE)?.value;
-  const continuation = matchesOAuthConfirmationHandle(transaction, query.confirmation)
-    ? await resolveOAuthContinuationToken(transaction)
-    : null;
-  const canContinue = !!continuation && !!nonce && !!query.confirmation;
-  if (!canContinue) {
+  const view = await loadConsentView({
+    confirmation: query.confirmation,
+    transactionCookie: cookieStore.get(EXOMEM_OAUTH_CONTINUITY_COOKIE)?.value,
+    formNonceCookie: cookieStore.get(EXOMEM_OAUTH_FORM_NONCE_COOKIE)?.value,
+    sessionCookie: cookieStore.get(EXOMEM_SESSION_COOKIE)?.value,
+  });
+  if (view.step === "expired") {
     return (
       <PrivateShell>
         <main className="mx-auto max-w-xl px-6 py-16">
@@ -115,12 +73,7 @@ export default async function ExomemAuthorizePage({
       </PrivateShell>
     );
   }
-  const account = await visitorAccount(
-    cookieStore.get(EXOMEM_SESSION_COOKIE)?.value,
-    continuation.reviewerCredentialId ?? null
-  );
-  const step = consentStep(account);
-  const copy = STEP_COPY[step];
+  const copy = STEP_COPY[view.step];
   return (
     <PrivateShell>
       <main className="mx-auto max-w-xl px-6 py-16">
@@ -129,22 +82,31 @@ export default async function ExomemAuthorizePage({
         <dl className="mt-6 space-y-2 text-sm text-neutral-700">
           <div>
             <dt className="font-medium">Client</dt>
-            <dd>{continuation.clientId}</dd>
+            <dd>
+              {view.app.displayName}
+              {view.app.displayNameSource === "client_metadata" &&
+                " (the name this app gives itself)"}
+            </dd>
           </div>
+          {/* A name Exomem does not vouch for could be chosen by anyone, so show
+              where the authorization would go. */}
+          {!displayNameVouched(view.app.displayNameSource) && (
+            <div>
+              <dt className="font-medium">Sends access to</dt>
+              <dd>{view.app.loopback ? "this computer" : view.app.redirectHost}</dd>
+            </div>
+          )}
           <div>
             <dt className="font-medium">Requested access</dt>
-            <dd>{continuation.scopes.join(", ")}</dd>
+            <dd>{view.scopes.join(", ")}</dd>
           </div>
         </dl>
         <AuthorizeClient
-          confirmation={query.confirmation!}
-          nonce={nonce}
-          step={step}
-          cellStarting={account?.cellStarting ?? false}
-          reviewerEnabled={
-            marketplaceReviewerAccessEnabled() &&
-            continuation.resource === loadExomemCloudResource().mcpUrl
-          }
+          confirmation={view.confirmation}
+          nonce={view.nonce}
+          step={view.step}
+          cellStarting={view.cellStarting}
+          reviewerEnabled={view.reviewerEnabled}
         />
       </main>
     </PrivateShell>

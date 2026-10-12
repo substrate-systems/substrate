@@ -35,6 +35,7 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `EXOMEM_PADDLE_PRICE_ID`                                            | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                               |
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                           |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                               |
+| `EXOMEM_CONNECTOR_SETTINGS_URLS`                                    | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                 |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes

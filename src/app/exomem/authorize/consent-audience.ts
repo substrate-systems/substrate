@@ -5,7 +5,7 @@
 // invited person actually needed, and "Continue" was offered to visitors with no
 // session, for whom it can only end in access_denied. Expressing the decision as
 // data lets it be asserted directly, without rendering.
-import type { ConsentStep } from "./consent-state";
+import type { ConsentStep } from "@/lib/exomem-hosted/consent-state";
 
 export type ConsentSection =
   | "connect"

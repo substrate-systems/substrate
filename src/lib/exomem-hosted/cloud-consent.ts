@@ -51,3 +51,60 @@ export async function revokeCloudResourceConsent(tx: ExomemSql, tenantId: string
            (SELECT count(*) FROM revoked_tokens) AS tokens
   `;
 }
+
+/**
+ * An owner disconnects one app. The grant, every refresh-token family and
+ * access token under it, and any code not yet exchanged are revoked in one
+ * statement, so the app's next token use and its next refresh are refused.
+ * The caller holds the tenant lock (`disconnectOwnerApp`).
+ *
+ * Fenced to the owner's own user and tenant as well, so a grant id from
+ * another account revokes nothing even if a caller skipped its own check.
+ */
+export async function revokeOwnerOAuthGrant(
+  tx: ExomemSql,
+  input: { userId: string; tenantId: string; grantId: string }
+): Promise<void> {
+  await tx`
+    /* exomem:revoke-owner-oauth-grant */
+    WITH owned AS (
+      SELECT oauth_grant.id
+      FROM exomem_oauth_grants AS oauth_grant
+      JOIN exomem_tenants AS tenant
+        ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
+      WHERE oauth_grant.id = ${input.grantId}::uuid
+        AND oauth_grant.user_id = ${input.userId}::uuid
+        AND oauth_grant.tenant_id = ${input.tenantId}::uuid
+    ),
+    revoked_grant AS (
+      UPDATE exomem_oauth_grants AS grant_row
+      SET revoked_at = now(), updated_at = now()
+      FROM owned
+      WHERE grant_row.id = owned.id AND grant_row.revoked_at IS NULL
+      RETURNING grant_row.id
+    ),
+    revoked_families AS (
+      UPDATE exomem_oauth_token_families AS family
+      SET revoked_at = now(),
+          revoked_reason = COALESCE(family.revoked_reason, 'owner_disconnected')
+      FROM owned
+      WHERE family.grant_id = owned.id AND family.revoked_at IS NULL
+      RETURNING family.id
+    ),
+    revoked_tokens AS (
+      UPDATE exomem_oauth_access_tokens AS token
+      SET revoked_at = now()
+      FROM owned
+      WHERE token.grant_id = owned.id AND token.revoked_at IS NULL
+      RETURNING token.id
+    ),
+    spent_codes AS (
+      UPDATE exomem_oauth_authorization_codes AS code
+      SET consumed_at = now()
+      FROM owned
+      WHERE code.grant_id = owned.id AND code.consumed_at IS NULL
+      RETURNING code.id
+    )
+    SELECT (SELECT count(*) FROM owned)::int AS owned
+  `;
+}

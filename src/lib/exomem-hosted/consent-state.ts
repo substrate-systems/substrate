@@ -4,7 +4,7 @@
 // Connect is offered exactly when `canConnect` holds, which is the rule the consent
 // gate (`attachExistingOwnerAuthorizationAtomic`) applies in SQL, so the page never
 // shows a Connect button that the server refuses.
-import { canConnect, hasConnectableEffectiveState } from "@/lib/exomem-hosted/entitlements";
+import { canConnect, hasConnectableEffectiveState } from "./entitlements";
 
 export type ConsentStep =
   // No usable session: sign in, or use an invitation.

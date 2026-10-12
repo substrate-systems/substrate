@@ -11,7 +11,7 @@ import {
 import { usePaddle } from "@/lib/paddle";
 import styles from "../private-shell.module.css";
 import { ConsentSection, consentSections } from "./consent-audience";
-import type { ConsentStep } from "./consent-state";
+import type { ConsentStep } from "@/lib/exomem-hosted/consent-state";
 import { redeemInvitationUrl } from "./invite-resume";
 
 type AuthorizeClientProps = {
