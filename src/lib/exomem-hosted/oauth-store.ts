@@ -651,6 +651,91 @@ export type OAuthStatePruneResult = {
   retired: { autoRegistered: number; generic: number };
 };
 
+// Each run deletes at most this many rows of each credential kind.
+const DELETIONS_PER_KIND_PER_SWEEP = 500;
+
+/**
+ * Deletes expired and long-consumed authorization transactions, codes and
+ * tokens. Each delete is its own statement outside the cohort lock: the rows
+ * are already unusable, and holding the lock would block every authorization
+ * and refresh while the deletes run. A statement locks rows of one table, or
+ * of two in the order every revoker locks them (grants before transactions,
+ * families before their access tokens), so a delete and a revocation never
+ * wait on each other across tables.
+ */
+async function deleteExpiredOAuthCredentials(): Promise<void> {
+  // Unlink the grants first, which also takes their row locks before any
+  // transaction row's, as a revocation does. The delete's ON DELETE SET NULL
+  // action then finds nothing left to update.
+  const { rows: doomed } = await executeExomemSql`
+    /* exomem:prune-unlink-expired-transactions */
+    WITH doomed AS (
+      SELECT id FROM exomem_oauth_authorization_transactions
+      WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
+      ORDER BY expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
+    ), unlinked AS (
+      UPDATE exomem_oauth_grants
+      SET authorization_transaction_id = NULL
+      WHERE authorization_transaction_id IN (SELECT id FROM doomed)
+    )
+    SELECT id FROM doomed
+  `;
+  if (doomed.length > 0) {
+    await executeExomemSql`
+      /* exomem:prune-expired-transactions */
+      DELETE FROM exomem_oauth_authorization_transactions
+      WHERE id = ANY(${doomed.map((row) => String(row.id))}::uuid[])
+        AND (expires_at <= now() OR consumed_at < now() - interval '1 day')
+    `;
+  }
+  await executeExomemSql`
+    /* exomem:prune-expired-codes */
+    DELETE FROM exomem_oauth_authorization_codes
+    WHERE id IN (
+      SELECT id FROM exomem_oauth_authorization_codes
+      WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
+      ORDER BY expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
+    )
+  `;
+  await executeExomemSql`
+    /* exomem:prune-expired-access-tokens */
+    DELETE FROM exomem_oauth_access_tokens
+    WHERE id IN (
+      SELECT id FROM exomem_oauth_access_tokens
+      WHERE expires_at <= now() OR revoked_at < now() - interval '1 day'
+      ORDER BY expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
+    )
+  `;
+  // Rotation lineage stays until its family expires: a leaf token goes first,
+  // its parent on a later run.
+  await executeExomemSql`
+    /* exomem:prune-expired-refresh-tokens */
+    DELETE FROM exomem_oauth_refresh_tokens
+    WHERE id IN (
+      SELECT token.id FROM exomem_oauth_refresh_tokens AS token
+      JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
+      WHERE family.expires_at <= now()
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_refresh_tokens AS child
+          WHERE child.parent_refresh_token_id = token.id
+        )
+      ORDER BY token.expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
+    )
+  `;
+  await executeExomemSql`
+    /* exomem:prune-expired-token-families */
+    DELETE FROM exomem_oauth_token_families
+    WHERE id IN (
+      SELECT family.id FROM exomem_oauth_token_families AS family
+      WHERE family.expires_at <= now()
+        AND NOT EXISTS (
+          SELECT 1 FROM exomem_oauth_refresh_tokens AS token WHERE token.family_id = family.id
+        )
+      ORDER BY family.expires_at LIMIT ${DELETIONS_PER_KIND_PER_SWEEP}
+    )
+  `;
+}
+
 /**
  * The scheduled OAuth maintenance sweep: delete expired transactions, codes and
  * tokens, disable CIMD clients whose metadata expired, and give back the slots
@@ -662,67 +747,24 @@ export async function pruneExpiredOAuthState(
   env: EnvironmentSource = process.env
 ): Promise<OAuthStatePruneResult> {
   const grace = loadOAuthClientRetirementGrace(env);
+  await deleteExpiredOAuthCredentials();
   return withExomemTransaction(async (tx) => {
-    // Exclusive against every admission statement, which all take the shared
-    // lock, so no client gains a grant or token between its liveness check and
-    // its retirement.
+    // A client without live authority gains some only through a new
+    // authorization transaction or a CIMD re-registration, and both take this
+    // lock shared. Every later grant, code or token needs a transaction, grant,
+    // code or refresh token that the liveness view already lists. Taking the
+    // lock exclusively therefore keeps a client from gaining live authority
+    // between its liveness check and its retirement.
     await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-hosted-alpha-cohort'))`;
     const disabled = await tx`
-      /* exomem:prune-expired-oauth-state */
-      WITH expired_transactions AS (
-      DELETE FROM exomem_oauth_authorization_transactions
-      WHERE id IN (
-        SELECT id FROM exomem_oauth_authorization_transactions
-        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
-        ORDER BY expires_at LIMIT 500
-      )
-      RETURNING id
-    ), expired_codes AS (
-      DELETE FROM exomem_oauth_authorization_codes
-      WHERE id IN (
-        SELECT id FROM exomem_oauth_authorization_codes
-        WHERE expires_at <= now() OR consumed_at < now() - interval '1 day'
-        ORDER BY expires_at LIMIT 500
-      )
-      RETURNING id
-    ), expired_access AS (
-      DELETE FROM exomem_oauth_access_tokens
-      WHERE id IN (
-        SELECT id FROM exomem_oauth_access_tokens
-        WHERE expires_at <= now() OR revoked_at < now() - interval '1 day'
-        ORDER BY expires_at LIMIT 500
-      )
-      RETURNING id
-    ), expired_refresh AS (
-      DELETE FROM exomem_oauth_refresh_tokens
-      WHERE id IN (
-        SELECT token.id FROM exomem_oauth_refresh_tokens AS token
-        JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
-        WHERE family.expires_at <= now()
-          AND NOT EXISTS (
-            SELECT 1 FROM exomem_oauth_refresh_tokens AS child
-            WHERE child.parent_refresh_token_id = token.id
-          )
-        ORDER BY token.expires_at LIMIT 500
-      )
-      RETURNING family_id
-    ), expired_families AS (
-      DELETE FROM exomem_oauth_token_families
-      WHERE id IN (
-        SELECT family.id FROM exomem_oauth_token_families AS family
-        WHERE family.expires_at <= now()
-          AND NOT EXISTS (
-            SELECT 1 FROM exomem_oauth_refresh_tokens AS token WHERE token.family_id = family.id
-          )
-        ORDER BY family.expires_at LIMIT 500
-      )
-      RETURNING id
-    )
+      /* exomem:disable-expired-cimd-clients */
       -- The expiry stays as the metadata stated it: the retirement grace counts
-      -- from it, and only rows this sweep changes are written.
+      -- from it, and only rows this sweep changes are written. The last two
+      -- conditions read the unretired partition index, not every retired row.
       UPDATE exomem_oauth_clients
       SET enabled = false, updated_at = now()
       WHERE admission_mode = 'cimd' AND metadata_expires_at <= now() AND enabled
+        AND retired_at IS NULL AND NOT first_party
       RETURNING id
     `;
     // A disabled auto-registered connector. One that held a grant retires once

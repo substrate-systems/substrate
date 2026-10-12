@@ -27,11 +27,27 @@ CREATE INDEX exomem_oauth_clients_unretired_partition_idx
 CREATE INDEX exomem_oauth_grants_client_idx
   ON exomem_oauth_grants (client_id);
 
+-- The sweep now runs, and each row it deletes makes a foreign-key action look
+-- up the rows that reference it: grants by authorization transaction, child
+-- refresh tokens by parent, and refresh and access tokens by family. Without
+-- these indexes each lookup reads the whole referencing table, 500 times a
+-- run, so a run's time grows with every token ever issued.
+CREATE INDEX exomem_oauth_grants_authorization_transaction_idx
+  ON exomem_oauth_grants (authorization_transaction_id)
+  WHERE authorization_transaction_id IS NOT NULL;
+CREATE INDEX exomem_oauth_refresh_tokens_parent_idx
+  ON exomem_oauth_refresh_tokens (parent_refresh_token_id)
+  WHERE parent_refresh_token_id IS NOT NULL;
+CREATE INDEX exomem_oauth_refresh_tokens_family_idx
+  ON exomem_oauth_refresh_tokens (family_id);
+CREATE INDEX exomem_oauth_access_tokens_family_idx
+  ON exomem_oauth_access_tokens (family_id);
+
 -- Each partition's bound is data, so an operator changes it with one UPDATE
 -- and no migration. The three partition names are this schema's own closed
 -- set. A missing row closes its partition: the gates refuse every new client
--- in it rather than admit one without a bound, and the headroom report fails,
--- which names the cause.
+-- in it rather than admit one without a bound. The operator headroom request
+-- then fails with a generic internal error that does not name the partition.
 CREATE TABLE exomem_oauth_client_partition_bounds (
   client_partition text PRIMARY KEY
     CHECK (client_partition IN ('operator', 'auto_registered', 'generic')),
