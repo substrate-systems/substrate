@@ -166,3 +166,9 @@ The server only mints presigned PUT/GET URLs (5-minute TTL); chunks transit dire
 **Paddle webhook.** Hosted Backup adds a second webhook receiver at `/api/webhooks/paddle` for subscription events. It reuses the existing `PADDLE_WEBHOOK_SECRET` and `PADDLE_API_KEY`. Configure Paddle to deliver subscription events to this URL in addition to the existing license webhook.
 
 See the configured env vars in your hosting environment for the full list.
+
+## License
+
+The source code is licensed under AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+The license does not cover photography, images, logos and other brand assets, or the written content under `content/`. All rights to these are reserved unless [ATTRIBUTIONS.md](ATTRIBUTIONS.md) names a different license for an item. The Substrate, Exomem and Endstate names are not licensed for use.
