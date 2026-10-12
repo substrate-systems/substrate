@@ -87,7 +87,7 @@ export const inviteCopy = {
     noOffer: (by: string | null) =>
       `${by ? `${by}’s invitation` : "This invitation"} can’t start a second one, and it doesn’t change the plan you have.`,
     unchecked: (by: string) =>
-      `${by}’s invitation can’t start a second one. We couldn’t check ${by}’s friend price against the plan you have just now.`,
+      `${by}’s invitation can’t start a second one. We couldn’t check just now whether ${by}’s friend price fits the plan you have.`,
     otherPrice: (by: string) =>
       `${by}’s invitation can’t start a second one, and ${by}’s friend price doesn’t apply to the plan you have.`,
     signIn: (by: string | null) =>
