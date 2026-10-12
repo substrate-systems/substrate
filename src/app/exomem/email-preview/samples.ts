@@ -12,6 +12,13 @@ import {
 } from "@/lib/email-templates/exomem-access";
 import type { RenderedExomemEmail } from "@/lib/email-templates/exomem-email";
 import {
+  renderExomemCoveredInvitationEmail,
+  renderExomemFriendInvitationEmail,
+  renderExomemInvitationEndedEmail,
+  renderExomemInvitationReminderEmail,
+  renderExomemInvitationUsedEmail,
+} from "@/lib/email-templates/exomem-invites";
+import {
   renderExomemConfirmNewEmailEmail,
   renderExomemDeletedEmail,
   renderExomemDeletionReminderEmail,
@@ -172,6 +179,67 @@ export function exomemEmailSamples(now: Date, publicBaseUrl: string): EmailSampl
         keptUntil: at(24 * HOUR),
         now,
         timeZone: ZONE,
+      }),
+    },
+    {
+      id: "09",
+      number: "09",
+      note: "friend invitation, with a note",
+      email: renderExomemFriendInvitationEmail({
+        acceptUrl: link("/exomem/invite"),
+        inviterName: "Alex",
+        note: "This is the thing I told you about. It remembers where every note came from.",
+        inviteeEmail: "maria@example.com",
+        expiresAt: at(14 * DAY),
+        timeZone: ZONE,
+        usualPrice: { amount: "1500", currencyCode: "EUR" },
+        friendPrice: { amount: "1000", currencyCode: "EUR" },
+      }),
+    },
+    {
+      id: "10",
+      number: "10",
+      note: "covered invitation, no note",
+      email: renderExomemCoveredInvitationEmail({
+        acceptUrl: link("/exomem/invite"),
+        inviterName: "Alex",
+        note: null,
+        inviteeEmail: "maria@example.com",
+        expiresAt: at(14 * DAY),
+        timeZone: ZONE,
+      }),
+    },
+    {
+      id: "11",
+      number: "11",
+      note: "invitation ends soon",
+      email: renderExomemInvitationReminderEmail({
+        acceptUrl: link("/exomem/invite"),
+        inviterName: "Alex",
+        expiresAt: at(3 * DAY),
+        leadDays: 3,
+        timeZone: ZONE,
+      }),
+    },
+    {
+      id: "12",
+      number: "12",
+      note: "invitation used, to the inviter",
+      email: renderExomemInvitationUsedEmail({
+        inviteeName: "Maria",
+        usedAt: now,
+        friendPrice: { amount: "1000", currencyCode: "EUR" },
+        timeZone: ZONE,
+      }),
+    },
+    {
+      id: "13",
+      number: "13",
+      note: "invitation ended unused, to the inviter",
+      email: renderExomemInvitationEndedEmail({
+        inviteeName: "Maria",
+        issuedAt: at(-14 * DAY),
+        expiredAt: now,
       }),
     },
     {
