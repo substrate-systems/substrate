@@ -763,13 +763,14 @@ export async function createDeletionConfirmationToken(input: {
   tenantId: string;
   tokenDigest: Buffer;
   expiresAt: Date;
-}): Promise<{ tokenId: string; emailNormalized: string } | null> {
+}): Promise<{ tokenId: string; emailNormalized: string; timeZone: string | null } | null> {
   const { rows } = await sql`
     /* exomem:create-deletion-confirmation */
     WITH owner AS (
       SELECT users.id AS user_id,
              users.email,
-             tenant.id AS tenant_id
+             tenant.id AS tenant_id,
+             tenant.time_zone
       FROM users
       JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
       WHERE users.id = ${input.userId}
@@ -802,12 +803,18 @@ export async function createDeletionConfirmationToken(input: {
       ON CONFLICT (token_digest) DO NOTHING
       RETURNING id, user_id
     )
-    SELECT created.id, owner.email
+    SELECT created.id, owner.email, owner.time_zone
     FROM created
     JOIN owner ON owner.user_id = created.user_id
   `;
   const row = rows[0];
-  return row ? { tokenId: String(row.id), emailNormalized: String(row.email).toLowerCase() } : null;
+  return row
+    ? {
+        tokenId: String(row.id),
+        emailNormalized: String(row.email).toLowerCase(),
+        timeZone: row.time_zone ? String(row.time_zone) : null,
+      }
+    : null;
 }
 
 /**

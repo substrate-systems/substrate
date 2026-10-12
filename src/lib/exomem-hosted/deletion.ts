@@ -70,7 +70,8 @@ export async function requestDeletionConfirmation(
   const token = generateExternalToken(deps.randomBytes);
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.invalidRequest();
-  const expiresAt = new Date(deps.now().getTime() + DELETION_CONFIRMATION_TTL_MS);
+  const now = deps.now();
+  const expiresAt = new Date(now.getTime() + DELETION_CONFIRMATION_TTL_MS);
   const created = await deps.createToken({
     userId: session.userId,
     tenantId: session.tenantId,
@@ -82,6 +83,8 @@ export async function requestDeletionConfirmation(
   const rendered = renderExomemDeletionEmail({
     accessUrl: exomemPublicFragmentUrl(publicBaseUrl, "/exomem/delete", token),
     expiresAt,
+    now,
+    timeZone: created.timeZone,
   });
   let delivery: Awaited<ReturnType<typeof sendTransactionalEmail>>;
   try {

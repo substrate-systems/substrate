@@ -167,9 +167,10 @@ export function renderExomemPlaceOpenedEmail(input: {
 }
 
 /**
- * The deletion confirmation link. No board draws this email: the words are
- * the existing email's, the preheader and the last sentence are the Home
- * board's delete dialog, and the headline is that dialog's title.
+ * The deletion confirmation link. No board draws this email (design.md
+ * deviation (t)): the preheader and the last sentence are the Home board's
+ * delete dialog, the headline is that dialog's title, and the body says what
+ * the deletion removes in the dialog's words.
  */
 export function renderExomemDeletionEmail(input: {
   accessUrl: string;
@@ -184,7 +185,7 @@ export function renderExomemDeletionEmail(input: {
     band: "fading",
     headline: "Delete your Exomem?",
     body: [
-      "You asked to permanently delete your Exomem Cloud account. This removes the Exomem vault, its backups and exports, and its encryption keys. It does not delete your shared Substrate identity or other products.",
+      "You asked to delete your Exomem. This removes your notes, files, backups, exports and encryption keys for good.",
     ],
     action: { label: "Review and confirm deletion", url: input.accessUrl },
     smallPrint: `Works once, until ${linkLimit(input.expiresAt, now, emailClock(input.expiresAt, input.timeZone))}. Ignore it and your Exomem stays.`,
