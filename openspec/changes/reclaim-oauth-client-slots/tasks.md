@@ -25,6 +25,7 @@
   - The grace is `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`, default 24, counted from registration and from the last creation, renewal or revocation of any of its grants. Nothing revives a retired generic client.
 - [x] 2.6 Give `pruneExpiredOAuthState` a production caller
   - `/api/cron/exomem-reconcile` runs it every minute beside the billing and Cloud lanes. It retires at most 100 clients per partition per run. A failure answers `503` after the other lanes finish.
+  - The deletes run outside the cohort lock, one statement each, grants unlinked first. Only disable and retire hold the lock. Four foreign-key indexes make each delete's actions index lookups: on a table of 120,000 refresh tokens, the refresh and family deletes took 3.2 s and 3.5 s without them and 48 ms and 20 ms with them.
 - [x] 2.7 Answer `invalid_client` at the token endpoint for an unknown or retired client
   - Checked only after a refusal, so a successful exchange pays nothing. Both cases answer alike. No code in either repository keys on `invalid_grant` for an unknown client.
 - [x] 2.8 Refuse the operator enable action for a retired client

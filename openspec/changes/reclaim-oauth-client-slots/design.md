@@ -66,7 +66,8 @@ keeps the count proportional to the bounds while retired rows accumulate.
 
 Each bound is a row in `exomem_oauth_client_partition_bounds`, so an operator changes it
 with one UPDATE rather than a migration. A partition without a row refuses every new
-client, and the headroom report fails, which names the cause.
+client, and the operator headroom request fails with a generic internal error that does
+not name the partition.
 
 Reclaim never frees a connected client, so a bound caps the clients connected at the same
 time. Every ChatGPT connector registers its own client, so the old auto-registered bound
@@ -89,7 +90,7 @@ The grace period is not decoration. A connector that reconnects after a short ou
 should find its own row and reuse it; retiring immediately is harmless to correctness but
 churns the row on every lapse. A grace period measured in days, well beyond
 `CIMD_MAX_TTL_SECONDS`, keeps the common case a no-op. It is configuration,
-`EXOMEM_OAUTH_CIMD_RETIREMENT_GRACE_HOURS`, defaulting to 14 days.
+`EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS`, defaulting to 14 days.
 
 Only auto-registered clients retire this way. An operator-registered CIMD client sits in
 the operator partition and comes back only through operator paths, which this change does
@@ -120,7 +121,7 @@ Migration Plan already sends to an operator-approved step.
 
 A generic client is retired, and disabled in the same write, once it holds no live
 authority (below) and has held none for a grace period:
-`EXOMEM_OAUTH_GENERIC_RETIREMENT_GRACE_HOURS`, default 24 hours. The grace counts from its
+`EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`, default 24 hours. The grace counts from its
 registration and from the last creation, renewal or revocation of any of its grants;
 expired codes and tokens are deleted, so the grant is the record that survives.
 
@@ -159,11 +160,22 @@ one.
 ### Run the sweep on a schedule
 
 The reconcile job, which the scheduler calls every minute, runs the sweep beside its
-billing and Cloud lanes. The sweep takes the exclusive cohort lock that every admission
-statement takes shared, so no client gains a grant between its liveness check and its
-retirement. Each run deletes at most 500 rows of each credential kind and retires at most
-100 clients per partition. A failed sweep fails the job after the other lanes finish, so
-the scheduler alerts on it.
+billing and Cloud lanes. Each run deletes at most 500 rows of each credential kind and
+retires at most 100 clients per partition. A failed sweep fails the job after the other
+lanes finish, so the scheduler alerts on it.
+
+The deletes run first, each as its own statement and outside the cohort lock. The rows are
+already unusable, and every authorization and refresh waits on that lock. The grants that
+reference a doomed authorization transaction are unlinked first, so the sweep locks grants
+before transactions, as every revoker does. Foreign-key indexes keep each delete's actions
+to index lookups: without them, one run read every referencing row 500 times and took
+seconds on a small table.
+
+The disable and retire statements then run under the exclusive cohort lock. A client
+without live authority gains some only through a new authorization transaction or a CIMD
+re-registration, and both take that lock shared. Every later grant, code or token needs a
+transaction, grant, code or refresh token that the liveness view already lists. So no
+client gains live authority between its liveness check and its retirement.
 
 ### Report headroom
 

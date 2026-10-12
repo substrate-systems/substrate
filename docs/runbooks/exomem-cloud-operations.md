@@ -179,8 +179,13 @@ FROM exomem_oauth_clients AS client
 WHERE family.client_id = client.id AND client.admission_mode = 'generic';
 ```
 
-To stop one generic client, set `enabled = false` on its row. This is durable:
-registration never rewrites an existing row.
+To stop one generic client, set `enabled = false` on its row. Registration never
+rewrites an existing row, so that client ID stays stopped. The app can still
+register again under a new client ID while the lane is enabled. Once the stopped
+client holds nothing for `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`, the sweep
+retires it, `/token` answers `invalid_client`, and SDK-based apps then register
+again by themselves. To keep one person's apps out, revoke that person's access
+instead.
 
 ### Client slots and retirement
 
@@ -217,8 +222,10 @@ row refuses every new client, and the headroom read fails.
 A retired client keeps its row but takes no slot. Retirement never deletes a
 row, so bootstrap provenance stays readable. The database refuses to enable a
 retired client and refuses to retire the Home client. The operator enable
-action refuses a retired client too; register the client again to bring it
-back.
+action refuses a retired client too. A retired operator client stays retired:
+an operator registration of the same client ID leaves it retired and disabled,
+so register a new client ID instead. A retired auto-registered connector
+revives itself, as described below.
 
 The reconcile job, `/api/cron/exomem-reconcile`, runs the sweep every minute.
 Each run does these things:
@@ -260,6 +267,22 @@ partition. The SQL equivalent is `SELECT * FROM exomem_oauth_client_partitions()
 If the sweep fails, the reconcile job answers `503` and logs
 `exomem-oauth: expired state and client retirement lane failed`. A malformed
 grace setting fails every run until you correct it.
+
+To roll back a release that contains slot reclaim, roll forward if you can. The
+earlier code cannot revive a retired connector, because its registration sets
+`enabled = true` without clearing `retired_at`, which the database refuses. If
+you must roll the code back:
+
+1. Run this statement against the production database:
+   ```sql
+   UPDATE exomem_oauth_clients
+   SET retired_at = NULL, updated_at = now()
+   WHERE auto_registered AND retired_at IS NOT NULL;
+   ```
+2. Deploy the earlier release.
+
+Retired connectors then revive on their next authorization, as before the
+release. The migration stays applied.
 
 #### Retire spent reviewer bootstrap clients
 
@@ -333,9 +356,10 @@ Substrate-side copy of that contract. Each job calls `https://substratesystems.i
 with `Authorization: Bearer <EXOMEM_HOSTED_SCHEDULER_SECRET>`:
 
 - `/api/cron/exomem-access-delivery`;
-- `/api/cron/exomem-reconcile`, which runs Paddle reconciliation and the Cloud
+- `/api/cron/exomem-reconcile`, which runs Paddle reconciliation, the Cloud
   sweep (checkout expiry, desired-state reconcile, cancellation notices and the
-  Cloud deletion finish).
+  Cloud deletion finish) and the OAuth sweep (expired credential deletion and
+  client retirement; see "Client slots and retirement").
 
 The chart's schedule file sets how often each job runs.
 
