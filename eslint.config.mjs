@@ -71,6 +71,13 @@ export default defineConfig([
       ],
     },
   },
+  {
+    // Temporary: the invitation emails 09 to 13 still draw their own plain layout with raw
+    // colours. Delete this block when they move onto the shared template in
+    // exomem-email.ts, as the other Exomem emails did.
+    files: ["src/lib/email-templates/exomem-invites.ts"],
+    rules: { "no-restricted-syntax": "off" },
+  },
   globalIgnores([
     ".next/**",
     "coverage/**",
