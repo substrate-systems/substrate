@@ -27,13 +27,15 @@ One public route, `POST /api/exomem/access/start`, takes `{email, turnstileToken
 
 The order is fixed: Turnstile check (action `start`, the public host, 3 seconds), then two rate limits (per network 20 an hour, per address 5 an hour), then the branch, then padding. Only the token can fail with 400 `challenge_failed`. Every other case, including a malformed address, a rate limit, an existing owner and a full Cloud, returns 202 with the same body and byte-identical `Set-Cookie`. Everything after the challenge takes at least 600 ms. A content-free metric records an overrun. If the challenge service is unreachable, the request continues under the rate limits, because the cost of refusing everyone exceeds what one bot gets past the limits.
 
-The branch for a new address follows `EXOMEM_SELF_SERVE_ADMISSION`: `closed` (default) sends nothing; `waitlist` queues everyone; `open` admits when a place is free and nobody waits, and queues otherwise. Admission, promotion and queueing run under one advisory lock. Free capacity is fresh Cloud slots minus live cells minus outstanding start links. It replaces the retired Hosted pool for start, promotion, redemption and paid operator invitations. Stale observations admit nobody.
+The branch for a new address follows `EXOMEM_SELF_SERVE_ADMISSION`: `closed` (default) sends nothing; `waitlist` queues everyone; `open` admits when a place is free and nobody waits, and queues otherwise. Admission, promotion and queueing run under one advisory lock. Free capacity is fresh Cloud slots minus live cells minus outstanding invitations, which are unexpired start links and paid operator invitations. It replaces the retired Hosted pool for start, promotion, redemption and paid operator invitations. Stale observations admit nobody.
 
-Promotion is a separate arm of the reconcile job. Each admission is its own transaction and takes the oldest waiting entry with `FOR UPDATE SKIP LOCKED`. A person who asks again while still waiting keeps their place. Only a person whose place-opened link expired unused joins the back. The system never reveals a queue position, because a position confirms that an address waits.
+Only an operator creates complimentary, covered, friend and paid operator invitations. The public start form creates only paid self-serve start links. Reason: a public form that can mint free access is a hole in the money path.
+
+Promotion is a separate arm of the reconcile job. Each admission is its own transaction and takes the oldest waiting entry with `FOR UPDATE SKIP LOCKED`. A person who asks again while waiting keeps their place and gets no second waitlist email, because the approved copy promises that we write again only when a place opens. Only a person whose start link lapsed or was used (and whose tenant was later deleted) joins the back. Reason: if every request moved a waiting person back, anyone who knows an address could push that person to the back of the queue. A person with a live start link who asks again gets a fresh link with the same expiry, so asking again never extends a place. The system never reveals a queue position, because a position confirms that an address waits.
 
 Every email goes through one outbox table with a unique dedupe key. The row is enqueued in the transaction that records the fact. A cron drains at most 20 rows a minute at least once, under a lease. Each kind re-checks its precondition when claimed and cancels if it no longer holds. The kinds are a closed set fixed in code, one template each. Time limits render at send time in the recipient's time zone or labelled UTC. Reason for the outbox: inline mail leaked state through timing and through one 503 branch, and it could not guarantee "sent once".
 
-Start links last 48 hours, not seven days. The unpaid hold anchors on the stopped cell's creation. Re-admission never reset the tenant's creation time, so a returning person expired on the next sweep.
+Start links last 48 hours, not seven days. This design calls the link that a start request creates a "start link". The unpaid hold anchors on the stopped cell's creation. Re-admission never reset the tenant's creation time, so a returning person expired on the next sweep.
 
 The time zone is optional input checked against the closed IANA set. An unknown name becomes unknown, not an error.
 
@@ -41,11 +43,11 @@ The time zone is optional input checked against the closed IANA set. An unknown 
 
 "Not now" and "Keep it as it is" call `POST /api/exomem/oauth/authorize/decline` with `{confirmation, nonce, outcome}`. The OAuth continuation cookie is the authority, so no session is needed. One update consumes the transaction and binds `redirect_uri`. The redirect is built only from that row plus `error=access_denied` and `state`. Neither outcome writes or revokes a grant or code; `outcome` labels a content-free event. This is the same hand-back a finished connection performs, so the app never hangs.
 
-A web app gets the declined or kept page for a short time, then a top-level navigation. A loopback app is told in the background and the page stays. Chrome's Local Network Access may block a public page's request to loopback, so the page probes and falls back to a navigation. "Connect after all" becomes a link to the app's connector settings for a web app, taken from configuration keyed by platform because vendors move those pages. It is dropped for a loopback app, because the transaction is already consumed.
+A web app gets the declined or kept page for at most 3 seconds, then a top-level navigation. A loopback app is told in the background and the page stays. Chrome's Local Network Access may block a public page's request to loopback, so the page probes and falls back to a navigation. "Connect after all" becomes a link to the app's connector settings for a web app, taken from configuration keyed by platform because vendors move those pages. When no link is configured for the platform, there is no action. It is dropped for a loopback app, because the transaction is already consumed.
 
 The consent view loads on the server (`loadConsentView`). It reports whether the app is already connected, from a live grant on the unique key. It shares the consent step rule with Home, which moves into `src/lib` first.
 
-`GET /api/exomem/apps` lists the owner's apps with a display name from client metadata, else the platform label, else the host. First-party clients are excluded by a column. `POST /api/exomem/apps/{id}/disconnect` revokes the grant, token families, access tokens and unconsumed codes, limited to the session's user and tenant. The waiting step of the journey polls the list every 3 seconds for up to 10 minutes and moves to "joined" when an app's last-authorized time passes the first poll's server time. A reconnect bumps that time, so reconnecting counts.
+`GET /api/exomem/apps` lists the owner's apps with a display name from client metadata, else the platform label, else the host. First-party clients are excluded by a column. `POST /api/exomem/apps/{id}/disconnect` revokes the grant, token families, access tokens and unconsumed codes, limited to the session's user and tenant. The waiting step of the journey polls the list every 3 seconds for 10 minutes and moves to "joined" when an app's last-authorized time passes the first poll's server time. A reconnect bumps that time, so reconnecting counts. After 10 minutes the step keeps waiting and polls every 30 seconds. It adds no new element, so a person who connects late still sees "joined".
 
 ### Reviewers on the web
 
@@ -61,11 +63,11 @@ A paying owner who opens a covered or standard invitation keeps their plan with 
 
 ### Friend invitations, the friend price and resubscribe
 
-An operator issues `standard`, `friend` or `covered` invitations. A friend invitation carries the inviter's name, a note and an email; a covered invitation is complimentary (a check ties kind to entitlement source). `POST /access/inspect` takes the bearer token and returns the facts, or one identical 404 for any unusable token. Prices come from the Paddle pricing preview for the caller's country, cached for 10 minutes; a failure is `price_unavailable`, never a guess. An existing owner presenting a token never gets a session.
+An operator issues `standard`, `friend` or `covered` invitations. A friend invitation carries the inviter's name, and optionally a note and an email; a covered invitation is complimentary (a check ties kind to entitlement source). `POST /access/inspect` takes the bearer token and returns the facts, or one identical 404 for any unusable token. Prices come from the Paddle pricing preview for the caller's country, cached for 10 minutes; a failure is `price_unavailable`, never a guess. An existing owner presenting a token never gets a session. The inspect response may say that the owner exists. That is the one place the system reveals an account, and only the holder of a valid token can read it.
 
 `POST /api/exomem/invites/decision` lets a signed-in owner pick `use_friend_price` or `keep_plan`. The Paddle update runs first and the invitation is consumed after, so a Paddle failure leaves it usable.
 
-The friend price is one recurring Paddle discount per environment, with no code, not enabled for checkout and restricted to the Exomem price. The server attaches it; clients cannot. Before each use the server checks those properties and fails closed on any difference. Reason: a discount that anyone can type is a coupon leak, and a wrong discount costs money on every renewal.
+The friend price is one recurring Paddle discount per environment, with no code, not enabled for checkout and restricted to the Exomem price. The server attaches it; clients cannot. Before each use, at checkout and at the subscription update behind the decision route, the server checks those properties and fails closed on any difference. Reason: a discount that anyone can type is a coupon leak, and a wrong discount costs money on every renewal.
 
 Resubscribe: checkout refuses any owner with a Paddle customer, and re-admission refuses a live cell, so "Resubscribe" on an ended account cannot work today. The fix allows a new transaction for the same customer within the kept window and lets the kept data resume. Invitees get timers through the outbox: a reminder three days before expiry and two inviter notices.
 
@@ -75,7 +77,7 @@ Two facts live in two places, so two channels carry them.
 
 Live process facts (levels, activity, note count) come from the cell's existing `/mcp` through the public gateway. The web server mints a 120-second access token for a first-party Home client for each call, bound to the session's tenant. The module exposes exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. It is not a proxy. The token stays in memory and never reaches a log or a browser. The gateway needs no change, because its lookup already re-checks revocation, account blocks and deletion.
 
-Volume and object-store facts (storage, export) come from rows that the cell controller writes and Substrate reads, the same split as imports. The controller has no connection to a cell, and cells have no egress.
+Volume and object-store facts (storage, export) come from rows that the cell controller writes and Substrate reads, the same split as imports. The cell controller has no connection to a cell, and cells have no egress.
 
 The cell registers only `/mcp` and health, and custom routes would skip authentication. So nothing new is registered; the channel adds output fields only.
 
@@ -93,11 +95,11 @@ The cell controller records used bytes, filesystem bytes and the observation tim
 
 ### Export
 
-An export is a plain ZIP of Markdown files and attachments. It sits at the Cloud object store under the cell's prefix with provider encryption, for `EXOMEM_EXPORT_TTL_HOURS` (default 24), then the controller deletes every version. The download link exists only through Home, lasts 5 minutes, and names one object version. The email links to Home, never to the archive. The privacy page says exactly this. Reason for plain over end-to-end encrypted: an owner can open the archive without tooling, and the product owner chose it.
+An export is a plain ZIP of Markdown files and attachments. It sits at the Cloud object store under the cell's prefix with provider encryption, for `EXOMEM_EXPORT_TTL_HOURS` (default 24), then the cell controller deletes every version. The download link exists only through Home, lasts 5 minutes, and names one object version. The email links to Home, never to the archive. The privacy page says exactly this. Reason for plain over end-to-end encrypted: an owner can open the archive without tooling, and the product owner chose it.
 
-State lives in `exomem_cloud_exports` with split column authority. Substrate writes `requested_state` and `link_requested_at`; the controller writes everything it observes. One open export per cell. The display state comes from one function: none, packing, ready, expired, failed. The controller takes an `export` hold, which stops the cell for the job. On snapshot-capable storage it uses a clone and does not stop the cell. A stopped cell stays stopped. Part uploads are checked by count and ETag digest before completion. The API caps requests at three in 24 hours.
+State lives in `exomem_cloud_exports` with split column authority. Substrate writes `requested_state` and `link_requested_at`; the cell controller writes everything it observes. One open export per cell. The display state comes from one function: none, packing, ready, expired, failed. The cell controller takes an `export` hold, which stops the cell for the job. The hold stops the cell on every storage class, because there is no clone path. A stopped cell stays stopped, and its runtime never starts. Part uploads are checked by count and ETag digest before completion. The API caps requests at three in 24 hours.
 
-An export of a running account pauses its assistants for a few minutes until local storage ships. The export row says so, in its description and in its packing line.
+Until local storage ships, an export stops a cell that serves assistants for a few minutes. The export row says so, in its description and in its packing line, whenever the export will stop a running or read-only cell. The rule keys on that mechanism and does not promise the pause itself. A stopped cell gets no such sentence.
 
 ## Deviations from the design handoff
 
@@ -105,12 +107,14 @@ This is the single list of places the build departs from the boards. Each is del
 
 | | Departure | Reason | Approval |
 | --- | --- | --- | --- |
-| (a) | For a web app, "Not now" and "Keep it as it is" show the declined or kept page briefly, then navigate to the app. For a loopback app the app is told in the background and the page stays. | The board's page stays. A web app cannot be told in the background, so the browser must carry the denial back to it. | Approved |
+| (a) | For a web app, "Not now" and "Keep it as it is" navigate to the app after showing the declined or kept state for at most 3 seconds. For a loopback app the app is told in the background and the page stays. | The board's page stays. A web app cannot be told in the background, so the browser must carry the denial back to it. | Approved |
 | (b) | A Turnstile one-click check appears under the email field when Cloudflare suspects a bot. | The boards have no third-party element. The check is part of the approved admission decision. | Approved |
 | (c) | The waitlist email and the place-opened email. | The catalogue has no copy for a waitlist. The new copy follows the template and the writing rules. | Approved 2026-10-12 |
-| (d) | The export row says that assistants pause for a few minutes, for a running account only. | Until local storage ships, an export stops a running cell. The owner must know before starting. | Approved 2026-10-12 |
+| (d) | The export row says that assistants pause for a few minutes, when the export stops a running or read-only cell. | Until local storage ships, such an export stops the cell. The owner must know before starting. | Approved 2026-10-12 |
 | (e) | The storage bar shows the real disk, not "2 of 5 GB". | The board's number is a legacy constant that does not describe the volume. | Approved |
 | (f) | "Connect after all" becomes a link to the app's connector settings for a web app, and disappears for a terminal app. | The OAuth transaction is already consumed, so the button cannot resume it. | Approved, with (a) |
+| (g) | Home hides the storage add-ons, email change, and bring-a-vault and restore controls until each ships. | The launch cut defers them, and a control with no working route would be a dead button. Each is being built now and gets its own OpenSpec change. | Approved |
+| (h) | The address that Home and setup show is the Cloud MCP URL from configuration, not the handoff's retired Hosted path. | The code's real capability wins (README rule on code against pictures). The Hosted path no longer reaches a cell. | Ruled by the orchestrator, not yet confirmed by the product owner |
 
 ### Approved new copy
 
@@ -135,12 +139,12 @@ Place-opened email (kind `place-opened`), same sender, band *arrive*:
 - Small print: "The link works once, until {expiry: d MMM, HH:mm} (your time). If you don't use it, the place goes to the next person on the list."
 - Footer: "Exomem by Substrate Systems"
 
-Home export row, for an account that is running:
+Home export row, when the export will stop a cell that serves assistants (a running or read-only cell):
 
 - Description when no export exists: "All your notes and files, as Markdown. Works in every state. Your assistants pause for a few minutes while we pack it."
 - Packing line: "Packing your notes and files… Your assistants are back in a few minutes. We'll email you when it's ready."
 
-For an account that is not running, the row keeps the board copy: "All your notes and files, as Markdown. Works in every state." and "Packing your notes and files… We'll email you when it's ready."
+For a stopped cell, the row keeps the board copy: "All your notes and files, as Markdown. Works in every state." and "Packing your notes and files… We'll email you when it's ready."
 
 ## Release order
 
@@ -151,7 +155,7 @@ For an account that is not running, the row keeps the board copy: "All your note
 5. Substrate Home: levels and activity first, export after a rehearsal on a local cluster with a real gateway and an object-store stand-in.
 6. Admission last. Turn `EXOMEM_SELF_SERVE_ADMISSION` from `closed` to `waitlist`, then to `open`.
 
-Rollback turns the flags off. Export rows stay, and the controller still expires objects.
+Rollback turns the flags off. Export rows stay, and the cell controller still expires objects.
 
 ## Risks / Trade-offs
 
@@ -161,7 +165,9 @@ Rollback turns the flags off. Export rows stay, and the controller still expires
 - Waitlist fairness. A bug that lets newcomers pass the queue is a visible failure. Both paths take the same lock.
 - Discount abuse. No code, not enabled for checkout, price-restricted, verified before use. The operator should audit live codes once.
 - Plaintext export. The archive is readable by the storage provider for at most the TTL. Provider encryption, verified deletion and the reworded privacy page cover it.
-- Availability. An export stops a running cell for its duration on Hetzner volumes. All Vercel traffic shares the gateway's per-address limit of 120 a minute.
-- Related changes. `enable-exomem-paid-alpha-invites` still lists unticked production proofs and its deltas no longer all apply: its tenant-control-plane edit targets a requirement that no longer exists, and it replaces the catalog requirement. This change therefore adds a requirement for self-serve checkout instead of modifying the old one, so the archive order of the two changes does not matter for that requirement. Archive `enable-exomem-paid-alpha-invites` before this change: both modify the access requirement that this change renames.
+- Availability. An export stops a running cell for its duration on every storage class. All Vercel traffic shares the gateway's per-address limit of 120 a minute.
+- Stale capacity. Stale capacity observations admit nobody. If the observer stops, every new address waits, and the failure is visible as a waitlist that does not move. Alert on the age of the newest observation.
+- Generic MCP clients. Do not enable the generic-client lane from `admit-generic-mcp-clients` before `reclaim-oauth-client-slots` covers its client partition. The partition bound only counts up until then.
+- Related changes. This change archives `enable-exomem-paid-alpha-invites` with `--skip-specs`, in the same commit that adds this change. Its paid operator-invite scenarios ("Operator creates a paid private-alpha invite" and "Invitation delivery fails or expires") live on in this change, restated against Cloud capacity. Its other deltas are stale and would write false text: its tenant-control-plane edit targets a requirement that no longer exists, its redemption text says a paid redemption creates no cell, and its catalog edit removes a requirement that the main spec still states correctly. Its two unticked proofs (verification and a sandbox and production invitation) move to the release tasks here. `route-connector-consent-by-account-state` stays open. It only adds one requirement, and only its production walk remains.
 - Debt noted, not fixed here. The kept-until value moves with later applied events.
 - Dedicated security review: admission, decline and disconnect, the friend price, and the Home token mint.

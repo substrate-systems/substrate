@@ -7,7 +7,7 @@
 
 ### Requirement: Exomem access starts with an email, an invitation or a waitlist place
 
-Access SHALL start in one of three ways: a person asks with their email at the start form, an operator issues an invitation, or a person waits for a place on the waitlist. Each invitation MUST be bound to one normalized email address, an entitlement source, an expiry and a single high-entropy token. The system MUST store the digest of the token, not the plaintext. The setting `EXOMEM_SELF_SERVE_ADMISSION` (`closed`, `waitlist` or `open`) SHALL decide what a new address receives. The default is `closed`.
+Access SHALL start in one of three ways: a person asks at the start form, an operator issues an invitation, or a person waits on the waitlist. Only an authenticated operator SHALL create a complimentary, covered, friend or paid operator invitation. The public start form SHALL create only paid self-serve start links. Each invitation MUST be bound to one normalized email address, an entitlement source, an expiry and one high-entropy token. The system MUST store the token's digest, not the plaintext.
 
 #### Scenario: Operator creates a complimentary invite
 
@@ -15,37 +15,32 @@ Access SHALL start in one of three ways: a person asks with their email at the s
 - **THEN** the system stores a single-use digest-bound invite and returns or delivers one redemption URL
 - **AND** the plaintext token is not written to logs or retained in the database
 
+#### Scenario: Operator creates a paid private-alpha invite
+
+- **WHEN** an authorized operator creates a paid invitation while Cloud has a free place
+- **THEN** the system stores and delivers one operator-authorized Paddle invitation and counts it against Cloud capacity
+- **AND** the browser cannot substitute the Paddle product, price, environment, or public admission path
+
+#### Scenario: Invitation delivery fails or expires
+
+- **WHEN** a paid invitation is not delivered, expires, or is revoked before redemption
+- **THEN** it no longer counts against Cloud capacity
+- **AND** its record remains available for audit
+
 #### Scenario: Public caller attempts to create an invite
 
 - **WHEN** a caller without operator authority invokes the invite creation boundary
-- **THEN** the system rejects the request without revealing invite or account state
+- **THEN** the system rejects the request without revealing invite, capacity or account state
 
-#### Scenario: Admission is closed
+#### Scenario: Start form never creates a free invitation
 
-- **WHEN** the setting is `closed` and an address with no tenant submits the start form
-- **THEN** the system sends no email and creates no invitation and no waitlist entry
-- **AND** the response is the same as for every other verified request
-
-#### Scenario: Admission is open and a place is free
-
-- **WHEN** the setting is `open`, Cloud has a free place, nobody waits, and a new address submits the start form
-- **THEN** the system creates a start invitation that expires 48 hours after creation
-- **AND** it queues one start email for that address
-
-#### Scenario: Admission is open and Cloud is full
-
-- **WHEN** the setting is `open` and Cloud has no free place, or at least one person waits, and a new address submits the start form
-- **THEN** the system adds the address to the waitlist and queues the waitlist email
-- **AND** it creates no invitation
-
-#### Scenario: Admission is waitlist only
-
-- **WHEN** the setting is `waitlist` and a new address submits the start form
-- **THEN** the system adds the address to the waitlist even when Cloud has a free place
+- **WHEN** anyone submits the start form
+- **THEN** the system creates at most a paid self-serve start link or a waitlist entry
+- **AND** it never creates a complimentary, covered or friend invitation
 
 ### Requirement: Existing users can request a non-enumerating sign-in link
 
-The start form SHALL check every request with a Cloudflare Turnstile challenge and SHALL answer every request that passes the challenge in the same way. An existing owner SHALL receive a short-lived, single-use sign-in link by email. The response, the challenge cookie and the minimum response time MUST NOT depend on whether the address has an account, is malformed, is rate limited, or was waitlisted. The former sign-in link route SHALL use the same handler, so no caller can skip the challenge. A start request MUST NOT create an account or tenant. It MAY create an invitation or a waitlist entry.
+An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link at the start form. The start form SHALL answer all six outcomes with the same 202 acknowledgement, the same cookie and the same minimum response time. The six outcomes are: a malformed address, a rate-limited request, an existing owner, a new address with a free place, a new address when Cloud is full, and closed admission. A start request MUST NOT create an account or tenant.
 
 #### Scenario: Existing Exomem owner requests a link
 
@@ -58,37 +53,98 @@ The start form SHALL check every request with a Cloudflare Turnstile challenge a
 - **THEN** the system returns the same acknowledgement, with a byte-identical `Set-Cookie`, and creates no identity, tenant or entitlement
 - **AND** the response takes at least as long as the minimum response time
 
+#### Scenario: Request is rate limited or malformed
+
+- **WHEN** the address is malformed, or the network or the address exceeds its hourly limit
+- **THEN** the system returns the same acknowledgement as for an accepted request and sends nothing
+
+### Requirement: Invitation and sign-in surfaces preserve account privacy
+
+Public access responses and operational logs MUST NOT reveal whether an email has an account, and MUST NOT include invite tokens, sign-in tokens, session secrets, cell credentials, or raw email where an opaque reference suffices. One response MAY say that the bound email already owns an account: the invitation inspect response, which only the holder of a valid invitation token can read.
+
+#### Scenario: Sensitive access sentinel reaches an error path
+
+- **WHEN** an invite, sign-in, or session operation fails while carrying a sensitive sentinel
+- **THEN** application logs and returned diagnostics omit the token or secret
+- **AND** public responses disclose no additional account-existence information
+
+#### Scenario: Holder inspects an invitation for an existing owner
+
+- **WHEN** the holder of a valid invitation token inspects it and the bound email already owns a tenant
+- **THEN** the response says that the owner exists
+- **AND** no other public response says whether an email has an account
+
+### Requirement: Successful onboarding reaches a useful memory flow
+
+After valid redemption, the system SHALL show deterministic provisioning progress and SHALL lead a ready tenant through the setup journey: add Exomem to an assistant, finish in that app, and see the connection. The journey MUST NOT require local installation, GitHub, Markdown, vault paths, or billing details for a complimentary invite.
+
+#### Scenario: Cell becomes ready normally
+
+- **WHEN** an invited user's cell reaches ready state within the target window
+- **THEN** the setup step offers "Add Exomem to your assistant" with the tenant's Cloud connector address
+- **AND** the user can complete it without encountering infrastructure or schema terminology
+
+#### Scenario: Provisioning is delayed
+
+- **WHEN** the cell is not yet ready
+- **THEN** the page shows a content-free progress state, refreshes automatically, and shows the support reference
+- **AND** it does not accept a write that could be lost or routed elsewhere
+
+## ADDED Requirements
+
+### Requirement: The start form is protected by a Turnstile challenge
+
+The start form SHALL check every request with a Cloudflare Turnstile challenge before it reads the email. The answer to a failed challenge MUST depend only on the token. The former sign-in link route SHALL use the same handler, so no caller can skip the challenge.
+
 #### Scenario: Challenge token is missing, invalid or reused
 
 - **WHEN** the request carries a missing, invalid or already used challenge token
 - **THEN** the system answers 400 `challenge_failed` before it reads the email
-- **AND** the answer depends only on the token
 
 #### Scenario: Challenge service is unreachable
 
 - **WHEN** the challenge verification request fails or times out
 - **THEN** the request continues under the per-address and per-network rate limits
 
-#### Scenario: Request is rate limited or malformed
-
-- **WHEN** the address is malformed, or the network or the address exceeds its hourly limit
-- **THEN** the system returns the same acknowledgement as for an accepted request and sends nothing
-
 #### Scenario: Former sign-in route is called
 
 - **WHEN** a caller posts to the former sign-in link route
-- **THEN** the same challenge, rate limits and padding apply
+- **THEN** the same challenge, rate limits and minimum response time apply
 
-## ADDED Requirements
+### Requirement: The admission setting decides what a new address receives
+
+The setting `EXOMEM_SELF_SERVE_ADMISSION` (`closed`, `waitlist` or `open`) SHALL decide what an address with no tenant receives from the start form. The default is `closed`.
+
+#### Scenario: Admission is closed
+
+- **WHEN** the setting is `closed` and an address with no tenant submits the start form
+- **THEN** the system sends no email and creates no start link and no waitlist entry
+
+#### Scenario: Admission is open and a place is free
+
+- **WHEN** the setting is `open`, Cloud has a free place, nobody waits, and a new address submits the start form
+- **THEN** the system creates a start link that expires 48 hours after creation
+- **AND** it queues one start email for that address
+
+#### Scenario: Admission is open and Cloud is full
+
+- **WHEN** the setting is `open` and Cloud has no free place, or someone waits, and a new address submits the start form
+- **THEN** the system adds the address to the waitlist and queues the waitlist email
+- **AND** it creates no start link
+
+#### Scenario: Admission is waitlist only
+
+- **WHEN** the setting is `waitlist` and a new address submits the start form
+- **THEN** the system adds the address to the waitlist even when Cloud has a free place
 
 ### Requirement: Waitlisted people are admitted first come, first served
 
-While the setting is `open`, the system SHALL admit waiting people in the order they joined, one for each free Cloud place. A new address MUST NOT pass a person who waits. A person who asks again while still waiting SHALL keep their place. A person whose place-opened link expired unused SHALL join the back of the queue when they ask again. The system MUST NOT reveal a queue position and MUST NOT admit anyone while Cloud capacity observations are stale.
+While the setting is `open`, the system SHALL admit waiting people in the order they joined, one for each free Cloud place. A new address MUST NOT pass a person who waits. A person who asks again while waiting SHALL keep their place and MUST NOT receive a second waitlist email. A person whose start link was used or lapsed SHALL join the back of the queue when they ask again. The system MUST NOT reveal a queue position.
 
 #### Scenario: A place opens
 
 - **WHEN** a Cloud place becomes free and people wait
-- **THEN** the system creates a start invitation for the oldest waiting person, marks them admitted and queues the place-opened email
+- **THEN** the system creates a start link for the oldest waiting person, marks them admitted and queues the place-opened email
 - **AND** each admission commits in its own transaction under the capacity lock
 
 #### Scenario: Newcomer arrives while people wait
@@ -99,11 +155,17 @@ While the setting is `open`, the system SHALL admit waiting people in the order 
 #### Scenario: Waiting person asks again
 
 - **WHEN** a person who still waits submits the start form again
-- **THEN** their entry keeps its place and no second entry exists
+- **THEN** their entry keeps its place, no second entry exists, and no second waitlist email is sent
 
-#### Scenario: Place-opened link expired unused
+#### Scenario: Person with a live start link asks again
 
-- **WHEN** a person's place-opened link expires unused and they submit the start form again
+- **WHEN** a person who holds a live start link submits the start form again
+- **THEN** the system sends a fresh start link with the same expiry and the earlier link stops working
+- **AND** no one else can cancel or move that person's place
+
+#### Scenario: Start link lapsed or was used
+
+- **WHEN** a person's start link lapsed unused, or was used and the tenant was later deleted, and they submit the start form again
 - **THEN** they join the back of the queue
 
 #### Scenario: Promotion runs twice at once
@@ -111,9 +173,14 @@ While the setting is `open`, the system SHALL admit waiting people in the order 
 - **WHEN** two promotion runs overlap with one free place
 - **THEN** exactly one person is admitted
 
+#### Scenario: Capacity observations are stale
+
+- **WHEN** Cloud capacity observations are stale
+- **THEN** the system admits nobody and queues new addresses
+
 ### Requirement: Invitation and hold emails are sent once
 
-Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease, and the dedupe key SHALL make the send once. Each kind MUST re-check its precondition when claimed and become cancelled if it no longer holds. Each time limit in an email SHALL render at send time in the recipient's time zone, or labelled UTC when the zone is unknown.
+Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease, and the dedupe key SHALL make the send once. Each kind MUST re-check its precondition when claimed and become cancelled if it no longer holds. Each time limit SHALL render at send time in the recipient's time zone, or labelled UTC when the zone is unknown.
 
 #### Scenario: The same fact is recorded twice
 
@@ -133,14 +200,14 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 
 #### Scenario: Inviter notices
 
-- **WHEN** a friend invitation with an inviter email is used
+- **WHEN** a friend invitation that has an inviter email is used
 - **THEN** the system queues "used" to the inviter inside the consuming transaction
-- **AND** when it expires unused, the system sends "ended unused" to the inviter only if no one used it
+- **AND** when the invitation expires unused, the system sends "ended unused" to the inviter
 
 #### Scenario: Hold reminder
 
-- **WHEN** a person who has not paid accepts an invitation and the cell stops
-- **THEN** the system queues the hold reminder for five days after the cell's creation
+- **WHEN** a person who has not paid redeems an invitation and the system stops the cell
+- **THEN** the system queues the hold reminder for five days after that cell's creation
 - **AND** it cancels the reminder if the cell no longer stops or the tenant has paid
 
 #### Scenario: Recipient time zone is unknown
@@ -184,7 +251,7 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 
 - **WHEN** a person chooses "Not now" for a web app and the transaction is live
 - **THEN** the system consumes the transaction and returns the validated redirect URI with `error=access_denied` and the original `state`
-- **AND** the page shows the declined state briefly, then navigates the top-level window to that address
+- **AND** the page navigates the top-level window to that address after showing the declined or kept state for at most 3 seconds
 
 #### Scenario: Loopback app is declined
 
@@ -200,7 +267,7 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 #### Scenario: Connect after all
 
 - **WHEN** the declined state is shown for a web app
-- **THEN** it offers a link to the app's connector settings page
+- **THEN** it offers a link to the app's connector settings page when one is configured for the platform, and otherwise no action
 - **AND** for a loopback app it offers no such action
 
 #### Scenario: Request is stale, replayed or expired
@@ -255,12 +322,31 @@ The reviewer sign-in route SHALL accept a username and password without an OAuth
 
 ### Requirement: Friend invitations name the inviter and carry the friend price
 
-An operator SHALL be able to issue an invitation of kind `standard`, `friend` or `covered`. A friend invitation SHALL carry an inviter name (up to 60 characters), an optional note (up to 280 characters) and the inviter's email. A covered invitation SHALL grant complimentary access with no checkout. The inspect route SHALL return the invitation facts for a bearer token and SHALL render names and notes as plain text. All unusable tokens MUST get one identical answer.
+An operator SHALL be able to issue an invitation of kind `standard`, `friend` or `covered`. A friend invitation SHALL carry an inviter name (up to 60 characters), an optional note (up to 280 characters) and an optional inviter email. A covered invitation SHALL grant complimentary access with no checkout. Invitees SHALL see names and notes as plain text.
+
+#### Scenario: Operator issues a friend invitation
+
+- **WHEN** an operator issues a friend invitation with an inviter name, a note and an inviter email
+- **THEN** the system stores them with the invitation and delivers one redemption URL
+
+#### Scenario: Inviter email is absent
+
+- **WHEN** an operator issues a friend invitation without an inviter email
+- **THEN** the invitation is valid and the inviter receives no notice
+
+#### Scenario: Covered invitation
+
+- **WHEN** an operator issues a covered invitation
+- **THEN** the entitlement source is complimentary and the invitee sees no checkout
+
+### Requirement: Inspecting an invitation shows only what its holder needs
+
+The inspect route SHALL take a bearer token and return the invitation's kind, bound email, expiry, inviter name, note and prices. All unusable tokens MUST get one identical 404. The route SHALL rate limit each network address. A token presented by an existing owner MUST NOT sign that owner in.
 
 #### Scenario: New person inspects a friend invitation
 
 - **WHEN** a bearer token for a usable friend invitation is inspected
-- **THEN** the answer carries the kind, the bound email, the expiry, the inviter's name, the note, and the usual and friend prices
+- **THEN** the answer carries the kind, bound email, expiry, inviter name, note, and the usual and friend prices
 - **AND** the answer never carries the discount id
 
 #### Scenario: Price cannot be read
@@ -308,6 +394,11 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 - **WHEN** the provider refuses or times out
 - **THEN** the system answers 503 and leaves the invitation unconsumed
+
+#### Scenario: Friend discount fails verification
+
+- **WHEN** the configured friend discount fails its checks before the subscription update
+- **THEN** the system refuses the decision with a stable error, makes no update and leaves the invitation unconsumed
 
 #### Scenario: Session email differs
 

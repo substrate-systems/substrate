@@ -1,46 +1,50 @@
 ## ADDED Requirements
 
-### Requirement: Self-serve promises count against Cloud capacity
+### Requirement: Outstanding invitations count against Cloud capacity
 
-The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus live cells minus outstanding start links. Self-serve start, waitlist promotion, invitation redemption and paid operator invitations SHALL all read this value under one advisory lock. Stale capacity observations MUST admit nobody new. The retired Hosted capacity pool MUST NOT gate admission.
+The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus live cells minus outstanding invitations. An outstanding invitation is an unexpired, unrevoked start link or paid operator invitation. Start, waitlist promotion, redemption and paid operator invitation creation SHALL read this value under one advisory lock. Stale capacity observations MUST admit nobody new. The retired Hosted capacity pool MUST NOT gate admission.
 
 #### Scenario: Two requests compete for the last place
 
 - **WHEN** two new addresses ask for the last free place at the same time
-- **THEN** one receives a start invitation and the other joins the waitlist
+- **THEN** one receives a start link and the other joins the waitlist
 
-#### Scenario: A start link holds a place
+#### Scenario: Outstanding invitations hold places
 
-- **WHEN** a start invitation is outstanding and unexpired
-- **THEN** the place counts as taken until the invitation is redeemed or expires
+- **WHEN** a start link or a paid operator invitation is outstanding
+- **THEN** its place counts as taken until the invitation is redeemed, expires or is revoked
+
+#### Scenario: Operator invites when Cloud is full
+
+- **WHEN** an operator creates a paid invitation while no place is free
+- **THEN** the system refuses with a stable capacity response and creates no invitation
 
 #### Scenario: Capacity observations are stale
 
 - **WHEN** the newest Cloud capacity observation is older than its freshness limit
-- **THEN** the system admits nobody and queues new addresses on the waitlist
+- **THEN** the system admits nobody
 
 ### Requirement: The unpaid hold runs from admission
 
-The seven-day hold for an owner who accepted an invitation and has not paid SHALL start at the creation of the stopped cell, not at the creation of the tenant. The hold reminder SHALL use the same anchor. Re-admission of an existing tenant MUST start a full new hold.
+The seven-day hold for an owner who redeemed an invitation and has not paid SHALL start at the creation of the stopped cell, not at the creation of the tenant. A re-admission MUST start a full new hold.
 
 #### Scenario: Returning person is re-admitted
 
 - **WHEN** a tenant created months ago is re-admitted with a new stopped cell
 - **THEN** the hold expires seven days after that cell was created, not on the next sweep
 
-#### Scenario: Reminder follows the cell
+#### Scenario: First admission
 
-- **WHEN** an unpaid redemption stops the cell
-- **THEN** the reminder is due five days after the cell's creation
-- **AND** it is cancelled if the cell is no longer stopped or the tenant has paid
+- **WHEN** a new tenant redeems an unpaid invitation
+- **THEN** the hold expires seven days after its stopped cell was created
 
 ### Requirement: Export requests are content-free rows with split authority
 
-Export requests SHALL be stored as content-free rows under the tenant's cell. Substrate SHALL write the request columns only. The cell controller SHALL write the observation columns only. The gateway MUST have no access. The database SHALL allow at most one open export for each cell, and a cell hold of kind `export` SHALL stop the cell while the export runs. The controller SHALL derive the object key only from the row's cell and export identifiers.
+Export requests SHALL be stored as content-free rows under the tenant's cell. Substrate SHALL write the request columns only. The cell controller SHALL write the observation columns only. The gateway MUST have no access. The database SHALL allow at most one open export for each cell. The cell controller SHALL take a hold of kind `export` that stops the cell on every storage class while the export runs, and SHALL derive the object key only from the row's cell and export identifiers.
 
 #### Scenario: Roles cross the ownership boundary
 
-- **WHEN** Substrate writes an observation column, the controller writes a request column, or the gateway reads the table
+- **WHEN** Substrate writes an observation column, the cell controller writes a request column, or the gateway reads the table
 - **THEN** PostgreSQL rejects the operation
 
 #### Scenario: Two requests race for one cell
@@ -53,14 +57,14 @@ Export requests SHALL be stored as content-free rows under the tenant's cell. Su
 - **WHEN** a session of tenant B names an export of tenant A
 - **THEN** the API answers 404 and reveals nothing
 
-#### Scenario: Cell is suspended
+#### Scenario: Stopped cell is exported
 
 - **WHEN** a stopped cell is exported
-- **THEN** the cell stays at zero replicas after the export
+- **THEN** the cell stays at zero replicas and its runtime never starts during the export
 
-### Requirement: Export archives expire and the controller deletes them
+### Requirement: Export archives expire and the cell controller deletes them
 
-The controller SHALL mark an export ready only after it checks the uploaded part count, the part digest and the object size. It SHALL delete every object version, clear the link fields and mark the row expired when the export expires or a new export supersedes it. On failure or deadline the controller SHALL abort the upload, release the hold and record a failure code.
+The cell controller SHALL mark an export ready only after it checks the uploaded part count, the part digest and the object size. When the export expires or a new export replaces it, the controller SHALL delete every object version, clear the link fields and mark the row expired. On failure or deadline the controller SHALL abort the upload, release the hold and record a failure code.
 
 #### Scenario: Export reaches its time limit
 
@@ -79,7 +83,7 @@ The controller SHALL mark an export ready only after it checks the uploaded part
 
 ### Requirement: Home reaches its cell with a short-lived first-party token
 
-Substrate SHALL call the owner's cell only through the public Cloud MCP address. It SHALL use an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. A database column SHALL mark the first-party client, and the client MUST NOT count as an app or a slot. No request SHALL carry a tenant or cell identifier.
+Substrate SHALL call the owner's cell only through the public Cloud MCP address, with an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. No request SHALL carry a tenant or cell identifier.
 
 #### Scenario: Cell is stopped or not ready
 
@@ -95,6 +99,15 @@ Substrate SHALL call the owner's cell only through the public Cloud MCP address.
 
 - **WHEN** the account is blocked or its deletion has begun
 - **THEN** the gateway refuses a Home token that was minted earlier
+
+### Requirement: The first-party Home client is marked by data and is not an app
+
+A database column SHALL mark the first-party Home client. The marker MUST decide whether a client appears in the app list and counts as a slot. Code MUST NOT identify the Home client by its id.
+
+#### Scenario: Home client is excluded
+
+- **WHEN** the system lists apps or counts client slots
+- **THEN** the first-party Home client is neither listed nor counted
 
 ### Requirement: Storage use is an observation, not a plan limit
 

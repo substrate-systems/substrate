@@ -26,9 +26,29 @@ Home SHALL provide service status, billing source/status, sign-out, self-serve e
 
 ## ADDED Requirements
 
-### Requirement: Export is self-serve and time limited
+### Requirement: Export is a plain ZIP kept for a limited time
 
-An owner SHALL start an export from Home while the cell is running, read-only or stopped, and the tenant is not deleting. The export SHALL be a plain ZIP of Markdown files and attachments. The system SHALL keep it at the Cloud object store, with provider encryption, for `EXOMEM_EXPORT_TTL_HOURS` hours (default 24), then delete it. Home SHALL show one display state: none, packing, ready until a computed time, expired, or failed with a code. A new export SHALL replace a ready one. The system SHALL allow three export requests in 24 hours.
+An export SHALL be a plain ZIP of Markdown files and attachments. The system SHALL keep it at the Cloud object store, with provider encryption, for `EXOMEM_EXPORT_TTL_HOURS` hours (default 24), then delete it. The privacy page SHALL describe the export in these terms.
+
+#### Scenario: Export reaches its time limit
+
+- **WHEN** a ready export passes its expiry
+- **THEN** no object version of the archive remains and Home shows the export as expired
+
+#### Scenario: Privacy page states the real handling
+
+- **WHEN** an owner reads the privacy page
+- **THEN** it says that an export is a plain ZIP kept at the object store with provider encryption until its expiry, and then deleted
+- **AND** it does not say that the export is encrypted to a key only the owner holds
+
+#### Scenario: Export fails
+
+- **WHEN** the export job fails or passes its deadline
+- **THEN** Home shows the failed state with its code and offers a new export
+
+### Requirement: Owners start exports from Home
+
+An owner SHALL start an export from Home while the tenant is not deleting and the cell is running, read-only or stopped and has run before. Home SHALL show one display state: none, packing, ready until a computed time, expired, or failed with a code. A new export SHALL replace a ready one. The system SHALL allow three export requests in 24 hours.
 
 #### Scenario: Owner exports a running account
 
@@ -50,6 +70,11 @@ An owner SHALL start an export from Home while the cell is running, read-only or
 - **WHEN** an owner starts an export while one is packing
 - **THEN** the system answers 409 `EXPORT_IN_PROGRESS`
 
+#### Scenario: Tenant is deleting
+
+- **WHEN** an owner whose tenant is being deleted starts an export
+- **THEN** the system answers 403 `EXPORT_UNAVAILABLE`
+
 #### Scenario: Owner replaces a ready export
 
 - **WHEN** an owner starts a new export while one is ready
@@ -60,14 +85,9 @@ An owner SHALL start an export from Home while the cell is running, read-only or
 - **WHEN** an owner starts a fourth export within 24 hours
 - **THEN** the system answers 429
 
-#### Scenario: Export fails
-
-- **WHEN** the export job fails or passes its deadline
-- **THEN** Home shows the failed state with its code and offers a new export
-
 ### Requirement: Export downloads start from Home and the ready email is sent once
 
-The download link for an export SHALL come only from a Home request. The link SHALL last five minutes, name only that export's object version, and be served as an attachment. The system MUST NOT send, log or store the link in a URL history. When an export becomes ready, the system SHALL send one email that links to Home.
+The download link for an export SHALL come only from a Home request. The link SHALL last five minutes, name only that export's object version, and be served as an attachment. The system MUST NOT send or log the link. When an export becomes ready, the system SHALL send one email that links to Home.
 
 #### Scenario: Owner downloads a ready export
 
@@ -76,7 +96,7 @@ The download link for an export SHALL come only from a Home request. The link SH
 
 #### Scenario: Link is not ready yet
 
-- **WHEN** the controller has not finished the link
+- **WHEN** the cell controller has not finished the link
 - **THEN** the system answers 202 `pending` and Home asks again
 
 #### Scenario: Export has expired
@@ -89,23 +109,23 @@ The download link for an export SHALL come only from a Home request. The link SH
 - **WHEN** an export becomes ready and the reconciliation runs twice
 - **THEN** exactly one email is sent, and it links to Home
 
-### Requirement: Exporting a running account pauses its assistants, and Home says so
+### Requirement: The export row says when assistants pause
 
-Until local storage ships, an export of a running account SHALL pause its assistants for a few minutes. The export row on Home MUST say so before the owner starts the export and while the export packs. An account that is not running MUST NOT show this sentence.
+When an export will stop a cell that serves assistants, which is a running or read-only cell, the export row on Home SHALL say that the assistants pause for a few minutes, before the owner starts and while the export packs. The row MUST NOT say so for a stopped cell.
 
-#### Scenario: Owner views the export row on a running account
+#### Scenario: Running cell, no export yet
 
 - **WHEN** the cell is running and no export exists
 - **THEN** the row says that the assistants pause for a few minutes while the export packs
 
-#### Scenario: Export packs on a running account
+#### Scenario: Export packs on a cell that serves assistants
 
-- **WHEN** the cell is running and the export is packing
+- **WHEN** the cell is running or read-only and the export is packing
 - **THEN** the row says that the assistants are back in a few minutes and that an email follows when the export is ready
 
-#### Scenario: Cell is not running
+#### Scenario: Stopped cell
 
-- **WHEN** the cell is stopped or read-only
+- **WHEN** the cell is stopped
 - **THEN** the export row does not say that assistants pause
 
 ### Requirement: Levels on Home read and write the same store the assistant uses
@@ -187,7 +207,7 @@ Home SHALL show storage used and the filesystem size from the latest stored obse
 
 ### Requirement: Home shows plan and dates from stored data
 
-Home SHALL show the plan name, the next payment date, the read-only end date, the kept-until date, a reviewer's access end date and whether the friend price applies. Each fact MUST come from stored data, and each date SHALL render in the reader's time zone. A fact that the system cannot know MUST show as unknown with a reason and MUST NOT show as zero or as an invented value.
+Home SHALL show the plan name, the next payment date, the read-only end date, the kept-until date, a reviewer's access end date and whether the friend price applies. Each fact MUST come from stored data, and each date SHALL render in the reader's time zone. A fact that the system cannot know MUST show as unknown with a reason, never as zero or an invented value.
 
 #### Scenario: Paying owner
 
@@ -226,7 +246,7 @@ The system SHALL give each tenant a unique support reference of 4 to 8 Crockford
 #### Scenario: New tenant
 
 - **WHEN** a tenant is created
-- **THEN** it receives a unique reference without a person choosing it
+- **THEN** it receives a unique support reference without a person choosing it
 
 #### Scenario: Trouble state
 
@@ -235,7 +255,7 @@ The system SHALL give each tenant a unique support reference of 4 to 8 Crockford
 
 ### Requirement: The web journey learns a connection by polling
 
-The setup step SHALL poll the connected-app list every 3 seconds for up to 10 minutes. It SHALL move to "joined" when an app has a last-authorized time later than the server time of the first poll, and SHALL name that app. The first-party Home client MUST NOT trigger it.
+The setup step SHALL poll the connected-app list every 3 seconds for the first 10 minutes. It SHALL move to "joined" when an app has a last-authorized time later than the server time of the first poll, and SHALL name that app. After 10 minutes it SHALL keep waiting and poll every 30 seconds. The first-party Home client MUST NOT trigger it.
 
 #### Scenario: App connects while the page waits
 
@@ -247,7 +267,7 @@ The setup step SHALL poll the connected-app list every 3 seconds for up to 10 mi
 - **WHEN** an app's last-authorized time is earlier than the first poll's server time
 - **THEN** the page keeps waiting
 
-#### Scenario: Nothing connects
+#### Scenario: Nothing connects for 10 minutes
 
 - **WHEN** 10 minutes pass with no new connection
-- **THEN** polling stops and the page offers to check again
+- **THEN** the page keeps waiting with no new element and polls every 30 seconds

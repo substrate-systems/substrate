@@ -18,7 +18,7 @@ Exomem Cloud launches with the web experience in `docs/exomem-design`: a landing
 - Friends: operator-issued friend, covered and standard invitations; one server-applied Paddle discount; resubscribe inside the kept window.
 - Home to cell: a server-side channel that reads and sets levels and reads activity, a storage observation, and a self-serve ZIP export that expires.
 - Frontend: the journey, Home and landing, built as drawn, with the six departures listed in `design.md`.
-- **BREAKING** The unpaid hold anchors on the stopped cell's creation. Start links last 48 hours.
+- **BREAKING** The unpaid hold anchors on the stopped cell's creation. Start links last 48 hours. Paid operator invitations and start links both count against Cloud capacity.
 
 ## Capabilities
 
@@ -39,4 +39,4 @@ None.
 - Substrate routes under `/api/exomem/{access,oauth,apps,account,invites,billing,cloud}`, the cron routes, and `src/app/exomem` pages and components.
 - The exomem repository (runtime, cell export, cellctl) for levels, activity, storage and export. Its own spec deltas travel with that repository.
 - The gateway changes only if a measurement confirms a client-name bug (see `design.md`).
-- Related changes stay open: `enable-exomem-paid-alpha-invites` and `route-connector-consent-by-account-state` keep unticked production proofs; `admit-generic-mcp-clients` supplies stored client names.
+- Related changes: `enable-exomem-paid-alpha-invites` is archived without syncing its deltas, and this change restates its paid operator-invite scenarios against Cloud capacity. `route-connector-consent-by-account-state` stays open for its production walk. `admit-generic-mcp-clients` supplies stored client names.

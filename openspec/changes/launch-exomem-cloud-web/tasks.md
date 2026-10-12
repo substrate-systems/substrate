@@ -1,21 +1,21 @@
-## 1. L1 Admission (migration 0063)
+## 1. Admission, waitlist and email outbox (migration 0063)
 
 - [ ] 1.1 Add migration 0063: email outbox table, `time_zone` on waitlist entries and tenants, `recipient_time_zone` on invitations, with its grants
-- [ ] 1.2 Add `cloudAdmissionHeadroom` and use it for start, promotion, redemption and paid operator invitations in place of the Hosted pool
+- [ ] 1.2 Add `cloudAdmissionHeadroom`, counting start links and paid operator invitations, and use it for start, promotion, redemption and paid operator invitations in place of the Hosted pool
 - [ ] 1.3 Add Turnstile verification (action, hostname, 3 s timeout) and the `start:ip` and `start:email` rate limits
 - [ ] 1.4 Add `POST /api/exomem/access/start` with `requestStart`, identical 202 answers and cookies, and a 600 ms floor
 - [ ] 1.5 Make the former sign-in link route an alias of the start handler
-- [ ] 1.6 Implement the `closed`, `waitlist` and `open` admission switch under the capacity advisory lock
+- [ ] 1.6 Implement the `closed`, `waitlist` and `open` admission switch under the capacity advisory lock; the public form creates only paid self-serve start links
 - [ ] 1.7 Set start links to 48 hours and validate `timeZone` against the IANA set in start and both redeem routes
 - [ ] 1.8 Send a paid web redemption to the setup journey route
 - [ ] 1.9 Add the waitlist promotion arm to the reconcile job, oldest first, one transaction per admission
-- [ ] 1.10 Keep a waiting person's place on a repeat request; send an expired place-opened link to the back of the queue
+- [ ] 1.10 Keep a waiting person's place and send no second waitlist email on a repeat request; resend a live start link with the same expiry; send a lapsed or used start link to the back of the queue
 - [ ] 1.11 Anchor the unpaid hold and the hold reminder on the stopped cell's creation time
 - [ ] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick
 - [ ] 1.13 Test against PostgreSQL: no enumeration across outcomes, last place race, queue order, stale capacity, re-admission hold
 - [ ] 1.14 Run a dedicated security review of admission
 
-## 2. L2 Consent and apps
+## 2. Consent hand-back and owner apps
 
 - [ ] 2.1 Move the consent step rule into `src/lib` as the first commit
 - [ ] 2.2 Add `loadConsentView` with the already-connected flag, the loopback flag and the connector settings link
@@ -26,7 +26,7 @@
 - [ ] 2.7 Test against PostgreSQL: no grant or code written on decline, replay and expiry, foreign app id returns 404
 - [ ] 2.8 Run a dedicated security review of decline and disconnect
 
-## 3. L3 Account and reviewer (migration 0064)
+## 3. Account facts and reviewer sign-in (migration 0064)
 
 - [ ] 3.1 Add migration 0064: support reference with backfill, entitlement provider fields, grace start
 - [ ] 3.2 Write the provider fields from `subscription.*` events and from reconciliation, and reset them on re-admission
@@ -35,20 +35,20 @@
 - [ ] 3.5 Add the web path to the reviewer route with the same limits and one identical 401
 - [ ] 3.6 Test against PostgreSQL: grace start across repeated failures, unknown reasons, reviewer failures identical
 
-## 4. L4 Friends and resubscribe (migration 0065)
+## 4. Friend invitations and resubscribe (migration 0065)
 
 - [ ] 4.1 Add migration 0065: invitation kind, inviter and note fields, decision fields, friend offer on the tenant
 - [ ] 4.2 Add `POST /access/inspect` with the identical 404, the price preview cache and its rate limit
 - [ ] 4.3 Add `POST /api/exomem/invites/decision` with the Paddle update before consume
 - [ ] 4.4 Return `transactionId` from checkout and attach the friend discount on the server only
-- [ ] 4.5 Verify the friend discount's properties before each use and fail closed on any difference
+- [ ] 4.5 Verify the friend discount's properties before each checkout and each subscription update, and fail closed on any difference
 - [ ] 4.6 Allow a new transaction for an ended owner's customer inside the kept window and let the kept cell resume
-- [ ] 4.7 Add inviter name and note to the operator issue route and page
+- [ ] 4.7 Add inviter name, optional note and optional inviter email to the operator issue route and page
 - [ ] 4.8 Scrub the new personal data and outbox rows in deletion finish
 - [ ] 4.9 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
 - [ ] 4.10 Run a dedicated security review of the friend price
 
-## 5. SC Cell home and export API (migration 0066)
+## 5. Cell home channel, storage and export (migration 0066)
 
 - [ ] 5.1 Add migration 0066: first-party Home client with its column, usage columns, export table, `export` hold kind, and grants
 - [ ] 5.2 Add `cloud-home-mcp` with the 120-second token mint and exactly two calls
@@ -56,12 +56,12 @@
 - [ ] 5.4 Add `GET /api/exomem/cloud/home/live` for activity and note count
 - [ ] 5.5 Add storage to the status poll as known or unknown
 - [ ] 5.6 Add the export API: create, read, and link with the 8-second wait
-- [ ] 5.7 Reword the privacy page for a plain ZIP kept up to the time limit
+- [ ] 5.7 Reword the privacy page for a plain ZIP with provider encryption, kept up to the time limit
 - [ ] 5.8 Exomem repository: return `levels` from `configure_memory` through one precedence function
 - [ ] 5.9 Exomem repository: add ledger fields `access` and `item_count`, and the `activity` section of `bootstrap`
 - [ ] 5.10 Exomem repository: add `cell-export` for a quiesced vault ZIP
 - [ ] 5.11 Cell controller: record usage from backup and export reports
-- [ ] 5.12 Cell controller: run the export (hold, multipart upload, checks, ready, link, expiry, deletion)
+- [ ] 5.12 Cell controller: run the export (hold on every storage class, multipart upload, checks, ready, link, expiry, deletion)
 - [ ] 5.13 Measure whether Cloud ignores the chat apps level; add the gateway client header only if it does
 - [ ] 5.14 Test with real PostgreSQL roles: tenant isolation, column grants, token scope, refusal after deletion
 - [ ] 5.15 Rehearse on a local cluster with the real gateway: levels, activity, storage, export on running and stopped cells
@@ -80,9 +80,9 @@
 
 - [ ] 7.1 Build "Start with your email" with the Turnstile widget and the uniform "check your email" step
 - [ ] 7.2 Build the invitation steps: friend, covered, existing owner, unusable
-- [ ] 7.3 Build the consent steps with the declined and kept hand-back for web and loopback apps
+- [ ] 7.3 Build the consent steps with the declined and kept hand-back (at most 3 s on screen for web apps) for web and loopback apps
 - [ ] 7.4 Build subscribe with the Paddle overlay and the confirming step
-- [ ] 7.5 Build the setup step with connection polling and the joined state
+- [ ] 7.5 Build the setup step with connection polling (3 s, then 30 s after 10 minutes) and the joined state
 - [ ] 7.6 Build the break states: connect error, ended, paused, suspended, expired, read-only
 - [ ] 7.7 Build reviewer sign-in on the web
 - [ ] 7.8 Check phone layouts fit one screen in dark and light
@@ -94,10 +94,12 @@
 - [ ] 8.3 Build the live activity line with unavailable shown as nothing
 - [ ] 8.4 Build plan and account with known-or-reason dates and the support reference
 - [ ] 8.5 Build the storage bar over the real disk, and the unknown state
-- [ ] 8.6 Build export with every display state, the running-account sentence and the download link
-- [ ] 8.7 Keep deletion, and hide it for reviewers
-- [ ] 8.8 Build the reviewer Home
-- [ ] 8.9 Inspect the result in the browser against the reference boards in both themes
+- [ ] 8.6 Hide storage add-ons, email change, and bring-a-vault and restore until each ships
+- [ ] 8.7 Show the Cloud MCP address from configuration
+- [ ] 8.8 Build export with every display state, the pause sentence for a running or read-only cell, and the download link
+- [ ] 8.9 Keep deletion, and hide it for reviewers
+- [ ] 8.10 Build the reviewer Home
+- [ ] 8.11 Inspect the result in the browser against the reference boards in both themes
 
 ## 9. Frontend landing
 
@@ -113,4 +115,8 @@
 - [ ] 10.4 Release Home with levels and activity, then export after the rehearsal
 - [ ] 10.5 Set `EXOMEM_PADDLE_DUNNING_DAYS` to match the provider's dunning settings
 - [ ] 10.6 Turn `EXOMEM_SELF_SERVE_ADMISSION` to `waitlist`, then to `open`
-- [ ] 10.7 Run strict OpenSpec validation and archive this change after the delivery
+- [ ] 10.7 Confirm `enable-exomem-paid-alpha-invites` is archived with `--skip-specs`, because its proofs are tasks 10.9 and 10.10
+- [ ] 10.8 Keep `route-connector-consent-by-account-state` open until its production walk passes, then archive it
+- [ ] 10.9 Run focused unit, route, PostgreSQL, webhook, security, static and browser checks for paid operator invitations
+- [ ] 10.10 Prove one paid operator invitation in the Paddle sandbox from redemption to payment, then repeat as one controlled production invitation
+- [ ] 10.11 Run strict OpenSpec validation and archive this change after the delivery

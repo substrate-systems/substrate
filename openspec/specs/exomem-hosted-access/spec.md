@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define invite-only hosted access, product-scoped browser sessions, account privacy, and the path from authentication to a useful first memory.
+Define Exomem access by email, invitation or waitlist place, product-scoped browser sessions, account privacy, and the path from authentication to a connected assistant.
 
 ## Requirements
 
