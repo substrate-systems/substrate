@@ -1,19 +1,23 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
-import { resolveApprovedCloudOAuthClient } from "../cloud-oauth";
+import { admitFirstCloudOAuthInviteAtomic, randomCloudCellId } from "../cloud-admission";
+import { findCloudOAuthAccessToken, resolveApprovedCloudOAuthClient } from "../cloud-oauth";
 import { ExomemHostedError } from "../errors";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import {
   attachExistingOwnerAuthorizationAtomic,
+  createAuthorizationTransaction,
+  findPendingOAuthAuthorization,
   issueOAuthTokensFromCodeAtomic,
   pruneExpiredOAuthState,
   registerAdmittedCimdClient,
+  registerGenericMcpClient,
   revokeOAuthAccountForOwnerTenantAtomic,
   revokeOAuthTokenForClient,
   rotateOAuthRefreshTokenAtomic,
@@ -24,6 +28,8 @@ import {
   validateOAuthContinuationNonce,
 } from "../oauth-continuity";
 import { oauthClientConfigSha256 } from "../oauth-client-admission";
+import { EXOMEM_RATE_LIMITS } from "../rate-limit";
+import type { SecretEnvelope } from "../security";
 import {
   refreshOperatorCimdOAuthClient,
   registerOperatorOAuthClient,
@@ -613,7 +619,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           await new Promise<void>((resolve) => {
             releaseSlowFetch = resolve;
           });
-          return cimdMetadata(cimdClientId, redirectUris, "stale");
+          return { ...cimdMetadata(cimdClientId, redirectUris, "stale"), clientName: "Stale name" };
         },
       });
       await slowFetchStarted;
@@ -630,11 +636,16 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
           clientId: cimdClientId,
           redirectUris,
         },
-        { fetchCimd: async () => cimdMetadata(cimdClientId, redirectUris, "newer") }
+        {
+          fetchCimd: async () => ({
+            ...cimdMetadata(cimdClientId, redirectUris, "newer"),
+            clientName: "Operator connector",
+          }),
+        }
       );
       const newer = await pool!.query(
         `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
-                redirect_uris::text, metadata_provenance::text
+                redirect_uris::text, metadata_provenance::text, client_name
          FROM exomem_oauth_clients WHERE id = $1`,
         [registered.id]
       );
@@ -645,11 +656,12 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       );
       const afterConflict = await pool!.query(
         `SELECT enabled, authority_version::text, encode(metadata_document_digest, 'hex') AS metadata_digest,
-                redirect_uris::text, metadata_provenance::text
+                redirect_uris::text, metadata_provenance::text, client_name
          FROM exomem_oauth_clients WHERE id = $1`,
         [registered.id]
       );
       assert.equal(newer.rows[0].enabled, false);
+      assert.equal(newer.rows[0].client_name, "Operator connector");
       assert.deepEqual(afterConflict.rows, newer.rows);
     } finally {
       if (originalAllowedHosts === undefined) delete process.env.EXOMEM_CIMD_ALLOWED_HOSTS;
@@ -1053,52 +1065,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
   // Host-allowlisted CIMD admission: the claims the change is actually for.
   // ---------------------------------------------------------------------------
 
-  /** Seed a code for an arbitrary client and redirect, unlike the module-level helper. */
-
-  async function seedCodeForClient(input: {
-    clientInternalId: string;
-    redirectUri: string;
-    sequence: number;
-    offlineAccess: boolean;
-  }) {
-    const codeDigest = digest(input.sequence);
-    const user = await pool!.query("INSERT INTO users (email) VALUES ($1) RETURNING id", [
-      `cimd-${input.sequence}-${randomUUID()}@example.test`,
-    ]);
-    const tenant = await pool!.query(
-      "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
-      [user.rows[0].id]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
-       VALUES ($1, 'complimentary', 'active', 'active')`,
-      [tenant.rows[0].id]
-    );
-    const grant = await pool!.query(
-      `INSERT INTO exomem_oauth_grants (user_id, tenant_id, client_id, resource, scopes, refresh_allowed)
-       VALUES ($1, $2, $3, $4, ARRAY['exomem.read'], $5) RETURNING id`,
-      [user.rows[0].id, tenant.rows[0].id, input.clientInternalId, resource, input.offlineAccess]
-    );
-    await pool!.query(
-      `INSERT INTO exomem_oauth_authorization_codes (
-         code_digest, grant_id, client_id, redirect_uri, resource, pkce_challenge, refresh_allowed, expires_at
-       ) VALUES ($1, $2, $3, $4, $5, 'challenge', $6, now() + interval '1 hour')`,
-      [
-        codeDigest,
-        grant.rows[0].id,
-        input.clientInternalId,
-        input.redirectUri,
-        resource,
-        input.offlineAccess,
-      ]
-    );
-    return {
-      codeDigest,
-      grantId: grant.rows[0].id as string,
-      tenantId: tenant.rows[0].id as string,
-    };
-  }
-
   it("admits two distinct connectors on the same allowlisted host", async () => {
     // The user-facing claim. Every ChatGPT connector publishes its own client.json
     // under its own connector id, so each carries a different configuration digest.
@@ -1425,120 +1391,443 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     }
   });
 
-  it("admits a host-allowlisted connector at every stage, and withdraws it at every stage", async () => {
-    // The clause lives in several separate predicates. A missed one does not fail at
-    // authorize -- it fails later, as a connector that signs in and then cannot keep
-    // its session, which reads as an intermittent client bug. Drive one client through
-    // the stages a real connector traverses, then withdraw the host and require
-    // every stage to stop. The negative half is the actual drift guard: if a
-    // predicate ignored the allowlist it would keep admitting after withdrawal.
-    const host = "connector-crossstage.example.test";
-    const clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
-    const redirectUri = `https://${host}/callback`;
-    await pool!.query(
-      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      ["openai", host]
-    );
+  const genericRegistration = {
+    redirectUris: ["http://127.0.0.1:43123/callback"],
+    clientName: "Local agent",
+  };
+
+  it("refuses a further generic registration at its bound while leaving operator and connector slots free", async () => {
+    // Registration is an anonymous write. A flood must exhaust only its own
+    // partition -- never operator control or the ChatGPT and Claude connectors --
+    // and the clients those partitions hold must not shrink it either.
+    const filler = `generic-bound-${randomUUID()}`;
+    const overflow = `generic-overflow-${randomUUID()}`;
+    await setGenericLane(true);
     try {
+      const counted = await pool!.query<{ generic: string; other: string }>(
+        `SELECT count(*) FILTER (WHERE admission_mode = 'generic') AS generic,
+                count(*) FILTER (WHERE admission_mode <> 'generic') AS other
+         FROM exomem_oauth_clients`
+      );
       assert.ok(
-        await registerAdmittedCimdClient(clientId, {
-          fetchCimd: async () => cimdMetadata(clientId, [redirectUri], "cross-stage"),
+        Number(counted.rows[0]!.other) > 0,
+        "the fixture needs clients of other modes, which the generic bound must not count"
+      );
+      await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, client_name
+         )
+         SELECT format('%s-%s', $1::text, step), 'generic', true,
+                '["http://127.0.0.1/callback"]'::jsonb,
+                digest(convert_to('["http://127.0.0.1/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                'Filler'
+         FROM generate_series(1, $2::int) AS step`,
+        [filler, 128 - Number(counted.rows[0]!.generic) - 1]
+      );
+
+      const last = await registerGenericMcpClient(genericRegistration, {
+        newClientId: () => `${filler}-last`,
+      });
+      assert.ok(last, "the last generic slot must be usable while other clients exist");
+      assert.equal(
+        await registerGenericMcpClient(genericRegistration, { newClientId: () => overflow }),
+        null,
+        "a full generic partition must refuse"
+      );
+      assert.equal(
+        (await pool!.query("SELECT 1 FROM exomem_oauth_clients WHERE client_id = $1", [overflow]))
+          .rowCount,
+        0
+      );
+
+      // 128 generic rows would exceed the operator bound of 96 if they counted there.
+      const probe = `https://partition-probe.example.test/${randomUUID()}/client.json`;
+      const free = await pool!.query<{ operator: boolean; connector: boolean }>(
+        `SELECT exomem_oauth_client_partition_available($1, false) AS operator,
+                exomem_oauth_client_partition_available($1, true) AS connector`,
+        [probe]
+      );
+      assert.deepEqual(free.rows[0], { operator: true, connector: true });
+    } finally {
+      await setGenericLane(false);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id LIKE $1", [
+        `${filler}%`,
+      ]);
+    }
+  });
+
+  it("never lets a generic registration rewrite or enable another client", async () => {
+    // Identifiers are server-assigned, so no registration names an existing
+    // client. Should one ever collide, the existing client -- here a disabled
+    // operator-managed one -- must be left exactly as it was.
+    const operatorClientId = `operator-${randomUUID()}`;
+    await setGenericLane(true);
+    try {
+      await pool!.query(
+        `INSERT INTO exomem_oauth_clients (
+           client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+           client_platform, oauth_client_config_sha256
+         ) VALUES ($1, 'pinned', false, '["https://operator.example.test/callback"]'::jsonb,
+                   digest(convert_to('["https://operator.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
+                   'claude', $2)`,
+        [operatorClientId, "e".repeat(64)]
+      );
+      const before = await pool!.query("SELECT * FROM exomem_oauth_clients WHERE client_id = $1", [
+        operatorClientId,
+      ]);
+      assert.equal(
+        await registerGenericMcpClient(genericRegistration, { newClientId: () => operatorClientId }),
+        null
+      );
+      const after = await pool!.query("SELECT * FROM exomem_oauth_clients WHERE client_id = $1", [
+        operatorClientId,
+      ]);
+      assert.deepEqual(after.rows, before.rows);
+    } finally {
+      await setGenericLane(false);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [operatorClientId]);
+    }
+  });
+
+  async function setGenericLane(enabled: boolean): Promise<void> {
+    await pool!.query("UPDATE exomem_oauth_generic_client_lane SET enabled = $1, updated_at = now()", [
+      enabled,
+    ]);
+  }
+
+  /** A browser authorization for `clientId`, as /authorize persists it. */
+  async function beginAuthorization(clientId: string, redirectUri: string) {
+    const transactionDigest = randomBytes(32);
+    const created = await createAuthorizationTransaction({
+      transactionDigest,
+      stateDigest: randomBytes(32),
+      stateEnvelope: {} as SecretEnvelope,
+      formNonceDigest: randomBytes(32),
+      continuationBinding: randomBytes(32),
+      clientId,
+      redirectUri,
+      resource,
+      scopes: ["exomem.read", "exomem.write", "offline_access"],
+      pkceChallenge: "challenge",
+      expiresAt: new Date(Date.now() + 600_000),
+    });
+    return created ? transactionDigest : null;
+  }
+
+  /** An entitled owner with a browser session and a running cell. */
+  async function seedSignedInOwner(): Promise<{ sessionId: string; tenantId: string }> {
+    const user = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email) VALUES ($1) RETURNING id",
+      [`crossstage-${randomUUID()}@example.test`]
+    );
+    const tenant = await pool!.query<{ id: string }>(
+      "INSERT INTO exomem_tenants (owner_user_id) VALUES ($1) RETURNING id",
+      [user.rows[0]!.id]
+    );
+    await pool!.query(
+      `INSERT INTO exomem_entitlements (tenant_id, source, source_state, effective_state)
+       VALUES ($1, 'complimentary', 'active', 'active')`,
+      [tenant.rows[0]!.id]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state) VALUES ($1, $2, 'running')",
+      [randomCloudCellId(), tenant.rows[0]!.id]
+    );
+    const session = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '1 hour') RETURNING id`,
+      [user.rows[0]!.id, tenant.rows[0]!.id, randomBytes(32), randomBytes(32)]
+    );
+    return { sessionId: session.rows[0]!.id, tenantId: tenant.rows[0]!.id };
+  }
+
+  async function seedComplimentaryInvite(): Promise<Buffer> {
+    const inviteDigest = randomBytes(32);
+    await pool!.query(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+         entitlement_limits, created_by_principal_digest, expires_at
+       ) VALUES ($1, $2, 'complimentary', '["capture","recall"]'::jsonb, '{}'::jsonb, $3,
+                 now() + interval '1 day')`,
+      [inviteDigest, `crossstage-invitee-${randomUUID()}@example.test`, randomBytes(32)]
+    );
+    return inviteDigest;
+  }
+
+  // The admission clause lives in eight statements: client resolution, the
+  // authorization transaction, consent, owner attachment, invite admission,
+  // token exchange, refresh and the gateway's token lookup. A missed one does not
+  // fail at authorize -- it fails later, as a client that signs in and then
+  // cannot keep its session, which reads as an intermittent client bug. Drive one
+  // client of each self-registering lane through every stage, then withdraw its
+  // lane and require every stage to stop. The negative half is the drift guard:
+  // a predicate that ignored the lane would keep admitting after withdrawal.
+  //
+  // The host-allowlisted client runs with the generic lane enabled, so a generic
+  // arm that did not check the admission mode would keep admitting it once its
+  // host is withdrawn.
+  for (const lane of ["host-allowlisted", "generic"] as const) {
+    it(`admits a ${lane} client at every stage, and withdraws it at every stage`, async () => {
+      const host = `crossstage-${lane}-${randomUUID()}.example.test`;
+      const redirectUri = `https://${host}/callback`;
+      const capacityNode = `crossstage-${randomUUID()}`;
+      let clientId = "";
+      await setGenericLane(true);
+      await pool!.query(
+        "INSERT INTO exomem_cloud_capacity (node, cell_slots, observed_at) VALUES ($1, 1000, now())",
+        [capacityNode]
+      );
+      try {
+        if (lane === "generic") {
+          const registered = await registerGenericMcpClient({
+            redirectUris: [redirectUri],
+            clientName: "Cross-stage agent",
+          });
+          assert.ok(registered, "registration must succeed while the lane is enabled");
+          clientId = registered!.clientId;
+        } else {
+          clientId = `https://${host}/oauth/${randomUUID()}/client.json`;
+          await pool!.query(
+            "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1)",
+            [host]
+          );
+          assert.ok(
+            await registerAdmittedCimdClient(clientId, {
+              fetchCimd: async () => cimdMetadata(clientId, [redirectUri], "cross-stage"),
+            })
+          );
+        }
+        const owner = await seedSignedInOwner();
+        const exchange = (codeDigest: Buffer, refreshDigest: Buffer, accessDigest: Buffer) =>
+          issueOAuthTokensFromCodeAtomic({
+            codeDigest,
+            clientId,
+            redirectUri,
+            resource,
+            pkceChallenge: "challenge",
+            refreshDigest,
+            refreshExpiresAt: new Date(Date.now() + 3_600_000),
+            accessDigest,
+            accessExpiresAt: new Date(Date.now() + 60_000),
+          });
+        const refresh = (refreshDigest: Buffer, replacement: Buffer, accessDigest: Buffer) =>
+          rotateOAuthRefreshTokenAtomic({
+            refreshDigest,
+            replacementRefreshDigest: replacement,
+            accessDigest,
+            accessExpiresAt: new Date(Date.now() + 60_000),
+            clientId,
+            resource,
+          });
+        const admitInvitee = (inviteDigest: Buffer, transactionDigest: Buffer) =>
+          admitFirstCloudOAuthInviteAtomic({
+            inviteDigest,
+            transactionDigest,
+            sessionDigest: randomBytes(32),
+            csrfDigest: randomBytes(32),
+            sessionExpiresAt: new Date(Date.now() + 3_600_000),
+            codeDigest: randomBytes(32),
+            codeExpiresAt: new Date(Date.now() + 60_000),
+          });
+
+        // Every stage admits.
+        assert.ok(await resolveApprovedCloudOAuthClient(clientId), "authorize must admit");
+        const consentNow = await beginAuthorization(clientId, redirectUri);
+        assert.ok(consentNow, "the authorization transaction must admit");
+        const consentLater = (await beginAuthorization(clientId, redirectUri))!;
+        const codeLaterTransaction = (await beginAuthorization(clientId, redirectUri))!;
+        const inviteNow = (await beginAuthorization(clientId, redirectUri))!;
+        const inviteLater = (await beginAuthorization(clientId, redirectUri))!;
+        assert.ok(await findPendingOAuthAuthorization(consentNow!), "consent must admit");
+        const codeNow = randomBytes(32);
+        assert.ok(
+          await attachExistingOwnerAuthorizationAtomic({
+            sessionId: owner.sessionId,
+            transactionDigest: consentNow!,
+            codeDigest: codeNow,
+            codeExpiresAt: new Date(Date.now() + 60_000),
+          }),
+          "owner attachment must admit"
+        );
+        const codeLater = randomBytes(32);
+        assert.ok(
+          await attachExistingOwnerAuthorizationAtomic({
+            sessionId: owner.sessionId,
+            transactionDigest: codeLaterTransaction,
+            codeDigest: codeLater,
+            codeExpiresAt: new Date(Date.now() + 60_000),
+          })
+        );
+        assert.ok(
+          await admitInvitee(await seedComplimentaryInvite(), inviteNow),
+          "invite admission must admit"
+        );
+        const firstRefresh = randomBytes(32);
+        const firstAccess = randomBytes(32);
+        assert.ok(await exchange(codeNow, firstRefresh, firstAccess), "token exchange must admit");
+        assert.ok(
+          await findCloudOAuthAccessToken(firstAccess, resource),
+          "the gateway's token lookup must admit"
+        );
+        const secondRefresh = randomBytes(32);
+        const secondAccess = randomBytes(32);
+        assert.ok(await refresh(firstRefresh, secondRefresh, secondAccess), "refresh must admit");
+
+        // Vary only the lane under test.
+        if (lane === "generic") await setGenericLane(false);
+        else
+          await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+
+        // Every stage refuses.
+        assert.equal(await resolveApprovedCloudOAuthClient(clientId), null, "authorize must stop");
+        assert.equal(
+          await beginAuthorization(clientId, redirectUri),
+          null,
+          "the authorization transaction must stop"
+        );
+        assert.equal(await findPendingOAuthAuthorization(consentLater), null, "consent must stop");
+        assert.equal(
+          await attachExistingOwnerAuthorizationAtomic({
+            sessionId: owner.sessionId,
+            transactionDigest: consentLater,
+            codeDigest: randomBytes(32),
+            codeExpiresAt: new Date(Date.now() + 60_000),
+          }),
+          null,
+          "owner attachment must stop"
+        );
+        assert.equal(
+          await admitInvitee(await seedComplimentaryInvite(), inviteLater),
+          null,
+          "invite admission must stop"
+        );
+        assert.equal(
+          await exchange(codeLater, randomBytes(32), randomBytes(32)),
+          null,
+          "token exchange must stop"
+        );
+        assert.equal(
+          await findCloudOAuthAccessToken(secondAccess, resource),
+          null,
+          "the gateway's token lookup must stop"
+        );
+        assert.equal(
+          await refresh(secondRefresh, randomBytes(32), randomBytes(32)),
+          null,
+          "refresh must stop"
+        );
+      } finally {
+        await setGenericLane(false);
+        await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
+        await pool!.query("DELETE FROM exomem_cloud_capacity WHERE node = $1", [capacityNode]);
+        // The client owns a grant graph, and the foreign keys say so. Unwind it in
+        // dependency order rather than leaving the row behind, so the
+        // population-bound tests still count clean partitions.
+        await pool!.query(
+          `DELETE FROM exomem_oauth_grants WHERE client_id IN (
+             SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+          [clientId]
+        );
+        await pool!.query(
+          `DELETE FROM exomem_oauth_authorization_transactions WHERE client_id IN (
+             SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+          [clientId]
+        );
+        await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+      }
+    });
+  }
+
+  it("keeps the registration endpoint undiscoverable while disabled, and refuses every request alike", async () => {
+    // A refusal that differed by cause would tell an anonymous caller whether the
+    // lane is on, how full it is, or which rule a probe tripped.
+    const previousKey = process.env.EXOMEM_CONTROL_PLANE_KEY;
+    const previousBaseUrl = process.env.EXOMEM_PUBLIC_BASE_URL;
+    process.env.EXOMEM_CONTROL_PLANE_KEY = Buffer.alloc(32, 9).toString("base64url");
+    process.env.EXOMEM_PUBLIC_BASE_URL = "https://hosted.example.test";
+    const { GET: metadata } =
+      await import("../../../app/.well-known/oauth-authorization-server/api/exomem/oauth/route");
+    const { POST: register } = await import("../../../app/api/exomem/oauth/register/route");
+    const run = randomUUID();
+    const post = (body: unknown, address: string) =>
+      register(
+        new Request("https://hosted.example.test/api/exomem/oauth/register", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `${address}-${run}` },
+          body: typeof body === "string" ? body : JSON.stringify(body),
         })
       );
-      const internal = await pool!.query<{ id: string }>(
-        "SELECT id FROM exomem_oauth_clients WHERE client_id = $1",
-        [clientId]
-      );
-      const clientInternalId = internal.rows[0]!.id;
+    const refusal = async (response: Response) => ({
+      status: response.status,
+      body: await response.text(),
+      headers: [...response.headers].sort(),
+    });
+    const valid = {
+      client_name: "Probe agent",
+      redirect_uris: ["http://127.0.0.1:43123/callback"],
+      token_endpoint_auth_method: "none",
+    };
+    const clients = () => scalar("SELECT count(*) FROM exomem_oauth_clients");
+    const registrationEndpoint = async () =>
+      ((await (await metadata()).json()) as { registration_endpoint?: string })
+        .registration_endpoint;
+    let registeredClientId = "";
+    try {
+      const clientsBefore = await clients();
+      assert.equal(await registrationEndpoint(), undefined, "a disabled lane is not advertised");
+      const disabled = await refusal(await post(valid, "disabled"));
+      assert.equal(disabled.status, 404);
 
-      // 1. /authorize
-      assert.ok(await resolveApprovedCloudOAuthClient(clientId), "authorize must admit");
-
-      // 2. token exchange
-      const first = await seedCodeForClient({
-        clientInternalId,
-        redirectUri,
-        sequence: 900,
-        offlineAccess: true,
-      });
-      const issued = await issueOAuthTokensFromCodeAtomic({
-        codeDigest: first.codeDigest,
-        clientId,
-        redirectUri,
-        resource,
-        pkceChallenge: "challenge",
-        refreshDigest: digest(901),
-        refreshExpiresAt: new Date(Date.now() + 3_600_000),
-        accessDigest: digest(902),
-        accessExpiresAt: new Date(Date.now() + 60_000),
-      });
-      assert.ok(issued, "token exchange must admit");
-
-      // 3. refresh
-      assert.ok(
-        await rotateOAuthRefreshTokenAtomic({
-          refreshDigest: digest(901),
-          replacementRefreshDigest: digest(903),
-          accessDigest: digest(904),
-          accessExpiresAt: new Date(Date.now() + 60_000),
-          clientId,
-          resource,
-        }),
-        "refresh must admit"
-      );
-
-      // Vary only the condition under test.
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-
+      await setGenericLane(true);
       assert.equal(
-        await resolveApprovedCloudOAuthClient(clientId),
-        null,
-        "authorize must stop admitting once the host is withdrawn"
+        await registrationEndpoint(),
+        "https://hosted.example.test/api/exomem/oauth/register"
       );
-      assert.equal(
-        await rotateOAuthRefreshTokenAtomic({
-          refreshDigest: digest(903),
-          replacementRefreshDigest: digest(905),
-          accessDigest: digest(906),
-          accessExpiresAt: new Date(Date.now() + 60_000),
-          clientId,
-          resource,
-        }),
-        null,
-        "refresh must stop admitting once the host is withdrawn"
+      const unsafe = { ...valid, redirect_uris: ["http://agent.example.test/callback"] };
+      assert.deepEqual(await refusal(await post(unsafe, "unsafe")), disabled);
+      assert.deepEqual(await refusal(await post("{not json", "malformed")), disabled);
+      for (let attempt = 0; attempt < EXOMEM_RATE_LIMITS.oauthClientRegisterIp.limit; attempt += 1) {
+        await post(unsafe, "flood");
+      }
+      assert.deepEqual(await refusal(await post(valid, "flood")), disabled, "rate limited");
+      assert.equal(await clients(), clientsBefore, "no refusal writes a client");
+
+      // The MCP SDK's example client asks for a secret it can post. RFC 7591 lets
+      // the server answer with what it actually registered: a public client.
+      const created = await post(
+        {
+          ...valid,
+          token_endpoint_auth_method: "client_secret_post",
+          grant_types: ["authorization_code", "refresh_token"],
+        },
+        "accepted"
       );
-      const second = await seedCodeForClient({
-        clientInternalId,
-        redirectUri,
-        sequence: 910,
-        offlineAccess: true,
+      assert.equal(created.status, 201);
+      const body = (await created.json()) as Record<string, unknown>;
+      registeredClientId = String(body.client_id);
+      assert.equal(body.token_endpoint_auth_method, "none");
+      assert.equal("client_secret" in body, false);
+      // Grant types are neither stored nor enforced per client, so none are reported.
+      assert.equal("grant_types" in body, false);
+      assert.deepEqual(body.redirect_uris, valid.redirect_uris);
+      const stored = await pool!.query(
+        "SELECT admission_mode, client_platform, client_name FROM exomem_oauth_clients WHERE client_id = $1",
+        [registeredClientId]
+      );
+      assert.deepEqual(stored.rows[0], {
+        admission_mode: "generic",
+        client_platform: null,
+        client_name: "Probe agent",
       });
-      assert.equal(
-        await issueOAuthTokensFromCodeAtomic({
-          codeDigest: second.codeDigest,
-          clientId,
-          redirectUri,
-          resource,
-          pkceChallenge: "challenge",
-          refreshDigest: digest(911),
-          refreshExpiresAt: new Date(Date.now() + 3_600_000),
-          accessDigest: digest(912),
-          accessExpiresAt: new Date(Date.now() + 60_000),
-        }),
-        null,
-        "token exchange must stop admitting once the host is withdrawn"
-      );
     } finally {
-      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
-      // The client now owns a grant graph, and the foreign keys say so. Unwind it in
-      // dependency order rather than leaving the row behind, so the population-bound
-      // test that follows still counts a clean partition.
-      await pool!.query(
-        `DELETE FROM exomem_oauth_grants WHERE client_id IN (
-           SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
-        [clientId]
-      );
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [clientId]);
+      await setGenericLane(false);
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
+        registeredClientId,
+      ]);
+      if (previousKey === undefined) delete process.env.EXOMEM_CONTROL_PLANE_KEY;
+      else process.env.EXOMEM_CONTROL_PLANE_KEY = previousKey;
+      if (previousBaseUrl === undefined) delete process.env.EXOMEM_PUBLIC_BASE_URL;
+      else process.env.EXOMEM_PUBLIC_BASE_URL = previousBaseUrl;
     }
   });
 

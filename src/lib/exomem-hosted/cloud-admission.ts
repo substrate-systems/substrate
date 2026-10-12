@@ -428,7 +428,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         WHERE transaction.transaction_digest = ${input.transactionDigest}
           AND transaction.consumed_at IS NULL AND transaction.expires_at > now()
           AND transaction.resource = ${cloudResource}
-          AND (client.admission_mode = 'pinned' OR (
+          AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR (
             client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
             AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
             AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL

@@ -43,14 +43,16 @@ export type ApprovedCloudOAuthClient = {
   id: string;
   clientId: string;
   redirectUris: string[];
-  admissionMode: "pinned" | "cimd";
+  admissionMode: "pinned" | "cimd" | "generic";
 };
 
 /**
  * Cloud client admission (D2): enabled, redirect digest match, and — for a
  * self-registering CIMD client — a fresh metadata document served from a
- * host on the operator-curated allowlist. No whole-cohort check, no
- * reviewer-credential branch: Cloud has no cohort or candidate concept.
+ * host on the operator-curated allowlist. A generic MCP client is admitted
+ * while the generic lane is enabled (`exomem_oauth_generic_client_admitted`,
+ * admit-generic-mcp-clients). No whole-cohort check, no reviewer-credential
+ * branch: Cloud has no cohort or candidate concept.
  */
 export async function resolveApprovedCloudOAuthClient(
   clientId: string
@@ -61,10 +63,11 @@ export async function resolveApprovedCloudOAuthClient(
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
       AND redirect_uris_digest = digest(convert_to(redirect_uris::text, 'utf8'), 'sha256')
-      AND admission_mode IN ('pinned', 'cimd')
+      AND admission_mode IN ('pinned', 'cimd', 'generic')
       AND enabled = true
       AND (
         admission_mode = 'pinned'
+        OR exomem_oauth_generic_client_admitted(client.admission_mode)
         OR (
           metadata_document_digest IS NOT NULL
           AND metadata_fetched_at IS NOT NULL
@@ -80,7 +83,12 @@ export async function resolveApprovedCloudOAuthClient(
     LIMIT 1
   `;
   const row = rows[0] as
-    | { id: string; client_id: string; redirect_uris: string[]; admission_mode: "pinned" | "cimd" }
+    | {
+        id: string;
+        client_id: string;
+        redirect_uris: string[];
+        admission_mode: ApprovedCloudOAuthClient["admissionMode"];
+      }
     | undefined;
   return row
     ? {
@@ -149,6 +157,7 @@ export async function findCloudOAuthAccessToken(
      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
      AND (
        client.admission_mode = 'pinned'
+       OR exomem_oauth_generic_client_admitted(client.admission_mode)
        OR (
          client.metadata_document_digest IS NOT NULL
          AND client.metadata_fetched_at IS NOT NULL

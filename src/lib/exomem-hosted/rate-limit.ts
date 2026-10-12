@@ -57,6 +57,14 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 5,
     windowSeconds: 10 * 60,
   },
+  // Generic client registration (RFC 7591) is the same class of unauthenticated
+  // write as CIMD auto-registration, without the outbound fetch, and a real
+  // client registers once per install. Its population bound is the backstop.
+  oauthClientRegisterIp: {
+    scope: "exomem:oauth-client-register:ip",
+    limit: 5,
+    windowSeconds: 10 * 60,
+  },
   oauthTokenIp: {
     scope: "exomem:oauth-token:ip",
     limit: 30,

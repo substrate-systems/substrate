@@ -114,13 +114,21 @@ function issuerUrl(baseUrl: string): string {
   return `${parseExomemPublicBaseUrl(baseUrl)}${OAUTH_PATH}`;
 }
 
-export function buildAuthorizationServerMetadata(baseUrl: string): Record<string, unknown> {
+/**
+ * RFC 8414 metadata. `registration_endpoint` appears only while the generic
+ * client lane admits clients, so a disabled lane is not discoverable.
+ */
+export function buildAuthorizationServerMetadata(
+  baseUrl: string,
+  options: { registrationEnabled?: boolean } = {}
+): Record<string, unknown> {
   const issuer = issuerUrl(baseUrl);
   return {
     issuer,
     authorization_endpoint: `${issuer}/authorize`,
     token_endpoint: `${issuer}/token`,
     revocation_endpoint: `${issuer}/revoke`,
+    ...(options.registrationEnabled ? { registration_endpoint: `${issuer}/register` } : {}),
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],

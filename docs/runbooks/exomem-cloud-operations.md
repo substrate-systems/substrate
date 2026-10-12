@@ -69,7 +69,8 @@ client must re-authorize.
 A client is admitted when it is enabled and either pinned or serving a valid
 metadata document from a host in `exomem_oauth_admitted_cimd_hosts`
 (`chatgpt.com` → `openai`, `claude.ai` → `claude`). Clients on an admitted host
-register and refresh themselves on contact with `/authorize`.
+register and refresh themselves on contact with `/authorize`. Generic clients
+have their own lane; see "Generic MCP clients" below.
 
 To withdraw one, delete its allowlist row. Setting `enabled = false` on the
 client is not a durable off switch, because the next anonymous contact
@@ -84,6 +85,88 @@ lapse is not a revocation and burns no refresh token.
 Operator registration and enabling of a pinned client still check the legacy
 Hosted staged-release and artifact rows. A follow-up change must replace that
 authority before a new pinned client can be registered.
+
+### Generic MCP clients
+
+A generic client is an MCP client that no marketplace distributes, such as
+Codex CLI or a hand-written agent. It registers itself through RFC 7591 dynamic
+client registration at `/api/exomem/oauth/register`. It has no platform and no
+metadata host. The lane ships disabled.
+
+What the lane widens: any program can register and ask for authorization. The
+invite stays the only way to a tenant. A generic client reaches an account only
+when the person who signs in already owns one, or holds an unspent invite. PKCE
+S256, exact redirect matching, single-use codes and resource binding apply as
+for every other client.
+
+Attribution is lost once the lane is enabled. Admission state cannot tell which
+software wrote a memory. A generic client may name itself in `client_name`, and
+nothing verifies that name: a generic client can call itself "Claude". The
+consent page and Home must show the name as the client's own claim. A client
+that declares no readable name has none stored.
+
+Registration has these bounds:
+
+- 5 registrations in 10 minutes per IPv4 address, or per IPv6 /64.
+- 128 generic clients in total, counted apart from operator and CIMD clients.
+  Nothing frees a slot. When the partition is full, every new registration is
+  refused. Count it with
+  `SELECT count(*) FROM exomem_oauth_clients WHERE admission_mode = 'generic';`.
+- Every refusal answers `404` with an empty body, whatever the cause. The log
+  event `exomem_oauth_register_rejection` names the stage, never a request value.
+
+Deploy order: the web deploy applies migration 0062 and the grants script. The
+gateway reads the lane on every token lookup, for every client. Roll a gateway
+image that contains the generic arm only after that web deploy, or every MCP
+call fails.
+
+Enable the lane only when all of these are true:
+
+- Slot reclaim covers the generic partition (`reclaim-oauth-client-slots`).
+  Without it, the partition fills once and stays full.
+- An independent review has checked that the consent page names the client
+  and its scopes plainly, and shows the client's name as its own claim.
+- One real third-party MCP client, such as Codex CLI, has completed
+  registration, authorization, tool discovery and a durable capture in a test
+  environment with the lane enabled.
+
+To enable the lane:
+
+1. Run this statement against the production database:
+   ```sql
+   UPDATE exomem_oauth_generic_client_lane SET enabled = true, updated_at = now();
+   ```
+2. Request `/.well-known/oauth-authorization-server/api/exomem/oauth`.
+
+The document now includes `registration_endpoint`.
+
+To withdraw the lane in one action:
+
+1. Run this statement against the production database:
+   ```sql
+   UPDATE exomem_oauth_generic_client_lane SET enabled = false, updated_at = now();
+   ```
+2. Request the metadata document again.
+
+The document has no `registration_endpoint`, and the registration endpoint
+answers `404`. Every generic client stops at every stage at once: authorization,
+consent, token exchange, refresh and MCP calls through the gateway. Operator and
+CIMD clients are not affected.
+
+Withdrawal suspends live grants; it does not revoke them. Grant and token rows
+stay, and enabling the lane again lets unexpired tokens and refresh families work
+again. To end them for good, revoke every generic token family:
+
+```sql
+UPDATE exomem_oauth_token_families AS family
+SET revoked_at = COALESCE(family.revoked_at, now()),
+    revoked_reason = COALESCE(family.revoked_reason, 'operator_revoked')
+FROM exomem_oauth_clients AS client
+WHERE family.client_id = client.id AND client.admission_mode = 'generic';
+```
+
+To stop one generic client, set `enabled = false` on its row. This is durable:
+registration never rewrites an existing row.
 
 ### OpenAI domain proof
 

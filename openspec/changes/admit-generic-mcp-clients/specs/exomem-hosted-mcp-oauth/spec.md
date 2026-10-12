@@ -38,7 +38,7 @@ A client that no marketplace distributes SHALL be admissible without a promoted 
 
 The generic arm SHALL be present in every admission predicate in the system — authorization, consent, owner attachment, invite admission, token exchange, bearer use, the MCP lookup, and refresh — so that a client admitted at one stage is admitted at all of them.
 
-Pinned-digest and host-allowlist admission SHALL be unchanged in behaviour. A certified client SHALL still require a live cohort for its own platform.
+Pinned and host-allowlist admission SHALL be unchanged in behaviour. Adding the generic arm SHALL NOT admit a client of any other mode.
 
 #### Scenario: A generic client authorizes and calls MCP
 
@@ -52,14 +52,14 @@ Pinned-digest and host-allowlist admission SHALL be unchanged in behaviour. A ce
 
 #### Scenario: Certified admission is unaffected
 
-- **WHEN** a pinned-digest or host-allowlist client authorizes while the generic lane is enabled
-- **THEN** it is admitted on exactly the terms it was before, still requiring a live cohort for its own platform
+- **WHEN** a pinned or host-allowlist client authorizes while the generic lane is enabled
+- **THEN** it is admitted on exactly the terms it was before
+- **AND** withdrawing its host still stops a host-allowlist client at every stage
 
-#### Scenario: A generic client is refused where no platform cohort exists
+#### Scenario: A generic client is admitted where no platform cohort exists
 
 - **WHEN** a generic client authorizes while no cohort is live for any platform
 - **THEN** admission succeeds on the generic arm, because generic admission does not depend on cohort liveness
-- **AND** a certified client in the same state is still refused
 
 ### Requirement: Generic Admission Is Disabled Until Deliberately Enabled
 
@@ -80,9 +80,9 @@ While disabled, the authorization server metadata document SHALL NOT advertise a
 
 ### Requirement: Dynamic Client Registration Is Bounded And Non-Enumerating
 
-Registration SHALL follow RFC 7591, accept only clients requesting PKCE-capable authorization code flow with `token_endpoint_auth_method` of `none`, and validate every redirect URI as https without credentials or fragment and within a bounded length, additionally permitting loopback http for local clients that are served from no host.
+Registration SHALL follow RFC 7591 and register every client as a public client using the PKCE authorization code flow, with `token_endpoint_auth_method` of `none`. A request for a client-secret method SHALL be answered with `none`, as RFC 7591 permits; a request for a method that needs a client-held key SHALL be refused. Every redirect URI SHALL be an already-canonical https URL without credentials or fragment and within a bounded length, additionally permitting loopback http for local clients that are served from no host. The response SHALL report only what the server honours for the client.
 
-Registration SHALL be rate limited per requesting address, and SHALL occupy a population partition separate from operator-registered and auto-registered CIMD clients, so that an anonymous flood exhausts only its own partition.
+Registration SHALL be rate limited per requesting address, keying an IPv6 address by its /64, and SHALL occupy a population partition separate from operator-registered and auto-registered CIMD clients, so that an anonymous flood exhausts only its own partition.
 
 A registration request SHALL NOT be able to create, modify, enable or rewrite a client of any other admission mode. Every failure SHALL return one indistinguishable response, disclosing nothing about existing clients, admitted hosts, or whether the lane is enabled.
 

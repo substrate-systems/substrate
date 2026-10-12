@@ -19,6 +19,9 @@ export const CIMD_TIMEOUT_MS = 3_000;
 export const CIMD_MIN_TTL_SECONDS = 300;
 export const CIMD_MAX_TTL_SECONDS = 604_800;
 export const CIMD_DEFAULT_TTL_SECONDS = 86_400;
+// Matches exomem_oauth_clients_client_name_valid (migration 0062), which is the
+// authority: a longer value would fail the insert, not be stored.
+const MAX_OAUTH_CLIENT_NAME_LENGTH = 64;
 
 export type OAuthClientAdmissionMode = "pinned" | "cimd";
 
@@ -44,6 +47,19 @@ export type CimdFetchedMetadata = {
     redirect_uris: string[];
     token_endpoint_auth_method: "none";
   };
+  /** The document's `client_name`, sanitised; absent or unusable reads as null. */
+  clientName?: string | null;
+};
+
+/**
+ * A validated RFC 7591 registration for a generic MCP client. Nothing here is
+ * trusted for admission: the client is a public client that proves possession
+ * through PKCE S256 at every authorization, and tenancy still needs an invite.
+ */
+export type GenericClientRegistration = {
+  redirectUris: string[];
+  /** The declared name, sanitised; null when the client declared no readable one. */
+  clientName: string | null;
 };
 
 function configuredHosts(value: string | undefined): string[] {
@@ -163,6 +179,120 @@ export function isSafeLoopbackOAuthRedirect(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Redirect rule for a generic (dynamically registered) client. Nobody vouches
+ * for such a client, so it gets the self-registration rule rather than the
+ * operator one: https without credentials or fragment, bounded, or loopback
+ * http for a local agent that is served from no host (RFC 8252 section 7.3).
+ * It is `safeRedirectUri` with no operator-configured cleartext hosts.
+ *
+ * The value must also already be its own canonical URL. `new URL` repairs what
+ * it parses: it drops tabs and newlines, so "https://good.example\n.evil.example/cb"
+ * delivers codes to good.example.evil.example, and it keeps an empty "#" that
+ * the fragment check cannot see. The redirect is matched as a string and
+ * delivered as a URL, so the two readings must agree. The cost is that a client
+ * registering a non-canonical spelling, such as an upper-case host, is refused.
+ */
+function isGenericClientRedirect(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    // ASCII controls, space, DEL and "#": characters URL parsing drops or reads
+    // as a fragment delimiter.
+    if (code <= 0x20 || code === 0x7f || character === "#") return false;
+  }
+  try {
+    if (new URL(value).href !== value) return false;
+  } catch {
+    return false;
+  }
+  return safeRedirectUri(value, []);
+}
+
+// Characters that let a declared name render as something other than the text
+// it holds: Unicode "Other" (controls, bidi overrides, zero-width joiners,
+// surrogates, private-use and unassigned code points), default-ignorable code
+// points (such as the Hangul fillers), and U+2800 BRAILLE PATTERN BLANK, a
+// symbol that renders as nothing and that no Unicode property marks as blank.
+// This checks the shape of display text, not what the name means.
+const UNDISPLAYABLE_NAME_CHARACTERS = /[\p{C}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+// A name must show at least one letter, number or symbol. Marks alone, such as
+// a run of combining accents, render as nothing a person can read.
+const VISIBLE_NAME_CHARACTER = /[\p{L}\p{N}\p{S}]/u;
+
+/**
+ * A client's self-declared `client_name` (RFC 7591 section 2, and the same field
+ * in a Client ID Metadata Document), made safe to show. Returns null when the
+ * value is not a string or holds nothing a person can read.
+ */
+export function sanitizeOAuthClientName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = value
+    .normalize("NFC")
+    // A space, not nothing, so a hidden character cannot join two visible words.
+    .replace(UNDISPLAYABLE_NAME_CHARACTERS, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const bounded = Array.from(cleaned).slice(0, MAX_OAUTH_CLIENT_NAME_LENGTH).join("").trimEnd();
+  return VISIBLE_NAME_CHARACTER.test(bounded) ? bounded : null;
+}
+
+// RFC 7591 section 2 grant types this server can serve. Fixed by the
+// authorization server metadata (`grant_types_supported`), not by any client.
+const GENERIC_CLIENT_GRANT_TYPES = new Set(["authorization_code", "refresh_token"]);
+// Token endpoint methods a registration may ask for. This server holds no client
+// secrets, so it registers every one of these as `none` and says so in the
+// response (RFC 7591 section 3.2.1 lets the server substitute a value). A
+// method that authenticates with a key the client holds is refused instead.
+const GENERIC_CLIENT_AUTH_METHODS = new Set([
+  undefined,
+  "none",
+  "client_secret_post",
+  "client_secret_basic",
+]);
+
+function optionalStringList(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) return null;
+  return value;
+}
+
+/**
+ * Validate an RFC 7591 registration request from a generic MCP client.
+ *
+ * Returns null for every refusal; the caller answers all of them identically.
+ * Every registered client is a public client that proves possession through
+ * PKCE S256 (see `GENERIC_CLIENT_AUTH_METHODS`). A request that names its own
+ * `client_id` or `client_secret` is refused, because both are server-assigned:
+ * honouring a requested identifier is how a registration would reach an
+ * existing client.
+ */
+export function validateGenericClientRegistration(body: unknown): GenericClientRegistration | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const request = body as Record<string, unknown>;
+  if ("client_id" in request || "client_secret" in request) return null;
+  if (!GENERIC_CLIENT_AUTH_METHODS.has(request.token_endpoint_auth_method as string | undefined)) {
+    return null;
+  }
+  if (!exactStringList(request.redirect_uris)) return null;
+  const redirectUris = request.redirect_uris;
+  if (!redirectUris.every(isGenericClientRedirect)) return null;
+
+  const responseTypes = optionalStringList(request.response_types);
+  if (!responseTypes || responseTypes.some((type) => type !== "code")) return null;
+  const requestedGrants = optionalStringList(request.grant_types);
+  if (!requestedGrants || requestedGrants.some((type) => !GENERIC_CLIENT_GRANT_TYPES.has(type))) {
+    return null;
+  }
+  // The server neither stores nor enforces grant types per client; a request
+  // for a flow it cannot serve at all is still refused.
+  if (requestedGrants.length > 0 && !requestedGrants.includes("authorization_code")) return null;
+
+  return {
+    redirectUris: [...redirectUris],
+    clientName: sanitizeOAuthClientName(request.client_name),
+  };
 }
 
 function exactStringList(value: unknown): value is string[] {
@@ -437,5 +567,8 @@ export function parseCimdDocument(raw: string, clientId: string): CimdFetchedMet
       redirect_uris: candidate.redirect_uris,
       token_endpoint_auth_method: "none",
     },
+    // A display field only: an unusable name reads as none rather than refusing
+    // a document that is otherwise admissible.
+    clientName: sanitizeOAuthClientName(candidate.client_name),
   };
 }

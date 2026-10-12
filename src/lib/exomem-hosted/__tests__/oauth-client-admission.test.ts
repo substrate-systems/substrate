@@ -10,6 +10,8 @@ import {
   oauthClientConfigSha256,
   operatorOAuthClientFingerprint,
   parseCimdDocument,
+  sanitizeOAuthClientName,
+  validateGenericClientRegistration,
 } from "../oauth-client-admission";
 
 function isInvalidRequest(error: unknown): boolean {
@@ -296,5 +298,104 @@ describe("operator OAuth client admission", () => {
     const web = ["https://claude.ai/api/mcp/auth_callback"];
     assert.equal(redirectUriApproved(web, "https://claude.ai/api/mcp/auth_callback"), true);
     assert.equal(redirectUriApproved(web, "https://claude.ai:8443/api/mcp/auth_callback"), false);
+  });
+});
+
+describe("generic MCP client registration", () => {
+  const valid = {
+    client_name: "Local agent",
+    redirect_uris: ["http://127.0.0.1:43123/callback", "https://agent.example.test/oauth/callback"],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  };
+
+  it("registers a public client with https or loopback redirects", () => {
+    assert.deepEqual(validateGenericClientRegistration(valid), {
+      redirectUris: valid.redirect_uris,
+      clientName: "Local agent",
+    });
+    // RFC 7591 lets the server substitute a method it supports, and this server
+    // holds no secrets. A client that names no method, or asks for a secret the
+    // way the MCP SDK's example client does, registers as public.
+    for (const method of [undefined, "client_secret_post", "client_secret_basic"]) {
+      assert.ok(
+        validateGenericClientRegistration({ ...valid, token_endpoint_auth_method: method }),
+        `${method ?? "no method"} must register as public`
+      );
+    }
+  });
+
+  it("refuses an unsafe redirect, a non-public client and a requested identifier", () => {
+    for (const [reason, change] of [
+      ["cleartext off loopback", { redirect_uris: ["http://agent.example.test/callback"] }],
+      ["credentials", { redirect_uris: ["https://user:pass@agent.example.test/callback"] }],
+      ["fragment", { redirect_uris: ["https://agent.example.test/callback#code"] }],
+      // `new URL` would drop the newline and deliver to good.example.evil.example.
+      ["hidden newline", { redirect_uris: ["https://good.example\n.evil.example/cb"] }],
+      ["empty fragment", { redirect_uris: ["https://agent.example.test/callback#"] }],
+      ["non-canonical spelling", { redirect_uris: ["https://AGENT.example.test/callback"] }],
+      ["over-long", { redirect_uris: [`https://agent.example.test/${"a".repeat(1024)}`] }],
+      ["private-use scheme", { redirect_uris: ["agent.example://oauth/callback"] }],
+      ["no redirect", { redirect_uris: [] }],
+      [
+        "repeated redirect",
+        { redirect_uris: ["https://a.example.test/cb", "https://a.example.test/cb"] },
+      ],
+      ["client-held key", { token_endpoint_auth_method: "private_key_jwt" }],
+      ["implicit flow", { response_types: ["token"] }],
+      ["client credentials", { grant_types: ["client_credentials"] }],
+      ["refresh without code", { grant_types: ["refresh_token"] }],
+      // Identifiers are server-assigned. Honouring a requested one is how a
+      // registration would reach an operator's or a connector's existing client.
+      ["requested client_id", { client_id: "https://chatgpt.com/oauth/abc/client.json" }],
+      ["requested secret", { client_secret: "chosen" }],
+    ] as const) {
+      assert.equal(
+        validateGenericClientRegistration({ ...valid, ...change }),
+        null,
+        `${reason} must be refused`
+      );
+    }
+    assert.equal(validateGenericClientRegistration([valid]), null);
+  });
+
+  it("shows a declared client name as plain text, and stores none for a name nobody can read", () => {
+    // A right-to-left override or a zero-width character makes a name render as
+    // something other than the text it holds; each becomes a visible space.
+    assert.equal(sanitizeOAuthClientName("Agent\u202Eedoc\u200B CLI\n\tv2"), "Agent edoc CLI v2");
+    assert.equal(sanitizeOAuthClientName("x".repeat(200))?.length, 64);
+    for (const [reason, name] of [
+      ["zero-width and control", "\u200B \u0007"],
+      ["Hangul filler", "\u3164\u3164"],
+      ["Braille blank", "\u2800"],
+      ["combining marks only", "\u0301\u0302\u0303"],
+      ["not a string", 42],
+    ] as const) {
+      assert.equal(sanitizeOAuthClientName(name), null, `${reason} must store no name`);
+    }
+    assert.equal(
+      validateGenericClientRegistration({ ...valid, client_name: "\u3164" })?.clientName,
+      null
+    );
+  });
+
+  it("keeps a CIMD document's declared name, and admits a document whose name is unusable", () => {
+    const clientId = "https://chatgpt.example.test/oauth/AbCdEf/client.json";
+    const document = {
+      client_id: clientId,
+      redirect_uris: ["https://chatgpt.example.test/connector/oauth/AbCdEf"],
+      token_endpoint_auth_method: "none",
+    };
+    assert.equal(
+      parseCimdDocument(JSON.stringify({ ...document, client_name: " ChatGPT\u202E " }), clientId)
+        .clientName,
+      "ChatGPT"
+    );
+    assert.equal(
+      parseCimdDocument(JSON.stringify({ ...document, client_name: ["ChatGPT"] }), clientId)
+        .clientName,
+      null
+    );
   });
 });

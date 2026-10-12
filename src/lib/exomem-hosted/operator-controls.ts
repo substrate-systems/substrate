@@ -17,7 +17,7 @@ import {
 export type OperatorOAuthClient = {
   id: string;
   enabled: boolean;
-  admissionMode: "pinned" | "cimd";
+  admissionMode: "pinned" | "cimd" | "generic";
   clientFingerprint: string;
   redirectDigest: string;
   redirectCount: number;
@@ -47,7 +47,11 @@ export async function listOperatorOAuthClients(): Promise<OperatorOAuthClient[]>
     if (
       typeof row.id !== "string" ||
       typeof row.enabled !== "boolean" ||
-      (row.admission_mode !== "pinned" && row.admission_mode !== "cimd") ||
+      // A mode outside the schema's closed set drops the row; a known mode the
+      // list omitted would hide registered clients from the operator.
+      (row.admission_mode !== "pinned" &&
+        row.admission_mode !== "cimd" &&
+        row.admission_mode !== "generic") ||
       typeof redirectCount !== "number" ||
       !Number.isSafeInteger(redirectCount) ||
       !(redirectDigest instanceof Uint8Array) ||
@@ -245,7 +249,7 @@ export async function registerOperatorOAuthClient(
         client_id, admission_mode, enabled, metadata_provenance, redirect_uris,
         redirect_uris_digest, metadata_document_digest, metadata_fetched_at,
         metadata_ttl_seconds, metadata_expires_at, cimd_host, client_platform,
-        oauth_client_config_sha256, authority_version
+        oauth_client_config_sha256, authority_version, client_name
       )
       SELECT ${registration.clientId}, ${registration.admissionMode}, false,
              ${metadataProvenance({
@@ -267,7 +271,7 @@ export async function registerOperatorOAuthClient(
                ELSE NULL END,
              ${fetched ? new URL(registration.clientId).hostname.toLowerCase() : null},
              ${registration.platform}, ${configSha256},
-             gen_random_uuid()
+             gen_random_uuid(), ${fetched?.clientName ?? null}
       FROM available CROSS JOIN authority
       WHERE available.allowed
       ON CONFLICT (client_id) DO UPDATE
@@ -282,6 +286,7 @@ export async function registerOperatorOAuthClient(
           cimd_host = EXCLUDED.cimd_host,
           client_platform = EXCLUDED.client_platform,
           oauth_client_config_sha256 = EXCLUDED.oauth_client_config_sha256,
+          client_name = EXCLUDED.client_name,
           enabled = CASE
             WHEN exomem_oauth_clients.oauth_client_config_sha256 IS NULL THEN false
             ELSE exomem_oauth_clients.enabled
@@ -366,6 +371,7 @@ export async function refreshOperatorCimdOAuthClient(
             documentDigest: documentDigest(fetched.raw),
           })}::jsonb,
           cimd_host = ${new URL(refreshed.clientId).hostname.toLowerCase()},
+          client_name = ${fetched.clientName ?? null},
           enabled = CASE
             WHEN metadata_document_digest = ${documentDigest(fetched.raw)}
              AND redirect_uris_digest = digest(convert_to(${JSON.stringify(refreshed.redirectUris)}::jsonb::text, 'utf8'), 'sha256')

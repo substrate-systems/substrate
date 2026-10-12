@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import {
   CIMD_DEFAULT_TTL_SECONDS,
@@ -8,6 +9,7 @@ import {
   cimdRedirectsAdmissible,
   oauthClientConfigSha256,
   type CimdFetchedMetadata,
+  type GenericClientRegistration,
 } from "./oauth-client-admission";
 import type { SecretEnvelope } from "./security";
 import { loadExomemCloudResource } from "./cloud-config";
@@ -121,7 +123,7 @@ export async function registerAdmittedCimdClient(
         client_id, admission_mode, enabled, auto_registered, metadata_provenance,
         redirect_uris, redirect_uris_digest, metadata_document_digest,
         metadata_fetched_at, metadata_ttl_seconds, metadata_expires_at, cimd_host,
-        client_platform, oauth_client_config_sha256, authority_version
+        client_platform, oauth_client_config_sha256, authority_version, client_name
       )
       SELECT ${clientId}, 'cimd', true, true, ${provenance}::jsonb,
              ${redirectJson}::jsonb,
@@ -129,7 +131,8 @@ export async function registerAdmittedCimdClient(
              ${documentDigest(fetched.raw)},
              now(), ${CIMD_DEFAULT_TTL_SECONDS},
              now() + (${CIMD_DEFAULT_TTL_SECONDS} * interval '1 second'),
-             ${host}, ${platform}, ${configSha256}, gen_random_uuid()
+             ${host}, ${platform}, ${configSha256}, gen_random_uuid(),
+             ${fetched.clientName ?? null}
       FROM available
       WHERE available.allowed
       ON CONFLICT (client_id) DO UPDATE
@@ -143,6 +146,7 @@ export async function registerAdmittedCimdClient(
           cimd_host = EXCLUDED.cimd_host,
           client_platform = EXCLUDED.client_platform,
           oauth_client_config_sha256 = EXCLUDED.oauth_client_config_sha256,
+          client_name = EXCLUDED.client_name,
           enabled = true,
           authority_version = gen_random_uuid(),
           updated_at = now()
@@ -170,6 +174,78 @@ export async function registerAdmittedCimdClient(
         }
       : null;
   });
+}
+
+type RegisteredGenericMcpClient = {
+  clientId: string;
+  clientName: string | null;
+  redirectUris: string[];
+  issuedAt: Date;
+};
+
+/**
+ * Register a generic MCP client (RFC 7591) while the generic lane is enabled.
+ *
+ * Registration grants a row, not access. The client still has to be admitted at
+ * every stage by `exomem_oauth_generic_client_admitted`, and it reaches a tenant
+ * only where an invite or an existing ownership already entitles the person who
+ * signs in. Nothing here creates a tenant, entitlement, grant or token.
+ *
+ * The identifier is always server-assigned, so this path can create a generic
+ * client and nothing else: it never names, enables or rewrites an existing row.
+ * Returns null on every refusal (lane disabled, partition full, collision), and
+ * the caller must answer all of them identically.
+ */
+export async function registerGenericMcpClient(
+  registration: GenericClientRegistration,
+  dependencies: { newClientId?: () => string } = {}
+): Promise<RegisteredGenericMcpClient | null> {
+  const clientId = (dependencies.newClientId ?? randomUUID)();
+  const redirectJson = JSON.stringify(registration.redirectUris);
+  const provenance = JSON.stringify({ version: 1, mode: "generic" });
+  return withExomemTransaction(async (tx) => {
+    // Serialises registrations. Under READ COMMITTED the insert below then counts
+    // every registration committed before it, so a concurrent burst cannot push
+    // the partition past its bound.
+    await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-oauth-generic-client-registration'))`;
+    const { rows } = await tx`
+      /* exomem:register-generic-mcp-client */
+      INSERT INTO exomem_oauth_clients (
+        client_id, admission_mode, enabled, auto_registered, metadata_provenance,
+        redirect_uris, redirect_uris_digest, client_name, authority_version
+      )
+      SELECT ${clientId}, 'generic', true, false, ${provenance}::jsonb,
+             ${redirectJson}::jsonb,
+             digest(convert_to(${redirectJson}::jsonb::text, 'utf8'), 'sha256'),
+             ${registration.clientName}, gen_random_uuid()
+      -- Register only while a generic client would be admitted, and only into
+      -- the generic partition, in the same statement as the insert.
+      WHERE exomem_oauth_generic_client_admitted('generic')
+        AND exomem_oauth_generic_client_partition_available()
+      ON CONFLICT (client_id) DO NOTHING
+      RETURNING client_id, client_name, redirect_uris, created_at
+    `;
+    const row = rows[0] as
+      | { client_id: string; client_name: string | null; redirect_uris: string[]; created_at: Date }
+      | undefined;
+    return row
+      ? {
+          clientId: row.client_id,
+          clientName: row.client_name,
+          redirectUris: row.redirect_uris,
+          issuedAt: row.created_at,
+        }
+      : null;
+  });
+}
+
+/** Whether the generic lane admits clients now; the metadata document advertises registration only then. */
+export async function genericClientLaneEnabled(): Promise<boolean> {
+  const { rows } = await executeExomemSql`
+    /* exomem:generic-client-lane-enabled */
+    SELECT exomem_oauth_generic_client_admitted('generic') AS enabled
+  `;
+  return rows[0]?.enabled === true;
 }
 
 export async function createAuthorizationTransaction(input: {
@@ -235,14 +311,14 @@ export async function createAuthorizationTransaction(input: {
         SELECT 1 FROM expired_bootstraps AS expired
         WHERE expired.oauth_client_id = client.id
       )
-      AND (client.admission_mode = 'pinned' OR (
+      AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR (
         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
         AND client.metadata_expires_at > cutoff.at AND client.cimd_host IS NOT NULL
       ))
       AND client.enabled = true
       AND (
-        client.admission_mode = 'pinned' OR EXISTS (
+        client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR EXISTS (
           SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
           WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
         )
@@ -261,6 +337,13 @@ export async function createAuthorizationTransaction(input: {
 
 export type PendingOAuthAuthorization = {
   clientId: string;
+  /**
+   * The name the client gave itself (`exomem_oauth_clients.client_name`): the
+   * sanitised `client_name` from its RFC 7591 registration or its metadata
+   * document. Null when the client declared no readable name. It is
+   * self-asserted, so the consent page must show it as the client's own claim.
+   */
+  clientName: string | null;
   reviewerCredentialId: string | null;
   redirectUri: string;
   resource: string;
@@ -278,7 +361,7 @@ export async function findPendingOAuthAuthorization(
   return withCohortLock(async (tx) => {
     const { rows } = await tx`
     /* exomem:find-pending-oauth-authorization */
-    SELECT client.client_id, transaction.reviewer_credential_id, transaction.redirect_uri, transaction.resource,
+    SELECT client.client_id, client.client_name, transaction.reviewer_credential_id, transaction.redirect_uri, transaction.resource,
            transaction.requested_scopes, transaction.state_envelope, transaction.state_digest,
            transaction.form_nonce_digest, transaction.continuation_binding, transaction.pkce_challenge
     FROM exomem_oauth_authorization_transactions AS transaction
@@ -287,7 +370,7 @@ export async function findPendingOAuthAuthorization(
       AND transaction.consumed_at IS NULL
       AND transaction.expires_at > now()
       AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
-      AND (client.admission_mode = 'pinned' OR (
+      AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR (
         client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
         AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
         AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
@@ -296,7 +379,7 @@ export async function findPendingOAuthAuthorization(
       AND transaction.candidate_id IS NULL
       AND client.enabled = true
       AND (
-        client.admission_mode = 'pinned' OR EXISTS (
+        client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR EXISTS (
           SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
           WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
         )
@@ -306,6 +389,7 @@ export async function findPendingOAuthAuthorization(
     const row = rows[0] as
       | {
           client_id: string;
+          client_name: string | null;
           reviewer_credential_id: string | null;
           redirect_uri: string;
           resource: string;
@@ -320,6 +404,7 @@ export async function findPendingOAuthAuthorization(
     return row
       ? {
           clientId: row.client_id,
+          clientName: row.client_name ?? null,
           reviewerCredentialId: row.reviewer_credential_id ?? null,
           redirectUri: row.redirect_uri,
           resource: row.resource,
@@ -400,7 +485,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
       FROM exomem_oauth_authorization_transactions AS transaction
       JOIN exomem_oauth_clients AS client ON client.id = transaction.client_id
         AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
-        AND (client.admission_mode = 'pinned' OR (
+        AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR (
           client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
           AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
           AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
@@ -425,7 +510,7 @@ export async function attachExistingOwnerAuthorizationAtomic(input: {
         AND transaction.candidate_id IS NULL
         AND client.enabled = true
         AND (
-          client.admission_mode = 'pinned' OR EXISTS (
+          client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR EXISTS (
             SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
             WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
           )
@@ -697,7 +782,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
       JOIN exomem_oauth_clients AS client
         ON client.client_id = ${input.clientId}
        AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
-       AND (client.admission_mode = 'pinned' OR (
+       AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR (
          client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
          AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
          AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
@@ -738,7 +823,7 @@ export async function issueOAuthTokensFromCodeAtomic(input: {
             AND bootstrap_transaction.reviewer_bootstrap_authority_id IS NOT NULL
         )
         AND client.enabled = true
-        AND (client.admission_mode = 'pinned' OR EXISTS (
+        AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR EXISTS (
           SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
           WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
         ))
@@ -868,7 +953,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       WHERE token.refresh_digest = ${input.refreshDigest}
         AND client.client_id = ${input.clientId}
         AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
-        AND (client.admission_mode = 'pinned' OR (
+        AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR (
           client.metadata_document_digest IS NOT NULL AND client.metadata_fetched_at IS NOT NULL
           AND client.metadata_ttl_seconds BETWEEN 300 AND 604800
           AND client.metadata_expires_at > now() AND client.cimd_host IS NOT NULL
@@ -900,7 +985,7 @@ export async function rotateOAuthRefreshTokenAtomic(input: {
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
         AND entitlement.effective_state IN ('provisioning', 'active', 'grace')
       WHERE client.enabled = true
-        AND (client.admission_mode = 'pinned' OR EXISTS (
+        AND (client.admission_mode = 'pinned' OR exomem_oauth_generic_client_admitted(client.admission_mode) OR EXISTS (
           SELECT 1 FROM exomem_oauth_admitted_cimd_hosts AS admitted
           WHERE admitted.host = client.cimd_host AND admitted.platform = client.client_platform
         ))
