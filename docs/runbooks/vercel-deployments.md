@@ -1,8 +1,10 @@
 # Vercel deployment policy
 
-Git pushes deploy `main` automatically. Every other branch is opted out through
+Git pushes deploy `main` automatically. Every branch except `staging` is opted out through
 `git.deploymentEnabled` in `vercel.json`, including slash-containing task branches.
 This prevents routine agent branches from creating unused preview builds.
+
+Pushes to `staging` also deploy, to `https://staging.substratesystems.io`; see `staging.md`.
 
 Run tests and production builds locally with disposable test state. When a real
 preview is needed, deploy the reviewed branch explicitly with the Vercel CLI

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "product": "exomem-cloud-operator",
+  "environment": "staging",
+  "bindings": {
+    "operator-token": {
+      "project_id": "FILL-BWS-PROJECT-ID",
+      "secret_id": "FILL-BWS-SECRET-ID",
+      "expected_key": "FILL-BWS-SECRET-KEY-NAME",
+      "env": "EXOMEM_ADMIN_TOKEN",
+      "format": "opaque-line"
+    },
+    "transactional-mail": {
+      "project_id": "FILL-BWS-PROJECT-ID",
+      "secret_id": "FILL-BWS-SECRET-ID",
+      "expected_key": "FILL-BWS-SECRET-KEY-NAME",
+      "env": "BREVO_API_KEY",
+      "format": "opaque-line"
+    }
+  }
+}

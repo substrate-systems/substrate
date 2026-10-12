@@ -30,6 +30,7 @@ classes:
     - "stylelint.config.mjs"
     - ".prettierrc.json"
     - "contracts/bws-exomem-production-v1.json" # the operator's secret-binding check, run by hand
+    - "contracts/bws-exomem-staging-v1.json" # the same check for staging
   specs: ["openspec/*"]
   product:
     - "src/*"

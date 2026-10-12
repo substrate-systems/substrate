@@ -21,7 +21,7 @@
     "cutover:strict-generation-visibility": "tsx scripts/strict-generation-visibility-cutover.ts",
     "import:legacy-patron": "tsx scripts/import-legacy-patron.ts",
     "sync:instruction-blocks": "node scripts/sync-exomem-instruction-blocks.mjs",
-    "test": "node --import tsx --experimental-test-module-mocks --test \"src/**/*.test.ts\" \"src/**/*.test.tsx\"",
+    "test": "node --import tsx --experimental-test-module-mocks --test \"src/**/*.test.ts\" \"scripts/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "openspec:list": "openspec list",
     "openspec:list:specs": "openspec list --specs",
     "openspec:validate": "openspec validate --all --strict --no-interactive",
