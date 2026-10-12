@@ -4,13 +4,7 @@
 // does not depend on the viewport, so this spec runs in the desktop project only.
 
 import { expect, test, type Page } from "@playwright/test";
-
-async function storeTheme(page: Page, theme: "light" | "dark") {
-  await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [
-    "exomem-theme",
-    theme,
-  ] as const);
-}
+import { storeTheme } from "./accessibility";
 
 const root = (page: Page) => page.locator("html");
 
