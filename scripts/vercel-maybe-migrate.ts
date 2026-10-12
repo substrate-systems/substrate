@@ -15,15 +15,33 @@
  *
  * Manual override: set `SKIP_VERCEL_MIGRATE=1` in Vercel project env to
  * temporarily disable. Use sparingly — the whole point of this script is to
- * keep the schema and the deployed code in lockstep.
+ * keep the schema and the deployed code in lockstep. The override skips the
+ * migrations only: a production deploy still needs a valid control-plane key.
  */
 
 import { applyMigrations } from './migrate';
+import { controlPlaneKeyFromEnv } from '../src/lib/exomem-hosted/security';
 
 const env = process.env.VERCEL_ENV ?? 'unset';
 const skip = process.env.SKIP_VERCEL_MIGRATE === '1';
 
+/**
+ * The Paddle webhook seals the payment-failed email, and the start, sign-in
+ * and OAuth routes seal or key their state, with EXOMEM_CONTROL_PLANE_KEY.
+ * Without a valid key each of them fails on every request, and Paddle only
+ * retries its webhook. Refusing the production deploy costs one blocked
+ * deploy (the previous one stays live) until the operator sets the key.
+ */
+function assertControlPlaneKey(): void {
+  try {
+    controlPlaneKeyFromEnv();
+  } catch {
+    throw new Error('EXOMEM_CONTROL_PLANE_KEY is missing or not 32 bytes of base64url');
+  }
+}
+
 async function main() {
+  if (env === 'production') assertControlPlaneKey();
   if (skip) {
     console.log('[vercel-maybe-migrate] SKIP_VERCEL_MIGRATE=1 — skipping');
     return;
