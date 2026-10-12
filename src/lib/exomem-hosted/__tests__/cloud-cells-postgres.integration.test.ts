@@ -143,7 +143,9 @@ describe("Exomem Cloud cells schema PostgreSQL integration", { skip: !databaseUr
     const listener = await pool!.connect();
     const notifications: string[] = [];
     listener.on("notification", (message) => {
-      if (message.channel === "exomem_cloud_cells" && message.payload) {
+      // LISTEN is database-wide, and the other test files that run beside this one write
+      // their own cells, so only this cell's notifications count.
+      if (message.channel === "exomem_cloud_cells" && message.payload === id) {
         notifications.push(message.payload);
       }
     });
