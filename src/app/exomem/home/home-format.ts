@@ -3,6 +3,9 @@
 // The formats are the Home board's: en-GB dates ("31 October", "13 Oct, 14:20") and
 // its "2 minutes ago" wording.
 
+import { emailMoney } from "@/lib/email-templates/exomem-email-money";
+import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
+
 const LOCALE = "en-GB";
 
 export type Clock = {
@@ -42,25 +45,14 @@ export function shortDateTime(iso: string, timeZone?: string): string {
 }
 
 /**
- * "€10" or "€10.50": an amount in its currency's smallest unit, as Paddle reports it,
- * in the reader's locale. Null when the browser cannot format that currency.
+ * A Paddle amount as the emails write it ("€10", "€10.50"), in the reader's locale.
+ * Null when the browser cannot format the currency, so Home shows no amount.
  */
-export function money(minorUnits: string, currency: string, locale?: string): string | null {
-  const minor = Number(minorUnits);
-  if (!Number.isSafeInteger(minor)) return null;
+export function money(price: ExomemMoney, locale?: string): string | null {
   try {
-    const digits =
-      new Intl.NumberFormat(locale, { style: "currency", currency }).resolvedOptions()
-        .maximumFractionDigits ?? 2;
-    const scale = 10 ** digits;
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: minor % scale === 0 ? 0 : digits,
-      maximumFractionDigits: digits,
-    }).format(minor / scale);
+    return emailMoney(price, locale ?? new Intl.NumberFormat().resolvedOptions().locale);
   } catch {
-    // An unknown currency code throws: show no amount rather than a wrong one.
+    // A currency code that is not well formed throws; a wrong amount is worse than none.
     return null;
   }
 }
