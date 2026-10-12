@@ -4,7 +4,7 @@
  * How long a web app's page shows the hand-back (connected, declined or kept)
  * before the browser goes back to the app. The design allows at most 3 seconds.
  */
-export const HANDBACK_MS = 2500;
+const HANDBACK_MS = 2500;
 
 /**
  * Sends an app on this computer its answer (a code, or access_denied) in the

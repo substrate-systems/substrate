@@ -25,7 +25,7 @@ if (!databaseUrl) {
     "EXOMEM_E2E_DATABASE_URL is not set: the journey specs need the server's database"
   );
 }
-export const pool = new Pool({ connectionString: databaseUrl, max: 4 });
+const pool = new Pool({ connectionString: databaseUrl, max: 4 });
 
 const baseUrl = process.env.EXOMEM_E2E_BASE_URL;
 if (!baseUrl) {
@@ -33,8 +33,8 @@ if (!baseUrl) {
     "EXOMEM_E2E_BASE_URL is not set: the server's public address (EXOMEM_PUBLIC_BASE_URL)"
   );
 }
-export const BASE_URL = baseUrl;
-export const CLOUD_MCP_URL = process.env.EXOMEM_CLOUD_MCP_URL ?? "";
+const BASE_URL = baseUrl;
+const CLOUD_MCP_URL = process.env.EXOMEM_CLOUD_MCP_URL ?? "";
 
 export function uniqueEmail(label: string): string {
   return `${label}-${randomUUID().slice(0, 8)}@example.test`;
@@ -112,7 +112,7 @@ function cellId(): string {
   return Array.from(randomBytes(16), (byte) => alphabet[byte % 32]).join("");
 }
 
-export type Owner = {
+type Owner = {
   email: string;
   userId: string;
   tenantId: string;
@@ -231,7 +231,7 @@ export async function seedReviewer(): Promise<{ username: string; password: stri
   return { username, password };
 }
 
-export type SeededClient = {
+type SeededClient = {
   clientId: string;
   redirectUri: string;
   /** The name the consent page shows: the operator's, for a pinned client. */
@@ -349,13 +349,4 @@ export async function startLinkFor(email: string): Promise<string> {
     decryptSecret(rows[0].payload as Parameters<typeof decryptSecret>[0]).reveal()
   ) as { token: string };
   return `${BASE_URL}/exomem/invite#${payload.token}`;
-}
-
-/** How many emails of a kind the outbox holds for an address. */
-export async function queuedEmails(email: string): Promise<string[]> {
-  const { rows } = await pool.query<{ kind: string }>(
-    "SELECT kind FROM exomem_email_outbox WHERE recipient = $1 ORDER BY created_at",
-    [email]
-  );
-  return rows.map((row) => row.kind);
 }

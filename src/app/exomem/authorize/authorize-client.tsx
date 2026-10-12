@@ -36,7 +36,7 @@ export type AccountDates = {
   supportReference: Known<string>;
 };
 
-export type ConsentRequest = {
+type ConsentRequest = {
   app: {
     displayName: string;
     /** Exomem stands behind the name (operator or platform), so it needs no label. */

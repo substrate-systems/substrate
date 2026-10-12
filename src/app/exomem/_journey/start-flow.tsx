@@ -17,7 +17,7 @@ import styles from "./journey.module.css";
  */
 const RESEND_WAIT_MS = 60_000;
 
-export type StartContext =
+type StartContext =
   | { kind: "web" }
   /** An app's consent page: the reviewer sign-in binds to its request with the form nonce. */
   | { kind: "app"; app: string; nonce: string; requestLife: string };

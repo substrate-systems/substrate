@@ -10,7 +10,7 @@ import { INSTRUCTION_BLOCKS } from "@/app/exomem/home/instruction-blocks.generat
 
 export type InvolvementLevelKey = keyof typeof INSTRUCTION_BLOCKS;
 
-export type InvolvementLevel = {
+type InvolvementLevel = {
   key: InvolvementLevelKey;
   /** The segment's label. */
   label: string;
