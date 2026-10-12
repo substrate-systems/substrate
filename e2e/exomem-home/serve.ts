@@ -20,9 +20,9 @@ async function main() {
   const environment = homeE2eEnvironment();
   // The gateway stand-in reads the same configuration as the gateway it replaces.
   Object.assign(process.env, environment.serverEnv);
-  // One fixed folder, made fresh each run: a run that is killed leaves this one folder,
-  // and the next run replaces it, so killed runs never pile up.
-  const certificates = join(tmpdir(), "exomem-home-e2e");
+  // One folder per port, made fresh each run: a run that is killed leaves this one folder,
+  // and the next run on that port replaces it. A run on another port has its own.
+  const certificates = join(tmpdir(), `exomem-home-e2e-${environment.port}`);
   rmSync(certificates, { recursive: true, force: true });
   mkdirSync(certificates, { mode: 0o700 });
   const keyPath = join(certificates, "key.pem");
