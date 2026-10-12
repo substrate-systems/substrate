@@ -141,6 +141,28 @@ export function activityFacts(
   };
 }
 
+// What Home says in place of the live line when the cell could not report activity.
+// Every reason the server can give has an entry, so a new reason fails tsc here; null
+// keeps the line empty, as Home did before for a stopped, starting, unreachable or
+// outdated cell.
+const UNAVAILABLE_ACTIVITY: Record<CloudHomeUnavailableReason, string | null> = {
+  CELL_STOPPED: null,
+  CELL_NOT_READY: null,
+  CELL_UNREACHABLE: null,
+  CELL_OUTDATED: null,
+  HOME_CLIENT_DISABLED: "Activity isn’t available right now.",
+  ACCOUNT_ACCESS_CLOSED: "Activity isn’t available for this account.",
+};
+
+/** The sentence in place of the live line when activity is unavailable, or null for none. */
+export function activityUnavailableText(
+  activity: HomeActivity | typeof NOT_RELEASED | null
+): string | null {
+  if (!activity || activity === "not_released" || activity.state !== "unavailable") return null;
+  // parseActivity passes on any reason string; one this build does not know shows nothing.
+  return UNAVAILABLE_ACTIVITY[activity.reason] ?? null;
+}
+
 /** Now on the cell's clock, so an event's age does not depend on the browser's clock. */
 function cellNow(facts: ActivityFacts, clock: Clock): number {
   return clock.now + facts.cellOffsetMs;

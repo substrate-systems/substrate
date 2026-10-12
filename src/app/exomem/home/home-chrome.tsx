@@ -118,11 +118,14 @@ export function StatusBlock({
   headline,
   statusLine,
   liveLine,
+  activityNote = null,
 }: {
   live: boolean;
   headline: string;
   statusLine: string | null;
   liveLine: { text: string; key: string } | null;
+  /** Said in place of the live line when the cell could not report activity. */
+  activityNote?: string | null;
 }) {
   return (
     <div className={styles.status}>
@@ -140,6 +143,7 @@ export function StatusBlock({
             </LiveLine>
           </span>
         )}
+        {!liveLine && activityNote && <span className={styles.statusLine}>{activityNote}</span>}
       </div>
     </div>
   );

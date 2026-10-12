@@ -44,6 +44,7 @@ import { createSingleFlight, type Lifecycle, nextStatusPollDelayMs } from "./hom
 import {
   type AccountRead,
   activityFacts,
+  activityUnavailableText,
   banner,
   deletionLinkMinutes,
   exportRefusalText,
@@ -504,6 +505,7 @@ export default function HomeClient({ priceId }: { priceId: string | null }) {
           headline={status_.headline}
           statusLine={status_.statusLine}
           liveLine={variant === "ended" ? null : liveLine(facts, shownApps, disconnected, clock)}
+          activityNote={variant === "ended" ? null : activityUnavailableText(activity)}
         />
         {message}
         {checkoutReturn}
