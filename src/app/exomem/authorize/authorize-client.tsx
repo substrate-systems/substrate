@@ -124,11 +124,14 @@ function consentPathOf(body: unknown): string | null {
 export default function AuthorizeClient({
   screen,
   request,
+  expiredApp = null,
   requestLife,
   statusPageUrl,
 }: {
   screen: ConsentScreen;
   request: ConsentRequest | null;
+  /** Without a live request: the app this browser's request was from, when known. */
+  expiredApp?: string | null;
   requestLife: string;
   statusPageUrl: string | null;
 }) {
@@ -137,7 +140,7 @@ export default function AuthorizeClient({
       <JourneyPage kind="stop" stepKey="expired">
         <StepHeading
           title={breakCopy.expired.title}
-          lede={breakCopy.expired.lede(requestLife, UNNAMED_APP)}
+          lede={breakCopy.expired.lede(requestLife, expiredApp ?? UNNAMED_APP)}
         />
       </JourneyPage>
     );

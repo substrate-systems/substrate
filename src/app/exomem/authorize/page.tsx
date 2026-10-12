@@ -80,6 +80,7 @@ export default async function ExomemAuthorizePage({
       <AuthorizeClient
         screen={screen}
         request={null}
+        expiredApp={view.app?.displayName ?? null}
         requestLife={requestLife()}
         statusPageUrl={null}
       />
