@@ -5,6 +5,7 @@ import {
   createExomemCheckout,
   ExomemBillingError,
   previewExomemPrices,
+  readExomemNextPaymentAmount,
   type PaddleTransport,
 } from "../paddle-billing";
 import { loadExomemPaddleConfig } from "../paddle-config";
@@ -138,5 +139,42 @@ describe("the friend price at Paddle", () => {
     now += 10 * 60 * 1000 + 1;
     await preview("DE");
     assert.equal(fake.calls.filter((call) => call === "POST /pricing-preview").length, 3);
+  });
+});
+
+describe("the next payment's amount", () => {
+  it("reads Paddle afresh once a subscription event is applied, instead of serving the cached amount", async () => {
+    const subscriptionId = `sub_${"s".repeat(26)}`;
+    // Once the owner schedules a cancellation in the portal, Paddle previews no next payment.
+    let cancelled = false;
+    const reads: string[] = [];
+    const transport: PaddleTransport = async (path) => {
+      reads.push(path);
+      return Response.json({
+        data: {
+          id: subscriptionId,
+          currency_code: "EUR",
+          next_transaction: cancelled
+            ? null
+            : { details: { totals: { grand_total: "1000", currency_code: "EUR" } } },
+        },
+      });
+    };
+    const read = (sourceOccurredAt: Date) =>
+      readExomemNextPaymentAmount(
+        { subscriptionId, environment: "sandbox", sourceOccurredAt },
+        { config: config(), transport, now: () => 0 }
+      );
+
+    const subscribed = new Date("2026-10-01T09:00:00Z");
+    assert.deepEqual((await read(subscribed)).value, { amount: "1000", currencyCode: "EUR" });
+    // The webhook applies the scheduled cancellation and stores its time seconds later.
+    cancelled = true;
+    const cancellationApplied = new Date("2026-10-12T14:00:00Z");
+    assert.deepEqual(await read(cancellationApplied), { value: null, reason: "not_reported" });
+    assert.equal(reads.length, 2);
+    // With nothing stored changing, the cached answer still serves.
+    await read(cancellationApplied);
+    assert.equal(reads.length, 2);
   });
 });

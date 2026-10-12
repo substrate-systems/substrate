@@ -14,6 +14,7 @@ import type {
   CloudHomeLevelsView,
 } from "@/lib/exomem-hosted/cloud-home-mcp";
 import type { CloudExportSummary } from "@/lib/exomem-hosted/cloud-exports";
+import { isExomemMoney } from "@/lib/exomem-hosted/exomem-money";
 import type { CloudStorageObservation } from "@/lib/exomem-hosted/cloud-status";
 import { csrfCookie, getPrivateJson, HostedBrowserError } from "@/lib/exomem-hosted/hosted-browser";
 import type { OwnerApp } from "@/lib/exomem-hosted/owner-apps";
@@ -171,9 +172,12 @@ export async function readAccount(): Promise<{
     plan !== null &&
     isKnown(plan.name) &&
     record(plan.friendPrice) !== null &&
-    ["nextPaymentAt", "readOnlyUntil", "keptUntil", "reviewerEndsAt"].every((key) =>
-      isKnown(account[key])
-    );
+    ["nextPaymentAt", "nextPaymentAmount", "readOnlyUntil", "keptUntil", "reviewerEndsAt"].every(
+      (key) => isKnown(account[key])
+    ) &&
+    // An amount must have the server's shape: an empty or non-numeric one is unreadable.
+    (record(account.nextPaymentAmount)?.value === null ||
+      isExomemMoney(record(account.nextPaymentAmount)?.value));
   const billing = record(response.billing);
   const billingOk =
     billing !== null &&

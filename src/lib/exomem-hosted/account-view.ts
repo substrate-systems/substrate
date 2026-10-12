@@ -9,7 +9,8 @@ import { consentStep, type ConsentStep } from "./consent-state";
 import { executeExomemSql, type ExomemSessionRow } from "./db";
 import { exomemErrors } from "./errors";
 import { known, unknown, type Known } from "./known";
-import { readExomemNextPaymentAmount, type ExomemMoney } from "./paddle-billing";
+import type { ExomemMoney } from "./exomem-money";
+import { readExomemNextPaymentAmount } from "./paddle-billing";
 import { exomemPaddleFriendDiscountId, loadExomemPaddleConfig } from "./paddle-config";
 
 export type ExomemAccountView = {
@@ -124,14 +125,17 @@ function nextPaymentAt(row: ExomemAccountRow): ExomemAccountView["nextPaymentAt"
 
 /** Paddle's preview of the next payment's amount; asked only when a next payment is due. */
 async function nextPaymentAmount(
-  subscriptionId: string,
-  providerEnvironment: ExomemAccountRow["providerEnvironment"],
+  account: ExomemAccountRow & { subscriptionRef: string },
   environment: Environment
 ): Promise<Known<ExomemMoney, NextPaymentAmountUnknown>> {
-  if (!providerEnvironment) return unknown("unavailable");
+  if (!account.providerEnvironment) return unknown("unavailable");
   try {
     return await readExomemNextPaymentAmount(
-      { subscriptionId, environment: providerEnvironment },
+      {
+        subscriptionId: account.subscriptionRef,
+        environment: account.providerEnvironment,
+        sourceOccurredAt: account.sourceOccurredAt,
+      },
       { config: loadExomemPaddleConfig(environment) }
     );
   } catch {
@@ -276,8 +280,7 @@ export async function loadExomemAccountView(
       noNextPayment(account) || !account.subscriptionRef
         ? undefined
         : await nextPaymentAmount(
-            account.subscriptionRef,
-            account.providerEnvironment,
+            { ...account, subscriptionRef: account.subscriptionRef },
             environment
           ),
   });

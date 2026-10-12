@@ -1,9 +1,9 @@
-import type { ExomemMoney } from "@/lib/exomem-hosted/paddle-billing";
+import type { ExomemMoney } from "@/lib/exomem-hosted/exomem-money";
 
 /**
- * A price as Exomem emails show it: "€10", or "€10.50" when the amount has
- * cents. The amount is Paddle's, in the currency's smallest unit; it has at
- * most 12 digits, so it is exact as a number.
+ * A price as Exomem shows it, in emails and on Home: "€10", or "€10.50" when
+ * the amount has cents. The amount is Paddle's, in the currency's smallest
+ * unit; it has at most 12 digits, so it is exact as a number.
  */
 export function emailMoney(price: ExomemMoney): string {
   const fractionDigits =

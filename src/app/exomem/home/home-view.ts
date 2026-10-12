@@ -3,6 +3,7 @@
 // (docs/exomem-design/reference/boards/Home-Page.dc.html) and the approved export
 // copy; a value the server does not know drops its clause rather than inventing one.
 
+import { emailMoney } from "@/lib/email-templates/exomem-email-money";
 import { CLIENT_PLATFORM_NAMES, displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
 import type {
   ActivityClientFamily,
@@ -594,7 +595,12 @@ export function planView(
   else if (variant === "ended") meta = "ended";
   else {
     const inviter = friend && plan.friendPrice.inviterName;
-    meta = joined([inviter && `from ${inviter}’s invitation`, nextPayment(account, clock)]);
+    // The amount Paddle previews for the next payment, in en-GB like Home's dates. Unknown
+    // shows no number at all, and so does a payment with no date: no money is promised
+    // for a payment that may not come.
+    const amount = account.nextPaymentAt.value ? account.nextPaymentAmount.value : null;
+    const price = amount && emailMoney(amount);
+    meta = joined([price, inviter && `from ${inviter}’s invitation`, nextPayment(account, clock)]);
   }
 
   let action: PlanView["action"] = null;

@@ -334,6 +334,31 @@ describe("plan and storage", () => {
     assert.deepEqual(plan?.action, { label: "Manage billing", kind: "portal" });
   });
 
+  it("shows the next payment's amount, and no number when it is unknown", () => {
+    const paying = (amount: string, currencyCode: string) =>
+      account({ nextPaymentAmount: { value: { amount, currencyCode }, reason: null } });
+    assert.equal(
+      planView("on", paying("1000", "EUR"), portal, clock).meta,
+      "€10 · next payment 31 October"
+    );
+    assert.equal(
+      planView("on", paying("1050", "EUR"), portal, clock).meta,
+      "€10.50 · next payment 31 October"
+    );
+    // Paddle did not answer: the row keeps its date and shows no amount, never zero.
+    const unavailable = account({ nextPaymentAmount: { value: null, reason: "unavailable" } });
+    assert.equal(planView("on", unavailable, portal, clock).meta, "next payment 31 October");
+  });
+
+  it("shows no amount when the next payment has no date", () => {
+    // A cancellation scheduled in the portal clears the date before a cached amount expires.
+    const undated = account({
+      nextPaymentAt: { value: null, reason: "not_reported" },
+      nextPaymentAmount: { value: { amount: "1000", currencyCode: "EUR" }, reason: null },
+    });
+    assert.equal(planView("on", undated, portal, clock).meta, "next payment not reported yet");
+  });
+
   it("names the friend price and its inviter when the discount applies", () => {
     const plan = planView(
       "on",
@@ -345,6 +370,16 @@ describe("plan and storage", () => {
     );
     assert.equal(plan?.name, "Exomem · monthly · friend price");
     assert.equal(plan?.meta, "from Alex’s invitation · next payment 31 October");
+    const withAmount = planView(
+      "on",
+      account({
+        plan: { ...account().plan, friendPrice: { applied: true, inviterName: "Alex" } },
+        nextPaymentAmount: { value: { amount: "850", currencyCode: "EUR" }, reason: null },
+      }),
+      portal,
+      clock
+    );
+    assert.equal(withAmount.meta, "€8.50 · from Alex’s invitation · next payment 31 October");
   });
 
   it("says a next payment was not reported rather than leaving a blank date", () => {

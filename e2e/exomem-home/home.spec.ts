@@ -89,7 +89,9 @@ test("Home shows the account's own values and calls only routes a Cloud account 
   const nextPayment = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }).format(
     new Date(Date.now() + 19 * DAY)
   );
-  await expect(page.getByText(`next payment ${nextPayment}`)).toBeVisible();
+  // The test server has no Paddle to preview the amount: the row shows the date alone,
+  // with no number and no zero.
+  await expect(page.getByText(`next payment ${nextPayment}`, { exact: true })).toBeVisible();
   await expect(page.getByText("1.2 of 10 GB")).toBeVisible();
   // Every route Home called reaches the account through Cloud, never a retired Hosted path.
   expect([...new Set(routes)].sort()).toEqual([
