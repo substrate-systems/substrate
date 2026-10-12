@@ -1,6 +1,7 @@
 {
-  "$comment": "The recall measurements the landing shows, copied from the Exomem benchmark page named in `source`. Update this file when that page publishes new figures; the landing reads it at render.",
+  "$comment": "The recall measurements the landing shows, copied from the Exomem benchmark page named in `source`. `sourceBlob` is that page's git blob hash; the weekly drift workflow (scripts/check-exomem-benchmarks.mjs) fails when Exomem main differs. Then re-read the page, update the figures, `source` and `sourceBlob`. The landing reads this file at render.",
   "source": "https://github.com/Artexis10/exomem/blob/b2999e4f6b099666daa1bd8f7f0b23c38bee3e94/docs/benchmarks.md",
+  "sourceBlob": "f90b0f9f0737d62e023e61d11eddaff9b86d7768",
   "realVault": {
     "section": "Real-vault check: the same lanes on a production vault (2026-07-04)",
     "measuredOn": "2026-07-04",
