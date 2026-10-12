@@ -38,7 +38,7 @@ export function selfServeAdmissionMode(
  * link holds a Cloud slot, so an abandoned start must return it within two
  * days rather than a month.
  */
-export const START_LINK_TTL_MS = 48 * 60 * 60 * 1000;
+const START_LINK_TTL_MS = 48 * 60 * 60 * 1000;
 // A waitlist confirmation that cannot be delivered within a day is stale: the
 // person has asked again by then.
 const WAITLIST_EMAIL_TTL_MS = 24 * 60 * 60 * 1000;

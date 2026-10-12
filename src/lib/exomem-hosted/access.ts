@@ -32,7 +32,7 @@ const MAGIC_LINK_TTL_MS = 15 * 60 * 1000;
  * whatever its outcome, so its timing does not tell whether the address owns
  * an Exomem, was admitted or was queued.
  */
-export const START_RESPONSE_FLOOR_MS = 600;
+const START_RESPONSE_FLOOR_MS = 600;
 
 export type AccessDependencies = {
   now: () => Date;

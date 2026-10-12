@@ -25,8 +25,8 @@
 
 import { exomemPublicBaseUrlFromEnv } from "./public-origin";
 
-export const TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
-export const TURNSTILE_START_ACTION = "start";
+const TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const TURNSTILE_START_ACTION = "start";
 const SITEVERIFY_TIMEOUT_MS = 3_000;
 // Cloudflare documents tokens of at most 2048 characters.
 const MAX_TOKEN_LENGTH = 2048;

@@ -101,7 +101,7 @@ async function revokeSiblingStartLinks(
  * Measured from the cell, not the tenant, because a re-admitted tenant keeps
  * its first `created_at`.
  */
-export const CLOUD_UNPAID_HOLD_DAYS = 7;
+const CLOUD_UNPAID_HOLD_DAYS = 7;
 // Email 18 goes out this many days before the hold ends.
 const HOLD_REMINDER_LEAD_DAYS = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
