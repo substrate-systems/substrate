@@ -90,7 +90,6 @@ describe("Exomem hosted access", () => {
     assert.doesNotMatch(rendered, /[?&]token=/);
     assert.equal(mailInput?.senderName, "Exomem");
     assert.equal(mailInput?.senderEmail, "exomem@substratesystems.io");
-    assert.match(rendered, /Exomem Cloud/);
     assert.doesNotMatch(rendered, /Exomem Hosted/);
   });
 

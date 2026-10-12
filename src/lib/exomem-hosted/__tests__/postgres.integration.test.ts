@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
@@ -27,6 +27,9 @@ import {
   claimPaddleReconciliationTargets,
   releasePaddleReconciliationLease,
 } from "../paddle-reconciliation-runtime";
+
+// A past_due event seals email 04's payload inside the Paddle projection.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
 
 const DATABASE_URL = process.env.EXOMEM_TEST_DATABASE_URL;
 const USER = "11111111-1111-4111-8111-111111111111";

@@ -23,9 +23,19 @@ import {
   renderExomemWelcomeEmail,
   type RenderedExomemAccessEmail,
 } from "@/lib/email-templates/exomem-access";
+import {
+  renderExomemDeletedEmail,
+  renderExomemDeletionReminderEmail,
+  renderExomemPaymentFailedEmail,
+  renderExomemReadyEmail,
+  renderExomemSubscriptionEndedEmail,
+} from "@/lib/email-templates/exomem-lifecycle";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
+import { exomemPaddleDunningDays } from "./account-view";
+import { cloudCancelledKeptUntil } from "./cloud-lifecycle";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
+import { deletionReminderAt, enqueueReadyEmails } from "./lifecycle-emails";
 import {
   exomemPublicBaseUrlFromEnv,
   exomemPublicFragmentUrl,
@@ -42,24 +52,46 @@ const MAX_ATTEMPTS_WITHOUT_DEADLINE = 10;
 const MAX_BACKOFF_MINUTES = 60;
 // Settled rows keep their recipient this long, for support questions.
 const SETTLED_RECIPIENT_RETENTION_DAYS = 30;
+// Email 07 looks again this often for cellctl to finish a deletion.
+const DELETED_RECHECK_MINUTES = 5;
 
 type EmailRenderInput<P, C> = {
   payload: P;
   context: C;
+  /** The zone of the person the email goes to, as `addressee` or the row gives it. */
   timeZone: string | null;
   now: Date;
   publicBaseUrl: string;
 };
+
+/** An account owner's address and time zone, as the database holds them now. */
+export type ExomemEmailAddressee = { email: string; timeZone: string | null };
+
+/**
+ * The fact an email announces will hold later but does not yet: the row waits
+ * until `until`. Waiting is not a delivery attempt, so it counts no attempt;
+ * a kind that can wait stores no deadline.
+ */
+export class NotYet {
+  constructor(readonly until: Date) {}
+}
 
 type EmailDefinition<P, C> = {
   /** Checks the decrypted payload's shape. `null` fails the row. */
   readPayload: (value: Record<string, unknown>) => P | null;
   /**
    * Re-checks, inside the claim's transaction, that the fact this email
-   * announces still holds. `null` cancels the row. The value is passed to
-   * `render`.
+   * announces still holds. `null` cancels the row, and `NotYet` puts it back
+   * until then. Any other value is passed to `render`.
    */
-  stillHolds: (tx: ExomemSql, payload: P) => Promise<C | null>;
+  stillHolds: (tx: ExomemSql, payload: P) => Promise<C | NotYet | null>;
+  /**
+   * For an email to an account's owner: where it goes, read by `stillHolds`,
+   * so it reaches the owner's address and zone at send time. Without it the
+   * email goes to the row's recipient: a start link to the address that asked
+   * for it, and email 07 to the owner's address when the Exomem was deleted.
+   */
+  addressee?: (context: C) => ExomemEmailAddressee;
   render: (input: EmailRenderInput<P, C>) => RenderedExomemAccessEmail;
   afterSent?: (tx: ExomemSql, payload: P) => Promise<void>;
   afterFailed?: (tx: ExomemSql, payload: P) => Promise<void>;
@@ -165,6 +197,97 @@ function startLinkUrl(input: EmailRenderInput<StartLinkPayload, true>): string {
   return exomemPublicFragmentUrl(input.publicBaseUrl, "/exomem/invite", input.payload.token);
 }
 
+type FieldShape = "uuid" | "cellId" | "instant" | "boolean";
+type FieldValue<F extends FieldShape> = F extends "boolean" ? boolean : string;
+
+/**
+ * Reads a version-1 payload with exactly these fields, each checked for its
+ * shape. `null` fails the row.
+ */
+function readShape<S extends Record<string, FieldShape>>(
+  value: Record<string, unknown>,
+  shape: S
+): ({ version: 1 } & { [K in keyof S]: FieldValue<S[K]> }) | null {
+  if (value.version !== 1) return null;
+  const keys = Object.keys(shape);
+  if (Object.keys(value).sort().join(",") !== [...keys, "version"].sort().join(",")) return null;
+  for (const key of keys) {
+    const field = value[key];
+    const ok =
+      shape[key] === "boolean"
+        ? typeof field === "boolean"
+        : typeof field === "string" &&
+          (shape[key] === "uuid"
+            ? UUID.test(field)
+            : shape[key] === "cellId"
+              ? CELL_ID.test(field)
+              : Number.isFinite(Date.parse(field)));
+    if (!ok) return null;
+  }
+  return value as { version: 1 } & { [K in keyof S]: FieldValue<S[K]> };
+}
+
+export type ReadyPayload = { version: 1; cellId: string };
+export type PaymentFailedPayload = { version: 1; tenantId: string; graceStartedAt: string };
+/** `endedAt` is the cell's cancellation claim: it names one ended period. */
+export type SubscriptionEndedPayload = {
+  version: 1;
+  cellId: string;
+  endedAt: string;
+  reminderScheduled: boolean;
+};
+export type DeletionReminderPayload = { version: 1; cellId: string; endedAt: string };
+export type DeletedPayload = { version: 1; tenantId: string; deletedAt: string };
+
+function homeUrl(publicBaseUrl: string): string {
+  return new URL("/exomem/home", `${publicBaseUrl}/`).toString();
+}
+
+type OwnerRow = { owner_email: string; time_zone: string | null };
+
+function ownerOf(row: OwnerRow): ExomemEmailAddressee {
+  return { email: row.owner_email, timeZone: row.time_zone };
+}
+
+type EndedContext = { owner: ExomemEmailAddressee; keptUntil: Date; checkedAt: Date };
+
+/**
+ * An ended period still holds while its cell is read-only under the same
+ * cancellation claim, the subscription is still cancelled, no deletion has
+ * started, and the kept window, from the entitlement's current
+ * `source_occurred_at`, is still open. `checkedAt` is the database's clock,
+ * the one the outbox schedules by.
+ */
+async function endedPeriodStillHolds(
+  tx: ExomemSql,
+  payload: { cellId: string; endedAt: string }
+): Promise<EndedContext | null> {
+  const { rows } = await tx`
+    /* exomem:email-ended-period-still-holds */
+    SELECT owner.email::text AS owner_email, tenant.time_zone,
+           entitlement.source_occurred_at, now() AS checked_at
+    FROM exomem_cloud_cells AS cell
+    JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+    JOIN users AS owner ON owner.id = tenant.owner_user_id
+    JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
+    WHERE cell.cell_id = ${payload.cellId}
+      AND cell.desired_state = 'read_only'
+      AND cell.cancellation_notice_sent_at = ${payload.endedAt}::timestamptz
+      AND entitlement.source = 'paddle'
+      AND entitlement.source_state = 'cancelled'
+      AND entitlement.manual_suspended_at IS NULL
+      AND entitlement.source_occurred_at IS NOT NULL
+      AND tenant.status NOT IN ('deletion_pending', 'deleted')
+  `;
+  const row = rows[0] as
+    | (OwnerRow & { source_occurred_at: Date | string; checked_at: Date | string })
+    | undefined;
+  if (!row) return null;
+  const keptUntil = cloudCancelledKeptUntil(new Date(row.source_occurred_at));
+  const checkedAt = new Date(row.checked_at);
+  return keptUntil > checkedAt ? { owner: ownerOf(row), keptUntil, checkedAt } : null;
+}
+
 const EXOMEM_EMAILS = {
   /** Email 01w: a start link from "Start with your email", or a re-sent one. */
   start: defineEmail({
@@ -230,33 +353,212 @@ const EXOMEM_EMAILS = {
       }
       return { version: 1, ...fields, inviterName };
     },
-    stillHolds: async (tx, payload): Promise<{ timeZone: string | null } | null> => {
+    stillHolds: async (tx, payload): Promise<{ owner: ExomemEmailAddressee } | null> => {
       const { rows } = await tx`
         /* exomem:email-hold-reminder-still-unpaid */
-        SELECT tenant.time_zone
+        SELECT owner.email::text AS owner_email, tenant.time_zone
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+        JOIN users AS owner ON owner.id = tenant.owner_user_id
         JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
         WHERE cell.cell_id = ${payload.cellId}
           AND cell.desired_state = 'stopped'
           AND entitlement.source = 'paddle'
           AND entitlement.source_state = ANY(${[...FIRST_PAYMENT_SOURCE_STATES]}::text[])
       `;
-      const row = rows[0] as { time_zone: string | null } | undefined;
-      return row ? { timeZone: row.time_zone } : null;
+      const row = rows[0] as OwnerRow | undefined;
+      return row ? { owner: ownerOf(row) } : null;
     },
-    render: ({ payload, context, timeZone, publicBaseUrl }) =>
+    addressee: (context) => context.owner,
+    render: ({ payload, timeZone, publicBaseUrl }) =>
       renderExomemHoldReminderEmail({
         setupUrl: new URL("/exomem/setup", `${publicBaseUrl}/`).toString(),
         holdEndsAt: new Date(payload.holdEndsAt),
         inviterName: payload.inviterName,
-        // The zone the owner's browser last reported wins over the one the
-        // invitation was sent with.
-        timeZone: context.timeZone ?? timeZone,
+        timeZone,
       }),
   }),
+  /**
+   * Email 03: the first time an admitted cell is ready. It holds while the
+   * cell is still running and ready, and never for a marketplace reviewer's
+   * tenant.
+   */
+  ready: defineEmail({
+    readPayload: (value): ReadyPayload | null => readShape(value, { cellId: "cellId" }),
+    stillHolds: async (
+      tx,
+      payload
+    ): Promise<{
+      owner: ExomemEmailAddressee;
+      covered: boolean;
+      nextPaymentAt: Date | null;
+      connected: boolean;
+    } | null> => {
+      const { rows } = await tx`
+        /* exomem:email-ready-still-ready */
+        SELECT owner.email::text AS owner_email,
+               tenant.time_zone,
+               entitlement.source,
+               entitlement.provider_next_billed_at,
+               EXISTS (
+                 SELECT 1 FROM exomem_oauth_grants AS grant_row
+                 WHERE grant_row.tenant_id = cell.tenant_id AND grant_row.revoked_at IS NULL
+               ) AS connected
+        FROM exomem_cloud_cells AS cell
+        JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
+        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
+        WHERE cell.cell_id = ${payload.cellId}
+          AND cell.ready
+          AND cell.desired_state = 'running'
+          AND cell.observed_state = 'running'
+          AND tenant.status = 'active'
+          AND NOT tenant.marketplace_reviewer_purpose
+      `;
+      const row = rows[0] as
+        | (OwnerRow & {
+            source: string;
+            provider_next_billed_at: Date | string | null;
+            connected: boolean;
+          })
+        | undefined;
+      if (!row) return null;
+      return {
+        owner: ownerOf(row),
+        covered: row.source === "complimentary",
+        nextPaymentAt: row.provider_next_billed_at ? new Date(row.provider_next_billed_at) : null,
+        connected: row.connected,
+      };
+    },
+    addressee: (context) => context.owner,
+    render: ({ context, timeZone, publicBaseUrl }) =>
+      renderExomemReadyEmail({
+        homeUrl: homeUrl(publicBaseUrl),
+        // No name is stored for an owner yet; the price amount is not stored either.
+        recipientName: null,
+        connected: context.connected,
+        billing: context.covered
+          ? null
+          : { price: null, nextPaymentAt: context.nextPaymentAt, friendInviterName: null },
+        timeZone,
+      }),
+  }),
+  /**
+   * Email 04: the move into past due. It holds while the same past-due period
+   * is still open and no deletion has started.
+   */
+  payment_failed: defineEmail({
+    readPayload: (value): PaymentFailedPayload | null =>
+      readShape(value, { tenantId: "uuid", graceStartedAt: "instant" }),
+    stillHolds: async (tx, payload): Promise<{ owner: ExomemEmailAddressee } | null> => {
+      const { rows } = await tx`
+        /* exomem:email-payment-failed-still-past-due */
+        SELECT owner.email::text AS owner_email, tenant.time_zone
+        FROM exomem_entitlements AS entitlement
+        JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
+        JOIN users AS owner ON owner.id = tenant.owner_user_id
+        WHERE entitlement.tenant_id = ${payload.tenantId}::uuid
+          AND entitlement.source = 'paddle'
+          AND entitlement.source_state = 'past_due'
+          AND entitlement.grace_started_at = ${payload.graceStartedAt}::timestamptz
+          AND tenant.status NOT IN ('deletion_pending', 'deleted')
+      `;
+      const row = rows[0] as OwnerRow | undefined;
+      return row ? { owner: ownerOf(row) } : null;
+    },
+    addressee: (context) => context.owner,
+    render: ({ payload, timeZone, publicBaseUrl }) => {
+      const days = exomemPaddleDunningDays();
+      return renderExomemPaymentFailedEmail({
+        billingUrl: homeUrl(publicBaseUrl),
+        readOnlyUntil:
+          days.value === null
+            ? null
+            : new Date(Date.parse(payload.graceStartedAt) + days.value * 86_400_000),
+        timeZone,
+      });
+    },
+  }),
+  /** Email 05: the subscription ended. It holds while that ended period does. */
+  subscription_ended: defineEmail({
+    readPayload: (value): SubscriptionEndedPayload | null =>
+      readShape(value, { cellId: "cellId", endedAt: "instant", reminderScheduled: "boolean" }),
+    stillHolds: endedPeriodStillHolds,
+    addressee: (context) => context.owner,
+    render: ({ payload, context, timeZone, now, publicBaseUrl }) =>
+      renderExomemSubscriptionEndedEmail({
+        exportUrl: homeUrl(publicBaseUrl),
+        resubscribeUrl: homeUrl(publicBaseUrl),
+        keptUntil: context.keptUntil,
+        now,
+        reminderScheduled: payload.reminderScheduled,
+        timeZone,
+      }),
+  }),
+  /**
+   * Email 06: a week before an ended Exomem is deleted. The week is counted
+   * from the current kept-until date, which a later provider event can move:
+   * a reminder that comes due early waits for it.
+   */
+  deletion_reminder: defineEmail({
+    readPayload: (value): DeletionReminderPayload | null =>
+      readShape(value, { cellId: "cellId", endedAt: "instant" }),
+    stillHolds: async (tx, payload) => {
+      const period = await endedPeriodStillHolds(tx, payload);
+      if (!period) return null;
+      const remindAt = deletionReminderAt(period.keptUntil);
+      return period.checkedAt < remindAt ? new NotYet(remindAt) : period;
+    },
+    addressee: (context) => context.owner,
+    render: ({ context, timeZone, now, publicBaseUrl }) =>
+      renderExomemDeletionReminderEmail({
+        exportUrl: homeUrl(publicBaseUrl),
+        resubscribeUrl: homeUrl(publicBaseUrl),
+        keptUntil: context.keptUntil,
+        now,
+        timeZone,
+      }),
+  }),
+  /**
+   * Email 07: the Exomem was deleted. It holds while the tenant is still
+   * deleted by this deletion, the one whose `deleted_at` it names: a
+   * re-admission, or a later deletion, cancels it. It says the vault, its
+   * backups and its keys are gone, so it waits, without a deadline, until
+   * cellctl has deleted every cell of the tenant
+   * (`exomem_cloud_cell_deletion_finished`, migration 0068). The date it
+   * gives is when cellctl finished: cellctl stops observing a deleted cell,
+   * so the latest `observed_at` of the tenant's cells is that moment.
+   */
+  deleted: defineEmail({
+    readPayload: (value): DeletedPayload | null =>
+      readShape(value, { tenantId: "uuid", deletedAt: "instant" }),
+    stillHolds: async (tx, payload): Promise<{ finishedAt: Date } | NotYet | null> => {
+      const { rows } = await tx`
+        /* exomem:email-deleted-still-deleted */
+        SELECT count(*) FILTER (
+                 WHERE NOT exomem_cloud_cell_deletion_finished(cell) OR cell.observed_at IS NULL
+               )::int AS unfinished,
+               max(cell.observed_at) AS finished_at,
+               now() + (${DELETED_RECHECK_MINUTES} * interval '1 minute') AS recheck_at
+        FROM exomem_tenants AS tenant
+        JOIN exomem_cloud_cells AS cell ON cell.tenant_id = tenant.id
+        WHERE tenant.id = ${payload.tenantId}::uuid
+          AND tenant.status = 'deleted'
+          AND tenant.deleted_at = ${payload.deletedAt}::timestamptz
+        GROUP BY tenant.id
+      `;
+      const row = rows[0] as
+        | { unfinished: number; finished_at: Date | string | null; recheck_at: Date | string }
+        | undefined;
+      if (!row) return null;
+      if (row.unfinished > 0 || row.finished_at === null)
+        return new NotYet(new Date(row.recheck_at));
+      return { finishedAt: new Date(row.finished_at) };
+    },
+    render: ({ context, timeZone, now }) =>
+      renderExomemDeletedEmail({ deletedAt: context.finishedAt, now, timeZone }),
+  }),
 };
-
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;
 
 type PayloadOf<K extends ExomemEmailKind> = NonNullable<
@@ -268,10 +570,23 @@ export type EnqueueExomemEmailInput<K extends ExomemEmailKind> = {
   dedupeKey: string;
   recipient: string;
   recipientTimeZone: string | null;
+  /** The account the email is about, so account deletion removes it whatever its address. */
+  tenantId?: string;
   payload: PayloadOf<K>;
   notBefore?: Date;
   expiresAt?: Date;
 };
+
+/**
+ * The encrypted payload column for one email, as JSON. For an enqueue that
+ * one SQL statement makes together with its fact (the Paddle projection).
+ */
+export function sealExomemEmailPayload<K extends ExomemEmailKind>(
+  _kind: K,
+  payload: PayloadOf<K>
+): string {
+  return JSON.stringify(encryptSecret(JSON.stringify(payload)));
+}
 
 /**
  * Writes one email inside the caller's transaction. Returns `false` when an
@@ -281,17 +596,19 @@ export async function enqueueExomemEmail<K extends ExomemEmailKind>(
   tx: ExomemSql,
   input: EnqueueExomemEmailInput<K>
 ): Promise<boolean> {
-  const envelope = encryptSecret(JSON.stringify(input.payload));
+  const envelope = sealExomemEmailPayload(input.kind, input.payload);
   const { rows } = await tx`
     /* exomem:enqueue-email */
     INSERT INTO exomem_email_outbox (
-      kind, dedupe_key, recipient, recipient_time_zone, payload_ciphertext, not_before, expires_at
+      kind, dedupe_key, recipient, recipient_time_zone, tenant_id, payload_ciphertext,
+      not_before, expires_at
     ) VALUES (
       ${input.kind},
       ${input.dedupeKey},
       ${input.recipient},
       ${input.recipientTimeZone},
-      ${JSON.stringify(envelope)}::jsonb,
+      ${input.tenantId ?? null}::uuid,
+      ${envelope}::jsonb,
       COALESCE(${input.notBefore?.toISOString() ?? null}::timestamptz, now()),
       ${input.expiresAt?.toISOString() ?? null}::timestamptz
     )
@@ -312,7 +629,9 @@ type LeasedEmail = {
   context: unknown;
 };
 
-type ClaimResult = { outcome: "leased"; email: LeasedEmail } | { outcome: "cancelled" | "failed" };
+type ClaimResult =
+  | { outcome: "leased"; email: LeasedEmail }
+  | { outcome: "cancelled" | "failed" | "deferred" };
 
 export type ExomemEmailDrainDependencies = {
   now: () => Date;
@@ -414,12 +733,33 @@ async function claimNextEmail(
       await definition.afterFailed?.(tx, payload);
       return { outcome: "failed" };
     }
+    if (context instanceof NotYet) {
+      await tx`
+        /* exomem:defer-email */
+        UPDATE exomem_email_outbox
+        SET state = 'pending',
+            not_before = ${context.until.toISOString()}::timestamptz,
+            lease_owner = NULL,
+            lease_expires_at = NULL,
+            updated_at = now()
+        WHERE id = ${row.id}::uuid
+      `;
+      return { outcome: "deferred" };
+    }
 
+    const to = definition.addressee?.(context) ?? {
+      email: row.recipient,
+      timeZone: row.recipient_time_zone,
+    };
+    // The row records where this attempt went, so support and account
+    // deletion find it under the address that received it.
     await tx`
       /* exomem:lease-email */
       UPDATE exomem_email_outbox
       SET state = 'leased',
           attempts = attempts + 1,
+          recipient = ${to.email},
+          recipient_time_zone = ${to.timeZone},
           lease_owner = ${leaseOwner}::uuid,
           lease_expires_at = now() + (${LEASE_SECONDS} * interval '1 second'),
           updated_at = now()
@@ -429,8 +769,8 @@ async function claimNextEmail(
       outcome: "leased",
       email: {
         id: row.id,
-        recipient: row.recipient,
-        timeZone: row.recipient_time_zone,
+        recipient: to.email,
+        timeZone: to.timeZone,
         definition,
         payload,
         context,
@@ -504,21 +844,29 @@ async function releaseEmail(
 }
 
 /**
- * Deletes every outbox row addressed to one email, for account deletion.
- * Pending rows go too: nothing is sent to an address whose account is gone.
+ * Deletes, for account deletion, every outbox row about the account and every
+ * row addressed to its owner's current email. The account's rows go whatever
+ * address they went to; pending rows go too: nothing is sent for an account
+ * that is gone.
  */
-export async function scrubExomemEmailsFor(tx: ExomemSql, email: string): Promise<number> {
+export async function scrubExomemEmailsFor(
+  tx: ExomemSql,
+  account: { tenantId: string; email: string | null }
+): Promise<number> {
   const { rows } = await tx`
-    /* exomem:scrub-emails-for-address */
-    DELETE FROM exomem_email_outbox WHERE recipient = ${email}::citext RETURNING id
+    /* exomem:scrub-emails-for-account */
+    DELETE FROM exomem_email_outbox
+    WHERE tenant_id = ${account.tenantId}::uuid
+       OR recipient = ${account.email}::citext
+    RETURNING id
   `;
   return rows.length;
 }
 
 /**
- * Clears the recipient of rows settled more than 30 days ago, in bounded
- * batches. Their payload is already gone; the row and its dedupe key stay,
- * so the same fact still cannot send twice.
+ * Clears the recipient and their time zone from rows settled more than 30
+ * days ago, in bounded batches. Their payload is already gone; the row and
+ * its dedupe key stay, so the same fact still cannot send twice.
  */
 export async function clearSettledEmailRecipients(limit = 500): Promise<number> {
   const { rows } = await executeExomemSql`
@@ -532,7 +880,7 @@ export async function clearSettledEmailRecipients(limit = 500): Promise<number> 
       LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5_000))}
     )
     UPDATE exomem_email_outbox AS outbox
-    SET recipient = NULL, payload_ciphertext = NULL
+    SET recipient = NULL, recipient_time_zone = NULL, payload_ciphertext = NULL
     FROM settled
     WHERE outbox.id = settled.id
     RETURNING outbox.id
@@ -542,11 +890,15 @@ export async function clearSettledEmailRecipients(limit = 500): Promise<number> 
 
 export type ExomemEmailDrainResult = {
   recipientsCleared: number;
+  /** Emails 03 queued this tick; `null` when that pass failed. */
+  readyEnqueued: number | null;
   claimed: number;
   sent: number;
   retryScheduled: number;
   failed: number;
   cancelled: number;
+  /** Claimed, but the fact will hold only later: put back until then. */
+  deferred: number;
   lost: number;
 };
 
@@ -566,11 +918,21 @@ export async function drainExomemEmailOutbox(
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const result: ExomemEmailDrainResult = {
     recipientsCleared: await clearSettledEmailRecipients(),
+    // Before the drain, so a cell that became ready since the last tick is
+    // announced in this one. Its failure must not hold back queued mail.
+    readyEnqueued: await enqueueReadyEmails().then(
+      (ready) => ready.enqueued,
+      () => {
+        console.error("exomem: ready email pass failed");
+        return null;
+      }
+    ),
     claimed: 0,
     sent: 0,
     retryScheduled: 0,
     failed: 0,
     cancelled: 0,
+    deferred: 0,
     lost: 0,
   };
 
@@ -603,6 +965,8 @@ export async function drainExomemEmailOutbox(
         await deps.sendEmail({
           to: email.recipient,
           ...EXOMEM_SENDER,
+          // "Exomem", or "<name> via Exomem" when a person sent it; the address stays.
+          senderName: rendered.senderName,
           subject: rendered.subject,
           htmlContent: rendered.htmlContent,
           textContent: rendered.textContent,

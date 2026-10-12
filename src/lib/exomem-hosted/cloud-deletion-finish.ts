@@ -27,6 +27,7 @@ import { terminateExomemBillingForDeletion, type BillingDeletionTarget } from ".
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
 import { scrubExomemEmailsFor } from "./email-outbox";
+import { enqueueDeletedEmail } from "./lifecycle-emails";
 import { paddleFetch } from "@/lib/hosted-backup/paddle-client";
 import type { PaddleTransport } from "./paddle-billing";
 
@@ -97,7 +98,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
   const scrubbed = await withExomemTransaction(async (tx) => {
     const locked = await tx`
       /* exomem-cloud:deletion-finish-lock */
-      SELECT tenant.id
+      SELECT tenant.id, tenant.time_zone
       FROM exomem_tenants AS tenant
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
       WHERE tenant.id = ${proof.tenantId}::uuid
@@ -119,10 +120,11 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
         )
       FOR UPDATE OF tenant, entitlement
     `;
-    if (!locked.rows[0]) return false;
+    const lockedTenant = locked.rows[0] as { time_zone: string | null } | undefined;
+    if (!lockedTenant) return false;
     const tenantId = proof.tenantId;
 
-    await tx`
+    const deleted = await tx`
       UPDATE exomem_tenants
       SET status = 'deleted',
           desired_state = 'deleted',
@@ -131,6 +133,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           time_zone = NULL,
           updated_at = now()
       WHERE id = ${tenantId}::uuid
+      RETURNING deleted_at::text AS deleted_at
     `;
     await tx`
       UPDATE exomem_entitlements
@@ -245,9 +248,20 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
             WHERE authority.invite_id = invite.id
           )
       `;
-      // Every email row for the address goes too: settled rows hold the
-      // address, and a pending one must not reach a deleted account.
-      await scrubExomemEmailsFor(tx, ownerEmail);
+    }
+    // Every email row about the account, at whatever address, and every row
+    // for the owner's address go too: settled rows hold an address, and a
+    // pending one must not go out for a deleted account.
+    await scrubExomemEmailsFor(tx, { tenantId, email: ownerEmail ?? null });
+    if (ownerEmail) {
+      // Then email 07, sent once cellctl has deleted the cell. Its row keeps
+      // the address until 30 days after it settles (clearSettledEmailRecipients).
+      await enqueueDeletedEmail(tx, {
+        tenantId,
+        deletedAt: deleted.rows[0]!.deleted_at as string,
+        recipient: ownerEmail,
+        timeZone: lockedTenant.time_zone,
+      });
     }
     await tx`DELETE FROM exomem_sessions WHERE tenant_id = ${tenantId}::uuid`;
     await tx`DELETE FROM exomem_access_tokens WHERE tenant_id = ${tenantId}::uuid`;

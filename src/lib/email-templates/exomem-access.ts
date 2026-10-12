@@ -1,121 +1,57 @@
-export type RenderedExomemAccessEmail = {
-  subject: string;
-  htmlContent: string;
-  textContent: string;
-};
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 /**
- * How long the reader has, in words. This leads the expiry line because that is
- * the question they are actually asking; the instant only matters if they plan
- * to come back later.
+ * The Exomem access emails, on the one template (exomem-email.ts): sign-in
+ * (01), start (01w), invitation (02), waitlist, place opened, the unpaid-hold
+ * reminder (18) and the deletion confirmation. Copy is verbatim from the
+ * boards (R12-Lifecycle for 01 and 02, the landing board's inbox for 01w,
+ * R28-Emails for 18) and the product owner's approved copy (2026-10-12) for
+ * the waitlist and place-opened emails. Every time limit is computed here, at
+ * send, in the reader's zone.
  */
-function relativeExpiry(expiresAt: Date, now: Date): string | null {
-  const minutes = Math.round((expiresAt.getTime() - now.getTime()) / 60_000);
-  if (minutes <= 0) return null;
-  if (minutes === 1) return "in 1 minute";
-  if (minutes < 60) return `in ${minutes} minutes`;
-  const hours = Math.round(minutes / 60);
-  if (hours === 1) return "in 1 hour";
-  if (hours < 48) return `in ${hours} hours`;
-  const days = Math.round(hours / 24);
-  return days === 1 ? "in 1 day" : `in ${days} days`;
+
+import { renderExomemEmail, type RenderedExomemEmail } from "./exomem-email";
+import {
+  emailClock,
+  emailDate,
+  emailDateTime,
+  emailDuration,
+  emailShortDateTime,
+  type EmailTimeZone,
+} from "./exomem-email-time";
+
+export type RenderedExomemAccessEmail = RenderedExomemEmail;
+
+/** "until 09:20 (15 minutes)": the link's end and what is left of it. */
+function linkLimit(expiresAt: Date, now: Date, until: string): string {
+  const left = emailDuration(now, expiresAt);
+  return left ? `${until} (${left})` : until;
 }
 
-/**
- * Always labelled. A time is shown in the recipient's own time zone when the
- * product knows it, and in UTC otherwise, because an unlabelled timestamp
- * invites the reader to misread it as their own local time.
- */
-function absoluteTime(at: Date, timeZone: string | null | undefined): string {
-  const zone = timeZone ?? "UTC";
-  const date = new Intl.DateTimeFormat("en-GB", {
-    timeZone: zone,
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(at);
-  const time = new Intl.DateTimeFormat("en-GB", {
-    timeZone: zone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(at);
-  return zone === "UTC" ? `${date} at ${time} UTC` : `${date} at ${time} (${zone})`;
-}
-
-function expiryLabel(
-  subject: string,
-  expiresAt: Date,
-  now: Date,
-  timeZone?: string | null
-): string {
-  const relative = relativeExpiry(expiresAt, now);
-  const absolute = absoluteTime(expiresAt, timeZone);
-  return relative === null
-    ? `${subject} expired on ${absolute}.`
-    : `${subject} expires ${relative}, on ${absolute}.`;
-}
-
-function renderAccessEmail(input: {
-  subject: string;
-  introduction: string;
-  actionLabel: string;
-  accessUrl: string;
-  expiryLabel: string;
-}): RenderedExomemAccessEmail {
-  const safeUrl = escapeHtml(input.accessUrl);
-  const htmlContent = `<!doctype html>
-<html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(input.introduction)}</p>
-    <p style="margin: 0 0 20px;"><a href="${safeUrl}" style="display: inline-block; background: #171717; color: #ffffff; text-decoration: none; padding: 11px 18px; border-radius: 7px; font-weight: 600;">${escapeHtml(input.actionLabel)}</a></p>
-    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">${escapeHtml(input.expiryLabel)} This link works once. If you did not request it, you can ignore this email.</p>
-    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
-  </body>
-</html>`;
-  const textContent = `${input.introduction}
-
-${input.actionLabel}: ${input.accessUrl}
-
-${input.expiryLabel} This link works once. If you did not request it, you can ignore this email.
-
-— Exomem by Substrate Systems`;
-  return { subject: input.subject, htmlContent, textContent };
-}
-
-export function renderExomemInviteEmail(input: {
+/** Email 01: a sign-in link for the owner of an Exomem. */
+export function renderExomemMagicLinkEmail(input: {
   accessUrl: string;
   expiresAt: Date;
   now?: Date;
   timeZone?: string | null;
 }): RenderedExomemAccessEmail {
-  return renderAccessEmail({
-    subject: "Your Exomem invitation",
-    introduction:
-      "You have been invited to Exomem Cloud. Accept the invitation to create your private memory space.",
-    actionLabel: "Accept invitation",
-    accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel(
-      "This invitation",
-      input.expiresAt,
-      input.now ?? new Date(),
-      input.timeZone
-    ),
+  const now = input.now ?? new Date();
+  const left = emailDuration(now, input.expiresAt);
+  return renderExomemEmail({
+    subject: "Sign in to Exomem",
+    preheader: left ? `Your link works once, for ${left}.` : "Your link works once.",
+    band: "arrive",
+    headline: "Your sign-in link",
+    body: [
+      "Open it on the device where you asked for it. It brings you straight back to where you were.",
+    ],
+    action: { label: "Sign in to Exomem", url: input.accessUrl },
+    smallPrint: `Works once, until ${linkLimit(input.expiresAt, now, emailClock(input.expiresAt, input.timeZone))}. If you didn’t ask for this, ignore it: nothing happens.`,
   });
 }
 
 /**
- * Self-serve admission. Distinct from the operator invitation because nobody
- * invited them — they asked, capacity was free, and the next step is theirs.
+ * Email 01w: a start link from "Start with your email". The board's inbox
+ * shows a 15-minute link; a start link lasts 48 hours (owner decision 8), so
+ * its end carries a date.
  */
 export function renderExomemWelcomeEmail(input: {
   accessUrl: string;
@@ -123,90 +59,53 @@ export function renderExomemWelcomeEmail(input: {
   now?: Date;
   timeZone?: string | null;
 }): RenderedExomemAccessEmail {
-  return renderAccessEmail({
-    subject: "Set up your Exomem",
-    introduction:
-      "Your place on Exomem Cloud is ready. Set it up to create your private memory space, then connect it to Claude or ChatGPT.",
-    actionLabel: "Set up Exomem",
-    accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel(
-      "This setup link",
-      input.expiresAt,
-      input.now ?? new Date(),
-      input.timeZone
-    ),
+  const now = input.now ?? new Date();
+  const left = emailDuration(now, input.expiresAt);
+  return renderExomemEmail({
+    subject: "Start your Exomem",
+    preheader: left ? `Your link works once, for ${left}.` : "Your link works once.",
+    band: "arrive",
+    headline: "Let’s start your Exomem.",
+    body: ["One tap and you’re in. Next: choose your plan, then add Exomem to your assistant."],
+    action: { label: "Start Exomem", url: input.accessUrl },
+    smallPrint: `The link works once, until ${linkLimit(input.expiresAt, now, emailDateTime(input.expiresAt, input.timeZone))}. If you didn’t ask for it, ignore this email.`,
   });
 }
 
 /**
- * A time limit as the design catalogue writes it ("14 Sep, 15:05"), in the
- * reader's zone, or in UTC with the label when the zone is unknown.
+ * Email 02: an operator's invitation. The board's body named four
+ * assistants; the product never names a fixed number of them, so the first
+ * sentence is the positioning line instead. The small print names the
+ * invited address when the caller passes it.
  */
-function catalogueTime(
-  at: Date,
-  timeZone: string | null | undefined
-): {
-  time: string;
-  known: boolean;
-} {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timeZone ?? "UTC",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(at);
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((candidate) => candidate.type === type)?.value ?? "";
-  return {
-    time: `${part("day")} ${part("month")}, ${part("hour")}:${part("minute")}`,
-    known: Boolean(timeZone),
-  };
-}
-
-/**
- * The catalogue layout: a hidden preheader, a headline, the body, at most one
- * action, the small print and the footer.
- */
-function renderCatalogueEmail(input: {
-  subject: string;
-  preheader: string;
-  headline: string;
-  body: string;
-  action: { label: string; url: string } | null;
-  smallPrint: string;
+export function renderExomemInviteEmail(input: {
+  accessUrl: string;
+  expiresAt: Date;
+  email?: string | null;
+  now?: Date;
+  timeZone?: string | null;
 }): RenderedExomemAccessEmail {
-  const action = input.action
-    ? `
-    <p style="margin: 0 0 20px;"><a href="${escapeHtml(input.action.url)}" style="display: inline-block; background: #171717; color: #ffffff; text-decoration: none; padding: 11px 18px; border-radius: 7px; font-weight: 600;">${escapeHtml(input.action.label)}</a></p>`
-    : "";
-  const htmlContent = `<!doctype html>
-<html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <div style="display: none; max-height: 0; overflow: hidden;">${escapeHtml(input.preheader)}</div>
-    <p style="font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0 0 14px;">${escapeHtml(input.headline)}</p>
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(input.body)}</p>${action}
-    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">${escapeHtml(input.smallPrint)}</p>
-    <p style="font-size: 14px; line-height: 1.6; margin: 0;">Exomem by Substrate Systems</p>
-  </body>
-</html>`;
-  const actionText = input.action ? `\n\n${input.action.label}: ${input.action.url}` : "";
-  const textContent = `${input.headline}
-
-${input.body}${actionText}
-
-${input.smallPrint}
-
-Exomem by Substrate Systems`;
-  return { subject: input.subject, htmlContent, textContent };
+  const until = emailDate(input.expiresAt, input.timeZone);
+  return renderExomemEmail({
+    subject: "You’re invited to Exomem",
+    preheader: "One memory for every assistant you use.",
+    band: "arrive",
+    headline: "Start your Exomem",
+    body: [
+      "One memory for every assistant and every session you connect. Everything you keep stays yours, with its source.",
+    ],
+    action: { label: "Accept invitation", url: input.accessUrl },
+    smallPrint: input.email
+      ? `This invitation is for ${input.email} and works until ${until}.`
+      : `This invitation works until ${until}.`,
+  });
 }
 
 /**
  * Email 18: a person who accepted but has not paid, two days before their
- * unpaid hold ends, in the design catalogue's copy. That copy names the
- * inviter. A self-serve start, or an operator invitation without a name, has
- * none, and uses the product owner's approved sentence without one.
+ * unpaid hold ends. The board's copy names the inviter. A self-serve start, or
+ * an operator invitation without a name, has none, and uses the product
+ * owner's approved sentence without one.
  */
 export function renderExomemHoldReminderEmail(input: {
   setupUrl: string;
@@ -214,15 +113,16 @@ export function renderExomemHoldReminderEmail(input: {
   inviterName: string | null;
   timeZone?: string | null;
 }): RenderedExomemAccessEmail {
-  const deadline = absoluteTime(input.holdEndsAt, input.timeZone);
+  const deadline = emailDate(input.holdEndsAt, input.timeZone);
   const body = input.inviterName
     ? `You accepted ${input.inviterName}’s invitation but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup; the invitation stays used.`
     : `You started setting up Exomem but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup.`;
-  return renderCatalogueEmail({
+  return renderExomemEmail({
     subject: "Finish setting up your Exomem",
     preheader: `Finish by ${deadline}.`,
+    band: "arrive",
     headline: "Your Exomem is waiting",
-    body,
+    body: [body],
     action: { label: "Finish setting up", url: input.setupUrl },
     smallPrint: "We send this once. If you’ve changed your mind, ignore it.",
   });
@@ -230,12 +130,14 @@ export function renderExomemHoldReminderEmail(input: {
 
 /** The waitlist email, in the product owner's approved copy (2026-10-12). */
 export function renderExomemWaitlistEmail(): RenderedExomemAccessEmail {
-  return renderCatalogueEmail({
+  return renderExomemEmail({
     subject: "You're on the Exomem waitlist",
     preheader: "We'll email you when a place opens.",
+    band: "arrive",
     headline: "You're on the list",
-    body: "Exomem is full for now. We add room as we grow. When a place opens for you, we'll send a link to start.",
-    action: null,
+    body: [
+      "Exomem is full for now. We add room as we grow. When a place opens for you, we'll send a link to start.",
+    ],
     smallPrint:
       "You don't need to do anything. If you didn't ask for this, ignore this email. We write again only when a place opens.",
   });
@@ -251,96 +153,40 @@ export function renderExomemPlaceOpenedEmail(input: {
   expiresAt: Date;
   timeZone?: string | null;
 }): RenderedExomemAccessEmail {
-  const expiry = catalogueTime(input.expiresAt, input.timeZone);
-  const zoneLabel = expiry.known ? "(your time)" : "UTC";
-  return renderCatalogueEmail({
+  const zone: EmailTimeZone = input.timeZone;
+  const time = emailShortDateTime(input.expiresAt, zone);
+  return renderExomemEmail({
     subject: "Your place in Exomem is ready",
-    preheader: expiry.known
-      ? `Start before ${expiry.time} to keep it.`
-      : `Start before ${expiry.time} UTC to keep it.`,
+    preheader: zone ? `Start before ${time} to keep it.` : `Start before ${time} UTC to keep it.`,
+    band: "arrive",
     headline: "Your place is ready",
-    body: "A place opened up for you. Start your Exomem, then add it to your assistant.",
+    body: ["A place opened up for you. Start your Exomem, then add it to your assistant."],
     action: { label: "Start Exomem", url: input.accessUrl },
-    smallPrint: `The link works once, until ${expiry.time} ${zoneLabel}. If you don't use it, the place goes to the next person on the list.`,
-  });
-}
-
-export function renderExomemMagicLinkEmail(input: {
-  accessUrl: string;
-  expiresAt: Date;
-  now?: Date;
-  timeZone?: string | null;
-}): RenderedExomemAccessEmail {
-  return renderAccessEmail({
-    subject: "Sign in to Exomem",
-    introduction: "Use this private link to sign in to your Exomem workspace.",
-    actionLabel: "Sign in to Exomem",
-    accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel(
-      "This sign-in link",
-      input.expiresAt,
-      input.now ?? new Date(),
-      input.timeZone
-    ),
+    smallPrint: `The link works once, until ${time} ${zone ? "(your time)" : "UTC"}. If you don't use it, the place goes to the next person on the list.`,
   });
 }
 
 /**
- * Item 5 / task 3.7 (design D4), Cloud-only. Sent once, when a Cloud
- * tenant's Paddle subscription becomes cancelled. No call to action, like
- * `renderExomemWaitlistEmail` -- there is nothing to click; the cell has
- * already switched to read-only, and resubscribing (through the product's
- * ordinary billing flow, not this email) is what reverses it.
+ * The deletion confirmation link. No board draws this email: the words are
+ * the existing email's, the preheader and the last sentence are the Home
+ * board's delete dialog, and the headline is that dialog's title.
  */
-export function renderExomemCloudCancellationEmail(input: {
-  deletionDate: Date;
-  retentionDays: number;
-}): RenderedExomemAccessEmail {
-  const deletionDateLabel = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(input.deletionDate);
-  const introduction =
-    `Your Exomem subscription has been cancelled. Your memories stay in place and readable for ` +
-    `${input.retentionDays} days, but Exomem can no longer accept new memories during that window.`;
-  const windowLine =
-    `If you resubscribe before ${deletionDateLabel}, Exomem returns to normal automatically. ` +
-    `Otherwise, your Exomem and everything in it is permanently deleted on ${deletionDateLabel}.`;
-  const htmlContent = `<!doctype html>
-<html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(introduction)}</p>
-    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">${escapeHtml(windowLine)}</p>
-    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
-  </body>
-</html>`;
-  const textContent = `${introduction}
-
-${windowLine}
-
-— Exomem by Substrate Systems`;
-  return { subject: "Your Exomem subscription was cancelled", htmlContent, textContent };
-}
-
 export function renderExomemDeletionEmail(input: {
   accessUrl: string;
   expiresAt: Date;
   now?: Date;
   timeZone?: string | null;
 }): RenderedExomemAccessEmail {
-  return renderAccessEmail({
+  const now = input.now ?? new Date();
+  return renderExomemEmail({
     subject: "Confirm deletion of your Exomem",
-    introduction:
+    preheader: "Nothing is deleted until you open the link.",
+    band: "fading",
+    headline: "Delete your Exomem?",
+    body: [
       "You asked to permanently delete your Exomem Cloud account. This removes the Exomem vault, its backups and exports, and its encryption keys. It does not delete your shared Substrate identity or other products.",
-    actionLabel: "Review and confirm deletion",
-    accessUrl: input.accessUrl,
-    expiryLabel: expiryLabel(
-      "This confirmation",
-      input.expiresAt,
-      input.now ?? new Date(),
-      input.timeZone
-    ),
+    ],
+    action: { label: "Review and confirm deletion", url: input.accessUrl },
+    smallPrint: `Works once, until ${linkLimit(input.expiresAt, now, emailClock(input.expiresAt, input.timeZone))}. Ignore it and your Exomem stays.`,
   });
 }

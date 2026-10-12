@@ -18,7 +18,7 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `DATABASE_URL`                                                      | Postgres connection used by migrations and product-scoped rows.                                                                                                                                                                       |
 | `EXOMEM_PUBLIC_BASE_URL`                                            | Production HTTPS origin, exactly `https://substratesystems.io`. Credentials, query, fragment and non-root paths are rejected, and there is no request-derived fallback. Development HTTP is loopback-only.                            |
 | `EXOMEM_ADMIN_TOKEN`                                                | At least 32 random bytes, known only to operators. Protects the operator API and page.                                                                                                                                                |
-| `EXOMEM_CONTROL_PLANE_KEY`                                          | Exactly 32 random bytes as unpadded base64url, on the web app and the gateway. Seals OAuth continuations and queued email links, and keys rate-limit buckets.                                                                         |
+| `EXOMEM_CONTROL_PLANE_KEY`                                          | Exactly 32 random bytes as unpadded base64url, on the web app and the gateway. Seals OAuth continuations and queued email payloads, and keys rate-limit buckets. A production web deploy fails without it.                            |
 | `EXOMEM_CLOUD_MCP_URL`, `EXOMEM_CLOUD_MCP_PATH`                     | The Cloud MCP resource URL and its path on the gateway. The web app and the gateway must name the same resource. A missing value fails OAuth closed.                                                                                  |
 | `EXOMEM_CLOUD_CELL_TOKEN_KEY`                                       | Gateway only: 32 bytes as hex, used to derive each cell's bearer. The web app does not need it.                                                                                                                                       |
 | `CRON_SECRET`                                                       | Vercel-only bearer for unrelated daily and weekly jobs. Never install it in the K3s scheduler.                                                                                                                                        |
@@ -523,10 +523,10 @@ they hold a live start link gets another link with the same expiry. Using any
 of their links revokes the others. A waiting person who asks again keeps their
 place and gets no second waitlist email.
 
-Emails for start links, waitlist places, promotions and the unpaid-hold
-reminder go through `exomem_email_outbox`. The access-delivery job sends at
-most 20 per run, and retries an email until its own deadline. To see what is
-stuck, run:
+Emails for start links, waitlist places, promotions, the unpaid-hold
+reminder and the account lifecycle (emails 03 to 07) go through
+`exomem_email_outbox`. The access-delivery job sends at most 20 per run, and
+retries an email until its own deadline. To see what is stuck, run:
 
 ```sql
 SELECT kind, state, last_error_code, count(*)
@@ -540,7 +540,8 @@ outbox row 30 days after the row settles. The reconcile job deletes a
 person's waitlist entry and unused start links 180 days after the later of
 their last request and their last start link's expiry, unless the address
 owns an Exomem. It keeps used start links and operator invitations. Account
-deletion removes every outbox row for the owner's address.
+deletion removes every outbox row of the account and every row for the
+owner's address, then queues email 07.
 
 #### Release
 
@@ -647,3 +648,26 @@ SELECT count(*) FROM exomem_tenants AS tenant
 WHERE tenant.status = 'deletion_pending'
   AND NOT EXISTS (SELECT 1 FROM exomem_cloud_cells AS cell WHERE cell.tenant_id = tenant.id);
 ```
+
+Email 07 ("Your Exomem has been deleted") waits, with no deadline, until
+cellctl reports every cell of the tenant deleted. A receipt that still waits
+after 7 days means cellctl has not finished a deletion. To list those
+receipts and the cells that hold them, run:
+
+```sql
+SELECT outbox.tenant_id, outbox.created_at AS queued_at,
+       cell.cell_id, cell.desired_state, cell.observed_state,
+       cell.generation, cell.observed_generation, cell.observed_at,
+       cell.last_error_code
+FROM exomem_email_outbox AS outbox
+JOIN exomem_cloud_cells AS cell ON cell.tenant_id = outbox.tenant_id
+WHERE outbox.kind = 'deleted'
+  AND outbox.state = 'pending'
+  AND outbox.created_at < now() - interval '7 days'
+  AND (NOT exomem_cloud_cell_deletion_finished(cell) OR cell.observed_at IS NULL)
+ORDER BY outbox.created_at;
+```
+
+The access-delivery job checks a waiting receipt every 5 minutes and sends it
+once cellctl finishes. cellctl runs in Exomem, so investigate the cell there.
+Do not edit the outbox row.

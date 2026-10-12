@@ -66,7 +66,7 @@ type Environment = Record<string, string | undefined>;
  * makes the read-only end date unknown rather than a guess. A value outside
  * 1 to 365 days is a typo, not a dunning window, so it is unknown too.
  */
-function exomemPaddleDunningDays(
+export function exomemPaddleDunningDays(
   environment: Environment = process.env
 ): Known<number, "dunning_window_unconfigured" | "dunning_window_invalid"> {
   const value = environment.EXOMEM_PADDLE_DUNNING_DAYS?.trim();
