@@ -280,8 +280,9 @@ async function completeForPage(request: Request): Promise<NextResponse> {
   return response;
 }
 
-// Storage failed: nothing was attached, so the page says the problem is ours and
-// offers Connect again.
+// Storage failed, or its answer was lost. A lost COMMIT acknowledgement throws after
+// PostgreSQL has committed, so the app may be connected: the page says that it
+// could not confirm the connection, never that nothing changed.
 function failed(): NextResponse {
   console.error({ event: "exomem_oauth_authorize_complete_failed" });
   return json({ error: "server_error" }, 500);

@@ -119,15 +119,14 @@ async function postJson(path: string, body: Record<string, unknown>) {
 }
 
 /**
- * Whether the complete route itself said it changed nothing: it refused the request
- * (400) or its storage failed before committing (500 `server_error`). Any other
- * answer, such as a proxy's timeout, leaves the outcome unknown.
+ * Whether the answer proves that nothing changed. Only a 400 does: the complete route
+ * sends every 400 before any write, and a 400 from anything in between means the
+ * request never reached the route. Any other answer leaves the outcome unknown,
+ * including the route's own 500, which can follow a committed attach whose
+ * acknowledgement was lost.
  */
-function nothingChanged(answer: { status: number; body: unknown }): boolean {
-  if (answer.status === 400) return true;
-  return (
-    answer.status === 500 && (answer.body as { error?: unknown } | null)?.error === "server_error"
-  );
+function nothingChanged(answer: { status: number }): boolean {
+  return answer.status === 400;
 }
 
 function consentPathOf(body: unknown): string | null {

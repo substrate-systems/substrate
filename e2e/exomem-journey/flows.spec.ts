@@ -162,6 +162,39 @@ test("a lost answer to Connect is not reported as nothing changed", async ({ pag
   expect(await grantCount(client)).toBe(1);
 });
 
+// The route answers 500 when its store throws, and a store throws also when only the
+// COMMIT acknowledgement is lost: the app is then connected. Here the attach really
+// commits, and the page gets the 500 that such a lost acknowledgement produces.
+test("a 500 from Connect is not reported as nothing changed", async ({ page, context }) => {
+  const owner = await seedOwner("ready");
+  await context.addCookies(owner.cookies);
+  const client = await seedClient({
+    name: "Journey Web App",
+    redirectUri: "https://web-app.example.test/callback",
+    platform: null,
+  });
+  const served: number[] = [];
+  await page.route("**/api/exomem/oauth/authorize/complete", async (route) => {
+    served.push((await route.fetch()).status());
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "server_error" }),
+    });
+  });
+
+  await page.goto(authorizeRequest(client).url);
+  await page.getByRole("button", { name: consentCopy.connect, exact: true }).click();
+
+  await expect(
+    page.getByRole("heading", { name: breakCopy.unconfirmed.title(client.name) })
+  ).toBeVisible();
+  await expect(page.getByText(breakCopy.unconfirmed.lede(client.name))).toBeVisible();
+  await expect(page.getByText(/Nothing changed/)).toHaveCount(0);
+  expect(served).toEqual([200]);
+  expect(await grantCount(client)).toBe(1);
+});
+
 // Any app can register itself under any name, "Claude" included. The page names where
 // the answer goes, so a lookalike cannot pass as Claude while collecting codes elsewhere.
 test("an app that names itself is shown with where its answer goes", async ({ page, context }) => {
