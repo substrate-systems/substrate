@@ -58,6 +58,8 @@ export type ExomemAccountRow = {
   effectiveState: string;
   manuallySuspended: boolean;
   sourceOccurredAt: Date | null;
+  /** The id of the last Paddle event applied to the entitlement. */
+  sourceRevision: string | null;
   subscriptionRef: string | null;
   providerEnvironment: "sandbox" | "production" | null;
   priceId: string | null;
@@ -134,7 +136,7 @@ async function nextPaymentAmount(
       {
         subscriptionId: account.subscriptionRef,
         environment: account.providerEnvironment,
-        sourceOccurredAt: account.sourceOccurredAt,
+        sourceRevision: account.sourceRevision,
       },
       { config: loadExomemPaddleConfig(environment) }
     );
@@ -227,6 +229,7 @@ export async function loadExomemAccountView(
            entitlement.effective_state,
            entitlement.manual_suspended_at IS NOT NULL AS manually_suspended,
            entitlement.source_occurred_at,
+           entitlement.source_revision,
            entitlement.provider_subscription_ref,
            entitlement.provider_environment,
            entitlement.provider_price_id,
@@ -260,6 +263,7 @@ export async function loadExomemAccountView(
     effectiveState: String(row.effective_state),
     manuallySuspended: row.manually_suspended === true,
     sourceOccurredAt: dateOrNull(row.source_occurred_at),
+    sourceRevision: textOrNull(row.source_revision),
     subscriptionRef: textOrNull(row.provider_subscription_ref),
     providerEnvironment:
       row.provider_environment === "sandbox" || row.provider_environment === "production"

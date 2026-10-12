@@ -14,6 +14,7 @@ function paidRow(overrides: Partial<ExomemAccountRow> = {}): ExomemAccountRow {
     effectiveState: "active",
     manuallySuspended: false,
     sourceOccurredAt: new Date("2026-10-01T09:00:00.000Z"),
+    sourceRevision: "evt_example",
     subscriptionRef: "sub_example",
     providerEnvironment: "sandbox",
     priceId: "pri_monthly_example",

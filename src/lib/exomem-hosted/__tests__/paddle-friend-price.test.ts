@@ -160,17 +160,18 @@ describe("the next payment's amount", () => {
         },
       });
     };
-    const read = (sourceOccurredAt: Date) =>
+    const read = (sourceRevision: string) =>
       readExomemNextPaymentAmount(
-        { subscriptionId, environment: "sandbox", sourceOccurredAt },
+        { subscriptionId, environment: "sandbox", sourceRevision },
         { config: config(), transport, now: () => 0 }
       );
 
-    const subscribed = new Date("2026-10-01T09:00:00Z");
+    const subscribed = "evt_subscription_created";
     assert.deepEqual((await read(subscribed)).value, { amount: "1000", currencyCode: "EUR" });
-    // The webhook applies the scheduled cancellation and stores its time seconds later.
+    // The webhook applies the scheduled cancellation, which stores its event id. Paddle can
+    // stamp it in the same millisecond as the event before, so the time alone may not move.
     cancelled = true;
-    const cancellationApplied = new Date("2026-10-12T14:00:00Z");
+    const cancellationApplied = "evt_subscription_updated";
     assert.deepEqual(await read(cancellationApplied), { value: null, reason: "not_reported" });
     assert.equal(reads.length, 2);
     // With nothing stored changing, the cached answer still serves.
