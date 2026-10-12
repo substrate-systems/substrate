@@ -596,6 +596,7 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         assert.ok(found, "exomem_gateway should be able to run the real lookup query");
         assert.equal(found!.tenantId, tenantId);
         assert.equal(found!.cellDesiredState, "running");
+        assert.equal(found!.firstParty, false);
         if (reviewerPurpose) {
           await ownerPool!.query(
             "UPDATE exomem_entitlements SET source = 'paddle', provider_customer_ref = 'ctm_test', provider_environment = 'sandbox' WHERE tenant_id = $1",
@@ -982,12 +983,12 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
       }
     }
 
-    let routedCellId: string | undefined;
+    let routed: { cellId: string; firstParty: boolean } | undefined;
     const fetchCell = (async (_url: string, init: RequestInit) => {
       const bearer = new Headers(init.headers).get("authorization")!.slice("Bearer ".length);
       __setExomemSqlForTests(taggedSql(gatewayPool!));
       try {
-        routedCellId = (await findCloudOAuthAccessToken(digestSecret(bearer), CLOUD_RESOURCE))?.cellId;
+        routed = (await findCloudOAuthAccessToken(digestSecret(bearer), CLOUD_RESOURCE)) ?? undefined;
       } finally {
         __setExomemSqlForTests(taggedSql(appPool!));
       }
@@ -1010,7 +1011,8 @@ describe("Exomem Cloud grants PostgreSQL integration", { skip: !databaseUrl }, (
         env: resourceEnv,
       });
       assert.equal(levels.status, 200);
-      assert.equal(routedCellId, homeCellId);
+      assert.equal(routed?.cellId, homeCellId);
+      assert.equal(routed?.firstParty, true);
 
       const started = await handleCloudExportsRequest(browser("POST", "/api/exomem/cloud/exports", {}), {
         env: resourceEnv,

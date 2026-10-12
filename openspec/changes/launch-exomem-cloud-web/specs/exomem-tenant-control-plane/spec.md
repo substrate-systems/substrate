@@ -97,7 +97,7 @@ The cell controller SHALL mark an export ready only after it checks the uploaded
 
 ### Requirement: Home reaches its cell with a short-lived first-party token
 
-Substrate SHALL call the owner's cell only through the public Cloud MCP address, with an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. No request SHALL carry a tenant or cell identifier.
+Substrate SHALL call the owner's cell only through the public Cloud MCP address, with an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. No request SHALL carry a tenant or cell identifier. The gateway SHALL exempt from its per-address limit only a token that its lookup resolved to the first-party client from the stored client row, and SHALL keep the per-tenant and client limit for that token.
 
 #### Scenario: Cell is stopped or not ready
 
@@ -109,6 +109,12 @@ Substrate SHALL call the owner's cell only through the public Cloud MCP address,
 - **WHEN** a Home token minted for tenant A reaches the gateway
 - **THEN** it resolves only to tenant A's cell
 
+#### Scenario: Many owners share Home's server address
+
+- **WHEN** Home's server calls the gateway for many owners from one address
+- **THEN** the per-address limit does not refuse those calls, and each tenant keeps its own limit
+- **AND** a request from that address with any other token, or none, still counts against the per-address limit
+
 #### Scenario: Account is blocked or deleted
 
 - **WHEN** the account is blocked or its deletion has begun
@@ -116,12 +122,41 @@ Substrate SHALL call the owner's cell only through the public Cloud MCP address,
 
 ### Requirement: The first-party Home client is marked by data and is not an app
 
-A database column SHALL mark the first-party Home client. The marker MUST decide whether a client appears in the app list and counts as a slot. Code MUST NOT identify the Home client by its id.
+The client's stored admission mode SHALL mark the first-party Home client. The mode MUST decide whether a client appears in the app list and counts as a slot. No authorization, code exchange or refresh path in any application version SHALL admit the mode; only the gateway's token lookup SHALL admit it. Before the mint reuses a Home grant, it SHALL revoke a grant that allows refresh or holds an access token issued for longer than 120 seconds. Migration 0066 MUST stop when an ordinary client already holds the Home client's id. Code MUST NOT identify the Home client by its id.
 
 #### Scenario: Home client is excluded
 
 - **WHEN** the system lists apps or counts client slots
 - **THEN** the first-party Home client is neither listed nor counted
+
+#### Scenario: Home client is never authorized interactively
+
+- **WHEN** an authorization, code exchange or refresh request names the Home client, from this release or the one before it
+- **THEN** the request is refused
+
+#### Scenario: Interactive Home grant is retired
+
+- **WHEN** the mint finds a Home grant that allows refresh or holds an access token issued for longer than 120 seconds
+- **THEN** it revokes that grant and mints on a new one
+
+#### Scenario: Home client id is taken
+
+- **WHEN** migration 0066 finds an ordinary client with the Home client's id
+- **THEN** the migration stops and changes nothing
+
+### Requirement: A hold is a pause, not a fault
+
+The status poll SHALL report a live cell that a hold stops, or that reports `stopping` after a hold ends, as paused: `CELL_PAUSED_FOR_EXPORT` for an export hold and `CELL_PAUSED_FOR_HOLD` for any other hold. It MUST NOT report either as a cell that fails to start.
+
+#### Scenario: Backup holds a running cell
+
+- **WHEN** a backup hold stops a cell whose desired state is running
+- **THEN** the status poll reports `CELL_PAUSED_FOR_HOLD`
+
+#### Scenario: Cell restarts after an export
+
+- **WHEN** cellctl releases an export hold and reports the cell `stopping`
+- **THEN** the status poll reports `CELL_PAUSED_FOR_HOLD`, not `CELL_NOT_READY`
 
 ### Requirement: Storage use is an observation, not a plan limit
 

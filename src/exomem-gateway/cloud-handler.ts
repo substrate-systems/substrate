@@ -209,8 +209,9 @@ export type CloudGatewayDependencies = {
 };
 
 /**
- * D3's pass-through. Every branch below is numbered to the design's own
- * ordered list.
+ * D3's pass-through. Every branch below is numbered in the order it runs.
+ * D3 lists the same steps with the IP limit before the token lookup; the
+ * Home channel's first-party exemption (launch-exomem-cloud-web) moved it.
  */
 export async function handleCloudMcpRequest(
   request: Request,
@@ -232,23 +233,29 @@ export async function handleCloudMcpRequest(
     return errorResponse(400, "HOSTED_SELECTOR_REJECTED");
   }
 
-  // 3. IP rate limit, keyed on the ingress-recorded client address. Skipped
-  // entirely when there is none to key on (security review finding 6) —
-  // never collapsed into one shared bucket.
-  const ipKey = trustedIngressClientAddress(request);
-  if (ipKey === null) {
-    recordIpBucketSkip();
-  } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
-    return errorResponse(429, "RATE_LIMITED");
-  }
-
-  // 4. Bearer parse, token lookup (exact Cloud-resource match), required
-  // scopes (D2), identity rate limit and concurrency guard.
+  // 3. Bearer parse and token lookup (exact Cloud-resource match). The IP
+  // decision below needs the lookup's answer, so a refusal waits for it.
   const bearer = parseBearerAuthorization(request.headers.get("authorization"));
-  if (!bearer) return unauthorized(config);
-  const access = await findAccessToken(digestSecret(bearer), config.mcpUrl);
+  const access = bearer ? await findAccessToken(digestSecret(bearer), config.mcpUrl) : null;
+
+  // 4. IP rate limit, keyed on the ingress-recorded client address. Home's
+  // server calls for every owner from a few shared addresses, so a token
+  // that the lookup resolved to the first-party client, by its stored row,
+  // skips it; the identity limit below still applies to it. Every other
+  // request, valid or not, takes the IP bucket before it is answered. Skipped
+  // entirely when there is no address to key on (security review finding 6)
+  // — never collapsed into one shared bucket.
+  if (!access?.firstParty) {
+    const ipKey = trustedIngressClientAddress(request);
+    if (ipKey === null) {
+      recordIpBucketSkip();
+    } else if (!(await takeRateLimit(EXOMEM_RATE_LIMITS.mcpIp, ipKey))) {
+      return errorResponse(429, "RATE_LIMITED");
+    }
+  }
   if (!access) return unauthorized(config);
 
+  // 5. Required scopes (D2), identity rate limit and concurrency guard.
   // Security review finding 2: a cell exposes one fixed non-owner principal
   // and cannot itself enforce a read-only grant, so a token missing either
   // exomem.read or exomem.write is refused here, before any cell contact.
@@ -283,7 +290,7 @@ async function proxyToCell(
     return new Response(null, { status: 405, headers: { ...CACHE_HEADERS, allow: "POST" } });
   }
 
-  // 5. Gate on desired state, not the eventually consistent `ready` column.
+  // 6. Gate on desired state, not the eventually consistent `ready` column.
   if (access.cellDesiredState !== "running" && access.cellDesiredState !== "read_only") {
     return errorResponse(503, "CELL_NOT_READY");
   }
@@ -300,10 +307,10 @@ async function proxyToCell(
     return errorResponse(500, "CELL_ID_INVALID");
   }
 
-  // 6. Derive the per-cell bearer (C4).
+  // 7. Derive the per-cell bearer (C4).
   const cellBearer = deriveCloudCellBearer(config.cellTokenKey, access.cellId);
 
-  // 7. Stream to the cell per C3: protocol request metadata is preserved
+  // 8. Stream to the cell per C3: protocol request metadata is preserved
   // for the cell's header/body validation, never used to select its route.
   // Never forward client Authorization, cookies or forwarding headers.
   // Security review finding 12: accept-encoding is

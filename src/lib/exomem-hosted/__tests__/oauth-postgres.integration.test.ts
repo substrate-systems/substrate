@@ -425,7 +425,7 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
     const firstParty = await pool!.query(
       `SELECT id, client_id, admission_mode, enabled, redirect_uris, client_name,
               client_platform, oauth_client_config_sha256, authority_version
-       FROM exomem_oauth_clients WHERE first_party`
+       FROM exomem_oauth_clients WHERE admission_mode = 'first_party'`
     );
     const seeded = firstParty.rows[0]!;
     const redirectUri = "https://operator-takeover.example.test/callback";

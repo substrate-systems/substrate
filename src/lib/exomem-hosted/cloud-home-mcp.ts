@@ -55,6 +55,20 @@ const ConfigureMemoryAnswer = z.object({
   levels: z.object({ coding: ContextLevel, conversation: ContextLevel }),
 });
 
+/**
+ * The client families an activity event can name. This is the cell's closed
+ * set: `client_family` in its `privacy_log` maps every client name to one of
+ * these, or to none when the name is empty. Home imports it to label events.
+ */
+export const ACTIVITY_CLIENT_FAMILIES = [
+  "claude-ai",
+  "chatgpt",
+  "codex",
+  "claude-code",
+  "other",
+] as const;
+export type ActivityClientFamily = (typeof ACTIVITY_CLIENT_FAMILIES)[number];
+
 const Timestamp = z.iso.datetime({ offset: true });
 const ActivityPayload = z.object({
   since: Timestamp,
@@ -63,7 +77,9 @@ const ActivityPayload = z.object({
   events: z
     .array(
       z.object({
-        client: z.string().min(1).max(64).nullable(),
+        // Any other value could be text from the cell, so it reaches Home as
+        // an unknown client, never as itself.
+        client: z.enum(ACTIVITY_CLIENT_FAMILIES).nullable().catch(null),
         action: z.enum(["recalled", "saved"]),
         items: z.number().int().nonnegative().nullable(),
         at: Timestamp,
@@ -211,19 +227,35 @@ async function mintHomeAccessToken(
   const token = new SensitiveSecret(generateExternalToken());
   const reviewerCredentialId = principal.reviewerCredentialId ?? null;
   await withExomemTransaction(async (tx) => {
-    // One active grant per owner, client and resource. A Home grant from a
-    // reviewer credential that this session no longer carries is retired
-    // first; the upsert below would otherwise refuse it on every call.
+    // One active grant per owner, client and resource, so the mint reuses
+    // only a grant that it could have written itself. It retires first a
+    // Home grant from a reviewer credential that this session no longer
+    // carries, which the upsert below would otherwise refuse on every call.
+    // It also retires a grant that an interactive authorization wrote: one
+    // that allows refresh, or holds a live access token issued for longer
+    // than this mint issues. The check reads each token's own lifetime, so a
+    // concurrent mint's fresh token never retires the grant. Revoking the
+    // grant ends its families and tokens at the gateway's lookup.
     await tx`
       UPDATE exomem_oauth_grants AS oauth_grant
       SET revoked_at = now(), updated_at = now()
       FROM exomem_oauth_clients AS home_client
-      WHERE home_client.id = oauth_grant.client_id AND home_client.first_party
+      WHERE home_client.id = oauth_grant.client_id
+        AND home_client.admission_mode = 'first_party'
         AND oauth_grant.user_id = ${principal.userId}::uuid
         AND oauth_grant.tenant_id = ${principal.tenantId}::uuid
         AND oauth_grant.resource = ${resource}
         AND oauth_grant.revoked_at IS NULL
-        AND oauth_grant.reviewer_credential_id IS DISTINCT FROM ${reviewerCredentialId}::uuid
+        AND (
+          oauth_grant.reviewer_credential_id IS DISTINCT FROM ${reviewerCredentialId}::uuid
+          OR oauth_grant.refresh_allowed
+          OR EXISTS (
+            SELECT 1 FROM exomem_oauth_access_tokens AS token
+            WHERE token.grant_id = oauth_grant.id AND token.expires_at > now()
+              AND token.expires_at - token.created_at
+                > make_interval(secs => ${CLOUD_HOME_TOKEN_TTL_SECONDS})
+          )
+        )
     `;
     // The grant upsert locks the grant row, so concurrent mints for one
     // tenant reuse one family instead of racing to open two.
@@ -240,7 +272,7 @@ async function mintHomeAccessToken(
             WHERE block.tenant_id = tenant.id AND block.owner_user_id = tenant.owner_user_id
           )
       ), home_client AS (
-        SELECT id FROM exomem_oauth_clients WHERE first_party AND enabled
+        SELECT id FROM exomem_oauth_clients WHERE admission_mode = 'first_party' AND enabled
       )
       INSERT INTO exomem_oauth_grants (
         user_id, tenant_id, client_id, resource, scopes, refresh_allowed, reviewer_credential_id

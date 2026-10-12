@@ -63,11 +63,10 @@ export async function resolveApprovedCloudOAuthClient(
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
       AND redirect_uris_digest = digest(convert_to(redirect_uris::text, 'utf8'), 'sha256')
+      -- The first_party mode is absent: that client gets tokens only from
+      -- the server-side mint (cloud-home-mcp.ts), never through a consent.
       AND admission_mode IN ('pinned', 'cimd', 'generic')
       AND enabled = true
-      -- A first-party client gets tokens only from the server-side mint
-      -- (cloud-home-mcp.ts), never through a browser consent.
-      AND NOT client.first_party
       AND (
         admission_mode = 'pinned'
         OR exomem_oauth_generic_client_admitted(client.admission_mode)
@@ -113,6 +112,8 @@ export type ActiveCloudOAuthAccessToken = {
   scopes: string[];
   cellId: string;
   cellDesiredState: "running" | "read_only" | "stopped" | "deleted";
+  /** The token belongs to the first-party Home client, by its stored admission mode. */
+  firstParty: boolean;
 };
 
 /**
@@ -143,7 +144,8 @@ export async function findCloudOAuthAccessToken(
     /* exomem-cloud:find-oauth-access-token */
     SELECT token.family_id, token.grant_id, oauth_grant.user_id, oauth_grant.tenant_id,
            client.client_id, token.resource, token.scopes,
-           cell.cell_id, cell.desired_state AS cell_desired_state
+           cell.cell_id, cell.desired_state AS cell_desired_state,
+           client.admission_mode = 'first_party' AS first_party
     FROM exomem_oauth_access_tokens AS token
     JOIN exomem_oauth_token_families AS family
       ON family.id = token.family_id
@@ -160,6 +162,9 @@ export async function findCloudOAuthAccessToken(
      AND client.redirect_uris_digest = digest(convert_to(client.redirect_uris::text, 'utf8'), 'sha256')
      AND (
        client.admission_mode = 'pinned'
+       -- Only the server-side mint writes a first-party token; this lookup
+       -- is the one place that admits the mode.
+       OR client.admission_mode = 'first_party'
        OR exomem_oauth_generic_client_admitted(client.admission_mode)
        OR (
          client.metadata_document_digest IS NOT NULL
@@ -207,6 +212,7 @@ export async function findCloudOAuthAccessToken(
         scopes: string[];
         cell_id: string;
         cell_desired_state: "running" | "read_only" | "stopped" | "deleted";
+        first_party: boolean;
       }
     | undefined;
   return row
@@ -220,6 +226,7 @@ export async function findCloudOAuthAccessToken(
         scopes: row.scopes,
         cellId: row.cell_id,
         cellDesiredState: row.cell_desired_state,
+        firstParty: row.first_party,
       }
     : null;
 }

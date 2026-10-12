@@ -100,7 +100,7 @@ describe("mapCloudCellToLifecycleStatus", () => {
 
   it("reports degraded for any other observed/desired mismatch", () => {
     assert.deepEqual(
-      mapCloudCellToLifecycleStatus(row({ observed_state: "stopping", ready: false })),
+      mapCloudCellToLifecycleStatus(row({ observed_state: "stopped", ready: false })),
       { state: "degraded", code: "CELL_NOT_READY", retryable: true }
     );
   });
@@ -111,6 +111,21 @@ describe("mapCloudCellToLifecycleStatus", () => {
       assert.deepEqual(
         mapCloudCellToLifecycleStatus(row({ observed_state, ready: false, hold_kind: "export" })),
         { state: "degraded", code: "CELL_PAUSED_FOR_EXPORT", retryable: true }
+      );
+    }
+  });
+
+  // A backup or upgrade stops a serving cell for a few minutes, and cellctl
+  // reports `stopping` once more after it releases any hold. Neither is a fault.
+  it("reports a cell under any other hold, or stopping after one, as paused for the hold", () => {
+    for (const held of [
+      { observed_state: "stopping", hold_kind: "backup" },
+      { observed_state: "stopped", hold_kind: "upgrade" },
+      { observed_state: "stopping", hold_kind: null },
+    ] as const) {
+      assert.deepEqual(
+        mapCloudCellToLifecycleStatus(row({ ...held, ready: false })),
+        { state: "degraded", code: "CELL_PAUSED_FOR_HOLD", retryable: true }
       );
     }
   });

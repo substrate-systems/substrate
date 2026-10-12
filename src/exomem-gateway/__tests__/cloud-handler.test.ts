@@ -44,6 +44,7 @@ const VALID_ACCESS: ActiveCloudOAuthAccessToken = {
   scopes: ["exomem.read", "exomem.write"],
   cellId: TEST_CELL_ID,
   cellDesiredState: "running",
+  firstParty: false,
 };
 
 type StandInCellBehavior =
@@ -354,6 +355,52 @@ describe("Exomem Cloud gateway handler", () => {
       }
     } finally {
       warn.mock.restore();
+    }
+  });
+
+  // Home's server calls for every owner from a few shared addresses. Only a
+  // token that the lookup resolved to the first-party client skips the IP
+  // bucket; an unknown or ordinary token from that address still takes it.
+  it("skips the IP bucket only for a first-party token, and keeps its identity limit", async () => {
+    const previousHeader = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+    const previousValue = process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = "x-ingress-trusted";
+    process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = "traefik";
+    try {
+      const sharedAddress = { "x-ingress-trusted": "traefik", "x-real-ip": "203.0.113.9" };
+      let identityAllowed = true;
+      const buckets: string[] = [];
+      // The shared address has used up its IP bucket.
+      const takeRateLimit: CloudGatewayDependencies["takeRateLimit"] = async (limit) => {
+        buckets.push(limit.scope);
+        return limit.scope === "exomem:mcp:identity" && identityAllowed;
+      };
+      let fetchCalls = 0;
+      const fetchCell = (async () => {
+        fetchCalls += 1;
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch;
+      const send = (access: ActiveCloudOAuthAccessToken | null) =>
+        handleCloudMcpRequest(
+          postRequest({ bearer: CLIENT_BEARER, headers: sharedAddress, body: "{}" }),
+          baseDeps({ findAccessToken: async () => access, takeRateLimit, fetchCell })
+        );
+
+      const home = await send({ ...VALID_ACCESS, firstParty: true });
+      assert.equal(home.status, 200);
+      assert.deepEqual(buckets, ["exomem:mcp:identity"]);
+      assert.equal((await send(VALID_ACCESS)).status, 429);
+      assert.equal((await send(null)).status, 429);
+      identityAllowed = false;
+      assert.equal((await send({ ...VALID_ACCESS, firstParty: true })).status, 429);
+      assert.equal(fetchCalls, 1);
+    } finally {
+      if (previousHeader === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_HEADER = previousHeader;
+      if (previousValue === undefined)
+        delete process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE;
+      else process.env.EXOMEM_GATEWAY_TRUSTED_INGRESS_SOURCE_VALUE = previousValue;
     }
   });
 
