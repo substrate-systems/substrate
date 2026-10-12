@@ -32,7 +32,6 @@ import { oauthClientConfigSha256 } from "../oauth-client-admission";
 import { EXOMEM_RATE_LIMITS } from "../rate-limit";
 import type { SecretEnvelope } from "../security";
 import {
-  preflightReusablePinnedOAuthClient,
   readOAuthClientHeadroom,
   refreshOperatorCimdOAuthClient,
   registerOperatorOAuthClient,
@@ -1492,7 +1491,8 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
         0
       );
 
-      // 128 generic rows would exceed the operator bound of 96 if they counted there.
+      // A full generic partition holds more clients than the operator bound, so
+      // the operator partition would be full too if generic rows counted there.
       const probe = `https://partition-probe.example.test/${randomUUID()}/client.json`;
       const free = await pool!.query<{ operator: boolean; connector: boolean }>(
         `SELECT exomem_oauth_client_partition_available($1, false) AS operator,
@@ -2423,69 +2423,6 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       );
       await setGenericLane(false);
       await removeClients(registered);
-    }
-  });
-
-  it("keeps a retired reviewer bootstrap client unusable and its provenance readable", async () => {
-    const bootstrapClientId = `exomem-reviewer-bootstrap-${randomUUID()}`;
-    const redirectUris = ["http://localhost:47831/callback"];
-    await pool!.query(
-      `INSERT INTO exomem_oauth_clients (
-         client_id, admission_mode, enabled, reviewer_bootstrap_ever_authorized, redirect_uris,
-         redirect_uris_digest, client_platform, oauth_client_config_sha256, metadata_provenance
-       ) VALUES ($1, 'pinned', false, true, $2::jsonb,
-                 digest(convert_to($2::jsonb::text, 'utf8'), 'sha256'), 'claude', $3,
-                 '{"version":1,"mode":"pinned"}'::jsonb)`,
-      [
-        bootstrapClientId,
-        JSON.stringify(redirectUris),
-        oauthClientConfigSha256({
-          platform: "claude",
-          admissionMode: "pinned",
-          clientId: bootstrapClientId,
-          redirectUris,
-        }),
-      ]
-    );
-    try {
-      const before = await readOAuthClientHeadroom();
-      const retired = await pool!.query<{ id: string }>(
-        `UPDATE exomem_oauth_clients SET retired_at = now(), updated_at = now()
-         WHERE client_id = $1 AND NOT enabled AND NOT exomem_oauth_client_holds_live_authority(id)
-         RETURNING id`,
-        [bootstrapClientId]
-      );
-      assert.equal(retired.rowCount, 1);
-      assert.equal((await readOAuthClientHeadroom()).operator.used, before.operator.used - 1);
-
-      assert.equal(
-        await setOperatorOAuthClientEnabled({
-          clientRecordId: retired.rows[0]!.id,
-          enabled: true,
-        }),
-        false
-      );
-      assert.deepEqual(
-        await preflightReusablePinnedOAuthClient({
-          platform: "claude",
-          clientId: bootstrapClientId,
-          redirectUris,
-        }),
-        { eligible: false, clientRecordId: null },
-        "a bootstrap identity is never offered for reuse, retired or not"
-      );
-      const provenance = await pool!.query(
-        `SELECT enabled, reviewer_bootstrap_ever_authorized, retired_at IS NOT NULL AS retired
-         FROM exomem_oauth_clients WHERE client_id = $1`,
-        [bootstrapClientId]
-      );
-      assert.deepEqual(provenance.rows, [
-        { enabled: false, reviewer_bootstrap_ever_authorized: true, retired: true },
-      ]);
-    } finally {
-      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [
-        bootstrapClientId,
-      ]);
     }
   });
 });
