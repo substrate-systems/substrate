@@ -576,13 +576,12 @@ describe(
         assert.equal((await view()).alreadyConnected, false, "a revoked grant");
       });
 
-      // Last: these add the columns the generic-client and Home-client
-      // migrations will add, to prove the list and the consent page read them.
-      describe("once clients carry a declared name and a first-party mark", () => {
+      // Last: this adds the first_party column the Home-client migration will
+      // add, unless the schema already has it, to prove the list reads it.
+      describe("once clients carry a stored name and a first-party mark", () => {
         before(async () => {
           await pool!.query(
             `ALTER TABLE exomem_oauth_clients
-               ADD COLUMN IF NOT EXISTS client_name text,
                ADD COLUMN IF NOT EXISTS first_party boolean NOT NULL DEFAULT false`
           );
         });

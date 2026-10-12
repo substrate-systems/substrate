@@ -17,7 +17,7 @@ import { isSafeLoopbackOAuthRedirect } from "./oauth-client-admission";
 export type OAuthClientIdentity = {
   /** The stored `client_name`, or null when the client has none. */
   clientName: string | null;
-  /** `admission_mode`, a closed set fixed by its CHECK constraint (migration 0025). */
+  /** `admission_mode`, a closed set fixed by its CHECK constraint (migrations 0025 and 0062). */
   admissionMode: string;
   platform: string | null;
   redirectUris: string[];
@@ -70,11 +70,10 @@ function clientKind(redirectUris: readonly string[]): OwnerApp["kind"] {
     : "web";
 }
 
-// `client_name` and `first_party` are read through `to_jsonb(client)`, which
-// yields null for a column the table does not have yet. The generic-client
-// migration adds `client_name` and the Home-client migration adds
-// `first_party boolean NOT NULL DEFAULT false`; once both have shipped, read
-// them as plain columns instead.
+// `first_party` is read through `to_jsonb(client)`, which yields null while
+// the table does not have the column yet. The Home-client migration adds
+// `first_party boolean NOT NULL DEFAULT false`; once it has shipped, read it
+// as a plain column instead.
 
 /** The client an authorization request names, for the consent page. */
 export async function findOAuthClientIdentity(
@@ -82,8 +81,7 @@ export async function findOAuthClientIdentity(
 ): Promise<OAuthClientIdentity | null> {
   const { rows } = await executeExomemSql`
     /* exomem:find-oauth-client-identity */
-    SELECT to_jsonb(client) ->> 'client_name' AS client_name,
-           client.admission_mode, client.client_platform, client.redirect_uris
+    SELECT client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
     FROM exomem_oauth_clients AS client
     WHERE client.client_id = ${clientId}
   `;
@@ -121,8 +119,7 @@ async function ownerAppRows(
   const { rows } = await sql`
     /* exomem:owner-app-grants */
     SELECT oauth_grant.id, oauth_grant.created_at, oauth_grant.updated_at,
-           to_jsonb(client) ->> 'client_name' AS client_name,
-           client.admission_mode, client.client_platform, client.redirect_uris
+           client.client_name, client.admission_mode, client.client_platform, client.redirect_uris
     FROM exomem_oauth_grants AS oauth_grant
     JOIN exomem_tenants AS tenant
       ON tenant.id = oauth_grant.tenant_id AND tenant.owner_user_id = oauth_grant.user_id
