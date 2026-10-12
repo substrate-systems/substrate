@@ -15,27 +15,34 @@ ALTER TABLE exomem_email_outbox
     'ready', 'payment_failed', 'subscription_ended', 'deletion_reminder', 'deleted'
   ));
 
+-- THE ACCOUNT AN EMAIL IS ABOUT. An account email belongs to its tenant, not
+-- to the address it was first queued for: the owner's address can change
+-- before it is sent. Account deletion removes every row of the tenant, at
+-- whatever address, before it queues email 07. Start links and waitlist
+-- emails belong to no tenant yet and keep this NULL.
+ALTER TABLE exomem_email_outbox
+  ADD COLUMN tenant_id uuid REFERENCES exomem_tenants(id) ON DELETE CASCADE;
+CREATE INDEX exomem_email_outbox_tenant_idx
+  ON exomem_email_outbox (tenant_id)
+  WHERE tenant_id IS NOT NULL;
+
 -- THE EMAIL 03 CUTOFF. Email 03 ("Your Exomem is ready") is keyed by the cell
--- ('ready:' || cell_id) and sent the first time a cell is ready. A cell that
--- already exists when this ships and is past its unpaid hold has started for
--- its owner before, so it must not be welcomed again on deploy. Each such cell
--- gets a settled row under its key, so the ready sweep never enqueues one for
--- it. The row holds no address and no payload: it records only that email 03
--- was never sent for that cell. A cell still in its unpaid hold (a Paddle
--- entitlement still awaiting its first payment) gets no row, and receives
--- email 03 the first time it is ready after payment. A marketplace reviewer's
--- tenant never receives email 03, so its cells need no row.
-INSERT INTO exomem_email_outbox (kind, dedupe_key, state, last_error_code)
-SELECT 'ready', 'ready:' || cell.cell_id, 'cancelled', 'EMAIL_PREDATES_TRIGGER'
+-- ('ready:' || cell_id) and sent the first time a cell is ready. A live cell
+-- that shows it has started when this ships must not be welcomed on deploy:
+-- it is ready now, or cellctl last saw it running or read-only. Each such
+-- cell gets a settled row under its key, so the ready sweep never enqueues
+-- one for it. The row holds no address and no payload: it records only that
+-- email 03 was never sent for that cell. Every other cell, one never seen
+-- running, gets no row and receives email 03 the first time it is ready. The
+-- columns keep no history, so a cell that ran once but is stopped when this
+-- ships also gets email 03 when it next runs; that is the accepted cost of
+-- never missing a real first start. A marketplace reviewer's tenant never
+-- receives email 03, so its cells need no row.
+INSERT INTO exomem_email_outbox (kind, dedupe_key, tenant_id, state, last_error_code)
+SELECT 'ready', 'ready:' || cell.cell_id, cell.tenant_id, 'cancelled', 'EMAIL_PREDATES_TRIGGER'
 FROM exomem_cloud_cells AS cell
 JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
-JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = cell.tenant_id
 WHERE cell.desired_state <> 'deleted'
   AND NOT tenant.marketplace_reviewer_purpose
-  -- The pre-payment states, as FIRST_PAYMENT_SOURCE_STATES (entitlements.ts)
-  -- lists them when this migration ships.
-  AND NOT (
-    entitlement.source = 'paddle'
-    AND entitlement.source_state IN ('awaiting_checkout', 'checkout_pending')
-  )
+  AND (cell.ready OR cell.observed_state IN ('running', 'read_only'))
 ON CONFLICT (dedupe_key) DO NOTHING;

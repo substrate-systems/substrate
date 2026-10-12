@@ -287,13 +287,13 @@ The system SHALL remove the recipient and the payload of each settled outbox row
 
 ### Requirement: Account lifecycle emails are sent once with their fact
 
-The system SHALL send emails 03 to 07 through the email outbox, each under a dedupe key that names the one fact it announces, so that each fact sends at most one email. Each email SHALL re-check its fact when the outbox claims it, and the system SHALL cancel the email when the fact no longer holds.
+The system SHALL send emails 03 to 07 through the email outbox, each under a dedupe key that names the one fact it announces, so that each fact sends at most one email. Each email SHALL re-check its fact when the outbox claims it, and the system SHALL cancel the email when the fact no longer holds. Each row SHALL name the tenant it belongs to. Emails 03 to 06 SHALL go to the owner's address and time zone at send time.
 
-- 03 "Your Exomem is ready": the first time a cell is ready and running. The cell controller records readiness, so a bounded pass of the outbox finds these cells. Marketplace reviewer tenants and cells that had started before email 03 existed SHALL never receive it.
+- 03 "Your Exomem is ready": the first time a cell is ready and running. The cell controller records readiness, so a bounded pass of the outbox finds these cells. Marketplace reviewer tenants SHALL never receive it. A cell that showed a start when email 03 shipped (ready, or observed running or read-only) SHALL never receive it.
 - 04 "Your payment didn't go through": in the statement that moves a subscription into past due.
 - 05 "Your Exomem subscription has ended": in the transaction that claims the cancellation notice of a cancelled, read-only cell.
-- 06, the deletion reminder: queued with email 05 for seven days before the kept-until date, only while more than seven days are left.
-- 07 "Your Exomem has been deleted": in the transaction that deletes the Exomem when its kept window ends, or in the account deletion finish after it scrubs the owner's other emails.
+- 06, the deletion reminder: queued with email 05 for seven days before the kept-until date, only while more than seven days are left. When the kept-until date moves later, email 06 SHALL wait until seven days before the new date.
+- 07 "Your Exomem has been deleted": queued by the one transaction that deletes the Exomem when its kept window ends, or by the account deletion finish after it scrubs the account's other emails. It names the tenant's deletion time, goes to the owner's address at deletion, and SHALL be sent only after the cell controller reports every cell of the tenant deleted.
 
 The row of email 07 SHALL keep the owner's address and time zone only until 30 days after it settles, and its encrypted payload only until it settles.
 
@@ -305,8 +305,13 @@ The row of email 07 SHALL keep the owner's address and time zone only until 30 d
 
 #### Scenario: A cell started before email 03 existed
 
-- **WHEN** a cell that was past its unpaid hold before email 03 existed becomes ready
+- **WHEN** a cell that was ready, or observed running or read-only, when email 03 shipped becomes ready again
 - **THEN** the system queues no email 03
+
+#### Scenario: The owner changes address before an email is sent
+
+- **WHEN** the owner's address changes after email 03, 04, 05 or 06 is queued
+- **THEN** the email goes to the new address
 
 #### Scenario: Payment recovers before the email is sent
 
@@ -319,9 +324,15 @@ The row of email 07 SHALL keep the owner's address and time zone only until 30 d
 - **THEN** the system cancels both emails
 - **AND** a later cancellation queues new ones
 
+#### Scenario: The cell is not yet deleted
+
+- **WHEN** the tenant is deleted but the cell controller has not yet reported its cell deleted
+- **THEN** email 07 waits, for at most seven days
+- **AND** a re-admission or a later deletion cancels it
+
 #### Scenario: Account deletion finishes
 
-- **WHEN** the account deletion finish scrubs the owner's outbox rows
+- **WHEN** the account deletion finish scrubs every outbox row of the tenant and of the owner's address
 - **THEN** the owner still receives email 07
 - **AND** 30 days after it is sent, its row keeps no address, time zone or payload
 

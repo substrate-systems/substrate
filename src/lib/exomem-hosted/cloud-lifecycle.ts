@@ -183,7 +183,9 @@ function cloudDesiredStateToTenantMirror(target: CloudDesiredCellState): CloudTe
  * Reads one tenant's current entitlement and applies D4. Only reachable for
  * a tenant that already has a cell row (i.e. past admission) — a fresh
  * `awaiting_checkout` tenant's `stopped`/`deleted` transitions are D1's
- * concern (cloud-admission.ts), not this function's.
+ * concern (cloud-admission.ts), not this function's. Returns `null` when the
+ * tenant has no live cell, including one that an overlapping call deleted
+ * first.
  *
  * The cell UPDATE is unconditional on the *current* desired_state matching
  * anything in particular (unlike admission's `stopped`-only guards), because
@@ -254,14 +256,19 @@ export async function reconcileCloudCellDesiredState(
     // resubscription-then-cancel-again cycle finds the claim already set
     // from the first cancellation and silently sends no notice for the
     // second one.
-    await tx`
+    //
+    // No row changed means an overlapping reconcile deleted the cell after
+    // the read above; that transaction wrote the tenant and its email 07.
+    const { rows: changed } = await tx`
       UPDATE exomem_cloud_cells
       SET desired_state = ${target},
           cancellation_notice_sent_at =
             CASE WHEN ${target} = 'running' THEN NULL ELSE cancellation_notice_sent_at END
       WHERE tenant_id = ${tenantId}::uuid
         AND desired_state <> 'deleted'
+      RETURNING cell_id
     `;
+    if (changed.length === 0) return null;
 
     // D2: the transaction that deletes the cell also revokes consent.
     if (target === "deleted") await revokeCloudResourceConsent(tx, tenantId);
@@ -269,16 +276,19 @@ export async function reconcileCloudCellDesiredState(
     const mirror = deletionPending ? null : cloudDesiredStateToTenantMirror(target);
     if (mirror) {
       const deletedAt = mirror.status === "deleted" ? (options.now ?? new Date()) : null;
-      await tx`
+      const { rows: mirrored } = await tx`
         UPDATE exomem_tenants
         SET status = ${mirror.status},
             desired_state = ${mirror.desiredState},
             deleted_at = ${deletedAt}
         WHERE id = ${tenantId}::uuid
+        RETURNING deleted_at::text AS deleted_at
       `;
-      // Email 07, once: the row above was not yet deleted. An account
-      // deletion sends it from its finish instead (cloud-deletion-finish.ts).
-      if (deletedAt && !accountDeleted) {
+      // Email 07, once: this transaction moved the cell to deleted. An
+      // account deletion sends it from its finish instead
+      // (cloud-deletion-finish.ts).
+      const deletion = mirrored[0]?.deleted_at as string | null | undefined;
+      if (deletion && !accountDeleted) {
         const { rows: owners } = await tx`
           /* exomem-cloud:deleted-email-owner */
           SELECT owner.email::text AS email, tenant.time_zone
@@ -290,7 +300,7 @@ export async function reconcileCloudCellDesiredState(
         if (owner) {
           await enqueueDeletedEmail(tx, {
             tenantId,
-            deletedAt,
+            deletedAt: deletion,
             recipient: owner.email,
             timeZone: owner.time_zone,
           });

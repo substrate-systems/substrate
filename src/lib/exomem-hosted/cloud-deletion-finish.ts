@@ -133,7 +133,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
           time_zone = NULL,
           updated_at = now()
       WHERE id = ${tenantId}::uuid
-      RETURNING deleted_at
+      RETURNING deleted_at::text AS deleted_at
     `;
     await tx`
       UPDATE exomem_entitlements
@@ -248,14 +248,17 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
             WHERE authority.invite_id = invite.id
           )
       `;
-      // Every email row for the address goes too: settled rows hold the
-      // address, and a pending one must not reach a deleted account.
-      await scrubExomemEmailsFor(tx, ownerEmail);
-      // Then email 07 says the deletion is done. Its row keeps the address
-      // until 30 days after it is sent (clearSettledEmailRecipients).
+    }
+    // Every email row about the account, at whatever address, and every row
+    // for the owner's address go too: settled rows hold an address, and a
+    // pending one must not go out for a deleted account.
+    await scrubExomemEmailsFor(tx, { tenantId, email: ownerEmail ?? null });
+    if (ownerEmail) {
+      // Then email 07, sent once cellctl has deleted the cell. Its row keeps
+      // the address until 30 days after it settles (clearSettledEmailRecipients).
       await enqueueDeletedEmail(tx, {
         tenantId,
-        deletedAt: new Date(deleted.rows[0]!.deleted_at as string | Date),
+        deletedAt: deleted.rows[0]!.deleted_at as string,
         recipient: ownerEmail,
         timeZone: lockedTenant.time_zone,
       });

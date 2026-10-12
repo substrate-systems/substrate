@@ -68,6 +68,7 @@ export async function sendCloudCancellationNoticeOnce(
       | undefined;
     if (!claimed) return false;
     await enqueueSubscriptionEndedEmails(tx, {
+      tenantId,
       cellId: claimed.cell_id,
       endedAt: claimed.claimed_at,
       keptUntil,

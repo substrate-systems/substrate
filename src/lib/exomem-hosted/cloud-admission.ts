@@ -132,6 +132,7 @@ async function createCloudCell(
       dedupeKey: `hold-reminder:${cell.cell_id}`,
       recipient: input.recipient,
       recipientTimeZone: input.recipientTimeZone,
+      tenantId: input.tenantId,
       payload: {
         version: 1,
         cellId: cell.cell_id,

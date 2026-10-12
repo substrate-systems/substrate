@@ -10,7 +10,17 @@
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Email 06 goes out this many days before an ended Exomem is deleted.
+const DELETION_REMINDER_LEAD_DAYS = 7;
+// Email 07 waits this long, from the deletion, for cellctl to finish it; a
+// deletion still unfinished then is an operator's problem, not a receipt.
+const DELETED_RECEIPT_WAIT_DAYS = 7;
+
+/** When email 06 is due for an Exomem kept until `keptUntil`. */
+export function deletionReminderAt(keptUntil: Date): Date {
+  return new Date(keptUntil.getTime() - DELETION_REMINDER_LEAD_DAYS * DAY_MS);
+}
 
 /**
  * Email 05, and email 06 for a week before deletion, in the transaction that
@@ -18,10 +28,13 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  * database's exact text, so a later resubscribe-then-cancel is a new period
  * with new emails. Email 06 is queued only while more than a week is left:
  * otherwise 05 already gives the date, and "7 days left" would be untrue.
+ * Neither row stores a deadline: the kept-until date can move, so each send
+ * reads it again (email-outbox.ts).
  */
 export async function enqueueSubscriptionEndedEmails(
   tx: ExomemSql,
   input: {
+    tenantId: string;
     cellId: string;
     endedAt: string;
     keptUntil: Date;
@@ -30,7 +43,7 @@ export async function enqueueSubscriptionEndedEmails(
     now: Date;
   }
 ): Promise<{ reminderScheduled: boolean }> {
-  const reminderAt = new Date(input.keptUntil.getTime() - WEEK_MS);
+  const reminderAt = deletionReminderAt(input.keptUntil);
   const reminderScheduled = reminderAt.getTime() > input.now.getTime();
   if (reminderScheduled) {
     await enqueueExomemEmail(tx, {
@@ -38,9 +51,9 @@ export async function enqueueSubscriptionEndedEmails(
       dedupeKey: `deletion-reminder:${input.cellId}:${input.endedAt}`,
       recipient: input.recipient,
       recipientTimeZone: input.timeZone,
+      tenantId: input.tenantId,
       payload: { version: 1, cellId: input.cellId, endedAt: input.endedAt },
       notBefore: reminderAt,
-      expiresAt: input.keptUntil,
     });
   }
   await enqueueExomemEmail(tx, {
@@ -48,34 +61,37 @@ export async function enqueueSubscriptionEndedEmails(
     dedupeKey: `subscription-ended:${input.cellId}:${input.endedAt}`,
     recipient: input.recipient,
     recipientTimeZone: input.timeZone,
+    tenantId: input.tenantId,
     payload: {
       version: 1,
       cellId: input.cellId,
       endedAt: input.endedAt,
       reminderScheduled,
     },
-    expiresAt: input.keptUntil,
   });
   return { reminderScheduled };
 }
 
 /**
- * Email 07, in the transaction that deletes the Exomem: the cell's day-30
- * deletion (cloud-lifecycle.ts) or the account deletion finish
- * (cloud-deletion-finish.ts), after that finish has scrubbed the person's
- * other emails.
+ * Email 07, in the one transaction that deletes the Exomem: the cell's
+ * day-30 deletion (cloud-lifecycle.ts) or the account deletion finish
+ * (cloud-deletion-finish.ts), after that finish has scrubbed the account's
+ * other emails. `deletedAt` is the tenant's `deleted_at` as the database's
+ * exact text: it names this deletion, so a re-admission and a later deletion
+ * can never revive this receipt. It goes out once cellctl has finished.
  */
 export async function enqueueDeletedEmail(
   tx: ExomemSql,
-  input: { tenantId: string; deletedAt: Date; recipient: string; timeZone: string | null }
+  input: { tenantId: string; deletedAt: string; recipient: string; timeZone: string | null }
 ): Promise<void> {
-  const deletedAt = input.deletedAt.toISOString();
   await enqueueExomemEmail(tx, {
     kind: "deleted",
-    dedupeKey: `deleted:${input.tenantId}:${deletedAt}`,
+    dedupeKey: `deleted:${input.tenantId}:${input.deletedAt}`,
     recipient: input.recipient,
     recipientTimeZone: input.timeZone,
-    payload: { version: 1, tenantId: input.tenantId, deletedAt },
+    tenantId: input.tenantId,
+    payload: { version: 1, tenantId: input.tenantId, deletedAt: input.deletedAt },
+    expiresAt: new Date(Date.now() + DELETED_RECEIPT_WAIT_DAYS * DAY_MS),
   });
 }
 
@@ -114,7 +130,7 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
     const added = await withExomemTransaction(async (tx) => {
       const { rows: owners } = await tx`
         /* exomem:ready-email-owner */
-        SELECT owner.email::text AS email, tenant.time_zone
+        SELECT owner.email::text AS email, tenant.time_zone, tenant.id AS tenant_id
         FROM exomem_cloud_cells AS cell
         JOIN exomem_tenants AS tenant ON tenant.id = cell.tenant_id
         JOIN users AS owner ON owner.id = tenant.owner_user_id
@@ -123,13 +139,16 @@ export async function enqueueReadyEmails(limit = 20): Promise<ReadyEmailSweepRes
           AND tenant.status = 'active'
           AND NOT tenant.marketplace_reviewer_purpose
       `;
-      const owner = owners[0] as { email: string; time_zone: string | null } | undefined;
+      const owner = owners[0] as
+        | { email: string; time_zone: string | null; tenant_id: string }
+        | undefined;
       if (!owner) return false;
       return enqueueExomemEmail(tx, {
         kind: "ready",
         dedupeKey: `ready:${cellId}`,
         recipient: owner.email,
         recipientTimeZone: owner.time_zone,
+        tenantId: owner.tenant_id,
         payload: { version: 1, cellId },
       });
     });

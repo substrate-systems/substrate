@@ -7,6 +7,7 @@ import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
 import { randomCloudCellId } from "../cloud-admission";
+import { sendCloudCancellationNoticeOnce } from "../cloud-cancellation-notice";
 import { reconcileCloudCellDesiredState } from "../cloud-lifecycle";
 import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
 import { drainExomemEmailOutbox } from "../email-outbox";
@@ -29,6 +30,7 @@ let schema: string;
 let migrationsBefore: string;
 // Cells that existed when migration 0068 ran.
 let startedBeforeDeploy: { email: string; cellId: string };
+let neverStartedAtDeploy: { email: string; cellId: string };
 let inHoldAtDeploy: { email: string; cellId: string; tenantId: string };
 let reviewerAtDeploy: { email: string; cellId: string };
 
@@ -121,7 +123,7 @@ async function queued(email: string): Promise<Array<{ kind: string; state: strin
 
 type Sent = { to: string; subject: string; textContent: string; senderName?: string };
 
-async function drain(): Promise<{ sent: Sent[]; cancelled: number }> {
+async function drain(): Promise<{ sent: Sent[]; cancelled: number; deferred: number }> {
   const sent: Sent[] = [];
   const result = await drainExomemEmailOutbox(
     {},
@@ -132,7 +134,31 @@ async function drain(): Promise<{ sent: Sent[]; cancelled: number }> {
       },
     }
   );
-  return { sent, cancelled: result.cancelled };
+  return { sent, cancelled: result.cancelled, deferred: result.deferred };
+}
+
+/** What cellctl writes once it has deleted every cell of a tenant. */
+async function markCellsDeleted(tenantId: string): Promise<void> {
+  await pool.query(
+    "UPDATE exomem_cloud_cells SET observed_state = 'deleted', observed_generation = generation, ready = false WHERE tenant_id = $1",
+    [tenantId]
+  );
+}
+
+/** The clock reaches every waiting email of a tenant. */
+async function dueNow(tenantId: string): Promise<void> {
+  await pool.query(
+    "UPDATE exomem_email_outbox SET not_before = now() WHERE tenant_id = $1 AND state = 'pending'",
+    [tenantId]
+  );
+}
+
+async function deletedReceipts(tenantId: string): Promise<Array<{ state: string }>> {
+  const { rows } = await pool.query<{ state: string }>(
+    "SELECT state FROM exomem_email_outbox WHERE kind = 'deleted' AND tenant_id = $1",
+    [tenantId]
+  );
+  return rows;
 }
 
 function pastDueEvent(
@@ -190,6 +216,13 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       sourceState: "complimentary_active",
       cell: "running",
     });
+    await markReady(startedBeforeDeploy.cellId);
+    // Admitted, but cellctl has not started it yet.
+    neverStartedAtDeploy = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "running",
+    });
     inHoldAtDeploy = await seedTenant({
       source: "paddle",
       sourceState: "awaiting_checkout",
@@ -218,12 +251,13 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
   });
 
   it("03: welcomes a cell the first time it is ready, but never one that had started before deploy or a reviewer's", async () => {
-    // Both cells are ready now: the deployed one restarted, the held one was paid for.
+    // The cells that existed at deploy are ready now: one was still starting,
+    // and the held one was paid for.
     await pool.query(
       "UPDATE exomem_entitlements SET source_state = 'active' WHERE tenant_id = $1",
       [inHoldAtDeploy.tenantId]
     );
-    await markReady(startedBeforeDeploy.cellId);
+    await markReady(neverStartedAtDeploy.cellId);
     await markReady(inHoldAtDeploy.cellId);
     const admittedAfterDeploy = await seedTenant({
       source: "complimentary",
@@ -248,6 +282,7 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       first.sent.map((email) => [email.to, email.subject]).sort(),
       [
         [admittedAfterDeploy.email, "Your Exomem is ready"],
+        [neverStartedAtDeploy.email, "Your Exomem is ready"],
         [inHoldAtDeploy.email, "Your Exomem is ready"],
       ].sort()
     );
@@ -343,7 +378,98 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     ]);
   });
 
-  it("07: tells the owner once when the kept window deletes their Exomem", async () => {
+  it("03, 04 and 05: go to the owner's address when they are sent, not the one they were queued for", async () => {
+    const store = createSqlExomemPaddleEventStore(taggedSql(pool));
+    const ready = await seedTenant({
+      source: "complimentary",
+      sourceState: "complimentary_active",
+      cell: "running",
+    });
+    await markReady(ready.cellId);
+    const { enqueueReadyEmails } = await import("../lifecycle-emails");
+    await enqueueReadyEmails();
+    const pastDue = await seedTenant({ source: "paddle", sourceState: "active", cell: "running" });
+    await store.applyVerifiedEventAndMarkProcessedAtomically(
+      pastDueEvent(pastDue, {
+        eventId: `evt_${randomUUID()}`,
+        occurredAt: new Date(Date.now() - DAY).toISOString(),
+        sourceState: "past_due",
+      })
+    );
+    const cancelledAt = new Date(Date.now() - DAY);
+    const ended = await seedTenant({
+      source: "paddle",
+      sourceState: "cancelled",
+      cell: "read_only",
+      sourceOccurredAt: cancelledAt,
+    });
+    assert.equal(await sendCloudCancellationNoticeOnce(ended.tenantId, cancelledAt), true);
+    // Each owner moves to a new address before anything goes out.
+    const moved = new Map<string, string>();
+    for (const tenant of [ready, pastDue, ended]) {
+      const address = `moved-${randomUUID()}@example.test`;
+      await pool.query("UPDATE users SET email = $1 WHERE id = $2", [address, tenant.userId]);
+      moved.set(tenant.email, address);
+    }
+
+    const sent = (await drain()).sent;
+
+    assert.deepEqual(
+      sent.map((email) => [email.to, email.subject]).sort(),
+      [
+        [moved.get(ready.email)!, "Your Exomem is ready"],
+        [moved.get(pastDue.email)!, "Your payment didn’t go through"],
+        [moved.get(ended.email)!, "Your Exomem subscription has ended"],
+      ].sort()
+    );
+    // Each sent row records the address it went to.
+    const { rows } = await pool.query<{ recipient: string }>(
+      "SELECT recipient::text FROM exomem_email_outbox WHERE state = 'sent' AND tenant_id = ANY($1::uuid[])",
+      [[ready.tenantId, pastDue.tenantId, ended.tenantId]]
+    );
+    assert.deepEqual(rows.map((row) => row.recipient).sort(), [...moved.values()].sort());
+  });
+
+  it("06: waits for a week before the current kept-until date when a later provider event moved it", async () => {
+    // Cancelled 24 days ago and queued three days ago: the reminder is due.
+    const cancelledAt = new Date(Date.now() - 24 * DAY);
+    const tenant = await seedTenant({
+      source: "paddle",
+      sourceState: "cancelled",
+      cell: "read_only",
+      sourceOccurredAt: cancelledAt,
+    });
+    assert.equal(
+      await sendCloudCancellationNoticeOnce(tenant.tenantId, cancelledAt, {
+        now: () => new Date(Date.now() - 3 * DAY),
+      }),
+      true
+    );
+    // A later accepted event moves the cancellation, and the deletion, five days on.
+    await pool.query(
+      "UPDATE exomem_entitlements SET source_occurred_at = source_occurred_at + interval '5 days' WHERE tenant_id = $1",
+      [tenant.tenantId]
+    );
+
+    const result = await drain();
+
+    assert.deepEqual(
+      result.sent.map((email) => email.subject),
+      ["Your Exomem subscription has ended"]
+    );
+    assert.equal(result.deferred, 1);
+    const { rows } = await pool.query<{ state: string; on_time: boolean }>(
+      `SELECT outbox.state,
+              outbox.not_before = entitlement.source_occurred_at + interval '552 hours' AS on_time
+       FROM exomem_email_outbox AS outbox
+       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = outbox.tenant_id
+       WHERE outbox.tenant_id = $1 AND outbox.kind = 'deletion_reminder'`,
+      [tenant.tenantId]
+    );
+    assert.deepEqual(rows, [{ state: "pending", on_time: true }]);
+  });
+
+  it("07: tells the owner once, after cellctl has deleted the Exomem the kept window ended", async () => {
     const tenant = await seedTenant({
       source: "paddle",
       sourceState: "cancelled",
@@ -353,6 +479,13 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
 
     assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), "deleted");
     assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), null);
+    // The vault, its backups and its keys still exist: the email waits.
+    const early = await drain();
+    assert.deepEqual(early.sent, []);
+    assert.equal(early.deferred, 1);
+
+    await markCellsDeleted(tenant.tenantId);
+    await dueNow(tenant.tenantId);
     const sent = (await drain()).sent;
 
     assert.deepEqual(
@@ -360,5 +493,74 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
       [[tenant.email, "Your Exomem has been deleted"]]
     );
     assert.match(sent[0]!.textContent, /permanently deleted today\./);
+  });
+
+  it("07: queues one receipt when two day-30 reconciles overlap", async () => {
+    const tenant = await seedTenant({
+      source: "paddle",
+      sourceState: "cancelled",
+      cell: "read_only",
+      sourceOccurredAt: new Date(Date.now() - 31 * DAY),
+    });
+    // Hold the cell row, so both reconciles read it live and then wait to write it.
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT 1 FROM exomem_cloud_cells WHERE cell_id = $1 FOR UPDATE", [
+        tenant.cellId,
+      ]);
+      const holderPid = (await holder.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const reconciles = Promise.all([
+        reconcileCloudCellDesiredState(tenant.tenantId),
+        reconcileCloudCellDesiredState(tenant.tenantId),
+      ]);
+      for (let waited = 0; ; waited += 20) {
+        const { rows } = await pool.query<{ waiting: number }>(
+          `WITH RECURSIVE blocked(pid) AS (
+             SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+             UNION
+             SELECT activity.pid FROM pg_stat_activity AS activity
+             JOIN blocked ON blocked.pid = ANY(pg_blocking_pids(activity.pid))
+           )
+           SELECT count(*)::int AS waiting FROM blocked`,
+          [holderPid]
+        );
+        if (rows[0]!.waiting === 2) break;
+        assert.ok(waited < 10_000, "sanity: both reconciles reach the cell's lock");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await holder.query("COMMIT");
+
+      assert.deepEqual((await reconciles).sort(), ["deleted", null]);
+    } finally {
+      holder.release();
+    }
+    assert.deepEqual(await deletedReceipts(tenant.tenantId), [{ state: "pending" }]);
+  });
+
+  it("07: is cancelled when the tenant was re-admitted and deleted again before it went out", async () => {
+    const tenant = await seedTenant({
+      source: "paddle",
+      sourceState: "cancelled",
+      cell: "read_only",
+      sourceOccurredAt: new Date(Date.now() - 31 * DAY),
+    });
+    assert.equal(await reconcileCloudCellDesiredState(tenant.tenantId), "deleted");
+    // Re-admission clears the deletion; a later deletion records a new one.
+    await pool.query(
+      "UPDATE exomem_tenants SET status = 'provisioning', desired_state = 'running', deleted_at = NULL WHERE id = $1",
+      [tenant.tenantId]
+    );
+    await pool.query(
+      "UPDATE exomem_tenants SET status = 'deleted', desired_state = 'deleted', deleted_at = now() WHERE id = $1",
+      [tenant.tenantId]
+    );
+    await markCellsDeleted(tenant.tenantId);
+    await dueNow(tenant.tenantId);
+
+    const result = await drain();
+
+    assert.deepEqual(result.sent, []);
+    assert.deepEqual(await deletedReceipts(tenant.tenantId), [{ state: "cancelled" }]);
   });
 });
