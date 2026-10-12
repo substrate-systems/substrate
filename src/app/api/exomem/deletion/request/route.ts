@@ -20,9 +20,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) {
       throw exomemErrors.invalidRequest();
     }
-    await requestDeletionConfirmation(session);
+    const { expiresAt } = await requestDeletionConfirmation(session);
     return NextResponse.json(
-      { success: true, state: "confirmation_sent" },
+      { success: true, state: "confirmation_sent", expiresAt: expiresAt.toISOString() },
       {
         status: 202,
         headers: {

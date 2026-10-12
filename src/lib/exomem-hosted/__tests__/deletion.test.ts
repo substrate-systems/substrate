@@ -30,6 +30,8 @@ describe("Exomem product-scoped deletion confirmation", () => {
     });
 
     assert.equal(result.delivery, "sent");
+    // Home tells the owner how long the emailed link works from this value.
+    assert.equal(result.expiresAt.toISOString(), "2026-07-12T12:15:00.000Z");
     const match = email.match(/https:\/\/example\.test\/exomem\/delete#([A-Za-z0-9_-]+)/);
     assert.ok(match);
     assert.equal(storedDigestHex, tokenDigest(match[1])?.toString("hex"));
