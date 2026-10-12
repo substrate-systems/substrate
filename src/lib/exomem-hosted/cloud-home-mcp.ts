@@ -27,7 +27,7 @@ import {
   type ExomemSessionContext,
 } from "./sessions";
 
-export const CLOUD_HOME_TOKEN_TTL_SECONDS = 120;
+const CLOUD_HOME_TOKEN_TTL_SECONDS = 120;
 const CELL_CALL_TIMEOUT_MS = 5_000;
 const MAX_CELL_ANSWER_BYTES = 256 * 1024;
 // MCP 2026-07-28 carries the protocol metadata in each request, so a stateless
@@ -62,7 +62,7 @@ const ConfigureMemoryAnswer = z.object({
  * under content-private logging, and none when the name is empty. Home
  * imports it to label events.
  */
-export const ACTIVITY_CLIENT_FAMILIES = [
+const ACTIVITY_CLIENT_FAMILIES = [
   "claude-ai",
   "chatgpt",
   "codex",
@@ -181,7 +181,7 @@ type CellAnswer =
 type ServingCell = { state: "serving"; desiredState: "running" | "read_only" };
 
 /** Release flag: off until the cell rollout that answers these calls is done. */
-export function cloudHomeChannelEnabled(env: EnvironmentSource = process.env): boolean {
+function cloudHomeChannelEnabled(env: EnvironmentSource = process.env): boolean {
   return env.EXOMEM_CLOUD_HOME_CHANNEL_ENABLED?.trim().toLowerCase() === "true";
 }
 
@@ -477,7 +477,7 @@ function levelsFromAnswer(
   return answer.view;
 }
 
-export async function readCloudHomeLevels(
+async function readCloudHomeLevels(
   principal: CloudHomePrincipal,
   dependencies: CloudHomeDependencies = {}
 ): Promise<CloudHomeLevelsView> {
@@ -492,7 +492,7 @@ export async function readCloudHomeLevels(
 }
 
 /** Sets (`level`) or clears (`null`) one context's level, compare-and-set on `expectedRevision`. */
-export async function writeCloudHomeLevel(
+async function writeCloudHomeLevel(
   principal: CloudHomePrincipal,
   change: { context: CloudHomeContext; level: CloudHomeLevel | null; expectedRevision: string },
   dependencies: CloudHomeDependencies = {}
@@ -534,7 +534,7 @@ export async function writeCloudHomeLevel(
   return view.state === "live" ? { kind: "written", view } : { kind: "unavailable", view };
 }
 
-export async function readCloudHomeActivity(
+async function readCloudHomeActivity(
   principal: CloudHomePrincipal,
   dependencies: CloudHomeDependencies = {}
 ): Promise<CloudHomeActivityView> {

@@ -26,7 +26,7 @@ import {
 } from "./sessions";
 
 /** Exports one tenant may start in a rolling 24 hours; each one pauses a serving cell. */
-export const CLOUD_EXPORTS_PER_DAY = 3;
+const CLOUD_EXPORTS_PER_DAY = 3;
 const LINK_WAIT_MS = 8_000;
 const LINK_POLL_MS = 250;
 
@@ -79,7 +79,7 @@ export function cloudExportsEnabled(env: EnvironmentSource = process.env): boole
 }
 
 /** The one display rule for an export row. */
-export function cloudExportDisplay(row: CloudExportRow | null, now: Date): CloudExportDisplay {
+function cloudExportDisplay(row: CloudExportRow | null, now: Date): CloudExportDisplay {
   if (!row) return { state: "none" };
   const base = { export_id: row.export_id, requested_at: row.created_at.toISOString() };
   if (row.requested_state === "superseded") return { state: "expired", ...base, expires_at: null };
@@ -107,7 +107,7 @@ export function cloudExportDisplay(row: CloudExportRow | null, now: Date): Cloud
   return { state: "packing", ...base };
 }
 
-export function cloudExportSummary(
+function cloudExportSummary(
   row: CloudExportRow | null,
   desiredState: CellDesiredState | null,
   now: Date
@@ -186,7 +186,7 @@ export async function readCloudExport(
  * export of the cell is superseded in the same transaction, so the cell
  * controller deletes its archive.
  */
-export async function createCloudExport(
+async function createCloudExport(
   principal: CloudExportPrincipal,
   requestedId: string | undefined,
   now: Date = new Date()
@@ -328,7 +328,7 @@ export type CloudExportLink =
  * the row's newest link request, which is this one or a later one, so a link
  * handed out earlier is never returned again.
  */
-export async function requestCloudExportLink(
+async function requestCloudExportLink(
   principal: CloudExportPrincipal,
   exportId: string,
   dependencies: CloudExportDependencies = {}

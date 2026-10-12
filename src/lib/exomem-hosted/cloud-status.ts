@@ -127,7 +127,7 @@ export function mapCloudCellToLifecycleStatus(
   return { state: "degraded", code: "CELL_NOT_READY", retryable: true };
 }
 
-export function mapCloudCellToStorage(row: CloudCellUsageRow | undefined): CloudStorageObservation {
+function mapCloudCellToStorage(row: CloudCellUsageRow | undefined): CloudStorageObservation {
   if (!row || row.desired_state === "deleted") return { state: "unknown" };
   if (row.used_bytes === null || row.filesystem_bytes === null || !row.usage_observed_at) {
     return { state: "unknown" };

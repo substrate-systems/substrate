@@ -132,7 +132,7 @@ export function loadCloudCellImageRepository(env: EnvironmentSource = process.en
 }
 
 /** The cell controller's default for `EXOMEM_EXPORT_TTL_HOURS`. */
-export const DEFAULT_EXPORT_TTL_HOURS = 24;
+const DEFAULT_EXPORT_TTL_HOURS = 24;
 
 /**
  * How long a ready export stays at the object store, for the privacy page.
