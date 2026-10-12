@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Add migration 0063: email outbox table, `time_zone` on waitlist entries and tenants, `recipient_time_zone` on invitations, with its grants
 - [ ] 1.2 Add `cloudAdmissionHeadroom`, counting start links and operator invitations of every kind, and use it for start, promotion, redemption and invitation creation in place of the Hosted pool
-- [ ] 1.3 Add Turnstile verification (action, hostname, 3 s timeout), failing closed on a failed token or a 4xx answer and falling back to the rate limits with a logged error when the check cannot run
+- [ ] 1.3 Add Turnstile verification (action, hostname, 3 s timeout), failing closed only on Cloudflare's documented token errors and on a hostname or action mismatch, and falling back to the rate limits with a logged error for every other failure
 - [ ] 1.4 Add `POST /api/exomem/access/start` with `requestStart`, identical 202 answers and cookies, and a 600 ms floor
 - [ ] 1.5 Make the former sign-in link route an alias of the start handler
 - [ ] 1.6 Implement the `closed`, `waitlist` and `open` admission switch under the capacity advisory lock; the public form creates only paid self-serve start links
@@ -12,7 +12,7 @@
 - [ ] 1.10 Keep a waiting person's place and send no second waitlist email on a repeat request; resend a live start link with the same expiry, leaving earlier links valid and revoking siblings on redemption; send a lapsed or used start link to the back of the queue
 - [ ] 1.11 Anchor the unpaid hold and the hold reminder on the stopped cell's creation time
 - [ ] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick, retrying each row until its own expiry
-- [ ] 1.13 Remove recipient and payload from settled outbox rows after 30 days and delete waitlist entries 180 days after the last request unless admitted
+- [ ] 1.13 Remove recipient and payload from settled outbox rows after 30 days and delete waitlist entries 180 days after the later of the last request and the last start link's expiry unless the address owns an account
 - [ ] 1.14 State the outbox and waitlist retention periods on the privacy page
 - [ ] 1.15 Test against PostgreSQL: no enumeration across outcomes, last place race, queue order, stale capacity, re-admission hold
 - [ ] 1.16 Run a dedicated security review of admission
@@ -91,10 +91,11 @@
 - [ ] 7.6 Build the break states: connect error, ended, paused, suspended, expired, read-only
 - [ ] 7.7 Build reviewer sign-in on the web
 - [ ] 7.8 Check phone layouts fit one screen in dark and light
+- [ ] 7.9 Block tasks 7.3 and 8.7 until the product owner approves deviations (h) and (i)
 
 ## 8. Frontend Home
 
-- [ ] 8.1 Build the status line, notices and connected apps with disconnect
+- [ ] 8.1 Build the status line, notices and connected apps with disconnect, showing the host beside a client-declared name labelled as the client's claim
 - [ ] 8.2 Build the levels rows over the levels API
 - [ ] 8.3 Build the live activity line with unavailable shown as nothing
 - [ ] 8.4 Build plan and account with known-or-reason dates and the support reference

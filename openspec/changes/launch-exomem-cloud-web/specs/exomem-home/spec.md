@@ -31,7 +31,7 @@ The signed-in Home surface SHALL render one of preparing, awaiting-payment, read
 #### Scenario: Tenant is provisioning
 
 - **WHEN** the owner's cell is not yet ready
-- **THEN** Home shows plain-language deterministic progress, polls a content-free status route, and exposes a request reference for support
+- **THEN** Home shows plain-language deterministic progress, polls a content-free status route, and exposes the support reference
 
 #### Scenario: Tenant is awaiting payment
 

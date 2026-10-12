@@ -2,17 +2,17 @@
 
 ### Requirement: Outstanding invitations count against Cloud capacity
 
-The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus live cells minus outstanding invitations. An outstanding invitation is an unexpired, unrevoked start link or operator invitation of any kind, including complimentary, covered and reviewer invitations. Start, waitlist promotion, redemption and invitation creation SHALL read this value under one advisory lock. Stale capacity observations MUST admit nobody new. The retired Hosted capacity pool MUST NOT gate admission.
-
-#### Scenario: Two requests compete for the last place
-
-- **WHEN** two new addresses ask for the last free place at the same time
-- **THEN** one receives a start link and the other joins the waitlist
+The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus live cells minus outstanding invitations. An outstanding invitation is an unexpired, unrevoked start link or operator invitation of any kind, including complimentary, covered and reviewer invitations. One person's start links together count as one place. Stale capacity observations MUST admit nobody new.
 
 #### Scenario: Outstanding invitations hold places
 
 - **WHEN** a start link or an operator invitation of any kind is outstanding
 - **THEN** its place counts as taken until the invitation is redeemed, expires or is revoked
+
+#### Scenario: Start link is reissued
+
+- **WHEN** the system reissues a live start link for the same person
+- **THEN** that person's links together count as one place and free capacity does not fall
 
 #### Scenario: Operator invites when Cloud is full
 
@@ -23,6 +23,20 @@ The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus l
 
 - **WHEN** the newest Cloud capacity observation is older than its freshness limit
 - **THEN** the system admits nobody
+
+### Requirement: Admission reads Cloud capacity under one lock
+
+Start, waitlist promotion, redemption and invitation creation SHALL read free Cloud capacity under one advisory lock. The retired Hosted capacity pool MUST NOT gate admission.
+
+#### Scenario: Two requests compete for the last place
+
+- **WHEN** two new addresses ask for the last free place at the same time
+- **THEN** one receives a start link and the other joins the waitlist
+
+#### Scenario: Retired pool shows no room
+
+- **WHEN** the retired Hosted pool is full or absent and Cloud has a free place
+- **THEN** admission proceeds, because only Cloud capacity decides
 
 ### Requirement: The unpaid hold runs from admission
 

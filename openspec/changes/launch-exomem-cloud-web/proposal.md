@@ -17,7 +17,7 @@ Exomem Cloud launches with the web experience in `docs/exomem-design`: a landing
 - Account facts: plan name, next payment, read-only and kept-until dates, reviewer end date and a support reference, all from stored data.
 - Friends: operator-issued friend, covered and standard invitations; one server-applied Paddle discount; resubscribe inside the kept window.
 - Home to cell: a server-side channel that reads and sets levels and reads activity, a storage observation, and a self-serve ZIP export that expires.
-- Frontend: the journey, Home and landing, built as drawn, with the six departures listed in `design.md`.
+- Frontend: the journey, Home and landing, built as drawn, with the nine departures listed in `design.md`.
 - **BREAKING** The unpaid hold anchors on the stopped cell's creation. Start links last 48 hours. Paid operator invitations and start links both count against Cloud capacity.
 
 ## Capabilities

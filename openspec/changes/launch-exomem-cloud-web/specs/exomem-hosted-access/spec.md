@@ -15,7 +15,7 @@ Access SHALL start in one of three ways: a start request, an operator invitation
 - **THEN** the system stores a single-use digest-bound invite, counts it against Cloud capacity, and returns or delivers one redemption URL
 - **AND** the plaintext token is not written to logs or retained in the database
 
-#### Scenario: Operator creates a paid private-alpha invite
+#### Scenario: Operator creates a paid invitation
 
 - **WHEN** an authorized operator creates a paid invitation while Cloud has a free place
 - **THEN** the system stores and delivers one operator-authorized Paddle invitation and counts it against Cloud capacity
@@ -40,7 +40,7 @@ Access SHALL start in one of three ways: a start request, an operator invitation
 
 ### Requirement: Existing users can request a non-enumerating sign-in link
 
-An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link at the start form. The start form SHALL answer all six outcomes with the same 202 acknowledgement, the same cookie and the same minimum response time. The six outcomes are: a malformed address, a rate-limited request, an existing owner, a new address with a free place, a new address when Cloud is full, and closed admission. A start request MUST NOT create an account or tenant.
+An identity that already owns an Exomem tenant SHALL be able to request a short-lived, single-use sign-in link by email. The start form SHALL answer every request that passes the challenge with the same 202 acknowledgement, cookie and minimum response time. That includes six outcomes: a malformed address, a rate-limited request, an existing owner, a new address with a free place, a new address when Cloud is full, and closed admission. A start request MUST NOT create an account or tenant.
 
 #### Scenario: Existing Exomem owner requests a link
 
@@ -52,6 +52,11 @@ An identity that already owns an Exomem tenant SHALL be able to request a short-
 - **WHEN** an address with no Exomem tenant submits the same request
 - **THEN** the system returns the same acknowledgement, with a byte-identical `Set-Cookie`, and creates no identity, tenant or entitlement
 - **AND** the response takes at least as long as the minimum response time
+
+#### Scenario: Repeat requests and waitlist mode
+
+- **WHEN** a waiting person asks again, a person with a live start link asks again, or the setting is `waitlist` and a place is free
+- **THEN** the acknowledgement, the cookie and the minimum response time are the same as for every other outcome
 
 #### Scenario: Request is rate limited or malformed
 
@@ -94,21 +99,26 @@ After valid redemption, the system SHALL show deterministic provisioning progres
 
 ### Requirement: The start form is protected by a Turnstile challenge
 
-The start form SHALL check every request with a Cloudflare Turnstile challenge before it reads the email. A failed challenge, and a 4xx answer from the verification service, MUST fail closed. When the check cannot run, the form SHALL fall back to the rate limits and the server SHALL log an error. The former sign-in link route SHALL use the same handler, so no caller can skip the challenge.
+The start form SHALL check every request with a Cloudflare Turnstile challenge. The form MUST fail closed only when the service reports a token error (`missing-input-response`, `invalid-input-response` or `timeout-or-duplicate`), or when the verified hostname or action differs from the expected one. For every other failure, the form SHALL fall back to the rate limits and the server SHALL log an error. The former sign-in link route SHALL use the same handler.
 
 #### Scenario: Challenge token is missing, invalid or reused
 
 - **WHEN** the request carries a missing, invalid or already used challenge token
 - **THEN** the system answers 400 `challenge_failed` before it reads the email
 
-#### Scenario: Verification service answers 4xx
+#### Scenario: Hostname differs
 
-- **WHEN** the verification service answers with a 4xx status
+- **WHEN** the service verifies the token but reports a hostname other than the public host
+- **THEN** the system answers 400 `challenge_failed`
+
+#### Scenario: Action differs
+
+- **WHEN** the service verifies the token but reports an action other than `start`
 - **THEN** the system answers 400 `challenge_failed`
 
 #### Scenario: The check cannot run
 
-- **WHEN** the verification service is unreachable or times out, the secret is missing or rejected, or a test secret runs in production
+- **WHEN** the service answers 408, 429 or a 5xx status, the request fails in transport, the service reports `internal-error`, the secret is missing or rejected, or a test secret runs in production
 - **THEN** the request continues under the per-address and per-network rate limits
 - **AND** the server logs an error
 
@@ -243,7 +253,7 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 
 ### Requirement: Email and waitlist data are kept for a limited time
 
-The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the person's last request, unless the person was admitted. Deleting an account SHALL scrub its outbox rows. The privacy page SHALL state these periods.
+The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the later of the person's last request and the expiry of the entry's last start link, unless the address owns an account. Deleting an account SHALL scrub its outbox rows. The privacy page SHALL state these periods.
 
 #### Scenario: Settled email ages
 
@@ -252,12 +262,17 @@ The system SHALL remove the recipient and the payload of each settled outbox row
 
 #### Scenario: Waitlist entry ages
 
-- **WHEN** a waiting person made no request for 180 days
+- **WHEN** a waiting person made no request for 180 days and holds no live start link
 - **THEN** the system deletes the entry
 
-#### Scenario: Admitted person's entry
+#### Scenario: Admitted entry whose link lapsed
 
-- **WHEN** a person was admitted from the waitlist
+- **WHEN** a person was admitted, their last start link expired 180 days ago, and the address owns no account
+- **THEN** the system deletes the entry
+
+#### Scenario: Address owns an account
+
+- **WHEN** an entry's address owns an account
 - **THEN** the 180-day deletion does not apply to that entry
 
 #### Scenario: Account is deleted
@@ -268,7 +283,7 @@ The system SHALL remove the recipient and the payload of each settled outbox row
 #### Scenario: Privacy page states the periods
 
 - **WHEN** a person reads the privacy page
-- **THEN** it states the outbox period of 30 days and the waitlist period of 180 days
+- **THEN** it states the outbox period of 30 days and that a waitlist entry is deleted 180 days after the later of the last request and the last link's expiry
 
 ### Requirement: Start and redemption record the person's time zone
 
@@ -376,12 +391,13 @@ The consent page SHALL always show where the authorization code goes: the host o
 
 ### Requirement: Owners list and disconnect connected apps
 
-A signed-in owner SHALL be able to list connected apps and disconnect each one. The list MUST show the name the client declared, else the platform label, else the host. It MUST NOT include first-party clients. Disconnect SHALL revoke the app's grant, token families, access tokens and unconsumed codes, limited to the session's user and tenant.
+A signed-in owner SHALL be able to list connected apps and disconnect each one. The list MUST show the name the client declared, else the platform label, else the host. Beside a declared name, it SHALL show the redirect host and label the name as the client's own claim. It MUST NOT include first-party clients. Disconnect SHALL revoke the app's grant, token families, access tokens and unconsumed codes, limited to the session's user and tenant.
 
 #### Scenario: Owner lists apps
 
 - **WHEN** an owner opens the app list
 - **THEN** each app shows its display name, platform, kind (web or local), first connected time and last authorized time
+- **AND** a client-declared name shows the redirect host beside it, labelled as the client's own claim
 - **AND** the first-party Home client is absent
 
 #### Scenario: Owner disconnects an app
