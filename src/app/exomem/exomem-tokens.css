@@ -57,8 +57,8 @@
 
   /* lines */
   --exo-rule: rgba(var(--ink-rgb), 0.07);          /* section rules, row dividers */
-  --exo-border-card: rgba(var(--ink-rgb), 0.1);    /* cards */
-  --exo-border-input: rgba(var(--ink-rgb), 0.14);  /* inputs, chips, secondary buttons */
+  --exo-border-card: rgba(var(--ink-rgb), 0.1);    /* cards, bordered buttons: the boards' line */
+  --exo-border-input: rgba(var(--ink-rgb), 0.14);  /* inputs, chips */
   --exo-border-strong: rgba(var(--ink-rgb), 0.34); /* hover on bordered controls */
   --exo-amber-line: rgba(var(--amber-rgb), 0.5);   /* "current" chip, amber buttons */
 

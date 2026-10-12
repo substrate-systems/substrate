@@ -1,10 +1,11 @@
 /* Button (components.md: Controls). From .btn / .btn.pri / .btn.amb / .ghost in the Viewer board,
    and the flow page's main action (h 48, Plex Mono 14 / 500). */
+/* The border is the boards' `line`, ink at .10 (design.md (ah)). */
 .button {
   height: 36px;
   padding: 0 14px;
   border-radius: var(--r-ctl);
-  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  border: 1px solid var(--exo-border-card);
   background: transparent;
   color: var(--fg-primary);
   font-family: var(--font-mono-exo);
