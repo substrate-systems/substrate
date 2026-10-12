@@ -21,6 +21,7 @@ import {
 import {
   clientAddressKey,
   EXOMEM_RATE_LIMITS,
+  exomemRateLimitHasRoom,
   takeExomemRateLimit,
 } from "@/lib/exomem-hosted/rate-limit";
 import { tokenDigest } from "@/lib/exomem-hosted/security";
@@ -122,17 +123,17 @@ function logConnectorMetadataRefetch(outcome: ConnectorMetadataRefetchOutcome): 
 // fresh. Without this, a ChatGPT connector stopped working a day after its last
 // authorization. Fetch the document again, through the same allowlist, bounds
 // and checks as at authorization, only for a live refresh token of that
-// connector. The limit is taken after that check, so a caller that knows only
-// the public client ID cannot spend it. Any failure leaves the refresh refused.
+// connector. Only failed fetches count against the client's limit: a success
+// makes the metadata fresh, so the next refresh needs no fetch. Any failure
+// leaves the refresh refused.
 async function refetchedConnectorMetadata(
   clientId: string,
   refreshDigest: Buffer
 ): Promise<boolean> {
+  const failureLimit = EXOMEM_RATE_LIMITS.oauthConnectorMetadataRefetchFailureClient;
   try {
     if (!(await refreshAwaitsCimdMetadata({ clientId, refreshDigest }))) return false;
-    if (
-      !(await takeExomemRateLimit(EXOMEM_RATE_LIMITS.oauthConnectorMetadataRefetchClient, clientId))
-    ) {
+    if (!(await exomemRateLimitHasRoom(failureLimit, clientId))) {
       logConnectorMetadataRefetch("rate_limited");
       return false;
     }
@@ -144,6 +145,8 @@ async function refetchedConnectorMetadata(
     () => false
   );
   logConnectorMetadataRefetch(refreshed ? "refreshed" : "failed");
+  // The refresh is refused either way; a limiter error only loses one count.
+  if (!refreshed) await takeExomemRateLimit(failureLimit, clientId).catch(() => false);
   return refreshed;
 }
 

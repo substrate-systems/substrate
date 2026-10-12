@@ -15,13 +15,12 @@ let clientRegistered = true;
 // A connector's cached metadata, and whether fetching it again succeeds.
 let metadataFresh = true;
 let refetchSucceeds = false;
-// Whether the refresh token is live, and whether its connector's re-fetch limit
-// has room. Each fetch and each take of that limit is counted.
-let refreshLive = true;
-let refetchLimitHasRoom = true;
+// Fetches of the connector's metadata, and the failures counted against its
+// limit, which the rate-limit mock below keeps like one real bucket.
 let refetches = 0;
-let refetchLimitTakes = 0;
-const REFETCH_LIMIT_SCOPE = "test-connector-metadata-refetch";
+let refetchFailures = 0;
+const REFETCH_FAILURE_SCOPE = "test-connector-metadata-refetch-failure";
+const REFETCH_FAILURE_LIMIT = 10;
 
 before(() => {
   process.env.EXOMEM_CLOUD_MCP_URL = RESOURCE;
@@ -35,16 +34,17 @@ before(() => {
   mock.module("@/lib/exomem-hosted/rate-limit", {
     namedExports: {
       takeExomemRateLimit: async (rule: { scope: string }) => {
-        if (rule.scope !== REFETCH_LIMIT_SCOPE) return true;
-        refetchLimitTakes += 1;
-        return refetchLimitHasRoom;
+        if (rule.scope !== REFETCH_FAILURE_SCOPE) return true;
+        refetchFailures += 1;
+        return refetchFailures <= REFETCH_FAILURE_LIMIT;
       },
+      exomemRateLimitHasRoom: async () => refetchFailures < REFETCH_FAILURE_LIMIT,
       clientAddressKey: () => "test-address",
       EXOMEM_RATE_LIMITS: {
         oauthTokenIp: { scope: "test", limit: 60, windowSeconds: 600 },
-        oauthConnectorMetadataRefetchClient: {
-          scope: REFETCH_LIMIT_SCOPE,
-          limit: 10,
+        oauthConnectorMetadataRefetchFailureClient: {
+          scope: REFETCH_FAILURE_SCOPE,
+          limit: REFETCH_FAILURE_LIMIT,
           windowSeconds: 600,
         },
       },
@@ -54,7 +54,7 @@ before(() => {
     namedExports: {
       issueOAuthTokensFromCodeAtomic: async () => exchangeResult,
       oauthClientIsRegistered: async () => clientRegistered,
-      refreshAwaitsCimdMetadata: async () => refreshLive && !metadataFresh,
+      refreshAwaitsCimdMetadata: async () => !metadataFresh,
       registerAdmittedCimdClient: async () => {
         refetches += 1;
         if (!refetchSucceeds) return null;
@@ -79,10 +79,8 @@ beforeEach(() => {
   clientRegistered = true;
   metadataFresh = true;
   refetchSucceeds = false;
-  refreshLive = true;
-  refetchLimitHasRoom = true;
   refetches = 0;
-  refetchLimitTakes = 0;
+  refetchFailures = 0;
 });
 
 function post(fields: Record<string, string>): Request {
@@ -325,11 +323,11 @@ describe("POST /api/exomem/oauth/token", () => {
     assert.deepEqual(await response.json(), { error: "invalid_grant" });
   });
 
-  // A document that keeps failing must not be fetched on every refresh.
-  it("refuses the refresh without a fetch once the connector's re-fetch limit is spent", async () => {
-    metadataFresh = false;
+  // One claude.ai client ID serves every Claude user. When its metadata lapses,
+  // each refresh that arrives while the first fetch runs fetches too, and none
+  // of them may be refused for it.
+  it("never refuses a herd of refreshes whose re-fetches succeed", async () => {
     refetchSucceeds = true;
-    refetchLimitHasRoom = false;
     rotateResult = {
       grantId: "grant-1",
       familyId: "family-1",
@@ -337,41 +335,42 @@ describe("POST /api/exomem/oauth/token", () => {
       resource: RESOURCE,
       scopes: ["exomem.read"],
     };
-    const { response } = await withControlPlaneKey(() =>
-      capture(
-        post({
-          grant_type: "refresh_token",
-          refresh_token: REFRESH,
-          client_id: "https://chatgpt.example.test/client.json",
-          resource: RESOURCE,
-        })
-      )
-    );
-
-    assert.equal(response.status, 400);
-    assert.deepEqual(await response.json(), { error: "invalid_grant" });
-    assert.equal(refetches, 0);
+    const herd = REFETCH_FAILURE_LIMIT * 3;
+    for (let refresh = 0; refresh < herd; refresh += 1) {
+      metadataFresh = false;
+      const { response } = await withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "https://claude.example.test/client.json",
+            resource: RESOURCE,
+          })
+        )
+      );
+      assert.equal(response.status, 200);
+    }
+    assert.equal(refetches, herd);
   });
 
-  // The claude.ai client ID is public and shared by every Claude user, so a
-  // caller without a live refresh token must not spend that client's limit.
-  it("spends no re-fetch limit for a refresh token that is not live", async () => {
+  // A document that keeps failing must not be fetched on every refresh.
+  it("refuses the refresh without a fetch once repeated failures spend the limit", async () => {
     metadataFresh = false;
-    refreshLive = false;
-    const { response } = await withControlPlaneKey(() =>
-      capture(
-        post({
-          grant_type: "refresh_token",
-          refresh_token: REFRESH,
-          client_id: "https://claude.example.test/client.json",
-          resource: RESOURCE,
-        })
-      )
-    );
-
-    assert.equal(response.status, 400);
-    assert.equal(refetchLimitTakes, 0);
-    assert.equal(refetches, 0);
+    refetchSucceeds = false;
+    for (let refresh = 0; refresh <= REFETCH_FAILURE_LIMIT; refresh += 1) {
+      const { response } = await withControlPlaneKey(() =>
+        capture(
+          post({
+            grant_type: "refresh_token",
+            refresh_token: REFRESH,
+            client_id: "https://chatgpt.example.test/client.json",
+            resource: RESOURCE,
+          })
+        )
+      );
+      assert.equal(response.status, 400);
+    }
+    assert.equal(refetches, REFETCH_FAILURE_LIMIT);
   });
 
   it("names an unsupported grant type", async () => {

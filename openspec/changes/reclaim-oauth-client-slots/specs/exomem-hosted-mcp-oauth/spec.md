@@ -30,8 +30,10 @@ client, or names a retired one, and SHALL answer both cases alike.
 
 When a refresh needs an auto-registered client's lapsed metadata, the token endpoint SHALL
 fetch the metadata document again with the same checks as at authorization, only for a live
-refresh token of that client, and at most at a bounded rate for each client identifier. If
-the fetch or a check fails, the refresh SHALL stay refused.
+refresh token of that client. If the fetch or a check fails, the refresh SHALL stay refused.
+After a bounded number of failed fetches for one client identifier within a window, the
+token endpoint SHALL refuse such refreshes without a fetch until the window ends. A
+successful fetch SHALL NOT count toward that bound.
 
 A retired client that returns SHALL reuse its own record, and SHALL need a free slot in its
 partition like a new client, so that revival can never take a partition past its bound.

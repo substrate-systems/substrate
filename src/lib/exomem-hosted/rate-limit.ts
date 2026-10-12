@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { takeRateLimit as takeRateLimitQuery } from "./db";
+import { rateLimitHasRoom, takeRateLimit as takeRateLimitQuery } from "./db";
 import { controlPlaneKeyFromEnv } from "./security";
 
 export type ExomemRateLimitRule = {
@@ -70,12 +70,13 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 30,
     windowSeconds: 60,
   },
-  // A refresh fetches a connector's lapsed metadata document again, and a
-  // document that keeps failing would otherwise be fetched on every refresh.
-  // One claude.ai client ID serves every Claude user, so the limit leaves room
-  // for the refreshes that arrive while the first fetch runs.
-  oauthConnectorMetadataRefetchClient: {
-    scope: "exomem:oauth-connector-metadata-refetch:client",
+  // Failed fetches of a connector's lapsed metadata document at refresh. Past
+  // the limit, a refresh is refused without a fetch, so a document that keeps
+  // failing is not fetched on every refresh. A success counts nothing: one
+  // claude.ai client ID serves every Claude user, and the refreshes that arrive
+  // while one fetch runs each fetch too.
+  oauthConnectorMetadataRefetchFailureClient: {
+    scope: "exomem:oauth-connector-metadata-refetch-failure:client",
     limit: 10,
     windowSeconds: 10 * 60,
   },
@@ -165,6 +166,20 @@ export async function takeExomemRateLimit(
   return (dependencies.take ?? takeRateLimitQuery)({
     scope: rule.scope,
     keyDigest: hashRateLimitKey(rule, value, dependencies.key),
+    limit: rule.limit,
+    windowSeconds: rule.windowSeconds,
+  });
+}
+
+// For a limit that counts only failures: read this before the attempt, and
+// take the rule only when the attempt fails.
+export async function exomemRateLimitHasRoom(
+  rule: ExomemRateLimitRule,
+  value: string
+): Promise<boolean> {
+  return rateLimitHasRoom({
+    scope: rule.scope,
+    keyDigest: hashRateLimitKey(rule, value),
     limit: rule.limit,
     windowSeconds: rule.windowSeconds,
   });
