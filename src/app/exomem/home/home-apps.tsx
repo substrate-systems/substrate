@@ -25,6 +25,8 @@ type AppsProps = {
   connectorUrl: string | null;
   /** The level the add-app instructions start on: the coding agents level when known. */
   startLevel: LevelKey;
+  /** A reviewer account: its apps joined during the review. */
+  reviewer: boolean;
   clock: Clock;
 };
 
@@ -33,19 +35,21 @@ function AppRow({
   ended,
   off,
   onDisconnect,
+  reviewer,
   clock,
 }: {
   app: HomeApp;
   ended: boolean;
   off: boolean;
   onDisconnect: (app: HomeApp) => Promise<boolean>;
+  reviewer: boolean;
   clock: Clock;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  let meta = appMeta(app, clock);
+  let meta = appMeta(app, clock, reviewer);
   if (ended) meta = "off for now · reconnects when you resubscribe";
   else if (off) meta = `disconnected · to use it again, connect from ${app.displayName}`;
   else if (failed) meta = "That didn’t finish. Try again in a minute.";
@@ -73,6 +77,7 @@ function AppRow({
       </div>
       {!ended && !off && !confirming && (
         <Button
+          size="row"
           onClick={() => {
             setFailed(false);
             setConfirming(true);
@@ -86,17 +91,14 @@ function AppRow({
         <span className={styles.rowActions}>
           <Button
             variant="primary"
+            size="row"
             working={working}
             onClick={() => void disconnect()}
             aria-label={`Disconnect ${app.displayName} now`}
           >
             Disconnect
           </Button>
-          <button
-            type="button"
-            className={styles.dialogCancel}
-            onClick={() => setConfirming(false)}
-          >
+          <button type="button" className={styles.rowCancel} onClick={() => setConfirming(false)}>
             Cancel
           </button>
         </span>
@@ -234,6 +236,7 @@ export function ConnectedApps(props: AppsProps) {
           ended={props.ended}
           off={props.disconnected.has(app.id)}
           onDisconnect={props.onDisconnect}
+          reviewer={props.reviewer}
           clock={props.clock}
         />
       ))}
@@ -248,6 +251,7 @@ export function ConnectedApps(props: AppsProps) {
               <span className={styles.rowMeta}>Claude, ChatGPT, or any app that supports MCP</span>
             </div>
             <Button
+              size="row"
               onClick={() => setOpen(!open)}
               aria-expanded={open}
               aria-controls="home-add-app"

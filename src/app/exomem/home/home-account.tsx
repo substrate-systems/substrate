@@ -26,7 +26,7 @@ export function PlanAndAccount({
           {plan.meta && <span className={styles.rowMeta}>{plan.meta}</span>}
         </div>
         {plan.action && (
-          <Button working={billingBusy} onClick={() => onBilling(plan.action!.kind)}>
+          <Button size="row" working={billingBusy} onClick={() => onBilling(plan.action!.kind)}>
             {plan.action.label}
           </Button>
         )}
@@ -96,6 +96,7 @@ export function YourData({
             </div>
             <Button
               variant="primary"
+              size="row"
               working={exportBusy || exportRow.busy}
               disabled={exportRow.busy}
               onClick={onExport}
@@ -122,7 +123,11 @@ export function YourData({
                 <span className={styles.dot} aria-hidden="true" />
                 <span className={styles.detailText}>{detail.text}</span>
               </span>
-              <Button working={downloadBusy} onClick={() => onDownload(detail.exportId)}>
+              <Button
+                size="detail"
+                working={downloadBusy}
+                onClick={() => onDownload(detail.exportId)}
+              >
                 {downloadBusy ? "Preparing…" : "Download"}
               </Button>
             </div>
@@ -133,7 +138,7 @@ export function YourData({
                 <span className={styles.dot} aria-hidden="true" />
                 <span className={`${styles.detailText} ${styles.detailStrong}`}>{detail.text}</span>
               </span>
-              <Button working={exportBusy} onClick={onExport}>
+              <Button size="detail" working={exportBusy} onClick={onExport}>
                 Try again
               </Button>
             </div>

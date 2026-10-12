@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { loadExomemPaddleConfig } from "@/lib/exomem-hosted/paddle-config";
 import HomeClient from "./home-client";
 import styles from "./home.module.css";
 
@@ -11,10 +12,22 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
+// The subscribe view previews the price that checkout charges, so the browser gets the
+// price ID only when checkout can run with the same client token.
+function checkoutPriceId(): string | null {
+  try {
+    const config = loadExomemPaddleConfig();
+    return config.paidCheckoutEnabled ? config.priceId : null;
+  } catch {
+    // The checkout route reports a broken configuration; Home shows no amount.
+    return null;
+  }
+}
+
 export default function ExomemHomePage() {
   return (
     <main className={`${styles.page} brand-exomem`}>
-      <HomeClient />
+      <HomeClient priceId={checkoutPriceId()} />
     </main>
   );
 }

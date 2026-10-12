@@ -28,6 +28,7 @@ import {
   type Clock,
 } from "./home-format";
 import type { Lifecycle } from "./home-state";
+import type { PaddlePricePreview } from "@/lib/paddle";
 
 // --- Which Home ---
 
@@ -196,6 +197,20 @@ export function liveLine(
 export function firstNoteLine(facts: ActivityFacts | null, clock: Clock): string | null {
   if (!facts || facts.noteCount !== 1 || !facts.lastSave) return null;
   return `saved by ${clientName(facts.lastSave.client)} ${ago(facts.lastSave.at, cellNow(facts, clock))}`;
+}
+
+// --- Subscribe ---
+
+/** The subscribe line: the price Paddle previews for checkout when it is known. */
+export function subscribeLine(price: PaddlePricePreview | null): string {
+  if (!price) return "Paddle shows the price at checkout. Then add it to your assistant.";
+  const cycle = price.billingCycle;
+  const cadence = !cycle
+    ? ""
+    : cycle.frequency === 1
+      ? ` per ${cycle.interval}`
+      : ` every ${cycle.frequency} ${cycle.interval}s`;
+  return `${price.total}${cadence}${price.includesTax ? ", including tax" : ""}. Then add it to your assistant.`;
 }
 
 // --- Headline and status line ---
@@ -393,9 +408,13 @@ export function appGlyph(app: HomeApp): string {
   return app.displayName.trim().charAt(0).toUpperCase() || "+";
 }
 
-/** The row's second line. A name Exomem does not vouch for shows where access goes. */
-export function appMeta(app: HomeApp, clock: Clock): string {
+/**
+ * The row's second line. On a reviewer account it says the app joined during the
+ * review; a name Exomem does not vouch for shows where access goes.
+ */
+export function appMeta(app: HomeApp, clock: Clock, reviewer: boolean): string {
   const parts = [`connected ${dayMonth(app.connectedAt, clock.timeZone)}`];
+  if (reviewer) parts.push("during review");
   if (!displayNameVouched(app.displayNameSource) && app.displayNameSource !== "redirect_host") {
     const destination = app.kind === "local" ? "this computer" : app.redirectHosts.join(", ");
     parts.push("name from the app", `sends access to ${destination}`);

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/exomem/Button";
 import { Notice } from "@/components/exomem/Notice";
+import { usePaddlePricePreview } from "@/lib/paddle";
 import {
   type PaddleTransactionFailure,
   PaddleTransactionOpener,
@@ -55,6 +56,7 @@ import {
   planView,
   statusCopy,
   storageView,
+  subscribeLine,
 } from "./home-view";
 import styles from "./home.module.css";
 
@@ -76,7 +78,7 @@ function goToSignIn() {
   window.location.replace("/exomem/sign-in");
 }
 
-export default function HomeClient() {
+export default function HomeClient({ priceId }: { priceId: string | null }) {
   const [status, setStatus] = useState<StatusRead | null>(null);
   const [account, setAccount] = useState<HomeAccount | null>(null);
   const [accountRead, setAccountRead] = useState<AccountRead>("loading");
@@ -108,6 +110,8 @@ export default function HomeClient() {
 
   const lifecycle = status?.lifecycle ?? LOADING;
   const mode = homeMode(lifecycle, account, accountRead);
+  // Paddle is asked for the price only while Home asks the owner to subscribe.
+  const price = usePaddlePricePreview(mode.kind === "subscribe" ? priceId : null);
   const inHome = mode.kind === "home";
   const clock: Clock = useMemo(() => ({ now }), [now]);
 
@@ -435,7 +439,7 @@ export default function HomeClient() {
           <StatusBlock
             live={false}
             headline={copy.headline}
-            statusLine={copy.line}
+            statusLine={mode.kind === "subscribe" ? subscribeLine(price) : copy.line}
             liveLine={null}
           />
           {message}
@@ -509,7 +513,11 @@ export default function HomeClient() {
             attention={notice.attention}
             action={
               notice.action === "copy_reference" && account ? (
-                <Button onClick={() => copyReference(account.supportReference)} aria-live="polite">
+                <Button
+                  size="detail"
+                  onClick={() => copyReference(account.supportReference)}
+                  aria-live="polite"
+                >
                   {referenceCopied ? "Copied" : "Copy reference"}
                 </Button>
               ) : notice.action === "support" ? (
@@ -538,6 +546,7 @@ export default function HomeClient() {
               accountBanner.action ? (
                 <Button
                   variant="primary"
+                  size="row"
                   working={billingBusy}
                   onClick={() =>
                     void onBilling(accountBanner.action === "resubscribe" ? "checkout" : "portal")
@@ -559,6 +568,7 @@ export default function HomeClient() {
           onDisconnect={onDisconnect}
           connectorUrl={status?.connectorUrl ?? null}
           startLevel={codingLevel}
+          reviewer={reviewer}
           clock={clock}
         />
         <InvolvementLevels
@@ -598,10 +608,12 @@ function CheckoutReturnFailure({ message, retry, dismiss }: PaddleTransactionFai
       layout="row"
       action={
         <div className={styles.noticeActions}>
-          <Button variant="primary" onClick={retry}>
+          <Button variant="primary" size="detail" onClick={retry}>
             Try again
           </Button>
-          <Button onClick={dismiss}>Not now</Button>
+          <Button size="detail" onClick={dismiss}>
+            Not now
+          </Button>
         </div>
       }
     >
@@ -614,13 +626,11 @@ function CheckoutReturnFailure({ message, retry, dismiss }: PaddleTransactionFai
 // subscribe copy is the journey's (Appendix A), the rest is the current Home's.
 const NOT_HOME_COPY: Record<
   "loading" | "subscribe" | "preparing" | "deleting" | "deleted",
-  { headline: string; line: string }
+  { headline: string; line: string | null }
 > = {
   loading: { headline: "One moment.", line: "Checking your Exomem…" },
-  subscribe: {
-    headline: "Subscribe to finish setting up",
-    line: "Paddle shows the price at checkout. Then add it to your assistant.",
-  },
+  // The line carries the price when Paddle previews it: subscribeLine writes it.
+  subscribe: { headline: "Subscribe to finish setting up", line: null },
   preparing: {
     headline: "Your Exomem is taking shape.",
     line: "This usually takes a minute or two. You can leave this page open; it will continue automatically.",

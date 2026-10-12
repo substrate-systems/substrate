@@ -707,6 +707,22 @@
   color: var(--fg-primary);
 }
 
+/* Cancel beside a row's confirm button (Home board): as tall as the row's actions. */
+.rowCancel {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rowCancel:hover {
+  color: var(--fg-primary);
+}
+
 /* --- Phone --- */
 
 @media (max-width: 640px) {

@@ -288,6 +288,9 @@ test("a reviewer sees the sample account and its end date, with no billing or de
     page.getByText(`It holds sample notes only and ends on ${ends}.`, { exact: false })
   ).toBeVisible();
   await expect(page.getByText(`complimentary · ends ${ends}`)).toBeVisible();
+  await expect(
+    panel(page, "Connected apps").getByText(/^connected \d{1,2} \w+ · during review$/)
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: /billing/i })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete…" })).toHaveCount(0);
   await expect(

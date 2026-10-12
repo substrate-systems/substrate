@@ -15,6 +15,7 @@ import {
   planView,
   statusCopy,
   storageView,
+  subscribeLine,
 } from "../home-view";
 
 // Every case renders in UTC at a fixed moment, so dates read the same on any machine.
@@ -496,5 +497,30 @@ describe("the deletion link's lifetime", () => {
     );
     assert.equal(deletionLinkMinutes("2026-10-12T10:01:00Z", "Mon, 12 Oct 2026 10:00:00 GMT"), 1);
     assert.equal(deletionLinkMinutes("2026-10-12T10:15:00Z", null), null);
+  });
+});
+
+describe("the subscribe line", () => {
+  it("shows the price Paddle previews for checkout, and only when it is known", () => {
+    assert.equal(
+      subscribeLine(null),
+      "Paddle shows the price at checkout. Then add it to your assistant."
+    );
+    assert.equal(
+      subscribeLine({
+        total: "€10.00",
+        billingCycle: { interval: "month", frequency: 1 },
+        includesTax: true,
+      }),
+      "€10.00 per month, including tax. Then add it to your assistant."
+    );
+    assert.equal(
+      subscribeLine({
+        total: "$27.00",
+        billingCycle: { interval: "month", frequency: 3 },
+        includesTax: false,
+      }),
+      "$27.00 every 3 months. Then add it to your assistant."
+    );
   });
 });
