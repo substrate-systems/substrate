@@ -100,13 +100,14 @@ S256, exact redirect matching, single-use codes and resource binding apply as
 for every other client.
 
 Attribution is lost once the lane is enabled. Admission state cannot tell which
-software wrote a memory. A generic client names itself in `client_name`, and
+software wrote a memory. A generic client may name itself in `client_name`, and
 nothing verifies that name: a generic client can call itself "Claude". The
-consent page and Home must show the name as the client's own claim.
+consent page and Home must show the name as the client's own claim. A client
+that declares no readable name has none stored.
 
 Registration has these bounds:
 
-- 5 registrations per client address in 10 minutes.
+- 5 registrations in 10 minutes per IPv4 address, or per IPv6 /64.
 - 128 generic clients in total, counted apart from operator and CIMD clients.
   Nothing frees a slot. When the partition is full, every new registration is
   refused. Count it with
@@ -118,6 +119,16 @@ Deploy order: the web deploy applies migration 0062 and the grants script. The
 gateway reads the lane on every token lookup, for every client. Roll a gateway
 image that contains the generic arm only after that web deploy, or every MCP
 call fails.
+
+Enable the lane only when all of these are true:
+
+- Slot reclaim covers the generic partition (`reclaim-oauth-client-slots`).
+  Without it, the partition fills once and stays full.
+- An independent review has checked that the consent page names the client
+  and its scopes plainly, and shows the client's name as its own claim.
+- One real third-party MCP client, such as Codex CLI, has completed
+  registration, authorization, tool discovery and a durable capture in a test
+  environment with the lane enabled.
 
 To enable the lane:
 

@@ -35,7 +35,8 @@
 - [x] 4.2 Withdrawing lane state stops admission at every one of those stages, which is the drift guard for the new arm
 - [x] 4.3 Mutation-check 4.2: removing the generic arm from exactly one predicate fails exactly that test and nothing else
   - Removing the arm from each of the 13 sites fails the generic cross-stage case. Removing it from the gateway lookup also fails the gateway-role lookup test, which runs that statement on purpose. An arm that ignored the admission mode fails the host-allowlisted case.
-- [x] 4.4 A generic client authorizing for an identity with neither invite nor tenant creates no tenant, entitlement, grant or token, and the refusal does not disclose whether the identity is known
+- [ ] 4.4 A generic client authorizing for an identity with neither invite nor tenant creates no tenant, entitlement, grant or token, and the refusal does not disclose whether the identity is known
+  - No test: the invite check runs before, and apart from, the generic arm, so no defect in this change can make such a test fail. The invite and ownership code paths are unchanged.
 - [x] 4.5 Certified admission is unchanged with the lane enabled: pinned-digest and host-allowlist clients still require a live cohort for their own platform, and the existing suites pass unmodified
   - No certified lane consults a cohort since `adopt-exomem-cloud-plain-cells` D2. The cross-stage test runs the host-allowlisted client with the generic lane enabled and requires every stage to stop when its host is withdrawn.
 - [ ] 4.6 A generic client is admitted while no cohort is live for any platform, and a certified client in the same state is still refused — the assertion that the lanes are genuinely independent
