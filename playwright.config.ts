@@ -45,8 +45,10 @@ const journeyProjects = journeyEnabled
           baseURL: journeyBaseUrl,
         },
       },
-      // The narrow phones: only the no-scroll check. 360 × 640 is a common Android size and
-      // the shortest one; at 360 × 720 the tiles come back, so the step is at its tallest.
+      // The small phones: only the no-scroll check, on each side of the compact layout's
+      // two cut-offs (journey.module.css). 360 × 640 is a common Android size and the
+      // shortest one; 360 × 720 is compact below 390 px wide, and 390 × 740 is the shortest
+      // phone that keeps the tiles.
       {
         name: "exomem journey phone 360x640",
         timeout: JOURNEY_TEST_TIMEOUT_MS,
@@ -64,6 +66,16 @@ const journeyProjects = journeyEnabled
         use: {
           ...devices["Pixel 7"],
           viewport: { width: 360, height: 720 },
+          baseURL: journeyBaseUrl,
+        },
+      },
+      {
+        name: "exomem journey phone 390x740",
+        timeout: JOURNEY_TEST_TIMEOUT_MS,
+        testMatch: "exomem-journey/layout.spec.ts",
+        use: {
+          ...devices["Pixel 7"],
+          viewport: { width: 390, height: 740 },
           baseURL: journeyBaseUrl,
         },
       },

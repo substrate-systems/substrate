@@ -617,16 +617,17 @@
   }
 }
 
-/* A phone under 800 px tall drops the tiles and tightens the column and the step, so every
-   step still fits without scrolling, down to 360 x 640; with the tiles, the tallest step
-   needs about 780 px at 360 wide. The reviewer note moves into the lede only above it. */
+/* A phone too short for the tiles drops them and tightens the column and the step, so every
+   step still fits without scrolling, down to 360 x 640. With the tiles, the tallest step
+   needs 780 px below 390 px wide and 735 px from 390 px wide, so the cut-offs are 800 and
+   740 px tall (design.md (ai)). The reviewer note moves into the lede only above it. */
 @media (max-width: 640px) {
   .reviewerNoteApart {
     display: none;
   }
 }
 
-@media (max-width: 640px) and (max-height: 799px) {
+@media (max-width: 389px) and (max-height: 799px), (max-width: 640px) and (max-height: 739px) {
   .tiles {
     display: none;
   }
