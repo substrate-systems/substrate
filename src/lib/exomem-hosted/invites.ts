@@ -311,7 +311,7 @@ function liveSubscription(plan: OwnerPlan): boolean {
  * paid subscription takes the offer to its next checkout, which sells the
  * base price.
  */
-export function friendPriceOffer(
+function friendPriceOffer(
   kind: ExomemInviteKind,
   plan: OwnerPlan,
   basePriceId: string | null
@@ -346,7 +346,7 @@ export type InspectInvitationDependencies = {
  * that owner. One query for every token, so an unusable token of any kind
  * (unknown, expired, used, revoked) costs the same.
  */
-export async function findUsableInvitation(digest: Buffer): Promise<{
+async function findUsableInvitation(digest: Buffer): Promise<{
   kind: ExomemInviteKind;
   email: string;
   expiresAt: Date;

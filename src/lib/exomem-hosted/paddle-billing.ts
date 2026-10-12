@@ -121,7 +121,7 @@ function safeConfigurationError(error: unknown): ExomemBillingError {
  * Every call has a deadline: some run inside a database transaction that
  * holds a row lock until Paddle answers.
  */
-export async function safePaddleJson(
+async function safePaddleJson(
   transport: PaddleTransport,
   path: string,
   init: RequestInit
@@ -191,7 +191,7 @@ function safePaddleId(value: unknown, prefix: "txn" | "sub" | "ctm" | "dsc"): st
     : null;
 }
 
-export function safeObject(value: unknown): Record<string, unknown> | null {
+function safeObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;

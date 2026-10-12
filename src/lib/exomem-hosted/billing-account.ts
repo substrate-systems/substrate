@@ -113,7 +113,7 @@ export async function loadOwnerBillingAccount(
  * (`cloudCancelledKeptUntil`), and never while an operator suspension holds
  * or the account is being deleted.
  */
-export function resubscribeAllowed(account: OwnerBillingAccount, now: Date = new Date()): boolean {
+function resubscribeAllowed(account: OwnerBillingAccount, now: Date = new Date()): boolean {
   return (
     account.source === "paddle" &&
     account.sourceState === "cancelled" &&
@@ -153,7 +153,7 @@ function checkoutAllowed(account: OwnerBillingAccount, now: Date): boolean {
  * text because a timestamp read into JavaScript loses its microseconds),
  * customer and earlier transaction, inside the kept window, with a live cell.
  */
-export async function recordExomemResubscribeTransaction(input: {
+async function recordExomemResubscribeTransaction(input: {
   userId: string;
   tenantId: string;
   transactionId: string;
