@@ -38,6 +38,8 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                           |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                               |
 | `EXOMEM_CONNECTOR_SETTINGS_URLS`                                    | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                 |
+| `EXOMEM_OAUTH_CIMD_RETIREMENT_GRACE_HOURS`                          | Optional. Hours after its metadata expired before the sweep retires an auto-registered connector. Default 336 (14 days). A value that is not a whole number of at least 1 fails the sweep.                   |
+| `EXOMEM_OAUTH_GENERIC_RETIREMENT_GRACE_HOURS`                       | Optional. Hours a generic client must hold nothing before the sweep retires it. Default 24. A value that is not a whole number of at least 1 fails the sweep.                                                |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
@@ -111,10 +113,11 @@ that declares no readable name has none stored.
 Registration has these bounds:
 
 - 5 registrations in 10 minutes per IPv4 address, or per IPv6 /64.
-- 128 generic clients in total, counted apart from operator and CIMD clients.
-  Nothing frees a slot. When the partition is full, every new registration is
-  refused. Count it with
-  `SELECT count(*) FROM exomem_oauth_clients WHERE admission_mode = 'generic';`.
+- 128 unretired generic clients in total, counted apart from operator and CIMD
+  clients. The sweep frees the slot of a generic client that has held nothing
+  for its grace; see "Client slots and retirement". When the partition is full,
+  every new registration is refused. Read it with
+  `SELECT * FROM exomem_oauth_client_partitions();`.
 - Every refusal answers `404` with an empty body, whatever the cause. The log
   event `exomem_oauth_register_rejection` names the stage, never a request value.
 
@@ -125,8 +128,16 @@ call fails.
 
 Enable the lane only when all of these are true:
 
-- Slot reclaim covers the generic partition (`reclaim-oauth-client-slots`).
-  Without it, the partition fills once and stays full.
+- The deployed release retires idle generic clients
+  (`reclaim-oauth-client-slots`, migration 0067), and the reconcile job's
+  response includes `oauth.retiredGeneric`. Without slot reclaim, the
+  partition fills once and stays full.
+- Each OAuth client has a stored prominence context, coding or conversation,
+  that its owner can change, and that defaults from the client's redirect
+  shape. Today Substrate derives the context from the redirect URIs alone: an
+  https redirect means conversation, and a loopback redirect means coding. That
+  is right for every client admitted at launch, but it puts a desktop chat app
+  with a loopback callback into coding.
 - An independent review has checked that the consent page names the client
   and its scopes plainly, and shows the client's name as its own claim.
 - One real third-party MCP client, such as Codex CLI, has completed
@@ -170,6 +181,102 @@ WHERE family.client_id = client.id AND client.admission_mode = 'generic';
 
 To stop one generic client, set `enabled = false` on its row. This is durable:
 registration never rewrites an existing row.
+
+### Client slots and retirement
+
+Each client takes one slot in one of three partitions: operator, auto-registered
+CIMD connectors, and generic clients. The function
+`exomem_oauth_client_partitions()` holds every bound and count, and admission
+reads it. The first-party Home client takes no slot.
+
+A retired client keeps its row but takes no slot. Retirement never deletes a
+row, so bootstrap provenance stays readable. The database refuses to enable a
+retired client and refuses to retire the Home client.
+
+The reconcile job, `/api/cron/exomem-reconcile`, runs the sweep every minute.
+Each run does these things:
+
+- It deletes expired authorization transactions, codes and tokens, at most 500
+  of each.
+- It disables CIMD clients whose metadata expired.
+- It retires an auto-registered connector whose metadata expired more than
+  `EXOMEM_OAUTH_CIMD_RETIREMENT_GRACE_HOURS` ago.
+- It disables and retires a generic client that has held nothing for
+  `EXOMEM_OAUTH_GENERIC_RETIREMENT_GRACE_HOURS`: the client registered before
+  the grace began, and no grant of it was created, renewed or revoked since.
+- It retires at most 100 clients per partition.
+
+The sweep never retires a client that holds a grant that is not revoked, an
+unexpired code, access token or refresh token, or an authorization in progress
+(`exomem_oauth_client_holds_live_authority`). A connected app therefore keeps
+its slot until its person disconnects it in Home. Each partition bound caps the
+apps that are connected at the same time, not only registrations.
+
+A retired connector revives its own row at its next authorization, if its
+partition has a free slot. A full partition refuses it like a new connector.
+
+A retired generic client's ID stops working, and nothing revives it. Its MCP
+client gets `invalid_grant` from `/token`. `/authorize` answers
+`400 invalid_request` without a redirect, as RFC 6749 requires for an unknown
+client. Clients built on the MCP TypeScript SDK (checked against version 1.27)
+register again only after `invalid_client`, so they do not recover by
+themselves. The person must remove the app's saved sign-in, for example by
+removing and adding the server again, and then connect again.
+
+To read the headroom, request `GET /api/exomem/admin/oauth-clients` with the
+operator bearer. The `headroom` object gives `bound`, `used` and `free` for each
+partition. The SQL equivalent is `SELECT * FROM exomem_oauth_client_partitions();`.
+
+If the sweep fails, the reconcile job answers `503` and logs
+`exomem-oauth: expired state and client retirement lane failed`. A malformed
+grace setting fails every run until you correct it.
+
+#### Retire spent reviewer bootstrap clients
+
+Nothing creates, consumes or revokes a reviewer bootstrap authority since Hosted
+was retired, so the sweep never retires these clients. Each one is disabled and
+can never be enabled again, but it still takes an operator slot.
+
+1. Run this read-only query against the production database, and keep its output:
+   ```sql
+   SELECT client.id, client.created_at,
+          ARRAY(
+            SELECT DISTINCT authority.state
+            FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+            WHERE authority.oauth_client_id = client.id
+          ) AS authority_states,
+          exomem_oauth_client_holds_live_authority(client.id) AS holds_live_authority
+   FROM exomem_oauth_clients AS client
+   WHERE client.reviewer_bootstrap_ever_authorized
+     AND client.retired_at IS NULL
+     AND NOT client.enabled
+     AND NOT EXISTS (
+       SELECT 1 FROM exomem_marketplace_reviewer_oauth_bootstrap_authorities AS authority
+       WHERE authority.oauth_client_id = client.id AND authority.state = 'active'
+     )
+   ORDER BY client.created_at;
+   ```
+2. Get the operator's approval for the listed IDs. A row with
+   `holds_live_authority = true` stays, and step 3 skips it.
+
+The next step changes live operator capacity. Run it only with the approved IDs.
+
+3. Run this statement with the approved IDs:
+   ```sql
+   UPDATE exomem_oauth_clients AS client
+   SET retired_at = now(), updated_at = now()
+   WHERE client.id = ANY('{<approved-id>,<approved-id>}'::uuid[])
+     AND client.reviewer_bootstrap_ever_authorized
+     AND client.retired_at IS NULL
+     AND NOT client.enabled
+     AND NOT exomem_oauth_client_holds_live_authority(client.id)
+   RETURNING client.id;
+   ```
+4. Run `SELECT * FROM exomem_oauth_client_partitions();`.
+
+The `operator` row shows `used` lower by the number of rows that step 3
+returned. Whether the operator bound of 96 can return to 32 is a separate
+decision; take it from this number.
 
 ### OpenAI domain proof
 

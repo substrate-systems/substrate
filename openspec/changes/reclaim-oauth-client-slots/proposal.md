@@ -35,7 +35,7 @@ SELECT count(*) FROM exomem_oauth_clients WHERE auto_registered = p_auto_registe
 ```
 
 So an expired, disabled CIMD client holds its slot forever. `ON CONFLICT (client_id) DO
-UPDATE` spares a *returning* client id, but every **distinct** id is permanent. After 128
+UPDATE` spares a _returning_ client id, but every **distinct** id is permanent. After 128
 distinct client ids from admitted hosts have ever connected, CIMD admission shuts for
 good and no new user can connect, with no code path to reopen it.
 
@@ -50,21 +50,31 @@ and its failure mode is permanent.
   each partition bound. Reclaiming a slot MUST NOT delete the row: the history of which
   clients existed, and which carried bootstrap provenance, is audit evidence and is also
   what makes "a bootstrap client can never be repurposed" checkable.
-- Retire an expired CIMD client automatically, after a grace period, in the sweep that
-  already disables it.
-- Retire a spent reviewer bootstrap client automatically once its authority is consumed or
-  revoked and its assignment is over. Such a client is already permanently unusable.
-- Never retire a client that is enabled, or that has any live grant, access token or
-  refresh token.
+- Retire an expired auto-registered CIMD client automatically, after a grace period, in
+  the sweep that already disables it.
+- Retire a generic MCP client automatically once it has held nothing usable for a grace
+  period. Migration 0062 added the generic partition with the same defect: 128
+  registrations fill it once, and it stays full. Its runbook forbids enabling the generic
+  lane until reclaim covers it.
+- Never retire a client that holds a grant that is not revoked, an unexpired code, access
+  token or refresh token, or an authorization in progress.
+- Run the sweep from the scheduled reconcile job. `pruneExpiredOAuthState` has no
+  production caller today, so expired codes, tokens and families also pile up.
 - Report partition headroom as authoritative server state, so exhaustion is visible before
   it blocks a window rather than at the moment it does.
+- Give the operator a runbook statement that retires the spent reviewer bootstrap clients
+  already on production. Nothing creates, consumes or revokes a bootstrap authority since
+  Hosted was retired, so no automatic transition remains for them.
 
 ## Impact
 
 - Affected specs: `exomem-hosted-mcp-oauth`
-- Affected code: `exomem_oauth_client_partition_available` and a new migration column;
-  `pruneExpiredOAuthState` in `src/lib/exomem-hosted/oauth-store.ts`; the reviewer
-  bootstrap consume/revoke paths; the operator contracts admin surface for headroom.
+- Affected code: migration 0067 (`retired_at`, `exomem_oauth_client_partitions`, the two
+  partition gates, `exomem_oauth_client_holds_live_authority`); `pruneExpiredOAuthState`
+  and the CIMD self-registration upsert in `src/lib/exomem-hosted/oauth-store.ts`; the
+  reconcile cron route; the operator OAuth clients admin route for headroom.
+- Affected operations: two optional grace settings, and the generic lane's enable
+  condition in `docs/runbooks/exomem-cloud-operations.md`.
 - Affected tooling: `scripts/reviewer_bootstrap.py` in the `exomem` repository reports
   headroom against a hardcoded `OPERATOR_CLIENT_BOUND`; it should read the reported value
   rather than restate one.
