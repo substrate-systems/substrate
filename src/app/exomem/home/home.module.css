@@ -646,12 +646,6 @@
   }
 }
 
-.code {
-  font-family: var(--font-mono-exo);
-  font-size: 11px;
-  color: var(--fg-muted);
-}
-
 .linkButton {
   min-height: 44px;
   min-width: 112px;

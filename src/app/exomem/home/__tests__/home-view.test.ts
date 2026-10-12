@@ -415,7 +415,7 @@ describe("the export row", () => {
     assert.equal(ready.detail?.text, "kept 2 days, until 14 Oct, 09:30");
   });
 
-  it("shows a failed export with its code and a way to try again", () => {
+  it("says a failed export did not finish in plain words, not its error code", () => {
     const failed = exportView(
       { state: "failed", ...base, error_code: "EXPORT_TOO_LARGE", pauses_assistants: false },
       clock
@@ -423,8 +423,20 @@ describe("the export row", () => {
     assert.deepEqual(failed.detail, {
       kind: "failed",
       text: "The export didn’t finish. Your notes are unchanged.",
-      code: "EXPORT_TOO_LARGE",
     });
+  });
+
+  it("says when an expired export was deleted, and only when the server knows", () => {
+    const expired = (expires_at: string | null) =>
+      exportView(
+        { state: "expired", ...base, expires_at, pauses_assistants: false } as HomeExport,
+        clock
+      ).detail?.text;
+    assert.equal(
+      expired("2026-10-11T14:20:00Z"),
+      "Your last export was deleted on 11 October at 14:20. Export again any time."
+    );
+    assert.equal(expired(null), "Your last export was deleted. Export again any time.");
   });
 });
 

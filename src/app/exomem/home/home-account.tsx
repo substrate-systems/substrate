@@ -131,9 +131,7 @@ export function YourData({
             <div className={styles.detail}>
               <span className={styles.detailLead}>
                 <span className={styles.dot} aria-hidden="true" />
-                <span className={`${styles.detailText} ${styles.detailStrong}`}>
-                  {detail.text} <span className={styles.code}>{detail.code}</span>
-                </span>
+                <span className={`${styles.detailText} ${styles.detailStrong}`}>{detail.text}</span>
               </span>
               <Button working={exportBusy} onClick={onExport}>
                 Try again

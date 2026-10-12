@@ -21,6 +21,7 @@ import {
   ago,
   count,
   dayMonth,
+  dayMonthTime,
   gigabytes,
   secondsAgo,
   shortDateTime,
@@ -610,7 +611,7 @@ export type ExportView = {
   detail:
     | { kind: "packing"; text: string }
     | { kind: "ready"; text: string; exportId: string }
-    | { kind: "failed"; text: string; code: string }
+    | { kind: "failed"; text: string }
     | { kind: "expired"; text: string }
     | null;
   busy: boolean;
@@ -658,17 +659,20 @@ export function exportView(summary: HomeExport, clock: Clock): ExportView {
       return {
         description,
         busy: false,
-        detail: {
-          kind: "failed",
-          text: "The export didn’t finish. Your notes are unchanged.",
-          code: summary.error_code,
-        },
+        // The board's words; the error code stays in the server's logs.
+        detail: { kind: "failed", text: "The export didn’t finish. Your notes are unchanged." },
       };
     case "expired":
       return {
         description,
         busy: false,
-        detail: { kind: "expired", text: "Your last export was deleted. Export again any time." },
+        detail: {
+          kind: "expired",
+          // A newer export replaced it when the server has no expiry for it.
+          text: summary.expires_at
+            ? `Your last export was deleted on ${dayMonthTime(summary.expires_at, clock.timeZone)}. Export again any time.`
+            : "Your last export was deleted. Export again any time.",
+        },
       };
   }
 }
