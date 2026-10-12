@@ -143,10 +143,10 @@ describe("the friend price at Paddle", () => {
 });
 
 describe("the next payment's amount", () => {
-  it("reads Paddle afresh once a friend price is stored, instead of serving the cached amount", async () => {
+  it("reads Paddle afresh once a subscription event is applied, instead of serving the cached amount", async () => {
     const subscriptionId = `sub_${"s".repeat(26)}`;
-    // Paddle's next transaction carries the friend discount once it is applied.
-    let discounted = false;
+    // Once the owner schedules a cancellation in the portal, Paddle previews no next payment.
+    let cancelled = false;
     const reads: string[] = [];
     const transport: PaddleTransport = async (path) => {
       reads.push(path);
@@ -154,27 +154,27 @@ describe("the next payment's amount", () => {
         data: {
           id: subscriptionId,
           currency_code: "EUR",
-          next_transaction: {
-            details: {
-              totals: { grand_total: discounted ? "1000" : "1500", currency_code: "EUR" },
-            },
-          },
+          next_transaction: cancelled
+            ? null
+            : { details: { totals: { grand_total: "1000", currency_code: "EUR" } } },
         },
       });
     };
-    const read = (discountId: string | null) =>
+    const read = (sourceOccurredAt: Date) =>
       readExomemNextPaymentAmount(
-        { subscriptionId, environment: "sandbox", discountId, priceId: BASE_PRICE },
+        { subscriptionId, environment: "sandbox", sourceOccurredAt },
         { config: config(), transport, now: () => 0 }
       );
 
-    assert.deepEqual((await read(null)).value, { amount: "1500", currencyCode: "EUR" });
-    // The friend decision applies the discount; the webhook stores its id seconds later.
-    discounted = true;
-    assert.deepEqual((await read(FRIEND_DISCOUNT)).value, { amount: "1000", currencyCode: "EUR" });
+    const subscribed = new Date("2026-10-01T09:00:00Z");
+    assert.deepEqual((await read(subscribed)).value, { amount: "1000", currencyCode: "EUR" });
+    // The webhook applies the scheduled cancellation and stores its time seconds later.
+    cancelled = true;
+    const cancellationApplied = new Date("2026-10-12T14:00:00Z");
+    assert.deepEqual(await read(cancellationApplied), { value: null, reason: "not_reported" });
     assert.equal(reads.length, 2);
-    // With nothing stored changing, the cached amount still serves.
-    await read(FRIEND_DISCOUNT);
+    // With nothing stored changing, the cached answer still serves.
+    await read(cancellationApplied);
     assert.equal(reads.length, 2);
   });
 });

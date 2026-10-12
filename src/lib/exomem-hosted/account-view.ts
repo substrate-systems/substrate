@@ -134,8 +134,7 @@ async function nextPaymentAmount(
       {
         subscriptionId: account.subscriptionRef,
         environment: account.providerEnvironment,
-        discountId: account.discountId,
-        priceId: account.priceId,
+        sourceOccurredAt: account.sourceOccurredAt,
       },
       { config: loadExomemPaddleConfig(environment) }
     );

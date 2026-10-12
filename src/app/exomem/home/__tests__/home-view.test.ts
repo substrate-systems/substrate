@@ -350,6 +350,15 @@ describe("plan and storage", () => {
     assert.equal(planView("on", unavailable, portal, clock).meta, "next payment 31 October");
   });
 
+  it("shows no amount when the next payment has no date", () => {
+    // A cancellation scheduled in the portal clears the date before a cached amount expires.
+    const undated = account({
+      nextPaymentAt: { value: null, reason: "not_reported" },
+      nextPaymentAmount: { value: { amount: "1000", currencyCode: "EUR" }, reason: null },
+    });
+    assert.equal(planView("on", undated, portal, clock).meta, "next payment not reported yet");
+  });
+
   it("names the friend price and its inviter when the discount applies", () => {
     const plan = planView(
       "on",

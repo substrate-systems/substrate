@@ -595,9 +595,10 @@ export function planView(
   else if (variant === "ended") meta = "ended";
   else {
     const inviter = friend && plan.friendPrice.inviterName;
-    // The amount Paddle previews for the next payment, in en-GB like Home's dates; unknown
-    // shows no number at all.
-    const amount = account.nextPaymentAmount.value;
+    // The amount Paddle previews for the next payment, in en-GB like Home's dates. Unknown
+    // shows no number at all, and so does a payment with no date: no money is promised
+    // for a payment that may not come.
+    const amount = account.nextPaymentAt.value ? account.nextPaymentAmount.value : null;
     const price = amount && emailMoney(amount);
     meta = joined([price, inviter && `from ${inviter}’s invitation`, nextPayment(account, clock)]);
   }
