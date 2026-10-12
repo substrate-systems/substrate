@@ -279,10 +279,12 @@ If the sweep fails, the reconcile job answers `503` and logs
 `exomem-oauth: expired state and client retirement lane failed`. A malformed
 grace setting fails every run until you correct it.
 
-Migration 0067 builds five indexes on the grant, refresh token and access token
-tables. Each build blocks writes to its table, such as token issuance and
-refresh, until the migration commits. Before you deploy the release that
-contains slot reclaim:
+Migration 0067 changes `exomem_oauth_clients` first, then builds five indexes:
+two on grants, two on refresh tokens and one on access tokens. It holds its lock
+on clients until it commits, so every read of clients waits for the builds.
+Bearer validation reads clients, so every MCP call waits too. Each build also
+blocks writes to its own table, such as token issuance and refresh. Before you
+deploy the release that contains slot reclaim:
 
 1. Run this read-only query against the production database:
    ```sql
@@ -291,14 +293,15 @@ contains slot reclaim:
    WHERE relname IN ('exomem_oauth_grants', 'exomem_oauth_refresh_tokens',
                      'exomem_oauth_access_tokens');
    ```
-2. If every table holds fewer than one million rows, deploy as usual.
-3. Otherwise, deploy in the quietest hour, and expect token requests to wait
-   for the builds.
+2. Estimate the wait as about 0.2 to 0.5 seconds per million rows for each
+   build.
+3. If every table holds fewer than one million rows, deploy as usual.
+4. Otherwise, deploy in the quietest hour, and expect MCP calls and token
+   requests to wait for the builds.
 
 On a synthetic table of one million rows on local Postgres 16, one build took
-0.2 to 0.4 seconds.
-If a table lock is not free within five seconds, the migration fails and rolls
-back, and you can deploy again.
+0.2 to 0.4 seconds. If a table lock is not free within five seconds, the
+migration fails and rolls back, and you can deploy again.
 
 To roll back a release that contains slot reclaim, roll forward if you can. The
 earlier code cannot revive a retired connector, because its registration sets
