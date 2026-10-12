@@ -3,8 +3,8 @@
 // The journey's level switch and Home's both read this list.
 //
 // The block text is not written here. It is the generated, verbatim copy of the
-// exomem repo's docs/prominence.md; see home/assistant-instructions.ts for how it
-// is kept in step.
+// exomem repo's docs/prominence.md; scripts/sync-exomem-instruction-blocks.mjs keeps
+// it in step.
 
 import { INSTRUCTION_BLOCKS } from "@/app/exomem/home/instruction-blocks.generated";
 

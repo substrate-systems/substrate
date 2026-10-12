@@ -39,11 +39,6 @@ export function shortDateTime(iso: string, timeZone?: string): string {
   );
 }
 
-/** "14:20" */
-export function clockTime(iso: string, timeZone?: string): string {
-  return format(iso, { hour: "2-digit", minute: "2-digit" }, timeZone);
-}
-
 /** "11,402" */
 export function count(value: number): string {
   return new Intl.NumberFormat(LOCALE).format(value);
