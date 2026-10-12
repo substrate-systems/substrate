@@ -27,7 +27,11 @@ export const startCopy = {
 
 export const sentCopy = {
   title: "Check your email",
-  lede: "We sent you a link. Open it to continue. You can close this tab.",
+  /**
+   * The board says "We sent you a link." Every request answers alike, and a waitlist
+   * email carries no link, so the page says only what is true of all of them.
+   */
+  lede: "We sent you an email. Open it to continue. You can close this tab.",
   sentTo: "Sent to",
   openHere: "Open it on this device. It brings you back here.",
   resend: "Send another link",
@@ -125,8 +129,11 @@ export const otherAppCopy = {
 export const joinedCopy = {
   title: (app: string) => `${app} is connected.`,
   lede: "Try it: ask it to remember something today, then ask again tomorrow.",
-  ledeWithoutPlugin:
-    "Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.",
+  /**
+   * The board adds "; we save your choice." The choice is not saved until the joined
+   * step saves the level (Cloud Home levels), so the page does not say it is.
+   */
+  ledeWithoutPlugin: "Without the plugin, your app needs instructions. Pick how much it joins in.",
   done: (app: string) => `${app} · memory on`,
   home: "Go to Home",
   addToo: (app: string) => `Add ${app} too`,
