@@ -78,6 +78,15 @@ export function exomemPaddleFriendDiscountId(env: EnvironmentSource = process.en
   return optionalValue(env, "EXOMEM_PADDLE_FRIEND_DISCOUNT_ID");
 }
 
+/**
+ * The base price (`EXOMEM_PADDLE_PRICE_ID`) that checkout sells and the
+ * friend discount is restricted to; unset is `null`. Read as written, like
+ * the friend discount, for the rules that only compare against it.
+ */
+export function exomemPaddleBasePriceId(env: EnvironmentSource = process.env): string | null {
+  return optionalValue(env, "EXOMEM_PADDLE_PRICE_ID");
+}
+
 function credentialEnvironment(value: string): ExomemPaddleEnvironment | null {
   if (value.startsWith("pdl_sdbx_") || value.startsWith("test_")) {
     return "sandbox";
@@ -130,7 +139,7 @@ export function loadExomemPaddleConfig(env: EnvironmentSource = process.env): Ex
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }
   const productId = optionalValue(env, "EXOMEM_PADDLE_PRODUCT_ID");
-  const priceId = optionalValue(env, "EXOMEM_PADDLE_PRICE_ID");
+  const priceId = exomemPaddleBasePriceId(env);
   const friendDiscountId = exomemPaddleFriendDiscountId(env);
   const checkoutReturnUrl = checkoutUrl(env);
   const catalogEnvironment = optionalValue(env, "EXOMEM_PADDLE_CATALOG_ENVIRONMENT");

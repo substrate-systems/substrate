@@ -52,6 +52,7 @@
 - [x] 4.9 Scrub the new personal data and outbox rows in deletion finish
 - [x] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
 - [ ] 4.11 Run a dedicated security review of the friend price
+- [x] 4.12 Offer the friend price to an existing owner only when their live subscription holds the base price; another or an unreported price keeps the plan without a Paddle call
 
 ## 5. Cell home channel, storage and export (migration 0066)
 

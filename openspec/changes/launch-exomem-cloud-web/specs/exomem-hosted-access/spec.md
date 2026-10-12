@@ -490,6 +490,12 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 - **THEN** the system applies the discount to the subscription from the next billing period, then consumes the invitation and records the decision
 - **AND** it answers 200 `applied` with the next payment time
 
+#### Scenario: Owner on another price
+
+- **WHEN** an owner's live subscription is on a price other than the base price that the friend discount is restricted to, or its price was never reported
+- **THEN** inspect shows the friend price as unknown with the reason `plan_price_differs` or `plan_price_unknown`
+- **AND** the decision accepts only `keep_plan` and does not call Paddle
+
 #### Scenario: Subscription already ended
 
 - **WHEN** the owner's subscription has ended and they choose `use_friend_price`

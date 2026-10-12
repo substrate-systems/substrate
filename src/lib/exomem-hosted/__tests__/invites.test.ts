@@ -12,7 +12,7 @@ function friendInvitation() {
     expiresAt: new Date("2026-11-11T09:00:00Z"),
     inviterName: "Alex Example",
     note: null,
-    ownerUserId: null,
+    owner: null,
   };
 }
 

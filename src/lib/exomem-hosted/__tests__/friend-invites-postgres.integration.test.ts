@@ -223,6 +223,8 @@ async function paidOwner(state: {
   sourceState: "active" | "cancelled";
   cell: "running" | "read_only";
   endedDaysAgo?: number;
+  /** The price Paddle reported for the subscription; the base price unless a test says otherwise. */
+  priceId?: string | null;
 }): Promise<Owner & { customerRef: string; subscriptionRef: string }> {
   const email = newAddress("owner");
   const session = mintSessionMaterial();
@@ -253,7 +255,7 @@ async function paidOwner(state: {
      SET source_state = $2, effective_state = $3, provider_environment = 'sandbox',
          provider_customer_ref = $4, provider_subscription_ref = $5,
          provider_transaction_ref = $6, source_revision = 'evt_seed',
-         source_occurred_at = now() - ($7 * interval '1 day')
+         source_occurred_at = now() - ($7 * interval '1 day'), provider_price_id = $8
      WHERE tenant_id = $1`,
     [
       admitted.tenantId,
@@ -263,6 +265,7 @@ async function paidOwner(state: {
       subscriptionRef,
       transactionRef,
       state.endedDaysAgo ?? 1,
+      state.priceId === undefined ? BASE_PRICE : state.priceId,
     ]
   );
   await pool!.query("UPDATE exomem_cloud_cells SET desired_state = $2 WHERE cell_id = $1", [
@@ -489,7 +492,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.deepEqual(body.price, {
       value: {
         usual: { amount: "1500", currencyCode: "EUR" },
-        friend: { amount: "1000", currencyCode: "EUR" },
+        friend: { value: { amount: "1000", currencyCode: "EUR" }, reason: null },
       },
       reason: null,
     });
@@ -591,6 +594,40 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.equal(second.status, "applied");
     assert.equal(paddleCalls("PATCH", "/subscriptions/").length, 1);
     assert.equal((await invitation(inviteId)).decision, "applied");
+  });
+
+  it("keeps an owner whose live subscription is on another price, or an unreported one, to their plan without asking Paddle", async () => {
+    const { POST } = await import("../../../app/api/exomem/access/inspect/route");
+    const olderPrice = `pri_${"o".repeat(26)}`;
+    for (const [priceId, reason] of [
+      [olderPrice, "plan_price_differs"],
+      [null, "plan_price_unknown"],
+    ] as const) {
+      const owner = await paidOwner({ sourceState: "active", cell: "running", priceId });
+      const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
+      paddle.calls = [];
+
+      const inspected = await POST(inspectRequest(token, { ip: "203.0.113.43" }));
+      const body = (await inspected.json()) as {
+        status: string;
+        price: { value: { friend: { value: unknown; reason: string } } | null };
+      };
+      assert.equal(body.status, "existing");
+      assert.deepEqual(body.price.value?.friend, { value: null, reason });
+
+      const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+      await assert.rejects(
+        decideInvitation({ token, choice: "use_friend_price", session }),
+        (error) => error instanceof ExomemHostedError && error.code === "FRIEND_PRICE_NOT_OFFERED"
+      );
+      // Neither the discount nor the subscription was asked about.
+      assert.equal(paddleCalls("GET", "/discounts/").length, 0);
+      assert.equal(paddleCalls("PATCH", "/subscriptions/").length, 0);
+      assert.equal((await invitation(inviteId)).consumed_at, null);
+      assert.deepEqual(await decideInvitation({ token, choice: "keep_plan", session }), {
+        status: "kept",
+      });
+    }
   });
 
   it("keeps the plan of an owner who answers a covered invitation, and refuses it the friend price", async () => {
