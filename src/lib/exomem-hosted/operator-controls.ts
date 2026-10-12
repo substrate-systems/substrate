@@ -452,6 +452,9 @@ export async function setOperatorOAuthClientEnabled(input: {
             AND artifact.state IN ('pending', 'live')
             AND artifact.oauth_client_config_sha256 = client.oauth_client_config_sha256
           )
+          -- A retired client holds no slot. Only a registration, which checks
+          -- the partition bound, may bring it back.
+          AND client.retired_at IS NULL
         )
       )
     RETURNING id

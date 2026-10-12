@@ -2354,15 +2354,24 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
 
   it("never enables a retired client, and never retires the first-party client", async () => {
     const retiredClientId = `reclaim-retired-${randomUUID()}`;
-    await pool!.query(
+    // The live artifact's configuration, so the operator's enable arm would
+    // otherwise accept this client.
+    const retired = await pool!.query<{ id: string }>(
       `INSERT INTO exomem_oauth_clients (
-         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest, retired_at
+         client_id, admission_mode, enabled, redirect_uris, redirect_uris_digest,
+         client_platform, oauth_client_config_sha256, retired_at
        ) VALUES ($1, 'pinned', false, '["https://retired.example.test/callback"]'::jsonb,
                  digest(convert_to('["https://retired.example.test/callback"]'::jsonb::text, 'utf8'), 'sha256'),
-                 now())`,
-      [retiredClientId]
+                 'claude', $2, now())
+       RETURNING id`,
+      [retiredClientId, "f".repeat(64)]
     );
     try {
+      assert.equal(
+        await setOperatorOAuthClientEnabled({ clientRecordId: retired.rows[0]!.id, enabled: true }),
+        false,
+        "only a registration, which checks the bound, brings a retired client back"
+      );
       // An enabled retired client would be admitted without holding a slot.
       await assert.rejects(
         pool!.query("UPDATE exomem_oauth_clients SET enabled = true WHERE client_id = $1", [
