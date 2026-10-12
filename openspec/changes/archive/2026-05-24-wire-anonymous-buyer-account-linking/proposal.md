@@ -17,9 +17,8 @@ PR #11 acknowledged this as a non-uniformity to handle in a follow-up.
 This is that follow-up. Until it ships, we should not drive marketing
 traffic to `/endstate` — the funnel leaks at the moment of payment.
 
-The design was locked via brainstorm 2026-05-24 (see
-`Knowledge Base/Notes/Research/Endstate/hosted-backup-checkout-remaining-tracks-2026-05-22`
-for the launch context):
+The design was locked via brainstorm 2026-05-24 (see the owner's
+private product notes for the launch context):
 
 1. Anonymous buyers must be supported (no pre-purchase auth gate).
 2. Web has no login UI; the GUI runs the existing crypto setup.

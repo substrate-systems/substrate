@@ -18,8 +18,8 @@ endstate-gui (v2.4.1) and the engine (v2.1.0) have shipped: clicking
 the checkout endpoint above, receives
 `https://substratesystems.io/endstate?_ptxn=<transaction_id>`, and
 opens that URL in the user's system browser (Tauri `shell.open`, per
-the engine-as-source-of-truth invariant —
-`Knowledge Base/Notes/Patterns/engine-as-source-of-truth`).
+the engine-as-source-of-truth invariant in the owner's private
+product notes).
 
 But today's `/endstate` page (verified 2026-05-24 via WebFetch and the
 codebase) drops the `_ptxn` query parameter on the floor:
@@ -42,8 +42,7 @@ codebase) drops the `_ptxn` query parameter on the floor:
    The yearly Hosted Backup price (`pri_01ks0405v…`) was provisioned
    in Paddle but the marketing page exposes only "€4 /mo" with a
    "Coming in v2" cadence hint. Pulled into scope on user request
-   2026-05-24 — the KB note's deferral
-   ([[Knowledge Base/Notes/Research/Substrate/substrate-endstate-paddle-checkout-wiring-implementation-plan.md]])
+   2026-05-24 — the deferral in the owner's private product notes
    is superseded.
 5. **No client-side Paddle environment switch.**
    `src/lib/paddle.ts:27` hard-codes `environment: 'production'`,
