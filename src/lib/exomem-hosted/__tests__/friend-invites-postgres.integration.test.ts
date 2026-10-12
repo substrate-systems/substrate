@@ -1008,6 +1008,49 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     );
   });
 
+  it("applies one friend price when the owner answers two friend invitations at the same moment", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const session = { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId };
+    const invitations = [
+      await issueFriendInvitation({
+        email: owner.email,
+        inviterEmail: newAddress("first-inviter"),
+      }),
+      await issueFriendInvitation({
+        email: owner.email,
+        inviterEmail: newAddress("second-inviter"),
+      }),
+    ];
+    // Paddle holds its answer, so both answers are in flight together.
+    paddle.subscriptionUpdateDelayMs = 200;
+
+    const answers = await Promise.allSettled(
+      invitations.map(({ token }) =>
+        decideInvitation({ token, choice: "use_friend_price", session })
+      )
+    );
+
+    const applied = answers.filter(
+      (answer) => answer.status === "fulfilled" && answer.value.status === "applied"
+    );
+    const refused = answers.filter(
+      (answer) =>
+        answer.status === "rejected" &&
+        answer.reason instanceof ExomemHostedError &&
+        answer.reason.code === "FRIEND_PRICE_NOT_OFFERED"
+    );
+    assert.equal(applied.length, 1);
+    assert.equal(refused.length, 1);
+    assert.equal(paddleCalls("PATCH", "/subscriptions/").length, 1);
+    const usedEmails = [];
+    for (const { inviteId } of invitations) {
+      usedEmails.push(
+        ...(await outboxRows(inviteId)).filter((row) => row.kind === "invitation_used")
+      );
+    }
+    assert.equal(usedEmails.length, 1);
+  });
+
   it("offers nothing to an owner who has not paid yet and holds another invitation's friend price, and keeps that offer when the owner asks anyway", async () => {
     const { POST } = await import("../../../app/api/exomem/access/inspect/route");
     const email = newAddress("unpaid");
