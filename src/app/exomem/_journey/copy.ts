@@ -131,8 +131,8 @@ export const signedInCopy = {
 export const subscribeCopy = {
   title: "Subscribe to finish setting up",
   /**
-   * An account that holds a friend offer. Its price is not previewed here: the discount
-   * stays on the server, and the usual price would be wrong for this person.
+   * An account that holds a friend offer. The usual price would be wrong for this person,
+   * so the step shows the friend price card with the amount left to checkout.
    */
   friendLede: (by: string, app: string | null) =>
     `${by}’s friend price is applied at checkout. Cancel any time through Paddle. ${app === null ? "Then add it to your assistant." : `Then ${app} connects in one step.`}`,

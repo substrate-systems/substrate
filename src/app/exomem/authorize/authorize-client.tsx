@@ -21,6 +21,7 @@ import { appTile, JourneyPage } from "../_journey/JourneyPage";
 import {
   DoneLine,
   openElsewhere,
+  PriceCard,
   ScopesCard,
   SignedInLine,
   StepActions,
@@ -30,6 +31,7 @@ import {
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
 import styles from "../_journey/journey.module.css";
+import { friendCheckoutPanel } from "../invite/invite-view";
 import { offersConnect, type ConsentScreen } from "./consent-screen";
 
 export type AccountFacts = {
@@ -341,6 +343,9 @@ function Consent({
                   : subscribeLine(price, name)
             }
           />
+          {current === "subscribe" && account.friendInviter ? (
+            <PriceCard {...friendCheckoutPanel(account.friendInviter)} />
+          ) : null}
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           {current === "subscribe" ? (
             <StepActions

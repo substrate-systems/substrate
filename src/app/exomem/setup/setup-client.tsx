@@ -28,6 +28,7 @@ import {
   DoneLine,
   LevelTune,
   openElsewhere,
+  PriceCard,
   SignedInLine,
   StepActions,
   StepHeading,
@@ -39,6 +40,7 @@ import {
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
 import { levelContextTitle } from "../home/home-view";
+import { friendCheckoutPanel } from "../invite/invite-view";
 import { joinedSince, pollDelay, type ListedApp } from "./join-rule";
 import { useLevelSave } from "./level-save";
 import type { SetupScreen } from "./setup-screen";
@@ -294,6 +296,7 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
                 : subscribeLine(price)
             }
           />
+          {facts.friendInviter ? <PriceCard {...friendCheckoutPanel(facts.friendInviter)} /> : null}
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <StepActions
             primary={{

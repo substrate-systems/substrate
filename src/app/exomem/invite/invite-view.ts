@@ -14,6 +14,19 @@ export type PricePanel = {
   note: string;
 };
 
+/**
+ * A friend price whose amount only checkout knows (Journey board, "Shown at checkout"). True
+ * without a preview, because checkout always applies the friend offer.
+ */
+export function friendCheckoutPanel(by: string): PricePanel {
+  return {
+    label: inviteCopy.price.friend(by),
+    main: inviteCopy.price.atCheckout,
+    was: null,
+    note: inviteCopy.price.exactAtCheckout,
+  };
+}
+
 /** The person who sent a friend or covered invitation; an operator's has none. */
 export function inviterOf(inspection: InvitationInspection): string | null {
   return inspection.kind === "standard" ? null : (inspection.inviter?.name ?? null);
@@ -54,10 +67,5 @@ export function pricePanel(inspection: InvitationInspection): PricePanel | null 
   }
   // An existing owner has no checkout to show the amount at.
   if (inspection.status === "existing") return null;
-  return {
-    label: inviteCopy.price.friend(by),
-    main: inviteCopy.price.atCheckout,
-    was: null,
-    note: inviteCopy.price.exactAtCheckout,
-  };
+  return friendCheckoutPanel(by);
 }

@@ -323,6 +323,8 @@ test("a friend's invitation leads to checkout at the friend price", async ({ pag
 
   await expect(page).toHaveURL(/\/exomem\/setup$/);
   await expect(page.getByText(subscribeCopy.friendLede("Alex", null))).toBeVisible();
+  await expect(page.getByText(inviteCopy.price.friend("Alex"))).toBeVisible();
+  await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
 });
 
 // An owner on a paid plan answers a friend's invitation. Paddle cannot confirm the plan

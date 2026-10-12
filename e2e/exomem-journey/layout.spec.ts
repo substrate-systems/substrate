@@ -238,6 +238,22 @@ const STEPS: Step[] = [
     },
   },
   {
+    // An account that holds a friend offer: the friend price card, its amount left to checkout.
+    name: "setup-subscribe-friend",
+    open: async (page) => {
+      await seedCapacity();
+      const { link } = await seedInvitation({
+        email: uniqueEmail("friend"),
+        kind: "friend",
+        inviterName: "Alex",
+      });
+      await page.goto(link);
+      await page.getByRole("button", { name: inviteCopy.accept }).click();
+      await heading(page, subscribeCopy.title);
+      await expect(page.getByText(inviteCopy.price.atCheckout)).toBeVisible();
+    },
+  },
+  {
     name: "setup-subscribe",
     open: async (page, context) => {
       await signedIn(context, "unpaid");
