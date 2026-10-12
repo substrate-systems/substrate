@@ -79,6 +79,7 @@ function holdNextReconcileAfterRead(): { reached: Promise<void>; release: () => 
     interactiveTransaction((tx) =>
       callback(async (strings, ...values) => {
         const result = await tx(strings, ...values);
+        // The tag comment names the statement in the code under test; the SQL itself is not read.
         if (armed && strings.join("").includes("exomem-cloud:reconcile-entitlement")) {
           armed = false;
           reached();
