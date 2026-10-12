@@ -90,6 +90,32 @@ export function StepActions({
 }
 
 /**
+ * The ended step's lede (Journey board). It names resubscribing, and the friend price that
+ * comes back with it, only while checkout can start; it names the export only while the
+ * export flag is on (design.md (s) and (af)).
+ */
+export function endedLede({
+  until,
+  app,
+  exportOffered,
+  checkoutAvailable,
+  inviter,
+}: {
+  until: string;
+  app: string;
+  exportOffered: boolean;
+  checkoutAvailable: boolean;
+  inviter: string | null;
+}): string {
+  const copy = breakCopy.ended;
+  if (!checkoutAvailable) return copy.ledeWithoutCheckout(until, exportOffered);
+  return (
+    (exportOffered ? copy.lede(until, app) : copy.ledeWithoutExport(until, app)) +
+    (inviter ? copy.friendBack(inviter) : "")
+  );
+}
+
+/**
  * The ended step's actions (Journey board): "Resubscribe", the checkout Home's ended banner
  * starts, and the export action under it. Without a checkout to start, the export action
  * is the step's only action (design.md (af)).

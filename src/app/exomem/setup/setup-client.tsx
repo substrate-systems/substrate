@@ -32,6 +32,7 @@ import {
   StepActions,
   StepHeading,
   EndedActions,
+  endedLede,
   StepNotice,
   WaitNote,
   WorkingBar,
@@ -436,12 +437,13 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
         <>
           <StepHeading
             title={breakCopy.ended.title}
-            lede={
-              (facts.exportOffered
-                ? breakCopy.ended.lede(keptUntil, app)
-                : breakCopy.ended.ledeWithoutExport(keptUntil, app)) +
-              (inviter ? breakCopy.ended.friendBack(inviter) : "")
-            }
+            lede={endedLede({
+              until: keptUntil,
+              app,
+              exportOffered: facts.exportOffered,
+              checkoutAvailable: facts.checkoutAvailable,
+              inviter,
+            })}
           />
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <EndedActions

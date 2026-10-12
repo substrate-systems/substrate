@@ -290,6 +290,9 @@ export const breakCopy = {
       `Your memory is read-only and kept until ${until}. Resubscribe to connect ${app}.`,
     /** Added to the lede when the account holds a friend offer, which checkout applies again. */
     friendBack: (by: string) => ` ${by}’s friend price comes back if you do.`,
+    /** The lede while no checkout can start, so the step offers no resubscribing (design.md (af)). */
+    ledeWithoutCheckout: (until: string, exportOffered: boolean) =>
+      `Your memory is read-only and kept until ${until}.${exportOffered ? " Export it any time before then." : ""}`,
     resubscribe: "Resubscribe",
   },
   paused: {

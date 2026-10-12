@@ -20,6 +20,7 @@ import { appTile, JourneyPage } from "../_journey/JourneyPage";
 import {
   DoneLine,
   EndedActions,
+  endedLede,
   openElsewhere,
   PriceCard,
   ScopesCard,
@@ -535,12 +536,13 @@ function Consent({
         <>
           <StepHeading
             title={breakCopy.ended.title}
-            lede={
-              (request.exportOffered
-                ? breakCopy.ended.lede(keptUntil, name)
-                : breakCopy.ended.ledeWithoutExport(keptUntil, name)) +
-              (inviter ? breakCopy.ended.friendBack(inviter) : "")
-            }
+            lede={endedLede({
+              until: keptUntil,
+              app: name,
+              exportOffered: request.exportOffered,
+              checkoutAvailable: account.checkoutAvailable,
+              inviter,
+            })}
           />
           {checkout.failed ? <StepNotice alert>{failureCopy.generic}</StepNotice> : null}
           <EndedActions
