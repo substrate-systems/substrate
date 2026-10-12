@@ -62,7 +62,8 @@ async function padStartResponse(startedAtMs: number): Promise<void> {
   const elapsedMs = performance.now() - startedAtMs;
   const remainingMs = START_RESPONSE_FLOOR_MS - elapsedMs;
   if (remainingMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, remainingMs));
+    // setTimeout truncates a fractional delay, which could end the wait just under the floor.
+    await new Promise((resolve) => setTimeout(resolve, Math.ceil(remainingMs)));
     return;
   }
   // An overrun is the one case where timing can still differ by outcome, so
