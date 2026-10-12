@@ -69,8 +69,9 @@ export type ExomemEmailAddressee = { email: string; timeZone: string | null };
 
 /**
  * The fact an email announces will hold later but does not yet: the row waits
- * until `until`. Waiting is not a delivery attempt, so it counts no attempt;
- * a kind that can wait stores no deadline.
+ * until `until`. Waiting is not a delivery attempt, so it counts no attempt.
+ * A deadline still applies while the row waits: the claim fails a row whose
+ * `expires_at` has passed before it looks at `NotYet`.
  */
 export class NotYet {
   constructor(readonly until: Date) {}

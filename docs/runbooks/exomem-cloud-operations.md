@@ -525,8 +525,12 @@ place and gets no second waitlist email.
 
 Emails for start links, waitlist places, promotions, the unpaid-hold
 reminder and the account lifecycle (emails 03 to 07) go through
-`exomem_email_outbox`. The access-delivery job sends at most 20 per run, and
-retries an email until its own deadline. To see what is stuck, run:
+`exomem_email_outbox`. The access-delivery job sends at most 20 per run. It
+retries a failed send after 1, 2, 4 and up to 60 minutes. An email with a
+deadline, such as a start link, retries until that deadline. An email without
+one, such as 07, stops after 10 attempts. Email 07 also waits, with no limit,
+until cellctl has deleted every cell of the account. A wait counts no attempt.
+To see what is stuck, run:
 
 ```sql
 SELECT kind, state, last_error_code, count(*)
