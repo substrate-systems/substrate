@@ -12,6 +12,9 @@ const RESOURCE = "https://gateway.example.test/mcp";
 let exchangeResult: unknown = null;
 let rotateResult: unknown = null;
 let clientRegistered = true;
+// A connector's cached metadata, and whether fetching it again succeeds.
+let metadataFresh = true;
+let refetchSucceeds = false;
 
 before(() => {
   process.env.EXOMEM_CLOUD_MCP_URL = RESOURCE;
@@ -33,7 +36,14 @@ before(() => {
     namedExports: {
       issueOAuthTokensFromCodeAtomic: async () => exchangeResult,
       oauthClientIsRegistered: async () => clientRegistered,
-      rotateOAuthRefreshTokenAtomic: async () => rotateResult,
+      refreshAwaitsCimdMetadata: async () => !metadataFresh,
+      registerAdmittedCimdClient: async () => {
+        if (!refetchSucceeds) return null;
+        metadataFresh = true;
+        return { id: "client-row" };
+      },
+      // Rotation needs fresh metadata, as the store's admission predicate does.
+      rotateOAuthRefreshTokenAtomic: async () => (metadataFresh ? rotateResult : null),
     },
   });
 });
@@ -48,6 +58,8 @@ beforeEach(() => {
   exchangeResult = null;
   rotateResult = null;
   clientRegistered = true;
+  metadataFresh = true;
+  refetchSucceeds = false;
 });
 
 function post(fields: Record<string, string>): Request {
@@ -235,6 +247,60 @@ describe("POST /api/exomem/oauth/token", () => {
       assert.equal(record?.client_registered, false);
     });
   }
+
+  // A connector's metadata document is cached for a day, and refresh needs it
+  // fresh. Before the re-fetch, every ChatGPT connector had to be connected
+  // again a day after its last authorization.
+  it("fetches a connector's expired metadata again at refresh, then rotates", async () => {
+    metadataFresh = false;
+    refetchSucceeds = true;
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read"],
+    };
+    const { response } = await withControlPlaneKey(() =>
+      capture(
+        post({
+          grant_type: "refresh_token",
+          refresh_token: REFRESH,
+          client_id: "https://chatgpt.example.test/client.json",
+          resource: RESOURCE,
+        })
+      )
+    );
+
+    assert.equal(response.status, 200);
+    const body = (await response.json()) as { access_token?: string; refresh_token?: string };
+    assert.ok(body.access_token && body.refresh_token);
+  });
+
+  it("keeps refusing the refresh when the connector's metadata cannot be fetched again", async () => {
+    metadataFresh = false;
+    refetchSucceeds = false;
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read"],
+    };
+    const { response } = await withControlPlaneKey(() =>
+      capture(
+        post({
+          grant_type: "refresh_token",
+          refresh_token: REFRESH,
+          client_id: "https://chatgpt.example.test/client.json",
+          resource: RESOURCE,
+        })
+      )
+    );
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "invalid_grant" });
+  });
 
   it("names an unsupported grant type", async () => {
     const { record } = await capture(post({ grant_type: "client_credentials" }));

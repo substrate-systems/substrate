@@ -82,10 +82,14 @@ client is not a durable off switch, because the next anonymous contact
 re-enables it. Deleting the row for `claude.ai` withdraws every Claude client,
 because claude.ai serves one global client document.
 
-Cached metadata lives 24 hours. When it lapses, the row is disabled, and token
-issuance and refresh need unexpired metadata. Clients then see a Connect prompt
-until the next `/authorize` fetches the document again and revives the row. A
-lapse is not a revocation and burns no refresh token.
+Cached metadata lives 24 hours. When it lapses, the sweep disables the row, and
+token issuance, refresh and MCP calls need unexpired metadata. A self-registered
+connector's next refresh fetches the document again, through the same allowlist
+and checks as `/authorize`, revives the row and then rotates the token. Its MCP
+calls fail with `401` only until that refresh. If the fetch or a check fails,
+the refresh is refused and the connector's person must connect again. A lapse
+is not a revocation and burns no refresh token. An operator-registered client
+is not fetched again at refresh.
 
 Operator registration and enabling of a pinned client still check the legacy
 Hosted staged-release and artifact rows. A follow-up change must replace that

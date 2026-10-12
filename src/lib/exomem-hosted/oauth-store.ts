@@ -245,6 +245,38 @@ export async function registerGenericMcpClient(
   });
 }
 
+/**
+ * Whether this refresh token is live for `clientId`, a self-registered CIMD
+ * connector whose metadata document has expired, under a grant that is not
+ * revoked. Refresh needs fresh metadata, so only then is the document worth
+ * fetching again. A caller must hold a live refresh token to cause a fetch.
+ */
+export async function refreshAwaitsCimdMetadata(input: {
+  refreshDigest: Buffer;
+  clientId: string;
+}): Promise<boolean> {
+  const { rows } = await executeExomemSql`
+    /* exomem:refresh-awaits-cimd-metadata */
+    SELECT EXISTS (
+      SELECT 1
+      FROM exomem_oauth_refresh_tokens AS token
+      JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
+      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = family.grant_id
+      JOIN exomem_oauth_clients AS client ON client.id = family.client_id
+      WHERE token.refresh_digest = ${input.refreshDigest}
+        AND token.consumed_at IS NULL AND token.expires_at > now()
+        AND family.revoked_at IS NULL AND family.expires_at > now()
+        AND oauth_grant.revoked_at IS NULL
+        AND client.client_id = ${input.clientId}
+        AND client.admission_mode = 'cimd'
+        AND client.auto_registered
+        AND client.reviewer_bootstrap_ever_authorized = false
+        AND client.metadata_expires_at <= now()
+    ) AS awaits
+  `;
+  return rows[0]?.awaits === true;
+}
+
 /** Whether `clientId` names a client that holds its registration: a row that is not retired. */
 export async function oauthClientIsRegistered(clientId: string): Promise<boolean> {
   const { rows } = await executeExomemSql`

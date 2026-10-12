@@ -17,6 +17,7 @@ import {
   issueOAuthTokensFromCodeAtomic,
   oauthClientIsRegistered,
   pruneExpiredOAuthState,
+  refreshAwaitsCimdMetadata,
   registerAdmittedCimdClient,
   registerGenericMcpClient,
   revokeOAuthAccountForOwnerTenantAtomic,
@@ -2423,6 +2424,77 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       );
       await setGenericLane(false);
       await removeClients(registered);
+    }
+  });
+
+  // A connector's metadata document is cached for a day, and refresh needs it
+  // fresh. Without a fetch at refresh, every ChatGPT connector had to be
+  // connected again a day after its last authorization.
+  it("lets a connector's refresh token work again once its expired metadata is fetched", async () => {
+    const host = `refresh-refetch-${randomUUID()}.example.test`;
+    const connector = `https://${host}/oauth/client.json`;
+    const fetchCimd = async () => cimdMetadata(connector, [`https://${host}/callback`], "c");
+    await pool!.query(
+      "INSERT INTO exomem_oauth_admitted_cimd_hosts (platform, host) VALUES ('openai', $1)",
+      [host]
+    );
+    try {
+      const registered = await registerAdmittedCimdClient(connector, { fetchCimd });
+      assert.ok(registered);
+      const fixture = await seedAuthorizationCode(registered.id, 7301, true);
+      assert.ok(
+        await issueOAuthTokensFromCodeAtomic({
+          codeDigest: fixture.codeDigest,
+          clientId: connector,
+          redirectUri: "https://client.example.test/callback",
+          resource,
+          pkceChallenge: "challenge",
+          refreshDigest: digest(7302),
+          refreshExpiresAt: new Date(Date.now() + 30 * 86_400_000),
+          accessDigest: digest(7303),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+        })
+      );
+      // 25 hours later the day-long metadata has expired, and the sweep has
+      // disabled the connector.
+      await pool!.query(
+        `UPDATE exomem_oauth_clients
+         SET metadata_fetched_at = metadata_fetched_at - interval '25 hours',
+             metadata_expires_at = metadata_expires_at - interval '25 hours'
+         WHERE client_id = $1`,
+        [connector]
+      );
+      await pruneExpiredOAuthState(retirementGrace);
+      const rotate = (sequence: number) =>
+        rotateOAuthRefreshTokenAtomic({
+          refreshDigest: digest(7302),
+          replacementRefreshDigest: digest(sequence),
+          accessDigest: digest(sequence + 1),
+          accessExpiresAt: new Date(Date.now() + 900_000),
+          clientId: connector,
+          resource,
+        });
+      assert.equal(await rotate(7304), null, "refresh needs fresh metadata");
+
+      assert.equal(
+        await refreshAwaitsCimdMetadata({ refreshDigest: digest(7399), clientId: connector }),
+        false,
+        "a caller without a live refresh token causes no fetch"
+      );
+      assert.equal(
+        await refreshAwaitsCimdMetadata({ refreshDigest: digest(7302), clientId: connector }),
+        true
+      );
+      assert.ok(await registerAdmittedCimdClient(connector, { fetchCimd }));
+      assert.ok(await rotate(7306), "the refused attempt did not spend the refresh token");
+    } finally {
+      await pool!.query(
+        `DELETE FROM exomem_oauth_grants
+         WHERE client_id = (SELECT id FROM exomem_oauth_clients WHERE client_id = $1)`,
+        [connector]
+      );
+      await pool!.query("DELETE FROM exomem_oauth_clients WHERE client_id = $1", [connector]);
+      await pool!.query("DELETE FROM exomem_oauth_admitted_cimd_hosts WHERE host = $1", [host]);
     }
   });
 });

@@ -14,6 +14,8 @@ import { readOAuthForm, oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-ht
 import {
   issueOAuthTokensFromCodeAtomic,
   oauthClientIsRegistered,
+  refreshAwaitsCimdMetadata,
+  registerAdmittedCimdClient,
   rotateOAuthRefreshTokenAtomic,
 } from "@/lib/exomem-hosted/oauth-store";
 import {
@@ -104,6 +106,23 @@ async function refusedGrant(
     { error: "invalid_client" },
     { status: 401, headers: oauthNoStoreHeaders() }
   );
+}
+
+// A connector's metadata document is cached for a day, and refresh needs it
+// fresh. Without this, a ChatGPT connector stopped working a day after its last
+// authorization. Fetch the document again, through the same allowlist, bounds
+// and checks as at authorization, only for a live refresh token of that
+// connector. Any failure leaves the refresh refused.
+async function refetchedConnectorMetadata(
+  clientId: string,
+  refreshDigest: Buffer
+): Promise<boolean> {
+  try {
+    if (!(await refreshAwaitsCimdMetadata({ clientId, refreshDigest }))) return false;
+    return (await registerAdmittedCimdClient(clientId)) !== null;
+  } catch {
+    return false;
+  }
 }
 
 function invalidRequest(
@@ -259,14 +278,20 @@ export async function POST(request: Request): Promise<NextResponse> {
       const refreshDigest = tokenDigest(form.refresh_token);
       if (!refreshDigest) return invalidGrant("refresh_shape");
       const material = mintOpaqueTokenMaterial({ refreshAllowed: true });
-      const issued = await rotateOAuthRefreshTokenAtomic({
-        refreshDigest,
-        replacementRefreshDigest: material.refreshTokenDigest!,
-        accessDigest: material.accessTokenDigest,
-        accessExpiresAt: material.accessTokenExpiresAt,
-        clientId: form.client_id,
-        resource,
-      });
+      const rotate = () =>
+        rotateOAuthRefreshTokenAtomic({
+          refreshDigest,
+          replacementRefreshDigest: material.refreshTokenDigest!,
+          accessDigest: material.accessTokenDigest,
+          accessExpiresAt: material.accessTokenExpiresAt,
+          clientId: form.client_id!,
+          resource,
+        });
+      // A rotation refused for stale metadata writes nothing, so the same
+      // material can be tried again once the connector's metadata is fresh.
+      let issued = await rotate();
+      if (!issued && (await refetchedConnectorMetadata(form.client_id, refreshDigest)))
+        issued = await rotate();
       // Rotation also answers null for a replayed refresh token, which revokes
       // the family -- so this line is the operator's only sight of a replay.
       if (!issued)
