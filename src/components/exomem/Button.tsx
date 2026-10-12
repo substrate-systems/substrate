@@ -5,8 +5,12 @@ import styles from "./Button.module.css";
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
   /** primary: the one main action · secondary: bordered · amber: epistemic actions only · ghost: text only. */
   variant?: "primary" | "secondary" | "amber" | "ghost";
-  /** panel: h 36 inside panels · page: h 48, a page's main action. Ghost buttons have one size. */
-  size?: "panel" | "page";
+  /**
+   * panel: h 36 inside panels · page: h 48, a page's main action · row: h 44 and at least
+   * 112 wide, a row's action on Home · detail: h 36 and at least 112 wide, the action of a
+   * line under a row or of a notice. Ghost buttons have one size.
+   */
+  size?: "panel" | "page" | "row" | "detail";
   /** Shows the button as working: the label (the caller's) says what happens; clicks do nothing. */
   working?: boolean;
 };
@@ -27,7 +31,7 @@ export function Button({
     styles.button,
     phone.hitArea,
     variant !== "secondary" && styles[variant],
-    variant !== "ghost" && size === "page" && styles.page,
+    variant !== "ghost" && size !== "panel" && styles[size],
   ]
     .filter(Boolean)
     .join(" ");
