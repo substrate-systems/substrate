@@ -460,7 +460,7 @@
   font-size: 13px;
   padding: 11px 16px;
   border-radius: 8px;
-  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  border: 1px solid var(--exo-border-card);
   color: var(--fg-body);
   white-space: nowrap;
 }

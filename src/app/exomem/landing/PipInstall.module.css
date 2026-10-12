@@ -15,7 +15,7 @@
 
 .hero {
   padding: 13px 18px;
-  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  border: 1px solid var(--exo-border-card);
   background: transparent;
   color: var(--fg-body);
   font-size: 13.5px;
