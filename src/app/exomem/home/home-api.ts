@@ -173,9 +173,14 @@ export async function readAccount(): Promise<{
     isKnown(plan.name) &&
     // Whether checkout applies a friend price decides which price Home may show.
     typeof record(plan.friendPrice)?.offered === "boolean" &&
-    ["nextPaymentAt", "nextPaymentAmount", "readOnlyUntil", "keptUntil", "reviewerEndsAt"].every(
-      (key) => isKnown(account[key])
-    ) &&
+    [
+      "nextPaymentAt",
+      "nextPaymentAmount",
+      "readOnlyUntil",
+      "keptUntil",
+      "endedAt",
+      "reviewerEndsAt",
+    ].every((key) => isKnown(account[key])) &&
     // An amount must have the server's shape: an empty or non-numeric one is unreadable.
     (record(account.nextPaymentAmount)?.value === null ||
       isExomemMoney(record(account.nextPaymentAmount)?.value));
