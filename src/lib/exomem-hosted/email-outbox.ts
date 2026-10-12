@@ -851,6 +851,8 @@ const EXOMEM_EMAILS = {
   }),
 };
 export type ExomemEmailKind = keyof typeof EXOMEM_EMAILS;
+/** Every kind the outbox can send; `exomem_email_outbox_kind_check` must allow exactly these. */
+export const EXOMEM_EMAIL_KINDS = Object.keys(EXOMEM_EMAILS) as ExomemEmailKind[];
 
 type PayloadOf<K extends ExomemEmailKind> = NonNullable<
   ReturnType<(typeof EXOMEM_EMAILS)[K]["readPayload"]>

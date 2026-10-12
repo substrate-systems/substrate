@@ -17,7 +17,11 @@ import {
   type ExomemSql,
 } from "../db";
 import { confirmDeletion } from "../deletion";
-import { drainExomemEmailOutbox, sealExomemEmailPayload } from "../email-outbox";
+import {
+  drainExomemEmailOutbox,
+  EXOMEM_EMAIL_KINDS,
+  sealExomemEmailPayload,
+} from "../email-outbox";
 import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
 import type { ExomemPaddleEventApplication } from "../paddle-webhook";
 import { generateExternalToken, tokenDigest } from "../security";
@@ -302,6 +306,22 @@ describe("Exomem lifecycle emails on PostgreSQL", { skip: !databaseUrl }, () => 
     await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await admin.end();
     rmSync(migrationsBefore, { recursive: true, force: true });
+  });
+
+  it("allows in the outbox's kind CHECK exactly the kinds the outbox can send", async () => {
+    // A migration that replaces the CHECK and drops an earlier migration's kinds, or a
+    // kind added in code without a migration, fails here instead of at its first send.
+    const { rows } = await pool.query<{ definition: string }>(
+      `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+       WHERE conrelid = 'exomem_email_outbox'::regclass
+         AND conname = 'exomem_email_outbox_kind_check'`
+    );
+    const definition = rows[0]!.definition;
+    // PostgreSQL prints this CHECK in one canonical shape; reading the quoted names
+    // of that printed shape is a format check, and any other shape fails the match.
+    assert.match(definition, /^CHECK \(\(kind = ANY \(ARRAY\[('[a-z_]+'::text(, )?)+\]\)\)\)$/);
+    const allowed = [...definition.matchAll(/'([a-z_]+)'::text/g)].map((match) => match[1]);
+    assert.deepEqual([...allowed].sort(), [...EXOMEM_EMAIL_KINDS].sort());
   });
 
   it("03: welcomes a cell the first time it is ready, but never one that had started before deploy or a reviewer's", async () => {
