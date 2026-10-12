@@ -1,7 +1,5 @@
-// The Exomem design foundation: one theme preference applied before first paint, kept
-// across navigation, scoped to /exomem, accessible in both themes, and still under
-// reduced motion. Unit tests cover the inline script's branches; what only a browser
-// shows is whether the real pages get it at the right moment.
+// The Exomem design foundation at every drawn size: the pages are accessible in both
+// themes, and motion stops under reduced motion. The theme itself is in theme.spec.ts.
 
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
@@ -18,8 +16,6 @@ async function storeTheme(page: Page, theme: "light" | "dark") {
     theme,
   ] as const);
 }
-
-const root = (page: Page) => page.locator("html");
 
 // The locked palette puts these text colours below WCAG AA (4.5:1) on some grounds:
 // --fg-tertiary everywhere; in light, --fg-muted on paper, --exo-amber on paper and
@@ -43,66 +39,6 @@ const KNOWN_BELOW_AA = new Set(
   )
 );
 
-test.describe("the Exomem theme", () => {
-  test("is dark by default, on the Exomem ground", async ({ page }) => {
-    await page.goto("/exomem/sign-in");
-
-    await expect(root(page)).toHaveAttribute("data-exomem", "");
-    await expect(root(page)).toHaveAttribute("data-theme", "dark");
-    // The page itself, not just a panel, takes the Exomem ground.
-    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(10, 9, 8)");
-  });
-
-  test("applies a stored light preference before any app code runs", async ({ page }) => {
-    await storeTheme(page, "light");
-    // Record the theme the moment <body> exists, before anything has painted.
-    await page.addInitScript(() => {
-      new MutationObserver((_, observer) => {
-        if (!document.body) return;
-        (window as unknown as { themeAtBody: string | null }).themeAtBody =
-          document.documentElement.getAttribute("data-theme");
-        observer.disconnect();
-      }).observe(document, { childList: true, subtree: true });
-    });
-    // Without the app's scripts only the inline <head> script can set the theme.
-    await page.route(
-      (url) => url.pathname.startsWith("/_next/static/") && url.pathname.endsWith(".js"),
-      (route) => route.abort()
-    );
-
-    await page.goto("/exomem/sign-in");
-
-    expect(
-      await page.evaluate(() => (window as unknown as { themeAtBody: string | null }).themeAtBody)
-    ).toBe("light");
-    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(250, 248, 244)");
-  });
-
-  test("follows the toggle across navigation and reload", async ({ page }) => {
-    await page.goto("/exomem/design-system");
-    await page.getByRole("button", { name: "Switch to light mode" }).first().click();
-    await expect(root(page)).toHaveAttribute("data-theme", "light");
-
-    await page.goto("/exomem");
-    await expect(root(page)).toHaveAttribute("data-theme", "light");
-    await page.reload();
-    await expect(root(page)).toHaveAttribute("data-theme", "light");
-  });
-
-  test("leaves the rest of the site when a link leads off /exomem", async ({ page }) => {
-    await storeTheme(page, "light");
-    await page.goto("/exomem");
-    await expect(root(page)).toHaveAttribute("data-exomem", "");
-
-    // The landing's "Substrate" link is a client-side navigation: no reload clears <html>.
-    await page.getByRole("link", { name: "Substrate", exact: true }).click();
-    await page.waitForURL("/");
-
-    await expect(root(page)).not.toHaveAttribute("data-exomem");
-    await expect(root(page)).not.toHaveAttribute("data-theme");
-  });
-});
-
 test.describe("accessibility in both themes", () => {
   for (const theme of ["dark", "light"] as const) {
     for (const path of PAGES) {
@@ -111,7 +47,7 @@ test.describe("accessibility in both themes", () => {
         // Contrast is checked on settled colours, not mid-animation.
         await page.emulateMedia({ reducedMotion: "reduce" });
         await page.goto(path);
-        await expect(root(page)).toHaveAttribute("data-theme", theme);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 
         const results = await new AxeBuilder({ page })
           .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])

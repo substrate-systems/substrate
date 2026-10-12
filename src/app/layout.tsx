@@ -5,6 +5,7 @@ import { siteConfig } from "@/lib/seo";
 import { PostHogProvider } from "./providers";
 import { PrivacySafeAnalytics } from "./privacy-safe-analytics";
 import { exomemThemeScript } from "@/lib/exomem/theme";
+import { ExomemThemeScope } from "./exomem-theme-scope";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -122,6 +123,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`${inter.variable} ${plexMono.variable} antialiased`}>
+        <ExomemThemeScope />
         <PostHogProvider>{children}</PostHogProvider>
         <PrivacySafeAnalytics />
       </body>

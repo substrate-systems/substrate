@@ -26,17 +26,23 @@ function applyStoredTheme(storageKey: string, root: HTMLElement): ExomemTheme {
 }
 
 /**
- * The inline <head> script for the root layout. It marks only /exomem and its
- * children, so the rest of the site never receives the Exomem tokens.
+ * Whether a path is an Exomem page: /exomem and everything under it, its 404s
+ * included. The rest of the site never receives the Exomem marker or tokens.
+ * Self-contained for the same reason as applyStoredTheme: the inline script embeds it.
  */
-export const exomemThemeScript = `(function(){var p=location.pathname;if(p==="/exomem"||p.indexOf("/exomem/")===0)(${applyStoredTheme.toString()})(${JSON.stringify(STORAGE_KEY)},document.documentElement)})()`;
+export function isExomemPath(pathname: string): boolean {
+  return pathname === "/exomem" || pathname.indexOf("/exomem/") === 0;
+}
 
-/** Marks <html> for an Exomem page after a client-side navigation into /exomem. */
+/** The inline <head> script for the root layout: the same two functions, before first paint. */
+export const exomemThemeScript = `(function(){if((${isExomemPath.toString()})(location.pathname))(${applyStoredTheme.toString()})(${JSON.stringify(STORAGE_KEY)},document.documentElement)})()`;
+
+/** Marks <html> for an Exomem page reached by a client-side navigation. */
 export function applyExomemTheme(root: HTMLElement): ExomemTheme {
   return applyStoredTheme(STORAGE_KEY, root);
 }
 
-/** Removes the marker and theme when a client-side navigation leaves /exomem. */
+/** Removes the marker and theme when a client-side navigation leaves the Exomem pages. */
 export function clearExomemTheme(root: HTMLElement): void {
   root.removeAttribute("data-exomem");
   root.removeAttribute("data-theme");

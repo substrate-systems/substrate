@@ -26,7 +26,8 @@ export default defineConfig({
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: "exomem-design/**" },
     // The Exomem design checks run at the sizes the design is drawn for: desktop, and the
-    // two phones its QA list names. Only the specs under e2e/exomem-design run here.
+    // two phones its QA list names. Only the specs under e2e/exomem-design run here; the
+    // theme spec does not depend on the viewport, so it runs on desktop only.
     {
       name: "exomem desktop 1440",
       testMatch: "exomem-design/**/*.spec.ts",
@@ -35,11 +36,13 @@ export default defineConfig({
     {
       name: "exomem phone 390",
       testMatch: "exomem-design/**/*.spec.ts",
+      testIgnore: "exomem-design/theme.spec.ts",
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } },
     },
     {
       name: "exomem phone 375",
       testMatch: "exomem-design/**/*.spec.ts",
+      testIgnore: "exomem-design/theme.spec.ts",
       use: { ...devices["Pixel 7"], viewport: { width: 375, height: 667 } },
     },
   ],
