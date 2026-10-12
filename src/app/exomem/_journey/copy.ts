@@ -28,15 +28,16 @@ export const startCopy = {
 export const sentCopy = {
   title: "Check your email",
   /**
-   * The board says "We sent you a link." Every request answers alike: a waitlist email
-   * carries no link, and the server has only queued the email when the page shows. So
-   * this card claims neither a link nor a sent email (design.md deviation (j)).
+   * The board says "We sent you a link." Every request gets this page, including one
+   * that queues no email (closed admission, a rate limit, an address that does not
+   * normalize) and a repeat waitlist request. So the page claims neither a link nor an
+   * email, and the button names what the person does: ask again (deviation (j)).
    */
-  lede: "Open the email from us to continue. You can close this tab.",
+  lede: "If this address can get an email from us, it’s on its way. You can close this tab.",
   sentTo: "To",
   openHere: "Open it on this device.",
-  resend: "Send the email again",
-  resendIn: (clock: string) => `Send the email again in ${clock}`,
+  resend: TRY_AGAIN,
+  resendIn: (clock: string) => `${TRY_AGAIN} in ${clock}`,
   differentEmail: "Use a different email",
 };
 
