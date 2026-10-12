@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   CheckoutEventNames,
   initializePaddle,
+  type CheckoutSettings,
   type Environments,
   type Paddle,
   type PricePreviewResponse,
@@ -197,6 +198,20 @@ async function openCheckoutWith(
   }
 }
 
+/**
+ * An Exomem page opens Paddle's overlay in the page's own theme, the one on <html>
+ * (Journey board, "paying"). Paddle draws the overlay; our logo and colours are set in
+ * Paddle. Elsewhere Paddle's defaults stay.
+ */
+function exomemCheckoutSettings(): CheckoutSettings | undefined {
+  const root = document.documentElement;
+  if (!root.hasAttribute("data-exomem")) return undefined;
+  return {
+    displayMode: "overlay",
+    theme: root.getAttribute("data-theme") === "light" ? "light" : "dark",
+  };
+}
+
 export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -252,7 +267,7 @@ export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult 
     return openCheckoutWith("transaction", (paddle) => {
       // A transaction checkout resumes an existing Paddle transaction, which
       // already carries its own customData from when it was created.
-      paddle.Checkout.open({ transactionId });
+      paddle.Checkout.open({ transactionId, settings: exomemCheckoutSettings() });
     });
   }
 
