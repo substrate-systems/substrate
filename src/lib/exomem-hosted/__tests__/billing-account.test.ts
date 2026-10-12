@@ -23,6 +23,7 @@ const ACCOUNT: OwnerBillingAccount = {
   sourceRevision: null,
   manuallySuspended: false,
   friendOffer: false,
+  deleting: false,
 };
 
 const NEW_TRANSACTION = `txn_${"n".repeat(26)}`;
@@ -528,33 +529,25 @@ describe("owner Exomem billing account", () => {
 
   it("replaces an open checkout without the friend discount once the owner has a friend offer", async () => {
     const transactionRef = `txn_${"a".repeat(26)}`;
-    const friendDiscountId = `dsc_${"f".repeat(26)}`;
-    const calls: string[] = [];
+    const cancelled: string[] = [];
     let options: unknown;
     const bound = { ...ACCOUNT, transactionRef, providerEnvironment: "sandbox" as const };
 
     const result = await startOwnerCheckout(ACCOUNT.userId, ACCOUNT.tenantId, {
       assertCloudCellOwnership: async () => undefined,
       load: async () => ({ ...bound, friendOffer: true }),
-      friendDiscountId: () => friendDiscountId,
-      resume: async () => {
-        calls.push("resume");
-        return {
-          state: "open",
-          checkoutUrl: "https://checkout.paddle.test/full-price",
-          discountId: null,
-        };
-      },
-      cancelTransaction: async () => {
-        calls.push("cancel");
+      verifyFriendDiscount: async () => `dsc_${"f".repeat(26)}`,
+      resume: async () => ({
+        state: "open",
+        checkoutUrl: "https://checkout.paddle.test/full-price",
+        discountId: null,
+      }),
+      cancelTransaction: async (input) => {
+        cancelled.push(input.transactionId);
         return { state: "canceled" };
       },
-      clearTransaction: async () => {
-        calls.push("clear");
-        return true;
-      },
+      clearTransaction: async () => true,
       checkout: async (_input, _dependencies, checkoutOptions) => {
-        calls.push("checkout");
         options = checkoutOptions;
         return {
           checkoutUrl: "https://checkout.paddle.test/friend",
@@ -563,7 +556,8 @@ describe("owner Exomem billing account", () => {
       },
     });
 
-    assert.deepEqual(calls, ["resume", "cancel", "clear", "checkout"]);
+    // The full-price checkout is cancelled at Paddle, and a friend-price one replaces it.
+    assert.deepEqual(cancelled, [transactionRef]);
     assert.deepEqual(options, { friendPrice: true, customerId: null });
     assert.equal(result.transactionId, NEW_TRANSACTION);
   });

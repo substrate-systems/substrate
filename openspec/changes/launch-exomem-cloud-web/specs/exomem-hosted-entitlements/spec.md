@@ -90,7 +90,7 @@ The system SHALL set the grace start to the event time only when the state moves
 
 ### Requirement: Self-serve and resubscribe checkouts use the server-selected catalog
 
-Checkout SHALL accept a self-serve owner and an owner whose subscription ended inside the kept window. It SHALL return the transaction identifier that the Paddle overlay needs. For a resubscription it SHALL create a new transaction for the owner's existing Paddle customer. The server MUST still choose the product, price and discount. Checkout MUST refuse an owner who already has a live subscription.
+Checkout SHALL accept a self-serve owner and an owner whose subscription ended inside the kept window. It SHALL return the transaction identifier that the Paddle overlay needs. For a resubscription it SHALL create a new transaction for the owner's existing Paddle customer. The server MUST still choose the product, price and discount. Checkout MUST refuse an owner who already has a live subscription, and an owner who confirmed the account's deletion. Checkout SHALL reopen an open transaction only when it carries the discount the owner is owed, checked at Paddle again, and only while the account may still buy.
 
 #### Scenario: Self-serve owner starts checkout
 
@@ -107,7 +107,25 @@ Checkout SHALL accept a self-serve owner and an owner whose subscription ended i
 
 - **WHEN** an ended owner's kept window ends while a checkout they opened to resubscribe is still open
 - **THEN** the system cancels that transaction at Paddle before it deletes the cell
-- **AND** the cell stays read-only while Paddle cannot answer, or while a payment for a new subscription is on its way
+- **AND** it deletes the cell only after Paddle proves that the transaction cannot pay for it: Paddle cancelled it, reports it under another owner, or reports its subscription as ended
+- **AND** the cell stays read-only for any other answer, including a payment that Paddle has not finished and an unanswered request
+- **AND** each sweep gives Paddle a fixed time budget, and the cells it does not reach wait for the next sweep
+
+#### Scenario: Paid resubscription without its subscription event
+
+- **WHEN** an ended owner's resubscribe checkout completed for a new subscription, and Paddle's subscription event never arrives
+- **THEN** the checkout return, the next checkout request or the lapsed-window sweep binds that subscription to the owner and reconciles it from Paddle
+- **AND** the kept cell resumes
+
+#### Scenario: Owner confirms deletion while checkout is open
+
+- **WHEN** an owner confirms the account's deletion before or while checkout reopens a transaction
+- **THEN** the server refuses and returns no payable checkout
+
+#### Scenario: Friend discount changes after a checkout opened
+
+- **WHEN** an owner with a friend offer reopens checkout and the friend discount is missing from the configuration or fails its checks at Paddle
+- **THEN** the server refuses with a stable error and never returns a checkout at the usual price
 
 #### Scenario: Kept window has passed
 

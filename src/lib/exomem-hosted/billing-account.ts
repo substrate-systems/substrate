@@ -12,16 +12,17 @@ import {
   createExomemCustomerPortal,
   ExomemBillingError,
   resumeExomemCheckout,
+  verifyExomemFriendDiscount,
   type ExomemCheckoutOptions,
 } from "./paddle-billing";
 import {
   assertExomemPaddlePurpose,
-  exomemPaddleFriendDiscountId,
   loadExomemPaddleConfig,
   type ExomemPaddleEnvironment,
 } from "./paddle-config";
 import { getDefaultSqlExomemPaddleEventStore } from "./paddle-event-store";
 import { reconcileExomemPaddleSubscription } from "./paddle-reconciliation";
+import { recoverPaidResubscription } from "./resubscribe-recovery";
 
 export type OwnerBillingAccount = {
   userId: string;
@@ -40,6 +41,8 @@ export type OwnerBillingAccount = {
   manuallySuspended: boolean;
   /** The tenant accepted a friend invitation, so its checkouts carry the friend discount. */
   friendOffer: boolean;
+  /** The owner confirmed the account's deletion, so nothing may be bought any more. */
+  deleting: boolean;
 };
 
 export type OwnerBillingSummary = {
@@ -67,7 +70,8 @@ export async function loadOwnerBillingAccount(
            entitlement.source_occurred_at,
            entitlement.source_revision,
            entitlement.manual_suspended_at IS NOT NULL AS manually_suspended,
-           tenant.friend_offer_invite_id IS NOT NULL AS friend_offer
+           tenant.friend_offer_invite_id IS NOT NULL AS friend_offer,
+           (tenant.status = 'deletion_pending' OR tenant.desired_state = 'deleted') AS deleting
     FROM exomem_entitlements AS entitlement
     JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
     WHERE tenant.owner_user_id = ${userId}
@@ -98,6 +102,7 @@ export async function loadOwnerBillingAccount(
         sourceRevision: row.source_revision ? String(row.source_revision) : null,
         manuallySuspended: row.manually_suspended === true,
         friendOffer: row.friend_offer === true,
+        deleting: row.deleting === true,
       }
     : null;
 }
@@ -105,12 +110,14 @@ export async function loadOwnerBillingAccount(
 /**
  * An owner whose Paddle subscription ended may subscribe again while their
  * memory is still kept: the same rule that keeps the cell read-only
- * (`cloudCancelledKeptUntil`), and never while an operator suspension holds.
+ * (`cloudCancelledKeptUntil`), and never while an operator suspension holds
+ * or the account is being deleted.
  */
 export function resubscribeAllowed(account: OwnerBillingAccount, now: Date = new Date()): boolean {
   return (
     account.source === "paddle" &&
     account.sourceState === "cancelled" &&
+    !account.deleting &&
     account.customerRef !== null &&
     account.providerEnvironment !== null &&
     account.sourceOccurredAt !== null &&
@@ -122,9 +129,19 @@ export function resubscribeAllowed(account: OwnerBillingAccount, now: Date = new
 function firstCheckoutAllowed(account: OwnerBillingAccount): boolean {
   return (
     account.source === "paddle" &&
+    !account.deleting &&
     !account.customerRef &&
     (!account.transactionRef || Boolean(account.providerEnvironment)) &&
     ["awaiting_checkout", "checkout_pending"].includes(account.sourceState)
+  );
+}
+
+/** A first checkout, or a resubscription; any other owner, a live subscription included, buys nothing. */
+function checkoutAllowed(account: OwnerBillingAccount, now: Date): boolean {
+  return (
+    account.source === "paddle" &&
+    !(account.transactionRef && !account.providerEnvironment) &&
+    (account.customerRef ? resubscribeAllowed(account, now) : firstCheckoutAllowed(account))
   );
 }
 
@@ -182,6 +199,7 @@ export async function recordExomemResubscribeTransaction(input: {
 }
 
 function safeBillingError(error: unknown): ExomemHostedError {
+  if (error instanceof ExomemHostedError) return error;
   if (!(error instanceof ExomemBillingError)) {
     return new ExomemHostedError({
       code: "EXOMEM_BILLING_UNAVAILABLE",
@@ -228,6 +246,7 @@ type CheckoutRecoveryDependencies = {
   clearTransaction?: typeof clearExomemCheckoutTransaction;
   promoteSubscription?: typeof promoteExomemCheckoutSubscription;
   reconcileSubscription?: typeof reconcileRecoveredSubscription;
+  recoverResubscription?: typeof recoverPaidResubscription;
 };
 
 type BoundCheckoutRecovery =
@@ -328,11 +347,47 @@ export type OwnerCheckoutDependencies = {
   checkout?: typeof createExomemCheckout;
   cancelTransaction?: typeof cancelExomemCheckoutTransaction;
   recordResubscribe?: typeof recordExomemResubscribeTransaction;
-  /** The configured friend discount, which an open transaction must carry. */
-  friendDiscountId?: () => string | null;
+  /** Checks the configured friend discount at Paddle and returns its id. */
+  verifyFriendDiscount?: () => Promise<string>;
   now?: () => Date;
 } & CheckoutRecoveryDependencies &
   CloudCheckoutGateDependencies;
+
+/**
+ * Whether an open checkout may be handed back. It must carry exactly the
+ * discount the tenant is owed, and a friend discount is checked at Paddle
+ * for each reuse as for each new checkout: a friend offer whose discount is
+ * missing or changed never reopens a checkout. The account is then read
+ * again, so an owner who confirmed deletion, or whose binding or offer
+ * changed while Paddle answered, gets no payable checkout.
+ */
+async function reusableOpenCheckout(
+  account: OwnerBillingAccount,
+  open: { discountId: string | null },
+  dependencies: OwnerCheckoutDependencies,
+  now: Date
+): Promise<boolean> {
+  const owed = account.friendOffer
+    ? await (
+        dependencies.verifyFriendDiscount ??
+        (() => verifyExomemFriendDiscount(loadExomemPaddleConfig()))
+      )()
+    : null;
+  if (open.discountId !== owed) return false;
+  const current = await (dependencies.load ?? loadOwnerBillingAccount)(
+    account.userId,
+    account.tenantId
+  );
+  if (
+    !current ||
+    !checkoutAllowed(current, now) ||
+    current.transactionRef !== account.transactionRef ||
+    current.friendOffer !== account.friendOffer
+  ) {
+    throw exomemErrors.entitlementDenied();
+  }
+  return true;
+}
 
 /**
  * Starts or resumes the owner's checkout. A first checkout and a
@@ -349,14 +404,7 @@ export async function startOwnerCheckout(
 ): Promise<{ checkoutUrl: string; transactionId: string }> {
   const account = await (dependencies.load ?? loadOwnerBillingAccount)(userId, tenantId);
   const now = (dependencies.now ?? (() => new Date()))();
-  if (
-    !account ||
-    account.source !== "paddle" ||
-    (account.transactionRef && !account.providerEnvironment) ||
-    (account.customerRef ? !resubscribeAllowed(account, now) : !firstCheckoutAllowed(account))
-  ) {
-    throw exomemErrors.entitlementDenied();
-  }
+  if (!account || !checkoutAllowed(account, now)) throw exomemErrors.entitlementDenied();
   // Security review finding 4: checkout is refused while this tenant has no
   // non-deleted Cloud cell row -- the same ownership guard token issuance
   // enforces (assertPrincipalOwnsCloudCell in cloud-oauth.ts), so a tenant
@@ -370,23 +418,20 @@ export async function startOwnerCheckout(
     if (error instanceof CloudPrincipalHasNoCellError) throw exomemErrors.entitlementDenied();
     throw error;
   }
-  const expectedDiscountId = account.friendOffer
-    ? (dependencies.friendDiscountId ?? exomemPaddleFriendDiscountId)()
-    : null;
   const options: ExomemCheckoutOptions = {
     friendPrice: account.friendOffer,
     customerId: account.customerRef,
   };
   try {
     if (account.customerRef) {
-      return await startResubscribeCheckout(account, expectedDiscountId, options, dependencies);
+      return await startResubscribeCheckout(account, options, dependencies, now);
     }
     if (account.transactionRef) {
       const recovery = await recoverBoundCheckout(userId, tenantId, account, dependencies);
-      if (recovery.state === "open" && recovery.discountId === expectedDiscountId) {
-        return { checkoutUrl: recovery.checkoutUrl, transactionId: account.transactionRef };
-      }
       if (recovery.state === "open") {
+        if (await reusableOpenCheckout(account, recovery, dependencies, now)) {
+          return { checkoutUrl: recovery.checkoutUrl, transactionId: account.transactionRef };
+        }
         await cancelAndClearFirstCheckout(account, dependencies);
       } else if (recovery.state !== "canceled") {
         throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
@@ -423,14 +468,15 @@ async function cancelAndClearFirstCheckout(
 /**
  * A resubscription opens a new transaction for the owner's existing Paddle
  * customer. A transaction they already opened for it is reused, so a
- * second click never opens a second checkout; one already paid for a new
- * subscription refuses, because that subscription is on its way.
+ * second click never opens a second checkout. A completed one is asked
+ * about at Paddle: if the subscription it paid for is live, it resumes the
+ * owner and nothing more is bought.
  */
 async function startResubscribeCheckout(
   account: OwnerBillingAccount,
-  expectedDiscountId: string | null,
   options: ExomemCheckoutOptions,
-  dependencies: OwnerCheckoutDependencies
+  dependencies: OwnerCheckoutDependencies,
+  now: Date
 ): Promise<{ checkoutUrl: string; transactionId: string }> {
   const { userId, tenantId } = account;
   const previousTransactionRef = account.transactionRef;
@@ -445,19 +491,17 @@ async function startResubscribeCheckout(
     try {
       previous = await (dependencies.resume ?? resumeExomemCheckout)(bound);
     } catch (error) {
-      // The stored reference can be a renewal of the ended subscription,
-      // which is not a checkout this owner opened; it is left alone.
-      if (
-        !(error instanceof ExomemBillingError && error.code === "EXOMEM_BILLING_STATE_CONFLICT")
-      ) {
+      // The stored reference can be a transaction that is not a checkout
+      // this owner opened; it is left alone. Any other failure is unresolved.
+      if (!(error instanceof ExomemBillingError && error.code === "EXOMEM_TRANSACTION_NOT_OWNED")) {
         throw error;
       }
       previous = null;
     }
-    if (previous?.state === "open" && previous.discountId === expectedDiscountId) {
-      return { checkoutUrl: previous.checkoutUrl, transactionId: previousTransactionRef };
-    }
     if (previous?.state === "open") {
+      if (await reusableOpenCheckout(account, previous, dependencies, now)) {
+        return { checkoutUrl: previous.checkoutUrl, transactionId: previousTransactionRef };
+      }
       const cancelled = await (dependencies.cancelTransaction ?? cancelExomemCheckoutTransaction)(
         bound
       );
@@ -465,8 +509,9 @@ async function startResubscribeCheckout(
         throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
       }
     }
-    if (previous?.state === "completed" && previous.subscriptionId !== account.subscriptionRef) {
-      throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+    if (previous?.state === "completed") {
+      const outcome = await recoverResubscription(account, previous, dependencies);
+      if (outcome === "resumed") throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
     }
   }
   const sourceOccurredAt = account.sourceOccurredAt!;
@@ -488,6 +533,23 @@ async function startResubscribeCheckout(
   );
 }
 
+/** Asks Paddle about the subscription a completed resubscribe checkout paid for. */
+function recoverResubscription(
+  account: OwnerBillingAccount,
+  paid: { subscriptionId: string; customerId: string | null },
+  dependencies: CheckoutRecoveryDependencies
+): Promise<"resumed" | "ended"> {
+  return (dependencies.recoverResubscription ?? recoverPaidResubscription)({
+    userId: account.userId,
+    tenantId: account.tenantId,
+    environment: account.providerEnvironment!,
+    transactionId: account.transactionRef!,
+    customerRef: account.customerRef!,
+    sourceRevision: account.sourceRevision,
+    paid: { subscriptionId: paid.subscriptionId, customerId: paid.customerId },
+  });
+}
+
 export async function resumeReturnedOwnerCheckout(
   userId: string,
   tenantId: string,
@@ -507,18 +569,28 @@ export async function resumeReturnedOwnerCheckout(
   }
   try {
     if (account.customerRef) {
-      // A resubscription: Paddle's subscription event binds the new
-      // subscription and resumes the cell, so the return only reports
-      // whether the checkout is still open.
+      // A resubscription. Paddle's subscription event normally binds the
+      // new subscription and resumes the cell; a paid one is also recovered
+      // here, in case that event never arrives.
       const transaction = await (dependencies.resume ?? resumeExomemCheckout)({
         userId,
         tenantId,
         transactionId,
         environment: account.providerEnvironment,
       });
-      return transaction.state === "open"
-        ? { state: "open", checkoutUrl: transaction.checkoutUrl }
-        : { state: "settled" };
+      if (transaction.state === "open") {
+        return { state: "open", checkoutUrl: transaction.checkoutUrl };
+      }
+      if (transaction.state === "completed" && account.sourceState === "cancelled") {
+        try {
+          await recoverResubscription(account, transaction, dependencies);
+        } catch {
+          // The payment is made either way. The next return or checkout
+          // press, the subscription event or the lapsed-window sweep asks
+          // again.
+        }
+      }
+      return { state: "settled" };
     }
     const recovery = await recoverBoundCheckout(userId, tenantId, account, dependencies);
     return recovery.state === "open"

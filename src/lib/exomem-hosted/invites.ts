@@ -34,10 +34,11 @@ import {
   applyExomemFriendDiscountToSubscription,
   ExomemBillingError,
   previewExomemPrices,
+  readExomemSubscription,
   type ExomemMoney,
   type ExomemPrices,
 } from "./paddle-billing";
-import { exomemPaddleBasePriceId } from "./paddle-config";
+import { exomemPaddleBasePriceId, exomemPaddleFriendDiscountId } from "./paddle-config";
 import { EXOMEM_INVITE_CAPABILITIES, EXOMEM_INVITE_LIMITS } from "./self-serve-admission";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
 
@@ -544,7 +545,9 @@ function providerUnavailable(error: ExomemBillingError): ExomemHostedError {
 
 export type DecideInvitationDependencies = {
   applyFriendDiscount: typeof applyExomemFriendDiscountToSubscription;
+  readSubscription: typeof readExomemSubscription;
   basePriceId: () => string | null;
+  friendDiscountId: () => string | null;
 };
 
 /**
@@ -553,8 +556,10 @@ export type DecideInvitationDependencies = {
  * Paddle is updated while that lock is held, and the invitation is consumed
  * only after Paddle has answered. So a Paddle failure rolls back and leaves
  * the invitation usable (503), and two answers at once cannot leave the
- * discount applied under a stored "kept". A repeat returns the stored answer
- * without calling Paddle again.
+ * discount applied under a stored "kept". A failure can still hide an
+ * update that reached Paddle, so "kept" is stored only after Paddle reports
+ * the subscription without the friend discount. A repeat returns the stored
+ * answer without calling Paddle again.
  */
 export async function decideInvitation(
   input: {
@@ -566,7 +571,9 @@ export async function decideInvitation(
 ): Promise<InvitationDecision> {
   const deps = {
     applyFriendDiscount: applyExomemFriendDiscountToSubscription,
+    readSubscription: readExomemSubscription,
     basePriceId: () => exomemPaddleBasePriceId(),
+    friendDiscountId: () => exomemPaddleFriendDiscountId(),
     ...dependencies,
   };
   const digest = tokenDigest(input.token);
@@ -602,7 +609,7 @@ export async function decideInvitation(
         /* exomem:invitation-decision-billing */
         SELECT entitlement.source, entitlement.source_state, entitlement.provider_environment,
                entitlement.provider_subscription_ref, entitlement.provider_next_billed_at,
-               entitlement.provider_price_id
+               entitlement.provider_price_id, tenant.friend_offer_invite_id
         FROM exomem_entitlements AS entitlement
         JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
         WHERE tenant.id = ${input.session.tenantId}::uuid
@@ -616,6 +623,7 @@ export async function decideInvitation(
             provider_subscription_ref: string | null;
             provider_next_billed_at: Date | string | null;
             provider_price_id: string | null;
+            friend_offer_invite_id: string | null;
           }
         | undefined;
       if (!billing) throw exomemErrors.sessionInvalid();
@@ -635,23 +643,31 @@ export async function decideInvitation(
       }
       if (!invite.live) throw invitationUnusable();
 
+      const offer = friendPriceOffer(invite.kind, plan, deps.basePriceId());
+      const subscription = liveSubscription(plan)
+        ? {
+            subscriptionId: billing.provider_subscription_ref!,
+            environment: billing.provider_environment!,
+          }
+        : null;
       let decision: InvitationDecision;
       if (input.choice === "keep_plan") {
         decision = { status: "kept" };
+        // An earlier `use_friend_price` for this invitation may have reached
+        // Paddle although its answer was lost. Paddle's subscription decides.
+        // A friend offer the tenant already holds explains the discount.
+        if (offer.offered && subscription && billing.friend_offer_invite_id === null) {
+          const current = await deps.readSubscription(subscription);
+          const friendDiscountId = deps.friendDiscountId();
+          if (friendDiscountId !== null && current.discountId === friendDiscountId) {
+            decision = { status: "applied", nextPaymentAt: nextPayment(current.nextBilledAt) };
+          }
+        }
       } else {
-        const offer = friendPriceOffer(invite.kind, plan, deps.basePriceId());
         if (!offer.offered) throw friendPriceNotOffered(offer.reason);
-        if (liveSubscription(plan)) {
-          const applied = await deps.applyFriendDiscount({
-            subscriptionId: billing.provider_subscription_ref!,
-            environment: billing.provider_environment!,
-          });
-          decision = {
-            status: "applied",
-            nextPaymentAt: applied.nextBilledAt
-              ? known(applied.nextBilledAt)
-              : unknown("not_reported"),
-          };
+        if (subscription) {
+          const applied = await deps.applyFriendDiscount(subscription);
+          decision = { status: "applied", nextPaymentAt: nextPayment(applied.nextBilledAt) };
         } else {
           // Ended, or not yet paid for the first time: the offer is kept on
           // the tenant and the next checkout carries the discount.
@@ -683,17 +699,13 @@ export async function decideInvitation(
   }
 }
 
+function nextPayment(nextBilledAt: Date | string | null): Known<string, "not_reported"> {
+  return nextBilledAt ? known(new Date(nextBilledAt).toISOString()) : unknown("not_reported");
+}
+
 function storedDecision(
   status: StoredDecision,
   nextBilledAt: Date | string | null
 ): InvitationDecision {
-  if (status === "applied") {
-    return {
-      status,
-      nextPaymentAt: nextBilledAt
-        ? known(new Date(nextBilledAt).toISOString())
-        : unknown("not_reported"),
-    };
-  }
-  return { status };
+  return status === "applied" ? { status, nextPaymentAt: nextPayment(nextBilledAt) } : { status };
 }

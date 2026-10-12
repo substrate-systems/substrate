@@ -7,6 +7,11 @@ import {
   loadExomemPaddleTransactionConfig,
   type ExomemPaddleConfig,
 } from "./paddle-config";
+import {
+  mapPaddleSubscriptionState,
+  paddleSubscriptionFacts,
+  type PaddleSourceState,
+} from "./paddle-webhook";
 
 export type PaddleTransport = (path: string, init?: RequestInit) => Promise<Response>;
 
@@ -19,6 +24,7 @@ export class ExomemBillingError extends Error {
     | "EXOMEM_PADDLE_CONFIGURATION_INVALID"
     | "EXOMEM_PADDLE_ENVIRONMENT_MISMATCH"
     | "EXOMEM_BILLING_STATE_CONFLICT"
+    | "EXOMEM_TRANSACTION_NOT_OWNED"
     | "EXOMEM_PADDLE_UNAVAILABLE"
     | "EXOMEM_PADDLE_RESPONSE_INVALID"
     | "EXOMEM_FRIEND_DISCOUNT_INVALID";
@@ -354,14 +360,44 @@ export async function applyExomemFriendDiscountToSubscription(
     }
   );
   const data = safeObject(safeObject(payload)?.data);
-  if (data?.id !== input.subscriptionId) {
+  if (!data || data.id !== input.subscriptionId) {
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
   }
-  const nextBilledAt =
-    typeof data.next_billed_at === "string" && Number.isFinite(Date.parse(data.next_billed_at))
-      ? new Date(data.next_billed_at).toISOString()
-      : null;
-  return { nextBilledAt };
+  return { nextBilledAt: paddleSubscriptionFacts(data, null).nextBilledAt };
+}
+
+/**
+ * A subscription as Paddle reports it now, read without storing anything:
+ * its state, its discount and its next payment time.
+ */
+export async function readExomemSubscription(
+  input: { subscriptionId: string; environment: ExomemPaddleConfig["environment"] },
+  dependencies: BillingDependencies = {}
+): Promise<{ state: PaddleSourceState; discountId: string | null; nextBilledAt: string | null }> {
+  if (!safePaddleId(input.subscriptionId, "sub")) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  const config = dependencies.config ?? loadExomemPaddleConfig();
+  try {
+    assertExomemPaddlePurpose(config, "reconciliation");
+  } catch (error) {
+    throw safeConfigurationError(error);
+  }
+  if (config.environment !== input.environment) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
+  }
+  const payload = await safePaddleJson(
+    dependencies.transport ?? paddleFetch,
+    `/subscriptions/${encodeURIComponent(input.subscriptionId)}`,
+    { method: "GET" }
+  );
+  const data = safeObject(safeObject(payload)?.data);
+  const state = mapPaddleSubscriptionState(data?.status);
+  if (!data || data.id !== input.subscriptionId || !state) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  const facts = paddleSubscriptionFacts(data, null);
+  return { state, discountId: facts.discountId, nextBilledAt: facts.nextBilledAt };
 }
 
 /**
@@ -511,14 +547,20 @@ async function inspectExomemCheckout(
     { method: "GET" }
   );
   const data = safeObject(safeObject(payload)?.data);
-  const customData = safeObject(data?.custom_data);
+  if (data?.id !== input.transactionId) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  // The one proof that a transaction is not a checkout this owner opened:
+  // Paddle reports it under another product, owner or tenant, or none.
+  // Nothing it pays can reach this tenant, because every Paddle event
+  // correlates by these fields. Every other conflict below is unresolved.
+  const customData = safeObject(data.custom_data);
   if (
-    data?.id !== input.transactionId ||
     customData?.product_key !== config.productKey ||
     customData?.user_id !== input.userId ||
     customData?.tenant_id !== input.tenantId
   ) {
-    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+    throw new ExomemBillingError("EXOMEM_TRANSACTION_NOT_OWNED", 409);
   }
   if (data.status === "draft" || data.status === "ready") {
     let checkoutUrl: string | null = null;
