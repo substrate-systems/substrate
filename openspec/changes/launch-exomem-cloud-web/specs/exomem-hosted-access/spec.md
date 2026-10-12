@@ -514,15 +514,16 @@ A signed-in owner whose email equals the invitation's email SHALL choose `use_fr
 
 #### Scenario: Paddle reports the friend discount first
 
-- **WHEN** a subscription event shows the configured friend discount and the tenant holds no friend offer
-- **THEN** the system records the offer from a friend invitation addressed to the owner, so a later resubscribe keeps the friend price
-- **AND** the owner's later answer to that invitation records `applied` without calling Paddle
+- **WHEN** the newest subscription event that the system applies, from a webhook or from reconciliation, shows the configured friend discount and the tenant holds no friend offer
+- **THEN** the system records the offer of a friend invitation addressed to the owner in the same transaction, so a later resubscribe keeps the friend price
+- **AND** an older event that arrives late records nothing
 
 #### Scenario: An earlier answer reached Paddle
 
 - **WHEN** an owner's `use_friend_price` reached Paddle but its answer was lost, and the owner then chooses `keep_plan`
-- **THEN** the system reads the subscription at Paddle before it stores a decision
+- **THEN** the system checks the stored subscription facts, and reads the subscription at Paddle when they do not show the friend discount, before it stores a decision
 - **AND** because the subscription carries the friend discount, it records `applied` and the friend offer, and answers 200 `applied`
+- **AND** a friend offer that the tenant holds never stands in for that check
 
 #### Scenario: Payment provider fails
 

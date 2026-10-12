@@ -242,6 +242,41 @@ export function createSqlExomemPaddleEventStore(
             AND EXISTS (SELECT 1 FROM claimed)
           RETURNING entitlement.id
         ),
+        -- Paddle is the source of truth for the friend price. The newest
+        -- applied subscription event that carries the friend discount gives a
+        -- tenant without a friend offer the offer of a friend invitation
+        -- addressed to its owner, in this transaction: an older event is
+        -- stale and records nothing, and no later step can lose the write.
+        friend_offer AS (
+          UPDATE exomem_tenants AS tenant
+          SET friend_offer_invite_id = offer.invite_id,
+              updated_at = now()
+          FROM decision
+          JOIN LATERAL (
+            SELECT invite.id AS invite_id
+            FROM exomem_tenants AS owned
+            JOIN users AS owner ON owner.id = owned.owner_user_id
+            JOIN exomem_invites AS invite ON invite.email_normalized = owner.email
+            WHERE owned.id = decision.tenant_id
+              AND invite.kind = 'friend'
+              AND invite.revoked_at IS NULL
+              AND (
+                invite.consumed_by_user_id = owner.id
+                OR (invite.consumed_at IS NULL AND invite.expires_at > now())
+              )
+            -- Every friend invitation carries the same discount; the newest
+            -- names the inviter the owner heard from last.
+            ORDER BY invite.created_at DESC
+            LIMIT 1
+          ) AS offer ON true
+          WHERE tenant.id = decision.tenant_id
+            AND decision.outcome = 'applied'
+            AND decision.tenant_status NOT IN ('deletion_pending', 'deleted')
+            AND ${isSubscriptionEvent && application.subscriptionCarriesFriendDiscount}::boolean
+            AND tenant.friend_offer_invite_id IS NULL
+            AND EXISTS (SELECT 1 FROM claimed)
+          RETURNING tenant.id
+        ),
         completion AS (
           SELECT count(*)::integer AS claimed_count,
                  (SELECT count(*)::integer FROM projected) AS projected_count,

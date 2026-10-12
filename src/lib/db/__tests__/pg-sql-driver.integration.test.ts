@@ -198,6 +198,7 @@ describe("standard PostgreSQL driver (design D6)", { skip: !DATABASE_URL }, () =
         productId: null,
         priceId: null,
       },
+      subscriptionCarriesFriendDiscount: false,
       subscriptionFacts: {
         priceName: null,
         nextBilledAt: null,

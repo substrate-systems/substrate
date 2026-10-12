@@ -12,8 +12,10 @@ import { drainExomemEmailOutbox } from "../email-outbox";
 import { ExomemHostedError } from "../errors";
 import { decideInvitation, issueOperatorInvite } from "../invites";
 import { __clearExomemPriceCacheForTests } from "../paddle-billing";
+import { loadExomemPaddleConfig } from "../paddle-config";
 import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
-import { dispatchVerifiedExomemPaddleEvent } from "../paddle-webhook";
+import { reconcileExomemPaddleSubscription } from "../paddle-reconciliation";
+import { dispatchVerifiedExomemPaddleEvent, type CloudPaddleHook } from "../paddle-webhook";
 import { decryptSecret, tokenDigest, type SecretEnvelope } from "../security";
 import { mintSessionMaterial } from "../sessions";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
@@ -202,6 +204,30 @@ function subscriptionAtPaddle(input: {
       tenant_id: input.owner.tenantId,
     },
   };
+}
+
+/** Paddle's subscription event for an owner's subscription, as the webhook delivers it. */
+function subscriptionEvent(
+  owner: { subscriptionRef: string },
+  input: { occurredAt: Date; discountId: string | null; cloudHook?: CloudPaddleHook }
+) {
+  return dispatchVerifiedExomemPaddleEvent(
+    {
+      event_id: `evt_${randomUUID().replaceAll("-", "")}`,
+      event_type: "subscription.updated",
+      occurred_at: input.occurredAt.toISOString(),
+      environment: "sandbox",
+      data: {
+        ...paddle.subscriptions.get(owner.subscriptionRef),
+        discount: input.discountId ? { id: input.discountId } : null,
+      },
+    },
+    {
+      env: ENV,
+      store: createSqlExomemPaddleEventStore(taggedSql(pool!)),
+      ...(input.cloudHook ? { cloudHook: input.cloudHook } : {}),
+    }
+  );
 }
 
 function paddleCalls(method: string, prefix: string): PaddleCall[] {
@@ -796,6 +822,77 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
       { status: "kept" }
     );
     assert.equal(await friendOffer(other.tenantId), null);
+  });
+
+  it("records no friend offer from an older event, and decides from the subscription's current facts rather than a friend offer", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const { inviteId, token } = await issueFriendInvitation({ email: owner.email });
+
+    // Paddle's newest event shows no discount; an older one, delivered late, shows the friend discount.
+    const now = Date.now();
+    assert.deepEqual(
+      await subscriptionEvent(owner, { occurredAt: new Date(now), discountId: null }),
+      {
+        kind: "handled",
+        outcome: "applied",
+      }
+    );
+    assert.deepEqual(
+      await subscriptionEvent(owner, {
+        occurredAt: new Date(now - 60 * 60 * 1000),
+        discountId: FRIEND_DISCOUNT,
+      }),
+      { kind: "handled", outcome: "stale" }
+    );
+    assert.equal(await friendOffer(owner.tenantId), null);
+
+    // A friend offer the tenant holds from history does not stand in for the update.
+    await pool!.query("UPDATE exomem_tenants SET friend_offer_invite_id = $2 WHERE id = $1", [
+      owner.tenantId,
+      inviteId,
+    ]);
+    const decision = await decideInvitation({
+      token,
+      choice: "use_friend_price",
+      session: { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId },
+    });
+    assert.equal(decision.status, "applied");
+    assert.equal(paddleCalls("PATCH", `/subscriptions/${owner.subscriptionRef}`).length, 1);
+  });
+
+  it("records the friend offer with the subscription event itself, when the step after it fails and from Paddle reconciliation", async () => {
+    const webhooked = await paidOwner({ sourceState: "active", cell: "running" });
+    const webhookInvitation = await issueFriendInvitation({ email: webhooked.email });
+    const dispatched = await subscriptionEvent(webhooked, {
+      occurredAt: new Date(),
+      discountId: FRIEND_DISCOUNT,
+      cloudHook: async () => {
+        throw new Error("the step after the event failed");
+      },
+    });
+    assert.deepEqual(dispatched, { kind: "handled", outcome: "applied" });
+    assert.equal(await friendOffer(webhooked.tenantId), webhookInvitation.inviteId);
+
+    const reconciled = await paidOwner({ sourceState: "active", cell: "running" });
+    const reconciledInvitation = await issueFriendInvitation({ email: reconciled.email });
+    Object.assign(paddle.subscriptions.get(reconciled.subscriptionRef)!, {
+      discount: { id: FRIEND_DISCOUNT },
+      updated_at: new Date().toISOString(),
+    });
+    const result = await reconcileExomemPaddleSubscription(
+      {
+        userId: reconciled.userId,
+        tenantId: reconciled.tenantId,
+        subscriptionId: reconciled.subscriptionRef,
+        environment: "sandbox",
+      },
+      {
+        config: loadExomemPaddleConfig(ENV),
+        store: createSqlExomemPaddleEventStore(taggedSql(pool!)),
+      }
+    );
+    assert.equal(result.outcome, "applied");
+    assert.equal(await friendOffer(reconciled.tenantId), reconciledInvitation.inviteId);
   });
 
   it("records the friend offer from Paddle's subscription event when the decision's answer was lost", async () => {

@@ -272,45 +272,6 @@ export async function recordInvitationUse(
 }
 
 /**
- * Paddle is the source of truth for the friend price. When a subscription
- * event shows the friend discount and the tenant holds no friend offer, the
- * tenant gets one from a friend invitation addressed to its owner, so a
- * decision whose answer was lost heals on the next event and a later
- * resubscribe keeps the friend price. Without such an invitation nothing is
- * recorded. Idempotent; returns whether an offer was recorded.
- */
-export async function recordFriendOfferFromSubscription(tenantId: string): Promise<boolean> {
-  const { rows } = await executeExomemSql`
-    /* exomem:friend-offer-from-subscription */
-    WITH offer AS (
-      SELECT tenant.id AS tenant_id, invite.id AS invite_id
-      FROM exomem_tenants AS tenant
-      JOIN users AS owner ON owner.id = tenant.owner_user_id
-      JOIN exomem_invites AS invite ON invite.email_normalized = owner.email
-      WHERE tenant.id = ${tenantId}::uuid
-        AND tenant.friend_offer_invite_id IS NULL
-        AND tenant.status NOT IN ('deletion_pending', 'deleted')
-        AND invite.kind = 'friend'
-        AND invite.revoked_at IS NULL
-        AND (
-          invite.consumed_by_user_id = owner.id
-          OR (invite.consumed_at IS NULL AND invite.expires_at > now())
-        )
-      -- Any friend invitation to this owner carries the same discount; the
-      -- newest names the inviter the owner heard from last.
-      ORDER BY invite.created_at DESC
-      LIMIT 1
-    )
-    UPDATE exomem_tenants AS tenant
-    SET friend_offer_invite_id = offer.invite_id, updated_at = now()
-    FROM offer
-    WHERE tenant.id = offer.tenant_id AND tenant.friend_offer_invite_id IS NULL
-    RETURNING tenant.id
-  `;
-  return rows.length === 1;
-}
-
-/**
  * Why an invitation offers no friend price: it is not a friend invitation
  * (or the owner is not on Paddle), or the owner's live subscription is on
  * a price other than the base price the discount is restricted to, or its
@@ -648,7 +609,7 @@ export async function decideInvitation(
         /* exomem:invitation-decision-billing */
         SELECT entitlement.source, entitlement.source_state, entitlement.provider_environment,
                entitlement.provider_subscription_ref, entitlement.provider_next_billed_at,
-               entitlement.provider_price_id, tenant.friend_offer_invite_id
+               entitlement.provider_price_id, entitlement.provider_discount_id
         FROM exomem_entitlements AS entitlement
         JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
         WHERE tenant.id = ${input.session.tenantId}::uuid
@@ -662,7 +623,7 @@ export async function decideInvitation(
             provider_subscription_ref: string | null;
             provider_next_billed_at: Date | string | null;
             provider_price_id: string | null;
-            friend_offer_invite_id: string | null;
+            provider_discount_id: string | null;
           }
         | undefined;
       if (!billing) throw exomemErrors.sessionInvalid();
@@ -690,25 +651,17 @@ export async function decideInvitation(
           }
         : null;
       let decision: InvitationDecision;
-      if (billing.friend_offer_invite_id === invite.id) {
-        // A subscription event already gave the tenant this invitation's
-        // offer (`recordFriendOfferFromSubscription`): the friend price is
-        // in force at Paddle, whatever the owner answers now.
-        decision = subscription
-          ? { status: "applied", nextPaymentAt: nextPayment(billing.provider_next_billed_at) }
-          : { status: "applied_on_resubscribe" };
-      } else if (input.choice === "keep_plan") {
-        decision = { status: "kept" };
-        // An earlier `use_friend_price` for this invitation may have reached
-        // Paddle although its answer was lost. Paddle's subscription decides.
-        // A friend offer the tenant already holds explains the discount.
-        if (offer.offered && subscription && billing.friend_offer_invite_id === null) {
-          const current = await deps.readSubscription(subscription);
-          const friendDiscountId = deps.friendDiscountId();
-          if (friendDiscountId !== null && current.discountId === friendDiscountId) {
-            decision = { status: "applied", nextPaymentAt: nextPayment(current.nextBilledAt) };
-          }
-        }
+      if (input.choice === "keep_plan") {
+        // An earlier `use_friend_price` may have reached Paddle although its
+        // answer was lost, so "kept" is stored only once the subscription is
+        // shown not to carry the friend discount now.
+        const inForce =
+          offer.offered && subscription
+            ? await friendDiscountInForce(billing, subscription, deps)
+            : null;
+        decision = inForce
+          ? { status: "applied", nextPaymentAt: nextPayment(inForce.nextBilledAt) }
+          : { status: "kept" };
       } else {
         if (!offer.offered) throw friendPriceNotOffered(offer.reason);
         if (subscription) {
@@ -743,6 +696,28 @@ export async function decideInvitation(
     if (error instanceof ExomemBillingError) throw providerUnavailable(error);
     throw error;
   }
+}
+
+/**
+ * Whether the subscription carries the friend discount now, and its next
+ * payment time. The stored subscription facts, from the newest applied
+ * Paddle event, prove it when they show the discount. They cannot prove its
+ * absence, because the event of an update whose answer was lost may still be
+ * on its way, so Paddle is read then. A friend offer the tenant holds is
+ * history, not proof, and is not consulted.
+ */
+async function friendDiscountInForce(
+  billing: { provider_discount_id: string | null; provider_next_billed_at: Date | string | null },
+  subscription: { subscriptionId: string; environment: "sandbox" | "production" },
+  deps: Pick<DecideInvitationDependencies, "readSubscription" | "friendDiscountId">
+): Promise<{ nextBilledAt: Date | string | null } | null> {
+  const friendDiscountId = deps.friendDiscountId();
+  if (friendDiscountId === null) return null;
+  if (billing.provider_discount_id === friendDiscountId) {
+    return { nextBilledAt: billing.provider_next_billed_at };
+  }
+  const current = await deps.readSubscription(subscription);
+  return current.discountId === friendDiscountId ? { nextBilledAt: current.nextBilledAt } : null;
 }
 
 function nextPayment(nextBilledAt: Date | string | null): Known<string, "not_reported"> {
