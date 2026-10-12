@@ -3,10 +3,21 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it, mock } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
-import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
-import { createInviteRecord } from "../db";
-import { drainExomemEmailOutbox } from "../email-outbox";
-import { promoteWaitlistedPeople, startSelfServeAtomic } from "../self-serve-admission";
+import { redeemCloudInviteAtomic } from "../cloud-admission";
+import { getCloudCapacityStatus } from "../cloud-capacity";
+import {
+  __setExomemSqlForTests,
+  __setExomemTransactionForTests,
+  createInviteRecord,
+  executeExomemSql,
+  type ExomemSql,
+} from "../db";
+import { clearSettledEmailRecipients, drainExomemEmailOutbox } from "../email-outbox";
+import {
+  promoteWaitlistedPeople,
+  pruneStaleWaitlistEntries,
+  startSelfServeAtomic,
+} from "../self-serve-admission";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
 // "Start with your email" against real PostgreSQL: the start route's uniform
@@ -176,7 +187,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     await pool!.query("DELETE FROM exomem_cloud_capacity");
   });
 
-  it("answers an owner, an admitted, a waitlisted and a closed-door address with the same bytes, never under the floor", async () => {
+  it("answers every start outcome with the same bytes, never under the floor", async () => {
     const { POST } = await import("../../../app/api/exomem/access/start/route");
     const owner = newAddress("owner");
     const ownerUser = await pool!.query<{ id: string }>(
@@ -190,6 +201,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     const closedDoor = newAddress("closed");
     const admitted = newAddress("admitted");
     const waitlisted = newAddress("waitlisted");
+    const queuedWithFreePlace = newAddress("queued");
     await configureCapacity(1);
 
     const answers: Array<{ status: number; body: string; cookies: string; elapsedMs: number }> = [];
@@ -207,7 +219,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     }
 
     // The cookie's Expires comes from the wall clock, so the clock is held
-    // still across the four requests. Timers and the database run for real.
+    // still across the requests. Timers and the database run for real.
     mock.timers.enable({ apis: ["Date"], now: Date.now() });
     try {
       await ask(closedDoor);
@@ -215,6 +227,13 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       process.env.EXOMEM_SELF_SERVE_ADMISSION = "open";
       await ask(admitted);
       await ask(waitlisted);
+      // A waiting person asking again, and a live link being sent again.
+      await ask(waitlisted);
+      await ask(admitted);
+      // Waitlist mode queues a new address even while a place is free.
+      await configureCapacity(5);
+      process.env.EXOMEM_SELF_SERVE_ADMISSION = "waitlist";
+      await ask(queuedWithFreePlace);
     } finally {
       mock.timers.reset();
     }
@@ -229,15 +248,23 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
         "SELECT count(*) AS n FROM exomem_email_outbox WHERE kind = 'start' AND recipient = $1",
         [admitted]
       ),
-      1
+      2
     );
-    assert.equal(
-      await count(
-        "SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1 AND admitted_at IS NULL",
-        [waitlisted]
-      ),
-      1
-    );
+    for (const address of [waitlisted, queuedWithFreePlace]) {
+      assert.equal(
+        await count(
+          "SELECT count(*) AS n FROM exomem_waitlist_entries WHERE email_normalized = $1 AND admitted_at IS NULL",
+          [address]
+        ),
+        1
+      );
+      assert.equal(
+        await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [
+          address,
+        ]),
+        1
+      );
+    }
     assert.equal(
       await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [
         closedDoor,
@@ -332,16 +359,27 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
   it("promotes the oldest waiting person once when a slot frees, with exactly one email, and only while open", async () => {
     await configureCapacity(1);
     const holder = newAddress("holder");
+    const nowAnOwner = newAddress("now-an-owner");
     const first = newAddress("first-waiting");
     const second = newAddress("second-waiting");
-    for (const emailNormalized of [holder, first, second]) {
+    for (const emailNormalized of [holder, nowAnOwner, first, second]) {
       await startSelfServeAtomic({ emailNormalized, timeZone: null, mode: "open" });
     }
+    // The oldest waiting address came to own an Exomem another way.
+    const owner = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      [nowAnOwner]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running')",
+      [owner.rows[0]!.id]
+    );
     await configureCapacity(2);
 
     assert.deepEqual(await promoteWaitlistedPeople({ mode: "waitlist" }), {
       status: "not_open",
       promoted: null,
+      settled: null,
     });
     assert.equal(
       await count(
@@ -359,12 +397,19 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       runs.reduce((total, run) => total + (run.promoted ?? 0), 0),
       1
     );
-    const admitted = await pool!.query<{ email_normalized: string }>(
-      "SELECT email_normalized FROM exomem_waitlist_entries WHERE admitted_at IS NOT NULL"
+    assert.equal(
+      runs.reduce((total, run) => total + (run.settled ?? 0), 0),
+      1
+    );
+    const entries = await pool!.query<{ email_normalized: string; admitted: boolean }>(
+      "SELECT email_normalized, admitted_at IS NOT NULL AS admitted FROM exomem_waitlist_entries ORDER BY created_at, id"
     );
     assert.deepEqual(
-      admitted.rows.map((row) => row.email_normalized),
-      [first]
+      entries.rows.map((row) => [row.email_normalized, row.admitted]),
+      [
+        [first, true],
+        [second, false],
+      ]
     );
     assert.equal(
       await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE kind = 'place_opened'"),
@@ -383,7 +428,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     await configureCapacity(0);
     const early = newAddress("early");
     const later = newAddress("later");
-    await startSelfServeAtomic({ emailNormalized: early, timeZone: null, mode: "open" });
+    await startSelfServeAtomic({ emailNormalized: early, timeZone: "Europe/Paris", mode: "open" });
     await startSelfServeAtomic({ emailNormalized: later, timeZone: null, mode: "open" });
     const before = await pool!.query<{ id: string }>(
       "SELECT id FROM exomem_waitlist_entries WHERE email_normalized = $1",
@@ -397,8 +442,9 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       [early]
     );
     assert.equal(after.rows[0]!.id, before.rows[0]!.id);
-    assert.equal(after.rows[0]!.time_zone, "Asia/Kolkata");
-    // One waitlist email per entry per day, however often they ask.
+    // An unauthenticated request never replaces the zone already stored.
+    assert.equal(after.rows[0]!.time_zone, "Europe/Paris");
+    // One waitlist email per entry, however often they ask.
     assert.equal(
       await count(
         "SELECT count(*) AS n FROM exomem_email_outbox WHERE kind = 'waitlist' AND recipient = $1",
@@ -412,6 +458,7 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     assert.deepEqual(await promoteWaitlistedPeople({ mode: "open" }), {
       status: "ran",
       promoted: 1,
+      settled: 0,
     });
     await pool!.query(
       "UPDATE exomem_invites SET created_at = now() - interval '3 days', expires_at = now() - interval '1 hour' WHERE email_normalized = $1",
@@ -427,6 +474,169 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
       queue.rows.map((row) => row.email_normalized),
       [later, early]
     );
+  });
+
+  it("adds a same-expiry link on a repeat request, keeps the earlier one, counts the address once, and revokes the rest on use", async () => {
+    await configureCapacity(2);
+    const repeater = newAddress("repeater");
+    assert.equal(
+      await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" }),
+      "admitted"
+    );
+    assert.equal(
+      await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" }),
+      "reissued"
+    );
+    const links = await pool!.query<{ token_digest: Buffer; expires_at: string }>(
+      "SELECT token_digest, expires_at::text FROM exomem_invites WHERE email_normalized = $1 AND revoked_at IS NULL ORDER BY created_at",
+      [repeater]
+    );
+    assert.equal(links.rows.length, 2);
+    assert.equal(links.rows[0]!.expires_at, links.rows[1]!.expires_at);
+
+    // Two links, one address, one place: the second place is still free.
+    assert.equal(
+      await startSelfServeAtomic({
+        emailNormalized: newAddress("next"),
+        timeZone: null,
+        mode: "open",
+      }),
+      "admitted"
+    );
+    assert.equal(
+      await startSelfServeAtomic({
+        emailNormalized: newAddress("last"),
+        timeZone: null,
+        mode: "open",
+      }),
+      "waitlisted"
+    );
+
+    const redeemed = await redeemCloudInviteAtomic({
+      tokenDigest: links.rows[0]!.token_digest,
+      sessionDigest: randomBytes(32),
+      csrfDigest: randomBytes(32),
+      sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    });
+    assert.ok(redeemed);
+    assert.equal(
+      await count(
+        "SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1 AND consumed_at IS NULL AND revoked_at IS NULL",
+        [repeater]
+      ),
+      0
+    );
+  });
+
+  it("keeps retrying a start link through a provider outage until the link itself expires", async () => {
+    await configureCapacity(1);
+    const email = newAddress("outage");
+    await startSelfServeAtomic({ emailNormalized: email, timeZone: null, mode: "open" });
+    const providerDown = async () => ({ success: false });
+    // Twenty failed attempts already: far past any fixed attempt budget.
+    await pool!.query("UPDATE exomem_email_outbox SET attempts = 20 WHERE recipient = $1", [email]);
+
+    const duringOutage = await drainExomemEmailOutbox({}, { sendEmail: providerDown });
+
+    assert.equal(duringOutage.retryScheduled, 1);
+    assert.equal(
+      await count(
+        "SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1 AND revoked_at IS NULL",
+        [email]
+      ),
+      1
+    );
+
+    // Once the link expires before the next retry, the email fails and the
+    // place returns.
+    await pool!.query(
+      "UPDATE exomem_email_outbox SET not_before = now(), expires_at = now() + interval '30 seconds' WHERE recipient = $1",
+      [email]
+    );
+    const atDeadline = await drainExomemEmailOutbox({}, { sendEmail: providerDown });
+    assert.equal(atDeadline.failed, 1);
+    assert.equal(
+      await count(
+        "SELECT count(*) AS n FROM exomem_invites WHERE email_normalized = $1 AND revoked_at IS NOT NULL",
+        [email]
+      ),
+      1
+    );
+  });
+
+  it("clears settled email addresses after 30 days and deletes waitlist entries 180 days after their last activity", async () => {
+    await configureCapacity(0);
+    const stale = newAddress("stale");
+    const recent = newAddress("recent");
+    const recentLink = newAddress("recent-link");
+    const owner = newAddress("owner");
+    for (const emailNormalized of [stale, recent, recentLink, owner]) {
+      await startSelfServeAtomic({ emailNormalized, timeZone: null, mode: "open" });
+    }
+    await drainExomemEmailOutbox({}, { sendEmail: async () => ({ success: true }) });
+    await pool!.query(
+      "UPDATE exomem_email_outbox SET updated_at = now() - interval '31 days' WHERE recipient = $1",
+      [stale]
+    );
+    await pool!.query(
+      "UPDATE exomem_waitlist_entries SET updated_at = now() - interval '181 days' WHERE email_normalized = ANY($1)",
+      [[stale, recentLink, owner]]
+    );
+    // Their last request is old, but their start link lapsed only 10 days ago.
+    await pool!.query(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+         entitlement_limits, created_by_principal_digest, created_at, expires_at, self_serve
+       ) VALUES ($1, $2, 'paddle', '[]'::jsonb, '{}'::jsonb, $3,
+                 now() - interval '12 days', now() - interval '10 days', true)`,
+      [randomBytes(32), recentLink, randomBytes(32)]
+    );
+    // An address that owns an Exomem keeps its entry; account deletion removes it.
+    const ownerUser = await pool!.query<{ id: string }>(
+      "INSERT INTO users (email, email_verified_at) VALUES ($1, now()) RETURNING id",
+      [owner]
+    );
+    await pool!.query(
+      "INSERT INTO exomem_tenants (owner_user_id, status, desired_state) VALUES ($1, 'active', 'running')",
+      [ownerUser.rows[0]!.id]
+    );
+
+    assert.equal(await clearSettledEmailRecipients(), 1);
+    assert.equal(await pruneStaleWaitlistEntries(), 1);
+
+    const cleared = await pool!.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM exomem_email_outbox WHERE recipient IS NULL"
+    );
+    assert.equal(cleared.rows[0]!.n, 1);
+    assert.equal(
+      await count("SELECT count(*) AS n FROM exomem_email_outbox WHERE recipient = $1", [stale]),
+      0
+    );
+    const kept = await pool!.query<{ email_normalized: string }>(
+      "SELECT email_normalized FROM exomem_waitlist_entries"
+    );
+    assert.deepEqual(
+      kept.rows.map((row) => row.email_normalized).sort(),
+      [owner, recent, recentLink].sort()
+    );
+  });
+
+  it("shows the operator the free places admission uses, and unknown when capacity is stale", async () => {
+    await configureCapacity(3);
+    const repeater = newAddress("repeater");
+    await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" });
+    await startSelfServeAtomic({ emailNormalized: repeater, timeZone: null, mode: "open" });
+
+    const observed = await getCloudCapacityStatus(executeExomemSql);
+    assert.equal(observed.freePlaces, 2);
+    assert.equal(observed.outstandingInvitations, 1);
+
+    await pool!.query(
+      "UPDATE exomem_cloud_capacity SET observed_at = now() - interval '10 minutes'"
+    );
+    const stale = await getCloudCapacityStatus(executeExomemSql);
+    assert.equal(stale.freePlaces, null);
+    assert.equal(stale.freePlacesUnknownReason, "capacity_not_observed");
   });
 
   it("sends a start link once, and cancels one whose link was revoked before it went out", async () => {
@@ -465,27 +675,29 @@ describe("Exomem start admission PostgreSQL integration", { skip: !databaseUrl }
     );
   });
 
-  it("refuses a paid operator invite when every Cloud slot is already promised", async () => {
-    await configureCapacity(1);
-    await startSelfServeAtomic({
-      emailNormalized: newAddress("holder"),
-      timeZone: null,
-      mode: "open",
-    });
+  for (const entitlementSource of ["paddle", "complimentary"] as const) {
+    it(`refuses a ${entitlementSource} operator invite when every Cloud place is already promised`, async () => {
+      await configureCapacity(1);
+      await startSelfServeAtomic({
+        emailNormalized: newAddress("holder"),
+        timeZone: null,
+        mode: "open",
+      });
 
-    await assert.rejects(
-      createInviteRecord({
-        tokenDigest: randomBytes(32),
-        emailNormalized: newAddress("paid"),
-        entitlementSource: "paddle",
-        capabilities: [],
-        resourceLimits: {},
-        operatorPrincipalDigest: randomBytes(32),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      }),
-      (error: unknown) =>
-        error instanceof Error && "code" in error && error.code === "CAPACITY_UNAVAILABLE"
-    );
-    assert.equal(await count("SELECT count(*) AS n FROM exomem_invites WHERE NOT self_serve"), 0);
-  });
+      await assert.rejects(
+        createInviteRecord({
+          tokenDigest: randomBytes(32),
+          emailNormalized: newAddress("invited"),
+          entitlementSource,
+          capabilities: [],
+          resourceLimits: {},
+          operatorPrincipalDigest: randomBytes(32),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        }),
+        (error: unknown) =>
+          error instanceof Error && "code" in error && error.code === "CAPACITY_UNAVAILABLE"
+      );
+      assert.equal(await count("SELECT count(*) AS n FROM exomem_invites WHERE NOT self_serve"), 0);
+    });
+  }
 });

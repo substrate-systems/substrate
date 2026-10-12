@@ -3,7 +3,7 @@
 import { FormEvent, useRef, useState } from "react";
 import styles from "../private-shell.module.css";
 import {
-  paidInviteHeadroom,
+  invitationBlocked,
   parseOperatorCapacity,
   requiresComplimentaryConfirmation,
   type InviteSource,
@@ -55,7 +55,7 @@ function operatorMessage(error: unknown): string {
     case "ADMIN_UNAUTHORIZED":
       return "That admin bearer was not accepted.";
     case "CAPACITY_UNAVAILABLE":
-      return "No paid alpha slots remain.";
+      return "No Cloud places are free.";
     case "INVALID_EMAIL":
       return "Enter a valid email address.";
     case "EMAIL_DELIVERY_UNAVAILABLE":
@@ -74,10 +74,6 @@ async function readCapacity(bearer: string): Promise<OperatorCapacity> {
   const capacity = parseOperatorCapacity(body.capacity);
   if (!capacity) throw new Error("invalid capacity response");
   return capacity;
-}
-
-function gibibytes(bytes: number): string {
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(bytes % 1024 ** 3 === 0 ? 0 : 1)} GiB`;
 }
 
 export default function OperatorClient() {
@@ -206,8 +202,7 @@ export default function OperatorClient() {
     );
   }
 
-  const headroom = paidInviteHeadroom(capacity);
-  const paidBlocked = source === "paid" && headroom === 0;
+  const blocked = invitationBlocked(capacity);
   return (
     <section className={styles.card} aria-labelledby="operator-title">
       <div className={styles.workspaceHeader}>
@@ -222,25 +217,36 @@ export default function OperatorClient() {
         </button>
       </div>
 
-      <div className={styles.capacityGrid} aria-label="Alpha capacity">
+      <div className={styles.capacityGrid} aria-label="Cloud capacity">
         <div className={styles.capacityMetric}>
-          <span className={styles.label}>Paid slots free</span>
-          <strong className={styles.capacityValue}>{headroom}</strong>
-        </div>
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Paid invites out</span>
-          <strong className={styles.capacityValue}>{capacity.outstandingPaidInvites}</strong>
-        </div>
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Runtime reserved</span>
+          <span className={styles.label}>Cloud places free</span>
           <strong className={styles.capacityValue}>
-            {capacity.reservedRuntimeSlots}/{capacity.runtimeCapacitySlots}
+            {capacity.freePlaces === null ? "Unknown" : capacity.freePlaces}
           </strong>
         </div>
         <div className={styles.capacityMetric}>
-          <span className={styles.label}>Storage reserved</span>
+          <span className={styles.label}>Invitations out</span>
+          <strong className={styles.capacityValue}>{capacity.outstandingInvitations}</strong>
+        </div>
+        <div className={styles.capacityMetric}>
+          <span className={styles.label}>Cells live</span>
           <strong className={styles.capacityValue}>
-            {gibibytes(capacity.reservedStorageBytes)} / {gibibytes(capacity.storageCapacityBytes)}
+            {capacity.freePlaces === null
+              ? capacity.liveCells
+              : `${capacity.liveCells}/${capacity.observedSlots}`}
+          </strong>
+        </div>
+        <div className={styles.capacityMetric}>
+          <span className={styles.label}>Capacity observed</span>
+          <strong className={styles.capacityValue}>
+            {capacity.newestObservationAt
+              ? new Date(capacity.newestObservationAt).toLocaleString([], {
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "Never"}
           </strong>
         </div>
       </div>
@@ -292,7 +298,7 @@ export default function OperatorClient() {
           disabled={
             sending ||
             !email.trim() ||
-            paidBlocked ||
+            blocked ||
             requiresComplimentaryConfirmation(source, complimentaryConfirmed)
           }
         >
@@ -308,7 +314,12 @@ export default function OperatorClient() {
         role={error ? "alert" : "status"}
         aria-live="polite"
       >
-        {message || (paidBlocked ? "Paid alpha capacity is full." : "Paid access is the default.")}
+        {message ||
+          (capacity.freePlaces === null
+            ? "Cloud capacity has not been observed recently. Invitations wait until it is."
+            : blocked
+              ? "Cloud capacity is full."
+              : "Paid access is the default.")}
       </p>
     </section>
   );

@@ -10,20 +10,21 @@
  * the email but before it recorded `sent` leaves the lease to expire, and the
  * next worker sends again.
  *
- * Each kind is one entry in `EXOMEM_EMAILS`. The database constraint already
- * lists the whole email catalogue, so a new kind is a new entry here.
+ * Each kind is one entry in `EXOMEM_EMAILS`, plus its name in the
+ * `exomem_email_outbox_kind_check` constraint.
  */
 
 import { randomUUID } from "node:crypto";
 import { sendTransactionalEmail } from "@/lib/brevo";
 import {
   renderExomemHoldReminderEmail,
+  renderExomemPlaceOpenedEmail,
   renderExomemWaitlistEmail,
   renderExomemWelcomeEmail,
   type RenderedExomemAccessEmail,
 } from "@/lib/email-templates/exomem-access";
 import { EXOMEM_SENDER } from "@/lib/exomem-hosted/mail-sender";
-import { withExomemTransaction, type ExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import {
   exomemPublicBaseUrlFromEnv,
@@ -34,11 +35,13 @@ import { decryptSecret, encryptSecret, tokenDigest, type SecretEnvelope } from "
 
 const MAX_EMAILS_PER_TICK = 20;
 const LEASE_SECONDS = 60;
-// About four hours of retries (1, 2, 4 … 60 minutes): long enough to ride out
-// a provider outage, short enough that an address that cannot receive mail
-// stops holding whatever its email announces.
-const MAX_ATTEMPTS = 10;
+// Retries back off 1, 2, 4 … 60 minutes and continue until the email's own
+// deadline (48 hours for a start link), so a provider outage costs nobody
+// their place. An email with no deadline stops after this many attempts.
+const MAX_ATTEMPTS_WITHOUT_DEADLINE = 10;
 const MAX_BACKOFF_MINUTES = 60;
+// Settled rows keep their recipient this long, for support questions.
+const SETTLED_RECIPIENT_RETENTION_DAYS = 30;
 
 type EmailRenderInput<P, C> = {
   payload: P;
@@ -96,7 +99,12 @@ export type StartLinkPayload = {
 
 export type WaitlistPayload = { version: 1; entryId: string };
 
-export type HoldReminderPayload = { version: 1; cellId: string; holdEndsAt: string };
+export type HoldReminderPayload = {
+  version: 1;
+  cellId: string;
+  holdEndsAt: string;
+  inviterName: string | null;
+};
 
 function readStartLinkPayload(value: Record<string, unknown>): StartLinkPayload | null {
   const fields = readFields(value, ["inviteId", "token", "expiresAt"] as const);
@@ -153,15 +161,8 @@ async function revokeUndeliveredStartLink(tx: ExomemSql, payload: StartLinkPaylo
   `;
 }
 
-function renderStartLink(
-  input: EmailRenderInput<StartLinkPayload, true>
-): RenderedExomemAccessEmail {
-  return renderExomemWelcomeEmail({
-    accessUrl: exomemPublicFragmentUrl(input.publicBaseUrl, "/exomem/invite", input.payload.token),
-    expiresAt: new Date(input.payload.expiresAt),
-    now: input.now,
-    timeZone: input.timeZone,
-  });
+function startLinkUrl(input: EmailRenderInput<StartLinkPayload, true>): string {
+  return exomemPublicFragmentUrl(input.publicBaseUrl, "/exomem/invite", input.payload.token);
 }
 
 const EXOMEM_EMAILS = {
@@ -169,49 +170,44 @@ const EXOMEM_EMAILS = {
   start: defineEmail({
     readPayload: readStartLinkPayload,
     stillHolds: startLinkStillUsable,
-    render: renderStartLink,
+    render: (input) =>
+      renderExomemWelcomeEmail({
+        accessUrl: startLinkUrl(input),
+        expiresAt: new Date(input.payload.expiresAt),
+        now: input.now,
+        timeZone: input.timeZone,
+      }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
   }),
-  /**
-   * A waitlisted person's place opened. PLACEHOLDER COPY: its own copy is not
-   * approved yet, so it renders the start link email until the email-template
-   * work replaces this renderer.
-   */
+  /** A waiting person's place opened: their start link. */
   place_opened: defineEmail({
     readPayload: readStartLinkPayload,
     stillHolds: startLinkStillUsable,
-    render: renderStartLink,
+    render: (input) =>
+      renderExomemPlaceOpenedEmail({
+        accessUrl: startLinkUrl(input),
+        expiresAt: new Date(input.payload.expiresAt),
+        timeZone: input.timeZone,
+      }),
     afterSent: markStartLinkDelivered,
     afterFailed: revokeUndeliveredStartLink,
   }),
-  /**
-   * A person joined, or asked again while on, the waitlist. PLACEHOLDER COPY:
-   * the approved copy does not exist yet, so it renders the earlier waitlist
-   * email until the email-template work replaces this renderer.
-   */
+  /** A person joined the waitlist. It holds while they still wait. */
   waitlist: defineEmail({
     readPayload: (value): WaitlistPayload | null => {
       const fields = readFields(value, ["entryId"] as const);
       return fields && UUID.test(fields.entryId) ? { version: 1, ...fields } : null;
     },
-    stillHolds: async (tx, payload): Promise<{ position: number } | null> => {
-      // Counted at send time, in SQL, so the position is current and no
-      // timestamp is rounded through JavaScript.
+    stillHolds: async (tx, payload): Promise<true | null> => {
       const { rows } = await tx`
-        /* exomem:email-waitlist-position */
-        SELECT (
-          SELECT count(*) FROM exomem_waitlist_entries AS ahead
-          WHERE ahead.admitted_at IS NULL
-            AND (ahead.created_at, ahead.id) < (entry.created_at, entry.id)
-        )::integer + 1 AS position
-        FROM exomem_waitlist_entries AS entry
-        WHERE entry.id = ${payload.entryId}::uuid AND entry.admitted_at IS NULL
+        /* exomem:email-waitlist-still-waiting */
+        SELECT 1 FROM exomem_waitlist_entries
+        WHERE id = ${payload.entryId}::uuid AND admitted_at IS NULL
       `;
-      const row = rows[0] as { position: number } | undefined;
-      return row ? { position: Number(row.position) } : null;
+      return rows.length === 1 ? true : null;
     },
-    render: ({ context }) => renderExomemWaitlistEmail({ position: context.position }),
+    render: () => renderExomemWaitlistEmail(),
   }),
   /**
    * Email 18: two days before an unpaid hold ends. It holds only while the
@@ -219,7 +215,12 @@ const EXOMEM_EMAILS = {
    */
   hold_reminder: defineEmail({
     readPayload: (value): HoldReminderPayload | null => {
-      const fields = readFields(value, ["cellId", "holdEndsAt"] as const);
+      const { inviterName, ...rest } = value;
+      if (!("inviterName" in value)) return null;
+      if (inviterName !== null && (typeof inviterName !== "string" || inviterName.length === 0)) {
+        return null;
+      }
+      const fields = readFields(rest, ["cellId", "holdEndsAt"] as const);
       if (
         !fields ||
         !CELL_ID.test(fields.cellId) ||
@@ -227,7 +228,7 @@ const EXOMEM_EMAILS = {
       ) {
         return null;
       }
-      return { version: 1, ...fields };
+      return { version: 1, ...fields, inviterName };
     },
     stillHolds: async (tx, payload): Promise<{ timeZone: string | null } | null> => {
       const { rows } = await tx`
@@ -248,6 +249,7 @@ const EXOMEM_EMAILS = {
       renderExomemHoldReminderEmail({
         setupUrl: new URL("/exomem/setup", `${publicBaseUrl}/`).toString(),
         holdEndsAt: new Date(payload.holdEndsAt),
+        inviterName: payload.inviterName,
         // The zone the owner's browser last reported wins over the one the
         // invitation was sent with.
         timeZone: context.timeZone ?? timeZone,
@@ -468,6 +470,7 @@ async function releaseEmail(
     const { rows } = await tx`
       /* exomem:lock-leased-email */
       SELECT attempts,
+             expires_at IS NULL AS no_deadline,
              (expires_at IS NOT NULL
                AND expires_at <= now() + LEAST(power(2, attempts - 1), ${MAX_BACKOFF_MINUTES})
                                          * interval '1 minute') AS expires_before_retry
@@ -475,9 +478,12 @@ async function releaseEmail(
       WHERE id = ${email.id}::uuid AND state = 'leased' AND lease_owner = ${leaseOwner}::uuid
       FOR UPDATE
     `;
-    const row = rows[0] as { attempts: number; expires_before_retry: boolean } | undefined;
+    const row = rows[0] as
+      | { attempts: number; no_deadline: boolean; expires_before_retry: boolean }
+      | undefined;
     if (!row) return "lost";
-    if (terminal || Number(row.attempts) >= MAX_ATTEMPTS || row.expires_before_retry) {
+    const outOfAttempts = row.no_deadline && Number(row.attempts) >= MAX_ATTEMPTS_WITHOUT_DEADLINE;
+    if (terminal || row.expires_before_retry || outOfAttempts) {
       await settleWithoutSending(tx, email.id, "failed", errorCode);
       await email.definition.afterFailed?.(tx, email.payload);
       return "failed";
@@ -497,7 +503,45 @@ async function releaseEmail(
   });
 }
 
+/**
+ * Deletes every outbox row addressed to one email, for account deletion.
+ * Pending rows go too: nothing is sent to an address whose account is gone.
+ */
+export async function scrubExomemEmailsFor(tx: ExomemSql, email: string): Promise<number> {
+  const { rows } = await tx`
+    /* exomem:scrub-emails-for-address */
+    DELETE FROM exomem_email_outbox WHERE recipient = ${email}::citext RETURNING id
+  `;
+  return rows.length;
+}
+
+/**
+ * Clears the recipient of rows settled more than 30 days ago, in bounded
+ * batches. Their payload is already gone; the row and its dedupe key stay,
+ * so the same fact still cannot send twice.
+ */
+export async function clearSettledEmailRecipients(limit = 500): Promise<number> {
+  const { rows } = await executeExomemSql`
+    /* exomem:clear-settled-email-recipients */
+    WITH settled AS (
+      SELECT id FROM exomem_email_outbox
+      WHERE recipient IS NOT NULL
+        AND state IN ('sent', 'failed', 'cancelled')
+        AND updated_at < now() - (${SETTLED_RECIPIENT_RETENTION_DAYS} * interval '1 day')
+      ORDER BY updated_at
+      LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5_000))}
+    )
+    UPDATE exomem_email_outbox AS outbox
+    SET recipient = NULL, payload_ciphertext = NULL
+    FROM settled
+    WHERE outbox.id = settled.id
+    RETURNING outbox.id
+  `;
+  return rows.length;
+}
+
 export type ExomemEmailDrainResult = {
+  recipientsCleared: number;
   claimed: number;
   sent: number;
   retryScheduled: number;
@@ -521,6 +565,7 @@ export async function drainExomemEmailOutbox(
   const leaseOwner = deps.newLeaseOwner();
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const result: ExomemEmailDrainResult = {
+    recipientsCleared: await clearSettledEmailRecipients(),
     claimed: 0,
     sent: 0,
     retryScheduled: 0,

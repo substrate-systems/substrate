@@ -5,15 +5,12 @@ const INVITES = "**/api/exomem/admin/invites";
 const BEARER = "operator-bearer-sentinel";
 
 const capacity = {
-  storageCapacityBytes: 20 * 1024 * 1024 * 1024,
-  reservedStorageBytes: 5 * 1024 * 1024 * 1024,
-  runtimeCapacitySlots: 4,
-  reservedRuntimeSlots: 1,
-  provisionReservationCapacity: 4,
-  reservedProvisionSlots: 1,
-  provisionClaimCapacity: 2,
-  activeProvisionClaims: 0,
-  outstandingPaidInvites: 1,
+  freePlaces: 2,
+  freePlacesUnknownReason: null,
+  observedSlots: 4,
+  liveCells: 1,
+  outstandingInvitations: 1,
+  newestObservationAt: "2026-10-12T08:00:00.000Z",
 };
 
 function authorization(request: Request): string | undefined {
@@ -48,7 +45,7 @@ test.describe("private Exomem operator", () => {
     expect(authorization(capacityRequests[0]!)).toBe(`Bearer ${BEARER}`);
     expect(capacityRequests[0]!.headers()["cookie"]).toBeUndefined();
     expect(capacityRequests[0]!.headers()["referer"]).toBeUndefined();
-    await expect(page.getByText("Paid slots free").locator("..").getByText("2")).toBeVisible();
+    await expect(page.getByText("Cloud places free").locator("..").getByText("2")).toBeVisible();
     await expect(page.getByLabel("Access")).toHaveValue("paid");
 
     await page.getByLabel("Friend's email").fill("friend@example.com");
@@ -83,7 +80,7 @@ test.describe("private Exomem operator", () => {
     await openControls(page);
     await page.getByLabel("Friend's email").fill("friend@example.com");
     await page.getByRole("button", { name: "Send paid invitation" }).click();
-    await expect(page.getByText("No paid alpha slots remain.", { exact: true })).toBeVisible();
+    await expect(page.getByText("No Cloud places are free.", { exact: true })).toBeVisible();
 
     await page.getByLabel("Access").selectOption("complimentary");
     const complimentary = page.getByRole("button", { name: "Send complimentary invitation" });

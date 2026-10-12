@@ -60,8 +60,9 @@ before(() => {
     namedExports: {
       promoteWaitlistedPeople: async () => {
         if (promotionShouldFail) throw new Error("private promotion failure");
-        return { status: "ran", promoted: 2 };
+        return { status: "ran", promoted: 2, settled: 1 };
       },
+      pruneStaleWaitlistEntries: async () => 3,
     },
   });
   mock.module("@/lib/exomem-hosted/paddle-reconciliation-runtime", {
@@ -160,7 +161,8 @@ describe("GET /api/cron/exomem-reconcile", () => {
         deletionsFinished: 2,
         deletionsPending: 3,
         deletionsFailed: 1,
-        waitlistPromotion: { status: "ran", promoted: 2 },
+        waitlistPromotion: { status: "ran", promoted: 2, settled: 1 },
+        waitlistPruned: 3,
       },
     });
   });
@@ -174,7 +176,11 @@ describe("GET /api/cron/exomem-reconcile", () => {
     const text = await response.text();
     assert.equal(text.includes("private promotion failure"), false);
     const body = JSON.parse(text) as { result: { cloud: Record<string, unknown> } };
-    assert.deepEqual(body.result.cloud.waitlistPromotion, { status: "failed", promoted: null });
+    assert.deepEqual(body.result.cloud.waitlistPromotion, {
+      status: "failed",
+      promoted: null,
+      settled: null,
+    });
     assert.equal(cloudDeletionFinishCalls, 1);
   });
 

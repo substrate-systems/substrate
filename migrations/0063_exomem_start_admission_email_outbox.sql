@@ -12,36 +12,16 @@
 
 CREATE TABLE exomem_email_outbox (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  -- The email catalogue of the Exomem design. Each kind has one renderer in
-  -- code, so the set is fixed by code, not by data. The whole catalogue is
-  -- listed now, so a change that adds a renderer needs no constraint change.
-  kind text NOT NULL CHECK (kind IN (
-    'sign_in',
-    'start',
-    'invite',
-    'cell_ready',
-    'payment_failed',
-    'subscription_ended',
-    'deletion_warning',
-    'deleted',
-    'export_ready',
-    'friend_invite',
-    'covered_invite',
-    'invite_reminder',
-    'invite_used',
-    'invite_ended',
-    'storage_nearly_full',
-    'storage_full',
-    'email_change_confirm',
-    'email_change_notice',
-    'vault_imported',
-    'hold_reminder',
-    'storage_added',
-    'waitlist',
-    'place_opened'
-  )),
+  -- Each kind has one renderer in code, so the set is fixed by code, not by
+  -- data. A change that adds a renderer replaces this named constraint in its
+  -- own migration.
+  kind text NOT NULL
+    CONSTRAINT exomem_email_outbox_kind_check
+    CHECK (kind IN ('start', 'place_opened', 'waitlist', 'hold_reminder')),
   dedupe_key text NOT NULL UNIQUE CHECK (char_length(dedupe_key) BETWEEN 1 AND 200),
-  recipient citext NOT NULL CHECK (char_length(recipient) BETWEEN 3 AND 254),
+  -- Cleared 30 days after the row settles, and the row is deleted when its
+  -- recipient's account is deleted.
+  recipient citext CHECK (recipient IS NULL OR char_length(recipient) BETWEEN 3 AND 254),
   recipient_time_zone text
     CHECK (recipient_time_zone IS NULL OR char_length(recipient_time_zone) BETWEEN 1 AND 64),
   -- An encrypted envelope (security.ts). It can hold a bearer token, so it is
@@ -66,12 +46,23 @@ CREATE TABLE exomem_email_outbox (
     OR (state <> 'leased' AND lease_owner IS NULL AND lease_expires_at IS NULL)
   ),
   CHECK ((state IN ('pending', 'leased')) = (payload_ciphertext IS NOT NULL)),
+  CHECK (state NOT IN ('pending', 'leased') OR recipient IS NOT NULL),
   CHECK (state <> 'sent' OR sent_at IS NOT NULL)
 );
 
 CREATE INDEX exomem_email_outbox_ready_idx
   ON exomem_email_outbox (not_before, created_at)
   WHERE state IN ('pending', 'leased');
+
+-- Account deletion removes every row for one address.
+CREATE INDEX exomem_email_outbox_recipient_idx
+  ON exomem_email_outbox (recipient)
+  WHERE recipient IS NOT NULL;
+
+-- Settled rows whose recipient is still stored, oldest first, for retention.
+CREATE INDEX exomem_email_outbox_retention_idx
+  ON exomem_email_outbox (updated_at)
+  WHERE recipient IS NOT NULL AND state IN ('sent', 'failed', 'cancelled');
 
 -- IANA zone names, checked in code against the runtime's zone list. NULL
 -- means unknown, and emails then label their times as UTC.
@@ -86,4 +77,3 @@ ALTER TABLE exomem_waitlist_entries
 ALTER TABLE exomem_invites
   ADD COLUMN recipient_time_zone text
     CHECK (recipient_time_zone IS NULL OR char_length(recipient_time_zone) BETWEEN 1 AND 64);
-

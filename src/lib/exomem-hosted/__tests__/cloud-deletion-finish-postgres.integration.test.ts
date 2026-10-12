@@ -723,7 +723,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     assert.deepEqual(ledger.rows, [{ tenant_id: null }]);
   });
 
-  it("L2: purges an unconsumed invite and an unadmitted waitlist entry for the owner's email", async () => {
+  it("L2: purges an unconsumed invite, an unadmitted waitlist entry and the emails for the owner's email", async () => {
     await resetFleet();
     const tenant = await admitCloudTenant({ source: "complimentary" });
     // A second, never-redeemed operator invite to the same email, plus a
@@ -738,28 +738,40 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     await pool!.query("INSERT INTO exomem_waitlist_entries (email_normalized) VALUES ($1)", [
       tenant.email,
     ]);
-    const before = await pool!.query<{ invites: number; waitlist: number }>(
+    // An email already sent to the owner still holds their address.
+    await pool!.query(
+      `INSERT INTO exomem_email_outbox (kind, dedupe_key, recipient, state, sent_at)
+       VALUES ('waitlist', $2, $1, 'sent', now())`,
+      [tenant.email, `waitlist:${randomUUID()}`]
+    );
+    const before = await pool!.query<{ invites: number; waitlist: number; emails: number }>(
       `SELECT
          (SELECT count(*)::int FROM exomem_invites
            WHERE email_normalized = $1 AND consumed_at IS NULL) AS invites,
          (SELECT count(*)::int FROM exomem_waitlist_entries
-           WHERE email_normalized = $1 AND admitted_at IS NULL) AS waitlist`,
+           WHERE email_normalized = $1 AND admitted_at IS NULL) AS waitlist,
+         (SELECT count(*)::int FROM exomem_email_outbox WHERE recipient = $1) AS emails`,
       [tenant.email]
     );
-    assert.deepEqual(before.rows[0], { invites: 1, waitlist: 1 }, "sanity: both rows exist first");
+    assert.deepEqual(
+      before.rows[0],
+      { invites: 1, waitlist: 1, emails: 1 },
+      "sanity: the rows exist first"
+    );
 
     await confirmCloudDeletion(tenant, (tenantId) =>
       finishCloudAccountDeletion(tenantId, withPaddle(fakePaddle()))
     );
     assert.equal(await tenantStatus(tenant.tenantId), "deleted");
 
-    const after = await pool!.query<{ invites: number; waitlist: number }>(
+    const after = await pool!.query<{ invites: number; waitlist: number; emails: number }>(
       `SELECT
          (SELECT count(*)::int FROM exomem_invites WHERE email_normalized = $1) AS invites,
-         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist`,
+         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist,
+         (SELECT count(*)::int FROM exomem_email_outbox WHERE recipient = $1) AS emails`,
       [tenant.email]
     );
-    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0 });
+    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0, emails: 0 });
     await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
   });
 
@@ -794,13 +806,14 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       "finished"
     );
     assert.equal(await tenantStatus(tenant.tenantId), "deleted");
-    const after = await pool!.query<{ invites: number; waitlist: number }>(
+    const after = await pool!.query<{ invites: number; waitlist: number; emails: number }>(
       `SELECT
          (SELECT count(*)::int FROM exomem_invites WHERE email_normalized = $1) AS invites,
-         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist`,
+         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist,
+         (SELECT count(*)::int FROM exomem_email_outbox WHERE recipient = $1) AS emails`,
       [tenant.email]
     );
-    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0 });
+    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0, emails: 0 });
     await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
   });
 

@@ -139,66 +139,130 @@ export function renderExomemWelcomeEmail(input: {
 }
 
 /**
+ * A time limit as the design catalogue writes it ("14 Sep, 15:05"), in the
+ * reader's zone, or in UTC with the label when the zone is unknown.
+ */
+function catalogueTime(
+  at: Date,
+  timeZone: string | null | undefined
+): {
+  time: string;
+  known: boolean;
+} {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timeZone ?? "UTC",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  return {
+    time: `${part("day")} ${part("month")}, ${part("hour")}:${part("minute")}`,
+    known: Boolean(timeZone),
+  };
+}
+
+/**
+ * The catalogue layout: a hidden preheader, a headline, the body, at most one
+ * action, the small print and the footer.
+ */
+function renderCatalogueEmail(input: {
+  subject: string;
+  preheader: string;
+  headline: string;
+  body: string;
+  action: { label: string; url: string } | null;
+  smallPrint: string;
+}): RenderedExomemAccessEmail {
+  const action = input.action
+    ? `
+    <p style="margin: 0 0 20px;"><a href="${escapeHtml(input.action.url)}" style="display: inline-block; background: #171717; color: #ffffff; text-decoration: none; padding: 11px 18px; border-radius: 7px; font-weight: 600;">${escapeHtml(input.action.label)}</a></p>`
+    : "";
+  const htmlContent = `<!doctype html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
+    <div style="display: none; max-height: 0; overflow: hidden;">${escapeHtml(input.preheader)}</div>
+    <p style="font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0 0 14px;">${escapeHtml(input.headline)}</p>
+    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(input.body)}</p>${action}
+    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">${escapeHtml(input.smallPrint)}</p>
+    <p style="font-size: 14px; line-height: 1.6; margin: 0;">Exomem by Substrate Systems</p>
+  </body>
+</html>`;
+  const actionText = input.action ? `\n\n${input.action.label}: ${input.action.url}` : "";
+  const textContent = `${input.headline}
+
+${input.body}${actionText}
+
+${input.smallPrint}
+
+Exomem by Substrate Systems`;
+  return { subject: input.subject, htmlContent, textContent };
+}
+
+/**
  * Email 18: a person who accepted but has not paid, two days before their
- * unpaid hold ends. Subject, headline, action and small print follow the
- * design's email catalogue. Its body names the inviter, and a self-serve
- * start has none, so the first sentence here is adapted and awaits the copy
- * owner's approval.
+ * unpaid hold ends, in the design catalogue's copy. That copy names the
+ * inviter. A self-serve start, or an operator invitation without a name, has
+ * none, and uses the product owner's approved sentence without one.
  */
 export function renderExomemHoldReminderEmail(input: {
   setupUrl: string;
   holdEndsAt: Date;
+  inviterName: string | null;
   timeZone?: string | null;
 }): RenderedExomemAccessEmail {
   const deadline = absoluteTime(input.holdEndsAt, input.timeZone);
-  const introduction = `You started setting up Exomem but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup.`;
-  const safeUrl = escapeHtml(input.setupUrl);
-  const htmlContent = `<!doctype html>
-<html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <p style="font-size: 18px; line-height: 1.4; font-weight: 600; margin: 0 0 14px;">Your Exomem is waiting</p>
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(introduction)}</p>
-    <p style="margin: 0 0 20px;"><a href="${safeUrl}" style="display: inline-block; background: #171717; color: #ffffff; text-decoration: none; padding: 11px 18px; border-radius: 7px; font-weight: 600;">Finish setting up</a></p>
-    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">We send this once. If you’ve changed your mind, ignore it.</p>
-    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
-  </body>
-</html>`;
-  const textContent = `Your Exomem is waiting
+  const body = input.inviterName
+    ? `You accepted ${input.inviterName}’s invitation but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup; the invitation stays used.`
+    : `You started setting up Exomem but haven’t subscribed yet. Finish by ${deadline} and everything is as you left it. After that we release the setup.`;
+  return renderCatalogueEmail({
+    subject: "Finish setting up your Exomem",
+    preheader: `Finish by ${deadline}.`,
+    headline: "Your Exomem is waiting",
+    body,
+    action: { label: "Finish setting up", url: input.setupUrl },
+    smallPrint: "We send this once. If you’ve changed your mind, ignore it.",
+  });
+}
 
-${introduction}
-
-Finish setting up: ${input.setupUrl}
-
-We send this once. If you’ve changed your mind, ignore it.
-
-— Exomem by Substrate Systems`;
-  return { subject: "Finish setting up your Exomem", htmlContent, textContent };
+/** The waitlist email, in the product owner's approved copy (2026-10-12). */
+export function renderExomemWaitlistEmail(): RenderedExomemAccessEmail {
+  return renderCatalogueEmail({
+    subject: "You're on the Exomem waitlist",
+    preheader: "We'll email you when a place opens.",
+    headline: "You're on the list",
+    body: "Exomem is full for now. We add room as we grow. When a place opens for you, we'll send a link to start.",
+    action: null,
+    smallPrint:
+      "You don't need to do anything. If you didn't ask for this, ignore this email. We write again only when a place opens.",
+  });
 }
 
 /**
- * No call to action on purpose: there is nothing for them to do, and a button
- * here would imply otherwise. Capacity is stated as the reason so the wait does
- * not read as a silent rejection.
+ * A waiting person's place opened, in the product owner's approved copy
+ * (2026-10-12). The copy reads "(your time)"; when the reader's zone is
+ * unknown the time is shown in UTC and labelled so.
  */
-export function renderExomemWaitlistEmail(input: { position: number }): RenderedExomemAccessEmail {
-  const introduction =
-    input.position === 1
-      ? "Thanks for asking about Exomem Cloud. Every place is currently taken, so you are first in line — we will email you as soon as one frees up. You have not been charged."
-      : `Thanks for asking about Exomem Cloud. Every place is currently taken, so you are number ${input.position} in line — we will email you as soon as one frees up. You have not been charged.`;
-  const htmlContent = `<!doctype html>
-<html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #171717; max-width: 560px; margin: 0 auto; padding: 32px; background: #ffffff;">
-    <p style="font-size: 16px; line-height: 1.6; margin: 0 0 18px;">${escapeHtml(introduction)}</p>
-    <p style="font-size: 13px; line-height: 1.6; color: #525252; margin: 0 0 18px;">Exomem is also free and open source if you would rather run it yourself — there is no waiting for that.</p>
-    <p style="font-size: 14px; line-height: 1.6; margin: 0;">— Exomem by Substrate Systems</p>
-  </body>
-</html>`;
-  const textContent = `${introduction}
-
-Exomem is also free and open source if you would rather run it yourself — there is no waiting for that.
-
-— Exomem by Substrate Systems`;
-  return { subject: "You are on the Exomem waitlist", htmlContent, textContent };
+export function renderExomemPlaceOpenedEmail(input: {
+  accessUrl: string;
+  expiresAt: Date;
+  timeZone?: string | null;
+}): RenderedExomemAccessEmail {
+  const expiry = catalogueTime(input.expiresAt, input.timeZone);
+  const zoneLabel = expiry.known ? "(your time)" : "UTC";
+  return renderCatalogueEmail({
+    subject: "Your place in Exomem is ready",
+    preheader: expiry.known
+      ? `Start before ${expiry.time} to keep it.`
+      : `Start before ${expiry.time} UTC to keep it.`,
+    headline: "Your place is ready",
+    body: "A place opened up for you. Start your Exomem, then add it to your assistant.",
+    action: { label: "Start Exomem", url: input.accessUrl },
+    smallPrint: `The link works once, until ${expiry.time} ${zoneLabel}. If you don't use it, the place goes to the next person on the list.`,
+  });
 }
 
 export function renderExomemMagicLinkEmail(input: {

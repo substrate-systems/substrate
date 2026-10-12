@@ -11,6 +11,7 @@ import { loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
+import { FIRST_PAYMENT_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
 import { cancelExomemCheckoutTransaction, type PaddleTransport } from "./paddle-billing";
 import {
@@ -53,13 +54,40 @@ function cloudAdmissionClosed(): ExomemHostedError {
 }
 
 /**
- * A redemption fits when Cloud has a free slot once this invite's own promise
- * is left out: the invite turns into the cell it creates.
+ * A redemption fits when Cloud has a free slot once this address's own
+ * invitations are left out (the invitation turns into the cell it creates),
+ * counting only invitations issued before this one.
  */
-async function requireCloudAdmissionCapacity(tx: ExomemSql, inviteId: string): Promise<void> {
-  if ((await cloudAdmissionHeadroom(tx, { excludingInviteId: inviteId })) < 1) {
-    throw cloudAdmissionClosed();
-  }
+async function requireCloudAdmissionCapacity(
+  tx: ExomemSql,
+  invite: { id: string; email_normalized: string }
+): Promise<void> {
+  const headroom = await cloudAdmissionHeadroom(tx, {
+    excludingEmail: invite.email_normalized,
+    issuedBeforeInviteId: invite.id,
+  });
+  if (headroom < 1) throw cloudAdmissionClosed();
+}
+
+/**
+ * A repeat start request leaves the person's earlier start links valid, so
+ * using one of them revokes the others: the address now owns its cell and
+ * holds no further promise.
+ */
+async function revokeSiblingStartLinks(
+  tx: ExomemSql,
+  email: string,
+  consumedInviteId: string
+): Promise<void> {
+  await tx`
+    /* exomem-cloud:revoke-sibling-start-links */
+    UPDATE exomem_invites SET revoked_at = now()
+    WHERE email_normalized = ${email}
+      AND self_serve
+      AND id <> ${consumedInviteId}::uuid
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
+  `;
 }
 
 /**
@@ -85,6 +113,8 @@ async function createCloudCell(
     desiredState: "running" | "stopped";
     recipient: string;
     recipientTimeZone: string | null;
+    /** Who invited them, for email 18; `null` for a self-serve start. */
+    inviterName: string | null;
   }
 ): Promise<string | null> {
   const cellResult = await tx`
@@ -102,7 +132,12 @@ async function createCloudCell(
       dedupeKey: `hold-reminder:${cell.cell_id}`,
       recipient: input.recipient,
       recipientTimeZone: input.recipientTimeZone,
-      payload: { version: 1, cellId: cell.cell_id, holdEndsAt: holdEndsAt.toISOString() },
+      payload: {
+        version: 1,
+        cellId: cell.cell_id,
+        holdEndsAt: holdEndsAt.toISOString(),
+        inviterName: input.inviterName,
+      },
       notBefore: new Date(holdEndsAt.getTime() - HOLD_REMINDER_LEAD_DAYS * DAY_MS),
       expiresAt: holdEndsAt,
     });
@@ -167,7 +202,7 @@ export async function redeemCloudInviteAtomic(
     if (!invite) return null;
 
     // Capacity check: no write-bearing statement has run yet.
-    await requireCloudAdmissionCapacity(tx, invite.id);
+    await requireCloudAdmissionCapacity(tx, invite);
     const timeZone = input.timeZone ?? invite.recipient_time_zone;
 
     const ownerResult = await tx`
@@ -270,6 +305,9 @@ export async function redeemCloudInviteAtomic(
       desiredState: desiredCellState,
       recipient: invite.email_normalized,
       recipientTimeZone: timeZone,
+      // Invitations record no inviter name yet. The friend-invitation change
+      // that adds it passes it here.
+      inviterName: null,
     });
     if (!cellId) throw exomemErrors.accessTokenInvalid();
 
@@ -295,6 +333,7 @@ export async function redeemCloudInviteAtomic(
       RETURNING id
     `;
     if (!consumedResult.rows[0]) throw exomemErrors.accessTokenInvalid();
+    await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
 
     return { userId: owner.id, tenantId, sessionId: session.id, cellId, paid: !isComplimentary };
   });
@@ -502,7 +541,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         | undefined;
       if (!authorization) throw new CloudOAuthAdmissionRejected();
 
-      await requireCloudAdmissionCapacity(tx, invite.id);
+      await requireCloudAdmissionCapacity(tx, invite);
       const timeZone = input.timeZone ?? invite.recipient_time_zone;
 
       const ownerResult = await tx`
@@ -593,6 +632,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         desiredState: desiredCellState,
         recipient: invite.email_normalized,
         recipientTimeZone: timeZone,
+        // See redeemCloudInviteAtomic's matching call.
+        inviterName: null,
       });
       if (!cellId) throw new CloudOAuthAdmissionRejected();
 
@@ -608,7 +649,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       if (!session) throw new CloudOAuthAdmissionRejected();
 
       if (!isComplimentary) {
-        await consumeCloudOAuthInvite(tx, invite.id, owner.id, tenantId, session.id);
+        await consumeCloudOAuthInvite(tx, invite, owner.id, tenantId, session.id);
         return { tenantId, sessionId: session.id, grantId: null, cellId };
       }
 
@@ -638,7 +679,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       `;
       if (!codeResult.rows[0]) throw new CloudOAuthAdmissionRejected();
 
-      await consumeCloudOAuthInvite(tx, invite.id, owner.id, tenantId, session.id);
+      await consumeCloudOAuthInvite(tx, invite, owner.id, tenantId, session.id);
       const consumedTransaction = await tx`
         UPDATE exomem_oauth_authorization_transactions
         SET consumed_at = now(), redeemed_session_id = ${session.id}::uuid
@@ -659,7 +700,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
 
 async function consumeCloudOAuthInvite(
   tx: ExomemSql,
-  inviteId: string,
+  invite: LockedCloudInvite,
   ownerUserId: string,
   tenantId: string,
   sessionId: string
@@ -667,9 +708,10 @@ async function consumeCloudOAuthInvite(
   const consumed = await tx`
     UPDATE exomem_invites SET consumed_at = now(), consumed_by_user_id = ${ownerUserId}::uuid,
       redeemed_tenant_id = ${tenantId}::uuid, redeemed_session_id = ${sessionId}::uuid
-    WHERE id = ${inviteId}::uuid AND consumed_at IS NULL RETURNING id
+    WHERE id = ${invite.id}::uuid AND consumed_at IS NULL RETURNING id
   `;
   if (!consumed.rows[0]) throw new CloudOAuthAdmissionRejected();
+  await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
 }
 
 export type CloudAwaitingCheckoutTenant = {
@@ -690,7 +732,7 @@ async function findExpiredCloudAwaitingCheckoutTenants(
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
     JOIN exomem_cloud_cells AS cell ON cell.tenant_id = tenant.id
     WHERE entitlement.source = 'paddle'
-      AND entitlement.source_state = 'awaiting_checkout'
+      AND entitlement.source_state = ANY(${[...FIRST_PAYMENT_SOURCE_STATES]}::text[])
       AND cell.desired_state = 'stopped'
       AND cell.created_at <= now() - (${expiryDays} * interval '1 day')
   `;
@@ -737,9 +779,10 @@ export type CloudInviteExpiryDependencies = {
 };
 
 /**
- * D1's 7-day expiry, counted from the stopped cell's creation: a tenant still
- * `awaiting_checkout` after the window
- * first has its pending provider transaction cancelled. If the provider
+ * D1's 7-day expiry, counted from the stopped cell's creation: a tenant that
+ * has still not paid for the first time after the window (no checkout, or a
+ * checkout opened and abandoned) first has its pending provider transaction
+ * cancelled. If the provider
  * reports the transaction already completed, the tenant is left alone for
  * the activation webhook to set `running` as usual — this function does
  * not activate it itself, to keep "the webhook is what activates" a single

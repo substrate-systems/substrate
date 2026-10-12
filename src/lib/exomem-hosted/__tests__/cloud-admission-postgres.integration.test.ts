@@ -751,42 +751,47 @@ describe("Exomem Cloud admission PostgreSQL integration", { skip: !databaseUrl }
     assert.equal(runningCell.rows[0]!.desired_state, "running");
   });
 
-  it("expires an unpaid invite after 7 days by cancelling its transaction and deleting the row", async () => {
-    await resetFleet();
-    await configureCapacity(2);
-    const paid = await createInvite("paddle");
-    const result = await redeemCloudInviteAtomic(redemptionInput(paid.tokenDigest));
-    assert.ok(result);
-    await pool!.query(
-      `UPDATE exomem_entitlements
-       SET provider_transaction_ref = 'txn_expiretest0000000000000',
-           provider_environment = 'sandbox'
-       WHERE tenant_id = $1`,
-      [result!.tenantId]
-    );
-    await pool!.query("UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE cell_id = $1", [
-      result!.cellId,
-    ]);
+  // Opening checkout moves the tenant to `checkout_pending`; an abandoned
+  // checkout must still expire, or it holds its slot forever.
+  for (const sourceState of ["awaiting_checkout", "checkout_pending"] as const) {
+    it(`expires an unpaid invite after 7 days by cancelling its transaction and deleting the row (${sourceState})`, async () => {
+      await resetFleet();
+      await configureCapacity(2);
+      const paid = await createInvite("paddle");
+      const result = await redeemCloudInviteAtomic(redemptionInput(paid.tokenDigest));
+      assert.ok(result);
+      await pool!.query(
+        `UPDATE exomem_entitlements
+         SET provider_transaction_ref = 'txn_expiretest0000000000000',
+             provider_environment = 'sandbox',
+             source_state = $2
+         WHERE tenant_id = $1`,
+        [result!.tenantId, sourceState]
+      );
+      await pool!.query("UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE cell_id = $1", [
+        result!.cellId,
+      ]);
 
-    let cancelCalls = 0;
-    const outcomes = await expireCloudAwaitingCheckoutTenants({
-      config: FAKE_PADDLE_CONFIG,
-      cancelTransaction: async () => {
-        cancelCalls += 1;
-        return { state: "canceled" };
-      },
+      let cancelCalls = 0;
+      const outcomes = await expireCloudAwaitingCheckoutTenants({
+        config: FAKE_PADDLE_CONFIG,
+        cancelTransaction: async () => {
+          cancelCalls += 1;
+          return { state: "canceled" };
+        },
+      });
+      assert.equal(cancelCalls, 1);
+      assert.deepEqual(
+        outcomes.map((o) => o.outcome),
+        ["expired"]
+      );
+      const cell = await pool!.query(
+        "SELECT desired_state FROM exomem_cloud_cells WHERE cell_id = $1",
+        [result!.cellId]
+      );
+      assert.equal(cell.rows[0]!.desired_state, "deleted");
     });
-    assert.equal(cancelCalls, 1);
-    assert.deepEqual(
-      outcomes.map((o) => o.outcome),
-      ["expired"]
-    );
-    const cell = await pool!.query(
-      "SELECT desired_state FROM exomem_cloud_cells WHERE cell_id = $1",
-      [result!.cellId]
-    );
-    assert.equal(cell.rows[0]!.desired_state, "deleted");
-  });
+  }
 
   it("gives a re-admitted tenant a full 7-day hold from its new cell, and schedules its reminder from that cell", async () => {
     await resetFleet();

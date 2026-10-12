@@ -13,34 +13,34 @@ runbook, `exomem-cloud-reviewer-access.md`.
 Set secrets in every Vercel environment that can run an Exomem route, then
 redeploy. Never reuse a cell credential as a control-plane secret.
 
-| Variable                                                            | Requirement                                                                                                                                                                                                  |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                                                      | Postgres connection used by migrations and product-scoped rows.                                                                                                                                              |
-| `EXOMEM_PUBLIC_BASE_URL`                                            | Production HTTPS origin, exactly `https://substratesystems.io`. Credentials, query, fragment and non-root paths are rejected, and there is no request-derived fallback. Development HTTP is loopback-only.   |
-| `EXOMEM_ADMIN_TOKEN`                                                | At least 32 random bytes, known only to operators. Protects the operator API and page.                                                                                                                       |
-| `EXOMEM_CONTROL_PLANE_KEY`                                          | Exactly 32 random bytes as unpadded base64url, on the web app and the gateway. Seals OAuth continuations and queued email links, and keys rate-limit buckets.                                                |
-| `EXOMEM_CLOUD_MCP_URL`, `EXOMEM_CLOUD_MCP_PATH`                     | The Cloud MCP resource URL and its path on the gateway. The web app and the gateway must name the same resource. A missing value fails OAuth closed.                                                         |
-| `EXOMEM_CLOUD_CELL_TOKEN_KEY`                                       | Gateway only: 32 bytes as hex, used to derive each cell's bearer. The web app does not need it.                                                                                                              |
-| `CRON_SECRET`                                                       | Vercel-only bearer for unrelated daily and weekly jobs. Never install it in the K3s scheduler.                                                                                                               |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                    | Dedicated active bearer shared only by the two Exomem scheduled routes and the K3s scheduler.                                                                                                                |
-| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                           | Optional Vercel receiver-only overlap during rotation. Absent in steady state and never installed in K3s.                                                                                                    |
-| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256`                                  | SHA-256 of the scheduler alert receiver capability for `/api/exomem/alerts/[token]`. Unset means the endpoint answers `404`. Only the digest belongs here.                                                   |
-| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS`                         | Optional receiver-only overlap during alert capability rotation. A malformed value is ignored.                                                                                                               |
-| `EXOMEM_HOSTED_ALERT_RECIPIENT`                                     | Optional alert address override; defaults to `founder@substratesystems.io`.                                                                                                                                  |
-| `BREVO_API_KEY`                                                     | Delivers invite, magic-link, deletion-confirmation, cancellation and alert email.                                                                                                                            |
-| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                           | Optional verified sender overrides.                                                                                                                                                                          |
-| `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`     | One matching Paddle environment, merchant API key and webhook-verification secret. Keep them configured after new checkout stops, so existing paid accounts can reconcile, manage billing and delete safely. |
-| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT` | Browser checkout token and the same environment as the merchant configuration. A mismatch fails closed.                                                                                                      |
-| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`     | The environment and the Exomem product that the server selects.                                                                                                                                              |
-| `EXOMEM_PADDLE_PRICE_ID`                                            | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                               |
-| `EXOMEM_PADDLE_DUNNING_DAYS`                                        | Days that Paddle retries a failed payment, as set in payment recovery. Home shows "read-only until" as the failed-payment start plus these days. Unset or outside 1 to 365, that date is unknown.            |
-| `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                  | The recurring Paddle discount that carries the friend price. Home shows the friend price only on a subscription that carries this discount.                                                                  |
-| `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, or a secret that Cloudflare rejects, fails every start request with `503`. Use Cloudflare's documented test secrets only outside production. |
-| `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                 |
-| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `closed` (default), `waitlist` or `open`. See "Start admission" below. Any other value reads as `closed`.                                                                                                    |
-| `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                           |
-| `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                               |
-| `EXOMEM_CONNECTOR_SETTINGS_URLS`                                    | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                 |
+| Variable                                                            | Requirement                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                      | Postgres connection used by migrations and product-scoped rows.                                                                                                                                                                       |
+| `EXOMEM_PUBLIC_BASE_URL`                                            | Production HTTPS origin, exactly `https://substratesystems.io`. Credentials, query, fragment and non-root paths are rejected, and there is no request-derived fallback. Development HTTP is loopback-only.                            |
+| `EXOMEM_ADMIN_TOKEN`                                                | At least 32 random bytes, known only to operators. Protects the operator API and page.                                                                                                                                                |
+| `EXOMEM_CONTROL_PLANE_KEY`                                          | Exactly 32 random bytes as unpadded base64url, on the web app and the gateway. Seals OAuth continuations and queued email links, and keys rate-limit buckets.                                                                         |
+| `EXOMEM_CLOUD_MCP_URL`, `EXOMEM_CLOUD_MCP_PATH`                     | The Cloud MCP resource URL and its path on the gateway. The web app and the gateway must name the same resource. A missing value fails OAuth closed.                                                                                  |
+| `EXOMEM_CLOUD_CELL_TOKEN_KEY`                                       | Gateway only: 32 bytes as hex, used to derive each cell's bearer. The web app does not need it.                                                                                                                                       |
+| `CRON_SECRET`                                                       | Vercel-only bearer for unrelated daily and weekly jobs. Never install it in the K3s scheduler.                                                                                                                                        |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET`                                    | Dedicated active bearer shared only by the two Exomem scheduled routes and the K3s scheduler.                                                                                                                                         |
+| `EXOMEM_HOSTED_SCHEDULER_SECRET_PREVIOUS`                           | Optional Vercel receiver-only overlap during rotation. Absent in steady state and never installed in K3s.                                                                                                                             |
+| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256`                                  | SHA-256 of the scheduler alert receiver capability for `/api/exomem/alerts/[token]`. Unset means the endpoint answers `404`. Only the digest belongs here.                                                                            |
+| `EXOMEM_HOSTED_ALERT_TOKEN_SHA256_PREVIOUS`                         | Optional receiver-only overlap during alert capability rotation. A malformed value is ignored.                                                                                                                                        |
+| `EXOMEM_HOSTED_ALERT_RECIPIENT`                                     | Optional alert address override; defaults to `founder@substratesystems.io`.                                                                                                                                                           |
+| `BREVO_API_KEY`                                                     | Delivers invite, magic-link, deletion-confirmation, cancellation and alert email.                                                                                                                                                     |
+| `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`                           | Optional verified sender overrides.                                                                                                                                                                                                   |
+| `PADDLE_ENVIRONMENT`, `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`     | One matching Paddle environment, merchant API key and webhook-verification secret. Keep them configured after new checkout stops, so existing paid accounts can reconcile, manage billing and delete safely.                          |
+| `NEXT_PUBLIC_PADDLE_CLIENT_TOKEN`, `NEXT_PUBLIC_PADDLE_ENVIRONMENT` | Browser checkout token and the same environment as the merchant configuration. A mismatch fails closed.                                                                                                                               |
+| `EXOMEM_PADDLE_CATALOG_ENVIRONMENT`, `EXOMEM_PADDLE_PRODUCT_ID`     | The environment and the Exomem product that the server selects.                                                                                                                                                                       |
+| `EXOMEM_PADDLE_PRICE_ID`                                            | The price that checkout charges and Home shows. This is the new-checkout gate: remove it to stop new checkout.                                                                                                                        |
+| `EXOMEM_PADDLE_DUNNING_DAYS`                                        | Days that Paddle retries a failed payment, as set in payment recovery. Home shows "read-only until" as the failed-payment start plus these days. Unset or outside 1 to 365, that date is unknown.                                     |
+| `EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`                                  | The recurring Paddle discount that carries the friend price. Home shows the friend price only on a subscription that carries this discount.                                                                                           |
+| `EXOMEM_TURNSTILE_SECRET_KEY`                                       | Cloudflare Turnstile secret for "Start with your email". Unset, a secret that Cloudflare rejects, or a Cloudflare test secret in production leaves only the rate limits, and the web app logs `bot check unavailable` at error level. |
+| `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY`                             | The matching Turnstile site key for the start form's widget.                                                                                                                                                                          |
+| `EXOMEM_SELF_SERVE_ADMISSION`                                       | `closed` (default), `waitlist` or `open`. See "Start admission" below. Any other value reads as `closed`.                                                                                                                             |
+| `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                                                    |
+| `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                                                        |
+| `EXOMEM_CONNECTOR_SETTINGS_URLS`                                    | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                                          |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
@@ -269,16 +269,21 @@ Anybody else follows `EXOMEM_SELF_SERVE_ADMISSION`:
 
 - `closed`: no email.
 - `waitlist`: a waitlist place.
-- `open`: a start link while Cloud has a free slot and nobody is waiting, else
-  a waitlist place. Each reconcile tick promotes the oldest waiting people into
-  free slots.
+- `open`: a start link while Cloud has a free place and nobody is waiting,
+  else a waitlist place. Each reconcile tick promotes the oldest waiting
+  people into free places.
 
-A free slot is a freshly observed Cloud slot that no live cell, unused start
-link or unused paid operator invite holds. Start links expire after 48 hours.
+A free place is a freshly observed Cloud slot that no live cell and no unused
+invitation holds. Every invitation counts, whatever its kind, and one address
+counts once. Start links expire after 48 hours. A person who asks again while
+they hold a live start link gets another link with the same expiry. Using any
+of their links revokes the others. A waiting person who asks again keeps their
+place and gets no second waitlist email.
 
 Emails for start links, waitlist places, promotions and the unpaid-hold
 reminder go through `exomem_email_outbox`. The access-delivery job sends at
-most 20 per run. To see what is stuck, run:
+most 20 per run, and retries an email until its own deadline. To see what is
+stuck, run:
 
 ```sql
 SELECT kind, state, last_error_code, count(*)
@@ -286,6 +291,31 @@ FROM exomem_email_outbox
 WHERE state IN ('pending', 'leased', 'failed')
 GROUP BY kind, state, last_error_code;
 ```
+
+Retention runs on its own. The access-delivery job clears the address of an
+outbox row 30 days after the row settles. The reconcile job deletes a waitlist
+entry 180 days after the later of its person's last request and their last
+start link's expiry, unless the address owns an Exomem. Account deletion
+removes every outbox row for the owner's address.
+
+#### Release
+
+Start admission ships only in the same deploy as the web journey that calls
+it. The start route and its earlier path refuse a request without a Turnstile
+token, so the sign-in form of an older web app stops working.
+
+1. Confirm that the deploy contains the journey's start form, which sends a
+   Turnstile token made with the action `start`.
+2. Confirm that the deploy contains the `/exomem/setup` page, where a paid
+   redemption continues.
+3. Set `EXOMEM_TURNSTILE_SECRET_KEY` and
+   `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY` from one Turnstile widget whose
+   hostname is the public host.
+4. Deploy with `EXOMEM_SELF_SERVE_ADMISSION` unset.
+5. Request a sign-in link for an owner account from the start form. The
+   owner receives one sign-in email.
+6. Set `EXOMEM_SELF_SERVE_ADMISSION=waitlist`, then `open` when you want to
+   admit people.
 
 ### Revoke historical self-serve invitations
 
@@ -329,11 +359,13 @@ Run the count again and require zero.
 3. Enter one email and leave "Paid" selected. "Complimentary" needs its own confirmation.
 4. Send the invitation. The page then refreshes its capacity figures.
 
-The page and paid invite issuance still read the legacy capacity pool
-`exomem-hosted-alpha`. Redemption is gated separately: the count of non-deleted
-Cloud cell rows must stay below the `cell_slots` total in
-`exomem_cloud_capacity`. When Cloud capacity is full, redemption returns
-`HOSTED_ADMISSION_CLOSED` and leaves the invite unconsumed.
+The page shows "Cloud places free" from the same count that admission uses.
+It shows "Unknown" when no fresh Cloud capacity observation exists. Every
+invitation, paid or complimentary, needs a free place when it is issued, and
+again when it is redeemed. When Cloud capacity is full, issue returns
+`CAPACITY_UNAVAILABLE`, and redemption returns `HOSTED_ADMISSION_CLOSED` and
+leaves the invite unconsumed. Keep a place free before you invite an app
+directory reviewer.
 
 The authenticated API is the non-browser fallback. Keep the operator token out
 of logs and chat transcripts:

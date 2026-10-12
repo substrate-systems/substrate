@@ -9,7 +9,7 @@
 
 import { createHash } from "node:crypto";
 import { lockCloudCapacity, cloudAdmissionHeadroom } from "./cloud-capacity";
-import { withExomemTransaction, type ExomemSql } from "./db";
+import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
 import { enqueueExomemEmail } from "./email-outbox";
 import { generateExternalToken, tokenDigest, type RandomBytesSource } from "./security";
 
@@ -137,9 +137,11 @@ async function enqueueStartLinkEmail(
  * Exomem, in one transaction under the Cloud capacity lock:
  *
  * 1. A person who still holds an unused, unexpired start link gets a fresh
- *    one in its place, with the same expiry. They were admitted before
- *    anybody now waiting, and keeping the expiry stops a repeat request from
- *    holding a slot forever.
+ *    one too, with the same expiry. They were admitted before anybody now
+ *    waiting, and keeping the expiry stops a repeat request from holding a
+ *    slot forever. Their earlier links stay valid: anyone can submit their
+ *    address, so a request must not cancel a link they are about to open.
+ *    Using any one of the links revokes the rest (cloud-admission.ts).
  * 2. In `open` mode, a free slot admits them, but only while nobody is
  *    waiting, so a newcomer never overtakes the queue.
  * 3. Otherwise they are queued. A person already waiting keeps their place,
@@ -158,28 +160,24 @@ export async function startSelfServeAtomic(input: {
 
     const outstanding = await tx`
       /* exomem:start-outstanding-link */
-      SELECT id, expires_at::text AS expires_at, recipient_time_zone
+      SELECT max(expires_at)::text AS expires_at,
+             (array_agg(recipient_time_zone ORDER BY created_at)
+               FILTER (WHERE recipient_time_zone IS NOT NULL))[1] AS recipient_time_zone
       FROM exomem_invites
       WHERE email_normalized = ${input.emailNormalized}
         AND self_serve
         AND consumed_at IS NULL
         AND revoked_at IS NULL
         AND expires_at > now()
-      FOR UPDATE
+      HAVING count(*) > 0
     `;
     const held = outstanding.rows[0] as
-      | { id: string; expires_at: string; recipient_time_zone: string | null }
+      | { expires_at: string; recipient_time_zone: string | null }
       | undefined;
     if (held) {
-      await tx`
-        /* exomem:start-supersede-link */
-        UPDATE exomem_invites SET revoked_at = now()
-        WHERE email_normalized = ${input.emailNormalized}
-          AND self_serve
-          AND consumed_at IS NULL
-          AND revoked_at IS NULL
-      `;
-      const timeZone = input.timeZone ?? held.recipient_time_zone;
+      // A stored zone came from an earlier request and is kept: this request
+      // is unauthenticated and must not change it.
+      const timeZone = held.recipient_time_zone ?? input.timeZone;
       const invite = await insertStartLink(tx, {
         emailNormalized: input.emailNormalized,
         timeZone,
@@ -187,12 +185,6 @@ export async function startSelfServeAtomic(input: {
         // The database's own text: a JavaScript Date would drop microseconds.
         expiresAt: held.expires_at,
       });
-      await tx`
-        /* exomem:start-waitlist-follows-link */
-        UPDATE exomem_waitlist_entries
-        SET admitted_invite_id = ${invite.inviteId}::uuid, updated_at = now()
-        WHERE admitted_invite_id = ${held.id}::uuid
-      `;
       await enqueueStartLinkEmail(tx, {
         kind: "start",
         emailNormalized: input.emailNormalized,
@@ -204,7 +196,9 @@ export async function startSelfServeAtomic(input: {
     }
 
     if (input.mode === "open") {
-      const headroom = await cloudAdmissionHeadroom(tx);
+      const headroom = await cloudAdmissionHeadroom(tx, {
+        excludingEmail: input.emailNormalized,
+      });
       const waiting = await tx`
         /* exomem:start-anybody-waiting */
         SELECT EXISTS (
@@ -240,9 +234,10 @@ export async function startSelfServeAtomic(input: {
       | { id: string; admitted_at: Date | null; time_zone: string | null }
       | undefined;
     let entryId: string;
-    let timeZone = input.timeZone;
+    // A stored zone came from an earlier request and is kept: this request is
+    // unauthenticated and must not change it.
+    const timeZone = entry?.time_zone ?? input.timeZone;
     if (entry && entry.admitted_at === null) {
-      timeZone = input.timeZone ?? entry.time_zone;
       await tx`
         /* exomem:start-waitlist-keep-place */
         UPDATE exomem_waitlist_entries
@@ -264,12 +259,11 @@ export async function startSelfServeAtomic(input: {
       `;
       entryId = (inserted.rows[0] as { id: string }).id;
     }
-    // At most one waitlist email per entry per UTC day: asking again while
-    // waiting confirms the place without filling the inbox.
-    const utcDay = new Date().toISOString().slice(0, 10);
+    // One waitlist email per entry: asking again while waiting keeps the
+    // place and sends nothing more ("We write again only when a place opens").
     await enqueueExomemEmail(tx, {
       kind: "waitlist",
-      dedupeKey: `waitlist:${entryId}:${utcDay}`,
+      dedupeKey: `waitlist:${entryId}`,
       recipient: input.emailNormalized,
       recipientTimeZone: timeZone,
       payload: { version: 1, entryId },
@@ -280,8 +274,8 @@ export async function startSelfServeAtomic(input: {
 }
 
 export type WaitlistPromotionResult =
-  | { status: "not_open"; promoted: null }
-  | { status: "ran"; promoted: number };
+  | { status: "not_open"; promoted: null; settled: null }
+  | { status: "ran"; promoted: number; settled: number };
 
 /**
  * Promotes waiting people, oldest first, while Cloud has a free slot. Runs
@@ -289,6 +283,10 @@ export type WaitlistPromotionResult =
  * capacity lock: it re-reads the headroom, takes the oldest waiting entry,
  * creates its start link, marks the entry admitted and enqueues the
  * "place opened" email, so a crash between two promotions loses nothing.
+ *
+ * A waiting address that has since come to own an Exomem (an operator
+ * invited it) needs no place. Its entry is settled, by deletion, instead of
+ * being promoted into a start link that redemption would refuse.
  */
 export async function promoteWaitlistedPeople(
   options: {
@@ -298,15 +296,28 @@ export async function promoteWaitlistedPeople(
   } = {}
 ): Promise<WaitlistPromotionResult> {
   if ((options.mode ?? selfServeAdmissionMode()) !== "open") {
-    return { status: "not_open", promoted: null };
+    return { status: "not_open", promoted: null, settled: null };
   }
   const maxPromotions = Math.max(1, Math.min(options.maxPromotions ?? 20, 100));
   let promoted = 0;
+  let settled = 0;
   while (promoted < maxPromotions) {
     const link = mintStartLink(options.randomBytes);
     const admitted = await withExomemTransaction(async (tx) => {
       await lockCloudCapacity(tx);
-      if ((await cloudAdmissionHeadroom(tx)) < 1) return false;
+      const owners = await tx`
+        /* exomem:promote-settle-owners */
+        DELETE FROM exomem_waitlist_entries AS entry
+        USING users
+        JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+        WHERE entry.admitted_at IS NULL
+          AND users.email = entry.email_normalized
+          AND users.deleted_at IS NULL
+          AND tenant.status IN ('provisioning', 'active', 'suspended')
+          AND tenant.deleted_at IS NULL
+        RETURNING entry.id
+      `;
+      settled += owners.rows.length;
       const oldest = await tx`
         /* exomem:promote-oldest-waiting */
         SELECT id, email_normalized::text AS email_normalized, time_zone
@@ -320,6 +331,10 @@ export async function promoteWaitlistedPeople(
         | { id: string; email_normalized: string; time_zone: string | null }
         | undefined;
       if (!entry) return false;
+      const headroom = await cloudAdmissionHeadroom(tx, {
+        excludingEmail: entry.email_normalized,
+      });
+      if (headroom < 1) return false;
       const invite = await insertStartLink(tx, {
         emailNormalized: entry.email_normalized,
         timeZone: entry.time_zone,
@@ -344,5 +359,45 @@ export async function promoteWaitlistedPeople(
     if (!admitted) break;
     promoted += 1;
   }
-  return { status: "ran", promoted };
+  return { status: "ran", promoted, settled };
+}
+
+// A waitlist entry is deleted this long after the later of its person's last
+// request and their last start link's expiry. They can ask again and join the
+// back.
+const WAITLIST_RETENTION_DAYS = 180;
+
+/**
+ * Deletes stale waitlist entries in bounded batches, waiting or admitted. An
+ * entry whose address owns an Exomem is kept: account deletion removes it.
+ */
+export async function pruneStaleWaitlistEntries(limit = 500): Promise<number> {
+  const { rows } = await executeExomemSql`
+    /* exomem:prune-stale-waitlist */
+    WITH stale AS (
+      SELECT entry.id
+      FROM exomem_waitlist_entries AS entry
+      WHERE GREATEST(
+              entry.updated_at,
+              (SELECT max(link.expires_at) FROM exomem_invites AS link
+               WHERE link.email_normalized = entry.email_normalized AND link.self_serve)
+            ) < now() - (${WAITLIST_RETENTION_DAYS} * interval '1 day')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM users
+          JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
+          WHERE users.email = entry.email_normalized
+            AND users.deleted_at IS NULL
+            AND tenant.status IN ('provisioning', 'active', 'suspended')
+            AND tenant.deleted_at IS NULL
+        )
+      ORDER BY entry.updated_at
+      LIMIT ${Math.max(1, Math.min(Math.floor(limit), 5_000))}
+    )
+    DELETE FROM exomem_waitlist_entries AS entry
+    USING stale
+    WHERE entry.id = stale.id
+    RETURNING entry.id
+  `;
+  return rows.length;
 }

@@ -195,18 +195,16 @@ export async function createInviteRecord(
     if (!row) throw new Error("createInviteRecord returned no row");
     return { inviteId: row.id };
   };
-  const isPaidOperatorInvite = input.entitlementSource === "paddle";
-  if (!input.marketplaceReviewerPurpose && !isPaidOperatorInvite) return create(sql);
   return withExomemTransaction(async (tx) => {
     if (input.marketplaceReviewerPurpose) {
       await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
     }
-    if (isPaidOperatorInvite) {
-      // A paid invite promises a Cloud slot, like a start link, and counts
-      // against the same headroom until it is used, revoked or expired.
-      await lockCloudCapacity(tx);
-      if ((await cloudAdmissionHeadroom(tx)) < 1) throw exomemErrors.capacityUnavailable();
-    }
+    // Every invitation, paid, complimentary or reviewer, promises a Cloud
+    // slot and counts against the same headroom until it is used, revoked or
+    // expired, so an operator cannot promise more places than Cloud has.
+    await lockCloudCapacity(tx);
+    const headroom = await cloudAdmissionHeadroom(tx, { excludingEmail: input.emailNormalized });
+    if (headroom < 1) throw exomemErrors.capacityUnavailable();
     return create(tx);
   });
 }

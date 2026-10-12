@@ -1,38 +1,43 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  paidInviteHeadroom,
+  invitationBlocked,
   parseOperatorCapacity,
   requiresComplimentaryConfirmation,
 } from "../operator-state";
 
-const capacity = {
-  storageCapacityBytes: 20 * 1024 * 1024 * 1024,
-  reservedStorageBytes: 5 * 1024 * 1024 * 1024,
-  runtimeCapacitySlots: 4,
-  reservedRuntimeSlots: 1,
-  provisionReservationCapacity: 4,
-  reservedProvisionSlots: 1,
-  provisionClaimCapacity: 2,
-  activeProvisionClaims: 0,
-  outstandingPaidInvites: 1,
+const observed = {
+  freePlaces: 2,
+  freePlacesUnknownReason: null,
+  observedSlots: 5,
+  liveCells: 2,
+  outstandingInvitations: 1,
+  newestObservationAt: "2026-10-12T08:00:00.000Z",
 };
 
 describe("Exomem operator state", () => {
-  it("parses only complete non-negative capacity snapshots", () => {
-    assert.deepEqual(parseOperatorCapacity(capacity), capacity);
-    assert.equal(parseOperatorCapacity({ ...capacity, outstandingPaidInvites: -1 }), null);
-    assert.equal(parseOperatorCapacity({ ...capacity, runtimeCapacitySlots: "4" }), null);
+  it("never reads unknown capacity as zero free places", () => {
+    const unobserved = {
+      ...observed,
+      freePlaces: null,
+      freePlacesUnknownReason: "capacity_not_observed",
+      observedSlots: 0,
+    };
+    assert.deepEqual(parseOperatorCapacity(unobserved), unobserved);
+    assert.equal(parseOperatorCapacity({ ...unobserved, freePlacesUnknownReason: null }), null);
+    assert.equal(parseOperatorCapacity({ ...observed, freePlaces: -1 }), null);
   });
 
-  it("subtracts hard reservations and outstanding paid promises", () => {
-    assert.equal(paidInviteHeadroom(capacity), 2);
+  it("blocks every invitation while no place is free or capacity is unknown", () => {
+    assert.equal(invitationBlocked(observed), false);
+    assert.equal(invitationBlocked({ ...observed, freePlaces: 0 }), true);
     assert.equal(
-      paidInviteHeadroom({
-        ...capacity,
-        reservedStorageBytes: capacity.storageCapacityBytes,
+      invitationBlocked({
+        ...observed,
+        freePlaces: null,
+        freePlacesUnknownReason: "capacity_not_observed",
       }),
-      0
+      true
     );
   });
 

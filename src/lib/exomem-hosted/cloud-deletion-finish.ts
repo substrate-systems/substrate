@@ -26,6 +26,7 @@
 import { terminateExomemBillingForDeletion, type BillingDeletionTarget } from "./billing-deletion";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
+import { scrubExomemEmailsFor } from "./email-outbox";
 import { paddleFetch } from "@/lib/hosted-backup/paddle-client";
 import type { PaddleTransport } from "./paddle-billing";
 
@@ -243,6 +244,9 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
             WHERE authority.invite_id = invite.id
           )
       `;
+      // Every email row for the address goes too: settled rows hold the
+      // address, and a pending one must not reach a deleted account.
+      await scrubExomemEmailsFor(tx, ownerEmail);
     }
     await tx`DELETE FROM exomem_sessions WHERE tenant_id = ${tenantId}::uuid`;
     await tx`DELETE FROM exomem_access_tokens WHERE tenant_id = ${tenantId}::uuid`;

@@ -33,40 +33,17 @@ describe("Exomem hosted database boundary", () => {
     assert.equal(called, false);
   });
 
-  it("keeps ordinary invite issuance outside reviewer cohort serialization", async () => {
-    let transactionUsed = false;
-    let statement = "";
-    __setExomemSqlForTests(async (strings) => {
-      statement = strings.join("?");
-      return { rows: [{ id: "invite-1" }], rowCount: 1 };
-    });
-    __setExomemTransactionForTests(async (work) => {
-      transactionUsed = true;
-      return work(async () => ({ rows: [{ id: "invite-1" }], rowCount: 1 }));
-    });
-
-    assert.deepEqual(
-      await createInviteRecord({
-        tokenDigest: Buffer.alloc(32, 1),
-        emailNormalized: "ordinary@example.test",
-        entitlementSource: "complimentary",
-        capabilities: [],
-        resourceLimits: {},
-        operatorPrincipalDigest: Buffer.alloc(32, 2),
-        expiresAt: new Date("2026-07-13T00:00:00.000Z"),
-      }),
-      { inviteId: "invite-1" }
-    );
-    assert.equal(transactionUsed, false);
-    assert.match(statement, /INSERT INTO exomem_invites/i);
-  });
-
   it("serializes reviewer invite issuance and refuses blocked owner authority", async () => {
     const statements: string[] = [];
     const sql: ExomemSql = async (strings) => {
       const statement = strings.join("?");
       statements.push(statement);
-      return statement.includes("pg_advisory_xact_lock_shared")
+      if (statement.includes("exomem-cloud:capacity")) {
+        const capacity = { fresh_observations: 1, fresh_slots: 3, live_cells: 0 };
+        const row = { ...capacity, outstanding_invitations: 0, newest_observation_at: null };
+        return { rows: [row], rowCount: 1 };
+      }
+      return statement.includes("pg_advisory_xact_lock")
         ? { rows: [], rowCount: 0 }
         : { rows: [{ id: "invite-1" }], rowCount: 1 };
     };
@@ -83,8 +60,9 @@ describe("Exomem hosted database boundary", () => {
       expiresAt: new Date("2026-07-13T00:00:00.000Z"),
     });
     assert.match(statements[0]!, /pg_advisory_xact_lock_shared/i);
-    assert.match(statements[1]!, /exomem_oauth_account_blocks/i);
-    assert.match(statements[1]!, /tenant\.status = 'deletion_pending'/i);
+    const insert = statements.find((statement) => statement.includes("INSERT INTO exomem_invites"));
+    assert.match(insert!, /exomem_oauth_account_blocks/i);
+    assert.match(insert!, /tenant\.status = 'deletion_pending'/i);
   });
 
   it("rejects expired or revoked reviewer-attributed sessions without changing ordinary session lookup", async () => {
