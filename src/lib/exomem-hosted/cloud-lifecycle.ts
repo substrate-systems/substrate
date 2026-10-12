@@ -462,6 +462,8 @@ export async function reconcileCloudCellDesiredState(
           WHERE tenant_id = ${tenantId}::uuid
             AND effective_state = 'provisioning'
             AND manual_suspended_at IS NULL
+            -- An admitted complimentary row is active already; only Paddle waits on a payment.
+            AND source = 'paddle'
             AND source = ${row.source}
             AND source_state = ${row.source_state}
         `;
