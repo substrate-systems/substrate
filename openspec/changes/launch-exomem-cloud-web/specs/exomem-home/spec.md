@@ -233,7 +233,7 @@ Home SHALL show storage used and the filesystem size from the latest stored obse
 
 ### Requirement: Home shows plan and dates from stored data
 
-Home SHALL show the plan name, the next payment date, the read-only end date, the kept-until date, a reviewer's access end date and whether the friend price applies. Each fact MUST come from stored data, and each date SHALL render in the reader's time zone. A fact that the system cannot know MUST show as unknown with a reason, never as zero or an invented value.
+Home SHALL show the plan name, the next payment date, the next payment amount, the read-only end date, the kept-until date, a reviewer's access end date and whether the friend price applies. Each fact MUST come from stored data, except the next payment amount, which the system SHALL read from Paddle's preview of the subscription's next transaction and SHALL cache for at most 10 minutes per subscription. Each date SHALL render in the reader's time zone. A fact that the system cannot know MUST show as unknown with a reason, never as zero or an invented value.
 
 #### Scenario: Paying owner
 
@@ -244,6 +244,12 @@ Home SHALL show the plan name, the next payment date, the read-only end date, th
 
 - **WHEN** an owner has complimentary access
 - **THEN** the next payment is unknown with the reason `complimentary`
+
+#### Scenario: Next payment amount
+
+- **WHEN** a subscribed owner opens Home
+- **THEN** the next payment amount is the grand total of Paddle's next transaction for that subscription, so a friend price or an older price shows its own amount
+- **AND** the amount is unknown with the reason `unavailable` when Paddle does not answer, and never a preview of the base price
 
 #### Scenario: Payment failed
 

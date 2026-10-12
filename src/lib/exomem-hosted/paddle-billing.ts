@@ -7,6 +7,7 @@ import {
   loadExomemPaddleTransactionConfig,
   type ExomemPaddleConfig,
 } from "./paddle-config";
+import { known, unknown, type Known } from "./known";
 import {
   mapPaddleSubscriptionState,
   paddleSubscriptionFacts,
@@ -426,6 +427,13 @@ export type ExomemPrices = { usual: ExomemMoney; friend: ExomemMoney | null };
 const PRICE_CACHE_MS = 10 * 60 * 1000;
 const PRICE_CACHE_MAX_ENTRIES = 1_000;
 const priceCache = new Map<string, { expiresAt: number; value: ExomemMoney }>();
+const nextPaymentCache = new Map<
+  string,
+  { expiresAt: number; value: Known<ExomemMoney, "not_reported"> }
+>();
+// The account page waits this long at most for the next payment amount, and
+// shows it as unknown when Paddle has not answered.
+const NEXT_PAYMENT_TIMEOUT_MS = 3_000;
 // When a shown friend price last passed the discount check. Only display
 // reuses it; checkout and the subscription update check afresh.
 const shownDiscountChecks = new Map<string, number>();
@@ -433,6 +441,7 @@ const shownDiscountChecks = new Map<string, number>();
 /** Test seam: empties the price preview cache. */
 export function __clearExomemPriceCacheForTests(): void {
   priceCache.clear();
+  nextPaymentCache.clear();
   shownDiscountChecks.clear();
 }
 
@@ -532,6 +541,58 @@ export async function previewExomemPrices(
   }
   const friend = await cachedPrice({ ...base, discountId }, transport, now);
   return { usual, friend };
+}
+
+/**
+ * The amount of a subscription's next payment, as Paddle previews that
+ * transaction: its grand total in minor units, with discounts and tax, so a
+ * friend price or an older price shows its own amount, never the base
+ * price. `not_reported` when Paddle previews no next payment. Each answer
+ * is cached 10 minutes per subscription; a failure throws and is not cached.
+ */
+export async function readExomemNextPaymentAmount(
+  input: { subscriptionId: string; environment: ExomemPaddleConfig["environment"] },
+  dependencies: BillingDependencies & { now?: () => number } = {}
+): Promise<Known<ExomemMoney, "not_reported">> {
+  if (!safePaddleId(input.subscriptionId, "sub")) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
+  const config = dependencies.config ?? loadExomemPaddleConfig();
+  try {
+    assertExomemPaddlePurpose(config, "reconciliation");
+  } catch (error) {
+    throw safeConfigurationError(error);
+  }
+  if (config.environment !== input.environment) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_ENVIRONMENT_MISMATCH", 503);
+  }
+  const now = (dependencies.now ?? Date.now)();
+  const key = `${input.environment}|${input.subscriptionId}`;
+  const hit = nextPaymentCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.value;
+  const payload = await safePaddleJson(
+    dependencies.transport ?? paddleFetch,
+    `/subscriptions/${encodeURIComponent(input.subscriptionId)}?include=next_transaction`,
+    { method: "GET", signal: AbortSignal.timeout(NEXT_PAYMENT_TIMEOUT_MS) }
+  );
+  const data = safeObject(safeObject(payload)?.data);
+  if (!data || data.id !== input.subscriptionId) {
+    throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
+  }
+  const totals = safeObject(safeObject(safeObject(data.next_transaction)?.details)?.totals);
+  const amount = totals?.grand_total;
+  // Paddle bills a subscription's transactions in the subscription's currency.
+  const currencyCode = totals?.currency_code ?? data.currency_code;
+  const value: Known<ExomemMoney, "not_reported"> =
+    typeof amount === "string" &&
+    MONEY_MINOR_UNITS.test(amount) &&
+    typeof currencyCode === "string" &&
+    CURRENCY_CODE.test(currencyCode)
+      ? known({ amount, currencyCode })
+      : unknown("not_reported");
+  if (nextPaymentCache.size >= PRICE_CACHE_MAX_ENTRIES) nextPaymentCache.clear();
+  nextPaymentCache.set(key, { expiresAt: now + PRICE_CACHE_MS, value });
+  return value;
 }
 
 async function inspectExomemCheckout(

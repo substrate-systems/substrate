@@ -61,6 +61,7 @@
 - [x] 4.12 Offer the friend price to an existing owner only when their live subscription holds the base price; another or an unreported price keeps the plan without a Paddle call
 - [x] 4.13 Cancel an open resubscribe checkout at Paddle before a lapsed kept window deletes the cell, and keep the cell read-only while Paddle cannot answer
 - [x] 4.14 Fix the independent review's findings: check the friend discount on every reopened checkout, read Paddle before storing `kept`, settle a lapsed checkout only on proof and within a time budget, recover a paid resubscription without its event, refuse checkout during deletion, scrub the inviter's note and copied name, date invitation emails in the reader's time zone, and share the invitation kinds and limits
+- [x] 4.15 Cancel a bound resubscribe transaction or its subscription when deletion finishes, record the friend offer from a subscription event, budget the unpaid-hold expiry's Paddle calls, index invitations by redeemed tenant, and show the next payment amount from Paddle
 
 ## 5. Cell home channel, storage and export (migration 0066)
 

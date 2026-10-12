@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
+import { loadExomemAccountView } from "../account-view";
 import { resumeReturnedOwnerCheckout, startOwnerCheckout } from "../billing-account";
 import { redeemCloudInvite, redeemCloudInviteAtomic } from "../cloud-admission";
 import { reconcileCloudCellDesiredState, runBoundedCloudReconcile } from "../cloud-lifecycle";
@@ -63,6 +64,8 @@ const paddle = {
   transactionsDown: false,
   // Paddle's transaction API answers nothing until the caller gives up.
   transactionsHang: false,
+  // Paddle's subscription API is unreachable.
+  subscriptionsDown: false,
   // Runs while Paddle answers a transaction read, as a concurrent request would.
   duringTransactionRead: null as null | (() => Promise<void>),
   transactions: new Map<string, Record<string, unknown>>(),
@@ -110,10 +113,21 @@ async function fakePaddle(url: string, init?: RequestInit): Promise<Response> {
     });
   }
   if (method === "GET" && pathname.startsWith("/subscriptions/")) {
+    if (paddle.subscriptionsDown) return new Response("{}", { status: 503 });
     const subscription = paddle.subscriptions.get(pathname.split("/")[2]!);
-    return subscription
-      ? Response.json({ data: subscription })
-      : new Response("{}", { status: 404 });
+    if (!subscription) return new Response("{}", { status: 404 });
+    if (new URL(url).searchParams.get("include") !== "next_transaction") {
+      return Response.json({ data: subscription });
+    }
+    // Paddle previews the next transaction with the subscription's own discount.
+    const friend = (subscription.discount as { id?: string } | null)?.id === FRIEND_DISCOUNT;
+    const totals = { grand_total: friend ? "1000" : "1500", currency_code: "EUR" };
+    return Response.json({
+      data: {
+        ...subscription,
+        next_transaction: subscription.status === "active" ? { details: { totals } } : null,
+      },
+    });
   }
   if (method === "PATCH" && pathname.startsWith("/subscriptions/")) {
     await new Promise((resolve) => setTimeout(resolve, paddle.subscriptionUpdateDelayMs));
@@ -528,6 +542,7 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     paddle.subscriptionUpdateAnswerLost = false;
     paddle.transactionsDown = false;
     paddle.transactionsHang = false;
+    paddle.subscriptionsDown = false;
     paddle.duringTransactionRead = null;
     __clearExomemPriceCacheForTests();
     await pool!.query("UPDATE exomem_cloud_capacity SET observed_at = now()");
@@ -815,6 +830,41 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.equal(decision.status, "applied");
     assert.equal(paddle.calls.length, 0);
     assert.equal((await invitation(inviteId)).decision, "applied");
+  });
+
+  it("shows the next payment amount Paddle previews for the subscription, its friend price included, and unknown when Paddle cannot answer", async () => {
+    const owner = await paidOwner({ sourceState: "active", cell: "running" });
+    const { token } = await issueFriendInvitation({ email: owner.email });
+    await decideInvitation({
+      token,
+      choice: "use_friend_price",
+      session: { id: owner.sessionId, userId: owner.userId, tenantId: owner.tenantId },
+    });
+    const session = { userId: owner.userId, tenantId: owner.tenantId, reviewerCredentialId: null };
+
+    // The friend price's own amount, not the usual price that a preview of the base price shows.
+    const view = await loadExomemAccountView(session);
+    assert.deepEqual(view.nextPaymentAmount, {
+      value: { amount: "1000", currencyCode: "EUR" },
+      reason: null,
+    });
+
+    // Within ten minutes the amount comes from the cache.
+    paddle.calls = [];
+    assert.deepEqual(
+      (await loadExomemAccountView(session)).nextPaymentAmount,
+      view.nextPaymentAmount
+    );
+    assert.equal(paddleCalls("GET", "/subscriptions/").length, 0);
+
+    const unreachable = await paidOwner({ sourceState: "active", cell: "running" });
+    paddle.subscriptionsDown = true;
+    const unknownView = await loadExomemAccountView({
+      userId: unreachable.userId,
+      tenantId: unreachable.tenantId,
+      reviewerCredentialId: null,
+    });
+    assert.deepEqual(unknownView.nextPaymentAmount, { value: null, reason: "unavailable" });
   });
 
   it("keeps an owner whose live subscription is on another price, or an unreported one, to their plan without asking Paddle", async () => {
