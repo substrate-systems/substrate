@@ -54,7 +54,7 @@ type GraphProps = {
 };
 
 function HeroGraph({ layout, shortNames, className, active, onActive }: GraphProps) {
-  // Mouse: hover lights a note. Touch and pen: a tap names it; another tap on it, or a
+  // Mouse: hover lights a note. With a finger or a pen, a tap names it; another tap on it, or a
   // tap anywhere else on the page (HeroPanel listens for that), puts it out.
   const pointer = useRef<string>("mouse");
   const at = (note: number) => layout.notes[note];
