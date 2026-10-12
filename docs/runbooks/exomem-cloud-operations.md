@@ -311,7 +311,9 @@ token, so the sign-in form of an older web app stops working.
    redemption continues.
 3. Set `EXOMEM_TURNSTILE_SECRET_KEY` and
    `NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY` from one Turnstile widget whose
-   hostname is the public host.
+   hostname is the public host. The `turnstile-secret` and
+   `turnstile-site-key` bindings in `contracts/bws-exomem-production-v1.json`
+   select that widget's values.
 4. Deploy with `EXOMEM_SELF_SERVE_ADMISSION` unset.
 5. Request a sign-in link for an owner account from the start form. The
    owner receives one sign-in email.
