@@ -7,6 +7,7 @@ const app = (id: string, lastAuthorizedAt: string): ListedApp => ({
   id,
   displayName: id,
   platform: null,
+  context: "conversation",
   lastAuthorizedAt,
 });
 

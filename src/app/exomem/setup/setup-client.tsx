@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { AddressField } from "@/components/exomem/AddressField";
 import { subscribeLine } from "@/components/exomem/subscribe-line";
 import type { FieldKind } from "@/components/exomem/FlowField";
-import type { InvolvementLevelKey } from "@/components/exomem/involvement-levels";
 import { CLIENT_PLATFORM_NAMES } from "@/lib/exomem-hosted/client-platforms";
 import { getPrivateJson } from "@/lib/exomem-hosted/hosted-browser";
 import type { Known } from "@/lib/exomem-hosted/known";
@@ -39,7 +38,9 @@ import {
 } from "../_journey/parts";
 import { useReaderDate } from "../_journey/reader-date";
 import { StartFlow } from "../_journey/start-flow";
+import { levelContextTitle } from "../home/home-view";
 import { joinedSince, pollDelay, type ListedApp } from "./join-rule";
+import { useLevelSave } from "./level-save";
 import type { SetupScreen } from "./setup-screen";
 
 export type SetupFacts = {
@@ -96,12 +97,14 @@ function listedApps(body: Record<string, unknown>): ListedApp[] {
     const app = item as Record<string, unknown>;
     return typeof app.id === "string" &&
       typeof app.displayName === "string" &&
-      typeof app.lastAuthorizedAt === "string"
+      typeof app.lastAuthorizedAt === "string" &&
+      (app.context === "coding" || app.context === "conversation")
       ? [
           {
             id: app.id,
             displayName: app.displayName,
             platform: typeof app.platform === "string" ? app.platform : null,
+            context: app.context,
             lastAuthorizedAt: app.lastAuthorizedAt,
           },
         ]
@@ -114,13 +117,34 @@ function connectedPlatforms(apps: ListedApp[]): Set<string> {
   return new Set(apps.flatMap((app) => (app.platform ? [app.platform] : [])));
 }
 
+/**
+ * The joined step for an app without the plugin: pick a level, read and copy its
+ * instructions. The pick is saved for the app's context when the cell can take it.
+ */
+function JoinedLevels({ app }: { app: ListedApp }) {
+  // The board starts an app without the plugin at Balanced, the coding agents' default.
+  const { level, choose, save, savable } = useLevelSave(app.context, "balanced");
+  return (
+    <>
+      <StepHeading
+        title={joinedCopy.title(app.displayName)}
+        lede={savable ? joinedCopy.ledeSaving : joinedCopy.ledeWithoutPlugin}
+      />
+      <LevelTune level={level} onLevel={choose} />
+      {save.kind === "not_saved" ? <StepNotice>{joinedCopy.notSaved}</StepNotice> : null}
+      {save.kind === "refused" ? <StepNotice>{save.text}</StepNotice> : null}
+      {save.kind === "saved" ? (
+        <DoneLine>{joinedCopy.saved(levelContextTitle(app.context).toLowerCase())}</DoneLine>
+      ) : null}
+    </>
+  );
+}
+
 export default function SetupClient({ facts }: { facts: SetupFacts }) {
   const [phase, setPhase] = useState<Phase>(facts.screen);
   const [waitingFor, setWaitingFor] = useState<PluginApp>("claude");
   const [joined, setJoined] = useState<ListedApp | null>(null);
   const [connected, setConnected] = useState<Set<string>>(new Set());
-  // The board starts an app without the plugin at Balanced, the coding agents' default.
-  const [level, setLevel] = useState<InvolvementLevelKey>("balanced");
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const keptUntil = useReaderDate(facts.keptUntil);
@@ -372,11 +396,11 @@ export default function SetupClient({ facts }: { facts: SetupFacts }) {
       const next: PluginApp = app.platform === "claude" ? "openai" : "claude";
       body = (
         <>
-          <StepHeading
-            title={joinedCopy.title(app.displayName)}
-            lede={plugin ? joinedCopy.lede : joinedCopy.ledeWithoutPlugin}
-          />
-          {plugin ? null : <LevelTune level={level} onLevel={setLevel} />}
+          {plugin ? (
+            <StepHeading title={joinedCopy.title(app.displayName)} lede={joinedCopy.lede} />
+          ) : (
+            <JoinedLevels app={app} />
+          )}
           <StepActions
             primary={{ label: joinedCopy.home, onClick: goHome }}
             secondary={{

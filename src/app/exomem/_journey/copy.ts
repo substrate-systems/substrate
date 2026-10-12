@@ -135,11 +135,14 @@ export const otherAppCopy = {
 export const joinedCopy = {
   title: (app: string) => `${app} is connected.`,
   lede: "Try it: ask it to remember something today, then ask again tomorrow.",
-  /**
-   * The board adds "; we save your choice." The choice is not saved until the joined
-   * step saves the level (Cloud Home levels), so the page does not say it is.
-   */
+  /** The board's lede, when the cell can take the level now. */
+  ledeSaving: "Without the plugin, your app needs instructions. Pick how much it joins in; we save your choice.",
+  /** Without the save promise while the level cannot be saved (design.md deviation (l)). */
   ledeWithoutPlugin: "Without the plugin, your app needs instructions. Pick how much it joins in.",
+  /** A level belongs to every app of a kind, "chat apps" or "coding agents". */
+  saved: (apps: string) => `Saved for all your ${apps}.`,
+  /** Not drawn by the board (design.md deviation (l)). */
+  notSaved: "Your choice isn’t saved yet: your Exomem can’t take it right now.",
   done: (app: string) => `${app} · memory on`,
   home: "Go to Home",
   addToo: (app: string) => `Add ${app} too`,

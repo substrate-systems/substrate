@@ -480,6 +480,11 @@ const LEVEL_ROWS: readonly { context: LevelContext; title: string }[] = [
   { context: "coding", title: "Coding agents" },
 ];
 
+/** "Chat apps" or "Coding agents": the row a context's level shows in. */
+export function levelContextTitle(context: LevelContext): string {
+  return LEVEL_ROWS.find((row) => row.context === context)!.title;
+}
+
 export type LevelsView =
   | { state: "hidden" }
   | { state: "loading" }

@@ -8,6 +8,8 @@ export type ListedApp = {
   id: string;
   displayName: string;
   platform: string | null;
+  /** The context the app's calls run in; its level is saved for this context. */
+  context: "coding" | "conversation";
   lastAuthorizedAt: string;
 };
 

@@ -8,12 +8,14 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import {
   breakCopy,
+  chooseCopy,
   claimCopy,
   consentCopy,
   failureCopy,
   handbackCopy,
   inviteCopy,
   joinedCopy,
+  otherAppCopy,
   sentCopy,
   startCopy,
   subscribeCopy,
@@ -263,4 +265,42 @@ test("setup notices the app that just connected", async ({ page, context }) => {
     timeout: 10_000,
   });
   await expect(page.getByText(joinedCopy.done("Claude"))).toBeVisible();
+});
+
+// Production keeps the Home channel off until a later cell release, and so does this
+// server. A level picked on the joined step then stays on screen, and the page says it is
+// not saved; it never promises or shows a save.
+test("a level the cell cannot take yet stays picked and is not called saved", async ({
+  page,
+  context,
+}) => {
+  const owner = await seedOwner("ready");
+  await context.addCookies(owner.cookies);
+  const client = await seedClient({
+    name: "Claude Code",
+    redirectUri: "http://127.0.0.1:47125/callback",
+    platform: null,
+  });
+  await appCallback(page, "http://127.0.0.1:47125");
+
+  await page.goto("/exomem/setup");
+  await page.getByRole("button", { name: new RegExp(`^${chooseCopy.other.name}`) }).click();
+  await expect(page.getByRole("heading", { name: otherAppCopy.title })).toBeVisible();
+  const consent = await context.newPage();
+  await consent.goto(authorizeRequest(client).url);
+  await consent.getByRole("button", { name: consentCopy.connect, exact: true }).click();
+  await consent.close();
+
+  await expect(
+    page.getByRole("heading", { name: joinedCopy.title("Claude Code") })
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(joinedCopy.ledeWithoutPlugin)).toBeVisible();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+
+  await expect(page.getByText(joinedCopy.notSaved)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Light", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
+  await expect(page.getByText(/^Saved for/)).toHaveCount(0);
 });
