@@ -55,6 +55,20 @@ const ConfigureMemoryAnswer = z.object({
   levels: z.object({ coding: ContextLevel, conversation: ContextLevel }),
 });
 
+/**
+ * The client families an activity event can name. This is the cell's closed
+ * set: `client_family` in its `privacy_log` maps every client name to one of
+ * these, or to none when the name is empty. Home imports it to label events.
+ */
+export const ACTIVITY_CLIENT_FAMILIES = [
+  "claude-ai",
+  "chatgpt",
+  "codex",
+  "claude-code",
+  "other",
+] as const;
+export type ActivityClientFamily = (typeof ACTIVITY_CLIENT_FAMILIES)[number];
+
 const Timestamp = z.iso.datetime({ offset: true });
 const ActivityPayload = z.object({
   since: Timestamp,
@@ -63,7 +77,9 @@ const ActivityPayload = z.object({
   events: z
     .array(
       z.object({
-        client: z.string().min(1).max(64).nullable(),
+        // Any other value could be text from the cell, so it reaches Home as
+        // an unknown client, never as itself.
+        client: z.enum(ACTIVITY_CLIENT_FAMILIES).nullable().catch(null),
         action: z.enum(["recalled", "saved"]),
         items: z.number().int().nonnegative().nullable(),
         at: Timestamp,

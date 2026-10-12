@@ -190,12 +190,17 @@ Home SHALL show the level for each context (chat apps and coding agents) and SHA
 
 ### Requirement: The live activity line is content free
 
-Home SHALL show recent assistant activity as client name, action (recalled or saved), item count and time. The activity data MUST NOT contain note titles, paths, queries or content. Home SHALL read it on load, on tab focus and every 30 seconds while the tab is visible. When the activity is unavailable, Home SHALL show nothing in its place, and MUST NOT show zero.
+Home SHALL show recent assistant activity as client family, action (recalled or saved), item count and time. The client family MUST be one of the cell's closed set of families, else unknown. The activity data MUST NOT contain note titles, paths, queries or content. Home SHALL read it on load, on tab focus and every 30 seconds while the tab is visible. When the activity is unavailable, Home SHALL show nothing in its place, and MUST NOT show zero.
 
 #### Scenario: Assistant recalls notes
 
 - **WHEN** an assistant recalls five notes
 - **THEN** Home shows the client, "recalled", the count 5 and a time that updates in the browser
+
+#### Scenario: Client is not a known family
+
+- **WHEN** the cell names a client outside its set of client families
+- **THEN** Home receives the event with an unknown client and never the cell's text
 
 #### Scenario: Same client repeats an action
 

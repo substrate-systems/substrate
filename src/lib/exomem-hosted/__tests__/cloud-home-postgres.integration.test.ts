@@ -524,11 +524,17 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
           note_count: 0,
           events: [
             {
-              client: "claude",
+              client: "claude-ai",
               action: "recalled",
               items: 5,
               at: "2026-10-12T08:59:30Z",
               query: "a private question",
+            },
+            {
+              client: "private note: an example recovery phrase",
+              action: "saved",
+              items: 1,
+              at: "2026-10-12T08:59:00Z",
             },
           ],
         },
@@ -542,7 +548,11 @@ describe("Cloud Home channel and exports PostgreSQL boundary", { skip: !database
         since: "2026-10-12T08:00:00Z",
         as_of: "2026-10-12T09:00:00Z",
         note_count: 0,
-        events: [{ client: "claude", action: "recalled", items: 5, at: "2026-10-12T08:59:30Z" }],
+        events: [
+          { client: "claude-ai", action: "recalled", items: 5, at: "2026-10-12T08:59:30Z" },
+          // Not a client family, so possibly content: it arrives as an unknown client.
+          { client: null, action: "saved", items: 1, at: "2026-10-12T08:59:00Z" },
+        ],
       });
       assert.deepEqual(cell.calls[0]!.arguments, { profile: "compact", section: "activity" });
     });
