@@ -11,8 +11,8 @@ Access SHALL start in one of three ways: a start request, an operator invitation
 
 #### Scenario: Operator creates a complimentary invite
 
-- **WHEN** an operator with valid Exomem invite authority creates an unexpired complimentary invite for an email address
-- **THEN** the system stores a single-use digest-bound invite and returns or delivers one redemption URL
+- **WHEN** an operator with valid Exomem invite authority creates an unexpired complimentary invite for an email address while Cloud has a free place
+- **THEN** the system stores a single-use digest-bound invite, counts it against Cloud capacity, and returns or delivers one redemption URL
 - **AND** the plaintext token is not written to logs or retained in the database
 
 #### Scenario: Operator creates a paid private-alpha invite
@@ -94,17 +94,23 @@ After valid redemption, the system SHALL show deterministic provisioning progres
 
 ### Requirement: The start form is protected by a Turnstile challenge
 
-The start form SHALL check every request with a Cloudflare Turnstile challenge before it reads the email. The answer to a failed challenge MUST depend only on the token. The former sign-in link route SHALL use the same handler, so no caller can skip the challenge.
+The start form SHALL check every request with a Cloudflare Turnstile challenge before it reads the email. A failed challenge, and a 4xx answer from the verification service, MUST fail closed. When the check cannot run, the form SHALL fall back to the rate limits and the server SHALL log an error. The former sign-in link route SHALL use the same handler, so no caller can skip the challenge.
 
 #### Scenario: Challenge token is missing, invalid or reused
 
 - **WHEN** the request carries a missing, invalid or already used challenge token
 - **THEN** the system answers 400 `challenge_failed` before it reads the email
 
-#### Scenario: Challenge service is unreachable
+#### Scenario: Verification service answers 4xx
 
-- **WHEN** the challenge verification request fails or times out
+- **WHEN** the verification service answers with a 4xx status
+- **THEN** the system answers 400 `challenge_failed`
+
+#### Scenario: The check cannot run
+
+- **WHEN** the verification service is unreachable or times out, the secret is missing or rejected, or a test secret runs in production
 - **THEN** the request continues under the per-address and per-network rate limits
+- **AND** the server logs an error
 
 #### Scenario: Former sign-in route is called
 
@@ -139,7 +145,7 @@ The setting `EXOMEM_SELF_SERVE_ADMISSION` (`closed`, `waitlist` or `open`) SHALL
 
 ### Requirement: Waitlisted people are admitted first come, first served
 
-While the setting is `open`, the system SHALL admit waiting people in the order they joined, one for each free Cloud place. A new address MUST NOT pass a person who waits. A person who asks again while waiting SHALL keep their place and MUST NOT receive a second waitlist email. A person whose start link was used or lapsed SHALL join the back of the queue when they ask again. The system MUST NOT reveal a queue position.
+While the setting is `open`, the system SHALL admit waiting people in the order they joined, one for each free Cloud place, and SHALL skip an address that already owns an active account. A new address MUST NOT pass a person who waits. A person who asks again while waiting SHALL keep their place and MUST NOT receive a second waitlist email. A person whose start link was used or lapsed SHALL join the back of the queue when they ask again. The system MUST NOT reveal a queue position.
 
 #### Scenario: A place opens
 
@@ -157,11 +163,10 @@ While the setting is `open`, the system SHALL admit waiting people in the order 
 - **WHEN** a person who still waits submits the start form again
 - **THEN** their entry keeps its place, no second entry exists, and no second waitlist email is sent
 
-#### Scenario: Person with a live start link asks again
+#### Scenario: Waiting address already owns an account
 
-- **WHEN** a person who holds a live start link submits the start form again
-- **THEN** the system sends a fresh start link with the same expiry and the earlier link stops working
-- **AND** no one else can cancel or move that person's place
+- **WHEN** the oldest waiting address already owns an active account
+- **THEN** promotion skips it and admits the next waiting person
 
 #### Scenario: Start link lapsed or was used
 
@@ -178,14 +183,35 @@ While the setting is `open`, the system SHALL admit waiting people in the order 
 - **WHEN** Cloud capacity observations are stale
 - **THEN** the system admits nobody and queues new addresses
 
+### Requirement: A person's start links share one place
+
+When the system reissues a start link for the same person, it SHALL keep the original expiry and SHALL leave earlier unconsumed links valid until they expire. Redeeming one start link SHALL revoke the person's other links.
+
+#### Scenario: Person with a live start link asks again
+
+- **WHEN** a person who holds a live start link submits the start form again
+- **THEN** the system sends a fresh start link with the same expiry, and the earlier unconsumed links stay valid until they expire
+- **AND** no one else can cancel or move that person's place
+
+#### Scenario: One start link is redeemed
+
+- **WHEN** a person redeems one of several start links issued to them
+- **THEN** the system revokes the others
+
 ### Requirement: Invitation and hold emails are sent once
 
-Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease, and the dedupe key SHALL make the send once. Each kind MUST re-check its precondition when claimed and become cancelled if it no longer holds. Each time limit SHALL render at send time in the recipient's time zone, or labelled UTC when the zone is unknown.
+Every Exomem email SHALL go through the email outbox. The system MUST enqueue each email in the same transaction as the fact that causes it, under a unique dedupe key. Delivery SHALL be at least once under a lease and SHALL retry until the email's own expiry. Each kind MUST re-check its precondition when claimed and cancel if it no longer holds. Each time limit SHALL render at send time in the recipient's zone, or labelled UTC when the zone is unknown.
 
 #### Scenario: The same fact is recorded twice
 
 - **WHEN** a retry records the same causing fact twice
 - **THEN** one outbox row and one email exist for that dedupe key
+
+#### Scenario: Email provider is down for hours
+
+- **WHEN** the email provider fails and recovers before a start link expires
+- **THEN** the system delivers the start email and the person keeps their place
+- **AND** after the link's own expiry the system stops retrying
 
 #### Scenario: Precondition no longer holds
 
@@ -214,6 +240,35 @@ Every Exomem email SHALL go through the email outbox. The system MUST enqueue ea
 
 - **WHEN** the system renders a time limit for a recipient with no stored time zone
 - **THEN** the time shows in UTC with the label
+
+### Requirement: Email and waitlist data are kept for a limited time
+
+The system SHALL remove the recipient and the payload of each settled outbox row 30 days after it settles. It SHALL delete a waitlist entry 180 days after the person's last request, unless the person was admitted. Deleting an account SHALL scrub its outbox rows. The privacy page SHALL state these periods.
+
+#### Scenario: Settled email ages
+
+- **WHEN** an outbox row settled more than 30 days ago
+- **THEN** the row keeps no recipient and no payload
+
+#### Scenario: Waitlist entry ages
+
+- **WHEN** a waiting person made no request for 180 days
+- **THEN** the system deletes the entry
+
+#### Scenario: Admitted person's entry
+
+- **WHEN** a person was admitted from the waitlist
+- **THEN** the 180-day deletion does not apply to that entry
+
+#### Scenario: Account is deleted
+
+- **WHEN** an account deletion finishes
+- **THEN** no outbox row keeps that account's recipient or payload
+
+#### Scenario: Privacy page states the periods
+
+- **WHEN** a person reads the privacy page
+- **THEN** it states the outbox period of 30 days and the waitlist period of 180 days
 
 ### Requirement: Start and redemption record the person's time zone
 
@@ -300,9 +355,28 @@ When an app opened the consent page, "Not now" and "Keep it as it is" SHALL end 
 - **WHEN** a decline request comes from a different origin
 - **THEN** the system rejects it before it touches the transaction
 
+### Requirement: The consent page shows where the code goes
+
+The consent page SHALL always show where the authorization code goes: the host of the redirect address, or "this computer" when the redirect is a loopback address. When the client declared a name, the page SHALL show it next to that destination and label it as the client's own claim. The system MUST store a client name only when the client declares one.
+
+#### Scenario: Web client declares a name
+
+- **WHEN** a web client with a declared name opens the consent page
+- **THEN** the page shows the redirect host and the declared name, labelled as the client's own claim
+
+#### Scenario: Loopback client declares a name
+
+- **WHEN** a client with a loopback redirect and a declared name opens the consent page
+- **THEN** the page shows "this computer" and the declared name, labelled as the client's own claim
+
+#### Scenario: Client declares no name
+
+- **WHEN** a client declares no name
+- **THEN** the system stores no name, and the page shows the destination with the platform label when one exists
+
 ### Requirement: Owners list and disconnect connected apps
 
-A signed-in owner SHALL be able to list connected apps and disconnect each one. The list MUST show a display name taken from client metadata, else the platform label, else the host. It MUST NOT include first-party clients. Disconnect SHALL revoke the app's grant, token families, access tokens and unconsumed codes, limited to the session's user and tenant.
+A signed-in owner SHALL be able to list connected apps and disconnect each one. The list MUST show the name the client declared, else the platform label, else the host. It MUST NOT include first-party clients. Disconnect SHALL revoke the app's grant, token families, access tokens and unconsumed codes, limited to the session's user and tenant.
 
 #### Scenario: Owner lists apps
 

@@ -21,7 +21,7 @@ The operator page SHALL stay outside public navigation and search indexing. It S
 
 ### Requirement: The operator page issues invitations by kind against Cloud capacity
 
-The operator page SHALL default a new invitation to the paid standard kind. Covered (complimentary) access SHALL need a separate explicit confirmation, and the default SHALL return to paid after each send. The page SHALL offer friend invitations with an inviter name, a note and an inviter email. The page SHALL show free Cloud capacity, not the retired Hosted pool, and SHALL block a paid invitation when no place is free.
+The operator page SHALL default a new invitation to the paid standard kind. Covered (complimentary) access SHALL need a separate explicit confirmation, and the default SHALL return to paid after each send. The page SHALL offer friend invitations with an inviter name, a note and an inviter email. The page SHALL show free Cloud capacity, not the retired Hosted pool, and SHALL block an invitation of any kind when no place is free.
 
 #### Scenario: Operator sends a paid invitation
 
@@ -43,4 +43,4 @@ The operator page SHALL default a new invitation to the paid standard kind. Cove
 #### Scenario: Cloud is full
 
 - **WHEN** no Cloud place is free
-- **THEN** the page blocks the paid invitation and says that capacity is full
+- **THEN** the page blocks every invitation kind and says that capacity is full

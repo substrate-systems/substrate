@@ -1,39 +1,43 @@
 ## 1. Admission, waitlist and email outbox (migration 0063)
 
 - [ ] 1.1 Add migration 0063: email outbox table, `time_zone` on waitlist entries and tenants, `recipient_time_zone` on invitations, with its grants
-- [ ] 1.2 Add `cloudAdmissionHeadroom`, counting start links and paid operator invitations, and use it for start, promotion, redemption and paid operator invitations in place of the Hosted pool
-- [ ] 1.3 Add Turnstile verification (action, hostname, 3 s timeout) and the `start:ip` and `start:email` rate limits
+- [ ] 1.2 Add `cloudAdmissionHeadroom`, counting start links and operator invitations of every kind, and use it for start, promotion, redemption and invitation creation in place of the Hosted pool
+- [ ] 1.3 Add Turnstile verification (action, hostname, 3 s timeout), failing closed on a failed token or a 4xx answer and falling back to the rate limits with a logged error when the check cannot run
 - [ ] 1.4 Add `POST /api/exomem/access/start` with `requestStart`, identical 202 answers and cookies, and a 600 ms floor
 - [ ] 1.5 Make the former sign-in link route an alias of the start handler
 - [ ] 1.6 Implement the `closed`, `waitlist` and `open` admission switch under the capacity advisory lock; the public form creates only paid self-serve start links
 - [ ] 1.7 Set start links to 48 hours and validate `timeZone` against the IANA set in start and both redeem routes
 - [ ] 1.8 Send a paid web redemption to the setup journey route
-- [ ] 1.9 Add the waitlist promotion arm to the reconcile job, oldest first, one transaction per admission
-- [ ] 1.10 Keep a waiting person's place and send no second waitlist email on a repeat request; resend a live start link with the same expiry; send a lapsed or used start link to the back of the queue
+- [ ] 1.9 Add the waitlist promotion arm to the reconcile job, oldest first, skipping addresses that own an active account, one transaction per admission
+- [ ] 1.10 Keep a waiting person's place and send no second waitlist email on a repeat request; resend a live start link with the same expiry, leaving earlier links valid and revoking siblings on redemption; send a lapsed or used start link to the back of the queue
 - [ ] 1.11 Anchor the unpaid hold and the hold reminder on the stopped cell's creation time
-- [ ] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick
-- [ ] 1.13 Test against PostgreSQL: no enumeration across outcomes, last place race, queue order, stale capacity, re-admission hold
-- [ ] 1.14 Run a dedicated security review of admission
+- [ ] 1.12 Drain the outbox from the `exomem-access-delivery` cron, every minute, at most 20 rows a tick, retrying each row until its own expiry
+- [ ] 1.13 Remove recipient and payload from settled outbox rows after 30 days and delete waitlist entries 180 days after the last request unless admitted
+- [ ] 1.14 State the outbox and waitlist retention periods on the privacy page
+- [ ] 1.15 Test against PostgreSQL: no enumeration across outcomes, last place race, queue order, stale capacity, re-admission hold
+- [ ] 1.16 Run a dedicated security review of admission
 
 ## 2. Consent hand-back and owner apps
 
 - [ ] 2.1 Move the consent step rule into `src/lib` as the first commit
-- [ ] 2.2 Add `loadConsentView` with the already-connected flag, the loopback flag and the connector settings link
-- [ ] 2.3 Add `POST /api/exomem/oauth/authorize/decline` with the shared origin check, nonce check and one-shot consume
-- [ ] 2.4 Add `authorizationDenialRedirect` bound to the consumed row's redirect URI
-- [ ] 2.5 Add `GET /api/exomem/apps` with display names and first-party exclusion
-- [ ] 2.6 Add `POST /api/exomem/apps/{id}/disconnect` that revokes grant, token families, access tokens and unconsumed codes
-- [ ] 2.7 Test against PostgreSQL: no grant or code written on decline, replay and expiry, foreign app id returns 404
-- [ ] 2.8 Run a dedicated security review of decline and disconnect
+- [ ] 2.2 Add `loadConsentView` with the already-connected flag, the loopback flag, the connector settings link and the code destination (redirect host or "this computer")
+- [ ] 2.3 Store a client name only when the client declares one, and show it beside the destination labelled as the client's own claim
+- [ ] 2.4 Add `POST /api/exomem/oauth/authorize/decline` with the shared origin check, nonce check and one-shot consume
+- [ ] 2.5 Add `authorizationDenialRedirect` bound to the consumed row's redirect URI
+- [ ] 2.6 Add `GET /api/exomem/apps` with display names and first-party exclusion
+- [ ] 2.7 Add `POST /api/exomem/apps/{id}/disconnect` that revokes grant, token families, access tokens and unconsumed codes
+- [ ] 2.8 Test against PostgreSQL: no grant or code written on decline, replay and expiry, foreign app id returns 404
+- [ ] 2.9 Run a dedicated security review of decline and disconnect
 
 ## 3. Account facts and reviewer sign-in (migration 0064)
 
 - [ ] 3.1 Add migration 0064: support reference with backfill, entitlement provider fields, grace start
 - [ ] 3.2 Write the provider fields from `subscription.*` events and from reconciliation, and reset them on re-admission
-- [ ] 3.3 Export the kept-until rule as one function
-- [ ] 3.4 Add the `account` object to `GET /api/exomem/account` with known-or-reason dates
-- [ ] 3.5 Add the web path to the reviewer route with the same limits and one identical 401
-- [ ] 3.6 Test against PostgreSQL: grace start across repeated failures, unknown reasons, reviewer failures identical
+- [ ] 3.3 Set the grace start only on a move into `past_due`, keep a stored or unknown value otherwise, and clear it on leaving `past_due`
+- [ ] 3.4 Export the kept-until rule as one function
+- [ ] 3.5 Add the `account` object to `GET /api/exomem/account` with known-or-reason dates
+- [ ] 3.6 Add the web path to the reviewer route with the same limits and one identical 401
+- [ ] 3.7 Test against PostgreSQL: grace start across repeated failures, unknown reasons, reviewer failures identical
 
 ## 4. Friend invitations and resubscribe (migration 0065)
 
@@ -44,7 +48,7 @@
 - [ ] 4.5 Verify the friend discount's properties before each checkout and each subscription update, and fail closed on any difference
 - [ ] 4.6 Allow a new transaction for an ended owner's customer inside the kept window and let the kept cell resume
 - [ ] 4.7 Add inviter name, optional note and optional inviter email to the operator issue route and page
-- [ ] 4.8 Show free Cloud capacity on the operator page and keep its paid default and covered confirmation
+- [ ] 4.8 Show free Cloud capacity on the operator page, block every invitation kind when none is free, and keep its paid default and covered confirmation
 - [ ] 4.9 Scrub the new personal data and outbox rows in deletion finish
 - [ ] 4.10 Test with the payment provider substituted: decision, failure, repeat, resubscribe, existing owner never signed in
 - [ ] 4.11 Run a dedicated security review of the friend price
@@ -81,7 +85,7 @@
 
 - [ ] 7.1 Build "Start with your email" with the Turnstile widget and the uniform "check your email" step
 - [ ] 7.2 Build the invitation steps: friend, covered, existing owner, unusable
-- [ ] 7.3 Build the consent steps with the declined and kept hand-back (at most 3 s on screen for web apps) for web and loopback apps
+- [ ] 7.3 Build the consent steps with the code destination, the declined and kept hand-back (at most 3 s on screen for web apps) for web and loopback apps
 - [ ] 7.4 Build subscribe with the Paddle overlay and the confirming step
 - [ ] 7.5 Build the setup step with connection polling (3 s, then 30 s after 10 minutes) and the joined state
 - [ ] 7.6 Build the break states: connect error, ended, paused, suspended, expired, read-only

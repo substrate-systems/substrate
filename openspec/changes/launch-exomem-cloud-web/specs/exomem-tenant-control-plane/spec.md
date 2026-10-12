@@ -2,7 +2,7 @@
 
 ### Requirement: Outstanding invitations count against Cloud capacity
 
-The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus live cells minus outstanding invitations. An outstanding invitation is an unexpired, unrevoked start link or paid operator invitation. Start, waitlist promotion, redemption and paid operator invitation creation SHALL read this value under one advisory lock. Stale capacity observations MUST admit nobody new. The retired Hosted capacity pool MUST NOT gate admission.
+The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus live cells minus outstanding invitations. An outstanding invitation is an unexpired, unrevoked start link or operator invitation of any kind, including complimentary, covered and reviewer invitations. Start, waitlist promotion, redemption and invitation creation SHALL read this value under one advisory lock. Stale capacity observations MUST admit nobody new. The retired Hosted capacity pool MUST NOT gate admission.
 
 #### Scenario: Two requests compete for the last place
 
@@ -11,12 +11,12 @@ The control plane SHALL compute free Cloud capacity as fresh Cloud slots minus l
 
 #### Scenario: Outstanding invitations hold places
 
-- **WHEN** a start link or a paid operator invitation is outstanding
+- **WHEN** a start link or an operator invitation of any kind is outstanding
 - **THEN** its place counts as taken until the invitation is redeemed, expires or is revoked
 
 #### Scenario: Operator invites when Cloud is full
 
-- **WHEN** an operator creates a paid invitation while no place is free
+- **WHEN** an operator creates a complimentary, paid or reviewer invitation while no place is free
 - **THEN** the system refuses with a stable capacity response and creates no invitation
 
 #### Scenario: Capacity observations are stale

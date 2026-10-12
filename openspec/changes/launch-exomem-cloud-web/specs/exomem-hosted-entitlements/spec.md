@@ -55,29 +55,38 @@ Before it attaches the friend discount to a checkout, or applies it to a subscri
 - **WHEN** the same check fails when an owner chooses the friend price on a live subscription
 - **THEN** the server refuses with a stable error and leaves the subscription unchanged
 
-### Requirement: Subscription events store next payment, price name, discount and grace start
+### Requirement: Subscription events store next payment, price name and discount
 
-A verified `subscription.*` event, and reconciliation of a subscription, SHALL store the price identifier, the price name, the next billing time, the discount identifier and the scheduled change time. The system SHALL set the grace start to the first time of the current `past_due` period and clear it in every other state. Other event kinds MUST NOT write these fields. A re-admission SHALL reset them.
+A verified `subscription.*` event, and reconciliation of a subscription, SHALL store the price identifier, the price name, the next billing time, the discount identifier and the scheduled change time. Other event kinds MUST NOT write these fields. A re-admission SHALL reset them.
 
 #### Scenario: Subscription event arrives
 
 - **WHEN** a verified subscription event reports a price, a next billing time and a discount
 - **THEN** the entitlement stores them
 
+#### Scenario: Reconciliation observes the subscription
+
+- **WHEN** reconciliation reads the subscription from Paddle
+- **THEN** it stores the same fields, in the same way as a webhook
+
+### Requirement: The grace start marks a move into past due
+
+The system SHALL set the grace start to the event time only when the state moves into `past_due`. While the state stays `past_due`, it SHALL keep the stored value, and an unknown value SHALL stay unknown. It SHALL clear the value when the state leaves `past_due`. It MUST NOT guess a date from an update time.
+
 #### Scenario: Payment fails twice
 
-- **WHEN** a second `past_due` event arrives in the same failed period
-- **THEN** the grace start keeps its first value
+- **WHEN** the state moves into `past_due` and a second `past_due` event follows in the same failed period
+- **THEN** the grace start keeps the time of the move
+
+#### Scenario: Grace start is unknown
+
+- **WHEN** a `past_due` event arrives for an entitlement that was already `past_due` and has no stored grace start
+- **THEN** the grace start stays unknown
 
 #### Scenario: Payment recovers
 
 - **WHEN** the subscription returns to active
 - **THEN** the grace start is cleared
-
-#### Scenario: Reconciliation observes the subscription
-
-- **WHEN** reconciliation reads the subscription from Paddle
-- **THEN** it stores the same fields, in the same way as a webhook
 
 ### Requirement: Self-serve and resubscribe checkouts use the server-selected catalog
 

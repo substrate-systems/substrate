@@ -250,6 +250,11 @@ Home SHALL show the plan name, the next payment date, the read-only end date, th
 - **WHEN** an owner's payment failed and the dunning window is configured
 - **THEN** read-only access ends on the grace start plus the configured dunning days
 
+#### Scenario: Grace start is unknown
+
+- **WHEN** an owner is past due and the grace start is unknown
+- **THEN** the read-only end date is unknown with the reason `grace_start_unknown`
+
 #### Scenario: Dunning window is not configured
 
 - **WHEN** no dunning window is configured
