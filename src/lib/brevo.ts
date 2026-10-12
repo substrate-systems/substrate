@@ -28,7 +28,14 @@ type BrevoErrorResponse = {
   message?: string;
 };
 
-const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
+// Production leaves BREVO_API_BASE_URL unset. A test server sets it to a stand-in, so a
+// send can succeed or fail on demand. The API key goes to this host.
+const DEFAULT_BREVO_API_BASE_URL = "https://api.brevo.com/v3";
+
+function brevoEmailUrl(): string {
+  const base = process.env.BREVO_API_BASE_URL?.trim() || DEFAULT_BREVO_API_BASE_URL;
+  return `${base.endsWith("/") ? base.slice(0, -1) : base}/smtp/email`;
+}
 // Friendlier display name in the inbox. Trust signals come from the
 // from-address + DKIM/SPF/DMARC — the name is just for the human reading.
 // Override via BREVO_SENDER_NAME if needed (e.g. for the founder digest).
@@ -66,7 +73,7 @@ export async function sendTransactionalEmail(
 
   let res: Response;
   try {
-    res = await fetch(BREVO_API_URL, {
+    res = await fetch(brevoEmailUrl(), {
       method: "POST",
       headers: {
         "api-key": apiKey,

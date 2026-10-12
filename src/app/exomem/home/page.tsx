@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import { PaddleTransactionOpener } from "@/components/PaddleTransactionOpener";
 import { loadExomemPaddleConfig } from "@/lib/exomem-hosted/paddle-config";
-import { PrivateShell } from "../private-shell";
 import HomeClient from "./home-client";
+import styles from "./home.module.css";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,8 +12,8 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-// The subscribe card previews the price that checkout charges, so the browser
-// gets the price ID only when checkout can run with the same client token.
+// The subscribe view previews the price that checkout charges, so the browser gets the
+// price ID only when checkout can run with the same client token.
 function checkoutPriceId(): string | null {
   try {
     const config = loadExomemPaddleConfig();
@@ -27,9 +26,8 @@ function checkoutPriceId(): string | null {
 
 export default function ExomemHomePage() {
   return (
-    <PrivateShell>
-      <PaddleTransactionOpener validationEndpoint="/api/exomem/billing/checkout" />
+    <main className={`${styles.page} brand-exomem`}>
       <HomeClient priceId={checkoutPriceId()} />
-    </PrivateShell>
+    </main>
   );
 }

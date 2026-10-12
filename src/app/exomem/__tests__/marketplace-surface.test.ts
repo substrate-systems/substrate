@@ -7,13 +7,8 @@ import sitemap from "../../sitemap";
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Exomem marketplace public surface", () => {
-  it("keeps checkout private to authenticated Home", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-
-    assert.match(home, /Subscribe and prepare Exomem/);
-    assert.match(home, /openBilling\("checkout"\)/);
-    assert.doesNotMatch(home, /disabled=\{!billing\?\.checkoutAvailable\}/);
-    assert.doesNotMatch(source("src/app/exomem/page.tsx"), /Subscribe and prepare Exomem/);
+  it("keeps checkout off the public landing page", () => {
+    assert.doesNotMatch(source("src/app/exomem/page.tsx"), /billing\/checkout/);
   });
 
   it("publishes the stable policy and setup routes in the sitemap", () => {

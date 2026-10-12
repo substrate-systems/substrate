@@ -55,6 +55,17 @@
   text-decoration: none;
 }
 
+/* Home's row actions (Home board): Disconnect, Set up, Manage billing, Export, Delete. */
+.row {
+  height: 44px;
+  min-width: 112px;
+}
+
+/* The action of a line under a row (Download, Try again) or of a notice (Home board). */
+.detail {
+  min-width: 112px;
+}
+
 .primary {
   background: var(--fg-primary);
   color: var(--bg-base);

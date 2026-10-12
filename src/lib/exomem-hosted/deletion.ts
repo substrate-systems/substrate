@@ -58,7 +58,7 @@ function withDefaults(dependencies?: Partial<DeletionDependencies>): DeletionDep
 export async function requestDeletionConfirmation(
   session: { userId: string; tenantId: string },
   dependencies?: Partial<DeletionDependencies>
-): Promise<{ delivery: "sent" }> {
+): Promise<{ delivery: "sent"; expiresAt: Date }> {
   const deps = withDefaults(dependencies);
   const publicBaseUrl = parseExomemPublicBaseUrl(deps.publicBaseUrl);
   const allowed = await deps.takeRateLimit(
@@ -100,7 +100,7 @@ export async function requestDeletionConfirmation(
     throw exomemErrors.emailDeliveryUnavailable();
   }
   await deps.markDelivered(created.tokenId);
-  return { delivery: "sent" };
+  return { delivery: "sent", expiresAt };
 }
 
 export async function confirmDeletion(

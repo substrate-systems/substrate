@@ -4,9 +4,13 @@ import phone from "./phone.module.css";
 import styles from "./Button.module.css";
 
 type Variant = "primary" | "secondary" | "amber" | "ghost";
-/** panel: h 36 inside panels · page: h 48, a page's main action · landing: the landing's
- *  calls to action (a full-width 52 px block on a phone). Ghost buttons have one size. */
-type Size = "panel" | "page" | "landing";
+/**
+ * panel: h 36 inside panels · page: h 48, a page's main action · landing: the landing's
+ * calls to action (a full-width 52 px block on a phone) · row: h 44 and at least 112 wide,
+ * a row's action on Home · detail: h 36 and at least 112 wide, the action of a line under a
+ * row or of a notice. Ghost buttons have one size.
+ */
+type Size = "panel" | "page" | "landing" | "row" | "detail";
 
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & {
   /** primary: the one main action · secondary: bordered · amber: epistemic actions only · ghost: text only. */

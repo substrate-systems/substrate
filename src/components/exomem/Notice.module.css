@@ -21,3 +21,15 @@
   font-size: 14px;
   line-height: 1.5;
 }
+
+/* Home's desktop notice: the text left, its one action right. Phones keep the column. */
+@media (min-width: 641px) {
+  .row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .row .text {
+    flex: 1;
+  }
+}
