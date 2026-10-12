@@ -197,9 +197,11 @@ export default function ExomemPage() {
       : []),
   ];
 
+  // The phone board's footer, in its order; the desktop board draws none (design.md (x)).
   const footerLinks = [
     { label: "How it works", href: "#lp-true" },
     { label: "Benchmarks", href: "#lp-proof" },
+    { label: "Pricing", href: "#lp-doors" },
     { label: "Privacy", href: "/exomem/privacy" },
     { label: "Terms", href: "/exomem/terms" },
     { label: "Support", href: "/exomem/support" },
@@ -428,8 +430,11 @@ export default function ExomemPage() {
                 Hosted, private, and yours to leave.
               </h2>
               <p className={`${styles.cloudLede} ${responsive.deskOnly}`}>
-                Same open-source engine, run for you. Your vault stays plain Markdown you can export
-                at any time, including after you stop paying.
+                Same open-source engine, run for you. Your vault stays plain Markdown
+                {exportOffered
+                  ? " you can export at any time, including after you stop paying"
+                  : ""}
+                .
               </p>
               <div className={styles.cloudCta}>
                 <ButtonLink href={SIGN_IN} variant="primary" size="landing">

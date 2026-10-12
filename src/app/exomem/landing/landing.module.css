@@ -17,13 +17,6 @@
   }
 }
 
-/* The board's focus ring for the landing's links and buttons: amber, 2 px, offset 3. */
-.page a:focus-visible,
-.page button:focus-visible {
-  outline: 2px solid var(--exo-amber);
-  outline-offset: 3px;
-}
-
 .main {
   max-width: 1280px;
   margin: 0 auto;
@@ -491,7 +484,7 @@
   flex-wrap: wrap;
   gap: 6px 18px;
   font-size: 13px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .copyright {
@@ -792,7 +785,7 @@
   }
 
   /* Each link is a 40 px line, so wrapped rows never share a tap area (the board's
-     6 px row gap would let a tap under one link open the link below). */
+     6 px row gap would let a tap under one link open the link below; design.md (y)). */
   .footerLinks {
     row-gap: 0;
   }
