@@ -258,7 +258,7 @@ export const breakCopy = {
 
 /**
  * The authorization endpoint's answer to an app it does not know or no longer admits.
- * Not drawn by the board (owner approval pending).
+ * Not drawn by the board (design.md deviation (n)).
  */
 export const unknownAppCopy = {
   title: "Exomem doesn’t recognise this app",
