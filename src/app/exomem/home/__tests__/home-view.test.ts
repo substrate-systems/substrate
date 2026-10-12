@@ -98,10 +98,20 @@ describe("which Home the owner sees", () => {
     });
   });
 
-  it("shows the pause an owner asked for as the export, not as trouble", () => {
+  it("shows a pause for an export or for maintenance as a pause, not as trouble", () => {
     const held: Lifecycle = { state: "degraded", code: "CELL_PAUSED_FOR_EXPORT", retryable: true };
     const failing: Lifecycle = { state: "degraded", code: "CELL_NOT_READY", retryable: true };
     assert.deepEqual(homeMode(held, account(), "known"), { kind: "home", variant: "export_pause" });
+    // A backup or upgrade holds the cell too, and ends by itself: a pause, not trouble.
+    const maintained: Lifecycle = {
+      state: "degraded",
+      code: "CELL_PAUSED_FOR_HOLD",
+      retryable: true,
+    };
+    assert.deepEqual(homeMode(maintained, account(), "known"), {
+      kind: "home",
+      variant: "hold_pause",
+    });
     assert.deepEqual(homeMode(failing, account(), "known"), { kind: "home", variant: "trouble" });
   });
 

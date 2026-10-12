@@ -34,6 +34,7 @@ import type { Lifecycle } from "./home-state";
  * on: the memory is live · readonly: a payment failed · ended: the subscription
  * ended and the memory is kept · paused / suspended: the cell is stopped ·
  * trouble: the cell should run and does not · export_pause: an export holds it ·
+ * hold_pause: maintenance holds it (a backup, an upgrade) and ends by itself ·
  * unknown: the account could not be read, so Home claims no state for it.
  */
 export type HomeVariant =
@@ -44,6 +45,7 @@ export type HomeVariant =
   | "suspended"
   | "trouble"
   | "export_pause"
+  | "hold_pause"
   | "unknown";
 
 /** Where the first account read is: Home says nothing about the account until it settles. */
@@ -87,10 +89,10 @@ export function homeMode(
       if (step === "ended") return { kind: "home", variant: "ended" };
       return { kind: "home", variant: "suspended" };
     case "degraded":
-      return {
-        kind: "home",
-        variant: lifecycle.code === "CELL_PAUSED_FOR_EXPORT" ? "export_pause" : "trouble",
-      };
+      if (lifecycle.code === "CELL_PAUSED_FOR_EXPORT")
+        return { kind: "home", variant: "export_pause" };
+      if (lifecycle.code === "CELL_PAUSED_FOR_HOLD") return { kind: "home", variant: "hold_pause" };
+      return { kind: "home", variant: "trouble" };
     case "ready":
       if (step === "connect-read-only") return { kind: "home", variant: "readonly" };
       if (step === "ended") return { kind: "home", variant: "ended" };
@@ -261,6 +263,11 @@ export function statusCopy(
       return {
         headline: "Paused for your export",
         statusLine: "Your assistants are back in a few minutes.",
+      };
+    case "hold_pause":
+      return {
+        headline: "Paused for maintenance",
+        statusLine: "It ends by itself, and your assistants are back after it.",
       };
     case "unknown":
       return {
