@@ -166,3 +166,15 @@ The server only mints presigned PUT/GET URLs (5-minute TTL); chunks transit dire
 **Paddle webhook.** Hosted Backup adds a second webhook receiver at `/api/webhooks/paddle` for subscription events. It reuses the existing `PADDLE_WEBHOOK_SECRET` and `PADDLE_API_KEY`. Configure Paddle to deliver subscription events to this URL in addition to the existing license webhook.
 
 See the configured env vars in your hosting environment for the full list.
+
+## License
+
+Copyright © 2026 Substrate Systems OÜ.
+
+The source code is licensed under AGPL-3.0-or-later. See [LICENSE](LICENSE). The license covers:
+
+- the code under `src/`, `scripts/`, `e2e/` and `migrations/`;
+- the configuration under `ops/` and `contracts/`;
+- the build and tool configuration files at the repository root.
+
+Everything else is not covered, and all rights to it are reserved unless [ATTRIBUTIONS.md](ATTRIBUTIONS.md) names a different license for an item. This includes the files under `public/` (photography, images, video, downloads and site text), the written content under `content/`, and the documentation under `docs/` and `openspec/`. The Substrate, Exomem and Endstate names are not licensed for use.
