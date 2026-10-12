@@ -183,7 +183,9 @@ test("an export packs, becomes ready, and Download follows a fresh link", async 
   await page.reload();
   await expect(data.getByText(/^kept 24 h, until /)).toBeVisible();
 
-  const downloadUrl = `${new URL(page.url()).origin}/__export-download/${requested!.export_id}.zip`;
+  // The server hands out only an https link, as the object store's is; the browser's
+  // route answers it here.
+  const downloadUrl = `https://exports.example.test/${requested!.export_id}.zip`;
   await page.route(downloadUrl, (route) =>
     route.fulfill({
       status: 200,
