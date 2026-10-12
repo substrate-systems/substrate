@@ -17,16 +17,27 @@
 
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
+import { enqueueDeletedEmail } from "./lifecycle-emails";
 import {
   evaluateExomemEntitlement,
   EXOMEM_ALPHA_BUNDLE,
+  projectedEntitlement,
   type EffectiveExomemEntitlement,
   type EvaluateExomemEntitlementInput,
 } from "./entitlements";
 import {
   CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS,
+  CLOUD_SWEEP_PADDLE_BUDGET_MS,
   DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS,
 } from "./cloud-config";
+import {
+  cancelExomemCheckoutTransaction,
+  ExomemBillingError,
+  paddleTransportUntil,
+  type PaddleTransport,
+} from "./paddle-billing";
+import { loadExomemPaddleTransactionConfig, type ExomemPaddleConfig } from "./paddle-config";
+import { recoverPaidResubscription } from "./resubscribe-recovery";
 
 export type CloudDesiredCellState = "running" | "read_only" | "stopped" | "deleted";
 
@@ -109,6 +120,7 @@ type EntitlementRow = {
   source_state: string;
   manual_suspended_at: Date | null;
   source_occurred_at: Date | null;
+  provider_transaction_ref: string | null;
 };
 
 /**
@@ -142,6 +154,148 @@ function toSourceProjection(
     return null;
   }
   return { source: "paddle", state: row.source_state as RecognizedPaddleState };
+}
+
+export type LapsedCheckoutSettlement = {
+  /** The bound transaction cannot pay for the cell any more; its binding is cleared. */
+  settled: number;
+  /** The bound transaction paid for a live subscription; the owner is resumed. */
+  resumed: number;
+  /** Paddle gave no proof either way, or the budget ran out first; the cell stays read-only. */
+  waiting: number;
+};
+
+export type LapsedCheckoutOptions = {
+  cancelledRetentionDays?: number;
+  /** Paddle time for the whole batch. Tenants it does not reach wait for the next tick. */
+  budgetMs?: number;
+  maxTenants?: number;
+  now?: Date;
+  cancelTransaction?: typeof cancelExomemCheckoutTransaction;
+  recoverResubscription?: typeof recoverPaidResubscription;
+  config?: ExomemPaddleConfig;
+  transport?: PaddleTransport;
+};
+
+// A tick reaches at most this many lapsed tenants; the rest wait for the next.
+const LAPSED_CHECKOUT_MAX_TENANTS = 25;
+
+type LapsedCheckout = {
+  tenant_id: string;
+  owner_user_id: string;
+  source_revision: string | null;
+  provider_transaction_ref: string;
+  provider_environment: "sandbox" | "production" | null;
+  provider_customer_ref: string | null;
+};
+
+/**
+ * Before a lapsed export window deletes a cancelled tenant's cell, the
+ * Paddle transaction still bound to it is settled, the way
+ * `expireCloudAwaitingCheckoutTenants` settles an unpaid hold. Only proof
+ * clears the binding and lets the cell go: Paddle cancelled the transaction
+ * (an open resubscription checkout is cancelled here), it reports the
+ * transaction under another owner, or the subscription it paid for has
+ * ended. A transaction that paid for a live subscription resumes the owner
+ * (`recoverPaidResubscription`), in case its subscription event never came.
+ *
+ * Any other answer, including a payment Paddle has not finished, keeps the
+ * cell read-only. If Paddle stays down, every lapsed cell with a bound
+ * transaction outlives its window and keeps its Cloud slot until Paddle
+ * answers; each tick asks again within its budget.
+ */
+export async function settleLapsedCheckouts(
+  options: LapsedCheckoutOptions = {}
+): Promise<LapsedCheckoutSettlement> {
+  const now = options.now ?? new Date();
+  const keptUntilNow = cloudCancelledKeptUntil(now, options.cancelledRetentionDays);
+  // The latest last transition whose kept window has ended by now.
+  const lapsedBefore = new Date(2 * now.getTime() - keptUntilNow.getTime());
+  const { rows } = await executeExomemSql`
+    /* exomem-cloud:lapsed-checkouts */
+    SELECT tenant.id AS tenant_id, tenant.owner_user_id, entitlement.source_revision,
+           entitlement.provider_transaction_ref, entitlement.provider_environment,
+           entitlement.provider_customer_ref
+    FROM exomem_entitlements AS entitlement
+    JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
+    WHERE entitlement.source = 'paddle'
+      AND entitlement.source_state = 'cancelled'
+      AND entitlement.manual_suspended_at IS NULL
+      AND entitlement.provider_transaction_ref IS NOT NULL
+      AND entitlement.source_occurred_at <= ${lapsedBefore.toISOString()}::timestamptz
+      AND tenant.status NOT IN ('deletion_pending', 'deleted')
+      AND tenant.desired_state <> 'deleted'
+      AND EXISTS (
+        SELECT 1 FROM exomem_cloud_cells AS cell
+        WHERE cell.tenant_id = tenant.id AND cell.desired_state <> 'deleted'
+      )
+    ORDER BY random()
+    LIMIT ${options.maxTenants ?? LAPSED_CHECKOUT_MAX_TENANTS}
+  `;
+  const result: LapsedCheckoutSettlement = { settled: 0, resumed: 0, waiting: 0 };
+  if (rows.length === 0) return result;
+  // One deadline for every Paddle call of the batch, so a slow Paddle costs
+  // the cron at most the budget.
+  const deadline = AbortSignal.timeout(options.budgetMs ?? CLOUD_SWEEP_PADDLE_BUDGET_MS);
+  const bounded = paddleTransportUntil(deadline, options.transport);
+  for (const row of rows as LapsedCheckout[]) {
+    const outcome = deadline.aborted
+      ? "waiting"
+      : await settleLapsedCheckout(row, { ...options, transport: bounded, signal: deadline });
+    result[outcome] += 1;
+  }
+  if (result.waiting > 0) {
+    console.error("exomem-cloud: lapsed cells wait for their Paddle checkout to settle");
+  }
+  return result;
+}
+
+async function settleLapsedCheckout(
+  row: LapsedCheckout,
+  options: LapsedCheckoutOptions & { transport: PaddleTransport; signal: AbortSignal }
+): Promise<keyof LapsedCheckoutSettlement> {
+  if (!row.provider_environment) return "waiting";
+  const bound = {
+    userId: row.owner_user_id,
+    tenantId: row.tenant_id,
+    transactionId: row.provider_transaction_ref,
+    environment: row.provider_environment,
+  };
+  try {
+    const config = options.config ?? loadExomemPaddleTransactionConfig();
+    const transaction = await (options.cancelTransaction ?? cancelExomemCheckoutTransaction)(
+      bound,
+      { config, transport: options.transport }
+    );
+    if (transaction.state === "completed") {
+      if (!row.provider_customer_ref) return "waiting";
+      const paid = await (options.recoverResubscription ?? recoverPaidResubscription)(
+        {
+          ...bound,
+          customerRef: row.provider_customer_ref,
+          sourceRevision: row.source_revision,
+          paid: { subscriptionId: transaction.subscriptionId, customerId: transaction.customerId },
+        },
+        { transport: options.transport, signal: options.signal }
+      );
+      if (paid === "resumed") return "resumed";
+    }
+  } catch (error) {
+    if (!(error instanceof ExomemBillingError && error.code === "EXOMEM_TRANSACTION_NOT_OWNED")) {
+      return "waiting";
+    }
+  }
+  const cleared = await executeExomemSql`
+    /* exomem-cloud:lapsed-checkout-cleared */
+    UPDATE exomem_entitlements
+    SET provider_transaction_ref = NULL, updated_at = now()
+    WHERE tenant_id = ${row.tenant_id}::uuid
+      AND source_state = 'cancelled'
+      AND provider_transaction_ref = ${row.provider_transaction_ref}
+      AND source_revision IS NOT DISTINCT FROM ${row.source_revision}
+    RETURNING tenant_id
+  `;
+  return cleared.rows.length === 1 ? "settled" : "waiting";
 }
 
 type CloudTenantMirror = {
@@ -182,7 +336,9 @@ function cloudDesiredStateToTenantMirror(target: CloudDesiredCellState): CloudTe
  * Reads one tenant's current entitlement and applies D4. Only reachable for
  * a tenant that already has a cell row (i.e. past admission) — a fresh
  * `awaiting_checkout` tenant's `stopped`/`deleted` transitions are D1's
- * concern (cloud-admission.ts), not this function's.
+ * concern (cloud-admission.ts), not this function's. Returns `null` when the
+ * tenant has no live cell, including one that an overlapping call deleted
+ * first.
  *
  * The cell UPDATE is unconditional on the *current* desired_state matching
  * anything in particular (unlike admission's `stopped`-only guards), because
@@ -195,24 +351,44 @@ function cloudDesiredStateToTenantMirror(target: CloudDesiredCellState): CloudTe
  * The tenant mirror write runs in the same transaction as the cell's
  * desired_state write (this round's ruling): both change together, or
  * neither does.
+ *
+ * The reconcile locks the live cell, then the tenant, then the entitlement,
+ * and every write follows from that locked read. A deletion confirmation, a
+ * Paddle event or a cancellation notice that commits meanwhile waits, so the
+ * reconcile never writes over it from a stale read. Every other writer takes
+ * these rows in the same order, or takes only a part of it: the cancellation
+ * notice, export and import lock the cell; the Paddle event store, deletion
+ * request, confirmation and finish, checkout, admission and OAuth lock the
+ * tenant before the entitlement. The tenant and the entitlement take NO KEY
+ * UPDATE, so a row that only references the tenant, such as an outbox email,
+ * can still be inserted. The transaction makes no network call while it
+ * holds the locks.
  */
 export async function reconcileCloudCellDesiredState(
   tenantId: string,
   options: { cancelledRetentionDays?: number; now?: Date } = {}
 ): Promise<CloudDesiredCellState | null> {
   return withExomemTransaction(async (tx) => {
+    // A tenant has at most one live cell (a unique index).
+    const { rows: liveCells } = await tx`
+      /* exomem-cloud:reconcile-lock-cell */
+      SELECT cell_id
+      FROM exomem_cloud_cells
+      WHERE tenant_id = ${tenantId}::uuid
+        AND desired_state <> 'deleted'
+      FOR NO KEY UPDATE
+    `;
+    if (liveCells.length === 0) return null;
     const { rows } = await tx`
       /* exomem-cloud:reconcile-entitlement */
       SELECT entitlement.tenant_id, entitlement.source, entitlement.source_state,
              entitlement.manual_suspended_at, entitlement.source_occurred_at,
+             entitlement.provider_transaction_ref,
              tenant.status AS tenant_status, tenant.desired_state AS tenant_desired_state
-      FROM exomem_entitlements AS entitlement
-      JOIN exomem_cloud_cells AS cell
-        ON cell.tenant_id = entitlement.tenant_id
-       AND cell.desired_state <> 'deleted'
-      JOIN exomem_tenants AS tenant ON tenant.id = entitlement.tenant_id
-      WHERE entitlement.tenant_id = ${tenantId}::uuid
-      LIMIT 1
+      FROM exomem_tenants AS tenant
+      JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
+      WHERE tenant.id = ${tenantId}::uuid
+      FOR NO KEY UPDATE OF tenant, entitlement
     `;
     const row = rows[0] as
       | (EntitlementRow & { tenant_status: string; tenant_desired_state: string })
@@ -234,7 +410,7 @@ export async function reconcileCloudCellDesiredState(
     // recognised paddle branches allows at least a read, so guessing one
     // would risk repeating the finding-1 bug. `stopped` is the only D1/D4
     // answer for "the mapping does not recognise this state."
-    const target: CloudDesiredCellState = accountDeleted
+    const mapped: CloudDesiredCellState = accountDeleted
       ? "deleted"
       : sourceProjection
       ? desiredCloudCellState(
@@ -247,19 +423,30 @@ export async function reconcileCloudCellDesiredState(
           options
         )
       : "stopped";
+    // A lapsed export window deletes the cell only once no Paddle checkout
+    // is bound to it: a resubscription opened inside the window could
+    // otherwise be paid for a deleted cell. `settleLapsedCheckouts` clears
+    // the binding once Paddle proves it cannot pay for the cell; until then
+    // the cell stays read-only.
+    const target: CloudDesiredCellState =
+      mapped === "deleted" && !accountDeleted && row.provider_transaction_ref !== null
+        ? "read_only"
+        : mapped;
 
     // The cancellation-notice claim (migration 0057) is cleared the moment
     // the cell returns to running — security review finding 9: otherwise a
     // resubscription-then-cancel-again cycle finds the claim already set
     // from the first cancellation and silently sends no notice for the
     // second one.
+    //
+    // An overlapping reconcile that deleted the cell committed before the
+    // lock above returned, so this transaction found no live cell and stopped.
     await tx`
       UPDATE exomem_cloud_cells
       SET desired_state = ${target},
           cancellation_notice_sent_at =
             CASE WHEN ${target} = 'running' THEN NULL ELSE cancellation_notice_sent_at END
-      WHERE tenant_id = ${tenantId}::uuid
-        AND desired_state <> 'deleted'
+      WHERE cell_id = ${liveCells[0].cell_id as string}
     `;
 
     // D2: the transaction that deletes the cell also revokes consent.
@@ -268,12 +455,56 @@ export async function reconcileCloudCellDesiredState(
     const mirror = deletionPending ? null : cloudDesiredStateToTenantMirror(target);
     if (mirror) {
       const deletedAt = mirror.status === "deleted" ? (options.now ?? new Date()) : null;
-      await tx`
+      const { rows: mirrored } = await tx`
         UPDATE exomem_tenants
         SET status = ${mirror.status},
             desired_state = ${mirror.desiredState},
             deleted_at = ${deletedAt}
         WHERE id = ${tenantId}::uuid
+        RETURNING deleted_at::text AS deleted_at
+      `;
+      // Email 07, once: this transaction moved the cell to deleted. An
+      // account deletion sends it from its finish instead
+      // (cloud-deletion-finish.ts).
+      const deletion = mirrored[0]?.deleted_at as string | null | undefined;
+      if (deletion && !accountDeleted) {
+        const { rows: owners } = await tx`
+          /* exomem-cloud:deleted-email-owner */
+          SELECT owner.email::text AS email, tenant.time_zone
+          FROM exomem_tenants AS tenant
+          JOIN users AS owner ON owner.id = tenant.owner_user_id
+          WHERE tenant.id = ${tenantId}::uuid
+        `;
+        const owner = owners[0] as { email: string; time_zone: string | null } | undefined;
+        if (owner) {
+          await enqueueDeletedEmail(tx, {
+            tenantId,
+            deletedAt: deletion,
+            recipient: owner.email,
+            timeZone: owner.time_zone,
+          });
+        }
+      }
+    }
+
+    // A Paddle event that applied while the tenant was provisioning stored
+    // the entitlement as provisioning, and no later event need come. Once
+    // the tenant is past provisioning, whatever the cell's state, the
+    // entitlement takes the projection of the source state read above.
+    const tenantStatus = mirror?.status ?? row.tenant_status;
+    if ((tenantStatus === "active" || tenantStatus === "suspended") && sourceProjection) {
+      const projected = projectedEntitlement(sourceProjection, EXOMEM_ALPHA_BUNDLE);
+      await tx`
+        /* exomem-cloud:activate-entitlement */
+        UPDATE exomem_entitlements
+        SET effective_state = ${projected.effectiveState},
+            capabilities = ${JSON.stringify(projected.capabilities)}::jsonb,
+            updated_at = now()
+        WHERE tenant_id = ${tenantId}::uuid
+          AND effective_state = 'provisioning'
+          AND manual_suspended_at IS NULL
+          -- An admitted complimentary row is active already; only Paddle waits on a payment.
+          AND source = 'paddle'
       `;
     }
 
@@ -325,6 +556,12 @@ export type CloudReconcileResult = {
   reconciled: number;
   deleted: number;
   failed: number;
+  /**
+   * Lapsed cells that this tick's settlement reached and kept, because Paddle
+   * did not settle their checkout in time; `null` when settlement itself
+   * failed, so the count is unknown.
+   */
+  waitingForPaddle: number | null;
 };
 
 /**
@@ -341,6 +578,8 @@ export async function runBoundedCloudReconcile(
     maxTenants?: number;
     cancelledRetentionDays?: number;
     reconcileTenant?: typeof reconcileCloudCellDesiredState;
+    settleCheckouts?: typeof settleLapsedCheckouts;
+    settleBudgetMs?: number;
   } = {}
 ): Promise<CloudReconcileResult> {
   const maxTenants = options.maxTenants ?? 200;
@@ -349,6 +588,20 @@ export async function runBoundedCloudReconcile(
   let reconciled = 0;
   let deleted = 0;
   let failed = 0;
+  // Settlement runs first, within its own budget, so a lapsed cell it
+  // releases is deleted in this same pass. Its failure stops no reconcile.
+  let waitingForPaddle: number | null;
+  try {
+    waitingForPaddle = (
+      await (options.settleCheckouts ?? settleLapsedCheckouts)({
+        cancelledRetentionDays: options.cancelledRetentionDays,
+        budgetMs: options.settleBudgetMs,
+      })
+    ).waiting;
+  } catch {
+    waitingForPaddle = null;
+    console.error("exomem-cloud: lapsed checkout settlement failed");
+  }
   for (const tenantId of tenantIds) {
     // Each tenant is isolated, as the expiry lane's are (security review
     // finding 8): one tenant that throws must not stop every other tenant's
@@ -366,7 +619,7 @@ export async function runBoundedCloudReconcile(
       console.error("exomem-cloud: lifecycle reconcile failed for one tenant");
     }
   }
-  return { reconciled, deleted, failed };
+  return { reconciled, deleted, failed, waitingForPaddle };
 }
 
 export { CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS };

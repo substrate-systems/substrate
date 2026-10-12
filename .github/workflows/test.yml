@@ -71,9 +71,11 @@ jobs:
           src/lib/exomem-hosted/__tests__/cloud-deletion-finish-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-release-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-cancellation-notice-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/lifecycle-emails-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/cloud-paddle-activation-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/consent-apps-postgres.integration.test.ts
           src/lib/exomem-hosted/__tests__/account-postgres.integration.test.ts
+          src/lib/exomem-hosted/__tests__/friend-invites-postgres.integration.test.ts
       # Both run even when a test step failed, so one push reports every kind of failure.
       # tsc covers the whole repository, the gateway included (`npm run gateway:typecheck`
       # runs the same command). ESLint fails on errors only; warnings do not fail.
@@ -87,7 +89,22 @@ jobs:
   e2e:
     name: onboarding end-to-end
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    # The Exomem journey specs (last steps) drive the real server against this database.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: journey_e2e
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d journey_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -111,9 +128,41 @@ jobs:
           || npx playwright install chromium
       # Built here rather than left to the Playwright web server, so a stale
       # `.next` can never serve old code to a passing assertion. No database:
-      # every spec stubs the API routes it drives.
+      # every spec in this run stubs the API routes it drives.
       - run: npm run build
       - run: npx playwright test
+      # A throwaway database for this job only, so the controlled Release-A
+      # migration is confirmed here.
+      - name: Migrate the journey database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/journey_e2e
+          CONFIRM_ENDSTATE_CLOUD_RELEASE_A: "yes"
+        run: npm run migrate
+      # The journey projects exist only while EXOMEM_E2E_DATABASE_URL is set, so
+      # naming them fails this step if the database ever goes missing. Playwright
+      # starts `next dev` on localhost for them (playwright.config.ts). Turnstile
+      # uses Cloudflare's documented test keys, which always pass.
+      - name: Exomem journey end-to-end
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/journey_e2e
+          EXOMEM_E2E_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/journey_e2e
+          EXOMEM_E2E_BASE_URL: http://localhost:3100
+          EXOMEM_PUBLIC_BASE_URL: http://localhost:3100
+          EXOMEM_SELF_SERVE_ADMISSION: open
+          EXOMEM_TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
+          NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
+          EXOMEM_CLOUD_MCP_URL: https://cloud.example.test/mcp/v1
+          EXOMEM_CLOUD_MCP_PATH: /mcp/v1
+          EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true"
+          # The base price an owner's plan is on; no Paddle credentials, so no call leaves.
+          EXOMEM_PADDLE_PRICE_ID: pri_journey_e2e
+          EXOMEM_CONNECTOR_SETTINGS_URLS: >-
+            {"claude":"https://claude.example.test/settings/connectors","openai":"https://chatgpt.example.test/settings/connectors"}
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/journey
+        run: |
+          # A fresh key for this run only: the server and the seeding specs share it.
+          export EXOMEM_CONTROL_PLANE_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+          npx playwright test --project "exomem journey desktop 1440" --project "exomem journey phone 390" --project "exomem journey phone 360x640" --project "exomem journey phone 360x720" --project "exomem journey phone 390x740"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:

@@ -35,7 +35,6 @@ export default defineConfig([
     files: [
       "src/app/endstate/page.tsx",
       "src/app/exomem/invite/invite-client.tsx",
-      "src/app/exomem/memory-graph.tsx",
       "src/app/exomem/sign-in/sign-in-client.tsx",
       "src/components/Hero.tsx",
     ],
@@ -47,7 +46,11 @@ export default defineConfig([
   },
   {
     // The Exomem palette is locked: a raw colour in Exomem source fails lint.
-    files: ["src/app/exomem/**/*.{ts,tsx}", "src/components/exomem/**/*.{ts,tsx}"],
+    files: [
+      "src/app/exomem/**/*.{ts,tsx}",
+      "src/components/exomem/**/*.{ts,tsx}",
+      "src/lib/email-templates/exomem-*.ts",
+    ],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -71,8 +74,12 @@ export default defineConfig([
   globalIgnores([
     ".next/**",
     "coverage/**",
+    "dist/**",
     "node_modules/**",
     "next-env.d.ts",
+    // Playwright's HTML report and run output: generated files, written by CI-mode runs.
+    "playwright-report/**",
+    "test-results/**",
     "public/sw.js",
     "tsconfig.tsbuildinfo",
   ]),

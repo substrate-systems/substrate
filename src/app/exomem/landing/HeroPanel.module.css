@@ -1,0 +1,544 @@
+/* The landing's hero panel (Landing-Page `.hp`, R20-Mobile on a phone). Styles and
+   keyframes are the board's (docs/exomem-design/system/components.css and motion.css,
+   section Landing-Page), colours as tokens. The board's `:has(.hN:hover)` rules become
+   state classes the component sets from the graph's links. */
+
+.panel {
+  /* Beside the hero copy it shrinks in step with it on narrower screens. */
+  flex: 0 1 494px;
+  width: 100%;
+  max-width: 494px;
+  border: 1px solid var(--exo-border-card);
+  border-radius: 12px;
+  background: var(--bg-section);
+  box-shadow: 0 30px 80px var(--scrim-soft);
+  overflow: hidden;
+}
+
+.query {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--exo-rule);
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+}
+
+.app {
+  color: var(--fg-muted);
+}
+
+/* On a narrow panel the question clips; the latency keeps its place. */
+.ask {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.latency {
+  flex: none;
+  color: var(--exo-amber-text);
+}
+
+.graph {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.svgText {
+  font-family: var(--font-mono-exo);
+}
+
+.answer {
+  border-top: 1px solid var(--exo-rule);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  /* The board's 44 px of rows, plus this block's padding and rule (drawn content-box). */
+  min-height: 73px;
+}
+
+.answerRow {
+  display: flex;
+  justify-content: space-between;
+}
+
+.current {
+  color: var(--exo-amber-text);
+}
+
+.old {
+  color: var(--fg-muted);
+}
+
+.struck {
+  text-decoration: line-through;
+}
+
+.legend {
+  border-top: 1px solid var(--exo-rule);
+  padding: 12px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.legendItem {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .panel {
+    flex: none;
+    max-width: none;
+    box-shadow: none;
+  }
+
+  .query {
+    align-items: normal;
+    gap: 8px;
+    padding: 12px 14px;
+    font-size: 12px;
+  }
+
+  .answer {
+    gap: 10px;
+    padding: 12px 14px;
+    font-size: 12px;
+    min-height: 0;
+  }
+
+  .legend {
+    gap: 6px 16px;
+    padding: 10px 14px;
+  }
+}
+
+/* ---- The recall, on a 6.5 s loop. The resting values are the finished answer, which is
+   what reduced motion shows (the tokens switch every animation off). ---- */
+
+.q {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+  width: 34ch;
+  animation: hpType 6.5s steps(34) infinite;
+}
+
+.qm {
+  width: 21ch;
+  animation: hpTypeM 6.5s steps(21) infinite;
+}
+
+.ld {
+  stroke-dashoffset: 0;
+}
+
+.lf {
+  opacity: 1;
+}
+
+.rn {
+  fill: var(--exo-amber);
+}
+
+.n1 {
+  fill-opacity: 0.85;
+  animation: hpNode1 6.5s ease-out infinite;
+}
+
+.n2 {
+  animation: hpNode2 6.5s ease-out infinite;
+}
+
+.n3 {
+  animation: hpNode3 6.5s ease-out infinite;
+}
+
+.halo {
+  opacity: 0.18;
+  animation: hpHalo 6.5s ease-out infinite;
+}
+
+.row {
+  opacity: 1;
+}
+
+.r1 {
+  animation: hpRow1 6.5s ease-out infinite;
+}
+
+.r2 {
+  animation: hpRow2 6.5s ease-out infinite;
+}
+
+.r3 {
+  animation: hpRow3 6.5s ease-out infinite;
+}
+
+.e1 {
+  animation: hpDraw1 6.5s ease-out infinite;
+}
+
+.e2 {
+  animation: hpFade2 6.5s ease-out infinite;
+}
+
+.e3 {
+  animation: hpFade3 6.5s ease-out infinite;
+}
+
+.e4 {
+  animation: hpDraw4 6.5s ease-out infinite;
+}
+
+.e4h {
+  animation: hpFade4 6.5s ease-out infinite;
+}
+
+.strike {
+  animation: hpDraw5 6.5s ease-out infinite;
+}
+
+/* ---- Hover (desktop) and tap (phone): the note gets a ring and grows, its neighbours and
+   links stay lit, its plain links warm to amber, everything else dims; the loop pauses. ---- */
+
+.hit {
+  fill: transparent;
+  pointer-events: all;
+  cursor: default;
+}
+
+.ring {
+  opacity: 0;
+  transform: scale(0.6);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    opacity 0.35s ease,
+    transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mark {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.edge,
+.node {
+  transition:
+    opacity 0.45s ease,
+    stroke 0.45s ease,
+    stroke-opacity 0.45s ease;
+}
+
+.panel[data-paused] * {
+  animation-play-state: paused !important;
+}
+
+.graph[data-active] .edge {
+  opacity: 0.16 !important;
+}
+
+.graph[data-active] .node {
+  opacity: var(--graph-dim);
+}
+
+.graph[data-active] .node.isNeighbour,
+.graph[data-active] .node.isActive {
+  opacity: 1;
+}
+
+.graph[data-active] .edge.isIncident {
+  opacity: 1 !important;
+}
+
+.graph[data-active] .plain.isIncident {
+  stroke: var(--exo-amber);
+  stroke-opacity: 0.6;
+}
+
+.isActive .ring {
+  opacity: 0.7;
+  transform: none;
+}
+
+.isActive .mark {
+  transform: scale(1.3);
+}
+
+.isActive text {
+  opacity: 1 !important;
+}
+
+/* Phone: only the recall's notes carry names; the rest show theirs on a tap. */
+.hl {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* Landing-Page · hpType 6.5s steps(34) infinite — hero question types in, holds, clears */
+@keyframes hpType {
+  0% {
+    width: 0;
+  }
+  14%,
+  90% {
+    width: 34ch;
+  }
+  96%,
+  100% {
+    width: 0;
+  }
+}
+
+/* Landing-Page · hpTypeM 6.5s steps(21) infinite — phone hero question typing */
+@keyframes hpTypeM {
+  0% {
+    width: 0;
+  }
+  14%,
+  90% {
+    width: 21ch;
+  }
+  96%,
+  100% {
+    width: 0;
+  }
+}
+
+/* Landing-Page · hpNode1 — answer note 1 lights */
+@keyframes hpNode1 {
+  0%,
+  16% {
+    fill: var(--fg-primary);
+    fill-opacity: 0.35;
+  }
+  20%,
+  90% {
+    fill: var(--exo-amber);
+    fill-opacity: 0.85;
+  }
+  96%,
+  100% {
+    fill: var(--fg-primary);
+    fill-opacity: 0.35;
+  }
+}
+
+/* Landing-Page · hpNode2 — answer note 2 lights */
+@keyframes hpNode2 {
+  0%,
+  18% {
+    fill: var(--fg-primary);
+    fill-opacity: 0.35;
+  }
+  22%,
+  90% {
+    fill: var(--exo-amber);
+    fill-opacity: 1;
+  }
+  96%,
+  100% {
+    fill: var(--fg-primary);
+    fill-opacity: 0.35;
+  }
+}
+
+/* Landing-Page · hpNode3 — answer note 3 lights */
+@keyframes hpNode3 {
+  0%,
+  26% {
+    fill: var(--fg-primary);
+    fill-opacity: 0.35;
+  }
+  30%,
+  90% {
+    fill: var(--exo-amber);
+    fill-opacity: 1;
+  }
+  96%,
+  100% {
+    fill: var(--fg-primary);
+    fill-opacity: 0.35;
+  }
+}
+
+/* Landing-Page · hpHalo 6.5s ease-out infinite — halo behind the answer */
+@keyframes hpHalo {
+  0%,
+  28% {
+    opacity: 0;
+  }
+  34% {
+    opacity: 0.35;
+  }
+  40%,
+  90% {
+    opacity: 0.18;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Landing-Page · hpDraw1 — answer link 1 draws */
+@keyframes hpDraw1 {
+  0%,
+  19% {
+    stroke-dashoffset: var(--L);
+  }
+  29%,
+  90% {
+    stroke-dashoffset: 0;
+  }
+  96%,
+  100% {
+    stroke-dashoffset: var(--L);
+  }
+}
+
+/* Landing-Page · hpFade2 — answer label 2 fades in */
+@keyframes hpFade2 {
+  0%,
+  21% {
+    opacity: 0;
+  }
+  28%,
+  90% {
+    opacity: 1;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Landing-Page · hpFade3 — answer label 3 */
+@keyframes hpFade3 {
+  0%,
+  40% {
+    opacity: 0;
+  }
+  46%,
+  90% {
+    opacity: 1;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Landing-Page · hpDraw4 — answer link 4 draws */
+@keyframes hpDraw4 {
+  0%,
+  33% {
+    stroke-dashoffset: var(--L);
+  }
+  44%,
+  90% {
+    stroke-dashoffset: 0;
+  }
+  96%,
+  100% {
+    stroke-dashoffset: var(--L);
+  }
+}
+
+/* Landing-Page · hpFade4 — answer label 4 */
+@keyframes hpFade4 {
+  0%,
+  42% {
+    opacity: 0;
+  }
+  46%,
+  90% {
+    opacity: 1;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Landing-Page · hpDraw5 — strike-through draws over the superseded note */
+@keyframes hpDraw5 {
+  0%,
+  44% {
+    stroke-dashoffset: var(--L);
+  }
+  50%,
+  90% {
+    stroke-dashoffset: 0;
+  }
+  96%,
+  100% {
+    stroke-dashoffset: var(--L);
+  }
+}
+
+/* Landing-Page · hpRow1 — answer row 1 rises in */
+@keyframes hpRow1 {
+  0%,
+  50% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  55%,
+  90% {
+    opacity: 1;
+    transform: none;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Landing-Page · hpRow2 — answer row 2 */
+@keyframes hpRow2 {
+  0%,
+  55% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  60%,
+  90% {
+    opacity: 1;
+    transform: none;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Landing-Page · hpRow3 — answer row 3 */
+@keyframes hpRow3 {
+  0%,
+  60% {
+    opacity: 0;
+  }
+  65%,
+  90% {
+    opacity: 1;
+  }
+  96%,
+  100% {
+    opacity: 0;
+  }
+}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PrivateShell } from "../private-shell";
+import home from "../home/home.module.css";
 import DeleteClient from "./delete-client";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +13,8 @@ export const metadata: Metadata = {
 
 export default function DeleteExomemPage() {
   return (
-    <PrivateShell>
+    <main className={`${home.page} brand-exomem`}>
       <DeleteClient />
-    </PrivateShell>
+    </main>
   );
 }

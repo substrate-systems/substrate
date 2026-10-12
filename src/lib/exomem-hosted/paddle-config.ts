@@ -17,6 +17,8 @@ export type ExomemPaddleConfig = Readonly<{
   productKey: typeof EXOMEM_PADDLE_PRODUCT_KEY;
   productId: string | null;
   priceId: string | null;
+  /** The one recurring Paddle discount that carries the friend price, if configured. */
+  friendDiscountId: string | null;
   checkoutUrl: string | null;
   apiKey: string | null;
   webhookSecret: string | null;
@@ -63,6 +65,26 @@ function checkoutUrl(env: EnvironmentSource): string | null {
   } catch {
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }
+}
+
+/**
+ * The friend price's discount (`EXOMEM_PADDLE_FRIEND_DISCOUNT_ID`), one per
+ * environment; unset is `null`, no friend price. It is read as written and
+ * never throws: the webhook and Home read this config too, and a bad value
+ * must not stop them. The discount is checked at Paddle before every use
+ * (`verifyExomemFriendDiscount`), which refuses a malformed id.
+ */
+export function exomemPaddleFriendDiscountId(env: EnvironmentSource = process.env): string | null {
+  return optionalValue(env, "EXOMEM_PADDLE_FRIEND_DISCOUNT_ID");
+}
+
+/**
+ * The base price (`EXOMEM_PADDLE_PRICE_ID`) that checkout sells and the
+ * friend discount is restricted to; unset is `null`. Read as written, like
+ * the friend discount, for the rules that only compare against it.
+ */
+export function exomemPaddleBasePriceId(env: EnvironmentSource = process.env): string | null {
+  return optionalValue(env, "EXOMEM_PADDLE_PRICE_ID");
 }
 
 function credentialEnvironment(value: string): ExomemPaddleEnvironment | null {
@@ -117,7 +139,8 @@ export function loadExomemPaddleConfig(env: EnvironmentSource = process.env): Ex
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
   }
   const productId = optionalValue(env, "EXOMEM_PADDLE_PRODUCT_ID");
-  const priceId = optionalValue(env, "EXOMEM_PADDLE_PRICE_ID");
+  const priceId = exomemPaddleBasePriceId(env);
+  const friendDiscountId = exomemPaddleFriendDiscountId(env);
   const checkoutReturnUrl = checkoutUrl(env);
   const catalogEnvironment = optionalValue(env, "EXOMEM_PADDLE_CATALOG_ENVIRONMENT");
 
@@ -139,6 +162,7 @@ export function loadExomemPaddleConfig(env: EnvironmentSource = process.env): Ex
     productKey: EXOMEM_PADDLE_PRODUCT_KEY,
     productId,
     priceId,
+    friendDiscountId,
     checkoutUrl: checkoutReturnUrl,
     apiKey,
     webhookSecret,
@@ -167,6 +191,7 @@ export function loadExomemPaddleTransactionConfig(
     productKey: EXOMEM_PADDLE_PRODUCT_KEY,
     productId: null,
     priceId: null,
+    friendDiscountId: null,
     checkoutUrl: null,
     apiKey,
     webhookSecret: null,
@@ -223,5 +248,19 @@ export function assertExomemPaddlePurpose(
   }
   if (!config.clientToken || !config.paidCheckoutEnabled) {
     throw new ExomemPaddleConfigurationError("EXOMEM_PADDLE_CONFIGURATION_INVALID");
+  }
+}
+
+/**
+ * The price a subscribe step previews in the browser: the one checkout charges, and only
+ * when checkout can run with the same client token. Null shows no amount; the checkout
+ * route reports a broken configuration.
+ */
+export function exomemCheckoutPriceId(env: EnvironmentSource = process.env): string | null {
+  try {
+    const config = loadExomemPaddleConfig(env);
+    return config.paidCheckoutEnabled ? config.priceId : null;
+  } catch {
+    return null;
   }
 }

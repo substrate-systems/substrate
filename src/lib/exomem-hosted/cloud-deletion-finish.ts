@@ -26,6 +26,8 @@
 import { terminateExomemBillingForDeletion, type BillingDeletionTarget } from "./billing-deletion";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction } from "./db";
+import { scrubExomemEmailsFor } from "./email-outbox";
+import { enqueueDeletedEmail } from "./lifecycle-emails";
 import { paddleFetch } from "@/lib/hosted-backup/paddle-client";
 import type { PaddleTransport } from "./paddle-billing";
 
@@ -47,11 +49,9 @@ export type CloudDeletionFinishDependencies = {
   terminateBilling: (tenantId: string) => Promise<BillingDeletionTarget | null>;
 };
 
-// The cron lane's Paddle calls carry no timeout of their own otherwise: a
-// stalled provider connection would hold the finish (and the lane's own time
-// budget below) open indefinitely. `paddleFetch` itself stays untouched --
-// every other Paddle caller keeps its own timeout policy -- this wraps only
-// the transport this lane's billing termination uses.
+// The cron lane's Paddle calls get a tighter deadline than paddleFetch's own,
+// so a slow provider cannot run the finish past the lane's time budget below.
+// This wraps only the transport this lane's billing termination uses.
 export function timeoutTransport(transport: PaddleTransport, timeoutMs: number): PaddleTransport {
   return (path, init) => transport(path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 }
@@ -96,7 +96,7 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
   const scrubbed = await withExomemTransaction(async (tx) => {
     const locked = await tx`
       /* exomem-cloud:deletion-finish-lock */
-      SELECT tenant.id
+      SELECT tenant.id, tenant.time_zone
       FROM exomem_tenants AS tenant
       JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
       WHERE tenant.id = ${proof.tenantId}::uuid
@@ -118,17 +118,21 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
         )
       FOR UPDATE OF tenant, entitlement
     `;
-    if (!locked.rows[0]) return false;
+    const lockedTenant = locked.rows[0] as { time_zone: string | null } | undefined;
+    if (!lockedTenant) return false;
     const tenantId = proof.tenantId;
 
-    await tx`
+    const deleted = await tx`
       UPDATE exomem_tenants
       SET status = 'deleted',
           desired_state = 'deleted',
           deleted_at = now(),
           bound_cell_id = NULL,
+          time_zone = NULL,
+          friend_offer_invite_id = NULL,
           updated_at = now()
       WHERE id = ${tenantId}::uuid
+      RETURNING deleted_at::text AS deleted_at
     `;
     await tx`
       UPDATE exomem_entitlements
@@ -243,6 +247,30 @@ async function scrubCloudTenant(proof: BillingDeletionTarget): Promise<boolean> 
             WHERE authority.invite_id = invite.id
           )
       `;
+      // The owner as an inviter: invitations they asked for keep no trace
+      // of them, their note included. Every email that names an inviter
+      // reads the name from the invitation when it is sent, so their
+      // outstanding friend invitations and hold reminders stop naming them.
+      await tx`
+        /* exomem-cloud:deletion-finish-inviter */
+        UPDATE exomem_invites
+        SET inviter_email = NULL, inviter_name = NULL, note = NULL
+        WHERE inviter_email = ${ownerEmail}
+      `;
+    }
+    // Every email row about the account, at whatever address, and every row
+    // for the owner's address go too: settled rows hold an address, and a
+    // pending one must not go out for a deleted account.
+    await scrubExomemEmailsFor(tx, { tenantId, email: ownerEmail ?? null });
+    if (ownerEmail) {
+      // Then email 07, sent once cellctl has deleted the cell. Its row keeps
+      // the address until 30 days after it settles (clearSettledEmailRecipients).
+      await enqueueDeletedEmail(tx, {
+        tenantId,
+        deletedAt: deleted.rows[0]!.deleted_at as string,
+        recipient: ownerEmail,
+        timeZone: lockedTenant.time_zone,
+      });
     }
     await tx`DELETE FROM exomem_sessions WHERE tenant_id = ${tenantId}::uuid`;
     await tx`DELETE FROM exomem_access_tokens WHERE tenant_id = ${tenantId}::uuid`;

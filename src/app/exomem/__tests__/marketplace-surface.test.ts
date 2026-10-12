@@ -7,48 +7,15 @@ import sitemap from "../../sitemap";
 const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Exomem marketplace public surface", () => {
-  it("presents Cloud as a friends-only alpha rather than a public offer", () => {
-    const page = source("src/app/exomem/page.tsx");
-
-    assert.match(page, /self-hosted/i);
-    assert.match(page, /friends-only private alpha/i);
-    assert.match(page, /express interest/i);
-    assert.doesNotMatch(page, /EXOMEM_HOSTED_PRICE_EUR/);
-    assert.doesNotMatch(page, /€12 a month/);
+  it("keeps checkout off the public landing page", () => {
+    assert.doesNotMatch(source("src/app/exomem/page.tsx"), /billing\/checkout/);
   });
 
-  it("sends public Cloud interest only to the interest endpoint", () => {
-    const form = source("src/app/exomem/hosted-access-form.tsx");
-
-    assert.match(form, /const response = await fetch\("\/api\/exomem\/interest"/);
-    assert.doesNotMatch(form, /\/api\/exomem\/access\/request/);
-    assert.doesNotMatch(form, /fetch\("\/api\/exomem\/billing/);
-    assert.doesNotMatch(form, /Paddle\./);
-    assert.match(form, /automatic invitation/i);
-  });
-
-  it("acknowledges interest without claiming admission or a queue position", () => {
-    const form = source("src/app/exomem/hosted-access-form.tsx");
-
-    assert.match(form, /We’ll be in touch if there’s a fit/i);
-    assert.match(form, /if \(!response\.ok \|\| !body\) \{[\s\S]*?return;/);
-    assert.doesNotMatch(form, /admitted|waitlisted|number \$\{/i);
-  });
-
-  it("keeps checkout private to authenticated Home", () => {
-    const home = source("src/app/exomem/home/home-client.tsx");
-
-    assert.match(home, /Subscribe and prepare Exomem/);
-    assert.match(home, /openBilling\("checkout"\)/);
-    assert.doesNotMatch(home, /disabled=\{!billing\?\.checkoutAvailable\}/);
-    assert.doesNotMatch(source("src/app/exomem/page.tsx"), /Subscribe and prepare Exomem/);
-  });
-
-  it("publishes the stable policy and setup routes in the sitemap", () => {
+  it("publishes the stable policy routes in the sitemap", () => {
     const entries = sitemap();
     const urls = new Set(entries.map((entry) => entry.url));
 
-    for (const path of ["privacy", "terms", "support", "setup"]) {
+    for (const path of ["privacy", "terms", "support"]) {
       assert.ok(urls.has(`https://substratesystems.io/exomem/${path}`));
       assert.match(source(`src/app/exomem/${path}/page.tsx`), /Exomem/);
     }
@@ -58,7 +25,6 @@ describe("Exomem marketplace public surface", () => {
     const privacy = source("src/app/exomem/privacy/page.tsx");
     const terms = source("src/app/exomem/terms/page.tsx");
     const support = source("src/app/exomem/support/page.tsx");
-    const setup = source("src/app/exomem/setup/page.tsx");
 
     // The privacy requirement of the Exomem change
     // harden-exomem-cloud-operator-access: claim only isolation, a key-blind
@@ -102,8 +68,5 @@ describe("Exomem marketplace public surface", () => {
     assert.match(terms, /Substrate Systems OÜ/i);
     assert.match(terms, /consumer rights/i);
     assert.match(support, /founder@substratesystems\.io/);
-    assert.match(setup, /sign in once/i);
-    assert.match(setup, /custom instructions.*fallback/i);
-    assert.match(setup, /native memory.*short-term/i);
   });
 });

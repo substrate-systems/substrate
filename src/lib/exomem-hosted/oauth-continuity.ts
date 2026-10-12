@@ -20,7 +20,8 @@ import { redirectUriApproved } from "./oauth-client-admission";
 
 export const EXOMEM_OAUTH_CONTINUITY_COOKIE = "exomem_oauth_tx";
 export const EXOMEM_OAUTH_FORM_NONCE_COOKIE = "exomem_oauth_form_nonce";
-const OAUTH_TRANSACTION_TTL_MS = 10 * 60 * 1000;
+/** How long an authorization request lives; the consent page states it to the reader. */
+export const OAUTH_TRANSACTION_TTL_MS = 10 * 60 * 1000;
 
 export type OAuthContinuation = PendingOAuthAuthorization & { state: string };
 

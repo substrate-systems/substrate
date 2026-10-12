@@ -154,7 +154,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 14px;
-  border-color: var(--exo-border-input);
+  border-color: var(--exo-border-card);
   color: var(--fg-secondary);
   background: transparent;
   text-decoration: none;

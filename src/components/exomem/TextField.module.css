@@ -6,10 +6,11 @@
   width: 100%;
 }
 
+/* The Journey board's muted ink, which is --fg-secondary. */
 .label {
   font-family: var(--font-mono-exo);
   font-size: 12px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .input {

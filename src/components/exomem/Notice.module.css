@@ -21,3 +21,26 @@
   font-size: 14px;
   line-height: 1.5;
 }
+
+/* A flow step's notice (Journey board): tighter, on the flow panel, 13.5 px text. */
+.flow {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+
+.flow .text {
+  font-size: 13.5px;
+}
+
+/* Home's desktop notice: the text left, its one action right. Phones keep the column. */
+@media (min-width: 641px) {
+  .row {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .row .text {
+    flex: 1;
+  }
+}

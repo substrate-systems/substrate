@@ -6,11 +6,19 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { loadExomemCloudResource } from "./cloud-config";
+import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
+import { CLOUD_SWEEP_PADDLE_BUDGET_MS, loadExomemCloudResource } from "./cloud-config";
 import { revokeCloudResourceConsent } from "./cloud-consent";
 import { executeExomemSql, withExomemTransaction, type ExomemSql } from "./db";
+import { enqueueExomemEmail } from "./email-outbox";
+import { FIRST_PAYMENT_SOURCE_STATES, LIVE_SUBSCRIPTION_SOURCE_STATES } from "./entitlements";
 import { ExomemHostedError, exomemErrors } from "./errors";
-import { cancelExomemCheckoutTransaction, type PaddleTransport } from "./paddle-billing";
+import { recordInvitationUse } from "./invites";
+import {
+  cancelExomemCheckoutTransaction,
+  paddleTransportUntil,
+  type PaddleTransport,
+} from "./paddle-billing";
 import {
   loadExomemPaddleTransactionConfig,
   type ExomemPaddleConfig,
@@ -50,23 +58,97 @@ function cloudAdmissionClosed(): ExomemHostedError {
   });
 }
 
-async function requireCloudAdmissionCapacity(tx: ExomemSql): Promise<void> {
-  // The controller refreshes these observations on its ordinary passes.
-  // A lost cluster connection must not leave old slots admitting new cells.
-  const result = await tx`
-    SELECT
-      (SELECT COALESCE(SUM(cell_slots), 0) FROM exomem_cloud_capacity
-       WHERE observed_at > statement_timestamp() - interval '5 minutes'
-         AND observed_at <= statement_timestamp()) AS total_slots,
-      (SELECT COUNT(*) FROM exomem_cloud_cells
-       WHERE desired_state <> 'deleted'
-          OR observed_state IS DISTINCT FROM 'deleted'
-          OR observed_generation IS DISTINCT FROM generation) AS used_slots
+/**
+ * A redemption fits when Cloud has a free slot once this address's own
+ * invitations are left out (the invitation turns into the cell it creates),
+ * counting only invitations issued before this one.
+ */
+async function requireCloudAdmissionCapacity(
+  tx: ExomemSql,
+  invite: { email_normalized: string }
+): Promise<void> {
+  const allowed = await cloudAdmissionAllows(tx, {
+    email: invite.email_normalized,
+    yieldOnlyToOlderInvitations: true,
+  });
+  if (!allowed) throw cloudAdmissionClosed();
+}
+
+/**
+ * A repeat start request leaves the person's earlier start links valid, so
+ * using one of them revokes the others: the address now owns its cell and
+ * holds no further promise.
+ */
+async function revokeSiblingStartLinks(
+  tx: ExomemSql,
+  email: string,
+  consumedInviteId: string
+): Promise<void> {
+  await tx`
+    /* exomem-cloud:revoke-sibling-start-links */
+    UPDATE exomem_invites SET revoked_at = now()
+    WHERE email_normalized = ${email}
+      AND self_serve
+      AND id <> ${consumedInviteId}::uuid
+      AND consumed_at IS NULL
+      AND revoked_at IS NULL
   `;
-  const capacity = result.rows[0] as { total_slots: string; used_slots: string };
-  if (Number(capacity.used_slots) >= Number(capacity.total_slots)) {
-    throw cloudAdmissionClosed();
+}
+
+/**
+ * The unpaid hold (design D1): a paid admission that has not paid keeps its
+ * stopped cell, and its slot, for this many days from the cell's creation.
+ * Measured from the cell, not the tenant, because a re-admitted tenant keeps
+ * its first `created_at`.
+ */
+const CLOUD_UNPAID_HOLD_DAYS = 7;
+// Email 18 goes out this many days before the hold ends.
+const HOLD_REMINDER_LEAD_DAYS = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Inserts the tenant's new Cloud cell. A paid admission's cell starts
+ * stopped, and its hold reminder is enqueued in the same transaction: it is
+ * sent once, and only if the cell is still stopped and unpaid when it is due.
+ */
+async function createCloudCell(
+  tx: ExomemSql,
+  input: {
+    tenantId: string;
+    desiredState: "running" | "stopped";
+    recipient: string;
+    recipientTimeZone: string | null;
+    /** Who invited them, for email 18; `null` for a self-serve start. */
+    inviterName: string | null;
   }
+): Promise<string | null> {
+  const cellResult = await tx`
+    INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state)
+    VALUES (${randomCloudCellId()}, ${input.tenantId}::uuid, ${input.desiredState})
+    RETURNING cell_id, created_at
+  `;
+  const cell = cellResult.rows[0] as { cell_id: string; created_at: Date } | undefined;
+  if (!cell) return null;
+  if (input.desiredState === "stopped") {
+    const createdAt = new Date(cell.created_at).getTime();
+    const holdEndsAt = new Date(createdAt + CLOUD_UNPAID_HOLD_DAYS * DAY_MS);
+    await enqueueExomemEmail(tx, {
+      kind: "hold_reminder",
+      dedupeKey: `hold-reminder:${cell.cell_id}`,
+      recipient: input.recipient,
+      recipientTimeZone: input.recipientTimeZone,
+      tenantId: input.tenantId,
+      payload: {
+        version: 1,
+        cellId: cell.cell_id,
+        holdEndsAt: holdEndsAt.toISOString(),
+        inviterName: input.inviterName,
+      },
+      notBefore: new Date(holdEndsAt.getTime() - HOLD_REMINDER_LEAD_DAYS * DAY_MS),
+      expiresAt: holdEndsAt,
+    });
+  }
+  return cell.cell_id;
 }
 
 export type RedeemCloudInviteInput = {
@@ -74,6 +156,8 @@ export type RedeemCloudInviteInput = {
   sessionDigest: Buffer;
   csrfDigest: Buffer;
   sessionExpiresAt: Date;
+  /** The redeeming browser's time zone, already normalized. */
+  timeZone?: string | null;
 };
 
 export type RedeemedCloudAccess = {
@@ -81,6 +165,8 @@ export type RedeemedCloudAccess = {
   tenantId: string;
   sessionId: string;
   cellId: string;
+  /** A paid admission still has to subscribe before its cell starts. */
+  paid: boolean;
 };
 
 type LockedCloudInvite = {
@@ -90,6 +176,7 @@ type LockedCloudInvite = {
   entitlement_capabilities: string[];
   entitlement_limits: Record<string, number>;
   marketplace_reviewer_purpose: boolean;
+  recipient_time_zone: string | null;
 };
 
 /**
@@ -104,14 +191,12 @@ export async function redeemCloudInviteAtomic(
   input: RedeemCloudInviteInput
 ): Promise<RedeemedCloudAccess | null> {
   return withExomemTransaction(async (tx: ExomemSql) => {
-    // Exclusive, not shared: capacity is an aggregate over many rows (a
-    // COUNT against a SUM), so only a genuinely serializing lock prevents
-    // two concurrent redemptions both observing the last free slot.
-    await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-cloud-capacity'))`;
+    await lockCloudCapacity(tx);
 
     const inviteResult = await tx`
       /* exomem-cloud:lock-invite */
-      SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose
+      SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
+             recipient_time_zone
       FROM exomem_invites
       WHERE token_digest = ${input.tokenDigest}
         AND consumed_at IS NULL
@@ -123,7 +208,8 @@ export async function redeemCloudInviteAtomic(
     if (!invite) return null;
 
     // Capacity check: no write-bearing statement has run yet.
-    await requireCloudAdmissionCapacity(tx);
+    await requireCloudAdmissionCapacity(tx, invite);
+    const timeZone = input.timeZone ?? invite.recipient_time_zone;
 
     const ownerResult = await tx`
       INSERT INTO users (email, email_verified_at)
@@ -154,15 +240,16 @@ export async function redeemCloudInviteAtomic(
     if (existing) {
       await tx`
         UPDATE exomem_tenants
-        SET status = 'provisioning', desired_state = 'running', deleted_at = NULL
+        SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
+            time_zone = COALESCE(${timeZone}, time_zone)
         WHERE id = ${existing.id}::uuid
       `;
       await clearLifecycleDeletionBlock(tx, existing.id);
       tenantId = existing.id;
     } else {
       const tenantResult = await tx`
-        INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
-        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose})
+        INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone)
+        VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone})
         RETURNING id
       `;
       const tenant = tenantResult.rows[0] as { id: string } | undefined;
@@ -219,13 +306,16 @@ export async function redeemCloudInviteAtomic(
     `;
     if (!entitlementResult.rows[0]) throw exomemErrors.accessTokenInvalid();
 
-    const cellId = randomCloudCellId();
-    const cellResult = await tx`
-      INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state)
-      VALUES (${cellId}, ${tenantId}::uuid, ${desiredCellState})
-      RETURNING cell_id
-    `;
-    if (!cellResult.rows[0]) throw exomemErrors.accessTokenInvalid();
+    const cellId = await createCloudCell(tx, {
+      tenantId,
+      desiredState: desiredCellState,
+      recipient: invite.email_normalized,
+      recipientTimeZone: timeZone,
+      // The hold reminder reads the inviter's name from this invitation when
+      // it is sent, so deleting the inviter's account also removes it there.
+      inviterName: null,
+    });
+    if (!cellId) throw exomemErrors.accessTokenInvalid();
 
     const sessionResult = await tx`
       INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
@@ -249,8 +339,10 @@ export async function redeemCloudInviteAtomic(
       RETURNING id
     `;
     if (!consumedResult.rows[0]) throw exomemErrors.accessTokenInvalid();
+    await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
+    await recordInvitationUse(tx, { inviteId: invite.id, tenantId });
 
-    return { userId: owner.id, tenantId, sessionId: session.id, cellId };
+    return { userId: owner.id, tenantId, sessionId: session.id, cellId, paid: !isComplimentary };
   });
 }
 
@@ -330,7 +422,7 @@ async function lockExistingCloudTenant(
   if (row.has_live_cell || row.status === "deletion_pending") return REFUSED;
   const liveSubscription =
     row.provider_subscription_ref !== null &&
-    ["active", "trialing", "past_due", "paused"].includes(row.source_state ?? "");
+    (LIVE_SUBSCRIPTION_SOURCE_STATES as readonly string[]).includes(row.source_state ?? "");
   if (liveSubscription) return REFUSED;
   const prePayment =
     row.source_state === "awaiting_checkout" || row.source_state === "checkout_pending";
@@ -338,19 +430,17 @@ async function lockExistingCloudTenant(
   return REFUSED;
 }
 
-export type RedeemedCloudBrowserAccess = {
-  userId: string;
-  tenantId: string;
-  sessionId: string;
-  cellId: string;
-} & SessionMaterial;
+export type RedeemedCloudBrowserAccess = RedeemedCloudAccess & SessionMaterial;
 
 /**
  * The browser-facing wrapper `/api/exomem/access/redeem`'s plain (non-OAuth-
  * continuation) branch calls: mints session material and calls
  * `redeemCloudInviteAtomic`.
  */
-export async function redeemCloudInvite(token: string): Promise<RedeemedCloudBrowserAccess> {
+export async function redeemCloudInvite(
+  token: string,
+  options: { timeZone?: string | null } = {}
+): Promise<RedeemedCloudBrowserAccess> {
   const digest = tokenDigest(token);
   if (!digest) throw exomemErrors.accessTokenInvalid();
   const session = mintSessionMaterial();
@@ -359,6 +449,7 @@ export async function redeemCloudInvite(token: string): Promise<RedeemedCloudBro
     sessionDigest: session.sessionDigest,
     csrfDigest: session.csrfDigest,
     sessionExpiresAt: session.expiresAt,
+    timeZone: options.timeZone ?? null,
   });
   if (!row) throw exomemErrors.accessTokenInvalid();
   return { ...row, ...session };
@@ -395,6 +486,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
   sessionExpiresAt: Date;
   codeDigest: Buffer;
   codeExpiresAt: Date;
+  /** The redeeming browser's time zone, already normalized. */
+  timeZone?: string | null;
 }): Promise<CloudOAuthInviteAdmission | null> {
   try {
     // Security review finding 15: without this, an OAuth transaction minted
@@ -405,10 +498,11 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
     // this call the same way every other Cloud entry point does.
     const cloudResource = loadExomemCloudResource().mcpUrl;
     return await withExomemTransaction(async (tx: ExomemSql) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext('exomem-cloud-capacity'))`;
+      await lockCloudCapacity(tx);
 
       const inviteResult = await tx`
-        SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose
+        SELECT id, email_normalized, entitlement_source, entitlement_capabilities, entitlement_limits, marketplace_reviewer_purpose,
+               recipient_time_zone
         FROM exomem_invites
         WHERE token_digest = ${input.inviteDigest}
           AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > now()
@@ -454,7 +548,8 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
         | undefined;
       if (!authorization) throw new CloudOAuthAdmissionRejected();
 
-      await requireCloudAdmissionCapacity(tx);
+      await requireCloudAdmissionCapacity(tx, invite);
+      const timeZone = input.timeZone ?? invite.recipient_time_zone;
 
       const ownerResult = await tx`
         INSERT INTO users (email, email_verified_at)
@@ -482,15 +577,16 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       if (existing) {
         await tx`
           UPDATE exomem_tenants
-          SET status = 'provisioning', desired_state = 'running', deleted_at = NULL
+          SET status = 'provisioning', desired_state = 'running', deleted_at = NULL,
+              time_zone = COALESCE(${timeZone}, time_zone)
           WHERE id = ${existing.id}::uuid
         `;
         await clearLifecycleDeletionBlock(tx, existing.id);
         tenantId = existing.id;
       } else {
         const tenantResult = await tx`
-          INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose)
-          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose})
+          INSERT INTO exomem_tenants (owner_user_id, status, desired_state, marketplace_reviewer_purpose, time_zone)
+          VALUES (${owner.id}::uuid, 'provisioning', 'running', ${invite.marketplace_reviewer_purpose}, ${timeZone})
           RETURNING id
         `;
         const tenant = tenantResult.rows[0] as { id: string } | undefined;
@@ -538,13 +634,15 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       `;
       if (!entitlementResult.rows[0]) throw new CloudOAuthAdmissionRejected();
 
-      const cellId = randomCloudCellId();
-      const cellResult = await tx`
-        INSERT INTO exomem_cloud_cells (cell_id, tenant_id, desired_state)
-        VALUES (${cellId}, ${tenantId}::uuid, ${desiredCellState})
-        RETURNING cell_id
-      `;
-      if (!cellResult.rows[0]) throw new CloudOAuthAdmissionRejected();
+      const cellId = await createCloudCell(tx, {
+        tenantId,
+        desiredState: desiredCellState,
+        recipient: invite.email_normalized,
+        recipientTimeZone: timeZone,
+        // See redeemCloudInviteAtomic's matching call.
+        inviterName: null,
+      });
+      if (!cellId) throw new CloudOAuthAdmissionRejected();
 
       const sessionResult = await tx`
         INSERT INTO exomem_sessions (user_id, tenant_id, session_digest, csrf_digest, expires_at)
@@ -558,7 +656,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       if (!session) throw new CloudOAuthAdmissionRejected();
 
       if (!isComplimentary) {
-        await consumeCloudOAuthInvite(tx, invite.id, owner.id, tenantId, session.id);
+        await consumeCloudOAuthInvite(tx, invite, owner.id, tenantId, session.id);
         return { tenantId, sessionId: session.id, grantId: null, cellId };
       }
 
@@ -588,7 +686,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
       `;
       if (!codeResult.rows[0]) throw new CloudOAuthAdmissionRejected();
 
-      await consumeCloudOAuthInvite(tx, invite.id, owner.id, tenantId, session.id);
+      await consumeCloudOAuthInvite(tx, invite, owner.id, tenantId, session.id);
       const consumedTransaction = await tx`
         UPDATE exomem_oauth_authorization_transactions
         SET consumed_at = now(), redeemed_session_id = ${session.id}::uuid
@@ -609,7 +707,7 @@ export async function admitFirstCloudOAuthInviteAtomic(input: {
 
 async function consumeCloudOAuthInvite(
   tx: ExomemSql,
-  inviteId: string,
+  invite: LockedCloudInvite,
   ownerUserId: string,
   tenantId: string,
   sessionId: string
@@ -617,9 +715,11 @@ async function consumeCloudOAuthInvite(
   const consumed = await tx`
     UPDATE exomem_invites SET consumed_at = now(), consumed_by_user_id = ${ownerUserId}::uuid,
       redeemed_tenant_id = ${tenantId}::uuid, redeemed_session_id = ${sessionId}::uuid
-    WHERE id = ${inviteId}::uuid AND consumed_at IS NULL RETURNING id
+    WHERE id = ${invite.id}::uuid AND consumed_at IS NULL RETURNING id
   `;
   if (!consumed.rows[0]) throw new CloudOAuthAdmissionRejected();
+  await revokeSiblingStartLinks(tx, invite.email_normalized, invite.id);
+  await recordInvitationUse(tx, { inviteId: invite.id, tenantId });
 }
 
 export type CloudAwaitingCheckoutTenant = {
@@ -640,9 +740,9 @@ async function findExpiredCloudAwaitingCheckoutTenants(
     JOIN exomem_entitlements AS entitlement ON entitlement.tenant_id = tenant.id
     JOIN exomem_cloud_cells AS cell ON cell.tenant_id = tenant.id
     WHERE entitlement.source = 'paddle'
-      AND entitlement.source_state = 'awaiting_checkout'
+      AND entitlement.source_state = ANY(${[...FIRST_PAYMENT_SOURCE_STATES]}::text[])
       AND cell.desired_state = 'stopped'
-      AND tenant.created_at <= now() - (${expiryDays} * interval '1 day')
+      AND cell.created_at <= now() - (${expiryDays} * interval '1 day')
   `;
   return rows.map((row) => ({
     tenantId: String(row.tenant_id),
@@ -677,30 +777,42 @@ async function expireCloudCellAtomic(tenantId: string): Promise<boolean> {
 export type CloudInviteExpiryOutcome =
   | { tenantId: string; outcome: "expired" }
   | { tenantId: string; outcome: "activated" }
-  | { tenantId: string; outcome: "skipped" };
+  | { tenantId: string; outcome: "skipped" }
+  /** Paddle time ran out before this tenant's checkout was settled; the next tick tries again. */
+  | { tenantId: string; outcome: "deferred" };
 
 export type CloudInviteExpiryDependencies = {
   cancelTransaction?: typeof cancelExomemCheckoutTransaction;
   transport?: PaddleTransport;
   expiryDays?: number;
   config?: ExomemPaddleConfig;
+  /** Paddle time for the whole batch. */
+  budgetMs?: number;
 };
 
 /**
- * D1's 7-day expiry: a tenant still `awaiting_checkout` after the window
- * first has its pending provider transaction cancelled. If the provider
+ * D1's 7-day expiry, counted from the stopped cell's creation: a tenant that
+ * has still not paid for the first time after the window (no checkout, or a
+ * checkout opened and abandoned) first has its pending provider transaction
+ * cancelled. If the provider
  * reports the transaction already completed, the tenant is left alone for
  * the activation webhook to set `running` as usual — this function does
  * not activate it itself, to keep "the webhook is what activates" a single
  * code path. Otherwise the row is expired (`deleted`), releasing the slot.
+ *
+ * Every Paddle call of the batch shares one deadline, so a slow Paddle costs
+ * the cron at most the budget. A tenant whose checkout the budget does not
+ * settle stays stopped, holding its slot, until the next tick.
  */
 export async function expireCloudAwaitingCheckoutTenants(
   dependencies: CloudInviteExpiryDependencies = {}
 ): Promise<CloudInviteExpiryOutcome[]> {
   const cancelTransaction = dependencies.cancelTransaction ?? cancelExomemCheckoutTransaction;
-  const expiryDays = dependencies.expiryDays ?? 7;
+  const expiryDays = dependencies.expiryDays ?? CLOUD_UNPAID_HOLD_DAYS;
   const tenants = await findExpiredCloudAwaitingCheckoutTenants(expiryDays);
   const outcomes: CloudInviteExpiryOutcome[] = [];
+  const deadline = AbortSignal.timeout(dependencies.budgetMs ?? CLOUD_SWEEP_PADDLE_BUDGET_MS);
+  const transport = paddleTransportUntil(deadline, dependencies.transport);
   for (const tenant of tenants) {
     // Security review finding 8: one tenant's provider call throwing (e.g. a
     // transient Paddle error) used to abort this loop entirely, leaving
@@ -716,6 +828,10 @@ export async function expireCloudAwaitingCheckoutTenants(
         outcomes.push({ tenantId: tenant.tenantId, outcome: "expired" });
         continue;
       }
+      if (deadline.aborted) {
+        outcomes.push({ tenantId: tenant.tenantId, outcome: "deferred" });
+        continue;
+      }
       const config = dependencies.config ?? loadExomemPaddleTransactionConfig();
       const result = await cancelTransaction(
         {
@@ -724,7 +840,7 @@ export async function expireCloudAwaitingCheckoutTenants(
           transactionId: tenant.transactionRef,
           environment: tenant.providerEnvironment,
         },
-        { config, transport: dependencies.transport }
+        { config, transport }
       );
       if (result.state === "completed") {
         // The provider already completed the transaction; leave the row for
@@ -735,6 +851,10 @@ export async function expireCloudAwaitingCheckoutTenants(
       await expireCloudCellAtomic(tenant.tenantId);
       outcomes.push({ tenantId: tenant.tenantId, outcome: "expired" });
     } catch {
+      if (deadline.aborted) {
+        outcomes.push({ tenantId: tenant.tenantId, outcome: "deferred" });
+        continue;
+      }
       console.error("exomem-cloud: awaiting-checkout expiry failed for one tenant");
     }
   }

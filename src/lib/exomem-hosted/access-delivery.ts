@@ -134,6 +134,7 @@ export async function drainMagicLinkDeliveries(
     const rendered = renderExomemMagicLinkEmail({
       accessUrl: exomemPublicFragmentUrl(publicBaseUrl, "/exomem/sign-in", payload.token),
       expiresAt: payload.expiresAt,
+      timeZone: record.recipientTimeZone,
     });
     let delivered = false;
     try {

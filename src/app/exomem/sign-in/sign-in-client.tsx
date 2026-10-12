@@ -1,156 +1,111 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  friendlyHostedError,
+  HostedBrowserError,
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
-import styles from "../private-shell.module.css";
-import { RESEND_COOLDOWN_SECONDS, sentScreen } from "./sign-in-copy";
+import { failureCopy } from "../_journey/copy";
+import { JourneyPage } from "../_journey/JourneyPage";
+import { StepActions, StepHeading, WorkingBar } from "../_journey/parts";
+import { StartFlow } from "../_journey/start-flow";
 
-type SignInMode = "checking" | "form" | "sending" | "sent" | "confirm" | "redeeming" | "error";
+/** Shown to a screen reader while the link from the email signs the browser in. */
+const SIGNING_IN = "Signing you in…";
 
-export default function SignInClient() {
-  const startedRef = useRef(false);
-  const tokenRef = useRef<string | null>(null);
-  const [mode, setMode] = useState<SignInMode>("checking");
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [cooldown, setCooldown] = useState(0);
+/**
+ * The step before a link from the email signs in. The boards go straight from the email
+ * to the next step; this keeps the explicit action of the page the journey replaces,
+ * with its words unchanged, until the owner decides (listed as a deviation).
+ */
+const CONFIRM = {
+  title: "Open your Exomem.",
+  lede: "Continue only if you requested this sign-in link in this browser.",
+  primary: "Continue sign-in",
+};
+
+type Mode = "checking" | "confirm" | "redeeming" | "form" | "unusable" | "failed";
+
+/**
+ * "Start with your email", and the page the email's link opens. The link carries its
+ * token in the fragment, which never reaches a server log; the page takes it out of
+ * the address bar first, and redeems it in this browser (the one that asked for it)
+ * only when the person presses Continue.
+ */
+export default function SignInClient({ reviewerEnabled }: { reviewerEnabled: boolean }) {
+  const started = useRef(false);
+  const token = useRef<string | null>(null);
+  const [mode, setMode] = useState<Mode>("checking");
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    const token = takeFragmentToken();
-    if (!token) {
-      setMode("form");
-      return;
+    const takeLink = () => {
+      token.current = takeFragmentToken();
+      if (token.current) setMode("confirm");
+      return token.current !== null;
+    };
+    if (!started.current) {
+      started.current = true;
+      if (!takeLink()) setMode("form");
     }
-    tokenRef.current = token;
-    setMode("confirm");
+    // A link pasted into this tab while it is open changes only the fragment: the page
+    // does not load again, so it takes the new link here.
+    window.addEventListener("hashchange", takeLink);
+    return () => window.removeEventListener("hashchange", takeLink);
   }, []);
 
-  // Only ticks while the "sent" screen is holding a resend back.
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = window.setTimeout(() => setCooldown((left) => left - 1), 1000);
-    return () => window.clearTimeout(timer);
-  }, [cooldown]);
-
-  const sendLink = useCallback(async (address: string) => {
-    setMode("sending");
-    setMessage("");
-    try {
-      await postPublicJson("/api/exomem/access/magic-link", { email: address });
-      setCooldown(RESEND_COOLDOWN_SECONDS);
-      setMode("sent");
-    } catch (error) {
-      setMessage(friendlyHostedError(error));
-      setMode("error");
-    }
-  }, []);
-
-  function redeemLink() {
-    if (!tokenRef.current || mode !== "confirm") return;
+  function redeem() {
+    if (!token.current || mode !== "confirm") return;
     setMode("redeeming");
-    void postPublicJson("/api/exomem/access/magic-link/redeem", { token: tokenRef.current })
+    postPublicJson("/api/exomem/access/magic-link/redeem", {
+      token: token.current,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    })
       .then((result) => {
-        tokenRef.current = null;
+        token.current = null;
         window.location.replace(
           typeof result.destination === "string" ? result.destination : "/exomem/home"
         );
       })
-      .catch((error) => {
-        setMessage(friendlyHostedError(error));
-        setMode("error");
-      });
+      .catch((error) =>
+        // Links work once, for a limited time, in the browser that asked: a refused
+        // token is nearly always spent or late. Anything else is ours.
+        setMode(
+          error instanceof HostedBrowserError && error.code === "ACCESS_TOKEN_INVALID"
+            ? "unusable"
+            : "failed"
+        )
+      );
   }
 
-  async function requestLink(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await sendLink(email);
+  if (mode === "checking" || mode === "redeeming") {
+    return (
+      <JourneyPage kind="hold" stepKey="redeeming">
+        {mode === "redeeming" ? <WorkingBar label={SIGNING_IN} /> : null}
+      </JourneyPage>
+    );
   }
-
-  const busy = mode === "checking" || mode === "redeeming";
+  if (mode === "confirm") {
+    return (
+      <JourneyPage kind="quiet" stepKey="confirm">
+        <StepHeading title={CONFIRM.title} lede={CONFIRM.lede} />
+        <StepActions primary={{ label: CONFIRM.primary, onClick: redeem }} />
+      </JourneyPage>
+    );
+  }
   return (
-    <section className={styles.card} aria-labelledby="signin-title">
-      <p className={styles.eyebrow}>Welcome back</p>
-      <h1 className={styles.title} id="signin-title">
-        Open your Exomem.
-      </h1>
-      {busy ? (
-        <>
-          <p className={styles.lede}>Signing you in…</p>
-          <div className={styles.spinner} role="status" aria-label="Signing in" />
-        </>
-      ) : mode === "sent" ? (
-        (() => {
-          const screen = sentScreen(cooldown);
-          return (
-            <>
-              <p className={styles.lede}>{screen.lede}</p>
-              <p className={styles.status}>{screen.expiry}</p>
-              <p className={styles.status}>{screen.supersedes}</p>
-              <p className={styles.status}>{screen.notArriving}</p>
-              <div className={styles.form}>
-                <button
-                  className={styles.button}
-                  type="button"
-                  disabled={screen.resendLabel === null}
-                  onClick={() => void sendLink(email)}
-                >
-                  {screen.resendLabel ?? screen.waitingLabel}
-                </button>
-              </div>
-            </>
-          );
-        })()
-      ) : mode === "confirm" ? (
-        <>
-          <p className={styles.lede}>
-            Continue only if you requested this sign-in link in this browser.
-          </p>
-          <div className={styles.form}>
-            <button className={styles.button} type="button" onClick={redeemLink}>
-              Continue sign-in
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <p className={styles.lede}>
-            Enter the email address that received your invitation. We will send you a private,
-            one-time sign-in link.
-          </p>
-          <form className={styles.form} onSubmit={requestLink}>
-            <label className={styles.label} htmlFor="exomem-email">
-              Email address
-            </label>
-            <input
-              className={styles.input}
-              id="exomem-email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-            <button className={styles.button} type="submit" disabled={mode === "sending"}>
-              {mode === "sending" ? "Sending…" : "Email me a sign-in link"}
-            </button>
-          </form>
-          <p
-            className={`${styles.status} ${mode === "error" ? styles.error : ""}`}
-            role={mode === "error" ? "alert" : undefined}
-            aria-live="polite"
-          >
-            {mode === "error" ? message : "No password to remember."}
-          </p>
-        </>
-      )}
-    </section>
+    <StartFlow
+      context={{ kind: "web" }}
+      reviewerEnabled={reviewerEnabled}
+      frame={{}}
+      notice={
+        mode === "form"
+          ? null
+          : {
+              text: mode === "unusable" ? failureCopy.linkUnusable : failureCopy.generic,
+              attention: true,
+            }
+      }
+    />
   );
 }

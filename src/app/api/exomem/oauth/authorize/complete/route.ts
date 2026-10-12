@@ -12,6 +12,8 @@ import {
   validateOAuthContinuationNonce,
 } from "@/lib/exomem-hosted/oauth-continuity";
 import { ExomemHostedError } from "@/lib/exomem-hosted/errors";
+import { readBoundedJsonRequest } from "@/lib/exomem-hosted/http";
+import { isSafeLoopbackOAuthRedirect } from "@/lib/exomem-hosted/oauth-client-admission";
 import { validOrigin } from "@/lib/exomem-hosted/oauth-consent";
 import { oauthNoStoreHeaders, readOAuthForm } from "@/lib/exomem-hosted/oauth-http";
 import { exomemPublicBaseUrlFromEnv } from "@/lib/exomem-hosted/public-origin";
@@ -104,6 +106,7 @@ async function submittedFieldNames(request: Request): Promise<string> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (isJsonRequest(request)) return completeForPage(request);
   if (!validOrigin(request)) {
     // Origin and host are public hostnames that already appear on every access
     // log line, so recording them costs no confidentiality and is the only way
@@ -178,4 +181,109 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch {
     return freshConsentPage(transaction);
   }
+}
+
+const MAX_COMPLETE_JSON_BYTES = 4 * 1024;
+
+function isJsonRequest(request: Request): boolean {
+  return (
+    request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase() ===
+    "application/json"
+  );
+}
+
+// Exactly these two fields, as the form path reads them.
+function completeBody(value: unknown): { confirmation: string; nonce: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).length !== 2) return null;
+  const { confirmation, nonce } = body;
+  if (typeof confirmation !== "string" || !confirmation) return null;
+  if (typeof nonce !== "string" || !nonce) return null;
+  return { confirmation, nonce };
+}
+
+function json(body: Record<string, unknown>, status: number): NextResponse {
+  return NextResponse.json(body, { status, headers: oauthNoStoreHeaders() });
+}
+
+// Connect from the consent page's script. It runs the form path's gates in the
+// same order and the same store call, and answers in the decline route's shape,
+// so the page can show the hand-back before the browser leaves, and tell an app
+// on this computer in the background. The form path above stays for a browser
+// without JavaScript.
+async function completeForPage(request: Request): Promise<NextResponse> {
+  if (!validOrigin(request)) {
+    logCompleteRejection("origin", {
+      sec_fetch_site: request.headers.get("sec-fetch-site") ?? "absent",
+    });
+    return json({ error: "invalid_request" }, 400);
+  }
+  let body: { confirmation: string; nonce: string } | null;
+  try {
+    body = completeBody(await readBoundedJsonRequest(request, MAX_COMPLETE_JSON_BYTES));
+  } catch {
+    body = null;
+  }
+  if (!body) {
+    logCompleteRejection("form", { content_type: "application/json" });
+    return json({ error: "invalid_request" }, 400);
+  }
+  const continuation = await resolveOAuthContinuation(request);
+  const transactionDigest = oauthContinuationDigest(request);
+  const transaction = oauthContinuationToken(request);
+  if (!continuation || !transactionDigest || !transaction) {
+    logCompleteRejection("continuation", {
+      transaction_cookie_present: transaction !== null,
+      transaction_digest_present: transactionDigest !== null,
+      continuation_resolved: continuation !== null,
+    });
+    return json({ status: "expired" }, 410);
+  }
+  // A stale tab, a signed-out browser and an account that changed since the page
+  // rendered all get the same answer the form path gives them: the fresh page.
+  const fresh = () => json({ status: "stale", consentPath: oauthConsentPath(transaction) }, 409);
+  if (!matchesOAuthConfirmationHandle(transaction, body.confirmation)) return fresh();
+  if (!validateOAuthContinuationNonce({ continuation, transaction, formNonce: body.nonce })) {
+    logCompleteRejection("nonce");
+    return json({ error: "invalid_request" }, 400);
+  }
+  let sessionId: string;
+  try {
+    sessionId = (await resolveExomemSession(request)).id;
+  } catch (error) {
+    if (error instanceof ExomemHostedError) return fresh();
+    return failed();
+  }
+  const code = mintContinuationCode(continuation);
+  let attached: Awaited<ReturnType<typeof attachExistingOwnerAuthorizationAtomic>>;
+  try {
+    attached = await attachExistingOwnerAuthorizationAtomic({
+      sessionId,
+      transactionDigest,
+      codeDigest: code.codeDigest,
+      codeExpiresAt: code.codeExpiresAt,
+    });
+  } catch {
+    return failed();
+  }
+  if (!attached) return fresh();
+  const response = json(
+    {
+      status: "connected",
+      redirectUrl: authorizationRedirect(continuation, code.code).toString(),
+      loopback: isSafeLoopbackOAuthRedirect(continuation.redirectUri),
+    },
+    200
+  );
+  clearOAuthContinuationCookie(response);
+  return response;
+}
+
+// Storage failed, or its answer was lost. A lost COMMIT acknowledgement throws after
+// PostgreSQL has committed, so the app may be connected: the page says that it
+// could not confirm the connection, never that nothing changed.
+function failed(): NextResponse {
+  console.error({ event: "exomem_oauth_authorize_complete_failed" });
+  return json({ error: "server_error" }, 500);
 }

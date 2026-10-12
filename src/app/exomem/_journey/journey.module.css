@@ -1,0 +1,751 @@
+/* The journey page (Journey-Page board): the living field behind one centred column,
+   the wordmark top left, the signed-in email top right, and on pages an app opened,
+   the request's origin at the foot. Values from the board's markup; colours are tokens.
+   The board's `muted` ink (#A39E93 / #6B665C) is --fg-secondary, and its `panel`
+   (#12100E) is --bg-raised, the flow panel. */
+
+.page {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  --gutter: 40px;
+}
+
+.wordmark {
+  position: absolute;
+  left: var(--gutter);
+  top: 29px;
+  line-height: 0;
+  color: var(--fg-primary);
+}
+
+.headerEmail {
+  position: absolute;
+  right: var(--gutter);
+  top: 32px;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+
+/* The column sits in the middle of the whole page, as the board centres it; every step is
+   short enough to clear the header and the footer (the layout spec checks both). */
+.center {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--gutter);
+  box-sizing: border-box;
+}
+
+.column {
+  width: 460px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
+}
+
+.tiles {
+  display: flex;
+  align-items: center;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  animation: jIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.heading {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+/* An app's name can be one unbroken word of 64 characters: it wraps inside the
+   column rather than run past the screen. */
+.title {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+  max-width: 440px;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.notice {
+  width: 100%;
+}
+
+.form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.fields {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* A field or card and what sits right under it (the challenge), with no gap between. */
+.group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Turnstile's one-click check: zero-high until Cloudflare asks for a click. */
+.challenge {
+  width: 100%;
+}
+
+.challengeShown {
+  width: 100%;
+  padding-top: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.primary {
+  width: 100%;
+  display: flex;
+}
+
+.primary > * {
+  flex: 1;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A step's one panel: the sent card, the scopes. */
+.panel {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-raised);
+  border: 1px solid var(--exo-border-card);
+  border-radius: var(--r-card);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+/* A friend's note on the invitation (Journey board, "invite"): an amber edge, the note,
+   and the inviter's name. */
+.inviteNote {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border-left: 2px solid var(--exo-amber);
+  padding: 2px 0 2px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.inviteNoteText {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.inviteNoteBy {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+
+/* The invitation's price (Journey board, "invite" and "inviteexisting"). */
+.price {
+  gap: 6px;
+}
+
+.priceLabel {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--exo-amber-text);
+}
+
+.priceRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.priceMain {
+  font-family: var(--font-mono-exo);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--fg-primary);
+}
+
+.priceWas {
+  font-family: var(--font-mono-exo);
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+
+.priceNote {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.sent {
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.factRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+}
+
+.factLabel {
+  color: var(--fg-secondary);
+}
+
+.factValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panelNote {
+  color: var(--fg-secondary);
+  line-height: 1.5;
+}
+
+.scopes {
+  gap: 11px;
+  font-size: 14px;
+  line-height: normal;
+  margin: 0;
+  list-style: none;
+}
+
+.scope {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.scopeMark {
+  font-family: var(--font-mono-exo);
+  color: var(--fg-secondary);
+  width: 12px;
+  flex: none;
+}
+
+.scopePaused {
+  color: var(--fg-secondary);
+}
+
+.scopePaused .scopeText {
+  text-decoration: line-through;
+}
+
+.scopeNote {
+  margin-left: auto;
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+}
+
+.scopeFootnote {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  padding-top: 8px;
+  border-top: 1px solid var(--exo-border-card);
+}
+
+.choices {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.choice {
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--r-pop);
+  border: 1px solid var(--exo-border-card);
+  background: var(--bg-raised);
+  color: var(--fg-primary);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color var(--dur-hover) ease;
+}
+
+.choice:hover {
+  border-color: var(--exo-border-strong);
+}
+
+.choiceGlyph {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  box-sizing: border-box;
+  border-radius: var(--r-pop);
+  background: var(--bg-base);
+  border: 1px solid var(--exo-border-card);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono-exo);
+  font-size: 15px;
+}
+
+.choiceText {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.choiceName {
+  font-size: 15px;
+}
+
+.choiceAlso {
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+}
+
+.choiceCta {
+  width: 128px;
+  flex: none;
+  text-align: right;
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+  white-space: nowrap;
+}
+
+/* An app already connected to this Exomem: current state, so amber. */
+.choiceCta.current {
+  color: var(--exo-amber-text);
+}
+
+.working {
+  width: 100%;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--exo-border-card);
+  overflow: hidden;
+  position: relative;
+}
+
+.workingBar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--fg-primary);
+  opacity: 0.6;
+  animation: jWork 1.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+/* "Signed in as {email} · Switch account" takes at most two lines: it breaks only before
+   "Switch account", and an address too long for the first line shrinks inside it, its
+   local part first with an ellipsis, then its domain; the words around it never shrink. */
+.signedIn {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-secondary);
+  white-space: pre;
+}
+
+.signedInWho {
+  display: flex;
+  min-width: 0;
+}
+
+.signedInFixed {
+  flex: none;
+}
+
+.signedInAddress {
+  display: flex;
+  min-width: 0;
+}
+
+/* A local part longer than its kept characters gives way before the domain does: it
+   shrinks a million times faster, so the domain loses nothing until the local part is
+   down to the width that its inline style keeps. */
+.signedInLocal {
+  flex-shrink: 1000000;
+}
+
+/* A local part no longer than its kept characters never gives way. */
+.signedInLocalWhole {
+  flex: none;
+}
+
+.signedInLocal,
+.signedInDomain {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.signedInDomain {
+  min-width: 0;
+}
+
+.signedIn .inlineButton {
+  flex: none;
+}
+
+.inlineButton {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--fg-primary);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.reviewerLink {
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-family: var(--font-sans-exo);
+  font-size: 12px;
+  color: var(--fg-secondary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.reviewerNote {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  text-align: center;
+  max-width: 380px;
+}
+
+/* A live or settled line: an amber dot and one mono line. */
+.statusLine {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+}
+
+.waiting {
+  font-size: 12px;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--exo-amber);
+  flex: none;
+}
+
+.waiting .dot {
+  animation: jpBlink 1.4s ease-in-out infinite;
+}
+
+.done .dot {
+  box-shadow: 0 0 10px var(--exo-amber);
+}
+
+.tune {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Whether the picked level was saved: one quiet line under the switch. */
+.saveNote {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--fg-secondary);
+  text-align: center;
+}
+
+.blockHead {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--exo-amber-text);
+}
+
+.blockCount {
+  color: var(--fg-secondary);
+}
+
+.block {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  height: 74px;
+  overflow: hidden;
+  border: 1px solid var(--exo-border-card);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  padding: 10px 12px;
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+  white-space: pre-wrap;
+  text-align: left;
+}
+
+.block::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34px;
+  background: linear-gradient(transparent, var(--bg-raised));
+}
+
+.pasteRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pasteHint {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--fg-secondary);
+  text-align: left;
+}
+
+/* The board draws the footer in its muted ink at 80%; at full strength it keeps AA on
+   the light ground, where 80% would not. */
+.footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  padding: 0 var(--gutter);
+  text-align: center;
+  font-family: var(--font-mono-exo);
+  font-size: 11.5px;
+  color: var(--fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The phone layout, up to 640 px wide: the one Exomem breakpoint (phone.module.css). */
+@media (max-width: 640px) {
+  .page {
+    --gutter: 16px;
+  }
+
+  /* A phone takes the reviewer's entry over at least 40 px, as every phone target. */
+  .reviewerLink {
+    min-height: 40px;
+  }
+
+  .headerEmail {
+    display: none;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .column {
+    width: 358px;
+  }
+
+  /* The request's origin sits in the page's flow under the step, and the step centres in
+     the space between the wordmark and it, so a tall step can never run under either:
+     it scrolls instead, which the layout spec catches. */
+  .center {
+    padding-top: 46px;
+  }
+
+  .footer {
+    position: static;
+    padding-top: 8px;
+    padding-bottom: 24px;
+  }
+}
+
+/* On a desktop only some steps repeat the signed-in email under the actions. */
+@media (min-width: 641px) {
+  .phoneOnly {
+    display: none;
+  }
+
+  .reviewerNoteInLede {
+    display: none;
+  }
+}
+
+/* A phone too short for the tiles drops them and tightens the column and the step, so every
+   step still fits without scrolling, down to 360 x 640. With the tiles, the tallest step
+   needs 780 px below 390 px wide and 735 px from 390 px wide, so the cut-offs are 800 and
+   740 px tall (design.md (ai)). The reviewer note moves into the lede only above it. */
+@media (max-width: 640px) {
+  .reviewerNoteApart {
+    display: none;
+  }
+}
+
+@media (max-width: 389px) and (max-height: 799px), (max-width: 640px) and (max-height: 739px) {
+  .tiles {
+    display: none;
+  }
+
+  .footer {
+    padding-bottom: 16px;
+  }
+
+  /* The handoff's phone title range is 21–24 px. */
+  .title {
+    font-size: 21px;
+  }
+
+  .column {
+    gap: 14px;
+  }
+
+  .content {
+    gap: 12px;
+  }
+
+  /* The second action's own 44 px row already sets it apart from the main one. */
+  .actions {
+    gap: 0;
+  }
+
+  .scopes {
+    gap: 8px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .block {
+    height: 56px;
+  }
+
+  .reviewerNoteInLede {
+    display: none;
+  }
+}
+
+/* Journey-Page · jIn .6s cubic-bezier(.16,1,.3,1) both — content fades up in */
+@keyframes jIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Journey-Page · jWork 1.4s cubic-bezier(.45,0,.55,1) infinite — working bar */
+@keyframes jWork {
+  0% {
+    left: -30%;
+  }
+
+  100% {
+    left: 100%;
+  }
+}
+
+/* Journey-Page · jpBlink 1.4s ease-in-out infinite — waiting dot blinks */
+@keyframes jpBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+}

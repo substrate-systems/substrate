@@ -10,7 +10,7 @@ const SESSION = {
 };
 
 describe("Exomem product-scoped deletion confirmation", () => {
-  it("emails one fragment token and persists only its digest", async () => {
+  it("emails one fragment token, with its time limit in the owner's zone, and persists only its digest", async () => {
     let storedDigestHex = "";
     let email = "";
     const result = await requestDeletionConfirmation(SESSION, {
@@ -20,7 +20,11 @@ describe("Exomem product-scoped deletion confirmation", () => {
       takeRateLimit: async () => true,
       createToken: async (input) => {
         storedDigestHex = input.tokenDigest.toString("hex");
-        return { tokenId: "token-id", emailNormalized: "owner@example.test" };
+        return {
+          tokenId: "token-id",
+          emailNormalized: "owner@example.test",
+          timeZone: "Europe/London",
+        };
       },
       markDelivered: async () => undefined,
       sendEmail: async (input) => {
@@ -30,10 +34,13 @@ describe("Exomem product-scoped deletion confirmation", () => {
     });
 
     assert.equal(result.delivery, "sent");
+    // Home tells the owner how long the emailed link works from this value.
+    assert.equal(result.expiresAt.toISOString(), "2026-07-12T12:15:00.000Z");
     const match = email.match(/https:\/\/example\.test\/exomem\/delete#([A-Za-z0-9_-]+)/);
     assert.ok(match);
     assert.equal(storedDigestHex, tokenDigest(match[1])?.toString("hex"));
-    assert.equal(email.includes("shared Substrate identity"), true);
+    // 12:15 UTC is 13:15 in London in July.
+    assert.match(email, /Works once, until 13:15 \(15 minutes\)\./);
   });
 
   it("rejects an unsafe public origin before sending a deletion link", async () => {
@@ -44,7 +51,11 @@ describe("Exomem product-scoped deletion confirmation", () => {
         randomBytes: (size) => Buffer.alloc(size, 0x61),
         publicBaseUrl: "https://user:password@example.test",
         takeRateLimit: async () => true,
-        createToken: async () => ({ tokenId: "token-id", emailNormalized: "owner@example.test" }),
+        createToken: async () => ({
+          tokenId: "token-id",
+          emailNormalized: "owner@example.test",
+          timeZone: null,
+        }),
         markDelivered: async () => undefined,
         sendEmail: async () => {
           sends += 1;

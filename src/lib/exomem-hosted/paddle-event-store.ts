@@ -4,6 +4,8 @@ import type {
   ExomemPaddleStoreResult,
 } from "./paddle-webhook";
 import { sql as pgSql } from "../db/pg-sql";
+import { sealExomemEmailPayload } from "./email-outbox";
+import { projectedEntitlement } from "./entitlements";
 
 export type ExomemPaddleSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -39,14 +41,30 @@ export function createSqlExomemPaddleEventStore(
       application: ExomemPaddleEventApplication
     ): Promise<ExomemPaddleStoreResult> {
       const databaseEnvironment = application.environment === "production" ? "live" : "sandbox";
-      const retainedCapabilities = application.capabilities.filter(
-        (capability) => capability === "recall" || capability === "export"
-      );
+      // The state rule for a tenant past provisioning; the statement adds the
+      // deleted, provisioning and suspended cases it reads under its lock.
+      const projection = application.sourceState
+        ? projectedEntitlement(
+            { source: "paddle", state: application.sourceState },
+            { capabilities: application.capabilities, resourceLimits: application.resourceLimits }
+          )
+        : null;
       const isSubscriptionEvent = application.eventType.startsWith("subscription.");
       const isTransactionEvent = application.eventType.startsWith("transaction.");
       const canBindSubscriptionByTransaction =
         application.eventType === "subscription.created" ||
         application.eventType === "subscription.activated";
+      // Email 04 announces the move into past due that this statement may
+      // apply. The statement enqueues it only if it applies that move.
+      const graceStartedAt = application.revision.occurredAt;
+      const mayStartGrace = isSubscriptionEvent && application.sourceState === "past_due";
+      const paymentFailedPayload = mayStartGrace
+        ? sealExomemEmailPayload("payment_failed", {
+            version: 1,
+            tenantId: application.correlation.tenantId,
+            graceStartedAt,
+          })
+        : null;
 
       const { rows } = await sql`
         /* exomem:paddle-event-atomic-apply */
@@ -105,6 +123,7 @@ export function createSqlExomemPaddleEventStore(
                  authoritative_target.manual_suspended_at,
                  authoritative_target.source_occurred_at,
                  authoritative_target.source_revision,
+                 authoritative_target.source_state AS prior_source_state,
                  authoritative_target.entitlement_id IS NOT NULL AS is_authoritative,
                  CASE
                    WHEN authoritative_target.entitlement_id IS NULL THEN 'ignored'
@@ -165,19 +184,16 @@ export function createSqlExomemPaddleEventStore(
                 WHEN decision.tenant_status IN ('deletion_pending', 'deleted') THEN 'deleted'
                 WHEN decision.tenant_status = 'provisioning' THEN 'provisioning'
                 WHEN decision.manual_suspended_at IS NOT NULL THEN 'suspended'
-                WHEN ${application.sourceState} IN ('active', 'trialing') THEN 'active'
-                WHEN ${application.sourceState} = 'past_due' THEN 'grace'
-                WHEN ${application.sourceState} = 'paused' THEN 'suspended'
-                WHEN ${application.sourceState} = 'cancelled' THEN 'cancelled'
-                ELSE entitlement.effective_state
+                ELSE COALESCE(${projection?.effectiveState ?? null}::text, entitlement.effective_state)
               END,
               capabilities = CASE
                 WHEN decision.tenant_status IN ('deletion_pending', 'deleted', 'provisioning')
                   OR decision.manual_suspended_at IS NOT NULL
                   THEN '[]'::jsonb
-                WHEN ${application.sourceState} IN ('active', 'trialing')
-                  THEN ${JSON.stringify(application.capabilities)}::jsonb
-                ELSE ${JSON.stringify(retainedCapabilities)}::jsonb
+                ELSE COALESCE(
+                  ${projection ? JSON.stringify(projection.capabilities) : null}::jsonb,
+                  entitlement.capabilities
+                )
               END,
               resource_limits = ${JSON.stringify(application.resourceLimits)}::jsonb,
               source_revision = ${application.revision.eventId},
@@ -241,6 +257,61 @@ export function createSqlExomemPaddleEventStore(
             AND ${application.sourceState}::text IS NULL
             AND EXISTS (SELECT 1 FROM claimed)
           RETURNING entitlement.id
+        ),
+        payment_failed_email AS (
+          INSERT INTO exomem_email_outbox (
+            kind, dedupe_key, recipient, recipient_time_zone, tenant_id, payload_ciphertext
+          )
+          SELECT 'payment_failed',
+                 'payment-failed:' || decision.tenant_id::text || ':' || ${graceStartedAt}::text,
+                 owner.email,
+                 tenant.time_zone,
+                 tenant.id,
+                 ${paymentFailedPayload}::jsonb
+          FROM projected
+          JOIN decision ON decision.entitlement_id = projected.id
+          JOIN exomem_tenants AS tenant ON tenant.id = decision.tenant_id
+          JOIN users AS owner ON owner.id = tenant.owner_user_id
+          WHERE ${mayStartGrace}::boolean
+            AND decision.prior_source_state IS DISTINCT FROM 'past_due'
+            AND decision.tenant_status NOT IN ('deletion_pending', 'deleted')
+          ON CONFLICT (dedupe_key) DO NOTHING
+          RETURNING id
+        ),
+        -- Paddle is the source of truth for the friend price. The newest
+        -- applied subscription event that carries the friend discount gives a
+        -- tenant without a friend offer the offer of a friend invitation
+        -- addressed to its owner, in this transaction: an older event is
+        -- stale and records nothing, and no later step can lose the write.
+        friend_offer AS (
+          UPDATE exomem_tenants AS tenant
+          SET friend_offer_invite_id = offer.invite_id,
+              updated_at = now()
+          FROM decision
+          JOIN LATERAL (
+            SELECT invite.id AS invite_id
+            FROM exomem_tenants AS owned
+            JOIN users AS owner ON owner.id = owned.owner_user_id
+            JOIN exomem_invites AS invite ON invite.email_normalized = owner.email
+            WHERE owned.id = decision.tenant_id
+              AND invite.kind = 'friend'
+              AND invite.revoked_at IS NULL
+              AND (
+                invite.consumed_by_user_id = owner.id
+                OR (invite.consumed_at IS NULL AND invite.expires_at > now())
+              )
+            -- Every friend invitation carries the same discount; the newest
+            -- names the inviter the owner heard from last.
+            ORDER BY invite.created_at DESC
+            LIMIT 1
+          ) AS offer ON true
+          WHERE tenant.id = decision.tenant_id
+            AND decision.outcome = 'applied'
+            AND decision.tenant_status NOT IN ('deletion_pending', 'deleted')
+            AND ${isSubscriptionEvent && application.subscriptionCarriesFriendDiscount}::boolean
+            AND tenant.friend_offer_invite_id IS NULL
+            AND EXISTS (SELECT 1 FROM claimed)
+          RETURNING tenant.id
         ),
         completion AS (
           SELECT count(*)::integer AS claimed_count,

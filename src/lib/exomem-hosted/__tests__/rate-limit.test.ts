@@ -7,11 +7,11 @@ const FIRST_KEY = Buffer.alloc(32, 0x11);
 const SECOND_KEY = Buffer.alloc(32, 0x22);
 
 test("rate-limit identifiers are stable only within one secret and scope", () => {
-  const account = EXOMEM_RATE_LIMITS.magicLinkAccount;
+  const account = EXOMEM_RATE_LIMITS.startEmail;
   const first = hashRateLimitKey(account, EMAIL, FIRST_KEY);
   assert.equal(first, hashRateLimitKey(account, EMAIL, FIRST_KEY));
   assert.notEqual(first, hashRateLimitKey(account, EMAIL, SECOND_KEY));
-  assert.notEqual(first, hashRateLimitKey(EXOMEM_RATE_LIMITS.magicLinkIp, EMAIL, FIRST_KEY));
+  assert.notEqual(first, hashRateLimitKey(EXOMEM_RATE_LIMITS.startIp, EMAIL, FIRST_KEY));
   assert.equal(first.includes(EMAIL), false);
   assert.match(first, /^[0-9a-f]{64}$/);
 });
@@ -38,15 +38,9 @@ test("OAuth revocation uses a dedicated bounded IP rule", () => {
   assert.ok(rule.windowSeconds > 0);
 });
 
-test("invite requests use separate durable IP and normalized-email buckets", () => {
-  const ip = EXOMEM_RATE_LIMITS.interestIp;
-  const email = EXOMEM_RATE_LIMITS.interestEmail;
+test("start requests count one address in one bucket, whatever its case and spacing", () => {
+  const email = EXOMEM_RATE_LIMITS.startEmail;
 
-  assert.notEqual(ip.scope, email.scope);
-  assert.ok(ip.limit > 0);
-  assert.ok(ip.windowSeconds > 0);
-  assert.ok(email.limit > 0);
-  assert.ok(email.windowSeconds > 0);
   assert.equal(normalizedEmailRateLimitKey(" Friend@Example.COM "), "friend@example.com");
   assert.equal(
     hashRateLimitKey(email, normalizedEmailRateLimitKey("Friend@Example.com"), FIRST_KEY),

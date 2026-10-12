@@ -16,6 +16,20 @@
       "expected_key": "SUBSTRATE_BREVO_API_KEY",
       "env": "BREVO_API_KEY",
       "format": "opaque-line"
+    },
+    "turnstile-secret": {
+      "project_id": "69843186-5161-40a2-951f-b487011122ce",
+      "secret_id": "b217fa82-70a6-4869-ab63-b4e10090060a",
+      "expected_key": "SUBSTRATE_EXOMEM_TURNSTILE_SECRET_KEY",
+      "env": "EXOMEM_TURNSTILE_SECRET_KEY",
+      "format": "opaque-line"
+    },
+    "turnstile-site-key": {
+      "project_id": "69843186-5161-40a2-951f-b487011122ce",
+      "secret_id": "ff0c91ef-9e01-478d-be71-b4e100900c23",
+      "expected_key": "SUBSTRATE_NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY",
+      "env": "NEXT_PUBLIC_EXOMEM_TURNSTILE_SITE_KEY",
+      "format": "opaque-line"
     }
   }
 }

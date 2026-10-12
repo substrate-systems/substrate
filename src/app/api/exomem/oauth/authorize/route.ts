@@ -57,6 +57,21 @@ function error(): NextResponse {
   );
 }
 
+/**
+ * A client Exomem does not know, or no longer admits (a registration retired while its
+ * owner waited for a place, say), cannot be sent back to its redirect: that address is
+ * unverified. The person gets a page here that tells them to add Exomem to the app again.
+ */
+function unknownApp(): NextResponse {
+  return NextResponse.redirect(
+    new URL("/exomem/authorize/unknown-app", exomemPublicBaseUrlFromEnv()),
+    {
+      status: 303,
+      headers: { "cache-control": "no-store", "referrer-policy": "no-referrer" },
+    }
+  );
+}
+
 function temporarilyUnavailable(): NextResponse {
   return NextResponse.json(
     { error: "temporarily_unavailable" },
@@ -194,7 +209,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     }
     if (!client) {
       logAuthorizeRejection("client_resolution");
-      return error();
+      return unknownApp();
     }
     stage = "redirect_validation";
     const redirectUri = parameter(url.searchParams, "redirect_uri");

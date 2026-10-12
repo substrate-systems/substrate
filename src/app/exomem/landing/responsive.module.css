@@ -1,0 +1,15 @@
+/* The landing draws some copy and drawings twice, once for desktop and once for a phone
+   (Landing-Page and R20-Mobile differ in wording and layout, not only in size). Each
+   element keeps its own display; only the other layout's copy is removed. The phone
+   layout covers viewports up to 640 px, the one Exomem breakpoint. */
+@media (min-width: 641px) {
+  .phoneOnly {
+    display: none !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .deskOnly {
+    display: none !important;
+  }
+}

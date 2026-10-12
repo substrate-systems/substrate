@@ -1,10 +1,11 @@
 import { Pool, type PoolClient } from "pg";
 import { sql as pgSql } from "../db/pg-sql";
+import { cloudAdmissionAllows, lockCloudCapacity } from "./cloud-capacity";
 import { exomemErrors } from "./errors";
-import { EXOMEM_ALPHA_CAPACITY } from "./oauth-admission";
 import type { ExomemPaddleEnvironment } from "./paddle-config";
 import type { SecretEnvelope } from "./security";
 import { marketplaceReviewerAccessEnabled } from "./reviewer-access";
+import type { ExomemInviteKind } from "./invitation-contract";
 
 export type ExomemSqlResult = {
   rows: Array<Record<string, unknown>>;
@@ -147,6 +148,14 @@ export type CreateInviteRecordInput = {
   marketplaceReviewerPurpose?: boolean;
   operatorPrincipalDigest: Buffer;
   expiresAt: Date;
+  /** Defaults from the entitlement source (migration 0065). */
+  kind?: ExomemInviteKind;
+  inviterName?: string | null;
+  inviterEmail?: string | null;
+  inviteeName?: string | null;
+  note?: string | null;
+  /** Runs in the creating transaction, so the invitation's emails are enqueued with it. */
+  afterCreate?: (tx: ExomemSql, invite: { inviteId: string; createdAt: Date }) => Promise<void>;
 };
 
 export async function createInviteRecord(
@@ -163,7 +172,12 @@ export async function createInviteRecord(
       entitlement_limits,
       marketplace_reviewer_purpose,
       created_by_principal_digest,
-      expires_at
+      expires_at,
+      kind,
+      inviter_name,
+      inviter_email,
+      invitee_name,
+      note
     ) SELECT
       ${input.tokenDigest},
       ${input.emailNormalized},
@@ -172,7 +186,12 @@ export async function createInviteRecord(
       ${JSON.stringify(input.resourceLimits)}::jsonb,
       ${input.marketplaceReviewerPurpose === true},
       ${input.operatorPrincipalDigest},
-      ${input.expiresAt.toISOString()}
+      ${input.expiresAt.toISOString()},
+      ${input.kind ?? null},
+      ${input.inviterName ?? null},
+      ${input.inviterEmail ?? null},
+      ${input.inviteeName ?? null},
+      ${input.note ?? null}
     WHERE NOT (
       ${input.marketplaceReviewerPurpose === true}
       AND EXISTS (
@@ -189,292 +208,27 @@ export async function createInviteRecord(
                OR block.tenant_id IS NOT NULL)
       )
     )
-    RETURNING id
+    RETURNING id, created_at
   `;
-    const row = rows[0] as { id: string } | undefined;
+    const row = rows[0] as { id: string; created_at: Date | string } | undefined;
     if (!row) throw new Error("createInviteRecord returned no row");
+    await input.afterCreate?.(tx, { inviteId: row.id, createdAt: new Date(row.created_at) });
     return { inviteId: row.id };
   };
-  const isPaidOperatorInvite = input.entitlementSource === "paddle";
-  if (!input.marketplaceReviewerPurpose && !isPaidOperatorInvite) return create(sql);
   return withExomemTransaction(async (tx) => {
     if (input.marketplaceReviewerPurpose) {
       await tx`SELECT pg_advisory_xact_lock_shared(hashtext('exomem-hosted-alpha-cohort'))`;
     }
-    if (isPaidOperatorInvite) {
-      const poolResult = await tx`
-        /* exomem:paid-operator-invite-pool */
-        SELECT storage_capacity_bytes, reserved_storage_bytes,
-               runtime_capacity_slots, reserved_runtime_slots,
-               provision_reservation_capacity, reserved_provision_slots
-        FROM exomem_capacity_pools
-        WHERE pool_key = 'exomem-hosted-alpha'
-          AND configured_at IS NOT NULL
-        FOR UPDATE
-      `;
-      const pool = poolResult.rows[0] as Record<string, unknown> | undefined;
-      if (!pool) throw exomemErrors.capacityUnavailable();
-
-      const outstandingResult = await tx`
-        /* exomem:paid-operator-invite-outstanding */
-        SELECT count(*)::integer AS outstanding
-        FROM exomem_invites
-        WHERE entitlement_source = 'paddle'
-          AND NOT self_serve
-          AND delivery_state IN ('pending', 'sent')
-          AND consumed_at IS NULL
-          AND revoked_at IS NULL
-          AND expires_at > now()
-      `;
-      const outstanding = Number(
-        (outstandingResult.rows[0] as { outstanding?: number } | undefined)?.outstanding ?? 0
-      );
-      const promised = outstanding + 1;
-      const fits = (capacity: unknown, reserved: unknown, perTenant: number): boolean =>
-        Number(capacity) >= Number(reserved) + perTenant * promised;
-      if (
-        !fits(
-          pool.storage_capacity_bytes,
-          pool.reserved_storage_bytes,
-          EXOMEM_ALPHA_CAPACITY.storageBytes
-        ) ||
-        !fits(
-          pool.runtime_capacity_slots,
-          pool.reserved_runtime_slots,
-          EXOMEM_ALPHA_CAPACITY.runtimeSlots
-        ) ||
-        !fits(
-          pool.provision_reservation_capacity,
-          pool.reserved_provision_slots,
-          EXOMEM_ALPHA_CAPACITY.provisionReservationSlots
-        )
-      ) {
-        throw exomemErrors.capacityUnavailable();
-      }
+    // Every invitation, paid, complimentary or reviewer, promises a Cloud
+    // slot and counts against the same headroom until it is used, revoked or
+    // expired, so an operator cannot promise more places than Cloud has. An
+    // address that already holds a live cell needs no new slot.
+    await lockCloudCapacity(tx);
+    if (!(await cloudAdmissionAllows(tx, { email: input.emailNormalized }))) {
+      throw exomemErrors.capacityUnavailable();
     }
     return create(tx);
   });
-}
-
-export async function markInviteDelivered(inviteId: string): Promise<void> {
-  await sql`
-    /* exomem:invite-delivered */
-    UPDATE exomem_invites
-    SET delivery_state = 'sent',
-        delivery_attempts = delivery_attempts + 1,
-        delivered_at = now(),
-        delivery_error_code = NULL
-    WHERE id = ${inviteId} AND consumed_at IS NULL AND revoked_at IS NULL
-  `;
-}
-
-export async function markInviteDeliveryFailed(inviteId: string, errorCode: string): Promise<void> {
-  await sql`
-    /* exomem:invite-delivery-failed */
-    UPDATE exomem_invites
-    SET delivery_state = 'failed',
-        delivery_attempts = delivery_attempts + 1,
-        delivery_error_code = ${errorCode},
-        revoked_at = COALESCE(revoked_at, now())
-    WHERE id = ${inviteId} AND consumed_at IS NULL
-  `;
-}
-
-export type SelfServeAdmissionInput = {
-  tokenDigest: Buffer;
-  emailNormalized: string;
-  capabilities: string[];
-  resourceLimits: Record<string, number>;
-  principalDigest: Buffer;
-  expiresAt: Date;
-  storageBytes: number;
-  runtimeSlots: number;
-  provisionSlots: number;
-};
-
-export type SelfServeAdmissionResult =
-  | { outcome: "admitted"; inviteId: string }
-  | { outcome: "waitlisted"; position: number };
-
-/**
- * Decides admission before any payment surface is offered, in one serialized
- * transaction against the capacity pool row.
- *
- * An outstanding self-serve invite is a *soft* reservation: admission has been
- * promised, but the hard reservation in `exomem_capacity_pools` only happens
- * when the invite is redeemed through OAuth admission. Counting outstanding
- * invites against headroom is what stops us admitting more visitors than the
- * pool can ever provision — the hard reservation alone would admit everybody and
- * then fail them one by one after they had already paid.
- *
- * Fails closed: an absent or unconfigured pool waitlists rather than admits.
- */
-export async function admitSelfServeOrWaitlistAtomic(
-  input: SelfServeAdmissionInput
-): Promise<SelfServeAdmissionResult> {
-  return withExomemTransaction(async (tx) => {
-    const poolResult = await tx`
-      /* exomem:self-serve-admission-pool */
-      SELECT id,
-             storage_capacity_bytes,
-             reserved_storage_bytes,
-             runtime_capacity_slots,
-             reserved_runtime_slots,
-             provision_reservation_capacity,
-             reserved_provision_slots
-      FROM exomem_capacity_pools
-      WHERE pool_key = 'exomem-hosted-alpha'
-        AND configured_at IS NOT NULL
-      FOR UPDATE
-    `;
-    const pool = poolResult.rows[0] as Record<string, unknown> | undefined;
-
-    // Repeat requests must not each consume a soft slot. Revoking the previous
-    // outstanding invite first keeps one visitor to one reservation, and the
-    // freshly minted token supersedes any older link they were emailed.
-    await tx`
-      /* exomem:self-serve-supersede-outstanding */
-      UPDATE exomem_invites
-      SET revoked_at = now()
-      WHERE email_normalized = ${input.emailNormalized}
-        AND self_serve
-        AND consumed_at IS NULL
-        AND revoked_at IS NULL
-    `;
-
-    let admitted = false;
-    if (pool) {
-      const outstandingResult = await tx`
-        /* exomem:self-serve-outstanding */
-        SELECT count(*)::integer AS outstanding
-        FROM exomem_invites
-        WHERE self_serve
-          AND consumed_at IS NULL
-          AND revoked_at IS NULL
-          AND expires_at > now()
-      `;
-      const outstanding = Number(
-        (outstandingResult.rows[0] as { outstanding: number } | undefined)?.outstanding ?? 0
-      );
-      // The +1 is this visitor: admit only if the pool could still honour every
-      // promise already made plus this one.
-      const claimed = outstanding + 1;
-      const fits = (capacity: unknown, reserved: unknown, perTenant: number): boolean =>
-        Number(capacity) >= Number(reserved) + perTenant * claimed;
-      admitted =
-        fits(pool.storage_capacity_bytes, pool.reserved_storage_bytes, input.storageBytes) &&
-        fits(pool.runtime_capacity_slots, pool.reserved_runtime_slots, input.runtimeSlots) &&
-        fits(
-          pool.provision_reservation_capacity,
-          pool.reserved_provision_slots,
-          input.provisionSlots
-        );
-    }
-
-    if (!admitted) {
-      // Position is counted server-side against the row's own `created_at`.
-      // Round-tripping that timestamp through JS would silently truncate
-      // Postgres microseconds to milliseconds, so a row could fail to compare
-      // against itself and every visitor would be told they were next.
-      //
-      // The count is strictly-before plus one: a freshly inserted row is not
-      // visible to a subquery in the same statement, and an upserted row is —
-      // strict `<` makes both paths agree.
-      const waitlistResult = await tx`
-        /* exomem:self-serve-waitlist */
-        WITH upserted AS (
-          INSERT INTO exomem_waitlist_entries (email_normalized)
-          VALUES (${input.emailNormalized})
-          ON CONFLICT (email_normalized) DO UPDATE
-          SET updated_at = now(),
-              -- Re-queue someone who was admitted before. Their previous
-              -- self-serve invite was just revoked above, so they hold nothing;
-              -- leaving admitted_at set would tell them a queue position while
-              -- making their row invisible to every "admitted_at IS NULL" sweep,
-              -- so they would wait forever for an email nobody would send.
-              -- created_at is deliberately untouched: they asked first and keep
-              -- their place.
-              admitted_at = NULL,
-              admitted_invite_id = NULL
-          RETURNING id, created_at
-        )
-        SELECT upserted.id,
-               (
-                 SELECT count(*)
-                 FROM exomem_waitlist_entries AS queued
-                 WHERE queued.admitted_at IS NULL
-                   AND queued.created_at < upserted.created_at
-               )::integer + 1 AS position
-        FROM upserted
-      `;
-      const entry = waitlistResult.rows[0] as { id: string; position: number } | undefined;
-      if (!entry) throw new Error("self-serve waitlist insert returned no row");
-      return { outcome: "waitlisted", position: Number(entry.position) };
-    }
-
-    const inviteResult = await tx`
-      /* exomem:self-serve-invite */
-      INSERT INTO exomem_invites (
-        token_digest,
-        email_normalized,
-        entitlement_source,
-        entitlement_capabilities,
-        entitlement_limits,
-        marketplace_reviewer_purpose,
-        created_by_principal_digest,
-        expires_at,
-        self_serve
-      ) VALUES (
-        ${input.tokenDigest},
-        ${input.emailNormalized},
-        'paddle',
-        ${JSON.stringify(input.capabilities)}::jsonb,
-        ${JSON.stringify(input.resourceLimits)}::jsonb,
-        false,
-        ${input.principalDigest},
-        ${input.expiresAt.toISOString()},
-        true
-      )
-      RETURNING id
-    `;
-    const invite = inviteResult.rows[0] as { id: string } | undefined;
-    if (!invite) throw new Error("self-serve invite insert returned no row");
-
-    // A visitor who waited and is now admitted stops being queued.
-    await tx`
-      /* exomem:self-serve-waitlist-admitted */
-      UPDATE exomem_waitlist_entries
-      SET admitted_at = now(),
-          admitted_invite_id = ${invite.id}::uuid,
-          updated_at = now()
-      WHERE email_normalized = ${input.emailNormalized}
-        AND admitted_at IS NULL
-    `;
-
-    return { outcome: "admitted", inviteId: invite.id };
-  });
-}
-
-export async function inspectValidInvite(
-  tokenDigest: Buffer
-): Promise<{ emailNormalized: string; expiresAt: string } | null> {
-  const { rows } = await sql`
-    /* exomem:inspect-invite */
-    SELECT email_normalized, expires_at
-    FROM exomem_invites
-    WHERE token_digest = ${tokenDigest}
-      AND consumed_at IS NULL
-      AND revoked_at IS NULL
-      AND expires_at > now()
-    LIMIT 1
-  `;
-  const row = rows[0];
-  return row
-    ? {
-        emailNormalized: String(row.email_normalized),
-        expiresAt: new Date(String(row.expires_at)).toISOString(),
-      }
-    : null;
 }
 
 export type RedeemedAccess = {
@@ -599,6 +353,8 @@ export type ClaimedMagicLinkDelivery = {
   deliveryId: string;
   tokenId: string;
   emailNormalized: string;
+  /** The owner's time zone, as their browser last reported it. */
+  recipientTimeZone: string | null;
   expiresAt: string;
   tokenDigest: Buffer;
   secretCiphertext: SecretEnvelope;
@@ -710,6 +466,7 @@ export async function claimMagicLinkDelivery(input: {
     SELECT claimed.id AS delivery_id,
            claimed.token_id,
            users.email::text AS email_normalized,
+           tenant.time_zone,
            claimed.expires_at,
            token.token_digest,
            claimed.secret_ciphertext,
@@ -717,12 +474,14 @@ export async function claimMagicLinkDelivery(input: {
     FROM claimed
     JOIN exomem_access_tokens AS token ON token.id = claimed.token_id
     JOIN users ON users.id = token.user_id
+    JOIN exomem_tenants AS tenant ON tenant.id = token.tenant_id
   `;
   const row = rows[0] as
     | {
         delivery_id: string;
         token_id: string;
         email_normalized: string;
+        time_zone: string | null;
         expires_at: string | Date;
         token_digest: Buffer;
         secret_ciphertext: SecretEnvelope | string;
@@ -734,6 +493,7 @@ export async function claimMagicLinkDelivery(input: {
     deliveryId: row.delivery_id,
     tokenId: row.token_id,
     emailNormalized: row.email_normalized,
+    recipientTimeZone: row.time_zone ?? null,
     expiresAt:
       row.expires_at instanceof Date ? row.expires_at.toISOString() : String(row.expires_at),
     tokenDigest: Buffer.from(row.token_digest),
@@ -837,6 +597,8 @@ export type RedeemMagicAccessTokenInput = {
   sessionDigest: Buffer;
   csrfDigest: Buffer;
   sessionExpiresAt: Date;
+  /** The signing-in browser's time zone, already normalized. */
+  timeZone?: string | null;
 };
 
 export async function redeemMagicAccessTokenAtomic(
@@ -885,6 +647,14 @@ export async function redeemMagicAccessTokenAtomic(
       RETURNING product_session.user_id,
                 product_session.tenant_id,
                 product_session.id AS session_id
+    ),
+    time_zone_recorded AS (
+      UPDATE exomem_tenants AS tenant
+      SET time_zone = ${input.timeZone ?? null}
+      FROM consumed
+      WHERE tenant.id = consumed.tenant_id
+        AND ${input.timeZone ?? null}::text IS NOT NULL
+      RETURNING tenant.id
     )
     SELECT user_id, tenant_id, session_id FROM consumed
   `;
@@ -993,13 +763,14 @@ export async function createDeletionConfirmationToken(input: {
   tenantId: string;
   tokenDigest: Buffer;
   expiresAt: Date;
-}): Promise<{ tokenId: string; emailNormalized: string } | null> {
+}): Promise<{ tokenId: string; emailNormalized: string; timeZone: string | null } | null> {
   const { rows } = await sql`
     /* exomem:create-deletion-confirmation */
     WITH owner AS (
       SELECT users.id AS user_id,
              users.email,
-             tenant.id AS tenant_id
+             tenant.id AS tenant_id,
+             tenant.time_zone
       FROM users
       JOIN exomem_tenants AS tenant ON tenant.owner_user_id = users.id
       WHERE users.id = ${input.userId}
@@ -1032,12 +803,18 @@ export async function createDeletionConfirmationToken(input: {
       ON CONFLICT (token_digest) DO NOTHING
       RETURNING id, user_id
     )
-    SELECT created.id, owner.email
+    SELECT created.id, owner.email, owner.time_zone
     FROM created
     JOIN owner ON owner.user_id = created.user_id
   `;
   const row = rows[0];
-  return row ? { tokenId: String(row.id), emailNormalized: String(row.email).toLowerCase() } : null;
+  return row
+    ? {
+        tokenId: String(row.id),
+        emailNormalized: String(row.email).toLowerCase(),
+        timeZone: row.time_zone ? String(row.time_zone) : null,
+      }
+    : null;
 }
 
 /**

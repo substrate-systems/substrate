@@ -29,15 +29,25 @@ export const EXOMEM_RATE_LIMITS = {
     limit: 60,
     windowSeconds: 60,
   },
-  magicLinkAccount: {
-    scope: "exomem:magic-link:account",
+  // "Start with your email" (sign-in links, start links and waitlist places
+  // alike). Both are taken before the request learns anything about the
+  // address, so a limited request looks the same whoever it names.
+  startEmail: {
+    scope: "exomem:start:email",
     limit: 5,
     windowSeconds: 60 * 60,
   },
-  magicLinkIp: {
-    scope: "exomem:magic-link:ip",
+  startIp: {
+    scope: "exomem:start:ip",
     limit: 20,
     windowSeconds: 60 * 60,
+  },
+  // Invitation inspect is public and calls Paddle's price preview, so each
+  // network address is bounded before the token is looked up.
+  inviteInspectIp: {
+    scope: "exomem:invite-inspect:ip",
+    limit: 60,
+    windowSeconds: 10 * 60,
   },
   oauthAuthorizeIp: {
     scope: "exomem:oauth-authorize:ip",
@@ -99,29 +109,6 @@ export const EXOMEM_RATE_LIMITS = {
     scope: "exomem:deletion-confirmation",
     limit: 3,
     windowSeconds: 60 * 60,
-  },
-  interestIp: {
-    scope: "exomem:interest:ip",
-    limit: 10,
-    windowSeconds: 60 * 60,
-  },
-  interestEmail: {
-    scope: "exomem:interest:email",
-    limit: 3,
-    windowSeconds: 24 * 60 * 60,
-  },
-  // Self-serve admission mints a real invite, so it is held tighter than the
-  // interest form it replaces: an address gets few attempts per day, and a
-  // network cannot farm invites for many addresses at once.
-  admissionIp: {
-    scope: "exomem:admission:ip",
-    limit: 10,
-    windowSeconds: 60 * 60,
-  },
-  admissionEmail: {
-    scope: "exomem:admission:email",
-    limit: 3,
-    windowSeconds: 24 * 60 * 60,
   },
   marketplaceReviewerIp: {
     scope: "exomem:marketplace-reviewer:ip",

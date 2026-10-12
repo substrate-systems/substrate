@@ -13,6 +13,7 @@ function record() {
     deliveryId: "delivery-1",
     tokenId: "token-1",
     emailNormalized: EMAIL,
+    recipientTimeZone: null,
     expiresAt: EXPIRES,
     tokenDigest: tokenDigest(TOKEN)!,
     secretCiphertext: encryptSecret(

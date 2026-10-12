@@ -10,10 +10,15 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | 
    * whether an account exists.
    */
   error?: ReactNode;
+  /**
+   * A failed attempt whose message the page shows elsewhere, such as a notice above
+   * the form: the field draws the error border without a message of its own.
+   */
+  invalid?: boolean;
 };
 
 /** A labelled text input. */
-export function TextField({ label, error, ...input }: TextFieldProps) {
+export function TextField({ label, error, invalid = false, ...input }: TextFieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const hasError = error !== undefined && error !== null && error !== false;
@@ -26,7 +31,7 @@ export function TextField({ label, error, ...input }: TextFieldProps) {
         {...input}
         id={id}
         className={styles.input}
-        aria-invalid={hasError || undefined}
+        aria-invalid={hasError || invalid || undefined}
         aria-describedby={hasError ? errorId : input["aria-describedby"]}
       />
       {hasError && (

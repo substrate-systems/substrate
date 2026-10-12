@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { PaddleTransactionOpener } from "@/components/PaddleTransactionOpener";
-import { loadExomemPaddleConfig } from "@/lib/exomem-hosted/paddle-config";
-import { PrivateShell } from "../private-shell";
+import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
+import { cloudHomeChannelEnabled } from "@/lib/exomem-hosted/cloud-home-mcp";
+import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
+import { statusPageUrl } from "../_journey/status-page";
 import HomeClient from "./home-client";
+import styles from "./home.module.css";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,23 +15,15 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-// The subscribe card previews the price that checkout charges, so the browser
-// gets the price ID only when checkout can run with the same client token.
-function checkoutPriceId(): string | null {
-  try {
-    const config = loadExomemPaddleConfig();
-    return config.paidCheckoutEnabled ? config.priceId : null;
-  } catch {
-    // The checkout route reports a broken configuration; Home shows no amount.
-    return null;
-  }
-}
-
 export default function ExomemHomePage() {
   return (
-    <PrivateShell>
-      <PaddleTransactionOpener validationEndpoint="/api/exomem/billing/checkout" />
-      <HomeClient priceId={checkoutPriceId()} />
-    </PrivateShell>
+    <main className={`${styles.page} brand-exomem`}>
+      <HomeClient
+        priceId={exomemCheckoutPriceId()}
+        exportOffered={cloudExportsEnabled()}
+        channelOn={cloudHomeChannelEnabled()}
+        statusPageUrl={statusPageUrl()}
+      />
+    </main>
   );
 }

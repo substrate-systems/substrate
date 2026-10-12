@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import styles from "./AddressField.module.css";
+import phone from "./phone.module.css";
 
 const COPIED_MS = 1600;
 
@@ -16,8 +17,22 @@ function splitAfterHost(address: string): [string, string] | null {
   }
 }
 
+type AddressFieldProps = {
+  label: string;
+  address: string;
+  /** page: the flow's field · row: Home's compact field inside a panel row (44 px, a 32 px Copy). */
+  size?: "page" | "row";
+  /** The page already says what the address is for: the label only names the field for screen readers. */
+  labelHidden?: boolean;
+};
+
 /** An address to paste elsewhere (the MCP address), with Copy inside on the right. */
-export function AddressField({ label, address }: { label: string; address: string }) {
+export function AddressField({
+  label,
+  address,
+  size = "page",
+  labelHidden = false,
+}: AddressFieldProps) {
   const id = useId();
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -45,8 +60,8 @@ export function AddressField({ label, address }: { label: string; address: strin
 
   const parts = splitAfterHost(address);
   return (
-    <div className={styles.field}>
-      <span className={styles.label} id={id}>
+    <div className={size === "row" ? `${styles.field} ${styles.row}` : styles.field}>
+      <span className={labelHidden ? styles.labelHidden : styles.label} id={id}>
         {label}
       </span>
       <div className={styles.box} role="group" aria-labelledby={id}>
@@ -61,7 +76,12 @@ export function AddressField({ label, address }: { label: string; address: strin
             address
           )}
         </span>
-        <button type="button" className={styles.copy} onClick={copy} aria-live="polite">
+        <button
+          type="button"
+          className={`${styles.copy} ${phone.hitArea}`}
+          onClick={copy}
+          aria-live="polite"
+        >
           {copied ? "Copied ✓" : "Copy"}
         </button>
       </div>

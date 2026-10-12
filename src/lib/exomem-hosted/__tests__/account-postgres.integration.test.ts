@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { copyFileSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -13,6 +13,9 @@ import { createSqlExomemPaddleEventStore } from "../paddle-event-store";
 import { reconcileExomemPaddleSubscription } from "../paddle-reconciliation";
 import { dispatchVerifiedExomemPaddleEvent } from "../paddle-webhook";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
+
+// The lifecycle emails this suite's facts enqueue carry an encrypted payload.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 const MIGRATIONS = resolve(process.cwd(), "migrations");

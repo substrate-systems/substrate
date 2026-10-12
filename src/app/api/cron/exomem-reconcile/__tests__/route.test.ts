@@ -9,6 +9,7 @@ let cloudReconcileCalls = 0;
 let cloudNoticeRetryCalls = 0;
 let cloudDeletionFinishCalls = 0;
 let cloudDeletionFinishShouldFail = false;
+let promotionShouldFail = false;
 let cloudOrder: string[] = [];
 let cloudGate: Promise<void> | null = null;
 let paddleGate: Promise<void> | null = null;
@@ -24,6 +25,7 @@ before(() => {
         return [
           { tenantId: "t-expired", outcome: "expired" },
           { tenantId: "t-skipped", outcome: "skipped" },
+          { tenantId: "t-deferred", outcome: "deferred" },
         ];
       },
     },
@@ -43,7 +45,7 @@ before(() => {
         if (cloudGate) await cloudGate;
         await new Promise<void>((resolve) => setImmediate(resolve));
         cloudOrder.push("reconcile");
-        return { reconciled: 4, deleted: 1 };
+        return { reconciled: 4, deleted: 1, waitingForPaddle: 2 };
       },
     },
   });
@@ -55,6 +57,15 @@ before(() => {
         if (cloudDeletionFinishShouldFail) throw new Error("private finish failure");
         return { finished: 2, pending: 3, failed: 1 };
       },
+    },
+  });
+  mock.module("@/lib/exomem-hosted/self-serve-admission", {
+    namedExports: {
+      promoteWaitlistedPeople: async () => {
+        if (promotionShouldFail) throw new Error("private promotion failure");
+        return { status: "ran", promoted: 2, settled: 1 };
+      },
+      pruneStaleSelfServeRecords: async () => ({ waitlistEntries: 3, startLinks: 4 }),
     },
   });
   mock.module("@/lib/exomem-hosted/oauth-store", {
@@ -96,6 +107,7 @@ afterEach(() => {
   cloudNoticeRetryCalls = 0;
   cloudDeletionFinishCalls = 0;
   cloudDeletionFinishShouldFail = false;
+  promotionShouldFail = false;
   cloudOrder = [];
   cloudGate = null;
   paddleGate = null;
@@ -156,16 +168,37 @@ describe("GET /api/cron/exomem-reconcile", () => {
       cloud: {
         expired: 1,
         activationsSkipped: 1,
+        expiriesDeferred: 1,
         reconciled: 4,
         deleted: 1,
+        cellsWaitingForPaddle: 2,
         noticesRetried: 2,
         noticesSent: 1,
         deletionsFinished: 2,
         deletionsPending: 3,
         deletionsFailed: 1,
+        waitlistPromotion: { status: "ran", promoted: 2, settled: 1 },
+        selfServePruned: { waitlistEntries: 3, startLinks: 4 },
       },
       oauth: { disabledCimd: 2, retiredAutoRegistered: 1, retiredGeneric: 3 },
     });
+  });
+
+  it("reports a failed waitlist promotion as failed, not as zero promotions", async () => {
+    process.env.EXOMEM_HOSTED_SCHEDULER_SECRET = "cron-secret";
+    promotionShouldFail = true;
+    const { GET } = await import("../route");
+    const response = await GET(request("cron-secret"));
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.equal(text.includes("private promotion failure"), false);
+    const body = JSON.parse(text) as { result: { cloud: Record<string, unknown> } };
+    assert.deepEqual(body.result.cloud.waitlistPromotion, {
+      status: "failed",
+      promoted: null,
+      settled: null,
+    });
+    assert.equal(cloudDeletionFinishCalls, 1);
   });
 
   it("starts billing and Cloud work together so neither lane can starve", async () => {

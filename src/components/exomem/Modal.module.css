@@ -1,6 +1,7 @@
-/* Modal (components.md: Containers). Centered over a scrim; from Home's modals. */
+/* Modal (components.md: Containers). Centered over a scrim; from Home's modals. The board
+   sets each modal's content width (the w classes) and pads it 24 px inside a 1 px border. */
 .modal {
-  width: 420px;
+  width: calc(var(--modal-content) + 2 * 24px + 2px);
   max-width: calc(100% - 32px);
   box-sizing: border-box;
   margin: auto;
@@ -10,6 +11,18 @@
   background: var(--bg-elevated);
   color: var(--fg-primary);
   font-family: var(--font-sans-exo);
+}
+
+.w360 {
+  --modal-content: 360px;
+}
+
+.w400 {
+  --modal-content: 400px;
+}
+
+.w420 {
+  --modal-content: 420px;
 }
 
 .modal[open] {

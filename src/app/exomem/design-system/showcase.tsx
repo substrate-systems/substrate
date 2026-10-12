@@ -334,7 +334,7 @@ function BrandAndLive() {
         <div className={styles.row}>
           <Wordmark />
           <Mark size={40} label="Exomem" />
-          <Mark size={34} breathing label="Exomem, on" />
+          <Mark size={34} status="on" label="Exomem, on" />
         </div>
       </Group>
       <Group label="LIVE LINE · LIVE AND PAUSED">

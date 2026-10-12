@@ -1,0 +1,798 @@
+/* The Exomem landing (Landing-Page board, view "page"; R19-Landing for the desktop
+   sections, R20-Mobile for the 390 px phone). Desktop is drawn at 1280 wide: content
+   1056 between 112 px gutters. The phone layout covers viewports up to 640 px, the one
+   Exomem breakpoint, in a column of at most 430 px. Widths between the two are not drawn:
+   the gutters narrow and the desktop rows wrap instead of overflowing. */
+
+.page {
+  min-height: 100vh;
+  /* The boards set no base line height; text without its own takes the font's. */
+  line-height: normal;
+}
+
+/* In-page links glide to their section, unless the reader asks for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  :global(html):has(.page) {
+    scroll-behavior: smooth;
+  }
+}
+
+.main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 clamp(24px, 8.75vw, 112px);
+}
+
+/* ---- Header ---- */
+
+.header {
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.wordmark {
+  line-height: 0;
+}
+
+.byline {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  font-family: var(--font-mono-exo);
+  font-size: 12.5px;
+  color: var(--fg-secondary);
+}
+
+.page .signIn {
+  color: var(--fg-primary);
+}
+
+/* ---- Hero ---- */
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 48px;
+  padding: 56px 0 72px;
+}
+
+.heroCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  flex: 0 1 500px;
+}
+
+.eyebrow {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--exo-amber-text);
+}
+
+.heroCopy .eyebrow {
+  color: var(--fg-muted);
+}
+
+.display {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 600;
+  font-size: 54px;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.lede {
+  margin: 0;
+  max-width: 500px;
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--fg-secondary);
+}
+
+.heroActions {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.heroCtas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  /* The board's 30 px chip measures 32 with its border (drawn content-box). */
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 15px;
+  border: 1px solid rgba(var(--ink-rgb), 0.12);
+  font-size: 12.5px;
+  color: var(--fg-body);
+}
+
+/* ---- Proof strip ---- */
+
+.proof {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--exo-rule);
+  border-bottom: 1px solid var(--exo-rule);
+}
+
+.proofCell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px 0 22px 22px;
+  border-left: 1px solid rgba(var(--ink-rgb), 0.08);
+}
+
+.proofValue {
+  font-family: var(--font-mono-exo);
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.proofCaption {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--fg-secondary);
+}
+
+/* ---- Sections ---- */
+
+.section {
+  padding: 88px 0;
+  border-bottom: 1px solid var(--exo-rule);
+}
+
+.h2 {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 34px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.body {
+  margin: 0;
+  max-width: 300px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-secondary);
+}
+
+/* 01 · How it stays true */
+
+.pillars {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+
+.pillars .h2 {
+  max-width: 760px;
+}
+
+.pillarGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 36px;
+}
+
+.pillar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pillarTitle {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.pillarTitle h3 {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.pillarNumber {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--exo-amber-text);
+}
+
+/* 02 · See it */
+
+.viewer {
+  display: flex;
+  gap: 48px;
+  align-items: center;
+}
+
+.viewerCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 300px;
+  flex: none;
+}
+
+.viewerTitle {
+  max-width: 300px;
+}
+
+.frame {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--exo-border-card);
+  border-radius: 12px;
+  background: var(--bg-section);
+  overflow: hidden;
+}
+
+/* 03 · Two ways in */
+
+.doorsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.doorsTitle {
+  max-width: 960px;
+}
+
+.doors {
+  display: flex;
+  gap: 20px;
+}
+
+.door {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px 30px;
+  border: 1px solid var(--exo-border-card);
+  border-radius: 14px;
+  background: var(--bg-section);
+}
+
+.cloudDoor {
+  border-color: rgba(var(--amber-rgb), 0.35);
+}
+
+.doorHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.doorHead h3 {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+
+.tag {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--r-tag);
+  border: 1px solid rgba(var(--ink-rgb), 0.16);
+  color: var(--fg-secondary);
+}
+
+.cloudTag {
+  border-color: var(--exo-amber-line);
+  color: var(--exo-amber-text);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step {
+  display: flex;
+  gap: 14px;
+  font-size: 14.5px;
+  color: var(--fg-body);
+}
+
+.stepNumber {
+  flex: none;
+  width: 14px;
+  font-family: var(--font-mono-exo);
+  color: var(--exo-amber-text);
+}
+
+.doorNote {
+  margin-top: auto;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.tagline {
+  font-family: var(--font-mono-exo);
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.doorText {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-secondary);
+}
+
+.sourceLinks {
+  margin-top: auto;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* 04 · Yours to leave */
+
+.cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 64px;
+  border-bottom: 0;
+}
+
+.cloudCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  flex: 0 1 420px;
+}
+
+.cloudTitle {
+  max-width: 420px;
+}
+
+.cloudLede {
+  margin: 0;
+  max-width: 420px;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--fg-secondary);
+}
+
+.cloudCta {
+  display: flex;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.promises {
+  flex: 1 1 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.promise {
+  display: flex;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(var(--ink-rgb), 0.06);
+  font-size: 14px;
+  color: var(--fg-secondary);
+}
+
+.promiseNumber {
+  flex: none;
+  width: 26px;
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+/* For developers */
+
+.developers {
+  padding: 36px 0 56px;
+}
+
+.developersLink {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+}
+
+.developersCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.developersTitle {
+  font-family: var(--font-mono-exo);
+  font-size: 15px;
+}
+
+.developersText {
+  font-size: 14px;
+  color: var(--fg-secondary);
+}
+
+.developersAction {
+  font-family: var(--font-mono-exo);
+  font-size: 13px;
+  padding: 11px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--exo-border-card);
+  color: var(--fg-body);
+  white-space: nowrap;
+}
+
+.developersLink:hover .developersAction {
+  border-color: var(--exo-border-strong);
+}
+
+/* Footer */
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 0 40px;
+  border-top: 1px solid rgba(var(--ink-rgb), 0.08);
+}
+
+.footerLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 13px;
+  color: var(--fg-secondary);
+}
+
+.copyright {
+  font-family: var(--font-mono-exo);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+/* The board's hover for the landing's buttons. */
+.page button:hover,
+.heroCtas a:hover,
+.doorCta a:hover,
+.cloudCta a:hover {
+  filter: brightness(1.06);
+}
+
+/* ---- Between the drawn sizes: the header keeps only what the phone keeps, and rows
+   wrap rather than overflow ---- */
+
+@media (max-width: 900px) and (min-width: 641px) {
+  .byline,
+  .sectionLink {
+    display: none;
+  }
+
+  .hero,
+  .viewer {
+    flex-wrap: wrap;
+  }
+
+  .frame {
+    flex-basis: 100%;
+  }
+
+  .proof {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .doors {
+    flex-direction: column;
+  }
+}
+
+/* ---- Phone (R20-Mobile, 390 px) ---- */
+
+@media (max-width: 640px) {
+  .main {
+    max-width: 430px;
+    padding: 0;
+  }
+
+  .header {
+    height: 60px;
+    padding: 0 16px;
+  }
+
+  .nav {
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  .signIn {
+    padding: 12px 8px;
+  }
+
+  .hero {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 36px;
+    padding: 28px 16px 40px;
+  }
+
+  .heroCopy {
+    flex: none;
+    gap: 20px;
+  }
+
+  .display {
+    font-size: 36px;
+    line-height: 1.1;
+  }
+
+  .lede {
+    max-width: none;
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  /* The call to action and the chips join the hero's column. */
+  .heroActions {
+    display: contents;
+  }
+
+  .heroCtas {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .runLink {
+    padding: 12px 0;
+    text-align: center;
+    font-family: var(--font-mono-exo);
+    font-size: 13px;
+    color: var(--fg-secondary);
+  }
+
+  .chip {
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 17px;
+    font-size: 14px;
+  }
+
+  .proof {
+    grid-template-columns: 1fr 1fr;
+    column-gap: 20px;
+    padding: 20px 16px;
+    border-top-color: rgba(var(--ink-rgb), 0.08);
+    border-bottom: 0;
+  }
+
+  .proofCell {
+    gap: 4px;
+    padding: 16px 0;
+    border-left: 0;
+  }
+
+  .proofValue {
+    font-size: 24px;
+  }
+
+  .proofCaption {
+    line-height: 1.4;
+  }
+
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 44px 16px;
+    border-top: 1px solid rgba(var(--ink-rgb), 0.08);
+    border-bottom: 0;
+  }
+
+  .h2 {
+    font-size: 26px;
+    line-height: 1.22;
+  }
+
+  .body {
+    max-width: none;
+    line-height: 1.6;
+  }
+
+  .pillarGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding-top: 6px;
+  }
+
+  .pillar {
+    gap: 10px;
+    padding-bottom: 8px;
+  }
+
+  .pillarTitle {
+    gap: 10px;
+  }
+
+  .pillarTitle h3 {
+    font-size: 19px;
+    letter-spacing: normal;
+  }
+
+  .viewer {
+    align-items: stretch;
+  }
+
+  .viewerCopy {
+    display: contents;
+  }
+
+  .viewerTitle {
+    max-width: none;
+  }
+
+  .doors {
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .door {
+    gap: 12px;
+    padding: 20px;
+  }
+
+  .cloudDoor {
+    gap: 14px;
+  }
+
+  .doorHead h3 {
+    font-size: 18px;
+    letter-spacing: normal;
+  }
+
+  /* The steps join the card's column. */
+  .steps {
+    display: contents;
+  }
+
+  .step {
+    gap: 12px;
+    font-size: 15px;
+  }
+
+  .stepNumber {
+    width: 12px;
+  }
+
+  .doorNote {
+    margin-top: 0;
+    font-size: 11.5px;
+    text-align: center;
+  }
+
+  .tagline {
+    font-size: 13px;
+    letter-spacing: normal;
+  }
+
+  .sourceLinks {
+    margin-top: 0;
+  }
+
+  /* The promises come before the call to action on a phone. */
+  .cloudCopy {
+    display: contents;
+  }
+
+  .cloudCta {
+    order: 1;
+    padding-top: 0;
+  }
+
+  .promises {
+    flex: none;
+  }
+
+  .promise {
+    gap: 12px;
+    padding: 12px 0;
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+
+  .promiseNumber {
+    width: 20px;
+    padding-top: 3px;
+  }
+
+  .developers {
+    padding: 28px 16px;
+    border-top: 1px solid rgba(var(--ink-rgb), 0.08);
+  }
+
+  .developersLink {
+    gap: 12px;
+  }
+
+  .developersCopy {
+    gap: 4px;
+  }
+
+  .developersTitle {
+    font-size: 14px;
+  }
+
+  .developersText {
+    font-size: 13px;
+  }
+
+  .developersAction {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    font-size: 18px;
+    color: var(--fg-secondary);
+  }
+
+  .footer {
+    padding: 24px 16px 40px;
+  }
+
+  /* Each link is a 40 px line, so wrapped rows never share a tap area (the board's
+     6 px row gap would let a tap under one link open the link below; design.md (y)). */
+  .footerLinks {
+    row-gap: 0;
+  }
+
+  .footerLinks a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+  }
+}

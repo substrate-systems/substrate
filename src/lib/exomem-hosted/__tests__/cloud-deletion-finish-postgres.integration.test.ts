@@ -16,6 +16,7 @@ import {
   type CloudDeletionFinishOutcome,
 } from "../cloud-deletion-finish";
 import { reconcileCloudCellDesiredState, runBoundedCloudReconcile } from "../cloud-lifecycle";
+import { clearSettledEmailRecipients, drainExomemEmailOutbox } from "../email-outbox";
 import {
   __setExomemSqlForTests,
   __setExomemTransactionForTests,
@@ -29,6 +30,9 @@ import type { PaddleTransport } from "../paddle-billing";
 import type { ExomemPaddleConfig } from "../paddle-config";
 import { generateExternalToken, tokenDigest } from "../security";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
+
+// The lifecycle emails this suite's facts enqueue carry an encrypted payload.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
 
 // Task 3.10: the Cloud deletion finish (design D4 "Cloud deletion finish")
 // against real PostgreSQL, from the owner's confirmation to a `deleted`
@@ -47,6 +51,7 @@ const CONFIG: ExomemPaddleConfig = {
   productKey: "exomem-hosted",
   productId: null,
   priceId: null,
+  friendDiscountId: null,
   checkoutUrl: null,
   apiKey: "fake-test-key",
   webhookSecret: null,
@@ -209,8 +214,13 @@ async function admitCloudTenant(input: {
     sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
     codeDigest,
     codeExpiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    timeZone: "Europe/Paris",
   });
   assert.ok(admission, "sanity: the Cloud OAuth admission succeeds");
+  const recorded = await pool!.query("SELECT time_zone FROM exomem_tenants WHERE id = $1", [
+    admission!.tenantId,
+  ]);
+  assert.equal(recorded.rows[0]!.time_zone, "Europe/Paris", "sanity: the time zone is recorded");
   const issued = await issueOAuthTokensFromCodeAtomic({
     codeDigest,
     clientId,
@@ -233,7 +243,7 @@ async function admitCloudTenant(input: {
     await pool!.query("UPDATE exomem_cloud_cells SET desired_state = 'stopped' WHERE cell_id = $1", [
       admission!.cellId,
     ]);
-    await pool!.query("UPDATE exomem_invites SET entitlement_source = 'paddle' WHERE token_digest = $1", [
+    await pool!.query("UPDATE exomem_invites SET entitlement_source = 'paddle', kind = 'standard' WHERE token_digest = $1", [
       inviteDigest,
     ]);
   }
@@ -547,10 +557,14 @@ async function tenantFootprint(tenantId: string): Promise<Record<string, number>
   );
 }
 
-/** D4's receipt, exactly: nothing else may remain for the tenant. */
+/**
+ * D4's receipt, exactly: nothing else may remain for the tenant, except email
+ * 07's row, which keeps its address only until 30 days after it settles.
+ */
 function d4Receipt(input: { cells?: number; refreshTokens?: number } = {}): Record<string, number> {
   return {
     exomem_cloud_cells: input.cells ?? 1,
+    exomem_email_outbox: 1,
     exomem_entitlements: 1,
     exomem_oauth_access_tokens: 1,
     exomem_oauth_grants: 1,
@@ -567,13 +581,14 @@ async function assertFinishedReceipt(
   assert.deepEqual(await tenantFootprint(tenant.tenantId), d4Receipt(expected));
 
   const tenantRow = await pool!.query(
-    "SELECT status, desired_state, deleted_at, bound_cell_id FROM exomem_tenants WHERE id = $1",
+    "SELECT status, desired_state, deleted_at, bound_cell_id, time_zone FROM exomem_tenants WHERE id = $1",
     [tenant.tenantId]
   );
   assert.equal(tenantRow.rows[0]!.status, "deleted");
   assert.equal(tenantRow.rows[0]!.desired_state, "deleted");
   assert.notEqual(tenantRow.rows[0]!.deleted_at, null);
   assert.equal(tenantRow.rows[0]!.bound_cell_id, null);
+  assert.equal(tenantRow.rows[0]!.time_zone, null);
 
   const entitlement = await pool!.query(
     `SELECT source_state, effective_state, capabilities, provider_environment,
@@ -723,7 +738,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     assert.deepEqual(ledger.rows, [{ tenant_id: null }]);
   });
 
-  it("L2: purges an unconsumed invite and an unadmitted waitlist entry for the owner's email", async () => {
+  it("L2: purges an unconsumed invite, an unadmitted waitlist entry and the emails for the owner's email", async () => {
     await resetFleet();
     const tenant = await admitCloudTenant({ source: "complimentary" });
     // A second, never-redeemed operator invite to the same email, plus a
@@ -738,29 +753,161 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     await pool!.query("INSERT INTO exomem_waitlist_entries (email_normalized) VALUES ($1)", [
       tenant.email,
     ]);
-    const before = await pool!.query<{ invites: number; waitlist: number }>(
+    // An email already sent to the owner still holds their address.
+    await pool!.query(
+      `INSERT INTO exomem_email_outbox (kind, dedupe_key, recipient, state, sent_at)
+       VALUES ('waitlist', $2, $1, 'sent', now())`,
+      [tenant.email, `waitlist:${randomUUID()}`]
+    );
+    const before = await pool!.query<{ invites: number; waitlist: number; emails: number }>(
       `SELECT
          (SELECT count(*)::int FROM exomem_invites
            WHERE email_normalized = $1 AND consumed_at IS NULL) AS invites,
          (SELECT count(*)::int FROM exomem_waitlist_entries
-           WHERE email_normalized = $1 AND admitted_at IS NULL) AS waitlist`,
+           WHERE email_normalized = $1 AND admitted_at IS NULL) AS waitlist,
+         (SELECT count(*)::int FROM exomem_email_outbox WHERE recipient = $1) AS emails`,
       [tenant.email]
     );
-    assert.deepEqual(before.rows[0], { invites: 1, waitlist: 1 }, "sanity: both rows exist first");
+    assert.deepEqual(
+      before.rows[0],
+      { invites: 1, waitlist: 1, emails: 1 },
+      "sanity: the rows exist first"
+    );
 
     await confirmCloudDeletion(tenant, (tenantId) =>
       finishCloudAccountDeletion(tenantId, withPaddle(fakePaddle()))
     );
     assert.equal(await tenantStatus(tenant.tenantId), "deleted");
 
-    const after = await pool!.query<{ invites: number; waitlist: number }>(
+    // Only email 07, which tells the owner the deletion is done, still holds the address.
+    const after = await pool!.query<{
+      invites: number;
+      waitlist: number;
+      emails: number;
+      deletedNotice: number;
+    }>(
       `SELECT
          (SELECT count(*)::int FROM exomem_invites WHERE email_normalized = $1) AS invites,
-         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist`,
+         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist,
+         (SELECT count(*)::int FROM exomem_email_outbox
+           WHERE recipient = $1 AND kind <> 'deleted') AS emails,
+         (SELECT count(*)::int FROM exomem_email_outbox
+           WHERE recipient = $1 AND kind = 'deleted' AND state = 'pending') AS "deletedNotice"`,
       [tenant.email]
     );
-    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0 });
+    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0, emails: 0, deletedNotice: 1 });
     await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
+
+    // Email 07 still reaches the owner after the scrub, once cellctl has
+    // deleted the cell, and its row keeps the address only until 30 days
+    // after it was sent.
+    const sent: Array<{ to: string; subject: string }> = [];
+    const drainOnce = () =>
+      drainExomemEmailOutbox(
+        {},
+        {
+          sendEmail: async (input) => {
+            sent.push(input);
+            return { success: true };
+          },
+        }
+      );
+    await drainOnce();
+    assert.deepEqual(
+      sent.filter((email) => email.to === tenant.email),
+      [],
+      "nothing goes out before cellctl has deleted the cell"
+    );
+    await pool!.query(
+      `UPDATE exomem_cloud_cells
+       SET observed_state = 'deleted', observed_generation = generation, observed_at = now()
+       WHERE tenant_id = $1`,
+      [tenant.tenantId]
+    );
+    await pool!.query(
+      "UPDATE exomem_email_outbox SET not_before = now() WHERE tenant_id = $1 AND state = 'pending'",
+      [tenant.tenantId]
+    );
+    await drainOnce();
+    assert.deepEqual(
+      sent.filter((email) => email.to === tenant.email).map((email) => email.subject),
+      ["Your Exomem has been deleted"]
+    );
+    const ownRow = `deleted:${tenant.tenantId}:%`;
+    await pool!.query(
+      "UPDATE exomem_email_outbox SET updated_at = now() - interval '31 days' WHERE dedupe_key LIKE $1",
+      [ownRow]
+    );
+    await clearSettledEmailRecipients();
+    const kept = await pool!.query(
+      "SELECT recipient, recipient_time_zone, payload_ciphertext FROM exomem_email_outbox WHERE dedupe_key LIKE $1",
+      [ownRow]
+    );
+    assert.deepEqual(kept.rows, [
+      { recipient: null, recipient_time_zone: null, payload_ciphertext: null },
+    ]);
+  });
+
+  it("removes the account's emails queued to the owner's earlier address", async () => {
+    await resetFleet();
+    const tenant = await admitCloudTenant({ source: "complimentary" });
+    // Email 03 is queued to the owner's address, then the owner moves to a new one.
+    await pool!.query(
+      "UPDATE exomem_cloud_cells SET observed_state = 'running', ready = true WHERE cell_id = $1",
+      [tenant.cellId]
+    );
+    await pool!.query("UPDATE exomem_tenants SET status = 'active' WHERE id = $1", [
+      tenant.tenantId,
+    ]);
+    const { enqueueReadyEmails } = await import("../lifecycle-emails");
+    assert.deepEqual(await enqueueReadyEmails(), { enqueued: 1 }, "sanity: email 03 is queued");
+    const newAddress = `moved-${randomUUID()}@example.test`;
+    await pool!.query("UPDATE users SET email = $1 WHERE id = $2", [newAddress, tenant.userId]);
+
+    await confirmCloudDeletion(tenant, (tenantId) =>
+      finishCloudAccountDeletion(tenantId, withPaddle(fakePaddle()))
+    );
+
+    assert.equal(await tenantStatus(tenant.tenantId), "deleted");
+    const { rows } = await pool!.query<{ kind: string; recipient: string }>(
+      `SELECT kind, recipient::text FROM exomem_email_outbox
+       WHERE tenant_id = $1 OR recipient = $2`,
+      [tenant.tenantId, tenant.email]
+    );
+    assert.deepEqual(rows, [{ kind: "deleted", recipient: newAddress }]);
+  });
+
+  it("removes a deleted owner's name, address and note from the friend invitations they asked for", async () => {
+    await resetFleet();
+    const tenant = await admitCloudTenant({ source: "complimentary" });
+    // The owner asked for a friend invitation to somebody else, which is
+    // still outstanding and would tell them when it is used or ends.
+    const { rows } = await pool!.query<{ id: string }>(
+      `INSERT INTO exomem_invites (
+         token_digest, email_normalized, entitlement_source, entitlement_capabilities,
+         entitlement_limits, created_by_principal_digest, expires_at,
+         kind, inviter_name, inviter_email, invitee_name, note
+       ) VALUES ($1, $2, 'paddle', '["capture"]'::jsonb, '{}'::jsonb, $3, now() + interval '7 days',
+                 'friend', 'Alex Example', $4, 'Sam Example', 'Have a look.')
+       RETURNING id`,
+      [randomBytes(32), `invitee-${randomUUID()}@example.test`, randomBytes(32), tenant.email]
+    );
+
+    await confirmCloudDeletion(tenant, (tenantId) =>
+      finishCloudAccountDeletion(tenantId, withPaddle(fakePaddle()))
+    );
+    assert.equal(await tenantStatus(tenant.tenantId), "deleted");
+
+    const invitation = await pool!.query(
+      "SELECT inviter_name, inviter_email, note, invitee_name FROM exomem_invites WHERE id = $1",
+      [rows[0]!.id]
+    );
+    assert.deepEqual(invitation.rows[0], {
+      inviter_name: null,
+      inviter_email: null,
+      note: null,
+      invitee_name: "Sam Example",
+    });
   });
 
   async function insertUnconsumedInvite(email: string): Promise<string> {
@@ -794,13 +941,23 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       "finished"
     );
     assert.equal(await tenantStatus(tenant.tenantId), "deleted");
-    const after = await pool!.query<{ invites: number; waitlist: number }>(
+    // Only email 07, which tells the owner the deletion is done, still holds the address.
+    const after = await pool!.query<{
+      invites: number;
+      waitlist: number;
+      emails: number;
+      deletedNotice: number;
+    }>(
       `SELECT
          (SELECT count(*)::int FROM exomem_invites WHERE email_normalized = $1) AS invites,
-         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist`,
+         (SELECT count(*)::int FROM exomem_waitlist_entries WHERE email_normalized = $1) AS waitlist,
+         (SELECT count(*)::int FROM exomem_email_outbox
+           WHERE recipient = $1 AND kind <> 'deleted') AS emails,
+         (SELECT count(*)::int FROM exomem_email_outbox
+           WHERE recipient = $1 AND kind = 'deleted' AND state = 'pending') AS "deletedNotice"`,
       [tenant.email]
     );
-    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0 });
+    assert.deepEqual(after.rows[0], { invites: 0, waitlist: 0, emails: 0, deletedNotice: 1 });
     await assertFinishedReceipt(tenant, { sourceState: "complimentary_active" });
   });
 
@@ -878,7 +1035,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
       [tenant.tenantId, transactionRef]
     );
     await pool!.query(
-      "UPDATE exomem_tenants SET created_at = now() - interval '8 days' WHERE id = $1",
+      "UPDATE exomem_cloud_cells SET created_at = now() - interval '8 days' WHERE tenant_id = $1 AND desired_state = 'stopped'",
       [tenant.tenantId]
     );
     const expired = await expireCloudAwaitingCheckoutTenants({
@@ -950,7 +1107,7 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     await resetFleet();
     const tenant = await admitCloudTenant({ source: "paddle" });
     const subscription = await activateSubscription(tenant);
-    const fake = fakePaddle();
+    const fake = fakePaddle(tenant);
     const webhookEvent = paddleId("evt");
     const outcomes: CloudDeletionFinishOutcome[] = [];
     await confirmCloudDeletion(tenant, async (tenantId) => {
@@ -976,13 +1133,111 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     assert.ok(((await tenantFootprint(tenant.tenantId)).exomem_sessions ?? 0) > 0, "no scrub ran");
 
     // The next sweep reads the cancelled subscription as terminated billing
-    // without calling Paddle again, and finishes.
+    // without cancelling it again; it only asks about the bound transaction.
     const sweep = await runBoundedCloudDeletionFinish({
       finishTenant: (tenantId) => finishCloudAccountDeletion(tenantId, withPaddle(fake)),
     });
     assert.deepEqual(sweep, { finished: 1, pending: 0, failed: 0 });
-    assert.equal(fake.calls.length, 1);
+    assert.deepEqual(
+      fake.calls.filter((call) => call.startsWith("POST")),
+      [`POST /subscriptions/${subscription.subscriptionRef}/cancel`]
+    );
     await assertFinishedReceipt(tenant, { sourceState: "deletion_cancelled" });
+  });
+
+  it("cancels an ended owner's open resubscribe checkout, or the subscription it already paid for, before it finishes deletion", async () => {
+    await resetFleet();
+    const open = await admitCloudTenant({ source: "paddle" });
+    const paid = await admitCloudTenant({ source: "paddle" });
+    const transactions = new Map<string, { owner: AdmittedTenant; status: string; sub?: string }>();
+    for (const tenant of [open, paid]) {
+      await activateSubscription(tenant);
+      // The subscription ended, and the owner opened a resubscribe checkout.
+      const transactionRef = paddleId("txn");
+      await pool!.query(
+        `UPDATE exomem_entitlements
+         SET source_state = 'cancelled', effective_state = 'cancelled',
+             source_occurred_at = now() - interval '2 days', provider_transaction_ref = $2
+         WHERE tenant_id = $1`,
+        [tenant.tenantId, transactionRef]
+      );
+      transactions.set(transactionRef, { owner: tenant, status: "draft" });
+    }
+    // The second owner paid it before confirming deletion; no event arrived.
+    const paidSubscription = paddleId("sub");
+    const paidTransaction = [...transactions].find(([, value]) => value.owner === paid)![0];
+    Object.assign(transactions.get(paidTransaction)!, { status: "completed", sub: paidSubscription });
+
+    const calls: string[] = [];
+    const fake: FakePaddle = {
+      calls,
+      mode: "ok",
+      transport: async (path, init) => {
+        calls.push(`${init?.method ?? "GET"} ${path}`);
+        const cancel = /^\/subscriptions\/(sub_[a-z0-9]{26})\/cancel$/.exec(path);
+        if (cancel) return Response.json({ data: { id: cancel[1], status: "canceled" } });
+        const id = /^\/transactions\/(txn_[a-z0-9]{26})$/.exec(path)?.[1];
+        const transaction = id ? transactions.get(id) : undefined;
+        if (!id || !transaction) return new Response(null, { status: 404 });
+        if (init?.method === "PATCH") transaction.status = "canceled";
+        return Response.json({
+          data: {
+            id,
+            status: transaction.status,
+            subscription_id: transaction.sub ?? null,
+            custom_data: {
+              product_key: CONFIG.productKey,
+              user_id: transaction.owner.userId,
+              tenant_id: transaction.owner.tenantId,
+            },
+          },
+        });
+      },
+    };
+
+    for (const tenant of [open, paid]) {
+      await confirmCloudDeletion(tenant, (tenantId) =>
+        finishCloudAccountDeletion(tenantId, withPaddle(fake))
+      );
+      assert.equal(await tenantStatus(tenant.tenantId), "deleted");
+    }
+    const openTransaction = [...transactions].find(([, value]) => value.owner === open)![0];
+    assert.ok(calls.includes(`PATCH /transactions/${openTransaction}`));
+    assert.equal(transactions.get(openTransaction)!.status, "canceled");
+    assert.ok(calls.includes(`POST /subscriptions/${paidSubscription}/cancel`));
+  });
+
+  it("keeps the deletion pending while Paddle reports a bound resubscribe checkout without its owner fields", async () => {
+    await resetFleet();
+    const tenant = await admitCloudTenant({ source: "paddle" });
+    await activateSubscription(tenant);
+    const transactionRef = paddleId("txn");
+    await pool!.query(
+      `UPDATE exomem_entitlements
+       SET source_state = 'cancelled', effective_state = 'cancelled',
+           source_occurred_at = now() - interval '2 days', provider_transaction_ref = $2
+       WHERE tenant_id = $1`,
+      [tenant.tenantId, transactionRef]
+    );
+    const calls: string[] = [];
+    const fake: FakePaddle = {
+      calls,
+      mode: "ok",
+      // The open checkout, as Paddle reports it, without the correlation fields.
+      transport: async (path, init) => {
+        calls.push(`${init?.method ?? "GET"} ${path}`);
+        return Response.json({ data: { id: transactionRef, status: "draft", custom_data: null } });
+      },
+    };
+
+    const outcomes: CloudDeletionFinishOutcome[] = [];
+    await confirmCloudDeletion(tenant, async (tenantId) => {
+      outcomes.push(await finishCloudAccountDeletion(tenantId, withPaddle(fake)));
+    });
+
+    assert.deepEqual(outcomes, ["billing_pending"]);
+    assert.equal(await tenantStatus(tenant.tenantId), "deletion_pending");
+    assert.deepEqual(calls, [`GET /transactions/${transactionRef}`]);
   });
 
   it("isolates one tenant's failure in the sweep and logs it content-free", async () => {

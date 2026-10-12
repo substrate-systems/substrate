@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
@@ -8,12 +8,17 @@ import {
   retryPendingCloudCancellationNotices,
   sendCloudCancellationNoticeOnce,
 } from "../cloud-cancellation-notice";
-import { __setExomemSqlForTests, type ExomemSql } from "../db";
+import { __setExomemSqlForTests, __setExomemTransactionForTests, type ExomemSql } from "../db";
+import { drainExomemEmailOutbox } from "../email-outbox";
 import { ensureExomemPostgresTestExtensions } from "./postgres-test-extensions";
 
-// Item 5 / task 3.7: the cancellation notice's claim-then-send is idempotent
-// under redelivery -- exactly one send per Cloud tenant -- against real
-// PostgreSQL's own column-level dedupe (migration 0057).
+// The lifecycle emails this suite's facts enqueue carry an encrypted payload.
+process.env.EXOMEM_CONTROL_PLANE_KEY ??= randomBytes(32).toString("base64url");
+
+// Item 5 / task 3.7: the cancellation notice's claim is idempotent under
+// redelivery -- one claim per ended period, against real PostgreSQL's own
+// column-level dedupe (migration 0057) -- and the claim's transaction queues
+// email 05, and email 06 for a week before deletion, in the email outbox.
 
 const databaseUrl = process.env.EXOMEM_TEST_DATABASE_URL;
 let pool: Pool | undefined;
@@ -30,7 +35,33 @@ function taggedSql(client: Pool | PoolClient): ExomemSql {
   };
 }
 
+async function interactiveTransaction<T>(callback: (tx: ExomemSql) => Promise<T>): Promise<T> {
+  const client = await pool!.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await callback(taggedSql(client));
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+type QueuedEmail = { kind: string; state: string; notBefore: Date };
+
+async function queuedFor(email: string): Promise<QueuedEmail[]> {
+  const { rows } = await pool!.query<{ kind: string; state: string; not_before: Date }>(
+    "SELECT kind, state, not_before FROM exomem_email_outbox WHERE recipient = $1 ORDER BY not_before",
+    [email]
+  );
+  return rows.map((row) => ({ kind: row.kind, state: row.state, notBefore: row.not_before }));
+}
+
 async function resetFleet(): Promise<void> {
+  await pool!.query("DELETE FROM exomem_email_outbox");
   await pool!.query("DELETE FROM exomem_entitlements");
   await pool!.query("DELETE FROM exomem_cloud_cells");
   await pool!.query("DELETE FROM exomem_tenants");
@@ -84,10 +115,12 @@ describe("Exomem Cloud cancellation notice PostgreSQL integration", { skip: !dat
     await admin.end();
     pool = new Pool({ connectionString: scoped.toString() });
     __setExomemSqlForTests(taggedSql(pool));
+    __setExomemTransactionForTests(interactiveTransaction);
   });
 
   after(async () => {
     __setExomemSqlForTests(null);
+    __setExomemTransactionForTests(null);
     if (pool) await pool.end();
     if (schema) {
       const admin = new Pool({ connectionString: databaseUrl });
@@ -100,97 +133,99 @@ describe("Exomem Cloud cancellation notice PostgreSQL integration", { skip: !dat
     await resetFleet();
   });
 
-  const SOURCE_OCCURRED_AT = new Date("2026-08-01T00:00:00.000Z");
+  const DAY = 24 * 60 * 60 * 1000;
 
-  it("sends exactly once under redelivery: the same tenant, called twice, sends only the first time", async () => {
+  it("queues the ended email once under redelivery: the same tenant, called twice, queues only the first time", async () => {
     const { tenantId, email } = await seedTenant();
-    const sent: Array<{ to: string; subject: string }> = [];
-    const dependencies = {
-      sendEmail: async (input: { to: string; subject: string }) => {
-        sent.push(input);
-        return { success: true };
-      },
-    };
 
-    const first = await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, dependencies);
-    const second = await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, dependencies);
+    const first = await sendCloudCancellationNoticeOnce(tenantId, RECENT_CANCELLATION);
+    const second = await sendCloudCancellationNoticeOnce(tenantId, RECENT_CANCELLATION);
 
     assert.equal(first, true);
     assert.equal(second, false);
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0]!.to, email);
-    assert.match(sent[0]!.subject, /cancelled/i);
+    const queued = await queuedFor(email);
+    assert.deepEqual(
+      queued.map((row) => [row.kind, row.state]),
+      [
+        ["subscription_ended", "pending"],
+        ["deletion_reminder", "pending"],
+      ]
+    );
+    // 30 days kept from the cancellation, reminded 7 days before the end.
+    assert.equal(
+      queued[1]!.notBefore.getTime(),
+      RECENT_CANCELLATION.getTime() + 23 * DAY
+    );
   });
 
   // Security review finding 9c: the deletion date in the email is computed
-  // from the entitlement's own cancellation timestamp (sourceOccurredAt),
-  // not from whenever the send happens to run -- matching
-  // desiredCloudCellState's own 30-day export-window arithmetic exactly.
-  it("computes the deletion date from sourceOccurredAt, not from send time", async () => {
-    const { tenantId } = await seedTenant();
-    let htmlContent = "";
-    await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, {
-      sendEmail: async (input) => {
-        htmlContent = input.htmlContent;
-        return { success: true };
-      },
+  // from the entitlement's own cancellation timestamp, not from whenever the
+  // send happens to run -- matching desiredCloudCellState's own 30-day
+  // export-window arithmetic exactly.
+  it("dates the deletion from the cancellation, not from the send", async () => {
+    const cancelledAt = new Date("2026-10-01T12:00:00.000Z");
+    const { tenantId } = await seedTenant({ sourceOccurredAt: cancelledAt });
+    await sendCloudCancellationNoticeOnce(tenantId, cancelledAt, {
+      now: () => new Date("2026-10-02T12:00:00.000Z"),
     });
-    // 2026-08-01 + 30 days = 2026-08-31.
-    assert.match(htmlContent, /Aug(?:ust)? 31,? 2026|2026-08-31|31 Aug(?:ust)? 2026/);
+    const sent: string[] = [];
+    const drained = await drainExomemEmailOutbox(
+      {},
+      {
+        sendEmail: async (input) => {
+          sent.push(input.textContent);
+          return { success: true };
+        },
+      }
+    );
+    assert.equal(drained.sent, 1);
+    // 2026-10-01 + 30 days = 31 October, in UTC because no zone is stored.
+    assert.match(sent[0]!, /It’s read-only until 31 October \(UTC\)\./);
   });
 
-  // Security review finding 9a: a failed send must not leave the claim
-  // permanently set -- nothing would ever be retried, and the tenant loses
-  // its one notice forever.
-  it("un-claims when the send fails, so a later call can try again", async () => {
-    const { tenantId, cellId } = await seedTenant();
-    let attempts = 0;
-    const first = await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, {
-      sendEmail: async () => {
-        attempts += 1;
-        return { success: false };
-      },
-    });
-    assert.equal(first, false);
-    const { rows: afterFailure } = await pool!.query(
-      "SELECT cancellation_notice_sent_at FROM exomem_cloud_cells WHERE cell_id = $1",
-      [cellId]
+  it("queues no week-before reminder when less than a week is left", async () => {
+    const lateCancellation = new Date(Date.now() - 25 * DAY);
+    const { tenantId, email } = await seedTenant({ sourceOccurredAt: lateCancellation });
+    assert.equal(await sendCloudCancellationNoticeOnce(tenantId, lateCancellation), true);
+    assert.deepEqual(
+      (await queuedFor(email)).map((row) => row.kind),
+      ["subscription_ended"]
     );
-    assert.equal(afterFailure[0]!.cancellation_notice_sent_at, null);
-
-    const second = await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, {
-      sendEmail: async () => {
-        attempts += 1;
-        return { success: true };
-      },
-    });
-    assert.equal(second, true);
-    assert.equal(attempts, 2);
-    const { rows: afterSuccess } = await pool!.query(
-      "SELECT cancellation_notice_sent_at FROM exomem_cloud_cells WHERE cell_id = $1",
-      [cellId]
-    );
-    assert.ok(afterSuccess[0]!.cancellation_notice_sent_at);
   });
 
-  // Cloud design D4: a failed or thrown send releases its claim.
-  it("un-claims when the send throws, rather than leaving the notice claimed forever", async () => {
-    const { tenantId, cellId } = await seedTenant();
-    const sent = await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, {
-      sendEmail: async () => {
-        throw new Error("mail provider unreachable");
-      },
-    });
-    assert.equal(sent, false);
-    const { rows } = await pool!.query(
-      "SELECT cancellation_notice_sent_at FROM exomem_cloud_cells WHERE cell_id = $1",
+  it("cancels the queued emails when the owner resubscribes before they go out", async () => {
+    const { tenantId, email, cellId } = await seedTenant();
+    await sendCloudCancellationNoticeOnce(tenantId, RECENT_CANCELLATION);
+    // Resubscribed: the entitlement is active again and the cell runs, which
+    // clears the claim (cloud-lifecycle.ts).
+    await pool!.query("UPDATE exomem_entitlements SET source_state = 'active' WHERE tenant_id = $1", [
+      tenantId,
+    ]);
+    await pool!.query(
+      "UPDATE exomem_cloud_cells SET desired_state = 'running', cancellation_notice_sent_at = NULL WHERE cell_id = $1",
       [cellId]
     );
-    assert.equal(rows[0]!.cancellation_notice_sent_at, null);
+    // The reminder is due later; bring it forward so this drain reaches it too.
+    await pool!.query("UPDATE exomem_email_outbox SET not_before = now() WHERE recipient = $1", [
+      email,
+    ]);
+    const drained = await drainExomemEmailOutbox(
+      {},
+      {
+        sendEmail: async () => {
+          throw new Error("must not be called");
+        },
+      }
+    );
+    assert.equal(drained.cancelled, 2);
+    assert.deepEqual(
+      (await queuedFor(email)).map((row) => row.state),
+      ["cancelled", "cancelled"]
+    );
   });
 
   // Cloud design D4: the periodic sweep retries the notice for any cancelled
-  // read_only row whose claim is null, so one failed send is not the end.
+  // read_only row whose claim is null, so a missed webhook is not the end.
   it("retries the notice for a cancelled read_only cell whose claim is null, and only for those", async () => {
     async function withEntitlement(
       desiredState: "running" | "read_only",
@@ -207,45 +242,30 @@ describe("Exomem Cloud cancellation notice PostgreSQL integration", { skip: !dat
       return seeded;
     }
     const pending = await withEntitlement("read_only", "cancelled");
-    await withEntitlement("read_only", "cancelled", true);
-    await withEntitlement("read_only", "past_due");
-    await withEntitlement("running", "active");
+    const claimed = await withEntitlement("read_only", "cancelled", true);
+    const pastDue = await withEntitlement("read_only", "past_due");
+    const active = await withEntitlement("running", "active");
 
-    const recipients: string[] = [];
-    const result = await retryPendingCloudCancellationNotices({
-      sendEmail: async (input) => {
-        recipients.push(input.to);
-        return { success: true };
-      },
-    });
-    assert.deepEqual(recipients, [pending.email]);
+    const result = await retryPendingCloudCancellationNotices();
     assert.deepEqual(result, { attempted: 1, sent: 1 });
+    assert.equal((await queuedFor(pending.email)).length, 2);
+    for (const other of [claimed, pastDue, active]) {
+      assert.deepEqual(await queuedFor(other.email), []);
+    }
 
-    // Nothing is left to retry, so a second sweep sends nothing.
-    const again = await retryPendingCloudCancellationNotices({
-      sendEmail: async () => {
-        throw new Error("must not be called");
-      },
-    });
-    assert.deepEqual(again, { attempted: 0, sent: 0 });
+    // Nothing is left to retry, so a second sweep queues nothing.
+    assert.deepEqual(await retryPendingCloudCancellationNotices(), { attempted: 0, sent: 0 });
   });
 
   // A retry batch can reach a tenant who resubscribed since it was listed:
   // the claim itself re-checks that the cell is still cancelled read_only,
-  // so no notice is sent and no stale claim is left on a running cell.
+  // so nothing is queued and no stale claim is left on a running cell.
   it("never claims a notice for a cell that is no longer cancelled read_only", async () => {
     const running = await seedTenant({ desiredState: "running", sourceState: "active" });
     const readOnlyActive = await seedTenant({ desiredState: "read_only", sourceState: "past_due" });
     for (const seeded of [running, readOnlyActive]) {
-      let attempted = false;
-      const sent = await sendCloudCancellationNoticeOnce(seeded.tenantId, SOURCE_OCCURRED_AT, {
-        sendEmail: async () => {
-          attempted = true;
-          return { success: true };
-        },
-      });
-      assert.equal(sent, false);
-      assert.equal(attempted, false, "no notice may be sent to a tenant that is not cancelled");
+      assert.equal(await sendCloudCancellationNoticeOnce(seeded.tenantId, RECENT_CANCELLATION), false);
+      assert.deepEqual(await queuedFor(seeded.email), []);
       const { rows } = await pool!.query(
         "SELECT cancellation_notice_sent_at FROM exomem_cloud_cells WHERE cell_id = $1",
         [seeded.cellId]
@@ -255,70 +275,15 @@ describe("Exomem Cloud cancellation notice PostgreSQL integration", { skip: !dat
   });
 
   it("never retries a notice whose export window has already ended", async () => {
-    const lapsed = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
+    const lapsed = new Date(Date.now() - 45 * DAY);
     await seedTenant({ sourceOccurredAt: lapsed });
-    const result = await retryPendingCloudCancellationNotices({
-      sendEmail: async () => {
-        throw new Error("must not be called");
-      },
-    });
-    assert.deepEqual(result, { attempted: 0, sent: 0 });
+    assert.deepEqual(await retryPendingCloudCancellationNotices(), { attempted: 0, sent: 0 });
   });
 
-  it("does not let permanently failing sends starve a newer notice", async () => {
-    const older = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-    const bad1 = await seedTenant({ sourceOccurredAt: older });
-    const bad2 = await seedTenant({ sourceOccurredAt: older });
-    const good = await seedTenant({ sourceOccurredAt: new Date() });
-    const failing = new Set([bad1.email, bad2.email]);
-    let goodSent = false;
-    for (let tick = 0; tick < 20 && !goodSent; tick += 1) {
-      await retryPendingCloudCancellationNotices({
-        limit: 2,
-        sendEmail: async (input) => {
-          if (failing.has(input.to)) return { success: false };
-          goodSent ||= input.to === good.email;
-          return { success: true };
-        },
-      });
-    }
-    assert.ok(goodSent, "the newer notice must eventually be retried");
-  });
-
-  it("marks the claim column so it survives across separate calls, not just in-process state", async () => {
-    const { tenantId, cellId } = await seedTenant();
-    await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, {
-      sendEmail: async () => ({ success: true }),
-    });
-    const { rows } = await pool!.query(
-      "SELECT cancellation_notice_sent_at FROM exomem_cloud_cells WHERE cell_id = $1",
-      [cellId]
-    );
-    assert.ok(rows[0]!.cancellation_notice_sent_at);
-  });
-
-  it("sends nothing for a tenant with no live Cloud cell", async () => {
-    let sendCalls = 0;
-    const result = await sendCloudCancellationNoticeOnce(randomUUID(), SOURCE_OCCURRED_AT, {
-      sendEmail: async () => {
-        sendCalls += 1;
-        return { success: true };
-      },
-    });
-    assert.equal(result, false);
-    assert.equal(sendCalls, 0);
-  });
-
-  it("sends nothing for a tenant whose only Cloud cell is already deleted", async () => {
-    const { tenantId } = await seedTenant({ desiredState: "deleted" });
-    let sendCalls = 0;
-    const result = await sendCloudCancellationNoticeOnce(tenantId, SOURCE_OCCURRED_AT, {
-      sendEmail: async () => {
-        sendCalls += 1;
-        return { success: true };
-      },
-    });
-    assert.equal(result, false);
-    assert.equal(sendCalls, 0);
+  it("queues nothing for a tenant with no live Cloud cell", async () => {
+    assert.equal(await sendCloudCancellationNoticeOnce(randomUUID(), RECENT_CANCELLATION), false);
+    const { tenantId, email } = await seedTenant({ desiredState: "deleted" });
+    assert.equal(await sendCloudCancellationNoticeOnce(tenantId, RECENT_CANCELLATION), false);
+    assert.deepEqual(await queuedFor(email), []);
   });
 });

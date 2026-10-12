@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { connectorSettingsUrl } from "../consent-view";
+import { connectorSettingsUrl, reviewerSignInOffered } from "../consent-view";
 
 // "Connect after all" renders this value as a link on the consent page. A wrong
 // row is a local app sent to a web settings page, or an operator typo turned
@@ -80,4 +80,25 @@ describe("connectorSettingsUrl", () => {
       }
     });
   }
+});
+
+// The reviewer sign-in signs a directory reviewer into the sample account. Offered
+// with the switch off, or on a request for another resource, it would hand that
+// account to whoever finds the link.
+describe("reviewerSignInOffered", () => {
+  it("offers the reviewer sign-in only with reviewer access on, for Exomem Cloud", () => {
+    const cloud = "https://cloud.example.test/mcp/v1";
+    const env = {
+      EXOMEM_CLOUD_MCP_URL: cloud,
+      EXOMEM_CLOUD_MCP_PATH: "/mcp/v1",
+      EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "true",
+    };
+
+    assert.equal(reviewerSignInOffered(cloud, env), true);
+    assert.equal(
+      reviewerSignInOffered(cloud, { ...env, EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED: "false" }),
+      false
+    );
+    assert.equal(reviewerSignInOffered("https://other.example.test/mcp", env), false);
+  });
 });

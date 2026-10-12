@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PrivateShell } from "../private-shell";
+import { marketplaceReviewerAccessEnabled } from "@/lib/exomem-hosted/reviewer-access";
 import SignInClient from "./sign-in-client";
 
 export const dynamic = "force-dynamic";
@@ -12,9 +12,5 @@ export const metadata: Metadata = {
 };
 
 export default function SignInPage() {
-  return (
-    <PrivateShell>
-      <SignInClient />
-    </PrivateShell>
-  );
+  return <SignInClient reviewerEnabled={marketplaceReviewerAccessEnabled()} />;
 }

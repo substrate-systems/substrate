@@ -31,3 +31,9 @@ declare module "react-dom/client" {
     options?: HydrateRootOptions
   ): Root;
 }
+
+declare module "react-dom/server" {
+  import type { ReactNode } from "react";
+
+  export function renderToString(children: ReactNode): string;
+}

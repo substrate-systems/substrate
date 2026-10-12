@@ -18,6 +18,8 @@ classes:
     - "scripts/openspec_validate.ps1"
     - "scripts/verify-exomem-gateway-publication.mjs"
     - "scripts/sync-exomem-instruction-blocks.mjs" # run by hand to refresh the Home instruction blocks
+    - "scripts/check-exomem-benchmarks.mjs" # run weekly by the drift workflow to keep the landing's recall figures in step
+    - "scripts/render-exomem-email-assets.tsx" # run by hand to redraw the email images after a design change
   tooling:
     - ".github/quality.yml"
     - ".github/workflows/test.yml"
@@ -69,6 +71,14 @@ javascript:
       - "src/**/*.test.tsx"
       # Run by hand from the README; nothing else references it.
       - "scripts/generate-jwt-keypair.ts"
+      # Run by hand to redraw the email images; its header says how.
+      - "scripts/render-exomem-email-assets.tsx"
+      # Home's suite has its own Playwright config, which the plugin does not look for;
+      # its webServer command starts serve.ts.
+      - "e2e/exomem-home/playwright.config.ts"
+      - "e2e/exomem-home/serve.ts"
+      # The root config names the journey's warm-up only when the journey database is set.
+      - "e2e/exomem-journey/warm-up.ts"
     # Design references (boards, prototypes, locked CSS); never built or imported.
     ignore: ["docs/**"]
 

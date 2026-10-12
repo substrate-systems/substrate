@@ -60,15 +60,9 @@ const ConfigureMemoryAnswer = z.object({
  * set, from src/exomem/privacy_log.py: the activity ledger labels each client
  * name with `client_family`, the same labels that `log_client_label` writes
  * under content-private logging, and none when the name is empty. Home
- * imports it to label events.
+ * imports its type, `ActivityClientFamily`, to label events.
  */
-const ACTIVITY_CLIENT_FAMILIES = [
-  "claude-ai",
-  "chatgpt",
-  "codex",
-  "claude-code",
-  "other",
-] as const;
+const ACTIVITY_CLIENT_FAMILIES = ["claude-ai", "chatgpt", "codex", "claude-code", "other"] as const;
 export type ActivityClientFamily = (typeof ACTIVITY_CLIENT_FAMILIES)[number];
 
 const Timestamp = z.iso.datetime({ offset: true });
@@ -181,7 +175,7 @@ type CellAnswer =
 type ServingCell = { state: "serving"; desiredState: "running" | "read_only" };
 
 /** Release flag: off until the cell rollout that answers these calls is done. */
-function cloudHomeChannelEnabled(env: EnvironmentSource = process.env): boolean {
+export function cloudHomeChannelEnabled(env: EnvironmentSource = process.env): boolean {
   return env.EXOMEM_CLOUD_HOME_CHANNEL_ENABLED?.trim().toLowerCase() === "true";
 }
 

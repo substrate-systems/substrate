@@ -1,14 +1,34 @@
 "use client";
 
 import { FormEvent, useRef, useState } from "react";
+import {
+  EXOMEM_INVITE_KINDS,
+  INVITATION_NAME_MAX,
+  INVITATION_NOTE_MAX,
+  inviteeNameRequired,
+  inviterEmailAllowed,
+  inviterNameRequired,
+  type ExomemInviteKind,
+} from "@/lib/exomem-hosted/invitation-contract";
 import styles from "../private-shell.module.css";
 import {
-  paidInviteHeadroom,
+  invitationBlocked,
+  invitationRequestBody,
   parseOperatorCapacity,
   requiresComplimentaryConfirmation,
-  type InviteSource,
   type OperatorCapacity,
 } from "./operator-state";
+
+const KIND_LABELS: Record<ExomemInviteKind, string> = {
+  standard: "Paid",
+  friend: "Friend (paid, friend price)",
+  covered: "Covered (complimentary)",
+};
+const KIND_NAMES: Record<ExomemInviteKind, string> = {
+  standard: "paid",
+  friend: "friend",
+  covered: "covered",
+};
 
 type OperatorErrorBody = {
   error?: { code?: unknown };
@@ -55,11 +75,13 @@ function operatorMessage(error: unknown): string {
     case "ADMIN_UNAUTHORIZED":
       return "That admin bearer was not accepted.";
     case "CAPACITY_UNAVAILABLE":
-      return "No paid alpha slots remain.";
+      return "No Cloud places are free.";
     case "INVALID_EMAIL":
       return "Enter a valid email address.";
-    case "EMAIL_DELIVERY_UNAVAILABLE":
-      return "The invitation could not be delivered. Try again.";
+    case "INVITATION_FIELDS_INVALID":
+      return "Check the names and note. Friend and covered invitations need the inviter's name, and the inviter's email needs the invitee's name.";
+    case "FRIEND_PRICE_UNAVAILABLE":
+      return "Paddle could not confirm the friend price. Nothing was sent. Try again later.";
     case "RATE_LIMITED":
       return "Too many requests. Wait a moment and try again.";
     default:
@@ -76,18 +98,19 @@ async function readCapacity(bearer: string): Promise<OperatorCapacity> {
   return capacity;
 }
 
-function gibibytes(bytes: number): string {
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(bytes % 1024 ** 3 === 0 ? 0 : 1)} GiB`;
-}
-
 export default function OperatorClient() {
   const bearerRef = useRef<string | null>(null);
   const [bearer, setBearer] = useState("");
   const [capacity, setCapacity] = useState<OperatorCapacity | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
   const [email, setEmail] = useState("");
-  const [source, setSource] = useState<InviteSource>("paid");
+  const [kind, setKind] = useState<ExomemInviteKind>("standard");
+  const [inviterName, setInviterName] = useState("");
+  const [inviterEmail, setInviterEmail] = useState("");
+  const [inviteeName, setInviteeName] = useState("");
+  const [note, setNote] = useState("");
   const [complimentaryConfirmed, setComplimentaryConfirmed] = useState(false);
+  const inviteeNameNeeded = inviteeNameRequired(kind, inviterEmail.trim() !== "");
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
@@ -114,13 +137,21 @@ export default function OperatorClient() {
     }
   }
 
+  function clearDraft() {
+    setEmail("");
+    setKind("standard");
+    setInviterName("");
+    setInviterEmail("");
+    setInviteeName("");
+    setNote("");
+    setComplimentaryConfirmed(false);
+  }
+
   function lock() {
     bearerRef.current = null;
     setCapacity(null);
     setBearer("");
-    setEmail("");
-    setSource("paid");
-    setComplimentaryConfirmed(false);
+    clearDraft();
     setMessage("");
     setError(false);
   }
@@ -133,7 +164,7 @@ export default function OperatorClient() {
       !capacity ||
       sending ||
       !email.trim() ||
-      requiresComplimentaryConfirmation(source, complimentaryConfirmed)
+      requiresComplimentaryConfirmation(kind, complimentaryConfirmed)
     ) {
       return;
     }
@@ -143,16 +174,17 @@ export default function OperatorClient() {
     try {
       await operatorRequest("/api/exomem/admin/invites", activeBearer, {
         method: "POST",
-        body: JSON.stringify({ email, source }),
+        body: JSON.stringify(
+          invitationRequestBody({ email, kind, inviterName, inviterEmail, inviteeName, note })
+        ),
       });
-      setEmail("");
-      setSource("paid");
-      setComplimentaryConfirmed(false);
-      setMessage(`${source === "paid" ? "Paid" : "Complimentary"} invitation sent.`);
+      const sentKind = kind;
+      clearDraft();
+      setMessage(`The ${KIND_NAMES[sentKind]} invitation is queued.`);
       try {
         setCapacity(await readCapacity(activeBearer));
       } catch {
-        setMessage("Invitation sent. Refresh capacity before sending another.");
+        setMessage("Invitation queued. Refresh capacity before sending another.");
       }
     } catch (requestError) {
       if (requestError instanceof OperatorRequestError && requestError.status === 401) lock();
@@ -206,8 +238,7 @@ export default function OperatorClient() {
     );
   }
 
-  const headroom = paidInviteHeadroom(capacity);
-  const paidBlocked = source === "paid" && headroom === 0;
+  const blocked = invitationBlocked(capacity);
   return (
     <section className={styles.card} aria-labelledby="operator-title">
       <div className={styles.workspaceHeader}>
@@ -222,32 +253,43 @@ export default function OperatorClient() {
         </button>
       </div>
 
-      <div className={styles.capacityGrid} aria-label="Alpha capacity">
+      <div className={styles.capacityGrid} aria-label="Cloud capacity">
         <div className={styles.capacityMetric}>
-          <span className={styles.label}>Paid slots free</span>
-          <strong className={styles.capacityValue}>{headroom}</strong>
-        </div>
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Paid invites out</span>
-          <strong className={styles.capacityValue}>{capacity.outstandingPaidInvites}</strong>
-        </div>
-        <div className={styles.capacityMetric}>
-          <span className={styles.label}>Runtime reserved</span>
+          <span className={styles.label}>Cloud places free</span>
           <strong className={styles.capacityValue}>
-            {capacity.reservedRuntimeSlots}/{capacity.runtimeCapacitySlots}
+            {capacity.freePlaces === null ? "Unknown" : capacity.freePlaces}
           </strong>
         </div>
         <div className={styles.capacityMetric}>
-          <span className={styles.label}>Storage reserved</span>
+          <span className={styles.label}>Invitations out</span>
+          <strong className={styles.capacityValue}>{capacity.outstandingInvitations}</strong>
+        </div>
+        <div className={styles.capacityMetric}>
+          <span className={styles.label}>Cells live</span>
           <strong className={styles.capacityValue}>
-            {gibibytes(capacity.reservedStorageBytes)} / {gibibytes(capacity.storageCapacityBytes)}
+            {capacity.freePlaces === null
+              ? capacity.liveCells
+              : `${capacity.liveCells}/${capacity.observedSlots}`}
+          </strong>
+        </div>
+        <div className={styles.capacityMetric}>
+          <span className={styles.label}>Capacity observed</span>
+          <strong className={styles.capacityValue}>
+            {capacity.newestObservationAt
+              ? new Date(capacity.newestObservationAt).toLocaleString([], {
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "Never"}
           </strong>
         </div>
       </div>
 
       <form className={styles.form} onSubmit={sendInvite}>
         <label className={styles.label} htmlFor="operator-email">
-          Friend&apos;s email
+          Invitee&apos;s email
         </label>
         <input
           className={styles.input}
@@ -259,23 +301,82 @@ export default function OperatorClient() {
           required
         />
 
-        <label className={styles.label} htmlFor="operator-source">
+        <label className={styles.label} htmlFor="operator-kind">
           Access
         </label>
         <select
           className={styles.input}
-          id="operator-source"
-          value={source}
+          id="operator-kind"
+          value={kind}
           onChange={(event) => {
-            setSource(event.target.value as InviteSource);
+            setKind(event.target.value as ExomemInviteKind);
             setComplimentaryConfirmed(false);
           }}
         >
-          <option value="paid">Paid</option>
-          <option value="complimentary">Complimentary</option>
+          {EXOMEM_INVITE_KINDS.map((option) => (
+            <option key={option} value={option}>
+              {KIND_LABELS[option]}
+            </option>
+          ))}
         </select>
 
-        {source === "complimentary" ? (
+        <label className={styles.label} htmlFor="operator-inviter-name">
+          {inviterNameRequired(kind) ? "Inviter's name" : "Inviter's name (optional)"}
+        </label>
+        <input
+          className={styles.input}
+          id="operator-inviter-name"
+          type="text"
+          value={inviterName}
+          maxLength={INVITATION_NAME_MAX}
+          onChange={(event) => setInviterName(event.target.value)}
+          autoComplete="off"
+          required={inviterNameRequired(kind)}
+        />
+
+        {inviterEmailAllowed(kind) ? (
+          <>
+            <label className={styles.label} htmlFor="operator-inviter-email">
+              Inviter&apos;s email (optional, for the used and ended notices)
+            </label>
+            <input
+              className={styles.input}
+              id="operator-inviter-email"
+              type="email"
+              value={inviterEmail}
+              onChange={(event) => setInviterEmail(event.target.value)}
+              autoComplete="off"
+            />
+          </>
+        ) : null}
+
+        <label className={styles.label} htmlFor="operator-invitee-name">
+          {inviteeNameNeeded ? "Invitee's name" : "Invitee's name (optional)"}
+        </label>
+        <input
+          className={styles.input}
+          id="operator-invitee-name"
+          type="text"
+          value={inviteeName}
+          maxLength={INVITATION_NAME_MAX}
+          onChange={(event) => setInviteeName(event.target.value)}
+          autoComplete="off"
+          required={inviteeNameNeeded}
+        />
+
+        <label className={styles.label} htmlFor="operator-note">
+          Note from the inviter (optional)
+        </label>
+        <textarea
+          className={styles.input}
+          id="operator-note"
+          value={note}
+          maxLength={INVITATION_NOTE_MAX}
+          rows={3}
+          onChange={(event) => setNote(event.target.value)}
+        />
+
+        {kind === "covered" ? (
           <label className={styles.checkRow}>
             <input
               type="checkbox"
@@ -292,15 +393,11 @@ export default function OperatorClient() {
           disabled={
             sending ||
             !email.trim() ||
-            paidBlocked ||
-            requiresComplimentaryConfirmation(source, complimentaryConfirmed)
+            blocked ||
+            requiresComplimentaryConfirmation(kind, complimentaryConfirmed)
           }
         >
-          {sending
-            ? "Sending…"
-            : source === "paid"
-              ? "Send paid invitation"
-              : "Send complimentary invitation"}
+          {sending ? "Sending…" : `Send ${KIND_NAMES[kind]} invitation`}
         </button>
       </form>
       <p
@@ -308,7 +405,12 @@ export default function OperatorClient() {
         role={error ? "alert" : "status"}
         aria-live="polite"
       >
-        {message || (paidBlocked ? "Paid alpha capacity is full." : "Paid access is the default.")}
+        {message ||
+          (capacity.freePlaces === null
+            ? "Cloud capacity has not been observed recently. Invitations wait until it is."
+            : blocked
+              ? "Cloud capacity is full."
+              : "Paid access is the default.")}
       </p>
     </section>
   );

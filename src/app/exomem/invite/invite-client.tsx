@@ -1,148 +1,366 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { FieldKind } from "@/components/exomem/FlowField";
 import {
-  friendlyHostedError,
+  getPrivateJson,
   HostedBrowserError,
+  postPrivateJson,
   postPublicJson,
   takeFragmentToken,
 } from "@/lib/exomem-hosted/hosted-browser";
-import styles from "../private-shell.module.css";
-import { inviteRefusal } from "./invite-refusal";
+import type { InvitationDecision, InvitationInspection } from "@/lib/exomem-hosted/invites";
+import { signOut } from "../_journey/account-actions";
+import { failureCopy, inviteCopy, TRY_AGAIN } from "../_journey/copy";
+import { JourneyPage } from "../_journey/JourneyPage";
+import {
+  DoneLine,
+  InviteNote,
+  PriceCard,
+  SignedInLine,
+  StepActions,
+  StepHeading,
+  StepNotice,
+  WorkingBar,
+} from "../_journey/parts";
+import { friendPriceOffered, friendPriceUnchecked, inviterOf, pricePanel } from "./invite-view";
 
-type InviteState =
+type Choice = "use_friend_price" | "keep_plan";
+
+type Mode =
   | { kind: "checking" }
-  | { kind: "ready"; email: string; expiresAt: string }
-  | { kind: "accepting"; email: string; expiresAt: string }
-  // `retryable` decides which of two very different things went wrong. A spent
-  // or malformed invitation needs a fresh link; a service that is not admitting
-  // right now needs the same link, later. Telling someone to ask for a new link
-  // while the response underneath says their invitation is still valid is the
-  // page contradicting itself.
-  | { kind: "error"; message: string; retryable: boolean };
+  | { kind: "invite"; inspection: InvitationInspection; failure: string | null }
+  | { kind: "accepting" }
+  | {
+      kind: "existing";
+      inspection: InvitationInspection;
+      failure: string | null;
+      /** The friend price turned out not to apply when the owner asked for it. */
+      refusedFriendPrice: boolean;
+    }
+  | { kind: "deciding"; inspection: InvitationInspection; choice: Choice }
+  | { kind: "decided"; decision: InvitationDecision["status"]; by: string | null }
+  | { kind: "unusable" }
+  /** Inspecting failed on our side: the same link may work in a moment. */
+  | { kind: "failed" };
 
-function failure(error: unknown): InviteState {
-  return {
-    kind: "error",
-    message: friendlyHostedError(error),
-    retryable: error instanceof HostedBrowserError && error.retryable,
-  };
+// kindOf() in the board: nothing is connected yet, so the field is quiet; a friend price
+// added is a settled change.
+const KIND: Record<Mode["kind"], FieldKind> = {
+  checking: "quiet",
+  invite: "quiet",
+  accepting: "hold",
+  existing: "quiet",
+  deciding: "quiet",
+  decided: "quiet",
+  unusable: "quiet",
+  failed: "quiet",
+};
+
+// A refused token (expired, used, revoked, malformed) is final: one identical answer
+// that names no one. A retryable refusal means Exomem cannot open it right now.
+function refused(error: unknown): boolean {
+  return error instanceof HostedBrowserError && !error.retryable;
 }
 
+/** The answer of POST /api/exomem/access/inspect, as far as this page reads it. */
+function inspectionOf(body: Record<string, unknown>): InvitationInspection | null {
+  const price = body.price as { value?: unknown; reason?: unknown } | undefined;
+  const kindOk = body.kind === "standard" || body.kind === "friend" || body.kind === "covered";
+  // Only the owner signed in here learns the prices of an existing owner's invitation.
+  const withheld = body.status === "existing" && body.signedIn === false;
+  const priceOk =
+    withheld ||
+    (price !== undefined &&
+      ((price.value !== null && typeof price.value === "object") ||
+        (price.value === null && typeof price.reason === "string")));
+  const statusOk =
+    body.status === "invite" || (body.status === "existing" && typeof body.signedIn === "boolean");
+  return kindOk && priceOk && statusOk ? (body as unknown as InvitationInspection) : null;
+}
+
+function decisionOf(body: Record<string, unknown>): InvitationDecision["status"] | null {
+  return body.status === "applied" ||
+    body.status === "applied_on_resubscribe" ||
+    body.status === "kept"
+    ? body.status
+    : null;
+}
+
+/** The signed-in owner's email, for "Signed in as …"; null when it cannot be read. */
+async function ownerEmail(): Promise<string | null> {
+  try {
+    const body = await getPrivateJson("/api/exomem/account");
+    const email = (body.account as { email?: unknown } | undefined)?.email;
+    return typeof email === "string" ? email : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * An invitation link. The token is in the fragment; the page takes it out of the
+ * address bar first. A new person accepts, which creates the Exomem and signs this
+ * browser in: a paid invitation continues at setup, a covered one at Home, and one
+ * opened from an app's consent page continues that connection (the redeem route
+ * decides). An address that already has an Exomem answers it instead: take the friend
+ * price on the plan it has, or keep the plan.
+ */
 export default function InviteClient() {
-  const tokenRef = useRef<string | null>(null);
-  const startedRef = useRef(false);
-  const [state, setState] = useState<InviteState>({ kind: "checking" });
-  // Held across a retryable failure so the same invitation can be offered again
-  // without the person going back to their email.
-  const acceptedRef = useRef<{ email: string; expiresAt: string } | null>(null);
+  const token = useRef<string | null>(null);
+  const started = useRef(false);
+  const [mode, setMode] = useState<Mode>({ kind: "checking" });
+  const [email, setEmail] = useState<string | null>(null);
 
   const inspect = useCallback(async () => {
-    const token = tokenRef.current;
-    if (!token) return;
-    setState({ kind: "checking" });
+    if (!token.current) return;
+    setMode({ kind: "checking" });
     try {
-      const result = await postPublicJson("/api/exomem/access/inspect", { token });
-      if (typeof result.email !== "string" || typeof result.expiresAt !== "string") {
-        throw new Error("invalid invite response");
+      const inspection = inspectionOf(
+        await postPublicJson("/api/exomem/access/inspect", { token: token.current })
+      );
+      if (!inspection) {
+        setMode({ kind: "failed" });
+        return;
       }
-      acceptedRef.current = { email: result.email, expiresAt: result.expiresAt };
-      setState({ kind: "ready", email: result.email, expiresAt: result.expiresAt });
+      if (inspection.status === "invite") {
+        setMode({ kind: "invite", inspection, failure: null });
+        return;
+      }
+      setMode({ kind: "existing", inspection, failure: null, refusedFriendPrice: false });
+      setEmail(inspection.signedIn ? await ownerEmail() : null);
     } catch (error) {
-      setState(failure(error));
+      setMode({ kind: refused(error) ? "unusable" : "failed" });
     }
   }, []);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    tokenRef.current = takeFragmentToken();
-    if (!tokenRef.current) {
-      // No token means nothing to press again, which is why this refusal is the
-      // one case declared non-retryable regardless of any envelope.
-      setState({
-        kind: "error",
-        message: "This invite link is incomplete or has expired.",
-        retryable: false,
-      });
-      return;
-    }
-    void inspect();
+    if (started.current) return;
+    started.current = true;
+    token.current = takeFragmentToken();
+    if (!token.current) setMode({ kind: "unusable" });
+    else void inspect();
   }, [inspect]);
 
-  /** Offer the same invitation again — from wherever it got as far as. */
-  function retry() {
-    const invitation = acceptedRef.current;
-    if (!tokenRef.current) return;
-    if (invitation) setState({ kind: "ready", ...invitation });
-    else void inspect();
-  }
-
-  async function accept() {
-    if (state.kind !== "ready" || !tokenRef.current) return;
-    setState({ kind: "accepting", email: state.email, expiresAt: state.expiresAt });
+  async function accept(inspection: InvitationInspection) {
+    if (!token.current) return;
+    setMode({ kind: "accepting" });
     try {
       const result = await postPublicJson("/api/exomem/access/redeem", {
-        token: tokenRef.current,
+        token: token.current,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
-      tokenRef.current = null;
+      token.current = null;
       window.location.replace(
         typeof result.destination === "string" ? result.destination : "/exomem/home"
       );
     } catch (error) {
-      setState(failure(error));
+      if (refused(error)) setMode({ kind: "unusable" });
+      else setMode({ kind: "invite", inspection, failure: failureCopy.invitationNotReady });
     }
   }
 
-  return (
-    <section className={styles.card} aria-labelledby="invite-title">
-      <p className={styles.eyebrow}>Your private memory</p>
-      <h1 className={styles.title} id="invite-title">
-        Start your Exomem.
-      </h1>
-      {state.kind === "checking" ? (
+  async function decide(inspection: InvitationInspection, choice: Choice) {
+    if (!token.current) return;
+    setMode({ kind: "deciding", inspection, choice });
+    const back = (failure: string, refusedFriendPrice = false) =>
+      setMode({ kind: "existing", inspection, failure, refusedFriendPrice });
+    try {
+      const decision = decisionOf(
+        await postPrivateJson("/api/exomem/invites/decision", { token: token.current, choice })
+      );
+      if (!decision) {
+        back(inviteCopy.existing.notFinished);
+        return;
+      }
+      token.current = null;
+      setMode({ kind: "decided", decision, by: inviterOf(inspection) });
+    } catch (error) {
+      if (!(error instanceof HostedBrowserError)) {
+        back(inviteCopy.existing.notFinished);
+      } else if (error.status === 401) {
+        // The session ended: the page asks the owner to sign in.
+        void inspect();
+      } else if (error.code === "INVITATION_UNUSABLE") {
+        setMode({ kind: "unusable" });
+      } else if (error.code === "FRIEND_PRICE_NOT_OFFERED") {
+        back(inviteCopy.existing.notOffered, true);
+      } else if (error.retryable) {
+        // 503: Paddle or the friend discount did not answer. The invitation stays
+        // usable, but an update may have reached Paddle, so nothing claims it did not.
+        back(inviteCopy.existing.notFinished);
+      } else {
+        back(failureCopy.generic);
+      }
+    }
+  }
+
+  async function switchAccount() {
+    if (await signOut()) {
+      setEmail(null);
+      void inspect();
+    }
+  }
+
+  const goHome = () => window.location.assign("/exomem/home");
+  const signedInLine = email ? (
+    <SignedInLine email={email} onSwitch={() => void switchAccount()} onDesktop />
+  ) : null;
+
+  let body;
+  switch (mode.kind) {
+    case "checking":
+      body = null;
+      break;
+    case "unusable":
+      body = (
         <>
-          <p className={styles.lede}>Checking your private invitation…</p>
-          <div className={styles.spinner} role="status" aria-label="Checking invite" />
+          <StepHeading title={inviteCopy.unusable.title} lede={inviteCopy.unusable.lede} />
+          <StepActions
+            primary={{
+              label: inviteCopy.unusable.primary,
+              onClick: () => window.location.assign("/exomem/sign-in"),
+            }}
+          />
         </>
-      ) : state.kind === "error" ? (
+      );
+      break;
+    case "failed":
+      body = (
         <>
-          <p className={styles.lede}>{inviteRefusal(state.retryable).lede}</p>
-          <p className={`${styles.status} ${styles.error}`} role="alert">
-            {state.message}
-          </p>
-          {inviteRefusal(state.retryable).offerRetry ? (
-            <div className={styles.form}>
-              <button className={styles.button} type="button" onClick={retry}>
-                Try again
-              </button>
-            </div>
-          ) : null}
+          <StepNotice alert>{failureCopy.generic}</StepNotice>
+          <StepActions primary={{ label: TRY_AGAIN, onClick: () => void inspect() }} />
+        </>
+      );
+      break;
+    case "accepting":
+      body = (
+        <>
+          <StepHeading title={inviteCopy.accepting.title} lede={inviteCopy.accepting.lede} />
+          <WorkingBar label={inviteCopy.accepting.title} />
+        </>
+      );
+      break;
+    case "invite": {
+      const { inspection } = mode;
+      const by = inviterOf(inspection);
+      const panel = pricePanel(inspection);
+      body = (
+        <>
+          <StepHeading
+            title={by ? inviteCopy.friendTitle(by) : inviteCopy.standardTitle}
+            lede={inviteCopy.lede}
+          />
+          {mode.failure ? <StepNotice alert>{mode.failure}</StepNotice> : null}
+          {by && inspection.note ? <InviteNote note={inspection.note} by={by} /> : null}
+          {panel ? <PriceCard {...panel} /> : null}
+          <StepActions
+            primary={{ label: inviteCopy.accept, onClick: () => void accept(inspection) }}
+          />
+        </>
+      );
+      break;
+    }
+    case "existing":
+    case "deciding": {
+      const { inspection } = mode;
+      const by = inviterOf(inspection);
+      const signedIn = inspection.status === "existing" && inspection.signedIn;
+      if (!signedIn) {
+        body = (
+          <>
+            <StepHeading title={inviteCopy.existing.title} lede={inviteCopy.existing.signIn(by)} />
+            <StepActions
+              primary={{
+                label: inviteCopy.existing.signInPrimary,
+                onClick: () => window.location.assign("/exomem/sign-in"),
+              }}
+            />
+          </>
+        );
+        break;
+      }
+      const deciding = mode.kind === "deciding" ? mode.choice : null;
+      const refusedNow = mode.kind === "existing" && mode.refusedFriendPrice;
+      const offered = friendPriceOffered(inspection) && !refusedNow;
+      // Paddle did not answer: the page offers neither the friend price nor a refusal,
+      // and lets the owner ask again.
+      const unchecked = friendPriceUnchecked(inspection) && !refusedNow;
+      const panel = offered ? pricePanel(inspection) : null;
+      const failure = mode.kind === "existing" ? mode.failure : null;
+      const keep = {
+        label: inviteCopy.existing.keep,
+        disabled: deciding !== null,
+        working: deciding === "keep_plan",
+        onClick: () => void decide(inspection, "keep_plan"),
+      };
+      body = (
+        <>
+          <StepHeading
+            title={inviteCopy.existing.title}
+            lede={
+              offered && by
+                ? inviteCopy.existing.lede(by)
+                : unchecked && by
+                  ? inviteCopy.existing.unchecked(by)
+                  : inspection.kind === "friend" && by
+                    ? inviteCopy.existing.otherPrice(by)
+                    : inviteCopy.existing.noOffer(by)
+            }
+          />
+          {failure ? <StepNotice alert>{failure}</StepNotice> : null}
+          {panel ? <PriceCard {...panel} /> : null}
+          <StepActions
+            primary={
+              offered && by
+                ? {
+                    label: inviteCopy.existing.useFriendPrice(by),
+                    disabled: deciding !== null,
+                    working: deciding === "use_friend_price",
+                    onClick: () => void decide(inspection, "use_friend_price"),
+                  }
+                : unchecked
+                  ? { label: TRY_AGAIN, disabled: deciding !== null, onClick: () => void inspect() }
+                  : keep
+            }
+            secondary={(offered && by) || unchecked ? keep : null}
+          />
+          {signedInLine}
+        </>
+      );
+      break;
+    }
+    case "decided": {
+      const by = mode.by ?? "";
+      const copy =
+        mode.decision === "applied"
+          ? inviteCopy.applied
+          : mode.decision === "applied_on_resubscribe"
+            ? inviteCopy.appliedOnResubscribe
+            : null;
+      body = copy ? (
+        <>
+          <StepHeading title={copy.title} lede={copy.lede(by)} />
+          <StepActions primary={{ label: inviteCopy.home, onClick: goHome }} />
+          {signedInLine}
+          <DoneLine>{copy.done}</DoneLine>
         </>
       ) : (
         <>
-          <p className={styles.lede}>
-            Exomem keeps things you want to remember and helps you find them again. No setup,
-            folders, or technical knowledge needed.
-          </p>
-          <span className={styles.boundEmail}>
-            This invitation belongs to <strong>{state.email}</strong>
-          </span>
-          <div className={styles.form}>
-            <button
-              className={styles.button}
-              type="button"
-              onClick={accept}
-              disabled={state.kind === "accepting"}
-            >
-              {state.kind === "accepting" ? "Creating your Exomem…" : "Accept invitation"}
-            </button>
-            <p className={styles.status} aria-live="polite">
-              The link can be used once. Your browser will stay signed in on this device.
-            </p>
-          </div>
+          <StepHeading title={inviteCopy.kept.title} lede={inviteCopy.kept.lede} />
+          <StepActions primary={{ label: inviteCopy.home, onClick: goHome }} />
+          {signedInLine}
         </>
-      )}
-    </section>
+      );
+      break;
+    }
+  }
+
+  const kind: FieldKind =
+    mode.kind === "decided" && mode.decision !== "kept" ? "done" : KIND[mode.kind];
+  return (
+    <JourneyPage kind={kind} headerEmail={email} tilesIdle stepKey={mode.kind}>
+      {body}
+    </JourneyPage>
   );
 }

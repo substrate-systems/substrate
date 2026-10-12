@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import {
   CheckoutEventNames,
   initializePaddle,
+  type CheckoutSettings,
   type Environments,
   type Paddle,
   type PricePreviewResponse,
 } from "@paddle/paddle-js";
 import { AnalyticsEvent, capture, currentDistinctId } from "@/lib/analytics";
+import type { ExomemMoney } from "@/lib/exomem/money";
 
 type CompletionListener = (product: CheckoutProduct | null) => void;
 
@@ -112,15 +114,12 @@ function loadPaddle(): Promise<Paddle | null> {
 type PreviewLineItem = PricePreviewResponse["data"]["details"]["lineItems"][number];
 
 /**
- * What Paddle charges this visitor for one unit of a price. Paddle.js formats
- * the total in the visitor's currency, with their country's tax and overrides.
+ * What Paddle charges this visitor for one unit of a price: the total in the
+ * visitor's currency, with their country's tax and overrides, in minor units.
  */
 export type PaddlePricePreview = Readonly<{
-  /** Paddle's formatted total, for example "€10.00". */
-  total: string;
+  total: ExomemMoney;
   billingCycle: PreviewLineItem["price"]["billingCycle"];
-  /** True when Paddle added tax to the total for the visitor's location. */
-  includesTax: boolean;
 }>;
 
 async function previewPrice(priceId: string): Promise<PaddlePricePreview | null> {
@@ -131,9 +130,8 @@ async function previewPrice(priceId: string): Promise<PaddlePricePreview | null>
     const line = response.data.details.lineItems.find((item) => item.price.id === priceId);
     if (!line) throw new Error("price preview omitted the requested price");
     return {
-      total: line.formattedTotals.total,
+      total: { amount: line.totals.total, currencyCode: response.data.currencyCode },
       billingCycle: line.price.billingCycle,
-      includesTax: Number(line.totals.tax) > 0,
     };
   } catch (err) {
     console.error("[paddle] price preview failed", err);
@@ -200,6 +198,20 @@ async function openCheckoutWith(
   }
 }
 
+/**
+ * An Exomem page opens Paddle's overlay in the page's own theme, the one on <html>
+ * (Journey board, "paying"). Paddle draws the overlay; our logo and colours are set in
+ * Paddle. Elsewhere Paddle's defaults stay.
+ */
+function exomemCheckoutSettings(): CheckoutSettings | undefined {
+  const root = document.documentElement;
+  if (!root.hasAttribute("data-exomem")) return undefined;
+  return {
+    displayMode: "overlay",
+    theme: root.getAttribute("data-theme") === "light" ? "light" : "dark",
+  };
+}
+
 export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -255,7 +267,7 @@ export function usePaddle(completionProduct?: CheckoutProduct): UsePaddleResult 
     return openCheckoutWith("transaction", (paddle) => {
       // A transaction checkout resumes an existing Paddle transaction, which
       // already carries its own customData from when it was created.
-      paddle.Checkout.open({ transactionId });
+      paddle.Checkout.open({ transactionId, settings: exomemCheckoutSettings() });
     });
   }
 

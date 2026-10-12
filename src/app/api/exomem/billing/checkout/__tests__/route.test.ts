@@ -27,7 +27,10 @@ before(() => {
     namedExports: {
       startOwnerCheckout: async () => {
         startCalls += 1;
-        return { checkoutUrl: "https://substratesystems.io/exomem/home?_ptxn=txn_start" };
+        return {
+          checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${TRANSACTION_ID}`,
+          transactionId: TRANSACTION_ID,
+        };
       },
       resumeReturnedOwnerCheckout: async (
         userId: string,
@@ -73,7 +76,7 @@ describe("POST /api/exomem/billing/checkout", () => {
       assert.equal(returnedTransaction, null);
     }
   });
-  it("starts the existing checkout for an authenticated awaiting-payment owner", async () => {
+  it("starts the checkout and returns the transaction id the Paddle overlay opens", async () => {
     const { NextRequest } = await import("next/server");
     const { POST } = await import("../route");
     const response = await POST(
@@ -89,7 +92,8 @@ describe("POST /api/exomem/billing/checkout", () => {
     assert.equal(returnedTransaction, null);
     assert.deepEqual(await response.json(), {
       success: true,
-      checkoutUrl: "https://substratesystems.io/exomem/home?_ptxn=txn_start",
+      checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${TRANSACTION_ID}`,
+      transactionId: TRANSACTION_ID,
     });
   });
 
@@ -150,5 +154,21 @@ describe("POST /api/exomem/billing/checkout", () => {
     assert.equal(response.status, 400);
     assert.equal(startCalls, 0);
     assert.equal(returnedTransaction, null);
+  });
+
+  it("refuses a checkout that carries a discount of the client's choosing, before billing", async () => {
+    const { NextRequest } = await import("next/server");
+    const { POST } = await import("../route");
+    for (const body of [{ discountId: `dsc_${"f".repeat(26)}` }, { discountCode: "FRIEND5" }]) {
+      const response = await POST(
+        new NextRequest("https://substratesystems.io/api/exomem/billing/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+      );
+      assert.equal(response.status, 400);
+    }
+    assert.equal(startCalls, 0);
   });
 });

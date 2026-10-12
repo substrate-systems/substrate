@@ -13,6 +13,15 @@ export const DEFAULT_CLOUD_CANCELLED_RETENTION_DAYS = 30;
 /** Design D1's unpaid-invite expiry: fixed at 7 days, not independently configured. */
 export const CLOUD_AWAITING_CHECKOUT_EXPIRY_DAYS = 7;
 
+/**
+ * Paddle time for one sweep lane of the reconcile cron: the unpaid-hold
+ * expiry, or the lapsed-checkout settlement. Those lanes run side by side,
+ * and the account deletion finish after them takes up to 8 seconds, all
+ * inside the scheduler's 20-second request timeout
+ * (`totalTimeoutSeconds` in ops/exomem-hosted-schedules.json).
+ */
+export const CLOUD_SWEEP_PADDLE_BUDGET_MS = 5_000;
+
 export class ExomemCloudConfigurationError extends Error {
   constructor(readonly missing: readonly string[]) {
     super(`Exomem Cloud configuration is incomplete: ${missing.join(", ")}`);

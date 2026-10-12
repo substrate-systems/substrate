@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { applyMigrations } from "../../../../scripts/migrate";
+import { POST as completeRoute } from "../../../app/api/exomem/oauth/authorize/complete/route";
 import { POST as declineRoute } from "../../../app/api/exomem/oauth/authorize/decline/route";
 import { POST as disconnectRoute } from "../../../app/api/exomem/apps/[id]/disconnect/route";
 import { randomCloudCellId } from "../cloud-admission";
@@ -447,6 +448,77 @@ describe(
           }),
           null
         );
+      });
+    });
+
+    describe("Connect from the consent page's script", () => {
+      function completeRequest(owner: Owner, authorization: Authorization): Request {
+        return new Request(`${ORIGIN}/api/exomem/oauth/authorize/complete`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "sec-fetch-site": "same-origin",
+            cookie:
+              `exomem_oauth_tx=${authorization.transaction}; ` +
+              `exomem_oauth_form_nonce=${authorization.formNonce}; ` +
+              `exomem_session=${owner.sessionToken}`,
+          },
+          body: JSON.stringify({
+            confirmation: confirmationOf(authorization.transaction),
+            nonce: authorization.formNonce,
+          }),
+        });
+      }
+
+      it("issues one code for a double submit, and the code exchanges for tokens", async () => {
+        const owner = await newOwner();
+        const client = await newCimdClient();
+        const authorization = await startAuthorization(client);
+
+        const responses = await Promise.all([
+          completeRoute(completeRequest(owner, authorization)),
+          completeRoute(completeRequest(owner, authorization)),
+        ]);
+
+        const statuses = responses.map((response) => response.status);
+        assert.equal(statuses.filter((status) => status === 200).length, 1, `got ${statuses}`);
+        const accepted = responses.find((response) => response.status === 200)!;
+        const answer = (await accepted.json()) as Record<string, unknown>;
+        assert.equal(answer.status, "connected");
+        assert.equal(answer.loopback, false);
+        const redirect = new URL(String(answer.redirectUrl));
+        assert.equal(`${redirect.origin}${redirect.pathname}`, client.redirectUri);
+        assert.equal(redirect.searchParams.get("state"), authorization.state);
+        assert.equal(accepted.headers.get("cache-control"), "no-store");
+        assert.match(accepted.headers.get("set-cookie") ?? "", /exomem_oauth_tx=;/);
+        assert.deepEqual(await grantsAndCodesFor(client), { grants: 1, codes: 1 });
+
+        const issued = await issueOAuthTokensFromCodeAtomic({
+          codeDigest: tokenDigest(redirect.searchParams.get("code")!)!,
+          clientId: client.clientId,
+          redirectUri: client.redirectUri,
+          resource: CLOUD_RESOURCE,
+          pkceChallenge: authorization.challenge,
+          refreshDigest: randomBytes(32),
+          refreshExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          accessDigest: randomBytes(32),
+          accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        });
+        assert.ok(issued, "the page's code is the one the app exchanges");
+      });
+
+      it("answers a replay of a finished Connect as expired and mints nothing", async () => {
+        const owner = await newOwner();
+        const client = await newCimdClient();
+        const authorization = await startAuthorization(client);
+        const first = await completeRoute(completeRequest(owner, authorization));
+        assert.equal(first.status, 200);
+
+        const replay = await completeRoute(completeRequest(owner, authorization));
+
+        assert.equal(replay.status, 410);
+        assert.deepEqual(await replay.json(), { status: "expired" });
+        assert.deepEqual(await grantsAndCodesFor(client), { grants: 1, codes: 1 });
       });
     });
 

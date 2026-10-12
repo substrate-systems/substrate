@@ -22,9 +22,12 @@ const nextConfig: NextConfig = {
   // redirect would break the proxied requests.
   skipTrailingSlashRedirect: true,
   // Exomem routes can read the tokens stylesheet at runtime (src/lib/exomem/design-tokens.ts),
-  // which the bundler cannot see through an fs read. The glob covers any route that starts to.
+  // which the bundler cannot see through an fs read. The globs cover any route that starts to:
+  // the pages, and the API and cron routes that render Exomem emails.
   outputFileTracingIncludes: {
     "/exomem/**": ["./src/app/exomem/exomem-tokens.css"],
+    "/api/exomem/**": ["./src/app/exomem/exomem-tokens.css"],
+    "/api/cron/**": ["./src/app/exomem/exomem-tokens.css"],
   },
   async rewrites() {
     return {

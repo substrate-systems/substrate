@@ -4,13 +4,7 @@
 // does not depend on the viewport, so this spec runs in the desktop project only.
 
 import { expect, test, type Page } from "@playwright/test";
-
-async function storeTheme(page: Page, theme: "light" | "dark") {
-  await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [
-    "exomem-theme",
-    theme,
-  ] as const);
-}
+import { storeTheme } from "./accessibility";
 
 const root = (page: Page) => page.locator("html");
 
@@ -64,8 +58,8 @@ test("leaves the rest of the site when a link leads off /exomem", async ({ page 
   await page.goto("/exomem");
   await expect(root(page)).toHaveAttribute("data-exomem", "");
 
-  // The landing's "Substrate" link is a client-side navigation: no reload clears <html>.
-  await page.getByRole("link", { name: "Substrate", exact: true }).click();
+  // The landing's "by Substrate Systems" link is a client-side navigation: no reload clears <html>.
+  await page.getByRole("link", { name: "by Substrate Systems", exact: true }).click();
   await page.waitForURL("/");
 
   await expect(root(page)).not.toHaveAttribute("data-exomem");

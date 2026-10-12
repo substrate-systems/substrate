@@ -1,45 +1,23 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { PrivateShell } from "../private-shell";
-import {
-  EXOMEM_OAUTH_FORM_NONCE_COOKIE,
-  EXOMEM_OAUTH_CONTINUITY_COOKIE,
-} from "@/lib/exomem-hosted/oauth-continuity";
+import { loadExomemAccountView } from "@/lib/exomem-hosted/account-view";
+import { ownerBillingSummary } from "@/lib/exomem-hosted/billing-account";
 import { displayNameVouched } from "@/lib/exomem-hosted/client-platforms";
-import { loadConsentView } from "@/lib/exomem-hosted/consent-view";
-import type { ConsentStep } from "@/lib/exomem-hosted/consent-state";
+import { cloudExportsEnabled } from "@/lib/exomem-hosted/cloud-exports";
+import { loadConsentView, type ConsentApp } from "@/lib/exomem-hosted/consent-view";
+import { findExomemSessionByDigest } from "@/lib/exomem-hosted/db";
+import { known, unknown } from "@/lib/exomem-hosted/known";
+import {
+  EXOMEM_OAUTH_CONTINUITY_COOKIE,
+  EXOMEM_OAUTH_FORM_NONCE_COOKIE,
+  OAUTH_TRANSACTION_TTL_MS,
+} from "@/lib/exomem-hosted/oauth-continuity";
+import { exomemCheckoutPriceId } from "@/lib/exomem-hosted/paddle-config";
+import { tokenDigest } from "@/lib/exomem-hosted/security";
 import { EXOMEM_SESSION_COOKIE } from "@/lib/exomem-hosted/sessions";
-import AuthorizeClient from "./authorize-client";
-
-const CONNECT_COPY = {
-  title: "Connect this app to Exomem",
-  lede: "This app is asking to read and write your Exomem. Confirm below to connect it.",
-};
-
-const STEP_COPY: Record<ConsentStep, { title: string; lede: string }> = {
-  "sign-in": {
-    title: "Connect this app to Exomem",
-    lede: "Sign in to connect this app to your Exomem. You will come straight back here.",
-  },
-  subscribe: {
-    title: "Subscribe to finish setting up",
-    lede: "Your Exomem is reserved. Subscribe to start it, and then connect this app here.",
-  },
-  connect: CONNECT_COPY,
-  "connect-read-only": CONNECT_COPY,
-  ended: {
-    title: "Your subscription has ended",
-    lede: "Your Exomem is read-only now, so this app cannot connect to it.",
-  },
-  paused: {
-    title: "Your subscription is paused",
-    lede: "This app can connect when you resume your subscription.",
-  },
-  suspended: {
-    title: "This Exomem is suspended",
-    lede: "This app cannot connect while your Exomem is suspended.",
-  },
-};
+import { statusPageUrl } from "../_journey/status-page";
+import AuthorizeClient, { type AccountFacts, type RequestApp } from "./authorize-client";
+import { consentScreen } from "./consent-screen";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -50,6 +28,60 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
+const NOT_SIGNED_IN: AccountFacts = {
+  readOnlyUntil: unknown("not_signed_in"),
+  keptUntil: unknown("not_signed_in"),
+  supportReference: unknown("not_signed_in"),
+  friendOffer: null,
+  checkoutAvailable: false,
+};
+
+// The consent view does not carry these yet (its fields say `not_computed`); the
+// account view computes them from stored data for the same signed-in session.
+async function accountFacts(sessionCookie: string | undefined): Promise<AccountFacts> {
+  const digest = sessionCookie ? tokenDigest(sessionCookie) : null;
+  if (!digest) return NOT_SIGNED_IN;
+  try {
+    const session = await findExomemSessionByDigest(digest);
+    if (!session) return NOT_SIGNED_IN;
+    const [account, billing] = await Promise.all([
+      loadExomemAccountView(session),
+      ownerBillingSummary(session.userId, session.tenantId),
+    ]);
+    return {
+      readOnlyUntil: account.readOnlyUntil,
+      keptUntil: account.keptUntil,
+      supportReference: known(account.supportReference),
+      friendOffer: account.plan.friendPrice,
+      checkoutAvailable: billing.checkoutAvailable,
+    };
+  } catch {
+    // A storage failure is a visible unknown, never a guessed date.
+    return {
+      readOnlyUntil: unknown("unavailable"),
+      keptUntil: unknown("unavailable"),
+      supportReference: unknown("unavailable"),
+      friendOffer: null,
+      checkoutAvailable: false,
+    };
+  }
+}
+
+function requestApp(app: ConsentApp): RequestApp {
+  return {
+    displayName: app.displayName,
+    vouched: displayNameVouched(app.displayNameSource),
+    platform: app.platform,
+    loopback: app.loopback,
+    redirectHost: app.redirectHost,
+  };
+}
+
+/** "10 minutes", from the request lifetime the server enforces. */
+function requestLife(): string {
+  return `${Math.round(OAUTH_TRANSACTION_TTL_MS / 60_000)} minutes`;
+}
+
 export default async function ExomemAuthorizePage({
   searchParams,
 }: {
@@ -57,62 +89,42 @@ export default async function ExomemAuthorizePage({
 }) {
   const cookieStore = await cookies();
   const query = await searchParams;
+  const sessionCookie = cookieStore.get(EXOMEM_SESSION_COOKIE)?.value;
   const view = await loadConsentView({
     confirmation: query.confirmation,
     transactionCookie: cookieStore.get(EXOMEM_OAUTH_CONTINUITY_COOKIE)?.value,
     formNonceCookie: cookieStore.get(EXOMEM_OAUTH_FORM_NONCE_COOKIE)?.value,
-    sessionCookie: cookieStore.get(EXOMEM_SESSION_COOKIE)?.value,
+    sessionCookie,
   });
+  const screen = consentScreen(view);
   if (view.step === "expired") {
     return (
-      <PrivateShell>
-        <main className="mx-auto max-w-xl px-6 py-16">
-          <h1 className="text-2xl font-semibold">This connection request has expired</h1>
-          <p className="mt-3" style={{ color: "var(--fg-secondary)" }}>
-            Start again from the app you want to connect.
-          </p>
-        </main>
-      </PrivateShell>
+      <AuthorizeClient
+        screen={screen}
+        request={null}
+        expiredApp={view.app ? requestApp(view.app) : null}
+        requestLife={requestLife()}
+        statusPageUrl={null}
+      />
     );
   }
-  const copy = STEP_COPY[view.step];
   return (
-    <PrivateShell>
-      <main className="mx-auto max-w-xl px-6 py-16">
-        <h1 className="text-2xl font-semibold">{copy.title}</h1>
-        <p className="mt-3" style={{ color: "var(--fg-secondary)" }}>
-          {copy.lede}
-        </p>
-        <dl className="mt-6 space-y-2 text-sm" style={{ color: "var(--fg-secondary)" }}>
-          <div>
-            <dt className="font-medium">Client</dt>
-            <dd>
-              {view.app.displayName}
-              {view.app.displayNameSource === "client_metadata" &&
-                " (the name this app gives itself)"}
-            </dd>
-          </div>
-          {/* A name Exomem does not vouch for could be chosen by anyone, so show
-              where the authorization would go. */}
-          {!displayNameVouched(view.app.displayNameSource) && (
-            <div>
-              <dt className="font-medium">Sends access to</dt>
-              <dd>{view.app.loopback ? "this computer" : view.app.redirectHost}</dd>
-            </div>
-          )}
-          <div>
-            <dt className="font-medium">Requested access</dt>
-            <dd>{view.scopes.join(", ")}</dd>
-          </div>
-        </dl>
-        <AuthorizeClient
-          confirmation={view.confirmation}
-          nonce={view.nonce}
-          step={view.step}
-          cellStarting={view.cellStarting}
-          reviewerEnabled={view.reviewerEnabled}
-        />
-      </main>
-    </PrivateShell>
+    <AuthorizeClient
+      screen={screen}
+      request={{
+        app: requestApp(view.app),
+        scopes: view.scopes,
+        email: view.signedInEmail,
+        confirmation: view.confirmation,
+        nonce: view.nonce,
+        reviewerEnabled: view.reviewerEnabled,
+        connectorSettingsUrl: view.connectorSettingsUrl.value,
+        account: view.signedInEmail ? await accountFacts(sessionCookie) : NOT_SIGNED_IN,
+        priceId: exomemCheckoutPriceId(),
+        exportOffered: cloudExportsEnabled(),
+      }}
+      requestLife={requestLife()}
+      statusPageUrl={statusPageUrl()}
+    />
   );
 }

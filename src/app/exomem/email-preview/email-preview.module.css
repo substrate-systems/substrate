@@ -1,0 +1,82 @@
+/* The dev-only email preview: each email dark and light side by side, as on R28. */
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 48px clamp(16px, 4vw, 64px) 80px;
+  background: var(--bg-frame);
+  color: var(--fg-primary);
+  font-family: var(--font-sans-exo);
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eyebrow,
+.number,
+.meta {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 40px;
+  letter-spacing: -0.02em;
+}
+
+.sample {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+
+.subject {
+  margin: 0;
+  font-family: var(--font-mono-exo);
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.frames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.frame {
+  width: 100%;
+  max-width: 632px;
+  height: 900px;
+  border: 0;
+}
+
+.text pre {
+  max-width: 632px;
+  white-space: pre-wrap;
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-secondary);
+}
+
+.text summary {
+  font-family: var(--font-mono-exo);
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
