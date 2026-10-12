@@ -11,7 +11,7 @@
     "gateway:start": "node dist/exomem-gateway/index.cjs",
     "gateway:typecheck": "tsc --noEmit",
     "gateway:build": "esbuild src/exomem-gateway/index.ts --bundle --platform=node --format=cjs --target=node24 --packages=external --outfile=dist/exomem-gateway/index.cjs && node scripts/verify-exomem-gateway-bundle.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . && stylelint \"src/app/exomem/**/*.css\" \"src/components/exomem/**/*.css\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "hooks:install": "lefthook install",
@@ -27,8 +27,7 @@
     "openspec:validate": "openspec validate --all --strict --no-interactive",
     "openspec:validate:ci": "pwsh -NoProfile -File scripts/openspec_validate.ps1",
     "test:e2e": "npm run build && playwright test",
-    "test:e2e:only": "playwright test",
-    "lint:css": "stylelint \"src/app/exomem/**/*.css\" \"src/components/exomem/**/*.css\""
+    "test:e2e:only": "playwright test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1041.0",

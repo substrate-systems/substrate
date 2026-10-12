@@ -1,6 +1,6 @@
 // The Exomem palette is locked: Exomem CSS takes its colours from the tokens in
 // src/app/exomem/exomem-tokens.css, the one file allowed to hold raw values.
-// `npm run lint:css` runs this over the Exomem CSS only.
+// `npm run lint` runs this over the Exomem CSS only, after ESLint.
 const config = {
   ignoreFiles: ["src/app/exomem/exomem-tokens.css"],
   rules: {

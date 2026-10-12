@@ -238,7 +238,7 @@ export default function AuthorizeClient({
         <form action="/api/exomem/oauth/authorize/complete" className="mt-8" method="post">
           <input name="nonce" type="hidden" value={nonce} />
           <input name="confirmation" type="hidden" value={confirmation} />
-          <button className="rounded bg-black px-4 py-2 text-white" type="submit">
+          <button className={styles.button} type="submit">
             Connect
           </button>
         </form>

@@ -81,10 +81,6 @@ jobs:
       - name: Lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run lint
-      # ESLint (above) covers colours in Exomem markup; stylelint covers the Exomem CSS.
-      - name: Exomem CSS colours
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: npm run lint:css
 
   e2e:
     name: onboarding end-to-end
