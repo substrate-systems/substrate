@@ -99,7 +99,9 @@ app list and the client slots leave the client out.
 
 Deploy the gateway that admits the mode before you set
 `EXOMEM_CLOUD_HOME_CHANNEL_ENABLED`. An older gateway refuses every Home token
-with `401`, and Home then shows the cell as unreachable.
+with `401`, and Home then shows the cell as unreachable. Home's server calls
+for every owner from a few shared addresses, so the gateway's per-address
+limit skips a first-party token. The per-tenant limit still applies to it.
 
 Migration 0066 stops if an ordinary client already holds the id
 `exomem-cloud-home`. Rename or delete that client, then run the migration again.

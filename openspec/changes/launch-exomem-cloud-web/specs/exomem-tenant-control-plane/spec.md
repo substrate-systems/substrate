@@ -97,7 +97,7 @@ The cell controller SHALL mark an export ready only after it checks the uploaded
 
 ### Requirement: Home reaches its cell with a short-lived first-party token
 
-Substrate SHALL call the owner's cell only through the public Cloud MCP address, with an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. No request SHALL carry a tenant or cell identifier.
+Substrate SHALL call the owner's cell only through the public Cloud MCP address, with an access token that it mints for each call for a first-party Home client. The token MUST be bound to the session's tenant, last at most 120 seconds, carry only the read and write scopes, stay in server memory and never be logged. The module SHALL make exactly two calls: `configure_memory` and `bootstrap` with the `activity` section. No request SHALL carry a tenant or cell identifier. The gateway SHALL exempt from its per-address limit only a token that its lookup resolved to the first-party client from the stored client row, and SHALL keep the per-tenant and client limit for that token.
 
 #### Scenario: Cell is stopped or not ready
 
@@ -108,6 +108,12 @@ Substrate SHALL call the owner's cell only through the public Cloud MCP address,
 
 - **WHEN** a Home token minted for tenant A reaches the gateway
 - **THEN** it resolves only to tenant A's cell
+
+#### Scenario: Many owners share Home's server address
+
+- **WHEN** Home's server calls the gateway for many owners from one address
+- **THEN** the per-address limit does not refuse those calls, and each tenant keeps its own limit
+- **AND** a request from that address with any other token, or none, still counts against the per-address limit
 
 #### Scenario: Account is blocked or deleted
 
