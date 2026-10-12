@@ -1389,6 +1389,27 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     assert.equal(paddleCalls("POST", "/transactions").length, 1);
   });
 
+  it("binds nothing when the paid subscription Paddle reports names another owner", async () => {
+    const owner = await paidOwner({ sourceState: "cancelled", cell: "read_only", endedDaysAgo: 5 });
+    const checkout = await startOwnerCheckout(owner.userId, owner.tenantId);
+    const paidSubscription = paidAtPaddle(owner, checkout.transactionId);
+    const subscription = paddle.subscriptions.get(paidSubscription)!;
+    subscription.custom_data = { ...(subscription.custom_data as object), tenant_id: randomUUID() };
+
+    assert.deepEqual(
+      await resumeReturnedOwnerCheckout(owner.userId, owner.tenantId, checkout.transactionId),
+      { state: "settled" }
+    );
+    const entitlement = await pool!.query(
+      "SELECT source_state, provider_subscription_ref FROM exomem_entitlements WHERE tenant_id = $1",
+      [owner.tenantId]
+    );
+    assert.deepEqual(entitlement.rows[0], {
+      source_state: "cancelled",
+      provider_subscription_ref: owner.subscriptionRef,
+    });
+  });
+
   it("stops settling lapsed checkouts at its budget while Paddle hangs, and keeps every cell", async () => {
     const owners = [
       await lapsedOwnerWithCheckout(),

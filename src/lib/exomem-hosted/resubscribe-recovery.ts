@@ -12,7 +12,7 @@
  */
 
 import { executeExomemSql } from "./db";
-import { ExomemBillingError, readExomemSubscription, type PaddleTransport } from "./paddle-billing";
+import { ExomemBillingError, type PaddleTransport } from "./paddle-billing";
 import {
   assertExomemPaddlePurpose,
   loadExomemPaddleConfig,
@@ -20,7 +20,7 @@ import {
   type ExomemPaddleEnvironment,
 } from "./paddle-config";
 import { createSqlExomemPaddleEventStore } from "./paddle-event-store";
-import { reconcileExomemPaddleSubscription } from "./paddle-reconciliation";
+import { readExomemPaddleSubscriptionApplication } from "./paddle-reconciliation";
 import type { AtomicExomemPaddleEventStore } from "./paddle-webhook";
 
 export type PaidResubscription = {
@@ -60,11 +60,19 @@ export async function recoverPaidResubscription(
   }
   const config = dependencies.config ?? loadExomemPaddleConfig();
   assertExomemPaddlePurpose(config, "reconciliation");
-  const paid = await readExomemSubscription(
-    { subscriptionId: input.paid.subscriptionId, environment: input.environment },
-    { config, transport: dependencies.transport }
+  // One snapshot of the paid subscription, checked in full (owner
+  // correlation, Exomem item, state) before anything is bound, and then
+  // applied as it was read.
+  const paid = await readExomemPaddleSubscriptionApplication(
+    {
+      userId: input.userId,
+      tenantId: input.tenantId,
+      subscriptionId: input.paid.subscriptionId,
+      environment: input.environment,
+    },
+    { config, transport: dependencies.transport, signal: dependencies.signal }
   );
-  if (paid.state === "cancelled") return "ended";
+  if (paid.sourceState === "cancelled") return "ended";
 
   // Bound only to the exact owner, environment, customer, transaction and
   // last Paddle event that were read before Paddle was asked.
@@ -99,20 +107,9 @@ export async function recoverPaidResubscription(
     }
     return "resumed";
   }
-  await reconcileExomemPaddleSubscription(
-    {
-      userId: input.userId,
-      tenantId: input.tenantId,
-      subscriptionId: input.paid.subscriptionId,
-      environment: input.environment,
-    },
-    {
-      config,
-      store: dependencies.store ?? createSqlExomemPaddleEventStore(executeExomemSql),
-      transport: dependencies.transport,
-      signal: dependencies.signal,
-    }
-  );
+  await (
+    dependencies.store ?? createSqlExomemPaddleEventStore(executeExomemSql)
+  ).applyVerifiedEventAndMarkProcessedAtomically(paid);
   // A live subscription whose reconcile did not apply is unresolved, never ended.
   if ((await sourceState(input.tenantId)) === "cancelled") {
     throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
