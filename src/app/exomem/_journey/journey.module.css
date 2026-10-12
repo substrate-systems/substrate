@@ -194,7 +194,7 @@
 .inviteNoteBy {
   font-family: var(--font-mono-exo);
   font-size: 12px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 /* The invitation's price (Journey board, "invite" and "inviteexisting"). */
@@ -228,13 +228,13 @@
 .priceWas {
   font-family: var(--font-mono-exo);
   font-size: 13px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .priceNote {
   font-size: 12.5px;
   line-height: 1.5;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
 }
 
 .sent {
@@ -544,6 +544,8 @@
   text-align: left;
 }
 
+/* The board draws the footer in its muted ink at 80%; at full strength it keeps AA on
+   the light ground, where 80% would not. */
 .footer {
   position: absolute;
   left: 0;
@@ -553,7 +555,7 @@
   text-align: center;
   font-family: var(--font-mono-exo);
   font-size: 11.5px;
-  color: var(--fg-muted);
+  color: var(--fg-secondary);
   overflow-wrap: anywhere;
 }
 
@@ -571,6 +573,11 @@
 @media (max-width: 640px) {
   .page {
     --gutter: 16px;
+  }
+
+  /* A phone takes the reviewer's entry over at least 40 px, as every phone target. */
+  .reviewerLink {
+    min-height: 40px;
   }
 
   .headerEmail {

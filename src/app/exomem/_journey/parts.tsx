@@ -39,7 +39,9 @@ export function StepNotice({
 }) {
   return (
     <div className={styles.notice} id={id} role={alert ? "alert" : undefined}>
-      <Notice attention={attention || alert}>{children}</Notice>
+      <Notice attention={attention || alert} size="flow">
+        {children}
+      </Notice>
     </div>
   );
 }
@@ -74,7 +76,12 @@ export function StepActions({
         </div>
       ) : null}
       {secondary ? (
-        <Button variant="ghost" onClick={secondary.onClick} disabled={secondary.disabled}>
+        <Button
+          variant="ghost"
+          size="page"
+          onClick={secondary.onClick}
+          disabled={secondary.disabled}
+        >
           {secondary.label}
         </Button>
       ) : null}

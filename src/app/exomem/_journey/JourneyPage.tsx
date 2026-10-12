@@ -33,6 +33,12 @@ type JourneyPageProps = {
   headerEmail?: string | null;
   /** A page an app opened: where the request came from. */
   footer?: string | null;
+  /**
+   * The board lights the tiles from the step's phase (phaseOf()), which is connected only
+   * once an app has connected. A settled change that connects no app, such as a friend
+   * price added, settles the field but keeps the tiles idle: the mark stays grey.
+   */
+  tilesIdle?: boolean;
   /** Changes with the step, so each step's content fades in. */
   stepKey: string;
   /** None while the page waits for its first answer. */
@@ -44,6 +50,7 @@ export function JourneyPage({
   app,
   headerEmail,
   footer,
+  tilesIdle = false,
   stepKey,
   children,
 }: JourneyPageProps) {
@@ -57,7 +64,7 @@ export function JourneyPage({
       <div className={styles.center}>
         <div className={styles.column}>
           <div className={styles.tiles}>
-            <PairedTiles state={tilesState(kind)} app={app} />
+            <PairedTiles state={tilesIdle ? "idle" : tilesState(kind)} app={app} />
           </div>
           <div className={styles.content} key={stepKey}>
             {children}

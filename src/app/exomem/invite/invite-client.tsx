@@ -359,7 +359,7 @@ export default function InviteClient() {
   const kind: FieldKind =
     mode.kind === "decided" && mode.decision !== "kept" ? "done" : KIND[mode.kind];
   return (
-    <JourneyPage kind={kind} headerEmail={email} stepKey={mode.kind}>
+    <JourneyPage kind={kind} headerEmail={email} tilesIdle stepKey={mode.kind}>
       {body}
     </JourneyPage>
   );
