@@ -14,10 +14,18 @@ Retirement SHALL be refused for any client that holds a grant that is not revoke
 unexpired authorization code, access token or refresh token, or an authorization in
 progress. The refusal SHALL be a query of that state, not a judgement of the client's age.
 
-An auto-registered CIMD client SHALL be retired once it is disabled and its metadata has
-been expired for a configured grace period. A generic client SHALL be disabled and retired
-once it has held none of the authority above for a configured grace period, measured from
-its registration and from the last creation, renewal or revocation of any of its grants.
+An auto-registered CIMD client that has held a grant SHALL be retired once it is disabled
+and its metadata has been expired for a configured grace period. One that has never held a
+grant SHALL be retired once it is disabled and its last registration is older than the
+configured idle grace period. A generic client SHALL be disabled and retired once it has
+held none of the authority above for the idle grace period, measured from its registration
+and from the last creation, renewal or revocation of any of its grants.
+
+Each partition's bound SHALL be stored as data that an operator changes without a schema
+migration, and a partition without a stored bound SHALL admit no new client.
+
+The token endpoint SHALL answer `invalid_client` for a client identifier that names no
+client, or names a retired one, and SHALL answer both cases alike.
 
 A retired client that returns SHALL reuse its own record, and SHALL need a free slot in its
 partition like a new client, so that revival can never take a partition past its bound.
@@ -31,6 +39,22 @@ reclaim SHALL NOT move a slot between them.
 - **THEN** the sweep retires it in addition to disabling it
 - **AND** the auto-registered partition reports one more slot free
 - **AND** the operator and generic partitions' headroom is unchanged
+
+#### Scenario: A connector that never connected returns its slot within a day
+
+- **WHEN** an auto-registered client that never held a grant has been disabled, and its last registration is older than the idle grace period
+- **THEN** the sweep retires it, without waiting for the longer grace of a connector that held a grant
+
+#### Scenario: An operator changes a bound
+
+- **WHEN** an operator changes a partition's stored bound
+- **THEN** the next admission in that partition uses the new bound, without a migration
+- **AND** the headroom report shows it
+
+#### Scenario: A retired client asks for a token
+
+- **WHEN** a client whose registration retired, or that was never registered, exchanges a code or a refresh token
+- **THEN** the token endpoint answers `invalid_client`, so a client that registers dynamically registers again
 
 #### Scenario: A returning client id reuses its own record
 

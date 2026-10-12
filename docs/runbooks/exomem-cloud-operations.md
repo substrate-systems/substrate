@@ -38,8 +38,8 @@ redeploy. Never reuse a cell credential as a control-plane secret.
 | `OPENAI_APPS_CHALLENGE`                                             | Provider-issued single-line domain proof. Set it only in deployment configuration.                                                                                                                           |
 | `EXOMEM_MARKETPLACE_REVIEWER_ACCESS_ENABLED`                        | Leave unset or `false`. See `exomem-cloud-reviewer-access.md`.                                                                                                                                               |
 | `EXOMEM_CONNECTOR_SETTINGS_URLS`                                    | Optional JSON object from client platform to the https page where its users manage connectors. The consent view offers it for "Connect after all". An unset or invalid entry offers no link.                 |
-| `EXOMEM_OAUTH_CIMD_RETIREMENT_GRACE_HOURS`                          | Optional. Hours after its metadata expired before the sweep retires an auto-registered connector. Default 336 (14 days). A value that is not a whole number of at least 1 fails the sweep.                   |
-| `EXOMEM_OAUTH_GENERIC_RETIREMENT_GRACE_HOURS`                       | Optional. Hours a generic client must hold nothing before the sweep retires it. Default 24. A value that is not a whole number of at least 1 fails the sweep.                                                |
+| `EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS`                         | Optional. Hours after its metadata expired before the sweep retires a connector that held a grant. Default 336 (14 days). A value that is not a whole number of at least 1 fails the sweep.                  |
+| `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`                              | Optional. Hours before the sweep retires a generic client holding nothing, or a connector with no grant since it registered. Default 24. A value that is not a whole number of at least 1 fails the sweep.   |
 
 Rate-limit bucket identifiers are domain-separated HMACs under the control-plane
 key, never plain hashes of email or IP addresses. The access-delivery job prunes
@@ -113,11 +113,11 @@ that declares no readable name has none stored.
 Registration has these bounds:
 
 - 5 registrations in 10 minutes per IPv4 address, or per IPv6 /64.
-- 128 unretired generic clients in total, counted apart from operator and CIMD
-  clients. The sweep frees the slot of a generic client that has held nothing
-  for its grace; see "Client slots and retirement". When the partition is full,
-  every new registration is refused. Read it with
-  `SELECT * FROM exomem_oauth_client_partitions();`.
+- The generic partition's bound of unretired clients, 10,000 at launch,
+  counted apart from operator and CIMD clients. The sweep frees the slot of a
+  generic client that has held nothing for its grace; see "Client slots and
+  retirement". When the partition is full, every new registration is refused.
+  Read it with `SELECT * FROM exomem_oauth_client_partitions();`.
 - Every refusal answers `404` with an empty body, whatever the cause. The log
   event `exomem_oauth_register_rejection` names the stage, never a request value.
 
@@ -185,13 +185,40 @@ registration never rewrites an existing row.
 ### Client slots and retirement
 
 Each client takes one slot in one of three partitions: operator, auto-registered
-CIMD connectors, and generic clients. The function
-`exomem_oauth_client_partitions()` holds every bound and count, and admission
-reads it. The first-party Home client takes no slot.
+CIMD connectors, and generic clients. Each partition's bound is a row in
+`exomem_oauth_client_partition_bounds`. The function
+`exomem_oauth_client_partitions()` reads those rows, counts each partition, and
+admission reads it. The first-party Home client takes no slot.
+
+| Partition         | Launch bound | What one slot is                                           |
+| ----------------- | ------------ | ---------------------------------------------------------- |
+| `operator`        | 96           | A client that an operator registered by hand.              |
+| `auto_registered` | 10,000       | One ChatGPT connector, or the one global claude.ai client. |
+| `generic`         | 10,000       | One installed generic app, or one more registration of it. |
+
+A bound limits two things: the clients connected at the same time, and the rows
+that a registration flood can add before the sweep retires them. Each
+self-registering bound is 10 clients for each of 1,000 accounts.
+
+To change a bound:
+
+1. Run this statement with the partition and the new bound:
+   ```sql
+   UPDATE exomem_oauth_client_partition_bounds
+   SET bound = <new-bound>, updated_at = now()
+   WHERE client_partition = '<partition>';
+   ```
+2. Read the headroom, as described below.
+
+The new bound applies to the next admission. A bound below `used` admits no new
+client until enough clients retire. Never delete a row: a partition without a
+row refuses every new client, and the headroom read fails.
 
 A retired client keeps its row but takes no slot. Retirement never deletes a
 row, so bootstrap provenance stays readable. The database refuses to enable a
-retired client and refuses to retire the Home client.
+retired client and refuses to retire the Home client. The operator enable
+action refuses a retired client too; register the client again to bring it
+back.
 
 The reconcile job, `/api/cron/exomem-reconcile`, runs the sweep every minute.
 Each run does these things:
@@ -199,29 +226,32 @@ Each run does these things:
 - It deletes expired authorization transactions, codes and tokens, at most 500
   of each.
 - It disables CIMD clients whose metadata expired.
-- It retires an auto-registered connector whose metadata expired more than
-  `EXOMEM_OAUTH_CIMD_RETIREMENT_GRACE_HOURS` ago.
+- It retires a disabled auto-registered connector that held a grant once its
+  metadata expired more than `EXOMEM_OAUTH_LAPSED_CONNECTOR_GRACE_HOURS` ago.
+- It retires a disabled auto-registered connector that never held a grant once
+  its last registration is older than `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`.
+  A flood of connector registrations therefore clears in about a day.
 - It disables and retires a generic client that has held nothing for
-  `EXOMEM_OAUTH_GENERIC_RETIREMENT_GRACE_HOURS`: the client registered before
-  the grace began, and no grant of it was created, renewed or revoked since.
+  `EXOMEM_OAUTH_IDLE_CLIENT_GRACE_HOURS`: the client registered before the
+  grace began, and no grant of it was created, renewed or revoked since.
 - It retires at most 100 clients per partition.
 
-The sweep never retires a client that holds a grant that is not revoked, an
-unexpired code, access token or refresh token, or an authorization in progress
-(`exomem_oauth_client_holds_live_authority`). A connected app therefore keeps
-its slot until its person disconnects it in Home. Each partition bound caps the
-apps that are connected at the same time, not only registrations.
+The sweep never retires a client in the view
+`exomem_oauth_clients_holding_live_authority`: a client that holds a grant that
+is not revoked, an unexpired code, access token or refresh token, or an
+authorization in progress. A connected app therefore keeps its slot until its
+person disconnects it in Home.
 
 A retired connector revives its own row at its next authorization, if its
 partition has a free slot. A full partition refuses it like a new connector.
 
-A retired generic client's ID stops working, and nothing revives it. Its MCP
-client gets `invalid_grant` from `/token`. `/authorize` answers
-`400 invalid_request` without a redirect, as RFC 6749 requires for an unknown
-client. Clients built on the MCP TypeScript SDK (checked against version 1.27)
-register again only after `invalid_client`, so they do not recover by
-themselves. The person must remove the app's saved sign-in, for example by
-removing and adding the server again, and then connect again.
+A retired generic client's ID stops working, and nothing revives it. `/token`
+answers `401 invalid_client` for an unknown or retired client ID. Clients built
+on the MCP TypeScript SDK (checked against version 1.27) then register again by
+themselves. A client that never finished an authorization goes to `/authorize`
+instead, which answers `400 invalid_request` without a redirect, as RFC 6749
+requires for an unknown client. Its person must remove the app's saved sign-in,
+for example by removing and adding the server again, and then connect again.
 
 To read the headroom, request `GET /api/exomem/admin/oauth-clients` with the
 operator bearer. The `headroom` object gives `bound`, `used` and `free` for each

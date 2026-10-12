@@ -26,7 +26,7 @@ the sweep this design extends, has no production caller.
 **Non-Goals**
 
 - Changing which clients may be admitted, or the CIMD host allowlist.
-- Removing the provenance partition, or raising either bound.
+- Removing the provenance partition.
 - Erasing rows.
 
 ## Decisions
@@ -62,6 +62,23 @@ unretired, non-first-party clients. Both admission gates and the operator headro
 read it, so the reported bound is the enforced bound. A partial index on unretired rows
 keeps the count proportional to the bounds while retired rows accumulate.
 
+### Keep the bounds as data, sized for launch
+
+Each bound is a row in `exomem_oauth_client_partition_bounds`, so an operator changes it
+with one UPDATE rather than a migration. A partition without a row refuses every new
+client, and the headroom report fails, which names the cause.
+
+Reclaim never frees a connected client, so a bound caps the clients connected at the same
+time. Every ChatGPT connector registers its own client, so the old auto-registered bound
+of 128 capped connected ChatGPT users at about 128. The launch bounds are 10,000 for the
+auto-registered and generic partitions: ten clients for each of 1,000 accounts. The
+operator bound stays at 96, because operators register clients by hand. A bound that is
+too low leaves people unable to connect. A bound that is too high lets a registration
+flood add up to the bound in rows per retirement grace; retired rows are never deleted.
+This change therefore raises the bounds, which its first draft listed as a non-goal: with
+reclaim in place, the bound no longer stands in for a missing reclaim path, and only its
+size limits growth.
+
 ### Retire an expired CIMD client in the sweep that already disables it
 
 `pruneExpiredOAuthState` already visits exactly the right rows. It sets `enabled = false`
@@ -77,6 +94,10 @@ churns the row on every lapse. A grace period measured in days, well beyond
 Only auto-registered clients retire this way. An operator-registered CIMD client sits in
 the operator partition and comes back only through operator paths, which this change does
 not touch.
+
+A connector that never held a grant retires sooner: once its last registration is older
+than the idle grace that generic clients use (default 24 hours). Such a connector never
+connected anyone, and a flood of connector registrations then clears in a day.
 
 The grace counts from the metadata's own expiry. The sweep used to reset
 `metadata_expires_at` to the time of every run, which would restart the grace each
@@ -107,21 +128,29 @@ The grace keeps a registration whose person is still connecting: consent pending
 account being admitted, or a reconnect soon after a disconnect. A long grace lets a
 registration flood keep the partition full for that long. A short one strands a returning
 app: nothing revives a generic client, because registration never names an existing id,
-so the app's saved registration stops working. Its token endpoint answers `invalid_grant`
-and `/authorize` refuses the unknown client without a redirect. Clients built on the MCP
-TypeScript SDK register again only after `invalid_client`, so the person must remove the
-app's saved sign-in and connect again.
+so the app's saved registration stops working. The token endpoint answers
+`invalid_client` for an unknown or retired client ID, as RFC 6749 section 5.2 allows.
+Clients built on the MCP TypeScript SDK register again on that answer, so an app that
+held a refresh token recovers by itself. An app that never finished an authorization goes
+to `/authorize`, which refuses the unknown client without a redirect; its person must
+remove the app's saved sign-in and connect again. The answer tells a caller only whether
+the client ID it sent still holds a registration. A CIMD ID is its host's URL, and a
+generic ID goes only to the client that registered it.
 
 ### Never retire a client that could still be in use
 
 Retirement is refused for any client that holds live authority: a grant that is not
 revoked, an unexpired code, access token or refresh token, or an authorization in
-progress. `exomem_oauth_client_holds_live_authority` is that query, and every retirement
-path calls it. A grant that is not revoked counts even with no token left, because Home
-lists it as a connected app. A retired client is always disabled, which the schema
-enforces. This is what keeps the mechanism from becoming the reaper the promotion runbook
-warns against: it cannot take a slot from something that is working, and it never has to
-guess, because liveness is a query rather than a heuristic about age.
+progress. The view `exomem_oauth_clients_holding_live_authority` defines it once. The
+sweep anti-joins the view, which reads each table once per run; a per-client check took
+about 200 ms per partition at the launch bounds. The runbook's operator statement uses
+`exomem_oauth_client_holds_live_authority(client)`, which reads the same view for one
+client. A grant that is not revoked counts even with no token left, because Home lists it
+as a connected app. A retired client is always disabled, which the schema enforces, and
+the operator enable action refuses one. This is what keeps the mechanism from becoming the
+reaper the promotion runbook warns against: it cannot take a slot from something that is
+working, and it never has to guess, because liveness is a query rather than a heuristic
+about age.
 
 The consequence is that a bound caps the clients that are connected at the same time.
 Reclaim frees abandoned registrations and disconnected apps; it never frees a connected
@@ -175,3 +204,6 @@ list enumerated first.
 
 - The CIMD grace period. It is configuration with a 14-day default; the access log can
   show how long real connectors stay away, and the setting can follow it.
+- The launch bounds assume at most 1,000 accounts. Cloud capacity comes from cellctl's
+  per-node slots, and no planned account count is recorded; if launch capacity can exceed
+  1,000 accounts, raise the bounds with one UPDATE before it does.
