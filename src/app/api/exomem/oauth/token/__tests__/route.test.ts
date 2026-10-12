@@ -18,6 +18,8 @@ let refetchSucceeds = false;
 // Whether the presented refresh token is live, and whether a rotation spent it.
 let refreshLive = true;
 let refreshSpent = false;
+// Runs when the route asks for the metadata state, after its rotation was refused.
+let beforeMetadataState: (() => void) | null = null;
 // Fetches of the connector's metadata, and the failures counted against its
 // limit, which the rate-limit mock below keeps like one real bucket.
 let refetches = 0;
@@ -57,7 +59,11 @@ before(() => {
     namedExports: {
       issueOAuthTokensFromCodeAtomic: async () => exchangeResult,
       oauthClientIsRegistered: async () => clientRegistered,
-      refreshAwaitsCimdMetadata: async () => refreshLive && !metadataFresh,
+      refreshCimdMetadataState: async () => {
+        beforeMetadataState?.();
+        if (!refreshLive || !clientRegistered) return "not_eligible";
+        return metadataFresh ? "fresh" : "lapsed";
+      },
       registerAdmittedCimdClient: async () => {
         refetches += 1;
         if (!refetchSucceeds) return null;
@@ -89,6 +95,7 @@ beforeEach(() => {
   refetchSucceeds = false;
   refreshLive = true;
   refreshSpent = false;
+  beforeMetadataState = null;
   refetches = 0;
   refetchFailures = 0;
 });
@@ -306,6 +313,36 @@ describe("POST /api/exomem/oauth/token", () => {
     assert.equal(response.status, 200);
     const body = (await response.json()) as { access_token?: string; refresh_token?: string };
     assert.ok(body.access_token && body.refresh_token);
+  });
+
+  // In a herd, another request's fetch can commit after this request's rotation
+  // was refused. invalid_grant here would make a live token's client drop it.
+  it("rotates again when another request's fetch made the metadata fresh in between", async () => {
+    metadataFresh = false;
+    refetchSucceeds = false;
+    beforeMetadataState = () => {
+      metadataFresh = true;
+    };
+    rotateResult = {
+      grantId: "grant-1",
+      familyId: "family-1",
+      clientId: "c",
+      resource: RESOURCE,
+      scopes: ["exomem.read"],
+    };
+    const { response } = await withControlPlaneKey(() =>
+      capture(
+        post({
+          grant_type: "refresh_token",
+          refresh_token: REFRESH,
+          client_id: "https://claude.example.test/client.json",
+          resource: RESOURCE,
+        })
+      )
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(refetches, 0);
   });
 
   // Many clients drop their tokens on invalid_grant. A failed fetch at a shared

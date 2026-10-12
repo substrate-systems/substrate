@@ -223,7 +223,7 @@ before(() => {
         return { grantId: "grant-1", tenantId: "tenant-1" };
       },
       oauthClientIsRegistered: async () => true,
-      refreshAwaitsCimdMetadata: async () => false,
+      refreshCimdMetadataState: async () => "not_eligible",
       registerAdmittedCimdClient: async () => null,
       issueOAuthTokensFromCodeAtomic: async (input: {
         codeDigest: Buffer;

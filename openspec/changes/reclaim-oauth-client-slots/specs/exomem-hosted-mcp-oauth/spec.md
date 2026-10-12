@@ -34,8 +34,10 @@ refresh token of that client. If the fetch or a check fails, the token endpoint 
 a retryable server error, not `invalid_grant`, and SHALL leave the refresh token unspent.
 After a bounded number of failed fetches for one client identifier within a window, the
 token endpoint SHALL give such refreshes the same answer without a fetch until the window
-ends. A successful fetch SHALL NOT count toward that bound. A refresh token that is not live
-SHALL still be answered `invalid_grant`.
+ends. A successful fetch SHALL NOT count toward that bound. If another request's fetch made
+the metadata fresh after this refresh's rotation was refused, the token endpoint SHALL rotate
+again rather than refuse. A refresh token that is not live SHALL still be answered
+`invalid_grant`.
 
 A retired client that returns SHALL reuse its own record, and SHALL need a free slot in its
 partition like a new client, so that revival can never take a partition past its bound.

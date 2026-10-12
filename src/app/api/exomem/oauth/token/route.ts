@@ -14,7 +14,7 @@ import { readOAuthForm, oauthNoStoreHeaders } from "@/lib/exomem-hosted/oauth-ht
 import {
   issueOAuthTokensFromCodeAtomic,
   oauthClientIsRegistered,
-  refreshAwaitsCimdMetadata,
+  refreshCimdMetadataState,
   registerAdmittedCimdClient,
   rotateOAuthRefreshTokenAtomic,
 } from "@/lib/exomem-hosted/oauth-store";
@@ -128,15 +128,19 @@ function logConnectorMetadataRefetch(outcome: ConnectorMetadataRefetchOutcome): 
 // makes the metadata fresh, so the next refresh needs no fetch.
 //
 // `not_needed` means no live refresh token waits on this client's metadata, so
-// the refusal stands. `unavailable` means one does, and this server could not
-// fetch the metadata now.
+// the refusal stands. `fresh` means the metadata is fresh now, so rotate again:
+// this request fetched it, or another request in the same herd did after this
+// rotation was refused. `unavailable` means a live refresh token waits, and
+// this server could not fetch the metadata now.
 async function refetchConnectorMetadata(
   clientId: string,
   refreshDigest: Buffer
-): Promise<"not_needed" | "refreshed" | "unavailable"> {
+): Promise<"not_needed" | "fresh" | "unavailable"> {
   const failureLimit = EXOMEM_RATE_LIMITS.oauthConnectorMetadataRefetchFailureClient;
   try {
-    if (!(await refreshAwaitsCimdMetadata({ clientId, refreshDigest }))) return "not_needed";
+    const state = await refreshCimdMetadataState({ clientId, refreshDigest });
+    if (state === "not_eligible") return "not_needed";
+    if (state === "fresh") return "fresh";
     if (!(await exomemRateLimitHasRoom(failureLimit, clientId))) {
       logConnectorMetadataRefetch("rate_limited");
       return "unavailable";
@@ -149,7 +153,7 @@ async function refetchConnectorMetadata(
     () => false
   );
   logConnectorMetadataRefetch(refreshed ? "refreshed" : "failed");
-  if (refreshed) return "refreshed";
+  if (refreshed) return "fresh";
   // The refresh is refused either way; a limiter error only loses one count.
   await takeExomemRateLimit(failureLimit, clientId).catch(() => false);
   return "unavailable";
@@ -338,7 +342,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       if (!issued) {
         const refetch = await refetchConnectorMetadata(form.client_id, refreshDigest);
         if (refetch === "unavailable") return connectorMetadataUnavailable(form.client_id);
-        if (refetch === "refreshed") issued = await rotate();
+        if (refetch === "fresh") issued = await rotate();
       }
       // Rotation also answers null for a replayed refresh token, which revokes
       // the family -- so this line is the operator's only sight of a replay.

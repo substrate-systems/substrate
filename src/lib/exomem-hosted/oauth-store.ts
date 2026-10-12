@@ -246,35 +246,38 @@ export async function registerGenericMcpClient(
 }
 
 /**
- * Whether this refresh token is live for `clientId`, a self-registered CIMD
- * connector whose metadata document has expired, under a grant that is not
- * revoked. Refresh needs fresh metadata, so only then is the document worth
- * fetching again. A caller must hold a live refresh token to cause a fetch.
+ * The metadata state behind a refused refresh of `clientId`. `not_eligible`:
+ * this is no live refresh token, under a grant that is not revoked, of a
+ * self-registered CIMD connector, so no fetch can help and the refusal stands.
+ * Otherwise `lapsed` when the connector's metadata document has expired, and
+ * `fresh` when it has not, for example because another request fetched it
+ * after this rotation was refused. A caller must hold a live refresh token to
+ * cause a fetch.
  */
-export async function refreshAwaitsCimdMetadata(input: {
+export async function refreshCimdMetadataState(input: {
   refreshDigest: Buffer;
   clientId: string;
-}): Promise<boolean> {
+}): Promise<"not_eligible" | "fresh" | "lapsed"> {
   const { rows } = await executeExomemSql`
-    /* exomem:refresh-awaits-cimd-metadata */
-    SELECT EXISTS (
-      SELECT 1
-      FROM exomem_oauth_refresh_tokens AS token
-      JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
-      JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = family.grant_id
-      JOIN exomem_oauth_clients AS client ON client.id = family.client_id
-      WHERE token.refresh_digest = ${input.refreshDigest}
-        AND token.consumed_at IS NULL AND token.expires_at > now()
-        AND family.revoked_at IS NULL AND family.expires_at > now()
-        AND oauth_grant.revoked_at IS NULL
-        AND client.client_id = ${input.clientId}
-        AND client.admission_mode = 'cimd'
-        AND client.auto_registered
-        AND client.reviewer_bootstrap_ever_authorized = false
-        AND client.metadata_expires_at <= now()
-    ) AS awaits
+    /* exomem:refresh-cimd-metadata-state */
+    SELECT client.metadata_expires_at <= now() AS lapsed
+    FROM exomem_oauth_refresh_tokens AS token
+    JOIN exomem_oauth_token_families AS family ON family.id = token.family_id
+    JOIN exomem_oauth_grants AS oauth_grant ON oauth_grant.id = family.grant_id
+    JOIN exomem_oauth_clients AS client ON client.id = family.client_id
+    WHERE token.refresh_digest = ${input.refreshDigest}
+      AND token.consumed_at IS NULL AND token.expires_at > now()
+      AND family.revoked_at IS NULL AND family.expires_at > now()
+      AND oauth_grant.revoked_at IS NULL
+      AND client.client_id = ${input.clientId}
+      AND client.admission_mode = 'cimd'
+      AND client.auto_registered
+      AND client.reviewer_bootstrap_ever_authorized = false
+      AND client.metadata_expires_at IS NOT NULL
   `;
-  return rows[0]?.awaits === true;
+  const row = rows[0] as { lapsed: boolean } | undefined;
+  if (!row) return "not_eligible";
+  return row.lapsed ? "lapsed" : "fresh";
 }
 
 /** Whether `clientId` names a client that holds its registration: a row that is not retired. */

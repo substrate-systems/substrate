@@ -100,6 +100,12 @@ fetch until the window ends. Each such refresh logs
 `failed` or `rate_limited`. Each `503` also logs the token rejection stage
 `refresh_metadata_unavailable` with the client ID.
 
+Withdrawing a host leaves one known residual. `/token` cannot tell a withdrawn
+host from a failed fetch. Once a withdrawn host's connector has lapsed metadata,
+its live refresh tokens get `503` with `server_error`, not `invalid_grant`. Its
+client keeps those tokens and retries until they expire or you revoke their
+family. Its MCP calls answer `401` throughout.
+
 Operator registration and enabling of a pinned client still check the legacy
 Hosted staged-release and artifact rows. A follow-up change must replace that
 authority before a new pinned client can be registered.

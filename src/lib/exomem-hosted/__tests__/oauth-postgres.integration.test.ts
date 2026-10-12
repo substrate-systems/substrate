@@ -17,7 +17,7 @@ import {
   issueOAuthTokensFromCodeAtomic,
   oauthClientIsRegistered,
   pruneExpiredOAuthState,
-  refreshAwaitsCimdMetadata,
+  refreshCimdMetadataState,
   registerAdmittedCimdClient,
   registerGenericMcpClient,
   revokeOAuthAccountForOwnerTenantAtomic,
@@ -2477,15 +2477,21 @@ describe("OAuth admission PostgreSQL integration", { skip: !databaseUrl, concurr
       assert.equal(await rotate(7304), null, "refresh needs fresh metadata");
 
       assert.equal(
-        await refreshAwaitsCimdMetadata({ refreshDigest: digest(7399), clientId: connector }),
-        false,
+        await refreshCimdMetadataState({ refreshDigest: digest(7399), clientId: connector }),
+        "not_eligible",
         "a caller without a live refresh token causes no fetch"
       );
       assert.equal(
-        await refreshAwaitsCimdMetadata({ refreshDigest: digest(7302), clientId: connector }),
-        true
+        await refreshCimdMetadataState({ refreshDigest: digest(7302), clientId: connector }),
+        "lapsed"
       );
       assert.ok(await registerAdmittedCimdClient(connector, { fetchCimd }));
+      // A request in the same herd whose rotation was refused before this fetch
+      // committed must see fresh metadata and rotate again.
+      assert.equal(
+        await refreshCimdMetadataState({ refreshDigest: digest(7302), clientId: connector }),
+        "fresh"
+      );
       assert.ok(await rotate(7306), "the refused attempt did not spend the refresh token");
     } finally {
       await pool!.query(
