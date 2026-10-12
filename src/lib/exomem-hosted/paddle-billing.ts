@@ -627,10 +627,15 @@ async function inspectExomemCheckout(
     throw new ExomemBillingError("EXOMEM_PADDLE_RESPONSE_INVALID", 502);
   }
   // The one proof that a transaction is not a checkout this owner opened:
-  // Paddle reports it under another product, owner or tenant, or none.
-  // Nothing it pays can reach this tenant, because every Paddle event
-  // correlates by these fields. Every other conflict below is unresolved.
+  // Paddle reports all three correlation fields, and they name another
+  // product, owner or tenant. Missing, partial or malformed fields prove
+  // nothing, because the transaction can still charge the stored customer,
+  // so they are unresolved like every other conflict below.
   const customData = safeObject(data.custom_data);
+  const correlation = [customData?.product_key, customData?.user_id, customData?.tenant_id];
+  if (!correlation.every((field) => typeof field === "string" && field.length > 0)) {
+    throw new ExomemBillingError("EXOMEM_BILLING_STATE_CONFLICT", 409);
+  }
   if (
     customData?.product_key !== config.productKey ||
     customData?.user_id !== input.userId ||

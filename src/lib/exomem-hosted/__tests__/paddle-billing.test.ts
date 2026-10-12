@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  cancelExomemCheckoutTransaction,
   createExomemCheckout,
   createExomemCustomerPortal,
   ExomemBillingError,
@@ -478,6 +479,45 @@ describe("Exomem Paddle billing adapters", () => {
       checkoutUrl: `https://substratesystems.io/exomem/home?_ptxn=${transactionId}`,
       discountId: null,
     });
+  });
+
+  it("calls a transaction foreign only when Paddle names another owner in full, and never cancels one it cannot place", async () => {
+    const transactionId = "txn_01kxatbjfrehbp0sxbjefcacqs";
+    const owner = {
+      product_key: "exomem-hosted",
+      user_id: "user-internal",
+      tenant_id: "tenant-internal",
+    };
+    for (const [customData, code] of [
+      [{ ...owner, tenant_id: "tenant-other" }, "EXOMEM_TRANSACTION_NOT_OWNED"],
+      [null, "EXOMEM_BILLING_STATE_CONFLICT"],
+      [{ product_key: "exomem-hosted", user_id: "user-internal" }, "EXOMEM_BILLING_STATE_CONFLICT"],
+      [{ ...owner, tenant_id: 42 }, "EXOMEM_BILLING_STATE_CONFLICT"],
+    ] as const) {
+      const methods: string[] = [];
+      await assert.rejects(
+        cancelExomemCheckoutTransaction(
+          {
+            userId: "user-internal",
+            tenantId: "tenant-internal",
+            transactionId,
+            environment: "sandbox",
+          },
+          {
+            config: loadExomemPaddleConfig(configEnv()),
+            transport: async (_path, init) => {
+              methods.push(init?.method ?? "GET");
+              return Response.json({
+                data: { id: transactionId, status: "draft", custom_data: customData },
+              });
+            },
+          }
+        ),
+        (error: unknown) => error instanceof ExomemBillingError && error.code === code,
+        JSON.stringify(customData)
+      );
+      assert.deepEqual(methods, ["GET"], "the transaction is never cancelled");
+    }
   });
 
   it("rejects a completed transaction without a strict Paddle subscription ID", async () => {

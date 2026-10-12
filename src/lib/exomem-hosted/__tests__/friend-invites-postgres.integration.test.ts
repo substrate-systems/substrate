@@ -1209,6 +1209,19 @@ describe("Exomem friend invitations PostgreSQL integration", { skip: !databaseUr
     });
   });
 
+  it("keeps a lapsed cell whose checkout Paddle reports without its owner fields", async () => {
+    const owner = await lapsedOwnerWithCheckout();
+    paddle.transactions.get(owner.transactionId)!.custom_data = null;
+
+    await runBoundedCloudReconcile();
+
+    assert.deepEqual(await lapsedCell(owner.tenantId), {
+      desired_state: "read_only",
+      provider_transaction_ref: owner.transactionId,
+    });
+    assert.equal(paddleCalls("PATCH", `/transactions/${owner.transactionId}`).length, 0);
+  });
+
   it("keeps a lapsed cell whose checkout Paddle reports paid but not yet subscribed", async () => {
     const owner = await lapsedOwnerWithCheckout();
     Object.assign(paddle.transactions.get(owner.transactionId)!, {

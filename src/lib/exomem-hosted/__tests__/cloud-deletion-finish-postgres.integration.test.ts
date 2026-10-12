@@ -1103,6 +1103,39 @@ describe("Exomem Cloud deletion finish PostgreSQL integration", { skip: !databas
     assert.ok(calls.includes(`POST /subscriptions/${paidSubscription}/cancel`));
   });
 
+  it("keeps the deletion pending while Paddle reports a bound resubscribe checkout without its owner fields", async () => {
+    await resetFleet();
+    const tenant = await admitCloudTenant({ source: "paddle" });
+    await activateSubscription(tenant);
+    const transactionRef = paddleId("txn");
+    await pool!.query(
+      `UPDATE exomem_entitlements
+       SET source_state = 'cancelled', effective_state = 'cancelled',
+           source_occurred_at = now() - interval '2 days', provider_transaction_ref = $2
+       WHERE tenant_id = $1`,
+      [tenant.tenantId, transactionRef]
+    );
+    const calls: string[] = [];
+    const fake: FakePaddle = {
+      calls,
+      mode: "ok",
+      // The open checkout, as Paddle reports it, without the correlation fields.
+      transport: async (path, init) => {
+        calls.push(`${init?.method ?? "GET"} ${path}`);
+        return Response.json({ data: { id: transactionRef, status: "draft", custom_data: null } });
+      },
+    };
+
+    const outcomes: CloudDeletionFinishOutcome[] = [];
+    await confirmCloudDeletion(tenant, async (tenantId) => {
+      outcomes.push(await finishCloudAccountDeletion(tenantId, withPaddle(fake)));
+    });
+
+    assert.deepEqual(outcomes, ["billing_pending"]);
+    assert.equal(await tenantStatus(tenant.tenantId), "deletion_pending");
+    assert.deepEqual(calls, [`GET /transactions/${transactionRef}`]);
+  });
+
   it("isolates one tenant's failure in the sweep and logs it content-free", async () => {
     await resetFleet();
     const broken = await admitCloudTenant({ source: "complimentary" });
