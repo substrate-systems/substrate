@@ -315,7 +315,12 @@ for (const theme of ["dark", "light"] as const) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openHome(page, owner);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-    await panel(page, "Connected apps").getByRole("button", { name: "Set up" }).click();
+    // A disconnected app's row is drawn dimmed; it must still read at AA.
+    const apps = panel(page, "Connected apps");
+    await apps.getByRole("button", { name: "Disconnect Claude", exact: true }).click();
+    await apps.getByRole("button", { name: "Disconnect Claude now" }).click();
+    await expect(apps.getByText(/^disconnected · /)).toBeVisible();
+    await apps.getByRole("button", { name: "Set up" }).click();
     await expect(page.getByText("Add this address")).toBeVisible();
 
     expect(await seriousViolations(page)).toEqual([]);

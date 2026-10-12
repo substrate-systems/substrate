@@ -271,8 +271,14 @@
   border-bottom: 0;
 }
 
-.dimmed {
+/* An app that is off. The board dims the whole row, which takes its text below AA, so only
+   the glyph dims and the name drops to the muted text colour. */
+.dimmed .glyph {
   opacity: 0.5;
+}
+
+.dimmed .rowTitle {
+  color: var(--fg-muted);
 }
 
 .rowText {
